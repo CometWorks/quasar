@@ -21,14 +21,14 @@ audit and the distinction between server and UI-host APIs.
   components, and smaller named UI regions through explicit extension targets.
 - Give UI plugins a generic request/event channel to companion Magnetar plugins
   running inside managed Dedicated Servers.
-- Keep the UI visually consistent by making MudBlazor the default component
-  library and theme surface for all Quasar plugins.
+- Keep the UI visually consistent by using native controls and shared Quasar
+  appearance tokens for plugin UI.
 
 ## Repository Roles
 
 - `Quasar`
   - Loads trusted Quasar UI plugins.
-  - Owns auth, layout, routing, MudBlazor theme, and the agent WebSocket.
+  - Owns auth, layout, routing, appearance tokens, and the agent WebSocket.
   - Exposes `Quasar.Plugin.Abstractions`.
 - `quasar-hub`
   - Holds reviewed XML manifests, similar to MagnetarHub.
@@ -36,7 +36,7 @@ audit and the distinction between server and UI-host APIs.
   - It does not host plugin source code.
 - `quasar-plugin-template`
   - Starting point for new Quasar UI plugin repositories.
-  - Shows manifest, project layout, MudBlazor usage, nav contributions, page
+  - Shows manifest, project layout, native controls, nav contributions, page
     contributions, and companion-channel usage.
 - Plugin repositories
   - Host source for one Quasar UI plugin.
@@ -440,7 +440,7 @@ Plugin.Ui/
 Plugin.Quasar/
   Thin adapter implementing IQuasarPlugin and calling AddPluginUi()
 PreviewHost/
-  Local MudBlazor app that calls the same AddPluginUi()
+  Local native Blazor app that calls the same AddPluginUi()
 ```
 
 This keeps component previews honest: the preview host and Quasar adapter use the
@@ -489,9 +489,10 @@ Suggested zones:
 - `nav.admin`
 - `nav.hidden`
 
-The nav renderer applies auth policies, sort order, and MudBlazor `MudNavLink`
-styling. Plugins should provide Material icon names from MudBlazor when
-possible.
+The native nav renderer applies auth policies, sort order, and Quasar link
+styling. `Icon` accepts SVG markup or an existing font icon. Retain established
+Material SVG paths instead of taking a dependency on MudBlazor's icon constants.
+The native plugin template demonstrates this with `TemplateIcons.Extension`.
 
 ## Page and Component Replacement
 
@@ -648,7 +649,7 @@ Relative stylesheet paths resolve under `staticAssets` and are emitted as:
 
 Absolute `http://`, `https://`, or root-relative paths are allowed for trusted
 plugins. Injected stylesheets load after Quasar core CSS, so plugin CSS must use
-narrow selectors and MudBlazor/Quasar CSS variables instead of global resets.
+narrow selectors and Quasar palette variables instead of global resets.
 
 ## Companion Data Channel
 
@@ -720,30 +721,31 @@ viewer-specific scene DTOs. GridBackups should not reference the Entity Viewer U
 assembly. If shared DTOs are useful, put them in a small contracts assembly that
 both can reference.
 
-## MudBlazor Requirement
+## UI migration and MudBlazor compatibility
 
-Quasar plugins should use MudBlazor for all normal UI:
+Quasar is migrating its core shell and controls to native HTML/CSS. Existing UI
+plugins can continue using MudBlazor during this transition: its theme, dialog,
+popover, snackbar providers, CSS, and JavaScript remain loaded. Existing plugin
+navigation zones, policies, SVG/font icon handling, and public theme accessors
+are retained. Removal of the dependency requires coordinated plugin migration;
+existing installed binaries keep working during the transition.
 
-- navigation
-- buttons
-- icon buttons
-- dialogs
-- tables/data grids
-- forms
-- tabs
-- menus
-- alerts
-- cards/papers
-- progress indicators
+Native content inside the shell can use `--quasar-palette-*` CSS tokens, such as
+`--quasar-palette-primary`, `--quasar-palette-surface`, and
+`--quasar-palette-text-primary`. These follow the current stored light/dark
+branding palette. Existing Mud components receive the equivalent Mud theme.
+Tokens are scoped to the shell. Native browser dialogs inherit them through
+their DOM ancestry even when displayed in the top layer. Installed plugin asset
+URLs use `/_quasar/plugins/<id>/`, rather than preview-host `/_content/` URLs.
 
-Custom HTML/CSS is fine for domain-specific surfaces such as a Three.js viewer,
-but the surrounding controls, dialogs, filters, and settings must use MudBlazor
-and the current Quasar theme. Plugins should avoid competing CSS frameworks,
-hard-coded color systems, and standalone app shells.
-
-Quasar should pass its MudBlazor theme and layout expectations through the plugin
-abstractions. Plugins should prefer theme tokens and MudBlazor spacing/color
-primitives over custom palettes.
+The viewer and UI plugin template have migrated to native controls and preview
+hosts without MudBlazor dependencies. New plugins should follow the template's
+[native UI guidance](https://github.com/CometWorks/quasar-plugin-template/blob/main/docs/NativeUi.md),
+inherit Quasar's current theme, and avoid competing CSS frameworks,
+hard-coded palettes, and standalone app shells. Keep existing Mud controls until
+their replacement preserves validation, permissions, focus, keyboard operation,
+and busy/error states. Domain-specific surfaces such as Three.js viewers remain
+appropriate uses of custom HTML/CSS.
 
 ## Security and Trust
 

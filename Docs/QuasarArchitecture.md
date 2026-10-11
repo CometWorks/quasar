@@ -330,18 +330,33 @@ requirements.
 
 ## UI Theme
 
-The Blazor Server UI should stay deliberately neutral:
+The Blazor Server UI is migrating from MudBlazor to compact native HTML/CSS
+controls while retaining Blazor Server, supervisor services, and existing
+permissions. Migrated surfaces include the shell/navigation, appearance editor,
+dashboard/setup/runtime preparation, server list/cards/details, cluster overview
+and administration, notifications, and server listing settings. Other routed
+pages, configuration editors, and host dialogs/toasts still require MudBlazor.
+The external viewer and UI plugin template have native controls and preview
+hosts without that dependency. See the [migration record](Design/QuasarUiRewrite.md)
+for the workflow inventory and verification limits.
 
-- black / white primary palette
-- grey accents
-- no loud brand-color-first design
+Branding remains in `branding.json`, with separate light and dark palettes,
+all 29 color fields, app identity, logos, and favicon. The original Quasar,
+Midnight, Slate, and High Contrast presets retain their values. The optional
+**CometWorks** preset adds the approved charcoal/cyan style. Existing settings
+are not overwritten; select and save that preset in Appearance to adopt it.
 
-The UI must support both:
+`QuasarTheme.BuildCss` supplies normalized `--quasar-palette-*` tokens to the
+native shell and draft preview. Its Mud theme adapter supplies the same colors
+to existing components and plugins. The existing public theme accessors remain
+available during migration. Native components retain the current Material SVG
+paths and Quasar logos, including separate mode-specific/custom logo paths.
 
-- light mode
-- dark mode
-
-Theme preference should be stored in browser local storage through Quasar's native JS interop wrapper so the user returns to the same mode on the next visit.
+Light, dark, and system preference use the existing `quasar.theme.mode` browser
+storage key and service events (including analytics chart updates). The shell
+observes OS changes through a disposable native `matchMedia` subscription.
+Manual light/dark choices stay fixed when the OS preference changes. Branding
+file changes still update open sessions through `BrandingService.Changed`.
 
 ## Discovery and Bootstrap
 

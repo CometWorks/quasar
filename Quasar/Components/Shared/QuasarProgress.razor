@@ -1,0 +1,7 @@
+<progress class="quasar-progress" max="100" value="@(Indeterminate ? null : Math.Clamp(Value, 0, 100).ToString(System.Globalization.CultureInfo.InvariantCulture))" aria-label="@Label"></progress>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter] public double Value { get; set; }
+    [Parameter] public bool Indeterminate { get; set; }
+}

@@ -13,138 +13,122 @@
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
     <Authorized Context="authorization">
-        <MudCard Class="@(Compact ? null : "server-card")" Elevation="@(Compact ? 0 : 1)" Style="@(Compact ? "background:transparent;overflow:visible" : null)">
-        <MudCardContent Class="@(Compact ? "pa-0" : "pa-4")">
-        <MudStack Spacing="3">
-            @if (!Compact) { <MudText Typo="Typo.h6">Administration</MudText> }
+        <section class="@(Compact ? "quasar-cluster-compact" : "quasar-panel quasar-section")">
+        <div class="@(Compact ? null : "quasar-card-content")">
+        <div class="quasar-stack">
+            @if (!Compact) { <h2>Administration</h2> }
             @if ((_error ?? (Compact ? null : _capabilityError)) is { } message)
             {
-                <MudAlert Severity="Severity.Warning">@message</MudAlert>
+                <div class="quasar-notice quasar-notice-warning" role="status">@message</div>
             }
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="@(Compact ? Justify.FlexEnd : Justify.FlexStart)">
+            <div class="quasar-row">
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Compact)
                 {
-                    <MudTooltip Text="Save world"><MudIconButton aria-label="Save world" Icon="@Icons.Material.Filled.Save" Size="Size.Small" Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync" /></MudTooltip>
+                    <span class="quasar-tooltip" title="Save world"><button class="quasar-icon-button" aria-label="Save world" type="button" disabled="@(!CanRun("POST /admin/v1/save-all"))" @onclick="SaveAsync"><QuasarIcon Icon="@QuasarIcons.Save" /></button></span>
                 }
                 else if (Cluster.GoalState == DedicatedServerGoalState.On)
                 {
-                    <MudButton Disabled="@(!CanRun("POST /admin/v1/save-all"))" OnClick="SaveAsync" Variant="Variant.Outlined" Color="Color.Primary">Save world</MudButton>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/save-all"))" @onclick="SaveAsync">Save world</button>
                 }
                 @if (Cluster.GoalState == DedicatedServerGoalState.Off)
                 {
-                    <MudTooltip Text="@(_canStart ? "Start cluster" : "Wait for stable stopped cluster services before starting")">
-                        <MudButton Variant="Variant.Filled" Color="@(_canStart ? Color.Success : Color.Default)" Size="Size.Small" StartIcon="@Icons.Material.Filled.PlayArrow"
-                                   Disabled="@(Busy || !_canStart)" OnClick="StartAsync">Start</MudButton>
-                    </MudTooltip>
+                    <span class="quasar-tooltip" title="@(_canStart ? "Start cluster" : "Wait for stable stopped cluster services before starting")">
+                        <button class="quasar-button quasar-tone-@((_canStart ? Color.Success : Color.Default).ToString().ToLowerInvariant()) quasar-button-fill" type="button" disabled="@(Busy || !_canStart)" @onclick="StartAsync"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />Start</button>
+                    </span>
                 }
                 else
                 {
-                    <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.Stop"
-                               Disabled="@(Busy || !ManagedLifecycle && !CanRun("POST /admin/v1/shutdown"))" OnClick="ShutdownAsync">Stop</MudButton>
+                    <button class="quasar-button quasar-tone-error quasar-button-fill" type="button" disabled="@(Busy || !ManagedLifecycle && !CanRun("POST /admin/v1/shutdown"))" @onclick="ShutdownAsync"><QuasarIcon Icon="@QuasarIcons.Stop" />Stop</button>
                 }
-            </MudStack>
+            </div>
             @if (_capabilities?.Scope == Admin.AdminScope.Query)
             {
-                <MudText>Cluster Registry credentials allow observation only.</MudText>
+                <p>Cluster Registry credentials allow observation only.</p>
             }
             @if (_operation is not null)
             {
-                <MudText Typo="Typo.body2">@_operation.Kind · @_operation.State · @_operation.OperationId</MudText>
+                <p>@_operation.Kind · @_operation.State · @_operation.OperationId</p>
                 @if (_operation.Error is { } error)
                 {
-                    <MudText Color="Color.Warning">@error.Code: @error.Message</MudText>
+                    <p class="quasar-tone-warning">@error.Code: @error.Message</p>
                 }
             }
             @if (!Compact)
             {
-            <MudExpansionPanels MultiExpansion="true">
+            <div class="quasar-stack">
                 <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="configurationAuthorization">
                     <Authorized>
-                        <MudExpansionPanel Text="Cluster settings">
-                            <MudStack Spacing="2" Class="py-2 cluster-form-section">
-                                <MudTextField T="string" @bind-Value="_displayName" Label="Server name" Variant="Variant.Outlined"
-                                              OnBlur="@(_ => EnsureServerName())" HelperText="Server name shown in Quasar lists and dashboards. A blank name receives an editable generated suggestion." />
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                        <details class="quasar-details"><summary>Cluster settings</summary>
+                            <div class="py-2 cluster-form-section quasar-stack">
+                                <label class="quasar-field"><span>Server name</span><input @bind="_displayName" disabled="@Busy" @bind:event="oninput" @onblur="@(_ => EnsureServerName())" /><small>Server name shown in Quasar lists and dashboards. A blank name receives an editable generated suggestion.</small></label>
+                                <div class="quasar-notice quasar-notice-info" role="status">
                                     Stage session settings, administrators, mods and plugin selections, then apply the pending update from Maintenance during full downtime. Quasar downloads and pins each mod, prepares matching plugins and backs up the stopped cluster before changing preserved worlds. Network and dedicated-server root settings cannot be changed here.
-                                </MudAlert>
+                                </div>
                                 @if (string.IsNullOrEmpty(Cluster.ConfigProfileId))
                                 {
-                                    <MudAlert Severity="Severity.Warning" Dense="true">The restored world has no matching saved profile because that profile changed after its deployment. Choose a profile and stage it before the next update.</MudAlert>
+                                    <div class="quasar-notice quasar-notice-warning" role="status">The restored world has no matching saved profile because that profile changed after its deployment. Choose a profile and stage it before the next update.</div>
                                 }
-                                <MudSelect T="string" @bind-Value="_configProfileId" Label="Configuration profile" Variant="Variant.Outlined"
-                                           HelperText="Selection remains pending until the prepared cluster update is applied.">
+                                <label class="quasar-field"><span>Configuration profile</span><select @bind="_configProfileId" disabled="@Busy">
                                     @foreach (var profile in Profiles.GetProfiles())
                                     {
-                                        <MudSelectItem T="string" Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem>
+                                        <option value="@profile.ConfigProfileId">@profile.Name</option>
                                     }
-                                </MudSelect>
-                                <MudButton Href="/configs" Variant="Variant.Text" Color="Color.Primary">Manage configuration profiles</MudButton>
+                                </select><small>Selection remains pending until the prepared cluster update is applied.</small></label>
+                                <a class="quasar-button quasar-tone-primary" href="/configs">Manage configuration profiles</a>
                                 @if (Catalog.GetCluster(Cluster.UniqueName)?.PreparedProfile is { } pendingProfile)
                                 {
-                                    <MudText Typo="Typo.body2">Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</MudText>
+                                    <p>Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</p>
                                 }
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary"
-                                           Disabled="@(Busy || Cluster.ActiveDeployment is null || string.IsNullOrWhiteSpace(_configProfileId))"
-                                           OnClick="StageProfileAsync">Stage profile changes</MudButton>
-                                <MudNumericField T="int" @bind-Value="_shutdownGracePeriodSeconds" Label="Shutdown grace period (seconds)"
-                                                 Variant="Variant.Outlined" Min="0" Max="3600"
-                                                 HelperText="Time allowed for the Cluster Registry to save and drain when Quasar stops the cluster." />
-                                <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(Busy || string.IsNullOrWhiteSpace(_displayName))"
-                                           OnClick="SaveAdministrationAsync">Save cluster settings</MudButton>
-                            </MudStack>
-                        </MudExpansionPanel>
+                                <button class="quasar-button quasar-tone-primary" type="button" disabled="@(Busy || Cluster.ActiveDeployment is null || string.IsNullOrWhiteSpace(_configProfileId))" @onclick="StageProfileAsync">Stage profile changes</button>
+                                <label class="quasar-field"><span>Shutdown grace period (seconds)</span><input type="number" @bind="_shutdownGracePeriodSeconds" disabled="@Busy" min="0" max="3600" /><small>Time allowed for the Cluster Registry to save and drain when Quasar stops the cluster.</small></label>
+                                <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(Busy || string.IsNullOrWhiteSpace(_displayName))" @onclick="SaveAdministrationAsync">Save cluster settings</button>
+                            </div>
+                        </details>
                     </Authorized>
                 </AuthorizeView>
                 <ClusterPluginConfigurationPanel Cluster="Cluster" />
-                <MudExpansionPanel Text="Advanced cluster controls">
+                <details class="quasar-details"><summary>Advanced cluster controls</summary>
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Cluster.Gateway is not null)
                 {
-                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.RestartAlt"
-                               Disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" OnClick="RestartAsync">Restart Cluster Gateway</MudButton>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" @onclick="RestartAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Restart Cluster Gateway</button>
                 }
-                <MudExpansionPanels Class="py-2">
-                <MudExpansionPanel Text="Diagnostics, maintenance and exports">
-                    <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                    <MudButton OnClick="LoadDiagnosticsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load diagnostics</MudButton>
-                    <MudButton OnClick="LoadArtifactsAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">List world exports</MudButton>
-                    <MudButton OnClick="ExportAsync" Disabled="@(!CanRun("POST /admin/v1/world-exports"))" Variant="Variant.Outlined" Color="Color.Primary">Export vanilla world</MudButton>
-                    <MudText Typo="Typo.body2">Online exports are crash-consistent unless the Cluster Registry proves a stronger consistency level.</MudText>
-                    <MudTextField T="string" Label="Maintenance command (JSON)" @bind-Value="_advancedCommand" Lines="5" />
-                    <MudText Typo="Typo.caption">Example: {"action":"trigger","target":"compact","parameters":{"node":"node-1"}}</MudText>
-                    <MudButton OnClick="AdvancedAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Run command</MudButton>
-                    <MudButton OnClick="LoadHandoverAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load handover configuration</MudButton>
-                    <MudTextField T="string" Label="Handover settings to change (JSON)" @bind-Value="_handover" Lines="5" />
-                    <MudButton OnClick="ApplyHandoverAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Apply handover settings</MudButton>
+                <div class="quasar-stack">
+                <details class="quasar-details"><summary>Diagnostics, maintenance and exports</summary>
+                    <div class="py-2 cluster-form-section quasar-stack">
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadDiagnosticsAsync">Load diagnostics</button>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadArtifactsAsync">List world exports</button>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/world-exports"))" @onclick="ExportAsync">Export vanilla world</button>
+                    <p>Online exports are crash-consistent unless the Cluster Registry proves a stronger consistency level.</p>
+                    <label class="quasar-field"><span>Maintenance command (JSON)</span><textarea @bind="_advancedCommand" disabled="@Busy" rows="5"></textarea></label>
+                    <p class="quasar-muted quasar-caption">Example: {"action":"trigger","target":"compact","parameters":{"node":"node-1"}}</p>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="AdvancedAsync">Run command</button>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadHandoverAsync">Load handover configuration</button>
+                    <label class="quasar-field"><span>Handover settings to change (JSON)</span><textarea @bind="_handover" disabled="@Busy" rows="5"></textarea></label>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="ApplyHandoverAsync">Apply handover settings</button>
                     @if (_details is not null) { <pre style="max-height:400px;overflow:auto">@_details</pre> }
-                    </MudStack>
-                </MudExpansionPanel>
-                <MudExpansionPanel Text="Advanced capacity configuration">
-                    <MudButton OnClick="LoadConfigAsync" Disabled="@Busy" Variant="Variant.Outlined" Color="Color.Primary">Load current configuration</MudButton>
+                    </div>
+                </details>
+                <details class="quasar-details"><summary>Advanced capacity configuration</summary>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadConfigAsync">Load current configuration</button>
                     @if (_config is not null)
                     {
-                        <MudText Typo="Typo.caption">Policy revision @_config.PolicyRevision. Cluster Registry owns placement and drain decisions.</MudText>
-                        <MudTable T="Admin.AdminSlotSpec" Items="_config.Slots" Dense="true">
-                            <HeaderContent><MudTh>Slot</MudTh><MudTh>Host machine</MudTh><MudTh>Role</MudTh><MudTh>Desired state</MudTh></HeaderContent>
-                            <RowTemplate>
-                                <MudTd>@context.SlotKey</MudTd><MudTd>@context.Host</MudTd><MudTd>@(context.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : context.Role.ToString())</MudTd>
-                                <MudTd>
-                                    <MudSelect T="Admin.NodeGoal" Value="context.Goal" ValueChanged="@(value => ChangeGoal(context.SlotKey, value))" Disabled="@Busy">
-                                        <MudSelectItem Value="Admin.NodeGoal.Wanted">Wanted</MudSelectItem>
-                                        <MudSelectItem Value="Admin.NodeGoal.Draining">Draining</MudSelectItem>
-                                    </MudSelect>
-                                </MudTd>
-                            </RowTemplate>
-                        </MudTable>
-                        <MudButton OnClick="ApplyConfigAsync" Disabled="@(!CanRun("PUT /admin/v1/config"))" Variant="Variant.Outlined" Color="Color.Primary">Apply configuration</MudButton>
+                        <p class="quasar-muted quasar-caption">Policy revision @_config.PolicyRevision. Cluster Registry owns placement and drain decisions.</p>
+                        <div class="quasar-table-scroll"><table class="quasar-server-table"><thead><tr><th scope="col">Slot</th><th scope="col">Host machine</th><th scope="col">Role</th><th scope="col">Desired state</th></tr></thead><tbody>
+                        @foreach (var slot in _config.Slots)
+                        {
+                            <tr @key="slot.SlotKey"><td>@slot.SlotKey</td><td>@slot.Host</td><td>@(slot.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : slot.Role.ToString())</td><td><label class="quasar-field"><span class="quasar-visually-hidden">Desired state for @slot.SlotKey</span><select value="@slot.Goal" @onchange="@(args => ChangeGoal(slot.SlotKey, Enum.Parse<Admin.NodeGoal>((string)args.Value!)))" disabled="@Busy"><option value="@Admin.NodeGoal.Wanted">Wanted</option><option value="@Admin.NodeGoal.Draining">Draining</option></select></label></td></tr>
+                        }
+                        </tbody></table></div>
+                        <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("PUT /admin/v1/config"))" @onclick="ApplyConfigAsync">Apply configuration</button>
                     }
-                </MudExpansionPanel>
-                </MudExpansionPanels>
-                </MudExpansionPanel>
-            </MudExpansionPanels>
+                </details>
+                </div>
+                </details>
+            </div>
             }
-        </MudStack>
-        </MudCardContent>
-        </MudCard>
+        </div>
+        </div>
+        </section>
     </Authorized>
 </AuthorizeView>
 
