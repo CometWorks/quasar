@@ -1809,9 +1809,16 @@ panel) closes such an update and unlocks those tools. Nothing is rolled back: be
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
 rollback is an ordinary new update. Abandon is refused while a deployment activation is half
 applied on the Hosts; resume that activation or recover the cluster instead.
-If nobody abandons it, Quasar does so itself after 60 minutes in Stopping, 30 minutes of
-failed attempts in Activating or 60 minutes in Starting, and says so in `lastError`. A half-applied
-activation is never abandoned this way; it keeps retrying the same request.
+Every update backs up the cleanly stopped cluster before activation, under the update's ID; it is
+the way back to the previous version and world. If nobody abandons a stuck update, Quasar gives it up
+itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in
+Starting, and says why in `lastError`:
+- Before any Host switched, the previous version carries on. If the cluster was On before the update,
+  its goal returns to On when its Gateway still runs or stopped with clean proof; otherwise it stays
+  stopped and `lastError` says what to recover.
+- After activation the cluster keeps the new deployment, and `lastError` names the backup to restore
+  (goal Off, then the Maintenance restore) to return to the previous version and world.
+- A half-applied activation is never given up this way; it keeps retrying the same request.
 Preflight checks every Host before goal Off. Stopping, Activating and Starting are
 persistent checkpoints. Errors remain visible/retryable; completion requires matching
 Gateway revision, managed readiness and Host attachments. Previous installations remain
