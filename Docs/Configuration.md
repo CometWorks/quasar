@@ -1160,7 +1160,9 @@ For direct Host CLI/API Off requests, include `stopFence` with `processId` and
 fence. Old Hosts are refused with `gateway_stop_fencing_unavailable`.
 
 The retained, currently disabled node actualizer verifies the pinned manifest SHA-256 and every file hash,
-then uses its per-slot immutable spawn specifications. Each specification declares the
+then uses its per-slot immutable spawn specifications. Host remembers each file that matched its pin and
+hashes it again only when its size or modification time changes, or after a Host restart; Gateway
+spawns share the same check. Each specification declares the
 slot, node ID, role, bundle-relative executable, arguments/environment, reserved ports,
 and ready timeout. Host writes the launch intent before starting the process and records
 PID, process start time, executable identity, attempt, and bundle revision afterward.
