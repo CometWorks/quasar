@@ -1146,7 +1146,9 @@ Host persists the level-triggered spec before reconciling it, re-adopts an exact
 after restart, and refuses to stop or replace a process whose recorded identity does not match.
 The Quasar API accepts `goal: Off` only after Gateway reports phase `Down` and a clean-shutdown
 marker; emergency recovery uses a separate audited path rather than weakening this gate.
-The marker must not predate the current shutdown start. Host also refuses an Off spec
+The marker must not predate the current shutdown start. Before it records shutdown proof
+or stops the Gateway, the reconciler also requires the CleanShutdown snapshot recorded with
+that marker to list nothing dirty, because a forced or emergency stop sets the same marker. Host also refuses an Off spec
 that differs from its running deployment, an executable hash mismatch, or a launch
 whose process identity was never committed. Direct Host actions through Quasar clear
 previous shutdown proof. Calling Host directly is an operator action outside Quasar's
