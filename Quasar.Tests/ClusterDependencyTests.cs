@@ -46,6 +46,35 @@ public sealed class ClusterDependencyTests
         ClusterDeploymentService.EnsurePreparedProfileCurrent(prepared, "another-revision", null);
     }
 
+    [Theory]
+    [InlineData(1700000010L, null, true)]
+    [InlineData(1700000011L, null, false)]
+    [InlineData(null, "Workshop unavailable", false)]
+    public void QueuedModsRequireTheRequestedTimestamp(long? timestamp, string? error, bool valid)
+    {
+        var queue = new ClusterContentUpdateQueue("active", DateTimeOffset.UtcNow,
+            [new("mod", "123", "Mod", "1700000010", DateTimeOffset.UtcNow)]);
+        var mods = new[] { new QuasarModSelection { WorkshopId = 123 } };
+        var observations = new Dictionary<long, WorkshopUpdateObservation> { [123] = new(123, "Mod", timestamp, error) };
+        if (valid) ClusterUpdatePreparationService.ValidateQueuedMods(queue, mods, observations);
+        else Assert.Throws<InvalidOperationException>(() => ClusterUpdatePreparationService.ValidateQueuedMods(queue, mods, observations));
+        Assert.Throws<InvalidOperationException>(() => ClusterUpdatePreparationService.ValidateQueuedMods(queue, [], observations));
+    }
+
+    [Theory]
+    [InlineData('b', true)]
+    [InlineData('c', false)]
+    public void QueuedPluginsRequireTheExportedCommit(char commit, bool valid)
+    {
+        var queue = new ClusterContentUpdateQueue("active", DateTimeOffset.UtcNow,
+            [new("plugin", "example", "Example", new string('b', 40), DateTimeOffset.UtcNow)]);
+        var export = System.Text.Json.Nodes.JsonNode.Parse($$"""{"plugins":[{"id":"example","commit":"{{new string(commit, 40)}}"}]}""")!.AsObject();
+        if (valid) ClusterUpdatePreparationService.ValidateQueuedPlugins(queue, export);
+        else Assert.Throws<InvalidOperationException>(() => ClusterUpdatePreparationService.ValidateQueuedPlugins(queue, export));
+        Assert.Throws<InvalidOperationException>(() => ClusterUpdatePreparationService.ValidateQueuedPlugins(queue,
+            System.Text.Json.Nodes.JsonNode.Parse("{\"plugins\":[]}")!.AsObject()));
+    }
+
     [LinuxFact]
     public async Task SavingPluginConfigurationStagesEveryHostAndRetainsActiveRevision()
     {

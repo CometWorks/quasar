@@ -20,7 +20,7 @@
             <span class="quasar-text quasar-type-caption">Last check: @(Snapshot.CheckedAt?.ToLocalTime().ToString("g") ?? "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</span>
             @if (HasQueuedContent)
             {
-                <MudAlert Severity="Severity.Info">Observed versions queued. Review Pending update in Maintenance. Applying content changes remains blocked until pinned content preparation is supported.</MudAlert>
+                <MudAlert Severity="Severity.Info">Observed versions queued. Select Stage queued content updates under Maintenance to pin the profile content and prepare every host machine, then apply the pending update.</MudAlert>
             }
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                 Mod timestamps track changes since the first successful check; they do not identify the running mod bytes.
@@ -59,7 +59,7 @@
                 </RowTemplate>
                 <NoRecordsContent><p class="quasar-text quasar-type-body1">No content observations yet.</p></NoRecordsContent>
             </MudTable>
-            <p class="quasar-text quasar-type-body2">Applying content updates is unavailable until cluster and Magnetar support pinned content preparation. Checks do not change running servers or block players from joining.</p>
+            <p class="quasar-text quasar-type-body2">Stage queued content updates in Maintenance, then apply the prepared update during full cluster downtime. Checks and staging do not interrupt running servers or block players from joining.</p>
         </div>
     </MudExpansionPanel>
 </MudExpansionPanels>

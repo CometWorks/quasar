@@ -1,5 +1,20 @@
 # Cluster integration verification — 2026-09-20
 
+## Queued content staging hookup — 2026-10-11
+
+The current cluster capability contract advertises `managedProfileMigration: 1`, and
+Magnetar's managed exporter supplies exact plugin commits and hashed bundles. Quasar
+now connects queued observations to that existing profile-preparation path. Maintenance
+offers **Stage queued content updates**, checks requested Workshop timestamps before
+and after downloading, checks exported plugin commits, and clears the matching queue
+only when all Hosts have prepared the candidate. Failed or changed targets remain blocked;
+successful candidates use the existing backed-up full-downtime update workflow.
+
+Focused regression coverage checks unavailable/changed/removed mod targets, missing or
+different exported plugin commits, queue comparison after catalog reload, atomic queue
+consumption, preserved active state during staging, and update acceptance after preparation.
+The web service and a live game cluster were not launched for this change.
+
 Implementation covers remaining stage 3 through stage 7 on Quasar's
 `phase4/quasar-integration` branch. Baseline `8edd33a` is pushed in Quasar #137;
 subsequent review fixes remain local on that branch. Upstream reviews:

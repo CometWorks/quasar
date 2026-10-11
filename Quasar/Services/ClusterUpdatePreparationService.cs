@@ -21,6 +21,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
                 throw new InvalidOperationException("Finish the current setup, update or activation before changing profiles.");
             var activeDeployment = cluster.ActiveDeployment;
+            var queued = cluster.QueuedContentUpdates;
+            if (queued is not null && queued.DeploymentRevision != activeDeployment.Revision)
+                throw new InvalidOperationException("Queued content belongs to another deployment. Check and queue content updates again.");
             var current = string.IsNullOrEmpty(cluster.ConfigProfileId) ? new QuasarConfigProfile()
                 : profiles.GetProfile(cluster.ConfigProfileId)
                     ?? throw new InvalidOperationException("The active profile is unavailable; its deployed settings cannot be checked.");
@@ -47,7 +50,13 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     throw new InvalidOperationException("Resolve Workshop dependencies before staging: " + string.Join(" ", unresolved));
                 var effective = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(selected, Json), Json)!;
                 effective.Mods = resolved.Mods.ToList();
+                if (queued is not null)
+                    ValidateQueuedMods(queued, effective.Mods,
+                        await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token));
                 string mods = await modStager.StageAsync(effective.Mods, work, token);
+                if (queued is not null)
+                    ValidateQueuedMods(queued, effective.Mods,
+                        await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token));
                 var modFiles = (await ClusterDeploymentFiles.InspectAsync(mods, token))
                     .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
                 string modArchive = Path.Combine(work, "mods.tar");
@@ -67,6 +76,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     throw new InvalidOperationException("Selected plugins lack pinned provenance: " + string.Join(", ", excluded));
                 var sources = await dependencies.ReusableSourcesAsync(cluster, token);
                 var exportedData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), token))!.AsObject();
+                if (queued is not null) ValidateQueuedPlugins(queued, exportedData);
                 string sdk = Path.Combine(sources["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll");
                 if (exportedData["pluginSdkSha256"]?.GetValue<string>() !=
                     ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(sdk, token)))
@@ -125,12 +135,39 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                         throw new InvalidOperationException("The selected profile changed during preparation. Stage it again.");
                     var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                         ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                    await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId, selectedHash);
+                    await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId, selectedHash,
+                        preparedContentUpdates: queued);
                 }
                 return result;
             }
             finally { if (Directory.Exists(work)) Directory.Delete(work, true); }
         }, token);
+
+    internal static void ValidateQueuedMods(ClusterContentUpdateQueue queued, IReadOnlyList<QuasarModSelection> mods,
+        IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)
+    {
+        foreach (var target in queued.Items)
+        {
+            if (target.Kind == "plugin") continue;
+            if (target.Kind != "mod" || !long.TryParse(target.Id, out long id)
+                || !mods.Any(m => m.WorkshopId == id)
+                || !observations.TryGetValue(id, out var observed) || observed.Error is not null
+                || observed.UpdatedTimestamp?.ToString(System.Globalization.CultureInfo.InvariantCulture) != target.TargetVersion)
+                throw new InvalidOperationException($"Queued content {target.Name} is unavailable or changed. Check and queue content updates again before staging.");
+        }
+    }
+
+    internal static void ValidateQueuedPlugins(ClusterContentUpdateQueue queued, JsonObject exported)
+    {
+        foreach (var target in queued.Items.Where(t => t.Kind == "plugin"))
+        {
+            var plugin = (exported["plugins"] as JsonArray)?.OfType<JsonObject>()
+                .SingleOrDefault(p => p["id"]?.GetValue<string>() == target.Id);
+            if (!ClusterPackageService.IsHash(target.TargetVersion, 40)
+                || !string.Equals(plugin?["commit"]?.GetValue<string>(), target.TargetVersion, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Exported plugin {target.Name} does not match its queued commit. Check the selected profile version and queue content updates again.");
+        }
+    }
 
     internal static string ProfileHash(QuasarConfigProfile profile) =>
         ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(profile, Json));

@@ -51,7 +51,11 @@
                         {
                             <p class="quasar-text quasar-type-body1 cluster-long-value">@item.Name · @item.Kind · @item.TargetVersion</p>
                         }
-                        <MudAlert Severity="Severity.Warning">Content changes are queued, not downloaded or pinned. Applying this update is blocked until cluster and Magnetar support pinned content preparation.</MudAlert>
+                        <MudAlert Severity="Severity.Info">Stage the active profile to download and freeze its mods and plugins, verify the queued versions, and prepare every host machine. Applying remains blocked until staging succeeds.</MudAlert>
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="contentAuthorization">
+                            <MudButton OnClick="StageQueuedContentAsync" Disabled="@(_busy || UpdateLocked || Current.Preparation is null || string.IsNullOrEmpty(Current.ConfigProfileId))"
+                                       Variant="Variant.Filled" Color="Color.Primary">Stage queued content updates</MudButton>
+                        </AuthorizeView>
                         <MudButton OnClick="ClearQueuedContentAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Remove queued content changes</MudButton>
                     }
                     @if (Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())
@@ -329,6 +333,13 @@
         return result;
     });
     private Task ClearQueuedContentAsync() => ExecuteAsync(_ => Catalog.ClearQueuedContentUpdatesAsync(Cluster.UniqueName));
+    private Task StageQueuedContentAsync() => ExecuteAsync(async actor =>
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+            throw new InvalidOperationException("Configuration editing permission is required to stage content updates.");
+        await ShowProgressAsync("Downloading and pinning profile content, then preparing every Host...");
+        return await UpdatePreparation.StageProfileSelectionAsync(Cluster.UniqueName, Current.ConfigProfileId, actor, default);
+    });
     private Task StartPreparedUpdateAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
         new(Guid.NewGuid(), Current.PreparedDeployment ?? throw new InvalidDataException("Prepare a deployment first.")),
         Guid.NewGuid().ToString("N"), actor, default));
