@@ -4,10 +4,10 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">
                 Pick a world template to merge its mods into this config profile. Only mods that aren't already in the profile will be added.
-            </MudText>
+            </p>
 
             <MudSelect T="string"
                        Value="@_selectedTemplateId"
@@ -46,7 +46,7 @@
                     </MudTable>
                 }
             }
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>

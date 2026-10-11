@@ -12,15 +12,15 @@
 
 <PageTitle>UI Plugins</PageTitle>
 
-<MudStack Spacing="3">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-        <MudStack Spacing="1">
-            <MudText Typo="Typo.h5">UI Plugins</MudText>
-            <MudText Typo="Typo.body2" Class="mud-text-secondary">
-                Loaded Quasar UI plugins, extension points, nav contributions, and safe boot state.
-            </MudText>
-        </MudStack>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Wrap="Wrap.Wrap" Class="ui-plugin-header-actions">
+<div class="quasar-layout quasar-gap-3">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+        <div class="quasar-layout quasar-gap-1">
+            <QuasarPageHeading Section="Tools & settings">
+    <Title>UI Plugins</Title>
+    <Description>Loaded Quasar UI plugins, extension points, nav contributions, and safe boot state.</Description>
+</QuasarPageHeading>
+        </div>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1 ui-plugin-header-actions">
             <MudChip T="string"
                      Color="@(PluginCatalog.SafeMode ? Color.Warning : Color.Success)"
                      Variant="Variant.Outlined">
@@ -38,14 +38,14 @@
                        OnClick="RestartQuasarAsync">
                 Restart Quasar
             </MudButton>
-        </MudStack>
-    </MudStack>
+        </div>
+    </div>
 
     @if (!CanBuildUiPlugins)
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-            <MudStack Spacing="2">
-                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2">
                     <span><strong>.NET SDK not currently available.</strong> Starting a UI plugin install will offer a pinned private download, manual package-manager instructions, or cancellation without changes.</span>
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Warning"
@@ -55,78 +55,78 @@
                                OnClick="RefreshDotNetSdkStatus">
                         Refresh SDK check
                     </MudButton>
-                </MudStack>
+                </div>
                 @if (DotNetSdkInstallerBusy)
                 {
-                    <MudStack Spacing="1">
-                        <MudText Typo="Typo.body2">Downloading and verifying the private .NET SDK...</MudText>
+                    <div class="quasar-layout quasar-gap-1">
+                        <p class="quasar-text quasar-type-body2">Downloading and verifying the private .NET SDK...</p>
                         <MudProgressLinear Indeterminate="true" Color="Color.Warning" />
-                    </MudStack>
+                    </div>
                 }
                 @if (_lastDotNetSdkInstallResult is not null)
                 {
                     <MudAlert Severity="@(_lastDotNetSdkInstallResult.Succeeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Dense="true">
-                        <MudStack Spacing="1">
-                            <MudText Typo="Typo.body2">@_lastDotNetSdkInstallResult.Message</MudText>
+                        <div class="quasar-layout quasar-gap-1">
+                            <p class="quasar-text quasar-type-body2">@_lastDotNetSdkInstallResult.Message</p>
                             @if (!string.IsNullOrWhiteSpace(_lastDotNetSdkInstallResult.Output))
                             {
                                 <MudExpansionPanels MultiExpansion="false" Elevation="0" Dense="true">
                                     <MudExpansionPanel Text="Installer output">
-                                        <MudText Typo="Typo.caption" Class="mono" Style="white-space: pre-wrap; max-height: 18rem; overflow: auto; display: block;">@TrimInstallerOutput(_lastDotNetSdkInstallResult.Output)</MudText>
+                                        <span class="quasar-text quasar-type-caption mono" style="white-space: pre-wrap; max-height: 18rem; overflow: auto; display: block;">@TrimInstallerOutput(_lastDotNetSdkInstallResult.Output)</span>
                                     </MudExpansionPanel>
                                 </MudExpansionPanels>
                             }
-                        </MudStack>
+                        </div>
                     </MudAlert>
                 }
-            </MudStack>
+            </div>
         </MudAlert>
     }
 
     <MudGrid>
         <MudItem xs="12" md="3">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Loaded</MudText>
-                    <MudText Typo="Typo.h4">@PluginCatalog.LoadedPlugins.Count</MudText>
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">UI plugin packages</MudText>
-                </MudStack>
-            </MudPaper>
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Loaded</h3>
+                    <h2 class="quasar-text quasar-type-h4">@PluginCatalog.LoadedPlugins.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">UI plugin packages</span>
+                </div>
+            </section>
         </MudItem>
         <MudItem xs="12" md="3">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Load Errors</MudText>
-                    <MudText Typo="Typo.h4">@PluginCatalog.LoadErrors.Count</MudText>
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Startup failures</MudText>
-                </MudStack>
-            </MudPaper>
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Load Errors</h3>
+                    <h2 class="quasar-text quasar-type-h4">@PluginCatalog.LoadErrors.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">Startup failures</span>
+                </div>
+            </section>
         </MudItem>
         <MudItem xs="12" md="3">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Extensions</MudText>
-                    <MudText Typo="Typo.h4">@PluginCatalog.Extensions.Count</MudText>
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Patch contributions</MudText>
-                </MudStack>
-            </MudPaper>
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Extensions</h3>
+                    <h2 class="quasar-text quasar-type-h4">@PluginCatalog.Extensions.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">Patch contributions</span>
+                </div>
+            </section>
         </MudItem>
         <MudItem xs="12" md="3">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Nav Items</MudText>
-                    <MudText Typo="Typo.h4">@PluginCatalog.NavItems.Count</MudText>
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Plugin links</MudText>
-                </MudStack>
-            </MudPaper>
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Nav Items</h3>
+                    <h2 class="quasar-text quasar-type-h4">@PluginCatalog.NavItems.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">Plugin links</span>
+                </div>
+            </section>
         </MudItem>
     </MudGrid>
 
-    <MudPaper Class="pa-4">
-        <MudStack Spacing="3">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                <MudText Typo="Typo.h6">Safe Boot</MudText>
-                <MudStack Row="true" Spacing="1">
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <h2 class="quasar-text quasar-type-h6">Safe Boot</h2>
+                <div class="quasar-layout quasar-layout-row quasar-gap-1">
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Warning"
                                StartIcon="@Icons.Material.Filled.Shield"
@@ -141,40 +141,40 @@
                                OnClick="ClearSafeModeMarker">
                         Clear marker
                     </MudButton>
-                </MudStack>
-            </MudStack>
+                </div>
+            </div>
 
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
                 Safe boot disables dynamic UI plugin assembly loading on the next Quasar worker start. Configuration and environment safe-mode flags must be changed outside this page.
             </MudAlert>
 
-            <MudText Typo="Typo.caption">
+            <span class="quasar-text quasar-type-caption">
                 Marker file: <CopyablePath Value="@SafeModeMarkerPath" Inline="true" TextClass="" />
-            </MudText>
+            </span>
 
             @if (PluginCatalog.SafeModeReasons.Count > 0)
             {
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Active reasons</MudText>
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Active reasons</h3>
                     @foreach (var reason in PluginCatalog.SafeModeReasons)
                     {
                         <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">@reason</MudChip>
                     }
-                </MudStack>
+                </div>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 
-    <MudPaper Class="pa-4">
-        <MudStack Spacing="3">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.h6">QuasarHub Catalog</MudText>
-                    <MudText Typo="Typo.body2" Class="mud-text-secondary">
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <div class="quasar-layout quasar-gap-1">
+                    <h2 class="quasar-text quasar-type-h6">QuasarHub Catalog</h2>
+                    <p class="quasar-text quasar-type-body2 mud-text-secondary">
                         Discover, install, update, and remove reviewed Quasar UI plugins from CometWorks/quasar-hub.
-                    </MudText>
-                </MudStack>
-                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    </p>
+                </div>
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
                     <MudChip T="string" Variant="Variant.Outlined">@HubEntries.Count entries</MudChip>
                     <MudChip T="string" Variant="Variant.Outlined">Updated @FormatRefreshTime(HubCatalog.LastRefreshUtc)</MudChip>
                     @if (!string.IsNullOrWhiteSpace(HubCatalog.LastError))
@@ -188,8 +188,8 @@
                                OnClick="RefreshHubCatalogAsync">
                         @(_hubRefreshing ? "Refreshing..." : "Refresh Hub")
                     </MudButton>
-                </MudStack>
-            </MudStack>
+                </div>
+            </div>
 
             @if (!string.IsNullOrWhiteSpace(HubCatalog.LastError))
             {
@@ -198,7 +198,7 @@
                 </MudAlert>
             }
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1" Class="ui-plugin-hub-filter-row">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-1 ui-plugin-hub-filter-row">
                 <MudTextField @bind-Value="_hubSearch"
                               Label="Search hub"
                               Variant="Variant.Outlined"
@@ -214,7 +214,7 @@
                            Class="ui-plugin-hub-open-button">
                     Open Hub
                 </MudButton>
-            </MudStack>
+            </div>
 
             @if (HubEntries.Count == 0)
             {
@@ -239,28 +239,28 @@
                             var installDisabledReason = GetHubInstallDisabledReason(context);
                         }
                         <MudTd DataLabel="Status">
-                            <MudStack Spacing="0">
+                            <div class="quasar-layout quasar-gap-0">
                                 <MudChip T="string" Color="@GetHubStatusColor(context, installState)" Variant="Variant.Outlined" Size="Size.Small">
                                     @GetHubStatusText(context, installState)
                                 </MudChip>
                                 @if (!string.IsNullOrWhiteSpace(installState.Error))
                                 {
-                                    <MudText Typo="Typo.caption" Color="Color.Error">@installState.Error</MudText>
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Error).ToString().ToLowerInvariant())">@installState.Error</span>
                                 }
-                            </MudStack>
+                            </div>
                         </MudTd>
                         <MudTd DataLabel="Author">@FormatOptional(context.Author)</MudTd>
                         <MudTd DataLabel="Name">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.subtitle2">@GetHubDisplayName(context)</MudText>
-                                <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@context.CatalogId</MudText>
+                            <div class="quasar-layout quasar-gap-0">
+                                <h3 class="quasar-text quasar-type-subtitle2">@GetHubDisplayName(context)</h3>
+                                <span class="quasar-text quasar-type-caption mud-text-secondary mono">@context.CatalogId</span>
                                 @if (!string.IsNullOrWhiteSpace(context.RepoId))
                                 {
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@context.RepoId</MudText>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono">@context.RepoId</span>
                                 }
                                 @if (context.Hidden)
                                 {
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">Hidden in hub</MudText>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary">Hidden in hub</span>
                                 }
                                 @if (context.Recommended)
                                 {
@@ -270,20 +270,20 @@
                                 }
                                 @if (context.ImplicitLoading)
                                 {
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary">
                                         @(installState.ImplicitInstallSuppressed ? "Implicit loading suppressed" : "Implicit loading")
-                                    </MudText>
+                                    </span>
                                 }
-                            </MudStack>
+                            </div>
                         </MudTd>
                         <MudTd DataLabel="Description">
-                            <MudText Typo="Typo.body2" Class="ui-plugin-description-line">@GetHubTooltipText(context)</MudText>
+                            <p class="quasar-text quasar-type-body2 ui-plugin-description-line">@GetHubTooltipText(context)</p>
                         </MudTd>
                         <MudTd DataLabel="Version">
-                            <MudStack Spacing="0">
-                                <MudText Typo="Typo.body2">@FormatOptional(context.QuasarVersion)</MudText>
-                                <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@GetHubCommitText(context)</MudText>
-                            </MudStack>
+                            <div class="quasar-layout quasar-gap-0">
+                                <p class="quasar-text quasar-type-body2">@FormatOptional(context.QuasarVersion)</p>
+                                <span class="quasar-text quasar-type-caption mud-text-secondary mono">@GetHubCommitText(context)</span>
+                            </div>
                         </MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">
                             <div class="ui-plugin-actions">
@@ -346,27 +346,27 @@
                     </NoRecordsContent>
                 </MudTable>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 
     @if (PluginCatalog.LoadErrors.Count > 0)
     {
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Load Errors</MudText>
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Load Errors</h2>
                 @foreach (var error in PluginCatalog.LoadErrors)
                 {
                     <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
                         @error
                     </MudAlert>
                 }
-            </MudStack>
-        </MudPaper>
+            </div>
+        </section>
     }
 
-    <MudPaper Class="pa-4">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Loaded Plugins</MudText>
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Loaded Plugins</h2>
             @if (PluginCatalog.LoadedPlugins.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -390,51 +390,51 @@
                             var buildOutputDirectory = GetBuildOutputDirectory(context.EntryAssemblyPath);
                         }
                         <MudTd DataLabel="Name">@context.DisplayName</MudTd>
-                        <MudTd DataLabel="ID"><MudText Typo="Typo.body2" Class="mono ui-plugin-truncate-line">@context.Id</MudText></MudTd>
+                        <MudTd DataLabel="ID"><p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.Id</p></MudTd>
                         <MudTd DataLabel="Version">@context.Context.Manifest.Version</MudTd>
                         <MudTd DataLabel="Entry">
-                            <MudStack Spacing="1" Class="ui-plugin-cell-stack">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.body2" Class="mono ui-plugin-truncate-line">@context.Context.Manifest.EntryAssembly</MudText>
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary mono ui-plugin-truncate-line">@context.Context.Manifest.EntryType</MudText>
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary mono">@FormatCacheHash(context.ShadowCopyHash)</MudText>
-                                </MudStack>
-                            </MudStack>
+                            <div class="quasar-layout quasar-gap-1 ui-plugin-cell-stack">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.Context.Manifest.EntryAssembly</p>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono ui-plugin-truncate-line">@context.Context.Manifest.EntryType</span>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono">@FormatCacheHash(context.ShadowCopyHash)</span>
+                                </div>
+                            </div>
                             @if (BuildOutputChangedAfterLoad(context))
                             {
-                                <MudText Typo="Typo.caption" Color="Color.Warning">Source build output changed after this plugin was loaded. Restart Quasar to apply it.</MudText>
+                                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Source build output changed after this plugin was loaded. Restart Quasar to apply it.</span>
                             }
                         </MudTd>
                         <MudTd DataLabel="Static Assets">
                             @if (!string.IsNullOrWhiteSpace(context.Context.StaticAssetsDirectory))
                             {
-                                <MudStack Spacing="1" Class="ui-plugin-cell-stack">
-                                    <MudText Typo="Typo.body2" Class="mono ui-plugin-truncate-line">@GetPluginStaticPath(context)</MudText>
-                                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@FormatDirectoryInfo(context.Context.StaticAssetsDirectory)</MudText>
-                                </MudStack>
+                                <div class="quasar-layout quasar-gap-1 ui-plugin-cell-stack">
+                                    <p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@GetPluginStaticPath(context)</p>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary">@FormatDirectoryInfo(context.Context.StaticAssetsDirectory)</span>
+                                </div>
                                 @if (StaticAssetsChangedAfterLoad(context))
                                 {
-                                    <MudText Typo="Typo.caption" Color="Color.Warning">Source static assets changed after this plugin was loaded. Restart Quasar to serve them.</MudText>
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Source static assets changed after this plugin was loaded. Restart Quasar to serve them.</span>
                                 }
                             }
                             else
                             {
-                                <MudText Typo="Typo.body2" Class="mud-text-secondary">None</MudText>
+                                <p class="quasar-text quasar-type-body2 mud-text-secondary">None</p>
                             }
                         </MudTd>
                         <MudTd DataLabel="Stylesheets">
                             @if (context.Context.Manifest.Stylesheets.Count > 0)
                             {
-                                <MudStack Spacing="0">
+                                <div class="quasar-layout quasar-gap-0">
                                     @foreach (var stylesheet in context.Context.Manifest.Stylesheets)
                                     {
-                                        <MudText Typo="Typo.caption" Class="mud-text-secondary mono ui-plugin-truncate-line">@stylesheet</MudText>
+                                        <span class="quasar-text quasar-type-caption mud-text-secondary mono ui-plugin-truncate-line">@stylesheet</span>
                                     }
-                                </MudStack>
+                                </div>
                             }
                             else
                             {
-                                <MudText Typo="Typo.body2" Class="mud-text-secondary">None</MudText>
+                                <p class="quasar-text quasar-type-body2 mud-text-secondary">None</p>
                             }
                         </MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column ui-plugin-loaded-actions-column">
@@ -446,9 +446,9 @@
                                          AnchorOrigin="Origin.BottomRight"
                                          TransformOrigin="Origin.TopRight">
                                     <div class="ui-plugin-path-menu">
-                                        <MudText Typo="Typo.subtitle2">Plugin paths</MudText>
+                                        <h3 class="quasar-text quasar-type-subtitle2">Plugin paths</h3>
                                         <div class="ui-plugin-path-menu-section">
-                                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Entry</MudText>
+                                            <span class="quasar-text quasar-type-caption mud-text-secondary">Entry</span>
                                             @RenderPathMenuRow("Source assembly", context.EntryAssemblyPath, FormatFileInfo(context.EntryAssemblyPath), "Copy source assembly path")
                                             @RenderPathMenuRow("Build output", buildOutputDirectory, FormatDirectoryInfo(buildOutputDirectory), "Copy source build output path")
                                             @RenderPathMenuRow("Loaded assembly", context.LoadedAssemblyPath, FormatFileInfo(context.LoadedAssemblyPath), "Copy loaded assembly path")
@@ -456,7 +456,7 @@
                                         @if (!string.IsNullOrWhiteSpace(context.Context.StaticAssetsDirectory))
                                         {
                                             <div class="ui-plugin-path-menu-section">
-                                                <MudText Typo="Typo.caption" Class="mud-text-secondary">Static assets</MudText>
+                                                <span class="quasar-text quasar-type-caption mud-text-secondary">Static assets</span>
                                                 @RenderPathMenuRow("Request path", GetPluginStaticPath(context), string.Empty, "Copy static asset URL path", "Static asset URL path copied to clipboard.")
                                                 @RenderPathMenuRow("Served snapshot", context.Context.StaticAssetsDirectory, FormatDirectoryInfo(context.Context.StaticAssetsDirectory), "Copy served static asset path")
                                                 @if (!string.IsNullOrWhiteSpace(context.SourceStaticAssetsDirectory))
@@ -466,7 +466,7 @@
                                             </div>
                                         }
                                         <div class="ui-plugin-path-menu-section">
-                                            <MudText Typo="Typo.caption" Class="mud-text-secondary">Directories</MudText>
+                                            <span class="quasar-text quasar-type-caption mud-text-secondary">Directories</span>
                                             @RenderPathMenuRow("Package", context.Context.PluginDirectory, FormatDirectoryInfo(context.Context.PluginDirectory), "Copy plugin package path")
                                             @RenderPathMenuRow("Shadow cache", context.ShadowCopyDirectory, FormatDirectoryInfo(context.ShadowCopyDirectory), "Copy shadow cache path")
                                         </div>
@@ -484,15 +484,15 @@
                     </RowTemplate>
                 </MudTable>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 
-    <MudPaper Class="pa-4">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Plugin Nav Items</MudText>
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Plugin Nav Items</h2>
             @if (PluginCatalog.NavItems.Count == 0)
             {
-                <MudText Typo="Typo.body2" Class="mud-text-secondary">No plugin nav items.</MudText>
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No plugin nav items.</p>
             }
             else
             {
@@ -506,22 +506,22 @@
                     </HeaderContent>
                     <RowTemplate>
                         <MudTd DataLabel="Text">@context.Text</MudTd>
-                        <MudTd DataLabel="Href"><MudText Typo="Typo.body2" Class="mono">@context.Href</MudText></MudTd>
+                        <MudTd DataLabel="Href"><p class="quasar-text quasar-type-body2 mono">@context.Href</p></MudTd>
                         <MudTd DataLabel="Zone">@context.Zone</MudTd>
                         <MudTd DataLabel="Order">@context.Order</MudTd>
                         <MudTd DataLabel="Policy">@FormatOptional(context.Policy)</MudTd>
                     </RowTemplate>
                 </MudTable>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 
-    <MudPaper Class="pa-4">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Extension Contributions</MudText>
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Extension Contributions</h2>
             @if (PluginCatalog.Extensions.Count == 0)
             {
-                <MudText Typo="Typo.body2" Class="mud-text-secondary">No extension contributions.</MudText>
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No extension contributions.</p>
             }
             else
             {
@@ -535,24 +535,24 @@
                         <MudTh>Policy</MudTh>
                     </HeaderContent>
                     <RowTemplate>
-                        <MudTd DataLabel="Target"><MudText Typo="Typo.body2" Class="mono">@context.TargetKey</MudText></MudTd>
+                        <MudTd DataLabel="Target"><p class="quasar-text quasar-type-body2 mono">@context.TargetKey</p></MudTd>
                         <MudTd DataLabel="Mode">@context.Mode</MudTd>
-                        <MudTd DataLabel="Component"><MudText Typo="Typo.body2" Class="mono">@FormatComponent(context.ComponentType)</MudText></MudTd>
+                        <MudTd DataLabel="Component"><p class="quasar-text quasar-type-body2 mono">@FormatComponent(context.ComponentType)</p></MudTd>
                         <MudTd DataLabel="Priority">@context.Priority</MudTd>
-                        <MudTd DataLabel="Plugin"><MudText Typo="Typo.body2" Class="mono">@context.PluginId</MudText></MudTd>
+                        <MudTd DataLabel="Plugin"><p class="quasar-text quasar-type-body2 mono">@context.PluginId</p></MudTd>
                         <MudTd DataLabel="Policy">@FormatOptional(context.Policy)</MudTd>
                     </RowTemplate>
                 </MudTable>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 
-    <MudPaper Class="pa-4">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Razor Assemblies</MudText>
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Razor Assemblies</h2>
             @if (PluginCatalog.RazorAssemblies.Count == 0)
             {
-                <MudText Typo="Typo.body2" Class="mud-text-secondary">No plugin Razor assemblies.</MudText>
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No plugin Razor assemblies.</p>
             }
             else
             {
@@ -569,14 +569,14 @@
                     </RowTemplate>
                 </MudTable>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 
     <QuasarExtensionOutlet
         TargetKey="@QuasarExtensionTargets.PluginsPage"
         Parameters="@PluginsPageParameters"
         DefaultPolicy="@QuasarPolicyNames.CanManageSecurity" />
-</MudStack>
+</div>
 
 @code
 {

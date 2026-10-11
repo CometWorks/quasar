@@ -4,17 +4,17 @@
 
     if (string.IsNullOrWhiteSpace(policy))
     {
-        <MudNavLink @key="navItem.Href" Href="@navItem.Href" Icon="@navItem.Icon">
+        <NavLink @key="navItem.Href" class="quasar-nav-link" href="@navItem.Href"><QuasarIcon Icon="@navItem.Icon" />
             @navItem.Text
-        </MudNavLink>
+        </NavLink>
     }
     else
     {
         <AuthorizeView @key="navItem.Href" Policy="@policy">
             <Authorized>
-                <MudNavLink Href="@navItem.Href" Icon="@navItem.Icon">
+                <NavLink class="quasar-nav-link" href="@navItem.Href"><QuasarIcon Icon="@navItem.Icon" />
                     @navItem.Text
-                </MudNavLink>
+                </NavLink>
             </Authorized>
         </AuthorizeView>
     }

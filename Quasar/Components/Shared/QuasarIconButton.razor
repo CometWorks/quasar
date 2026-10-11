@@ -1,0 +1,21 @@
+@if (Href is not null)
+{
+    <a class="quasar-icon-button @Class" href="@Href" title="@Label" aria-label="@Label"><QuasarIcon Icon="@Icon" />@if (ShowLabel) { <span>@Label</span> }</a>
+}
+else
+{
+    <button type="button" class="quasar-icon-button @Class" title="@Label" aria-label="@Label"
+            aria-expanded="@(Expanded?.ToString().ToLowerInvariant())" popovertarget="@ClosePopover" popovertargetaction="hide" disabled="@Disabled" @onclick="OnClick"><QuasarIcon Icon="@Icon" />@if (ShowLabel) { <span>@Label</span> }</button>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+    [Parameter] public string? Href { get; set; }
+    [Parameter] public string? Class { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public bool ShowLabel { get; set; }
+    [Parameter] public string? ClosePopover { get; set; }
+    [Parameter] public bool? Expanded { get; set; }
+    [Parameter] public EventCallback OnClick { get; set; }
+}

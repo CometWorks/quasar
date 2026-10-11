@@ -10,12 +10,14 @@
 <PageTitle>Players</PageTitle>
 
 <div>
-    <MudText Typo="Typo.h5" Class="mb-2">Known Players</MudText>
-    <MudText Typo="Typo.body2" Class="mb-4">Known players observed per server, with client service and Steam/member id retained for moderation.</MudText>
+    <QuasarPageHeading Section="Operations">
+    <Title>Known Players</Title>
+    <Description>Known players observed per server, with client service and Steam/member id retained for moderation.</Description>
+</QuasarPageHeading>
 </div>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-4">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2">
         <MudSelect T="string"
                    Label="Server"
                    @bind-Value="_serverFilter"
@@ -65,9 +67,9 @@
                    Disabled="@(KnownPlayerViews.Count == 0)">
             Clean All
         </MudButton>
-    </MudStack>
+    </div>
 
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2">
         <MudNumericField T="int"
                          Label="Auto clear after"
                          Value="_retentionDays"
@@ -86,20 +88,20 @@
                    Disabled="@(!_retentionDaysDirty)">
             Save
         </MudButton>
-    </MudStack>
-</MudStack>
+    </div>
+</div>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
     <MudChip T="string" Variant="Variant.Outlined">Known @KnownPlayerViews.Count</MudChip>
     <MudChip T="string" Variant="Variant.Outlined">Online @KnownPlayerViews.Count(player => player.IsOnline)</MudChip>
     @if (HasActiveFilter)
     {
         <MudChip T="string" Variant="Variant.Outlined">Shown @FilteredPlayers.Count</MudChip>
     }
-</MudStack>
+</div>
 
-<MudPaper Class="pa-4 server-card players-list-card">
-    <MudStack Spacing="2" Class="mb-4 players-list-stack">
+<section class="quasar-panel pa-4 server-card players-list-card">
+    <div class="quasar-layout quasar-gap-2 mb-4 players-list-stack">
         @if (KnownPlayerViews.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -128,18 +130,18 @@
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Player">
-                        <MudText Typo="Typo.body2">@GetPlayerName(context.Record)</MudText>
+                        <p class="quasar-text quasar-type-body2">@GetPlayerName(context.Record)</p>
                         @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
                         {
-                            <MudText Typo="Typo.caption">Platform: @platformName</MudText>
+                            <span class="quasar-text quasar-type-caption">Platform: @platformName</span>
                         }
                     </MudTd>
                     <MudTd DataLabel="Server">
-                        <MudText Typo="Typo.body2">@context.ServerDisplayName</MudText>
-                        <MudText Typo="Typo.caption">@context.Record.UniqueName</MudText>
+                        <p class="quasar-text quasar-type-body2">@context.ServerDisplayName</p>
+                        <span class="quasar-text quasar-type-caption">@context.Record.UniqueName</span>
                     </MudTd>
                     <MudTd DataLabel="Steam ID">
-                        <MudText Typo="Typo.body2" Class="mono">@context.Record.SteamId</MudText>
+                        <p class="quasar-text quasar-type-body2 mono">@context.Record.SteamId</p>
                     </MudTd>
                     <MudTd DataLabel="Service">
                         <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.Record.ServiceName)</MudChip>
@@ -147,7 +149,7 @@
                     <MudTd DataLabel="Faction">@context.Record.FactionTag</MudTd>
                     <MudTd DataLabel="Role">@GetRoleLabel(context.Record)</MudTd>
                     <MudTd DataLabel="Status">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
                             <MudChip T="string" Size="Size.Small" Color="@(context.IsOnline ? Color.Success : Color.Default)">
                                 @(context.IsOnline ? "online" : "offline")
                             </MudChip>
@@ -163,7 +165,7 @@
                             {
                                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">agent offline</MudChip>
                             }
-                        </MudStack>
+                        </div>
                     </MudTd>
                     <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
                     <MudTd DataLabel="" Class="quasar-actions-column">
@@ -182,7 +184,7 @@
                                         @promoteLevel
                                     </MudMenuItem>
                                 }
-                                <MudDivider />
+                                <hr class="quasar-divider" />
                                 <MudMenuItem Disabled="@(!context.IsOnline)"
                                              OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
                                     Kick
@@ -654,5 +656,5 @@
                             : Record.UniqueName;
             }
         }
-    </MudStack>
-</MudPaper>
+    </div>
+</section>

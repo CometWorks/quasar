@@ -11,39 +11,39 @@
 
 <PageTitle>Security</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Security</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.
-</MudText>
+<QuasarPageHeading Section="Access & security">
+    <Title>Security</Title>
+    <Description>Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.</Description>
+</QuasarPageHeading>
 
 <MudGrid>
     <MudItem xs="12" lg="4">
-        <MudPaper Class="pa-4 summary-card">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Auth Provider</MudText>
-                <MudText Typo="Typo.body2">Default provider: <strong>@AuthOptions.DefaultProvider</strong></MudText>
-                <MudText Typo="Typo.body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></MudText>
-                <MudText Typo="Typo.body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></MudText>
-                <MudText Typo="Typo.body2">Trusted same subnet: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></MudText>
-                <MudText Typo="Typo.body2">Trusted proxies: <strong>@TrustedProxySummary</strong></MudText>
-                <MudText Typo="Typo.caption">
+        <section class="quasar-panel pa-4 summary-card">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Auth Provider</h2>
+                <p class="quasar-text quasar-type-body2">Default provider: <strong>@AuthOptions.DefaultProvider</strong></p>
+                <p class="quasar-text quasar-type-body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted same subnet: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted proxies: <strong>@TrustedProxySummary</strong></p>
+                <span class="quasar-text quasar-type-caption">
                     Settings are saved to <CopyablePath Value="@AuthSettingsService.SettingsPath" Inline="true" TextClass="" />
-                </MudText>
-            </MudStack>
-        </MudPaper>
+                </span>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12" lg="8">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="3">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                    <MudText Typo="Typo.h6">Trusted Network and Reverse Proxy</MudText>
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Trusted Network and Reverse Proxy</h2>
                     <MudChip T="string"
                              Color="@(_trustedNetworkSettings.AllowSameSubnet ? Color.Warning : Color.Success)"
                              Variant="Variant.Outlined">
                         @(_trustedNetworkSettings.AllowSameSubnet ? "LAN bypass enabled" : "Same-subnet disabled")
                     </MudChip>
-                </MudStack>
+                </div>
 
                 @if (_trustedNetworkSettings.AllowSameSubnet)
                 {
@@ -57,17 +57,17 @@
                         <MudCheckBox T="bool"
                                      @bind-Value="_trustedNetworkSettings.AllowLoopback"
                                      Label="Trust loopback access" />
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                             Allows local tools and same-host reverse proxies to use trusted-network auth.
-                        </MudText>
+                        </span>
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudCheckBox T="bool"
                                      @bind-Value="_trustedNetworkSettings.AllowSameSubnet"
                                      Label="Trust same subnet access" />
-                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                             Disable this when Quasar is reachable through a public reverse proxy.
-                        </MudText>
+                        </span>
                     </MudItem>
                     <MudItem xs="12">
                         <MudTextField @bind-Value="_trustedProxiesText"
@@ -85,7 +85,7 @@
                     </MudAlert>
                 }
 
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
                     <MudButton StartIcon="@Icons.Material.Filled.Save"
                                Variant="Variant.Filled"
                                Color="Color.Primary"
@@ -99,7 +99,7 @@
                                OnClick="ApplyPublicReverseProxyPreset">
                         Apply Public Proxy Preset
                     </MudButton>
-                </MudStack>
+                </div>
 
                 <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true">
                     <MudExpansionPanel Text="Safely expose Quasar to the internet">
@@ -113,31 +113,31 @@
                         </ol>
                     </MudExpansionPanel>
                 </MudExpansionPanels>
-            </MudStack>
-        </MudPaper>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="3">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
-                    <MudText Typo="Typo.h6">Data Handling Consent</MudText>
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Data Handling Consent</h2>
                     <MudChip T="string" Color="@DataHandlingConsentStatusColor" Variant="Variant.Outlined">
                         @DataHandlingConsentStatusText
                     </MudChip>
-                </MudStack>
+                </div>
 
-                <MudText Typo="Typo.body2">
+                <p class="quasar-text quasar-type-body2">
                     YES automatically enrolls this Quasar instance with https://log.se-servers.net and allows anonymous plugin usage statistics and diagnostic reports to CometWorks, including error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent and are not enabled by YES.
-                </MudText>
-                <MudText Typo="Typo.body2">
+                </p>
+                <p class="quasar-text quasar-type-body2">
                     Server listings require consent and working log delivery. Explicitly enabled listings publish their name, join address and summary statistics; admin Steam identities are shared privately for description editing. NO cancels publishing and requests immediate withdrawal. If backoffice updates stop, its last signed publication lease expires within 60 seconds. Magnetar's statistics flag changes on the next server start.
-                </MudText>
-                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                </p>
+                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                     Stored at <CopyablePath Value="@DataHandlingConsent.SettingsPath" Inline="true" TextClass="" />.
-                </MudText>
+                </span>
 
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
                     <MudButton StartIcon="@Icons.Material.Filled.Check"
                                Variant="@(DataHandlingConsentChoice == true ? Variant.Filled : Variant.Outlined)"
                                Color="Color.Primary"
@@ -150,54 +150,54 @@
                                OnClick="@(() => SaveDataHandlingConsentAsync(false))">
                         NO
                     </MudButton>
-                </MudStack>
+                </div>
 
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                     Running servers keep their current Magnetar consent state until they are restarted.
                 </MudAlert>
-                <MudDivider />
-                <MudText Typo="Typo.subtitle1">Diagnostic reports</MudText>
-                <MudText Typo="Typo.body2">
+                <hr class="quasar-divider" />
+                <h3 class="quasar-text quasar-type-subtitle1">Diagnostic reports</h3>
+                <p class="quasar-text quasar-type-body2">
                     Allow encrypted diagnostic reports and batched application logs from Quasar and all its enrolled hosts to be sent to CometWorks?
                     Reports include ordinary log messages, error details, bounded recent logs, software versions and host, cluster and server identifiers.
                     Logs can contain player names, chat or other private data. Reports are retained locally for up to seven days while delivery is unavailable.
                     Only incidents captured after enabling this choice are eligible.
-                </MudText>
+                </p>
                 <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().DiagnosticsGranted"
                            ValueChanged="@(value => SaveDiagnosticsConsentAsync(value, DataHandlingConsent.GetSettings().DumpsGranted))"
                            Color="Color.Primary" Label="Send diagnostic reports" />
-                <MudText Typo="Typo.body2">
+                <p class="quasar-text quasar-type-body2">
                     Crash dumps may include process memory, credentials, player data and world content. Enable only if you agree to share that sensitive content.
                     Dumps require diagnostic reports and are encrypted for the backoffice before transfer.
-                </MudText>
+                </p>
                 <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().DumpsGranted"
                            ValueChanged="@(value => SaveDiagnosticsConsentAsync(DataHandlingConsent.GetSettings().DiagnosticsGranted, value))"
                            Disabled="@(!DataHandlingConsent.GetSettings().DiagnosticsGranted)"
                            Color="Color.Warning" Label="Include crash dumps" />
-                <MudDivider />
+                <hr class="quasar-divider" />
                 <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().ListingGranted"
                            ValueChanged="@SaveListingVisibilityAsync"
                            Color="Color.Primary" Label="Show configured servers on se-servers.net" />
-                <MudText Typo="Typo.body2">
+                <p class="quasar-text quasar-type-body2">
                     Listing visibility is optional and separate from diagnostic reporting. Public listings require current
                     log delivery to CometWorks and a configured public join address. Turning this off withdraws the listings.
-                </MudText>
+                </p>
                 <MudLink Href="/settings/server-list">Configure public server listings</MudLink>
-                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                     Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
                     Offline hosts stop collecting when their two-minute consent lease expires.
-                </MudText>
-            </MudStack>
-        </MudPaper>
+                </span>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="3">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Runtime Subject Role Mappings</MudText>
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Runtime Subject Role Mappings</h2>
                     <MudChip T="string" Variant="Variant.Outlined">@_config.SubjectRoleMappings.Count mapping(s)</MudChip>
-                </MudStack>
+                </div>
 
                 <MudGrid>
                     <MudItem xs="12" md="3">
@@ -256,8 +256,8 @@
                         </RowTemplate>
                     </MudTable>
                 }
-            </MudStack>
-        </MudPaper>
+            </div>
+        </section>
     </MudItem>
 </MudGrid>
 

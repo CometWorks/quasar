@@ -9,18 +9,18 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">Recent Cluster Registry events and node plugin logs. Full process logs remain on each host machine.</MudText>
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">Recent Cluster Registry events and node plugin logs. Full process logs remain on each host machine.</p>
             @if (_error is not null) { <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_error</MudAlert> }
-            <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center">
-                <MudText Typo="Typo.caption">@(_observed is { } at ? $"Updated {at:u} · refreshes every 5 seconds" : "Waiting for observations")</MudText>
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <span class="quasar-text quasar-type-caption">@(_observed is { } at ? $"Updated {at:u} · refreshes every 5 seconds" : "Waiting for observations")</span>
                 <MudButton StartIcon="@Icons.Material.Filled.Refresh" Disabled="_loading" OnClick="RefreshAsync">Refresh</MudButton>
-            </MudStack>
+            </div>
             <MudTabs TabPanelsClass="pt-3">
                 <MudTabPanel Text="Cluster Registry events" Icon="@Icons.Material.Filled.Terminal">
-                    @if (_gap) { <MudText Typo="Typo.caption">Earlier events were truncated or the Cluster Registry event stream restarted.</MudText> }
+                    @if (_gap) { <span class="quasar-text quasar-type-caption">Earlier events were truncated or the Cluster Registry event stream restarted.</span> }
                     <div class="cluster-console-output" role="region" aria-label="Cluster Registry events" tabindex="0">
-                        @if (_events.Length == 0) { <MudText>No Cluster Registry events available.</MudText> }
+                        @if (_events.Length == 0) { <p class="quasar-text quasar-type-body1">No Cluster Registry events available.</p> }
                         @foreach (var entry in _events.OrderByDescending(e => e.Seq))
                         {
                             <div class="cluster-console-line">
@@ -32,7 +32,7 @@
                 </MudTabPanel>
                 <MudTabPanel Text="Node plugin logs" Icon="@Icons.Material.Filled.Description">
                     <div class="cluster-console-output" role="region" aria-label="Node plugin logs" tabindex="0">
-                        @if (_logs.Length == 0) { <MudText>No node plugin logs received.</MudText> }
+                        @if (_logs.Length == 0) { <p class="quasar-text quasar-type-body1">No node plugin logs received.</p> }
                         @foreach (var item in _logs)
                         {
                             <div class="cluster-console-line">
@@ -43,7 +43,7 @@
                     </div>
                 </MudTabPanel>
             </MudTabs>
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions><MudButton OnClick="Close">Close</MudButton></DialogActions>
 </MudDialog>

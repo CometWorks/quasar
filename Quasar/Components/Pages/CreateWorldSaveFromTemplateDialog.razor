@@ -1,10 +1,10 @@
 <MudDialog>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">
                 Create a world save in this server's saves folder from a reusable world template.
-            </MudText>
+            </p>
 
             <MudSelect T="string"
                        Value="_selectedTemplateId"
@@ -35,7 +35,7 @@
                     New Template
                 </MudButton>
             </div>
-        </MudStack>
+        </div>
         </MudForm>
     </DialogContent>
     <DialogActions>

@@ -3,13 +3,13 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.body2">@Subtitle</MudText>
+        <div class="quasar-layout quasar-gap-2">
+            <p class="quasar-text quasar-type-body2">@Subtitle</p>
             <MudCheckBox T="bool" @bind-Value="_model.Visible" Label="Show panel" />
             <MudNumericField T="int" @bind-Value="_model.Order" Label="Order" Variant="Variant.Outlined" Min="0" Max="99" />
             <MudNumericField T="int" @bind-Value="_model.ColumnSpan" Label="Column span" Variant="Variant.Outlined" Min="1" Max="@Math.Max(1, GridColumns)" />
             <MudNumericField T="int" @bind-Value="_model.RowSpan" Label="Row span" Variant="Variant.Outlined" Min="1" Max="@Math.Max(1, GridRows)" />
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>

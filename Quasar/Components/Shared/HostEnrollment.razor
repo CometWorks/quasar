@@ -6,8 +6,8 @@
 @inject QuasarPermissionService Permissions
 @inject NavigationManager Navigation
 
-<MudStack Spacing="3">
-    <MudText>Install a Host executor (Quasar.Host) on a Linux x64 host machine. It connects back to Quasar securely; its control port stays on loopback. Cluster Registry, Cluster Gateway and game nodes continue running if Quasar disconnects.</MudText>
+<div class="quasar-layout quasar-gap-3">
+    <p class="quasar-text quasar-type-body1">Install a Host executor (Quasar.Host) on a Linux x64 host machine. It connects back to Quasar securely; its control port stays on loopback. Cluster Registry, Cluster Gateway and game nodes continue running if Quasar disconnects.</p>
     <MudSelect T="string" Label="Registration" Value="_existing" ValueChanged="SelectExisting">
         <MudSelectItem Value="@(string.Empty)">New host machine</MudSelectItem>
         @foreach (var host in Hosts.GetAll()) { <MudSelectItem Value="host.Id">@host.Name — resume or update Host executor</MudSelectItem> }
@@ -29,28 +29,28 @@
         <MudNumericField T="int" Label="SSH port" @bind-Value="_sshPort" Min="1" Max="65535" />
         <MudTextField T="string" Label="SSH private key file (optional)" @bind-Value="_sshKey" HelperText="An existing key path on the Quasar host machine. Leave empty to use its SSH agent/default keys. The remote host key must already be trusted in known_hosts; Quasar never disables host-key checking." />
     }
-    <MudText Typo="Typo.body2">Automatic installation uses your account and generates credentials. Missing Python 3 and util-linux are installed when root or passwordless sudo is available. The local Host executor uses Quasar's installed .NET 10 toolchain. Automatic service installation needs a working systemd user session; choose manual installation to use another service manager. Remote host machines need .NET 10. Enrolled Host executors check for binary updates every 15 minutes and preserve configuration, credentials and cluster processes. Installation enables user lingering when the account or passwordless sudo allows it, so the Host keeps running after logout. At logout or machine shutdown the Host shuts its clusters down with a save.</MudText>
+    <p class="quasar-text quasar-type-body2">Automatic installation uses your account and generates credentials. Missing Python 3 and util-linux are installed when root or passwordless sudo is available. The local Host executor uses Quasar's installed .NET 10 toolchain. Automatic service installation needs a working systemd user session; choose manual installation to use another service manager. Remote host machines need .NET 10. Enrolled Host executors check for binary updates every 15 minutes and preserve configuration, credentials and cluster processes. Installation enables user lingering when the account or passwordless sudo allows it, so the Host keeps running after logout. At logout or machine shutdown the Host shuts its clusters down with a save.</p>
     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="_busy">@(_method == "command" ? "Generate enrollment command" : _method == "manual" ? "Prepare manual enrollment" : "Install Host executor")</MudButton>
     @if (_host is not null && _method == "manual")
     {
-        <MudText Typo="Typo.body2">Download and extract this package on the host machine, then follow its README to start Quasar.Host with your preferred service manager. The package contains this host machine's credentials; keep it private.</MudText>
+        <p class="quasar-text quasar-type-body2">Download and extract this package on the host machine, then follow its README to start Quasar.Host with your preferred service manager. The package contains this host machine's credentials; keep it private.</p>
         <MudButton Href="@($"/api/v1/host-enrollment/{Uri.EscapeDataString(_host.Id)}/manual?quasarUrl={Uri.EscapeDataString(_origin)}")" Variant="Variant.Outlined">Download manual host package</MudButton>
     }
     @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     @if (_ticket is not null)
     {
-        <MudText>Run this command as the account that will own the cluster processes. It expires at @_ticket.ExpiresAt.ToString("u") and can be downloaded once. Treat it as a password.</MudText>
+        <p class="quasar-text quasar-type-body1">Run this command as the account that will own the cluster processes. It expires at @_ticket.ExpiresAt.ToString("u") and can be downloaded once. Treat it as a password.</p>
         <MudTextField T="string" Label="Enrollment command" Value="_ticket.Command" ReadOnly="true" Lines="5" />
     }
     @if (_host is not null)
     {
         <MudButton OnClick="CheckConnection">Check connection</MudButton>
         @if (_connected) { <MudAlert Severity="Severity.Success">Host executor connected. It is ready for cluster placement.</MudAlert> }
-        else { <MudText>Waiting for this Host executor to connect. Check its service log if installation has finished.</MudText> }
+        else { <p class="quasar-text quasar-type-body1">Waiting for this Host executor to connect. Check its service log if installation has finished.</p> }
         @foreach (var warning in _warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
     }
-</MudStack>
+</div>
 
 @code {
     private readonly CancellationTokenSource _stop = new();

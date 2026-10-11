@@ -1,4 +1,4 @@
-﻿@page "/"
+@page "/"
 @implements IDisposable
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
@@ -16,98 +16,85 @@
 @inject BrowserStorageService BrowserStorage
 @inject QuasarPermissionService Permissions
 
-<PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
+<PageTitle>Fleet overview</PageTitle>
 
 @if (ShowDataHandlingConsentPrompt)
 {
-    <MudPaper Class="pa-4 summary-card mb-4">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-            <MudStack Spacing="1" Class="setup-wizard-copy">
-                <MudText Typo="Typo.subtitle1">Data Handling Consent</MudText>
-                <MudText Typo="Typo.body2">
+    <section class=" mb-4 quasar-panel quasar-section">
+        <div class="quasar-row quasar-between">
+            <div class="setup-wizard-copy quasar-stack">
+                <h3>Data Handling Consent</h3>
+                <p>
                     The updated data-handling policy requires a new decision. YES automatically enrolls this Quasar instance with CometWorks at https://log.se-servers.net and allows anonymous plugin usage statistics, logging and error reports. Reports include error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent.
-                </MudText>
-                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                </p>
+                <p class="quasar-muted quasar-caption quasar-tone-secondary">
                     Server listings require this consent and working log delivery. When a listing is explicitly enabled, its name, public join address and summary statistics are public; Quasar admin Steam identities are shared privately to authorize description edits. Existing statistics consent does not enable reports or listings.
-                    Until a new decision is accepted, sharing remains off. Memory dumps and public listing visibility are separate opt-ins in <MudLink Href="/settings/security">Security</MudLink>; both are off by default.
-                </MudText>
-            </MudStack>
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Success"
-                           StartIcon="@Icons.Material.Filled.Check"
-                           OnClick="@(() => SaveDataHandlingConsentAsync(true))">
+                    Until a new decision is accepted, sharing remains off. Memory dumps and public listing visibility are separate opt-ins in <a href="/settings/security">Security</a>; both are off by default.
+                </p>
+            </div>
+            <div class="quasar-row">
+                <button class="quasar-button quasar-tone-success" type="button" @onclick="@(() => SaveDataHandlingConsentAsync(true))"><QuasarIcon Icon="@QuasarIcons.Check" />
                     YES
-                </MudButton>
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Warning"
-                           StartIcon="@Icons.Material.Filled.Close"
-                           OnClick="@(() => SaveDataHandlingConsentAsync(false))">
+                </button>
+                <button class="quasar-button quasar-tone-warning" type="button" @onclick="@(() => SaveDataHandlingConsentAsync(false))"><QuasarIcon Icon="@QuasarIcons.Close" />
                     NO
-                </MudButton>
-            </MudStack>
-        </MudStack>
-    </MudPaper>
+                </button>
+            </div>
+        </div>
+    </section>
 }
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.FlexEnd" Spacing="2" Class="mb-2">
-    <MudButton Variant="@(ShowSetupWizard ? Variant.Filled : Variant.Outlined)"
-               Color="Color.Primary"
-               Disabled="@ShowSetupWizard"
-               StartIcon="@Icons.Material.Filled.RestartAlt"
-               OnClick="ShowSetupWizardAgain">
-        First Setup Wizard
-    </MudButton>
-    <MudButton Variant="Variant.Outlined"
-               Color="Color.Secondary"
-               StartIcon="@Icons.Material.Filled.MoveToInbox"
-               OnClick="OpenExistingServerImportDialogAsync">
-        Import Existing Server
-    </MudButton>
-</MudStack>
+<div class="quasar-page-heading">
+    <div><div class="quasar-eyebrow">Infrastructure / overview</div><h1>Fleet overview</h1><p>Server health, live telemetry, and lifecycle controls.</p></div>
+    <div class="quasar-dashboard-actions">
+        <button type="button" class="quasar-button" disabled="@ShowSetupWizard" @onclick="ShowSetupWizardAgain"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Setup guide</button>
+        <button type="button" class="quasar-button" @onclick="OpenExistingServerImportDialogAsync"><QuasarIcon Icon="@QuasarIcons.MoveToInbox" />Import server</button>
+        <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateServerDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
+    </div>
+</div>
 
 @if (Supervisor.HealthMonitoringDisabled)
 {
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    <div class="mb-4 quasar-notice quasar-notice-info" role="status">
         Health monitoring disabled for this Quasar instance (development mode or configuration).
-    </MudAlert>
+    </div>
 }
 
 @if (ShowSetupWizard)
 {
-    <MudPaper Class="pa-4 summary-card mb-6">
-        <MudStack Spacing="3">
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+    <section class=" mb-6 quasar-panel quasar-section">
+        <div class="quasar-stack">
+            <div class="quasar-row quasar-between">
                 <div>
-                    <MudText Typo="Typo.h6">First Setup</MudText>
-                    <MudText Typo="Typo.body2">Start from a Dedicated Server world. Quasar creates its world template first, then a matching config profile.</MudText>
+                    <h2>First Setup</h2>
+                    <p>Start from a Dedicated Server world. Quasar creates its world template first, then a matching config profile.</p>
                 </div>
-                <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Close" OnClick="HideSetupWizard">
+                <button class="quasar-button quasar-tone-default" type="button" @onclick="HideSetupWizard"><QuasarIcon Icon="@QuasarIcons.Close" />
                     Hide Wizard
-                </MudButton>
-            </MudStack>
+                </button>
+            </div>
 
-            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            <div class="quasar-notice quasar-notice-info" role="status">
                 @GetNextSetupHint()
-            </MudAlert>
+            </div>
 
-            <MudProgressLinear Value="@SetupProgressPercent" Color="Color.Primary" Class="my-2" />
-            <MudText Typo="Typo.caption">@GetSetupProgressText()</MudText>
+            <QuasarProgress Label="Setup progress" Value="@SetupProgressPercent" />
+            <p class="quasar-muted quasar-caption">@GetSetupProgressText()</p>
 
             <div class="setup-wizard-steps">
                 @if (CurrentSetupStep == 0)
                 {
                 <div class="setup-wizard-step">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                            <MudStack Spacing="0" Class="setup-wizard-copy">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Create world template</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(SetupWorldTemplate is not null ? Color.Success : Color.Warning)" Size="Size.Small">
+                    <div class="quasar-stack">
+                        <div class="quasar-row quasar-between">
+                            <div class="setup-wizard-copy quasar-stack">
+                                <div class="quasar-row">
+                                    <h3>Create world template</h3>
+                                    <span class="quasar-status quasar-tone-@((SetupWorldTemplate is not null ? Color.Success : Color.Warning).ToString().ToLowerInvariant())">
                                         @(SetupWorldTemplate is not null ? "Done" : "Required")
-                                    </MudChip>
-                                </MudStack>
-                                <MudText Typo="Typo.body2">
+                                    </span>
+                                </div>
+                                <p>
                                     @if (SetupWorldTemplate is { } worldTemplate)
                                     {
                                         @($"Using '{worldTemplate.Name}' as setup world template.")
@@ -116,44 +103,40 @@
                                     {
                                         @("Choose a world supplied with Space Engineers Dedicated Server. Quasar copies it into managed template storage.")
                                     }
-                                </MudText>
-                            </MudStack>
+                                </p>
+                            </div>
 
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                <MudButton Variant="@(SetupWorldTemplate is not null ? Variant.Outlined : Variant.Filled)"
-                                           Color="@(SetupWorldTemplate is not null ? Color.Default : Color.Primary)"
-                                           StartIcon="@Icons.Material.Filled.Public"
-                                           Disabled="@(!IsDedicatedServerAvailable)"
-                                           OnClick="OpenSetupWorldTemplateDialogAsync">
+                            <div class="setup-wizard-actions quasar-row">
+                                <button class="quasar-button quasar-tone-@((SetupWorldTemplate is not null ? Color.Default : Color.Primary).ToString().ToLowerInvariant())" type="button" disabled="@(!IsDedicatedServerAvailable)" @onclick="OpenSetupWorldTemplateDialogAsync"><QuasarIcon Icon="@QuasarIcons.Public" />
                                     @(SetupWorldTemplate is not null ? "Choose Another World" : "Choose DS World")
-                                </MudButton>
-                            </MudStack>
-                        </MudStack>
+                                </button>
+                            </div>
+                        </div>
 
                         @if (SetupWorldTemplate is not null)
                         {
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                <MudChip T="string" Variant="Variant.Outlined">@SetupWorldTemplate.Name</MudChip>
-                                <MudChip T="string" Variant="Variant.Outlined">@WorldTemplateCount total</MudChip>
-                            </MudStack>
+                            <div class="quasar-row">
+                                <span class="quasar-status">@SetupWorldTemplate.Name</span>
+                                <span class="quasar-status">@WorldTemplateCount total</span>
+                            </div>
                         }
-                    </MudStack>
+                    </div>
                 </div>
                 }
 
                 @if (CurrentSetupStep == 1)
                 {
                 <div class="setup-wizard-step">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                            <MudStack Spacing="0" Class="setup-wizard-copy">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Create matching config profile</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(SetupConfigProfile is not null ? Color.Success : Color.Warning)" Size="Size.Small">
+                    <div class="quasar-stack">
+                        <div class="quasar-row quasar-between">
+                            <div class="setup-wizard-copy quasar-stack">
+                                <div class="quasar-row">
+                                    <h3>Create matching config profile</h3>
+                                    <span class="quasar-status quasar-tone-@((SetupConfigProfile is not null ? Color.Success : Color.Warning).ToString().ToLowerInvariant())">
                                         @(SetupConfigProfile is not null ? "Done" : "Required")
-                                    </MudChip>
-                                </MudStack>
-                                <MudText Typo="Typo.body2">
+                                    </span>
+                                </div>
+                                <p>
                                     @if (SetupConfigProfile is { } configProfile)
                                     {
                                         @($"'{configProfile.Name}' was created from '{SetupWorldTemplate?.Name}' and is ready for this world.")
@@ -162,42 +145,39 @@
                                     {
                                         @($"Copy world settings and mods from '{SetupWorldTemplate?.Name}' into a compatible config profile.")
                                     }
-                                </MudText>
-                            </MudStack>
+                                </p>
+                            </div>
 
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                <MudButton Variant="@(SetupConfigProfile is not null ? Variant.Outlined : Variant.Filled)"
-                                           Color="@(SetupConfigProfile is not null ? Color.Default : Color.Primary)"
-                                           StartIcon="@Icons.Material.Filled.Tune"
-                                           OnClick="OpenSetupConfigProfileDialogAsync">
+                            <div class="setup-wizard-actions quasar-row">
+                                <button class="quasar-button quasar-tone-@((SetupConfigProfile is not null ? Color.Default : Color.Primary).ToString().ToLowerInvariant())" type="button" @onclick="OpenSetupConfigProfileDialogAsync"><QuasarIcon Icon="@QuasarIcons.Tune" />
                                     @(SetupConfigProfile is not null ? "Review Config Profile" : "Create From World")
-                                </MudButton>
-                            </MudStack>
-                        </MudStack>
+                                </button>
+                            </div>
+                        </div>
 
                         @if (SetupConfigProfile is not null)
                         {
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                <MudChip T="string" Variant="Variant.Outlined">@SetupConfigProfile.Name</MudChip>
-                            </MudStack>
+                            <div class="quasar-row">
+                                <span class="quasar-status">@SetupConfigProfile.Name</span>
+                            </div>
                         }
-                    </MudStack>
+                    </div>
                 </div>
                 }
 
                 @if (CurrentSetupStep == 2)
                 {
                 <div class="setup-wizard-step">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                            <MudStack Spacing="0" Class="setup-wizard-copy">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Create server</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConfiguredServerCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                    <div class="quasar-stack">
+                        <div class="quasar-row quasar-between">
+                            <div class="setup-wizard-copy quasar-stack">
+                                <div class="quasar-row">
+                                    <h3>Create server</h3>
+                                    <span class="quasar-status quasar-tone-@((ConfiguredServerCount > 0 ? Color.Success : Color.Warning).ToString().ToLowerInvariant())">
                                         @(ConfiguredServerCount > 0 ? "Done" : "Required")
-                                    </MudChip>
-                                </MudStack>
-                                <MudText Typo="Typo.body2">
+                                    </span>
+                                </div>
+                                <p>
                                     @if (ConfiguredServerCount > 0)
                                     {
                                         @($"{ConfiguredServerCount} server definition(s) saved on dashboard.")
@@ -206,55 +186,52 @@
                                     {
                                         @("Required. Define identity, template assignments, runtime policy, restart policy, health policy here.")
                                     }
-                                </MudText>
-                            </MudStack>
+                                </p>
+                            </div>
 
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                <MudButton Variant="@(ConfiguredServerCount > 0 ? Variant.Outlined : Variant.Filled)"
-                                           Color="@(ConfiguredServerCount > 0 ? Color.Default : Color.Primary)"
-                                           StartIcon="@Icons.Material.Filled.Storage"
-                                           OnClick="OpenSetupCreateServerDialogAsync">
+                            <div class="setup-wizard-actions quasar-row">
+                                <button class="quasar-button quasar-tone-@((ConfiguredServerCount > 0 ? Color.Default : Color.Primary).ToString().ToLowerInvariant())" type="button" @onclick="OpenSetupCreateServerDialogAsync"><QuasarIcon Icon="@QuasarIcons.Storage" />
                                     @(ConfiguredServerCount > 0 ? "Add Server" : "Create Server")
-                                </MudButton>
-                            </MudStack>
-                        </MudStack>
+                                </button>
+                            </div>
+                        </div>
 
                         @if (Servers.Count > 0)
                         {
-                            <MudStack Spacing="1" Class="setup-wizard-status-list">
+                            <div class="setup-wizard-status-list quasar-stack">
                                 @foreach (var server in Servers.Take(4))
                                 {
                                     <div class="setup-wizard-status-row">
-                                        <MudStack Spacing="0" Class="setup-wizard-copy">
-                                            <MudText Typo="Typo.body2" Class="mono">@server.UniqueName</MudText>
-                                            <MudText Typo="Typo.caption">@GetServerSetupSummary(server)</MudText>
-                                        </MudStack>
-                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(server.UniqueName)">
+                                        <div class="setup-wizard-copy quasar-stack">
+                                            <p class="mono">@server.UniqueName</p>
+                                            <p class="quasar-muted quasar-caption">@GetServerSetupSummary(server)</p>
+                                        </div>
+                                        <div class="quasar-row">
+                                            <span class="quasar-status quasar-tone-@(GetSetupStateColor(server.UniqueName).ToString().ToLowerInvariant())">
                                                 @GetSetupStateText(server.UniqueName)
-                                            </MudChip>
-                                        </MudStack>
+                                            </span>
+                                        </div>
                                     </div>
                                 }
-                            </MudStack>
+                            </div>
                         }
-                    </MudStack>
+                    </div>
                 </div>
                 }
 
                 @if (CurrentSetupStep == 3)
                 {
                 <div class="setup-wizard-step">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                            <MudStack Spacing="0" Class="setup-wizard-copy">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Start server</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(RunningServerCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                    <div class="quasar-stack">
+                        <div class="quasar-row quasar-between">
+                            <div class="setup-wizard-copy quasar-stack">
+                                <div class="quasar-row">
+                                    <h3>Start server</h3>
+                                    <span class="quasar-status quasar-tone-@((RunningServerCount > 0 ? Color.Success : Color.Warning).ToString().ToLowerInvariant())">
                                         @(RunningServerCount > 0 ? "Done" : "Required")
-                                    </MudChip>
-                                </MudStack>
-                                <MudText Typo="Typo.body2">
+                                    </span>
+                                </div>
+                                <p>
                                     @if (RunningServerCount > 0)
                                     {
                                         @($"{RunningServerCount} server(s) launching or running now.")
@@ -267,51 +244,44 @@
                                     {
                                         @("Required. Launch saved server here. Quasar prepares runtime and starts server from dashboard.")
                                     }
-                                </MudText>
-                            </MudStack>
+                                </p>
+                            </div>
 
-                            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
+                            <div class="setup-wizard-actions quasar-row">
                                 @if (StartableServers.Count == 0)
                                 {
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Default"
-                                               Disabled="true"
-                                               StartIcon="@Icons.Material.Filled.PlayArrow">
+                                    <button class="quasar-button quasar-tone-default" type="button" disabled="true"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />
                                         @(ConfiguredServerCount == 0 ? "Create Server First" : "All Servers Running")
-                                    </MudButton>
+                                    </button>
                                 }
                                 else
                                 {
                                     @foreach (var server in StartableServers)
                                     {
-                                        <MudButton Variant="Variant.Filled"
-                                                   Color="Color.Primary"
-                                                   Disabled="@(IsLaunchBlocked || string.IsNullOrWhiteSpace(server.WorldSaveName))"
-                                                   StartIcon="@Icons.Material.Filled.PlayArrow"
-                                                   OnClick="@(() => StartAsync(server.UniqueName))">
+                                        <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(IsLaunchBlocked || string.IsNullOrWhiteSpace(server.WorldSaveName))" @onclick="@(() => StartAsync(server.UniqueName))"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />
                                             Start @server.UniqueName
-                                        </MudButton>
+                                        </button>
                                     }
                                 }
-                            </MudStack>
-                        </MudStack>
-                    </MudStack>
+                            </div>
+                        </div>
+                    </div>
                 </div>
                 }
 
                 @if (CurrentSetupStep == 4)
                 {
                 <div class="setup-wizard-step">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                            <MudStack Spacing="0" Class="setup-wizard-copy">
-                                <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                                    <MudText Typo="Typo.subtitle2">Wait for Quasar.Agent</MudText>
-                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(ConnectedAgentCount > 0 ? Color.Success : Color.Warning)" Size="Size.Small">
+                    <div class="quasar-stack">
+                        <div class="quasar-row quasar-between">
+                            <div class="setup-wizard-copy quasar-stack">
+                                <div class="quasar-row">
+                                    <h3>Wait for Quasar.Agent</h3>
+                                    <span class="quasar-status quasar-tone-@((ConnectedAgentCount > 0 ? Color.Success : Color.Warning).ToString().ToLowerInvariant())">
                                         @(ConnectedAgentCount > 0 ? "Done" : "Waiting")
-                                    </MudChip>
-                                </MudStack>
-                                <MudText Typo="Typo.body2">
+                                    </span>
+                                </div>
+                                <p>
                                     @if (ConnectedAgentCount > 0)
                                     {
                                         @($"{ConnectedAgentCount} connected agent(s) reporting live server data.")
@@ -324,195 +294,152 @@
                                     {
                                         @("Dashboard watching live attach now. Keep page open while Quasar.Agent connects.")
                                     }
-                                </MudText>
-                            </MudStack>
+                                </p>
+                            </div>
 
                             @if (IsSetupStepComplete(4))
                             {
-                                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="setup-wizard-actions">
-                                    <MudButton Variant="Variant.Filled"
-                                               Color="Color.Success"
-                                               StartIcon="@Icons.Material.Filled.Check"
-                                               OnClick="HideSetupWizard">
+                                <div class="setup-wizard-actions quasar-row">
+                                    <button class="quasar-button quasar-tone-success quasar-button-fill" type="button" @onclick="HideSetupWizard"><QuasarIcon Icon="@QuasarIcons.Check" />
                                         Close
-                                    </MudButton>
-                                </MudStack>
+                                    </button>
+                                </div>
                             }
 
-                        </MudStack>
+                        </div>
 
                         @if (LaunchedServers.Count > 0)
                         {
-                            <MudStack Spacing="1" Class="setup-wizard-status-list">
+                            <div class="setup-wizard-status-list quasar-stack">
                                 @foreach (var server in LaunchedServers)
                                 {
                                     <div class="setup-wizard-status-row">
-                                        <MudStack Spacing="0" Class="setup-wizard-copy">
-                                            <MudText Typo="Typo.body2" Class="mono">@server.UniqueName</MudText>
-                                            <MudText Typo="Typo.caption">@GetSetupRuntimeSummary(server.UniqueName)</MudText>
-                                        </MudStack>
-                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupStateColor(server.UniqueName)">
+                                        <div class="setup-wizard-copy quasar-stack">
+                                            <p class="mono">@server.UniqueName</p>
+                                            <p class="quasar-muted quasar-caption">@GetSetupRuntimeSummary(server.UniqueName)</p>
+                                        </div>
+                                        <div class="quasar-row">
+                                            <span class="quasar-status quasar-tone-@(GetSetupStateColor(server.UniqueName).ToString().ToLowerInvariant())">
                                                 @GetSetupStateText(server.UniqueName)
-                                            </MudChip>
-                                            <MudChip T="string" Variant="Variant.Outlined" Color="@GetSetupAgentColor(server.UniqueName)">
+                                            </span>
+                                            <span class="quasar-status quasar-tone-@(GetSetupAgentColor(server.UniqueName).ToString().ToLowerInvariant())">
                                                 @GetSetupAgentText(server.UniqueName)
-                                            </MudChip>
-                                        </MudStack>
+                                            </span>
+                                        </div>
                                     </div>
                                 }
-                            </MudStack>
+                            </div>
                         }
-                    </MudStack>
+                    </div>
                 </div>
                 }
 
                 @if (CurrentSetupStep > 0)
                 {
-                    <MudStack Row="true" Spacing="1" Class="mt-1">
-                        <MudButton Variant="Variant.Text" Color="Color.Default" StartIcon="@Icons.Material.Filled.ArrowBack" OnClick="GoToPreviousSetupStep">Back</MudButton>
-                    </MudStack>
+                    <div class="mt-1 quasar-row">
+                        <button class="quasar-button quasar-tone-default" type="button" @onclick="GoToPreviousSetupStep"><QuasarIcon Icon="@QuasarIcons.ArrowBack" />Back</button>
+                    </div>
                 }
             </div>
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 }
 
 @if (ProblemBanner is { } problemBanner)
 {
-    <MudAlert Severity="@problemBanner.Severity" Variant="Variant.Filled" Class="mb-4">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-            <MudText Typo="Typo.body2">@problemBanner.Message</MudText>
+    <div class="mb-4 quasar-notice quasar-notice-@(problemBanner.Severity.ToString().ToLowerInvariant())" role="status">
+        <div class="quasar-row quasar-between">
+            <p>@problemBanner.Message</p>
             @if (!string.IsNullOrWhiteSpace(problemBanner.ClearErrorUniqueName))
             {
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Inherit"
-                           Size="Size.Small"
-                           StartIcon="@Icons.Material.Filled.Clear"
-                           OnClick="@(() => ClearErrorStatusAsync(problemBanner.ClearErrorUniqueName))">
+                <button class="quasar-button quasar-tone-inherit" type="button" @onclick="@(() => ClearErrorStatusAsync(problemBanner.ClearErrorUniqueName))"><QuasarIcon Icon="@QuasarIcons.Clear" />
                     Clear Error Status
-                </MudButton>
+                </button>
             }
-        </MudStack>
-    </MudAlert>
+        </div>
+    </div>
 }
 
 @if (ShouldShowRuntimeWarmup())
 {
-    <MudPaper Class="pa-4 summary-card runtime-status mb-4">
-        <MudStack Spacing="2">
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-                <MudStack Spacing="0" Class="runtime-status-copy">
-                    <MudText Typo="Typo.subtitle1">Managed Runtime</MudText>
-                    <MudText Typo="Typo.body2">@RuntimeWarmupSnapshot.Message</MudText>
-                </MudStack>
-                <MudChip T="string" Variant="Variant.Outlined" Color="@GetRuntimeWarmupColor()" Size="Size.Small">
+    <section class=" runtime-status mb-4 quasar-panel quasar-section">
+        <div class="quasar-stack">
+            <div class="quasar-row quasar-between">
+                <div class="runtime-status-copy quasar-stack">
+                    <h3>Managed Runtime</h3>
+                    <p>@RuntimeWarmupSnapshot.Message</p>
+                </div>
+                <span class="quasar-status quasar-tone-@(GetRuntimeWarmupColor().ToString().ToLowerInvariant())">
                     @GetRuntimeWarmupLabel()
-                </MudChip>
-            </MudStack>
+                </span>
+            </div>
 
             <div class="runtime-status-grid">
                 @foreach (var component in RuntimeWarmupSnapshot.Components)
                 {
                     <div class="runtime-status-row">
-                        <MudStack Spacing="0" Class="runtime-status-copy">
-                            <MudText Typo="Typo.body2">@component.DisplayName</MudText>
-                            <MudText Typo="Typo.caption">@component.Message</MudText>
+                        <div class="runtime-status-copy quasar-stack">
+                            <p>@component.DisplayName</p>
+                            <p class="quasar-muted quasar-caption">@component.Message</p>
                             @if (!string.IsNullOrWhiteSpace(component.Path))
                             {
                                 <CopyablePath Value="@component.Path" TextClass="" />
                             }
-                        </MudStack>
+                        </div>
                         <div class="runtime-status-progress">
-                            <MudProgressLinear Color="@GetRuntimeComponentColor(component)"
-                                               Value="@(component.Percent ?? 0)"
-                                               Indeterminate="@IsRuntimeComponentIndeterminate(component)"
-                                               Rounded="true" />
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
-                                <MudText Typo="Typo.caption">@GetRuntimeComponentLabel(component)</MudText>
+                            <QuasarProgress Label="@component.DisplayName" Value="@(component.Percent ?? 0)" Indeterminate="@IsRuntimeComponentIndeterminate(component)" />
+                            <div class="quasar-row quasar-between">
+                                <p class="quasar-muted quasar-caption">@GetRuntimeComponentLabel(component)</p>
                                 @if (CanRetryRuntimeComponent(component))
                                 {
-                                    <MudButton Variant="Variant.Outlined"
-                                               Color="Color.Primary"
-                                               Size="Size.Small"
-                                               StartIcon="@Icons.Material.Filled.Refresh"
-                                               OnClick="RetryRuntimeWarmupAsync">
+                                    <button class="quasar-button quasar-tone-primary" type="button" @onclick="RetryRuntimeWarmupAsync"><QuasarIcon Icon="@QuasarIcons.Refresh" />
                                         Retry
-                                    </MudButton>
+                                    </button>
                                 }
-                            </MudStack>
+                            </div>
                         </div>
                     </div>
                 }
             </div>
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
 }
 
-<MudGrid Class="mb-4">
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Online Standalone" : "Online Servers")</MudText>
-            <MudText Typo="Typo.h4">@OnlineServerCount</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="pa-4 summary-card">
-            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Standalone Players" : "Players Online")</MudText>
-            <MudText Typo="Typo.h4">@PlayersOnline</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="@GetProblemCardClass(WarningServerCount, false)">
-            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Standalone Warnings" : "Health Warnings")</MudText>
-            <MudText Typo="Typo.h4">@WarningServerCount</MudText>
-        </MudPaper>
-    </MudItem>
-    <MudItem xs="12" sm="6" lg="3">
-        <MudPaper Class="@GetProblemCardClass(UnhealthyServerCount, true)">
-            <MudText Typo="Typo.overline">@(Clusters.Count > 0 ? "Standalone Errors" : "Errors")</MudText>
-            <MudText Typo="Typo.h4">@UnhealthyServerCount</MudText>
-        </MudPaper>
-    </MudItem>
-</MudGrid>
+<section class="quasar-summary" aria-label="Fleet summary">
+    <div class="quasar-metric">
+        <span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone servers" : "Servers")<QuasarIcon Icon="@QuasarIcons.Storage" /></span>
+        <strong class="quasar-metric-value">@OnlineServerCount<small>/ @Servers.Count running</small></strong>
+        <span class="quasar-metric-note">@ConfiguredServerCount configured · @ConnectedAgentCount connected agents</span>
+    </div>
+    <div class="quasar-metric">
+        <span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone players" : "Players online")<QuasarIcon Icon="@QuasarIcons.Groups" /></span>
+        <strong class="quasar-metric-value">@PlayersOnline<small>/ @PlayerCapacity slots</small></strong>
+        <span class="quasar-metric-note">Across connected standalone servers</span>
+    </div>
+    <div class="quasar-metric @(WarningServerCount > 0 ? "quasar-metric-warning" : null)">
+        <span class="quasar-metric-label">Average sim speed<QuasarIcon Icon="@QuasarIcons.QueryStats" /></span>
+        <strong class="quasar-metric-value">@AverageSimSpeed<small>×</small></strong>
+        <span class="quasar-metric-note">@WarningServerCount health warnings · @UnhealthyServerCount errors</span>
+    </div>
+    <div class="quasar-metric @(UnhealthyServerCount > 0 ? "quasar-metric-error" : null)">
+        <span class="quasar-metric-label">Memory usage<QuasarIcon Icon="@QuasarIcons.Memory" /></span>
+        <strong class="quasar-metric-value">@TotalMemoryGiB<small>GiB</small></strong>
+        <span class="quasar-metric-note">Reported standalone working sets</span>
+    </div>
+</section>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
-    <MudText Typo="Typo.h6">Servers</MudText>
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-        @if (IsCardsView)
-        {
-            <MudButton Variant="Variant.Filled"
-                       Color="Color.Primary"
-                       StartIcon="@Icons.Material.Filled.Add"
-                       OnClick="OpenCreateServerDialogAsync">
-                Create Server
-            </MudButton>
-            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-                <MudButton Href="/clusters/new" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">
-                    Create Cluster
-                </MudButton>
-            </AuthorizeView>
-        }
-        <MudButton Variant="@(IsCardsView ? Variant.Filled : Variant.Outlined)"
-                   Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.Dashboard"
-                   OnClick="@(() => SetServerViewAsync(DashboardServerView.Cards))">
-            Cards
-        </MudButton>
-        <MudButton Variant="@(IsListView ? Variant.Filled : Variant.Outlined)"
-                   Color="Color.Primary"
-                   StartIcon="@Icons.Material.Filled.ViewList"
-                   OnClick="@(() => SetServerViewAsync(DashboardServerView.List))">
-            List
-        </MudButton>
-    </MudStack>
-</MudStack>
+@if (!IsListView)
+{
+    <div class="quasar-dashboard-heading"><h2>Fleet workspace</h2><div class="quasar-dashboard-actions">@FleetViewActions</div></div>
+}
 
 @* Keep this conditional: the landing page must not build hidden server-list/card DOM. *@
 @if (IsListView)
 {
     <Servers Embedded="true"
              HideHeader="true"
+             HideCreateActions="true"
+             HeaderActions="@FleetViewActions"
              DisableResponsiveLayout="true"
              LaunchBlocked="@IsLaunchBlocked"
              LaunchBlockedMessage="@RuntimeWarmupSnapshot.Message"
@@ -522,17 +449,17 @@ else if (Servers.Count == 0 && Clusters.Count == 0)
 {
     @if (!ShowSetupWizard)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        <p class="quasar-notice">
             No servers configured yet. Create a server to manage a Space Engineers dedicated server.
-        </MudAlert>
+        </p>
     }
 }
 else
 {
-    <MudGrid>
+    <div class="quasar-card-grid">
         @foreach (var server in Servers)
         {
-            <MudItem xs="12" xl="6">
+            <div>
                 <ServerCard Server="@server"
                             Runtime="@GetRuntime(server.UniqueName)"
                             Agent="@GetAgent(server.UniqueName)"
@@ -542,19 +469,49 @@ else
                             KillStartingRequested="KillStartingAsync"
                             RestartRequested="RestartAsync"
                             ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
-            </MudItem>
+            </div>
         }
         @foreach (var cluster in Clusters)
         {
-            <MudItem xs="12" xl="6">
+            <div>
                 <ClusterCard Cluster="@cluster" />
-            </MudItem>
+            </div>
         }
-    </MudGrid>
+    </div>
 }
+
+<div class="quasar-insights">
+    <FleetTelemetryChart Servers="@Servers" />
+    <section class="quasar-panel">
+        <div class="quasar-panel-heading"><h2>Recent activity</h2><span>Lifecycle &amp; commands</span></div>
+        @if (RecentActivity.Count == 0)
+        {
+            <div class="quasar-empty"><h2>No recent activity</h2><p>Server starts, stops, restarts, and command results appear here.</p></div>
+        }
+        else
+        {
+            <ol class="quasar-activity">
+                @foreach (var activity in RecentActivity)
+                {
+                    <li><time datetime="@activity.At.ToString("O")" title="@activity.At.ToLocalTime().ToString("g")">@activity.At.ToLocalTime().ToString("HH:mm")</time><div><strong class="@activity.Tone">@activity.Message</strong><p>@activity.Server</p></div></li>
+                }
+            </ol>
+        }
+    </section>
+</div>
 
 @code
 {
+    private RenderFragment FleetViewActions => @<text>
+        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+            <a href="/clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a>
+        </AuthorizeView>
+        <div class="quasar-segmented quasar-view-selector" role="group" aria-label="Server view">
+            <button type="button" aria-pressed="@(IsCardsView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.Cards))"><QuasarIcon Icon="@QuasarIcons.Dashboard" />Cards</button>
+            <button type="button" aria-pressed="@(IsListView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.List))"><QuasarIcon Icon="@QuasarIcons.ViewList" />List</button>
+        </div>
+    </text>;
+
     private const string ServerViewStorageKey = "quasar.dashboard.serverView";
     private const string FirstSetupChoiceStorageKey = "quasar.dashboard.firstSetupChoiceShown";
 
@@ -592,7 +549,7 @@ else
             return settings.ConsentGranted is null || settings.ConsentGranted == true && !settings.DiagnosticsGranted;
         }
     }
-    private DashboardServerView _serverView = DashboardServerView.Cards;
+    private DashboardServerView _serverView = DashboardServerView.List;
     private bool _serverViewLoadedFromStorage;
     private bool _firstSetupChoiceAttempted;
     private bool _serverSetupDialogOpen;
@@ -608,6 +565,37 @@ else
         .Select(server => GetAgent(server.UniqueName))
         .Where(agent => agent?.IsConnected == true)
         .Sum(agent => agent?.Snapshot?.Metrics.PlayersOnline ?? 0);
+
+    private IReadOnlyList<Magnetar.Protocol.Model.ServerMetrics> LiveStandaloneMetrics => Servers
+        .Select(server => GetAgent(server.UniqueName))
+        .Where(agent => agent is { IsConnected: true, Snapshot: not null })
+        .Select(agent => agent!.Snapshot!.Metrics).ToArray();
+    private int PlayerCapacity => LiveStandaloneMetrics.Sum(metrics => metrics.MaxPlayers);
+    private string AverageSimSpeed => LiveStandaloneMetrics is { Count: > 0 } metrics
+        ? metrics.Average(value => value.SimSpeed).ToString("0.00") : "—";
+    private string TotalMemoryGiB => LiveStandaloneMetrics.Where(metrics => metrics.MemoryWorkingSetMb.HasValue).ToArray() is { Length: > 0 } metrics
+        ? (metrics.Sum(value => value.MemoryWorkingSetMb!.Value) / 1024d).ToString("0.0") : "—";
+
+    private IReadOnlyList<FleetActivity> RecentActivity
+    {
+        get
+        {
+            var events = new List<FleetActivity>();
+            foreach (var runtime in RuntimeSnapshotList)
+            {
+                if (runtime.StartedAtUtc is { } started) events.Add(new(started, runtime.UniqueName, "Server started", "quasar-text-success"));
+                if (runtime.StoppedAtUtc is { } stopped) events.Add(new(stopped, runtime.UniqueName, "Server stopped", ""));
+                if (runtime.LastRestart is { } restart) events.Add(new(restart.CompletedAtUtc ?? restart.RequestedAtUtc, runtime.UniqueName,
+                    string.IsNullOrWhiteSpace(restart.Reason) ? "Restart " + restart.Outcome.ToString().ToLowerInvariant() : restart.Reason,
+                    restart.Outcome == DedicatedServerRestartOutcome.Failed ? "quasar-text-error" : "quasar-text-warning"));
+            }
+            foreach (var agent in Agents)
+                foreach (var result in agent.CommandResults.Where(result => !string.IsNullOrWhiteSpace(result.Message)).Take(6))
+                    events.Add(new(result.CompletedAtUtc, agent.ServerDisplayName, result.Message, result.Success ? "" : "quasar-text-error"));
+            return events.OrderByDescending(entry => entry.At).Take(5).ToArray();
+        }
+    }
+    private sealed record FleetActivity(DateTimeOffset At, string Server, string Message, string Tone);
 
     private int ConfiguredServerCount => Servers.Count + Clusters.Count;
 
@@ -1345,10 +1333,10 @@ else
 
     private static string GetProblemCardClass(int count, bool error) =>
         count <= 0
-            ? "pa-4 summary-card"
+            ? ""
             : error
-                ? "pa-4 summary-card summary-card-error"
-                : "pa-4 summary-card summary-card-warning";
+                ? " summary-card-error"
+                : " summary-card-warning";
 
     private static string FirstNonEmpty(params string[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;

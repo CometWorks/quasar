@@ -2,10 +2,7 @@
 @inject IDialogService Dialogs
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterQuery">
-    <MudTooltip Text="Open cluster console">
-        <MudIconButton aria-label="Open cluster console" Icon="@Icons.Material.Filled.Terminal"
-                       Size="Size.Small" OnClick="OpenAsync" />
-    </MudTooltip>
+    <QuasarIconButton Label="Open cluster console" Icon="@QuasarIcons.Terminal" OnClick="OpenAsync" />
 </AuthorizeView>
 
 @code {

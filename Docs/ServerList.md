@@ -56,3 +56,18 @@ Only current explicit Steam **admin** mappings authorize description editing for
 `ServerListPublisherTests` exercises consent, separate visibility, live selection changes, cancellation, admin changes, ordering, public payload exclusion and observation handling. `ServerListSettingsTests` covers persistence, legacy configuration migration, validation, conflicting edits and source discovery; `ServerListingPageTests` exercises both server kinds, saving and permission rechecks. The cross-repository `error-reporting/Tests/EndToEnd/run.sh` with a server-list checkout runs actual backend/website fixtures and the real uploader/publisher. It never starts Quasar's web service.
 
 Ordinary log delivery is batched every ten minutes after the first available batch. Server metadata/heartbeat publication remains every minute. Evidence must still be a nonempty, authenticated, consented Quasar log batch; a one-hour eligibility window tolerates ordinary delivery gaps. Deploy the website, backoffice and Quasar updates in that order. The two-minute Host sharing consent lease is independent and unchanged.
+
+## Public CometWorks cluster status
+
+Configured cluster listings include `online / total nodes`, gateway phase and health,
+partition/handover counts and per-node role, state, availability and quarantined
+partition counts. Total counts the gateway's registered node-incarnation roster;
+online requires a fresh unexpired lease and a state other than `Dead`. A missing or
+stale gateway response retains the CometWorks label with unknown live counts.
+
+Public node labels are ordinal (`Node 1`, etc.); private cluster/world/node/slot/host
+identities, endpoints, executor metadata and diagnostic reason strings are excluded.
+The website independently expires live cluster details after 60 seconds. Existing
+listing consent, verified Quasar log evidence and Steam-admin editing rules remain.
+Deploy the updated website and backoffice before enabling this extended publication.
+Torch/Nexus publication uses the separate [Torch publisher](https://github.com/CometWorks/server-list-torch-plugin).
