@@ -4,7 +4,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell, .quasar-shell * { box-sizing: border-box; }
 .quasar-shell {
     display: grid;
-    grid-template-columns: 224px minmax(0, 1fr);
+    grid-template-columns: 160px minmax(0, 1fr);
     min-height: 100dvh;
     background: var(--quasar-palette-background);
     color: var(--quasar-palette-text-primary);
@@ -43,7 +43,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     display: flex;
     gap: 10px;
     align-items: center;
-    padding: 9px 12px;
+    padding: 9px 8px;
     margin: 2px 0;
     border-radius: 4px;
     color: var(--quasar-palette-drawer-text);
@@ -206,7 +206,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 @media (max-width: 1200px) { .quasar-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) {
     .quasar-shell { grid-template-columns: minmax(0, 1fr); }
-    .quasar-sidebar, .quasar-nav-collapsed .quasar-sidebar { display: block; position: fixed; top: 0; bottom: 0; left: 0; width: 220px; z-index: 50; transform: translateX(-100%); visibility: hidden; }
+    .quasar-sidebar, .quasar-nav-collapsed .quasar-sidebar { display: block; position: fixed; top: 0; bottom: 0; left: 0; width: 160px; z-index: 50; transform: translateX(-100%); visibility: hidden; }
     .quasar-nav-open .quasar-sidebar { transform: none; visibility: visible; }
     .quasar-nav-scrim { display: block; position: fixed; inset: 0; z-index: 40; border: 0; background: #0006; }
     .quasar-topbar, .quasar-main { padding: 16px 20px; }
