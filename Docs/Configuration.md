@@ -375,6 +375,29 @@ deep patch becomes suspect. Deep patch groups log failures and continue with the
 remaining profiler surface; entity call-site misses fall back to high-level
 timing only.
 
+## Discord outbound proxy
+
+**Discord → Bot Settings → Use system/environment proxy** is enabled by default,
+including for existing configurations. Both Discord API requests and the gateway
+WebSocket connection use .NET's default proxy settings. Clear the checkbox to
+connect directly. **Save Bot Settings** persists `useProxy` in
+`discord-options.json` and reconnects the bot.
+
+To reuse an existing proxy, make its settings available to the **Quasar worker
+process**. .NET reads `HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`, and `NO_PROXY`
+(lowercase variants are also supported), with platform-specific system settings
+as a fallback. For example, set `HTTPS_PROXY=http://proxy.example:3128` for Discord's
+HTTPS API and secure WebSocket connections. `NO_PROXY` bypass rules still apply.
+Proxy credentials can be supplied through the environment proxy URL, for example
+`http://user:password@proxy.example:3128`; percent-encode special characters.
+
+For systemd, set the environment in the service configuration; for Docker, pass it
+to the Quasar container; on Windows, ensure the account running the Scheduled Task
+has the settings. Restart Quasar after changing environment or system proxy
+settings. The proxy must allow HTTPS tunneling (CONNECT) and long-lived Discord
+gateway connections. This setting controls outbound Discord traffic; the Security
+page's trusted reverse proxies control inbound web requests separately.
+
 ## Discord chat privacy and slash commands
 
 Quasar keeps Space Engineers chat channels separate when relaying them to Discord:
