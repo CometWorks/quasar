@@ -1,5 +1,6 @@
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
+using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Services;
 using Quasar.Services.Analytics;
@@ -105,6 +106,43 @@ public sealed class ClusterAgentIdentityTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             configs.UpdatePluginConfigAsync("process-a", "plugin-a", "{}", "new"));
         Assert.Equal(0, sends);
+    }
+
+    [Fact]
+    public async Task CompanionDiscoveryIdsRouteToTheirExactIncarnationAndRejectNodeAliases()
+    {
+        var registry = Registry();
+        var sent = new List<string>();
+        foreach (var (epoch, id) in new[] { (300, "old"), (301, "new") })
+            registry.UpsertHello(Hello(epoch, id), id, (message, _) =>
+            {
+                var command = message.Command!;
+                sent.Add(command.AgentId);
+                var request = JsonSerializer.Deserialize<CompanionPluginRequest>(command.Payload,
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+                registry.UpdateCommandResult(new() { AgentId = id, CommandId = command.CommandId, Success = true,
+                    Payload = JsonSerializer.Serialize(new CompanionPluginResponse { CorrelationId = request.CorrelationId,
+                        Success = true, PayloadJson = "\"reply\"" }) }, id);
+                return Task.CompletedTask;
+            });
+        var channel = new QuasarCompanionChannel(registry);
+        var servers = channel.GetConnectedServers();
+        Assert.Equal(2, servers.Select(server => server.ServerId).Distinct().Count());
+        foreach (var server in servers)
+        {
+            Assert.Equal("reply", await channel.SendAsync<string, string>(server.ServerId, "plugin", "read", "request", default));
+            Assert.Equal(server.AgentId, sent[^1]);
+        }
+        await Assert.ThrowsAsync<InvalidOperationException>(() => channel.SendAsync<string, string>(
+            "slot-server", "plugin", "read", "request", default));
+        registry.MarkDisconnected("old");
+        await Assert.ThrowsAsync<InvalidOperationException>(() => channel.SendAsync<string, string>(
+            servers.Single(s => s.AgentId == "old").ServerId, "plugin", "read", "request", default));
+        // A second claimant for the same complete identity is ambiguous.
+        registry.UpsertHello(Hello(301, "duplicate"), "duplicate", Sender);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => channel.SendAsync<string, string>(
+            servers.Single(s => s.AgentId == "new").ServerId, "plugin", "read", "request", default));
+        Assert.Equal(2, sent.Count);
     }
 
     public void Dispose() => _metrics.Dispose();

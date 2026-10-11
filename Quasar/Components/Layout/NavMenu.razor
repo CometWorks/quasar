@@ -6,14 +6,14 @@
         <NavLink class="quasar-nav-link" href="/" Match="NavLinkMatch.All"><QuasarIcon Icon="@QuasarIcons.Dashboard" />
             Dashboard
         </NavLink>
-        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
+        <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
                 <NavLink class="quasar-nav-link" href="/configs"><QuasarIcon Icon="@QuasarIcons.Tune" />Configs</NavLink>
                 <NavLink class="quasar-nav-link" href="/world-templates"><QuasarIcon Icon="@QuasarIcons.Public" />Worlds</NavLink>
                 <NavLink class="quasar-nav-link" href="/plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />Plugins</NavLink>
             </Authorized>
         </AuthorizeView>
-        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+        <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
                 <NavLink class="quasar-nav-link" href="/players"><QuasarIcon Icon="@QuasarIcons.Groups" />Players</NavLink>
                 <NavLink class="quasar-nav-link" href="/chat"><QuasarIcon Icon="@QuasarIcons.Chat" />Chat</NavLink>
@@ -23,12 +23,12 @@
         <NavLink class="quasar-nav-link" href="/analytics"><QuasarIcon Icon="@QuasarIcons.QueryStats" />
             Analytics
         </NavLink>
-        <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord">
+        <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
                 <NavLink class="quasar-nav-link" href="/discord"><QuasarIcon Icon="@QuasarIcons.Forum" />Discord</NavLink>
             </Authorized>
         </AuthorizeView>
-        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+        <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
                 <NavLink class="quasar-nav-link" href="/settings/server-list"><QuasarIcon Icon="@QuasarIcons.Public" />
                     Listings

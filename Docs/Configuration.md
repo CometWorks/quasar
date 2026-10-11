@@ -821,14 +821,35 @@ trust broad networks unless every host in that range is under your control.
 ### RBAC enforcement
 
 Steam users receive roles from the runtime `rbac.json` catalog. Quasar supports
-three roles: `viewer`, `editor`, and `admin`. Viewer access is read-only: it can
-open the dashboard, analytics, host status, and protected read APIs, but cannot
-open configuration, world, plugin, player-control, chat-command, entity-control,
-Discord, appearance, cluster-management, backup, update, or security editors.
+three roles: `viewer`, `editor`, and `admin`. Viewers can open every built-in page
+in the **Control plane** navigation: Dashboard, Configs, Worlds, Plugins, Players,
+Chat, Entities, Analytics, Discord, and Listings. They can also view host and
+cluster status, notifications, and protected read APIs. Plugin-provided navigation
+continues to follow each plugin's declared policy.
+
+Viewing uses `CanView`; it does not grant the corresponding write policy:
+
+| Page | Viewer access | Write permission |
+| --- | --- | --- |
+| Configs | Search profile settings, mods, plugins, assignments, and access lists; passwords hidden | `CanEditConfigs` |
+| Worlds | Browse managed and installed world templates | `CanEditConfigs` |
+| Plugins | Plugin inventory and logs; arbitrary configuration values hidden because they may contain credentials | `CanEditConfigs` (standalone), `ClusterManage` (cluster details) |
+| Players | Search/filter known players and their status | `CanControlServers` |
+| Chat | Read recent chat and request refreshed snapshots | `CanControlServers` for sending chat/commands, saves, and restarts |
+| Entities | Query and inspect entities | `CanControlServers` for deletion |
+| Analytics | Read charts and profiler status | `CanControlServers` for changing profiler mode |
+| Discord | Read bot status and channel bindings; token and console logs hidden | `CanManageDiscord` |
+| Listings | Read publication settings and destinations | `CanManageSecurity` |
+
+Workshop credentials and raw plugin settings are never included in Viewer page
+markup. Chat and plugin logs can contain player or operational information;
+assign Viewer only to users allowed to read that information. Appearance, backups,
+updates, and security retain their existing editor/admin page restrictions.
 
 Role changes take effect immediately. Quasar re-evaluates cookie roles on each
 HTTP request, reloads active Blazor sessions when `rbac.json` changes, and checks
-the current role again at sensitive dashboard and security actions. Runtime RBAC
+the current role again in Control Plane write handlers, including after confirmation
+dialogs, and at sensitive dashboard and security actions. Runtime RBAC
 saves that remove the last `admin` mapping are rejected to prevent accidental
 lockout. Direct filesystem edits remain an operator-controlled recovery path.
 

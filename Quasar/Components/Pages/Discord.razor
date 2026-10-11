@@ -1,6 +1,7 @@
 @page "/discord"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanManageDiscord)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
+@inject QuasarPermissionService Permissions
 @inject ClusterCatalog ClusterCatalog
 @inject DiscordOptionsCatalog DiscordOptionsCatalog
 @inject DeathMessagesCatalog DeathMessagesCatalog
@@ -18,6 +19,7 @@
     <Description>One bot for your servers and clusters. Bind command, chat, log, and analytics channels for each.</Description>
 </QuasarPageHeading>
     </div>
+    <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord" Context="permissionContext">
     <MudTooltip Text="Show Discord integration log">
         <MudButton StartIcon="@Icons.Material.Filled.Terminal"
                    Color="Color.Primary"
@@ -26,8 +28,11 @@
             Console Logs
         </MudButton>
     </MudTooltip>
+    </AuthorizeView>
 </div>
 
+<AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord" Context="discordPermission">
+<Authorized>
 <MudGrid>
     <MudItem xs="12" xl="4">
         <section class="quasar-panel pa-4 summary-card">
@@ -397,6 +402,12 @@
     </div>
 </section>
 
+</Authorized>
+<NotAuthorized>
+    <DiscordReadOnly Options="_options" Status="@GetStatusLabel()" />
+</NotAuthorized>
+</AuthorizeView>
+
 @code
 {
     private const float SimSpeedMin = 0f;
@@ -455,6 +466,7 @@
 
     private async Task OpenDiscordConsoleDialogAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageDiscord)) return;
         var options = new DialogOptions
         {
             CloseOnEscapeKey = true,
@@ -494,6 +506,7 @@
 
     private async Task SaveAsync(string successMessage)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageDiscord)) return;
         try
         {
             SyncServerOptions();
@@ -509,6 +522,7 @@
 
     private async Task ResetDeathTemplatesAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageDiscord)) return;
         try
         {
             await DeathMessagesCatalog.ResetAsync();
@@ -523,6 +537,7 @@
 
     private async Task SaveDeathTemplatesAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageDiscord)) return;
         try
         {
             await DeathMessagesCatalog.SaveAsync(_deathMessageConfig.Clone());

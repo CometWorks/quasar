@@ -181,6 +181,8 @@
                                 <span class="quasar-text quasar-type-caption">@context.UniqueName</span>
                             </MudTd>
                             <MudTd DataLabel="Mode">
+                                <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="profilerPermission">
+                                <Authorized>
                                 <MudSelect T="string"
                                            Label="Startup and live mode"
                                            HelperText="@GetProfilerModeHelperText(profiler)"
@@ -194,6 +196,9 @@
                                         <MudSelectItem T="string" Value="@mode.Value">@mode.Label</MudSelectItem>
                                     }
                                 </MudSelect>
+                                </Authorized>
+                                <NotAuthorized>@profiler.ConfiguredMode</NotAuthorized>
+                                </AuthorizeView>
                             </MudTd>
                             <MudTd DataLabel="Live state">
                                 <div class="quasar-layout quasar-gap-1">
@@ -555,7 +560,7 @@ else
 
             var agent = Registry.GetAgents()
                 .Where(item => item.IsConnected &&
-                               string.Equals(item.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase))
+                               string.Equals(item.TelemetryKey, uniqueName, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(item => item.LastSeenUtc)
                 .FirstOrDefault();
             if (agent is not null)
@@ -563,7 +568,7 @@ else
                 var result = await Registry.SendCommandAndWaitAsync(
                     new ServerCommandEnvelope
                     {
-                        UniqueName = uniqueName,
+                        UniqueName = agent.UniqueNameKey,
                         AgentId = agent.AgentId,
                         ServerId = agent.ServerKey,
                         CommandType = ServerCommandType.SetProfilerMode,
@@ -982,8 +987,8 @@ else
             .GroupBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
         _agentsByUniqueName = agents
-            .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
-            .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
+            .Where(agent => !string.IsNullOrWhiteSpace(agent.TelemetryKey))
+            .GroupBy(agent => agent.TelemetryKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
                 group => group
@@ -999,11 +1004,13 @@ else
 
         foreach (var agent in agents)
         {
-            var uniqueName = agent.UniqueNameKey;
+            var uniqueName = agent.TelemetryKey;
             if (string.IsNullOrWhiteSpace(uniqueName))
                 continue;
 
-            var displayName = agent.ServerDisplayName;
+            var displayName = agent.IsCluster
+                ? $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}"
+                : agent.ServerDisplayName;
             if (string.IsNullOrWhiteSpace(displayName) || string.Equals(displayName, "Unknown server", StringComparison.OrdinalIgnoreCase))
                 displayName = uniqueName;
 

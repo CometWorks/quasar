@@ -180,15 +180,23 @@
         <div class="quasar-panel-heading">
             <div>
                 <h2>Unmanaged Agents</h2>
-                <p>Quasar.Agent processes reporting in without a matching server definition.</p>
+                <p>Quasar.Agent processes reporting in without a matching server or cluster definition.</p>
             </div>
             <span class="quasar-status quasar-tone-warning">@($"{UnmanagedAgents.Count} unmanaged")</span>
         </div>
 
         @foreach (var agent in UnmanagedAgents)
         {
-            <details @key="agent.UniqueNameKey" class="quasar-agent-details"><summary>@($"{agent.ServerDisplayName} · {agent.UniqueNameKey}")</summary>
-                <ServerDetailPanel Agent="@agent" />
+            <details @key="agent.AgentId" class="quasar-agent-details"><summary>@($"{agent.ServerDisplayName} · {agent.UniqueNameKey}")</summary>
+                @if (agent.IsCluster)
+                {
+                    <p>Cluster @agent.ClusterId · Slot @agent.ClusterSlot · Node @agent.ClusterNodeId · Epoch @agent.ClusterEpoch</p>
+                    <p>Register the owning cluster to manage this node through the Cluster Registry.</p>
+                }
+                else
+                {
+                    <ServerDetailPanel Agent="@agent" />
+                }
             </details>
         }
     </section>
@@ -284,7 +292,7 @@
 
     private IReadOnlyDictionary<string, AgentRuntimeState> AgentsByUniqueName => Registry
         .GetAgents()
-        .Where(agent => agent.IsConnected)
+        .Where(agent => agent.IsConnected && !agent.IsCluster)
         .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
         .GroupBy(agent => agent.UniqueNameKey, StringComparer.OrdinalIgnoreCase)
         .ToDictionary(group => group.Key, group => group.OrderByDescending(a => a.LastSeenUtc).First(), StringComparer.OrdinalIgnoreCase);
@@ -295,13 +303,15 @@
         {
             var defined = ServerDefinitions
                 .Select(definition => definition.UniqueName)
-                .Concat(ClusterDefinitions.Select(definition => definition.UniqueName))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            var clusters = ClusterDefinitions.Select(definition => definition.UniqueName)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
             return Registry.GetAgents()
                 .Where(agent => agent.IsConnected)
-                .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
-                .Where(agent => !defined.Contains(agent.UniqueNameKey))
+                .Where(agent => agent.IsCluster
+                    ? !clusters.Contains(agent.ClusterId)
+                    : !defined.Contains(agent.UniqueNameKey))
                 .ToList();
         }
     }

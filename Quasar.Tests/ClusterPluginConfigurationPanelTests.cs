@@ -28,7 +28,8 @@ public sealed class ClusterPluginConfigurationPanelTests
             await using var context = new BunitContext();
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
-            context.AddAuthorization().SetAuthorized("viewer");
+            var auth = context.AddAuthorization();
+            auth.SetAuthorized("viewer");
             context.Services.AddSingleton(catalog);
             context.Services.AddSingleton(new ClusterUpdatePreparationService(catalog, null!, null!, null!,
                 null!, null!, null!, null!));
@@ -45,15 +46,21 @@ public sealed class ClusterPluginConfigurationPanelTests
                 """, "http://gateway.test", []);
             await catalog.RecordPreparationAsync(cluster, preparation, new(null, "revision", []), default);
             await panel.WaitForAssertionAsync(() => Assert.Contains("Quasar Agent", panel.Markup));
+            Assert.Empty(panel.FindComponents<Stub<PluginConfigEditor>>());
+            Assert.DoesNotContain("limit", panel.Markup);
+            auth.SetPolicies(QuasarPolicyNames.ClusterManage);
+            await panel.WaitForAssertionAsync(() => Assert.Single(panel.FindComponents<Stub<PluginConfigEditor>>()));
             var editor = panel.FindComponent<Stub<PluginConfigEditor>>();
             Assert.Contains("\"limit\":1", editor.Instance.Parameters.Get(p => p.Plugin).ConfigJson);
             var save = editor.Instance.Parameters.Get(p => p.SaveValues)!;
+            auth.SetPolicies();
             await Assert.ThrowsAsync<InvalidOperationException>(() => save("{\"limit\":9}"));
-            Assert.Equal(preparation, catalog.GetCluster("test")!.Preparation);
+            Assert.Equal(preparation.SpecificationJson, catalog.GetCluster("test")!.Preparation!.SpecificationJson);
 
             await catalog.RecordPreparationAsync(catalog.GetCluster("test")!, preparation with
                 { SpecificationJson = preparation.SpecificationJson.Replace("\"limit\":1", "\"limit\":2") },
                 new(null, "next", []), default);
+            auth.SetPolicies(QuasarPolicyNames.ClusterManage);
             await panel.WaitForAssertionAsync(() => Assert.Contains("\"limit\":2",
                 panel.FindComponent<Stub<PluginConfigEditor>>().Instance.Parameters.Get(p => p.Plugin).ConfigJson));
         }

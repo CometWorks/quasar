@@ -1,6 +1,7 @@
 @page "/chat"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanControlServers)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
+@inject QuasarPermissionService Permissions
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject DedicatedServerSupervisor Supervisor
@@ -13,7 +14,7 @@
     <div>
         <QuasarPageHeading Section="Operations">
     <Title>Chat</Title>
-    <Description>Select a server, watch live chat, send messages, and run !commands through the agent.</Description>
+    <Description>Select a server or cluster node, watch its recent chat, and send messages through the agent. Cluster saves and restarts are managed from <a href="/servers">cluster details</a>.</Description>
 </QuasarPageHeading>
     </div>
     <MudChip T="string" Variant="Variant.Outlined">@($"{ConnectedAgents.Count} connected")</MudChip>
@@ -38,12 +39,14 @@
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.Refresh))" Disabled="@(!CanSendAgentCommand)">
                     Refresh
                 </MudButton>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
                 <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSaveSelected)">
                     Save
                 </MudButton>
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!CanRestartSelected)">
                     Restart
                 </MudButton>
+                </AuthorizeView>
             </div>
         </div>
 
@@ -88,6 +91,7 @@
             }
         </div>
 
+        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
         <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-2">
             <MudAutocomplete T="string"
                              @bind-Value="_inputText"
@@ -116,6 +120,7 @@
                 @(IsCommandInput ? "Run" : "Send")
             </MudButton>
         </div>
+        </AuthorizeView>
 
         @if (SelectedAgent?.CommandResults.Count > 0)
         {
@@ -146,13 +151,13 @@
 
     private IReadOnlyList<AgentRuntimeState> ConnectedAgents => Registry.GetAgents()
         .Where(agent => agent.IsConnected)
-        .Where(agent => !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
+        .Where(agent => !string.IsNullOrWhiteSpace(agent.TelemetryKey))
         .ToList();
 
     private IReadOnlyList<ServerOption> ServerOptions => BuildServerOptions();
 
     private AgentRuntimeState? SelectedAgent => ConnectedAgents
-        .Where(agent => string.Equals(agent.UniqueNameKey, _selectedUniqueName, StringComparison.OrdinalIgnoreCase))
+        .Where(agent => string.Equals(agent.TelemetryKey, _selectedUniqueName, StringComparison.OrdinalIgnoreCase))
         .OrderByDescending(agent => agent.LastSeenUtc)
         .FirstOrDefault();
 
@@ -170,7 +175,7 @@
 
     private bool CanSendAgentCommand => SelectedAgent?.IsConnected == true;
 
-    private bool CanSaveSelected => CanSendAgentCommand && !IsSelectedUnstable;
+    private bool CanSaveSelected => CanSendAgentCommand && SelectedAgent?.IsCluster != true && !IsSelectedUnstable;
 
     private bool CanRestartSelected => HasSelectedDefinition && !IsSelectedUnstable;
 
@@ -267,12 +272,16 @@
 
     private async Task SendAgentCommandAsync(ServerCommandType commandType, string text = "")
     {
+        if (!await Permissions.IsAuthorizedAsync(commandType == ServerCommandType.Refresh
+                ? QuasarPolicyNames.CanView : QuasarPolicyNames.CanControlServers)) return;
         var agent = SelectedAgent;
         if (agent is null)
         {
             Snackbar.Add("Selected server is not connected.", Severity.Error);
             return;
         }
+
+        if (commandType == ServerCommandType.SaveWorld && !CanSaveSelected) return;
 
         try
         {
@@ -296,7 +305,8 @@
 
     private async Task RestartSelectedServerAsync()
     {
-        if (string.IsNullOrWhiteSpace(_selectedUniqueName))
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
+        if (!HasSelectedDefinition || string.IsNullOrWhiteSpace(_selectedUniqueName))
             return;
 
         if (IsSelectedUnstable)
@@ -328,12 +338,14 @@
 
         foreach (var agent in ConnectedAgents)
         {
-            if (known.Add(agent.UniqueNameKey))
-                options.Add(new ServerOption(agent.UniqueNameKey, agent.ServerDisplayName));
+            if (known.Add(agent.TelemetryKey))
+                options.Add(new ServerOption(agent.TelemetryKey, agent.IsCluster
+                    ? $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}"
+                    : agent.ServerDisplayName));
         }
 
         return options
-            .OrderByDescending(option => ConnectedAgents.Any(agent => string.Equals(agent.UniqueNameKey, option.UniqueName, StringComparison.OrdinalIgnoreCase)))
+            .OrderByDescending(option => ConnectedAgents.Any(agent => string.Equals(agent.TelemetryKey, option.UniqueName, StringComparison.OrdinalIgnoreCase)))
             .ThenBy(option => option.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }

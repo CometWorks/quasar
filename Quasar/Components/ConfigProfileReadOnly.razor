@@ -1,0 +1,56 @@
+<section class="quasar-panel pa-4">
+    <h2>@Profile.Name</h2>
+    <p>@Profile.Description</p>
+    <p class="quasar-muted">Read-only profile. Passwords and Workshop credentials are hidden.</p>
+    <p>Assigned servers: @(string.IsNullOrWhiteSpace(AssignedServers) ? "None" : AssignedServers)</p>
+    <label class="quasar-field">Search settings<input @bind="_search" @bind:event="oninput" type="search" /></label>
+    @foreach (var category in QuasarConfigMetadata.Categories.OrderBy(category => category.Order))
+    {
+        var options = QuasarConfigMetadata.Options.Where(option => !option.Hidden && option.CategoryKey == category.Key && option.Matches(_search)).OrderBy(option => option.Order).ToArray();
+        @if (options.Length > 0)
+        {
+            <details open="@(!string.IsNullOrWhiteSpace(_search))">
+                <summary>@category.Title</summary>
+                <dl>
+                    @foreach (var option in options)
+                    {
+                        <dt>@option.Label</dt>
+                        <dd>@FormatOption(option)</dd>
+                    }
+                </dl>
+            </details>
+        }
+    }
+    <details>
+        <summary>Access lists</summary>
+        <dl>
+            <dt>Administrators</dt><dd>@string.Join(", ", Profile.RootSettings.Administrators)</dd>
+            <dt>Reserved slots</dt><dd>@string.Join(", ", Profile.RootSettings.Reserved)</dd>
+            <dt>Banned players</dt><dd>@string.Join(", ", Profile.RootSettings.Banned)</dd>
+        </dl>
+    </details>
+    <details>
+        <summary>Mods (@Profile.Mods.Count)</summary>
+        <ul>@foreach (var mod in Profile.Mods) { <li>@mod.DisplayName · @mod.WorkshopId @(mod.IsDependency ? "(dependency)" : "")</li> }</ul>
+    </details>
+    <details>
+        <summary>Plugins (@Profile.Plugins.Count)</summary>
+        <ul>@foreach (var plugin in Profile.Plugins) { <li>@plugin.DisplayName · @plugin.PluginId · @plugin.SelectedVersion</li> }</ul>
+    </details>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public QuasarConfigProfile Profile { get; set; } = default!;
+    [Parameter] public string AssignedServers { get; set; } = string.Empty;
+    private string _search = string.Empty;
+
+    private string FormatOption(QuasarConfigOptionDefinition option)
+    {
+        object target = option.Scope == QuasarConfigOptionScope.Root ? Profile.RootSettings : Profile.SessionSettings;
+        if (option.Kind == QuasarConfigOptionKind.Password)
+            return string.IsNullOrEmpty(QuasarConfigMetadata.GetProperty(option).GetValue(target) as string) ? "Not set" : "Configured (hidden)";
+        if (QuasarConfigMetadata.GetProperty(option).GetValue(target) is System.Collections.IDictionary entries)
+            return string.Join(", ", entries.Keys.Cast<object>().Select(key => $"{key}: {entries[key]}"));
+        return QuasarConfigMetadata.FormatValue(option, target);
+    }
+}

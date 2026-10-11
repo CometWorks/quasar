@@ -73,6 +73,30 @@ On a cluster node it reports process telemetry tagged with cluster/node/role ide
 reconnects indefinitely, and does not own save, shutdown, or restart. ClusterRuntime and
 Magnetar route lifecycle intent to the Gateway; `Quasar.Host` owns process execution.
 
+Cluster agents belong to the registered `ClusterId`, not the slot-specific
+`UniqueName` reported by their process. The Servers page treats them as managed
+even while their incarnation receipt is pending or the Registry is unavailable.
+An unknown cluster remains visible as unmanaged, without standalone controls.
+Standalone lookups cannot select a cluster agent whose process name happens to
+match a standalone definition. Registry fleet matching still requires the exact
+cluster, slot, node and epoch; catalog ownership alone does not verify readiness.
+
+Analytics, profiler samples, plugin statistics and logs use the node's incarnation
+telemetry key. Analytics labels include cluster, slot, node and epoch; replacements
+have separate series. Chat selects node observations by incarnation and disables
+standalone save/restart controls for them. Known Players excludes cluster processes;
+cluster player moderation uses cluster details, and cluster chat delivery uses the
+SDK bridge. Per-node plugin observations remain read-only;
+the Plugins page links to shared cluster configuration for staged edits.
+
+Gateway status reads validate the returned cluster ID against the registration
+before fleet views, Discord, listings or lifecycle consumers can use it. Public
+listings use Registry counts, not sums of node observations. Diagnostics remain
+Host-scoped: consent leases and encrypted report transfer cover all enrolled Hosts
+independently of Agent connection or server-name matching. See the
+[cluster endpoint verification](ClusterIntegrationVerification.md#cluster-agent-ownership-and-endpoint-routing)
+for the endpoint map and regression checks.
+
 Cluster shutdown uses the durable Gateway operation journal. The worker persists
 clean-Down evidence before requesting a Host stop fenced to the observed PID and
 launch timestamp. Host confirms that exact process is gone; restart recovery requires
@@ -886,11 +910,14 @@ But once a server is under Quasar management, the primary model is no longer "ro
 Browser access uses cookie authentication with Steam identities or a synthetic
 trusted-network principal. Role claims are refreshed from the live RBAC catalog
 on requests; RBAC changes force active Blazor circuits through a full reload so a
-demoted user cannot retain a privileged circuit. Sensitive dashboard and security
-mutations also re-check current roles at execution time.
+demoted user cannot retain a privileged circuit. Control Plane write handlers and
+sensitive dashboard/security mutations also re-check current roles at execution time.
 
 UI routes and HTTP endpoints use named authorization policies. Viewer access is
-read-only; editor policies cover configuration and normal server operations;
+read-only across all built-in Control Plane pages. Config passwords, Workshop
+credentials, Discord tokens, and arbitrary plugin configuration values are hidden
+from Viewers. Page viewing uses `CanView`, while editor policies cover configuration
+and normal server operations;
 security, backup, update, UI-plugin, and Quasar shutdown controls require admin.
 Runtime RBAC saves reject removal of the last administrator mapping; direct file
 edits remain an explicit operator recovery path.

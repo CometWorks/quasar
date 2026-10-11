@@ -1,5 +1,5 @@
 @page "/settings/server-list"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @using Quasar.Services.ServerList
 @inject ServerListSettingsCatalog Settings
 @inject DedicatedServerCatalog Servers
@@ -13,7 +13,7 @@
 <div class="quasar-page-heading"><div><div class="quasar-eyebrow">Settings</div><h1>Server listing</h1><p>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</p></div></div>
 <p class="quasar-muted">Names and game ports are suggested from your existing servers. Enter the address players use to connect.</p>
 <section class="quasar-panel quasar-section"><div class="quasar-stack">
-    <label class="quasar-check"><input name="listing-visibility" type="checkbox" @bind:get="Consent.GetSettings().ListingGranted" @bind:set="SaveVisibilityAsync" disabled="@_saving" />Show configured servers on se-servers.net</label>
+    <label class="quasar-check"><input name="listing-visibility" type="checkbox" @bind:get="Consent.GetSettings().ListingGranted" @bind:set="SaveVisibilityAsync" disabled="@(_saving || !_canManage)" />Show configured servers on se-servers.net</label>
     @if (!Consent.GetSettings().DiagnosticsGranted)
     {
         <p class="quasar-notice quasar-notice-warning" role="status">Accept diagnostic data handling in <a href="/settings/security">Security</a> before publishing.</p>
@@ -30,7 +30,7 @@
     <p class="quasar-notice">Create a standalone server or cluster first. It will appear here automatically.</p>
 }
 <form @onsubmit="SaveAsync" @onsubmit:preventDefault>
-    <fieldset class="quasar-fieldset" disabled="@_saving">
+    <fieldset class="quasar-fieldset" disabled="@(_saving || !_canManage)">
         <div class="quasar-card-grid">
             @foreach (var entry in _entries)
             {
@@ -45,12 +45,16 @@
                 </div></section>
             }
         </div>
-        <div class="quasar-row quasar-form-actions">
-            <button type="submit" class="quasar-button quasar-button-primary"><QuasarIcon Icon="@QuasarIcons.Save" />Save listings</button>
-            <button type="button" class="quasar-button" @onclick="Reload">Reload</button>
-        </div>
+        @if (_canManage)
+        {
+            <div class="quasar-row quasar-form-actions">
+                <button type="submit" class="quasar-button quasar-button-primary"><QuasarIcon Icon="@QuasarIcons.Save" />Save listings</button>
+            </div>
+        }
     </fieldset>
 </form>
+
+<button type="button" class="quasar-button" @onclick="Reload">Reload</button>
 
 @code {
     private List<ServerListEntry> _entries = [];
@@ -58,7 +62,13 @@
     private long _revision;
     private bool _saving;
 
-    protected override void OnInitialized() => Reload();
+    private bool _canManage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _canManage = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity);
+        Reload();
+    }
 
     private void Reload()
     {
