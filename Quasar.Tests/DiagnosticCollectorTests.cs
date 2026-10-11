@@ -214,6 +214,64 @@ public sealed class DiagnosticCollectorTests : IDisposable
         Assert.False(File.Exists(Path.Combine(directory, "log-batch.pending")));
     }
 
+    private sealed class BatchClock : TimeProvider
+    {
+        public long Timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Timestamp;
+        public void Advance(TimeSpan elapsed) => Timestamp += elapsed.Ticks;
+    }
+
+    [Fact]
+    public async Task OrdinaryLogsBatchEveryTenMinutesWhileIncidentsAndNewConsentRemainPrompt()
+    {
+        var clock = new BatchClock();
+        var collector = new DiagnosticCollector(root, "host-a") { Clock = clock };
+        var policy = Policy();
+        await collector.ApplyPolicyAsync(policy, default);
+        string directory = Configure(collector);
+        await collector.CollectAsync(default); // An empty run must not postpone first evidence.
+        async Task WriteBatch(string message)
+        {
+            DiagnosticCollector.RecordOutput(directory, message);
+            LogBatchCapture.Flush(directory, collector.PolicyFilePath, force: true);
+            await collector.CollectAsync(default);
+        }
+        await WriteBatch("first consented log");
+        var first = Assert.Single(collector.GetReports());
+        collector.DeleteReport(first.ReportId);
+        await WriteBatch("later ordinary log");
+        Assert.Empty(collector.GetReports());
+
+        var incident = Report();
+        await File.WriteAllTextAsync(Path.Combine(directory, incident.ReportId + ".json"), JsonSerializer.Serialize(incident));
+        await collector.CollectAsync(default);
+        var error = Assert.Single(collector.GetReports());
+        Assert.Equal(incident.ReportId, error.ReportId);
+        collector.DeleteReport(error.ReportId);
+        clock.Advance(TimeSpan.FromMinutes(10) - TimeSpan.FromTicks(1));
+        await collector.CollectAsync(default);
+        Assert.Empty(collector.GetReports());
+        clock.Advance(TimeSpan.FromTicks(1));
+        await collector.CollectAsync(default);
+        var ordinary = Assert.Single(collector.GetReports());
+        var report = await IncidentArchive.ValidateAsync(Path.Combine(collector.IncomingDirectory, ordinary.ReportId + ".zip"), ordinary, rsa);
+        Assert.Equal("log_batch", report.Kind);
+        Assert.Contains("later ordinary log", report.Message);
+        collector.DeleteReport(ordinary.ReportId);
+
+        await WriteBatch("old consent queued log");
+        Assert.Empty(collector.GetReports());
+        collector.Revoke(2);
+        await collector.ApplyPolicyAsync(policy with { Generation = 2, GrantedSinceUtc = DateTimeOffset.UtcNow }, default);
+        await WriteBatch("new consent first log");
+        var renewed = Assert.Single(collector.GetReports());
+        Assert.Equal(2, renewed.ConsentGeneration);
+        var newReport = await IncidentArchive.ValidateAsync(Path.Combine(collector.IncomingDirectory, renewed.ReportId + ".zip"), renewed, rsa);
+        Assert.Contains("new consent first log", newReport.Message);
+        Assert.DoesNotContain("old consent queued log", newReport.Message);
+    }
+
     [Fact]
     public async Task NativeExceptionAttributionIsPreservedOnTheDumpBearingExitReport()
     {
