@@ -42,7 +42,10 @@ Additional migrated surfaces:
   metadata, compact action footers, and expandable live details. Advanced server
   actions use native menus; warning/error summaries remain visible. The grid
   adapts to available content width instead of a fixed two-column layout, and
-  the workspace has no desktop width cap. Narrow cards use two metric columns
+  the workspace has no desktop width cap. All card rows share the tallest
+  content height, including expanded details, with action footers aligned at
+  the bottom. Content remains fully accessible without fixed-height clipping.
+  Navigation labels use 14px text for readability. Narrow cards use two metric columns
   and contain player-table scrolling. Responsive browser checks cover widths
   from 320 to 3440 pixels: one column on phones, two at 1440, three at 1920,
   and six at 3440 with the six-server fixture. Twelve focused component tests

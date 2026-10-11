@@ -47,7 +47,9 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     margin: 2px 0;
     border-radius: 4px;
     color: var(--quasar-palette-drawer-text);
-    font-size: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1.4;
     text-decoration: none;
 }
 .quasar-nav-link .quasar-icon { color: var(--quasar-palette-drawer-icon); }
@@ -196,7 +198,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-dashboard-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .quasar-dashboard-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .quasar-dashboard-heading h2 { margin: 0; font: 700 15px "Manrope", system-ui, sans-serif; }
-.quasar-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); align-items: start; gap: 16px; }
+.quasar-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: 16px; }
 .quasar-shutdown-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; background: color-mix(in srgb, var(--quasar-palette-background) 90%, transparent); }
 .quasar-shutdown-overlay p { max-width: 560px; text-align: center; }
 .quasar-spinner { width: 36px; height: 36px; border: 3px solid var(--quasar-palette-lines-default); border-top-color: var(--quasar-palette-primary); border-radius: 50%; animation: quasar-spin 1s linear infinite; }
@@ -516,9 +518,10 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 }
 
 /* Fleet cards use the same flat sections and compact rows as the list view.
-   The grid follows available content width, including collapsed navigation. */
-.quasar-card-cell { min-width: 0; container-type: inline-size; }
-.quasar-fleet-card { min-width: 0; }
+   Equal fractional rows share the tallest card height, including live updates
+   and expanded details, without clipping content or measuring it in JavaScript. */
+.quasar-card-cell { display: flex; min-width: 0; container-type: inline-size; }
+.quasar-fleet-card { display: flex; flex-direction: column; flex: 1; min-width: 0; }
 .quasar-fleet-card [class*="quasar-tone-"]:not(.quasar-button-fill) { color: var(--quasar-control-color, inherit); }
 .quasar-fleet-card .quasar-card-heading { padding: 16px 18px 14px; }
 .quasar-card-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
@@ -547,7 +550,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-card-disclosure > summary > span { font-size: 10px; font-weight: 400; margin-left: 8px; }
 .quasar-card-disclosure[open] > summary { border-bottom: 1px solid var(--quasar-palette-divider); }
 .quasar-card-disclosure > .quasar-live-details { padding: 16px 18px; }
-.quasar-card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 18px; border-top: 1px solid var(--quasar-palette-divider); background: color-mix(in srgb, var(--quasar-palette-background-gray) 30%, var(--quasar-palette-surface)); }
+.quasar-card-actions { margin-top: auto; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 18px; border-top: 1px solid var(--quasar-palette-divider); background: color-mix(in srgb, var(--quasar-palette-background-gray) 30%, var(--quasar-palette-surface)); }
 .quasar-card-console { color: var(--quasar-palette-primary); border-color: transparent; background: transparent; padding-inline: 0; }
 .quasar-fleet-card > .quasar-card-content > :is(.quasar-notice, .quasar-row) { margin: 12px 18px; }
 .quasar-cluster-summary > .quasar-card-content { padding: 0; }
