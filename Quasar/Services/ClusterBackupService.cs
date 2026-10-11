@@ -255,8 +255,8 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     )
     {
         if (snapshotId == Guid.Empty || restoreId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
-            || cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null
-            || !RevertsOrIsSettled(cluster, updateId))
+            || cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null && updateId is null
+            || cluster.PendingRestoreHash is not null || !RevertsOrIsSettled(cluster, updateId))
             throw new InvalidOperationException("Prepare a restore only for a stopped, settled managed cluster.");
         if (dependencies is null || credentials is null)
             throw new InvalidOperationException("Restore preparation services are unavailable.");
@@ -354,7 +354,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         if (cluster.PendingRestoreHash is { } pending && pending != hash)
             throw new InvalidOperationException("Resume the original interrupted restore before requesting another.");
         bool update = updateId is not null;
-        await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true, dryRun: true, update: update);
+        await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true, dryRun: true, update: update, supersede: update);
         var prepared = new List<(ClusterDefinition Target, HostContract.HostSnapshotRestore Request)>();
         foreach (var host in cluster.ActiveDeployment.Hosts)
         {
@@ -373,7 +373,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         await catalog.RecordPendingDeploymentAsync(cluster, hash, token, restore: true);
         await operations.FenceGatewayOperationsForRestoreAsync(cluster.UniqueName, token);
         foreach (var (target, restore) in prepared) await hosts.RestoreSnapshotAsync(target, restore, token);
-        var active = await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true, update: update);
+        var active = await deployments.ActivateCoreAsync(cluster, request.Deployment, token, restore: true, update: update, supersede: update);
         await catalog.RecordRestoredProvenanceAsync(cluster.UniqueName, active.Revision, backup.Deployment,
             RestoredProfileId(backup), token);
         return catalog.GetCluster(cluster.UniqueName)!.ActiveDeployment!;
