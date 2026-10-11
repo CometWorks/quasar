@@ -6,6 +6,9 @@ namespace Quasar.Plugin.Abstractions.Companion;
 /// </summary>
 public interface IQuasarCompanionChannel
 {
+    /// <summary>Stable identities for background companion collection, independent of browser sessions.</summary>
+    IReadOnlyList<QuasarCompanionServer> GetConnectedServers() => Array.Empty<QuasarCompanionServer>();
+
     /// <param name="serverId">
     /// Connected server identifier. Current Quasar accepts the live agent id,
     /// server key, or server unique name.
@@ -17,3 +20,5 @@ public interface IQuasarCompanionChannel
         TRequest request,
         CancellationToken cancellationToken);
 }
+
+public sealed record QuasarCompanionServer(string ServerId, string AgentId, string DisplayName);

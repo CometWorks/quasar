@@ -75,6 +75,11 @@ public sealed class QuasarCompanionChannel : IQuasarCompanionChannel
                ?? throw new InvalidOperationException("The companion plugin returned an invalid payload.");
     }
 
+    public IReadOnlyList<QuasarCompanionServer> GetConnectedServers() => _registry.GetAgents()
+        .Where(agent => agent.IsConnected && !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
+        .Select(agent => new QuasarCompanionServer(agent.TelemetryKey, agent.AgentId, agent.IsCluster ? $"{agent.ServerDisplayName} / {agent.ClusterSlot}" : agent.ServerDisplayName))
+        .ToArray();
+
     private AgentRuntimeState? ResolveConnectedAgent(string serverId)
     {
         var agents = _registry.GetAgents().Where(agent => agent.IsConnected).ToList();
