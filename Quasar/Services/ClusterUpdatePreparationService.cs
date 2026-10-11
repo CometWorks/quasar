@@ -187,11 +187,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         static JsonObject Settings(object value) => JsonSerializer.SerializeToNode(value, Json)!.AsObject();
         var currentRoot = Settings(current.RootSettings);
         var selectedRoot = Settings(selected.RootSettings);
-        var supportedRoot = Settings(new QuasarWorldRootSettings());
         currentRoot.Remove("administrators");
         selectedRoot.Remove("administrators");
-        supportedRoot.Remove("administrators");
-        if (!JsonNode.DeepEquals(currentRoot, selectedRoot) || !JsonNode.DeepEquals(selectedRoot, supportedRoot))
+        if (!JsonNode.DeepEquals(currentRoot, selectedRoot))
             throw new InvalidOperationException("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update. Change session settings, administrators, mods or plugins instead.");
     }
 

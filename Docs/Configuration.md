@@ -1352,6 +1352,9 @@ update**. Select **Stage queued content updates** to run the existing managed pr
 preparation against the active profile. This requires configuration-edit permission
 as well as cluster-manage access. It restages the whole profile, including its settings,
 complete resolved mod list and plugin selection; review profile edits before staging.
+Unchanged root settings may retain nondefault values. Profile staging rejects changes
+to network/dedicated-server root settings other than administrators; it does not require
+existing root settings to match factory defaults.
 Quasar checks queued Workshop timestamps before and after downloading and checks each
 queued plugin commit against Magnetar's export. An unavailable item, moved timestamp,
 removed selection or different exported commit fails staging and keeps the queue.
