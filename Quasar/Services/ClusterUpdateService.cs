@@ -54,6 +54,32 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     internal static readonly TimeSpan StoppingTimeout = TimeSpan.FromMinutes(60), ActivatingTimeout = TimeSpan.FromMinutes(30),
         StartingTimeout = TimeSpan.FromMinutes(60);
 
+    // A revert first lets the reconciler stop the failed deployment cleanly; its data is replaced by the
+    // backup anyway, so after this grace a fenced stop is enough. Restores move whole worlds, hence the long timeout.
+    internal static readonly TimeSpan RevertStopGrace = TimeSpan.FromMinutes(10),
+        RevertingTimeout = TimeSpan.FromHours(3);
+
+    // The revert reuses the operator's restore path: a fresh preparation with rotated credentials, then the restore.
+    internal Func<
+        ClusterDefinition,
+        ClusterUpdate,
+        CancellationToken,
+        Task<ClusterRestoreRequest>
+    > PrepareRevertAsync = (cluster, update, token) =>
+        backups!.PrepareRestoreCoreAsync(
+            cluster,
+            update.Backup!.Value,
+            update.RevertRestoreId!.Value,
+            "quasar",
+            token,
+            update.Id
+        );
+    internal Func<ClusterDefinition, ClusterUpdate, CancellationToken, Task> ApplyRevertAsync = (
+        cluster,
+        update,
+        token
+    ) => backups!.RestoreCoreAsync(cluster, update.Revert!, token, update.Id);
+
     /// <summary>Gives up an update that cannot finish and unlocks the lifecycle tools. Nothing is rolled back:
     /// before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</summary>
     public Task<ClusterOperation> AbandonAsync(string clusterId, string key, string actor, CancellationToken token) =>
@@ -64,8 +90,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                     var update = cluster.Update ?? throw new InvalidOperationException("No update is recorded for this cluster.");
                     if (update.Phase == ClusterUpdatePhase.Complete) return update;
                     // Hosts may hold different revisions now; only the deployment's own resume/recovery can settle that.
-                    if (cluster.PendingDeploymentHash is not null)
-                        throw new InvalidOperationException("The update is activating a deployment on the Hosts. Resume that activation or recover the cluster; it cannot be abandoned half-way.");
+                    if (cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                        throw new InvalidOperationException("The update is activating a deployment or restoring a backup on the Hosts. Resume that or recover the cluster; it cannot be abandoned half-way.");
                     return await AbandonCoreAsync(cluster, update, $"Abandoned by {actor} while {update.Phase}"
                         + (update.LastError is null ? "." : ": " + update.LastError), ct);
                 }, ct)), token);
@@ -83,6 +109,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     {
         ClusterUpdatePhase.Stopping => StoppingTimeout,
         ClusterUpdatePhase.Activating => ActivatingTimeout,
+        ClusterUpdatePhase.Reverting => RevertingTimeout,
         _ => StartingTimeout,
     };
 
@@ -148,21 +175,13 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                                 DedicatedServerGoalState.On);
                             break;
                         case ClusterUpdatePhase.Starting:
-                            var observed = (await gateway.GetStatusAsync(cluster, token)).Data;
-                            if (observed.ClusterId != cluster.UniqueName || observed.Phase != Admin.ClusterPhase.Serving || !observed.AcceptingPlayers
-                                || observed.DeploymentRevision != workflow.Deployment.Revision || !observed.ManagedDeploymentReady)
-                                return await OverdueAsync(cluster, workflow, StartingDeadline, $"the Gateway to serve the new deployment (it reports {observed.Phase})");
-                            // Serving is runtime-gated; prove every Host still runs the exact activated revision too.
-                            foreach (var host in cluster.ActiveDeployment!.Hosts)
-                            {
-                                var target = cluster.Clone(); target.HostCommandUrl = host.CommandUrl; target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
-                                var status = (await hosts.GetStatusAsync(target, token)).Data;
-                                if (status.HostId != host.HostId || status.Attachments.SingleOrDefault(a => a.ClusterId == cluster.UniqueName)?.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
-                                    return await OverdueAsync(cluster, workflow, StartingDeadline, $"Host {host.HostId} to run the activated bundle");
-                            }
+                            if (await NotServingAsync(cluster, workflow.Deployment.Revision, "the new deployment") is { } awaited)
+                                return await OverdueAsync(cluster, workflow, StartingDeadline, awaited);
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Complete,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow }, token);
                             break;
+                        case ClusterUpdatePhase.Reverting:
+                            return await RevertAsync(cluster, workflow);
                     }
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
@@ -183,21 +202,183 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         async Task<bool> TimedOutAsync(ClusterDefinition cluster, ClusterUpdate workflow, string awaited)
         {
             var timeout = Timeout(workflow.Phase);
-            if (PhaseAge(workflow) < timeout || cluster.PendingDeploymentHash is not null) return false;
-            string reason = $"Update failed after {timeout.TotalMinutes:0} minutes in {workflow.Phase}: {awaited.TrimEnd('.')}. ";
+            if (
+                PhaseAge(workflow) < timeout
+                || cluster.PendingDeploymentHash is not null
+                || cluster.PendingRestoreHash is not null
+            )
+                return false;
+            if (workflow.Phase == ClusterUpdatePhase.Reverting)
+            {
+                await AbandonCoreAsync(
+                    cluster,
+                    workflow,
+                    $"{workflow.Failure} The revert did not finish within {timeout.TotalHours:0} hours: "
+                        + $"{awaited.TrimEnd('.')}. To return to the previous version and world, restore backup {workflow.Backup:D} in Maintenance.",
+                    token
+                );
+                return true;
+            }
+            string reason =
+                $"Update failed after {timeout.TotalMinutes:0} minutes in {workflow.Phase}: {awaited.TrimEnd('.')}.";
             if (cluster.ActiveDeployment?.Revision == workflow.Deployment.Revision)
             {
-                await AbandonCoreAsync(cluster, workflow, reason + "The cluster keeps the new deployment. " + (workflow.Backup is { } backup
-                    ? $"To return to the previous version and world, set the goal Off, then in Maintenance restore backup {backup:D}, taken before activation."
-                    : "Start a rollback update if it cannot serve."), token);
+                // The new version ran, so only the stopped cut taken before activation is a clean way back.
+                if (workflow.Backup is { } backup && backups is not null)
+                {
+                    await catalog.RecordUpdateAsync(
+                        cluster,
+                        workflow with
+                        {
+                            Phase = ClusterUpdatePhase.Reverting,
+                            Failure = reason,
+                            RevertRestoreId = Guid.NewGuid(),
+                            UpdatedAt = DateTimeOffset.UtcNow,
+                            PhaseStartedAt = DateTimeOffset.UtcNow,
+                            LastError =
+                                $"{reason} Reverting to the previous version and world from backup {backup:D}.",
+                        },
+                        token,
+                        DedicatedServerGoalState.Off
+                    );
+                    logger.LogWarning(
+                        "Cluster {Cluster} update {Update} failed; reverting from backup {Backup}: {Reason}",
+                        cluster.UniqueName,
+                        workflow.Id,
+                        backup,
+                        reason
+                    );
+                    return true;
+                }
+                await AbandonCoreAsync(
+                    cluster,
+                    workflow,
+                    reason
+                        + " The cluster keeps the new deployment. Start a rollback update if it cannot serve.",
+                    token
+                );
                 return true;
             }
             string? blocked = workflow.GoalBefore != DedicatedServerGoalState.On ? "it was stopped before the update"
                 : await StartBlockedAsync(cluster);
-            await AbandonCoreAsync(cluster, workflow, reason + "Nothing was activated; the cluster stays on its current deployment"
+            await AbandonCoreAsync(cluster, workflow, reason + " Nothing was activated; the cluster stays on its current deployment"
                 + (blocked is null ? " and its goal is On again." : $" and stays stopped: {blocked}."), token,
                 blocked is null ? DedicatedServerGoalState.On : null);
             return true;
+        }
+
+        // Stop the failed deployment, restore the pre-update backup with fresh credentials, then start the
+        // previous version again if it ran before the update. Every step resumes after a Quasar restart.
+        async Task<bool> RevertAsync(ClusterDefinition cluster, ClusterUpdate workflow)
+        {
+            if (workflow.Revert is null)
+            {
+                if (cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
+                {
+                    if (PhaseAge(workflow) < RevertStopGrace)
+                        return false;
+                    await deployments.StopFencedAsync(cluster, token);
+                }
+                var request = await PrepareRevertAsync(cluster, workflow, token);
+                cluster = catalog.GetCluster(cluster.UniqueName)!;
+                workflow = workflow with { Revert = request, UpdatedAt = DateTimeOffset.UtcNow };
+                await catalog.RecordUpdateAsync(cluster, workflow, token);
+                cluster = catalog.GetCluster(cluster.UniqueName)!;
+            }
+            if (
+                cluster.ActiveDeployment?.Revision != workflow.Revert.Deployment.Revision
+                || cluster.PendingRestoreHash is not null
+            )
+            {
+                await ApplyRevertAsync(cluster, workflow, token);
+                cluster = catalog.GetCluster(cluster.UniqueName)!; // The restore changed lifecycle identity.
+            }
+            string reverted =
+                $"{workflow.Failure} Reverted to the previous version and world from backup {workflow.Backup:D}.";
+            if (workflow.GoalBefore != DedicatedServerGoalState.On)
+            {
+                await CompleteRevertAsync(
+                    reverted + " The cluster stays stopped, as it was before the update."
+                );
+                return true;
+            }
+            if (cluster.GoalState == DedicatedServerGoalState.Off)
+            {
+                if (await StartBlockedAsync(cluster) is { } blocked)
+                    await CompleteRevertAsync($"{reverted} It stays stopped: {blocked}.");
+                else
+                    await catalog.RecordUpdateAsync(
+                        cluster,
+                        workflow with
+                        {
+                            UpdatedAt = DateTimeOffset.UtcNow,
+                            LastError = reverted + " Starting it again.",
+                        },
+                        token,
+                        DedicatedServerGoalState.On
+                    );
+                return true;
+            }
+            if (
+                await NotServingAsync(
+                    cluster,
+                    workflow.Revert.Deployment.Revision,
+                    "the restored deployment"
+                ) is
+                { } awaited
+            )
+                return await TimedOutAsync(cluster, workflow, "still waiting for " + awaited);
+            await CompleteRevertAsync(reverted);
+            return true;
+
+            async Task CompleteRevertAsync(string message)
+            {
+                await catalog.RecordUpdateAsync(
+                    cluster,
+                    workflow with
+                    {
+                        Phase = ClusterUpdatePhase.Complete,
+                        UpdatedAt = DateTimeOffset.UtcNow,
+                        LastError = message,
+                    },
+                    token
+                );
+                logger.LogWarning(
+                    "Cluster {Cluster} update {Update} was reverted: {Message}",
+                    cluster.UniqueName,
+                    workflow.Id,
+                    message
+                );
+            }
+        }
+
+        // Serving is runtime-gated; every Host must also still run the exact activated bundle.
+        async Task<string?> NotServingAsync(ClusterDefinition cluster, string revision, string what)
+        {
+            var observed = (await gateway.GetStatusAsync(cluster, token)).Data;
+            if (
+                observed.ClusterId != cluster.UniqueName
+                || observed.Phase != Admin.ClusterPhase.Serving
+                || !observed.AcceptingPlayers
+                || observed.DeploymentRevision != revision
+                || !observed.ManagedDeploymentReady
+            )
+                return $"the Gateway to serve {what} (it reports {observed.Phase})";
+            foreach (var host in cluster.ActiveDeployment!.Hosts)
+            {
+                var target = cluster.Clone();
+                target.HostCommandUrl = host.CommandUrl;
+                target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
+                var status = (await hosts.GetStatusAsync(target, token)).Data;
+                if (
+                    status.HostId != host.HostId
+                    || status
+                        .Attachments.SingleOrDefault(a => a.ClusterId == cluster.UniqueName)
+                        ?.BundleManifestSha256 != host.Deployment.BundleManifestSha256
+                )
+                    return $"Host {host.HostId} to run the activated bundle";
+            }
+            return null;
         }
 
         // The previous version may run again if its Gateway never stopped (the reconciler adopts it, or waits

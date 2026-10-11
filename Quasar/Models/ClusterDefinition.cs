@@ -103,8 +103,9 @@ public sealed record ClusterDeploymentProvenance(ClusterPackageSelection Package
 public sealed record ClusterHostRevision(string HostId, string CommandUrl, string TokenEnvironmentVariable,
     HostContract.HostActiveDeployment Deployment);
 
-public enum ClusterUpdatePhase { Stopping, Activating, Starting, Complete }
+public enum ClusterUpdatePhase { Stopping, Activating, Starting, Complete, Reverting }
 public sealed record ClusterUpdate(Guid Id, Quasar.Services.ClusterDeploymentRequest Deployment,
     ClusterActiveRevision Previous, bool Rollback, ClusterUpdatePhase Phase, DateTimeOffset StartedAt,
     DateTimeOffset UpdatedAt, string? LastError = null, bool BackupRequired = false, DateTimeOffset? PhaseStartedAt = null,
-    DedicatedServerGoalState? GoalBefore = null, Guid? Backup = null);
+    DedicatedServerGoalState? GoalBefore = null, Guid? Backup = null, string? Failure = null, Guid? RevertRestoreId = null,
+    Quasar.Services.ClusterRestoreRequest? Revert = null);
