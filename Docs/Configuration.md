@@ -1866,7 +1866,9 @@ Starting, and says why in `lastError`:
   previous version again if the cluster was On before the update and the normal start check
   passes. A revert that cannot finish within 3 hours is given up with the backup named in
   `lastError`, but never while its restore is half applied.
-- A half-applied activation is never given up this way; it keeps retrying the same request.
+- A half-applied activation keeps retrying the same request for 30 minutes, then reverts from the
+  backup the same way. It skips the stop, because no process ran while the Hosts switched, and
+  each Host is restored from the bundle it runs. Without a backup it keeps retrying.
 Preflight checks every Host before goal Off. Stopping, Activating, Starting and Reverting are
 persistent checkpoints. Errors remain visible/retryable; completion requires matching
 Gateway revision, managed readiness and Host attachments. Previous installations remain

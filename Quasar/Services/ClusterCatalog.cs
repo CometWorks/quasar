@@ -275,14 +275,20 @@ public sealed class ClusterCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
-    internal async Task RecordPendingDeploymentAsync(ClusterDefinition expected, string hash, CancellationToken token, bool restore = false)
+    internal async Task RecordPendingDeploymentAsync(
+        ClusterDefinition expected,
+        string hash,
+        CancellationToken token,
+        bool restore = false,
+        bool supersede = false
+    )
     {
         await _writeGate.WaitAsync(token);
         try
         {
             var current = GetCluster(expected.UniqueName) ?? throw new KeyNotFoundException(expected.UniqueName);
             if (current.GetLifecycleId() != expected.GetLifecycleId()
-                || (restore ? current.PendingRestoreHash : current.PendingDeploymentHash) is { } pending && pending != hash)
+                || !supersede && (restore ? current.PendingRestoreHash : current.PendingDeploymentHash) is { } pending && pending != hash)
                 throw new InvalidOperationException("Another lifecycle or deployment change is pending.");
             if (restore) current.PendingRestoreHash = hash;
             else current.PendingDeploymentHash = hash;

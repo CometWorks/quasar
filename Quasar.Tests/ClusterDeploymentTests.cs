@@ -536,7 +536,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
         Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
 
-        // Activating, half applied: the timeout must not give it up; resuming still works.
+        // Activating, half applied for a while: resuming still works (the revert after its timeout is tested separately).
         await ProveCleanShutdown(122);
         var id = Guid.NewGuid();
         await update.BeginAsync("demo", new(id, candidate), "begin-4", "test", default);
@@ -546,7 +546,6 @@ public sealed class ClusterDeploymentTests : IDisposable
         handler.FailSecond = true;
         await update.AdvanceAllAsync(default);
         Assert.NotNull(catalog.GetCluster("demo")!.PendingDeploymentHash);
-        await Backdate(ClusterUpdateService.ActivatingTimeout);
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
         handler.FailSecond = false;
@@ -738,6 +737,155 @@ public sealed class ClusterDeploymentTests : IDisposable
             cluster.Update.LastError
         );
         Assert.Equal(1, prepared);
+    }
+
+    [Fact]
+    public async Task HalfAppliedActivationRevertsFromThePreUpdateBackup()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "half-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        var deployments = new ClusterDeploymentService(catalog, client, operations);
+        await deployments.ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var backups = new ClusterBackupService(
+            catalog,
+            client,
+            operations,
+            null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "half-backups") },
+            null!,
+            null!
+        );
+        var gateway = new GatewayHandler();
+        var update = new ClusterUpdateService(
+            catalog,
+            deployments,
+            new ClusterGatewayClient(new HttpClient(gateway)),
+            client,
+            operations,
+            NullLogger<ClusterUpdateService>.Instance,
+            backups
+        );
+        string previous = Request().Hosts[0].Activation.BundleManifestSha256;
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest(
+            "revision",
+            "candidate",
+            Request()
+                .Hosts.Select(h =>
+                    h with
+                    {
+                        Activation = h.Activation with
+                        {
+                            ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                            BundleManifestSha256 = new string('b', 64),
+                        },
+                    }
+                )
+                .ToArray()
+        );
+        // As a fresh preparation would: every Host is expected to run the recorded (previous) deployment.
+        update.PrepareRevertAsync = (cluster, workflow, token) =>
+            Task.FromResult(
+                new ClusterRestoreRequest(
+                    workflow.Backup!.Value,
+                    workflow.RevertRestoreId!.Value,
+                    new(
+                        "revision",
+                        "restored",
+                        Request()
+                            .Hosts.Select(h =>
+                                h with
+                                {
+                                    Activation = h.Activation with
+                                    {
+                                        ExpectedBundleManifestSha256 = previous,
+                                        BundleManifestSha256 = new string('c', 64),
+                                    },
+                                }
+                            )
+                            .ToArray()
+                    )
+                )
+            );
+        update.ApplyRevertAsync = async (cluster, workflow, token) =>
+        {
+            handler.GatewayStopped = true;
+            handler.Revision = "restored";
+            await deployments.ActivateCoreAsync(
+                cluster,
+                workflow.Revert!.Deployment,
+                token,
+                restore: true,
+                update: true,
+                supersede: true
+            );
+        };
+
+        var id = Guid.NewGuid();
+        await update.BeginAsync("demo", new(id, candidate), "begin", "test", default);
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(
+            stopped,
+            new(
+                stopped.GetLifecycleId(),
+                DateTimeOffset.UtcNow,
+                new GatewayStopFence(123, DateTimeOffset.UtcNow)
+            ),
+            default
+        );
+        await update.AdvanceAllAsync(default);
+        handler.FailSecond = true; // Host one switches to the new bundle, Host two never does
+        await update.AdvanceAllAsync(default);
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.NotNull(cluster.PendingDeploymentHash);
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            update.AbandonAsync("demo", "abandon", "operator", default)
+        );
+
+        var current = catalog.GetCluster("demo")!;
+        await catalog.RecordUpdateAsync(
+            current,
+            current.Update! with
+            {
+                PhaseStartedAt =
+                    DateTimeOffset.UtcNow
+                    - ClusterUpdateService.ActivatingTimeout
+                    - TimeSpan.FromSeconds(1),
+            },
+            default
+        );
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Reverting, cluster.Update!.Phase);
+        Assert.StartsWith("Update failed after 30 minutes in Activating", cluster.Update.Failure);
+
+        // No process ran, so the clean proof still holds and no stop is needed. Each Host is restored from the bundle it runs.
+        handler.FailSecond = false;
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(0, handler.GatewayStops);
+        var expected = cluster.Update!.Revert!.Deployment.Hosts.ToDictionary(
+            h => h.HostId,
+            h => h.Activation.ExpectedBundleManifestSha256
+        );
+        Assert.Equal(new string('b', 64), expected["one"]);
+        Assert.Equal(previous, expected["two"]);
+        Assert.Null(cluster.PendingDeploymentHash);
+        Assert.Equal("restored", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+
+        gateway.Revision = "restored";
+        gateway.Ready = true;
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.EndsWith(
+            $"Reverted to the previous version and world from backup {id:D}.",
+            cluster.Update.LastError
+        );
     }
 
     [Fact]

@@ -223,8 +223,10 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             }, cancellation), token);
 
     internal async Task<ClusterActiveRevision> ActivateCoreAsync(ClusterDefinition cluster,
-        ClusterDeploymentRequest request, CancellationToken token, bool restore = false, bool dryRun = false, bool preflight = false, bool update = false)
+        ClusterDeploymentRequest request, CancellationToken token, bool restore = false, bool dryRun = false, bool preflight = false, bool update = false,
+        bool supersede = false)
     {
+        // supersede: a reverting update restores its backup over a half-applied activation of its own.
         // Once a Host activation is partly committed, the same request must remain resumable.
         if (cluster.PendingDeploymentHash is null)
             EnsurePreparedProfileCurrent(cluster.PreparedProfile, request.Revision,
@@ -268,7 +270,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             && !previous.Hosts.Select(h => h.HostId).Order(StringComparer.Ordinal).SequenceEqual(hostIds))
             throw new InvalidOperationException("Host inventory changes require explicit migration before deployment activation.");
         string requestHash = Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(request)));
-        if (cluster.PendingDeploymentHash is { } pending && pending != requestHash)
+        if (!supersede && cluster.PendingDeploymentHash is { } pending && pending != requestHash)
             throw new InvalidOperationException("Resume the interrupted deployment with its original request before activating another revision.");
         var previews = new List<(ClusterHostActivation Host, ClusterDefinition Target, HostContract.HostActiveDeployment Preview)>();
         foreach (var host in request.Hosts)
@@ -290,7 +292,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
         if (dryRun) return new ClusterActiveRevision(request.Revision, previews.Select(p =>
             new ClusterHostRevision(p.Host.HostId, p.Host.CommandUrl, p.Host.TokenEnvironmentVariable, p.Preview)).ToArray(),
             DateTimeOffset.UtcNow, ActivePackageVersion(cluster, request));
-        await catalog.RecordPendingDeploymentAsync(cluster, requestHash, token);
+        await catalog.RecordPendingDeploymentAsync(cluster, requestHash, token, supersede: supersede);
         var activated = new List<ClusterHostRevision>();
         foreach (var (host, target, _) in previews)
         {

@@ -50,7 +50,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     internal static readonly TimeSpan StoppingDeadline = TimeSpan.FromMinutes(20), StartingDeadline = TimeSpan.FromMinutes(30);
 
     // Past these the update gives itself up, so a stuck update cannot lock the cluster forever.
-    // A half-applied activation is the exception: only its own resume or recovery can settle the Hosts.
+    // A half-applied activation is the exception: it can only revert from its pre-update backup, or keep retrying.
     internal static readonly TimeSpan StoppingTimeout = TimeSpan.FromMinutes(60), ActivatingTimeout = TimeSpan.FromMinutes(30),
         StartingTimeout = TimeSpan.FromMinutes(60);
 
@@ -202,10 +202,15 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         async Task<bool> TimedOutAsync(ClusterDefinition cluster, ClusterUpdate workflow, string awaited)
         {
             var timeout = Timeout(workflow.Phase);
+            // A half-applied activation can only be reverted from the backup; without one it keeps retrying.
+            bool halfApplied =
+                workflow.Phase == ClusterUpdatePhase.Activating
+                && cluster.PendingDeploymentHash is not null;
             if (
                 PhaseAge(workflow) < timeout
-                || cluster.PendingDeploymentHash is not null
                 || cluster.PendingRestoreHash is not null
+                || cluster.PendingDeploymentHash is not null
+                    && !(halfApplied && workflow.Backup is not null && backups is not null)
             )
                 return false;
             if (workflow.Phase == ClusterUpdatePhase.Reverting)
@@ -221,9 +226,10 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             }
             string reason =
                 $"Update failed after {timeout.TotalMinutes:0} minutes in {workflow.Phase}: {awaited.TrimEnd('.')}.";
-            if (cluster.ActiveDeployment?.Revision == workflow.Deployment.Revision)
+            if (halfApplied || cluster.ActiveDeployment?.Revision == workflow.Deployment.Revision)
             {
-                // The new version ran, so only the stopped cut taken before activation is a clean way back.
+                // The new version ran, or the Hosts hold different bundles: only the stopped cut taken
+                // before activation is a clean way back.
                 if (workflow.Backup is { } backup && backups is not null)
                 {
                     await catalog.RecordUpdateAsync(
@@ -280,6 +286,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                     await deployments.StopFencedAsync(cluster, token);
                 }
                 var request = await PrepareRevertAsync(cluster, workflow, token);
+                if (cluster.PendingDeploymentHash is not null)
+                    request = await ExpectWhatHostsRunAsync(cluster, request);
                 cluster = catalog.GetCluster(cluster.UniqueName)!;
                 workflow = workflow with { Revert = request, UpdatedAt = DateTimeOffset.UtcNow };
                 await catalog.RecordUpdateAsync(cluster, workflow, token);
@@ -350,6 +358,36 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                     message
                 );
             }
+        }
+
+        // After a half-applied activation some Hosts run the new bundle; each is restored from the one it runs.
+        async Task<ClusterRestoreRequest> ExpectWhatHostsRunAsync(
+            ClusterDefinition cluster,
+            ClusterRestoreRequest request
+        )
+        {
+            var aligned = new List<ClusterHostActivation>();
+            foreach (var host in request.Deployment.Hosts)
+            {
+                var target = cluster.Clone();
+                target.HostCommandUrl = host.CommandUrl;
+                target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
+                var status = (await hosts.GetStatusAsync(target, token)).Data;
+                if (status.HostId != host.HostId)
+                    throw new InvalidDataException("Host endpoint identifies a different host.");
+                aligned.Add(
+                    host with
+                    {
+                        Activation = host.Activation with
+                        {
+                            ExpectedBundleManifestSha256 = status
+                                .Attachments.SingleOrDefault(a => a.ClusterId == cluster.UniqueName)
+                                ?.BundleManifestSha256,
+                        },
+                    }
+                );
+            }
+            return request with { Deployment = request.Deployment with { Hosts = [.. aligned] } };
         }
 
         // Serving is runtime-gated; every Host must also still run the exact activated bundle.
