@@ -16,24 +16,26 @@
 
 <PageTitle>@Title</PageTitle>
 <ClusterBetaNotice />
-<MudPaper Class="pa-4">
-    <MudText Typo="Typo.h5">@Title</MudText>
-    <MudText Class="my-2">Conversion creates a separate destination. The source and backup remain intact. The destination stays stopped until you review it and start it.</MudText>
+<section class="quasar-panel pa-4">
+    <QuasarPageHeading Section="Infrastructure">
+    <Title>@Title</Title>
+</QuasarPageHeading>
+    <p class="quasar-text quasar-type-body1 my-2">Conversion creates a separate destination. The source and backup remain intact. The destination stays stopped until you review it and start it.</p>
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     @if (ToCluster)
     {
-        <MudText Typo="Typo.h6">1. Review the stopped source: @ServerName</MudText>
+        <h2 class="quasar-text quasar-type-h6">1. Review the stopped source: @ServerName</h2>
         <MudButton OnClick="Review" Disabled="@Locked">Refresh source review</MudButton>
         @if (_review is not null)
         {
-            <MudText>Configuration profile: @_review.ProfileName</MudText>
-            <MudText>Plugin settings captured: @(_review.PluginConfigurationCapturedAt?.ToLocalTime().ToString("g") ?? "No snapshot needed for an empty plugin selection")</MudText>
-            <MudText>@_review.ConfigurablePlugins configurable plugins. Settings shown here are a recorded snapshot, not live state. Review source plugin settings before stopping it.</MudText>
-            @foreach (string plugin in _review.Plugins) { <MudText Typo="Typo.body2">@plugin</MudText> }
+            <p class="quasar-text quasar-type-body1">Configuration profile: @_review.ProfileName</p>
+            <p class="quasar-text quasar-type-body1">Plugin settings captured: @(_review.PluginConfigurationCapturedAt?.ToLocalTime().ToString("g") ?? "No snapshot needed for an empty plugin selection")</p>
+            <p class="quasar-text quasar-type-body1">@_review.ConfigurablePlugins configurable plugins. Settings shown here are a recorded snapshot, not live state. Review source plugin settings before stopping it.</p>
+            @foreach (string plugin in _review.Plugins) { <p class="quasar-text quasar-type-body2">@plugin</p> }
             @foreach (string warning in _review.Warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
         }
-        <MudText Typo="Typo.h6" Class="mt-4">2. Choose the destination and verified release</MudText>
-        <MudText>Choose an empty registered cluster with its release package and dependency snapshot selected. The snapshot must contain the same common plugins as this server. Its frozen commits determine the deployed versions, including when the source follows a moving version label.</MudText>
+        <h2 class="quasar-text quasar-type-h6 mt-4">2. Choose the destination and verified release</h2>
+        <p class="quasar-text quasar-type-body1">Choose an empty registered cluster with its release package and dependency snapshot selected. The snapshot must contain the same common plugins as this server. Its frozen commits determine the deployed versions, including when the source follows a moving version label.</p>
         <MudButton Href="/clusters/new?register=true" Target="_blank">Register existing cluster</MudButton>
         <MudSelect T="string" Label="Destination cluster" @bind-Value="_targetCluster" Disabled="@Locked">
             @foreach (var cluster in Clusters.GetClusters().Where(c => c.ActiveDeployment is null && c.GoalState == DedicatedServerGoalState.Off))
@@ -41,16 +43,16 @@
         </MudSelect>
         @if (Clusters.GetCluster(_targetCluster) is { } selected)
         {
-            <MudText>Release: @(selected.PackageSelection?.Version ?? "Not selected"). Dependencies: @(selected.DependencyManifestSha256 is null ? "Not selected" : "Pinned").</MudText>
+            <p class="quasar-text quasar-type-body1">Release: @(selected.PackageSelection?.Version ?? "Not selected"). Dependencies: @(selected.DependencyManifestSha256 is null ? "Not selected" : "Pinned").</p>
             <MudButton OnClick="ReviewDestinationAsync" Disabled="@Locked">Review frozen plugin versions</MudButton>
-            @foreach (string plugin in _frozenPlugins) { <MudText Typo="Typo.body2">@plugin</MudText> }
+            @foreach (string plugin in _frozenPlugins) { <p class="quasar-text quasar-type-body2">@plugin</p> }
             <MudButton Href="@("/clusters/" + Uri.EscapeDataString(_targetCluster))" Target="_blank">Review release and dependencies</MudButton>
         }
-        <MudText Typo="Typo.h6" Class="mt-4">3. Place the cluster</MudText>
-        <MudText>The shipped converter requires at least two regular nodes. Each Host executor receives the verified package, frozen dependencies and the same converted world. Enter routable private IP addresses. Credential fields name existing environment variables; do not enter secrets.</MudText>
+        <h2 class="quasar-text quasar-type-h6 mt-4">3. Place the cluster</h2>
+        <p class="quasar-text quasar-type-body1">The shipped converter requires at least two regular nodes. Each Host executor receives the verified package, frozen dependencies and the same converted world. Enter routable private IP addresses. Credential fields name existing environment variables; do not enter secrets.</p>
         @foreach (var host in _hosts)
         {
-            <MudPaper Outlined="true" Class="pa-3 my-2" @key="host">
+            <section class="quasar-panel pa-3 my-2" @key="host">
                 <MudTextField Label="Host machine ID" @bind-Value="host.Id" Disabled="@Locked" />
                 <MudTextField Label="Host executor command URL" @bind-Value="host.Url" Disabled="@Locked" />
                 <MudTextField Label="Host executor command token environment variable" @bind-Value="host.Token" Disabled="@Locked" />
@@ -58,7 +60,7 @@
                 <MudTextField Label="Private IP address" @bind-Value="host.Address" Disabled="@Locked" />
                 <MudNumericField T="int" Label="Regular nodes" @bind-Value="host.Nodes" Min="1" Max="32" Disabled="@Locked" />
                 <MudButton OnClick="@(() => _hosts.Remove(host))" Disabled="@(Locked || _hosts.Count == 1)">Remove placement</MudButton>
-            </MudPaper>
+            </section>
         }
         <MudButton OnClick="@(() => _hosts.Add(new HostForm()))" Disabled="@Locked">Add placement</MudButton>
         <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gatewayHost" Disabled="@Locked">
@@ -69,21 +71,21 @@
         <MudTextField Label="Allowed internal networks (comma-separated CIDRs)" @bind-Value="_networks" Disabled="@Locked" />
         <MudTextField Label="Join token environment variable on host machines" @bind-Value="_joinToken" Disabled="@Locked" />
         <MudTextField Label="Cluster Registry token-file environment variable" @bind-Value="_tokenFile" Disabled="@Locked" />
-        <MudText Typo="Typo.caption">Regular nodes use backend ports 28417 upward and control ports 29417 upward on each host machine. World Authority uses 28700/29700. Cluster Registry administration uses the destination cluster URL.</MudText>
+        <span class="quasar-text quasar-type-caption">Regular nodes use backend ports 28417 upward and control ports 29417 upward on each host machine. World Authority uses 28700/29700. Cluster Registry administration uses the destination cluster URL.</span>
     }
     else
     {
-        <MudText Typo="Typo.h6">1. Review the source cluster: @ClusterName</MudText>
-        <MudText>Shut down the cluster cleanly first. Quasar verifies every Host executor has stopped its cluster processes, captures a native backup, and converts those copies. Shared filesystem access is not required.</MudText>
+        <h2 class="quasar-text quasar-type-h6">1. Review the source cluster: @ClusterName</h2>
+        <p class="quasar-text quasar-type-body1">Shut down the cluster cleanly first. Quasar verifies every Host executor has stopped its cluster processes, captures a native backup, and converts those copies. Shared filesystem access is not required.</p>
         <MudButton Href="@("/clusters/" + Uri.EscapeDataString(ClusterName ?? ""))">Open source cluster</MudButton>
-        <MudText Typo="Typo.h6" Class="mt-4">2. Configure the standalone destination</MudText>
+        <h2 class="quasar-text quasar-type-h6 mt-4">2. Configure the standalone destination</h2>
         <MudTextField Label="Server ID" @bind-Value="_serverId" Disabled="@Locked" />
         <MudTextField Label="Server name" @bind-Value="_displayName" OnBlur="@(_ => EnsureDestinationName())" Disabled="@Locked" HelperText="A blank name receives an editable generated suggestion." />
         <MudNumericField T="int" Label="Public server port" @bind-Value="_serverPort" Min="1" Max="65535" Disabled="@Locked" />
         <MudSelect T="string" Label="Base configuration profile for server settings and plugin selections" @bind-Value="_profileId" Disabled="@Locked">
             @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="@profile.ConfigProfileId">@profile.Name</MudSelectItem> }
         </MudSelect>
-        <MudText>Session settings and mods come from the converted world. Server settings and ordinary plugin selections are copied into a new profile. Cluster role and transport plugins are removed.</MudText>
+        <p class="quasar-text quasar-type-body1">Session settings and mods come from the converted world. Server settings and ordinary plugin selections are copied into a new profile. Cluster role and transport plugins are removed.</p>
         <MudAlert Severity="Severity.Info">Cluster shared plugin records and per-node private files remain in the backup. Canonical plugin settings are exported beside the new server as cluster-plugin-configurations.json for review and reapplication; they are not automatically installed into arbitrary plugin-owned files. Review configuration before starting the new server.</MudAlert>
     }
     <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="@Locked" Label="I reviewed the source, destination, frozen plugin versions and plugin settings. Keep the source and backup; leave the new destination stopped." />
@@ -93,12 +95,12 @@
     @if (_busy) { <MudProgressLinear Indeterminate="true" Class="my-2" /> }
     @if (_status is not null)
     {
-        <MudText Class="mt-3">@_status.Phase</MudText>
-        <MudText Typo="Typo.caption">Conversion ID: @_status.Id</MudText>
+        <p class="quasar-text quasar-type-body1 mt-3">@_status.Phase</p>
+        <span class="quasar-text quasar-type-caption">Conversion ID: @_status.Id</span>
         @if (_status.Error is not null) { <MudAlert Severity="Severity.Warning">@_status.Error</MudAlert> }
         @if (_status.Destination is not null) { <MudButton Href="@_status.Destination">Review destination</MudButton> }
     }
-</MudPaper>
+</section>
 
 @code {
     [Parameter] public string? ServerName { get; set; }

@@ -18,25 +18,26 @@
 else
 {
     <ClusterBetaNotice />
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
-              Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-3">
         <div>
-            <MudText Typo="Typo.h5">@Cluster.DisplayName</MudText>
-            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+            <QuasarPageHeading Section="Infrastructure">
+    <Title>@Cluster.DisplayName</Title>
+</QuasarPageHeading>
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Cluster</MudChip>
-                <MudText Typo="Typo.body2" Class="mono">@Cluster.UniqueName</MudText>
-            </MudStack>
+                <p class="quasar-text quasar-type-body2 mono">@Cluster.UniqueName</p>
+            </div>
         </div>
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
         <ClusterConsoleButton Cluster="Cluster" />
         <ClusterDeleteButton Cluster="Cluster" ReturnToServers="true" />
         <MudButton Href="/" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
             Servers
         </MudButton>
-        </MudStack>
-    </MudStack>
+        </div>
+    </div>
 
-    <MudStack @key="Cluster.UniqueName" Spacing="4" Class="cluster-control-page">
+    <div class="quasar-layout quasar-gap-4 cluster-control-page" @key="Cluster.UniqueName">
         @if (ClusterReleaseMonitor.IsUpdateAvailable(Cluster, ClusterReleases.GetSnapshot().Release))
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -51,14 +52,14 @@ else
             <MudAlert Severity="Severity.Info">
                 @if (Setup.GetStatus(Cluster.UniqueName) is { } setup)
                 {
-                    <MudText>@setup.Phase @setup.Error</MudText>
+                    <p class="quasar-text quasar-type-body1">@setup.Phase @setup.Error</p>
                     <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
                         <MudButton Href="@($"/clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")" Variant="Variant.Outlined" Color="Color.Primary">Resume guided setup</MudButton>
                     </AuthorizeView>
                 }
                 else
                 {
-                    <MudText>This cluster has no active deployment. Use guided setup to create a managed cluster, or remove this registration if it is no longer needed.</MudText>
+                    <p class="quasar-text quasar-type-body1">This cluster has no active deployment. Use guided setup to create a managed cluster, or remove this registration if it is no longer needed.</p>
                     <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="/clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton></AuthorizeView>
                 }
             </MudAlert>
@@ -79,7 +80,7 @@ else
         <section id="cluster-configuration" aria-label="Cluster configuration">
             <ClusterDeploymentPanel Cluster="Cluster" />
         </section>
-    </MudStack>
+    </div>
 }
 
 @code

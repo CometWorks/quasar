@@ -3,51 +3,10 @@
 
 @if (!string.IsNullOrWhiteSpace(Value))
 {
-    @if (Inline)
-    {
-        <span class="@RootCssClass">
-            <span class="copyable-path-value">
-                @if (ShowValueTooltip)
-                {
-                    <MudTooltip Text="@ResolvedValueTooltip">
-                        <span class="@TextCssClass">@ResolvedDisplayValue</span>
-                    </MudTooltip>
-                }
-                else
-                {
-                    <span class="@TextCssClass">@ResolvedDisplayValue</span>
-                }
-            </span>
-            <MudTooltip Text="@Tooltip">
-                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
-                               Size="Size.Small"
-                               Color="Color.Default"
-                               Class="copyable-path-button"
-                               OnClick="CopyAsync" />
-            </MudTooltip>
-        </span>
-    }
-    else
-    {
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="@RootCssClass">
-            @if (ShowValueTooltip)
-            {
-                <MudTooltip Text="@ResolvedValueTooltip">
-                    <MudText Typo="@Typo" Class="@TextCssClass">@ResolvedDisplayValue</MudText>
-                </MudTooltip>
-            }
-            else
-            {
-                <MudText Typo="@Typo" Class="@TextCssClass">@ResolvedDisplayValue</MudText>
-            }
-            <MudTooltip Text="@Tooltip">
-                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy"
-                               Size="Size.Small"
-                               Color="Color.Default"
-                               OnClick="CopyAsync" />
-            </MudTooltip>
-        </MudStack>
-    }
+    <span class="@RootCssClass">
+        <span class="@TextCssClass" title="@(ShowValueTooltip ? ResolvedValueTooltip : null)">@ResolvedDisplayValue</span>
+        <QuasarIconButton Label="@Tooltip" Icon="@QuasarIcons.ContentCopy" Class="copyable-path-button" OnClick="CopyAsync" />
+    </span>
 }
 
 @code
@@ -65,7 +24,7 @@
     public string Class { get; set; } = string.Empty;
 
     [Parameter]
-    public string TextClass { get; set; } = "mud-text-secondary";
+    public string TextClass { get; set; } = "quasar-muted";
 
     [Parameter]
     public bool Inline { get; set; }

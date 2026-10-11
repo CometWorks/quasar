@@ -11,10 +11,12 @@
 
 <PageTitle>Discord</PageTitle>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-2">
     <div>
-        <MudText Typo="Typo.h5" Class="mb-2">Discord</MudText>
-        <MudText Typo="Typo.body2">One bot for your servers and clusters. Bind command, chat, log, and analytics channels for each.</MudText>
+        <QuasarPageHeading Section="Operations">
+    <Title>Discord</Title>
+    <Description>One bot for your servers and clusters. Bind command, chat, log, and analytics channels for each.</Description>
+</QuasarPageHeading>
     </div>
     <MudTooltip Text="Show Discord integration log">
         <MudButton StartIcon="@Icons.Material.Filled.Terminal"
@@ -24,18 +26,18 @@
             Console Logs
         </MudButton>
     </MudTooltip>
-</MudStack>
+</div>
 
 <MudGrid>
     <MudItem xs="12" xl="4">
-        <MudPaper Class="pa-4 summary-card">
-            <MudStack Spacing="2">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Bot Settings</MudText>
+        <section class="quasar-panel pa-4 summary-card">
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Bot Settings</h2>
                     <MudChip T="string" Color="@GetStatusColor()" Variant="Variant.Outlined">
                         @GetStatusLabel()
                     </MudChip>
-                </MudStack>
+                </div>
 
                 @if (!string.IsNullOrWhiteSpace(BotStatus.LastError))
                 {
@@ -64,11 +66,11 @@
                                  Min="0" />
 
                 <MudCheckBox T="bool" @bind-Value="_options.UseProxy" Label="Use system/environment proxy" />
-                <MudText Typo="Typo.caption">Applies to Discord API requests and the gateway connection. Uses the proxy settings available to the Quasar process, including HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, and NO_PROXY. Clear to connect directly. Saving reconnects the bot.</MudText>
+                <span class="quasar-text quasar-type-caption">Applies to Discord API requests and the gateway connection. Uses the proxy settings available to the Quasar process, including HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, and NO_PROXY. Clear to connect directly. Saving reconnects the bot.</span>
 
-                <MudDivider />
-                <MudText Typo="Typo.h6">Bot presence</MudText>
-                <MudText Typo="Typo.caption">Choose which servers contribute to the bot's status and activity. Each cluster counts as one server. Relay and notification settings are independent.</MudText>
+                <hr class="quasar-divider" />
+                <h2 class="quasar-text quasar-type-h6">Bot presence</h2>
+                <span class="quasar-text quasar-type-caption">Choose which servers contribute to the bot's status and activity. Each cluster counts as one server. Relay and notification settings are independent.</span>
                 <MudCheckBox T="bool" @bind-Value="_options.Presence.AllServers" Label="Include all servers" />
                 @if (!_options.Presence.AllServers)
                 {
@@ -80,7 +82,7 @@
                             <MudSelectItem T="string" Value="@definition.UniqueName">@GetServerName(definition.UniqueName)</MudSelectItem>
                         }
                     </MudSelect>
-                    <MudText Typo="Typo.caption">Only selected servers contribute. New servers are not added automatically. Selecting none clears the activity.</MudText>
+                    <span class="quasar-text quasar-type-caption">Only selected servers contribute. New servers are not added automatically. Selecting none clears the activity.</span>
                 }
                 <MudSelect T="DiscordPresenceStatus" @bind-Value="_options.Presence.Status" Label="Status indicator" Variant="Variant.Outlined">
                     <MudSelectItem Value="DiscordPresenceStatus.Automatic">Automatic (selected servers)</MudSelectItem>
@@ -102,22 +104,22 @@
                 <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerNames" Label="Server names" Disabled="@(!_options.Presence.ShowActivity || _options.Presence.ShowServerStates)" />
                 <MudCheckBox T="bool" @bind-Value="_options.Presence.ShowServerStates" Label="Server names and states" Disabled="@(!_options.Presence.ShowActivity)" />
                 @{ var presencePreview = DiscordBotService.PreviewPresence(_options.Presence); }
-                <MudText Typo="Typo.caption">Preview: @presencePreview.Status · @(presencePreview.Activity is null ? "Activity hidden" : $"{presencePreview.ActivityType}: {presencePreview.Activity}")</MudText>
-                <MudText Typo="Typo.caption">Discord limits activity text to 128 characters. Save Bot Settings to apply.</MudText>
+                <span class="quasar-text quasar-type-caption">Preview: @presencePreview.Status · @(presencePreview.Activity is null ? "Activity hidden" : $"{presencePreview.ActivityType}: {presencePreview.Activity}")</span>
+                <span class="quasar-text quasar-type-caption">Discord limits activity text to 128 characters. Save Bot Settings to apply.</span>
 
                 <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveBotSettingsAsync">
                     Save Bot Settings
                 </MudButton>
-            </MudStack>
-        </MudPaper>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12" xl="8">
-        <MudPaper Class="pa-4 server-card">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                <MudText Typo="Typo.h6">Per-Server Bindings</MudText>
-                <MudText Typo="Typo.caption">@($"{ServerDefinitions.Count} server(s)")</MudText>
-            </MudStack>
+        <section class="quasar-panel pa-4 server-card">
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 mb-2">
+                <h2 class="quasar-text quasar-type-h6">Per-Server Bindings</h2>
+                <span class="quasar-text quasar-type-caption">@($"{ServerDefinitions.Count} server(s)")</span>
+            </div>
 
             @if (ServerDefinitions.Count == 0)
             {
@@ -139,8 +141,8 @@
                             {
                                 var serverOptions = GetServerOptions(definition.UniqueName);
 
-                                <MudStack Spacing="2" Class="pt-2">
-                                    <MudText Typo="Typo.caption" Class="mono">@definition.UniqueName</MudText>
+                                <div class="quasar-layout quasar-gap-2 pt-2">
+                                    <span class="quasar-text quasar-type-caption mono">@definition.UniqueName</span>
                                     @if (definition.IsCluster)
                                     {
                                         <MudAlert Severity="Severity.Info" Dense="true">Applies to the whole cluster across all Hosts. Chat requires the current Quasar Agent on every node, including the World Authority. Log export includes Agent plugin logs.</MudAlert>
@@ -167,18 +169,18 @@
                                                      Min="0" />
                                     @if (serverOptions.FactionChannels.Count > 0)
                                     {
-                                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
                                             @foreach (var factionChannel in serverOptions.FactionChannels)
                                             {
                                                 <MudChip T="string" Variant="Variant.Outlined">
                                                     @($"{factionChannel.FactionTag}: {factionChannel.ChannelId}")
                                                 </MudChip>
                                             }
-                                        </MudStack>
+                                        </div>
                                     }
-                                    <MudText Typo="Typo.caption">
+                                    <span class="quasar-text quasar-type-caption">
                                         Discord administrators can run <code>/faction-channel</code> to create and bind an admin-only channel. Game faction chat is relayed into it; administrator messages posted there are delivered privately to every online member of that in-game faction.
-                                    </MudText>
+                                    </span>
                                     <MudNumericField T="ulong?"
                                                      @bind-Value="serverOptions.LogChannelId"
                                                      Label="Log channel ID"
@@ -226,8 +228,8 @@
                                                   Label="Death emotes (comma-separated)"
                                                   Variant="Variant.Outlined" />
 
-                                    <MudDivider Class="my-1" />
-                                    <MudText Typo="Typo.subtitle1">SimSpeed Rules</MudText>
+                                    <hr class="quasar-divider my-1" />
+                                    <h3 class="quasar-text quasar-type-subtitle1">SimSpeed Rules</h3>
                                     <MudGrid>
                                         <MudItem xs="12" md="4">
                                             <MudCheckBox T="bool" @bind-Value="serverOptions.EnableSimSpeedAlerts" Label="Enable simspeed alerts" />
@@ -308,51 +310,51 @@
                                     <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SaveServerAsync(definition.UniqueName))">
                                         Save settings
                                     </MudButton>
-                                </MudStack>
+                                </div>
                             }
                         </MudExpansionPanel>
                     }
                 </MudExpansionPanels>
             }
-        </MudPaper>
+        </section>
     </MudItem>
 </MudGrid>
 
-<MudPaper Class="pa-4 mt-4">
-    <MudStack Spacing="2">
-        <MudText Typo="Typo.h6">Death Message Templates</MudText>
-        <MudText Typo="Typo.body2">
+<section class="quasar-panel pa-4 mt-4">
+    <div class="quasar-layout quasar-gap-2">
+        <h2 class="quasar-text quasar-type-h6">Death Message Templates</h2>
+        <p class="quasar-text quasar-type-body2">
             Edit <CopyablePath Value="@MagnetarPaths.GetQuasarDeathMessagesPath()" Inline="true" TextClass="" /> for custom per-death-type templates using <code>{victim}</code>, <code>{killer}</code>, and <code>{weapon}</code>.
-        </MudText>
-        <MudText Typo="Typo.caption">
+        </p>
+        <span class="quasar-text quasar-type-caption">
             Current Quasar categories and full template lines shown below.
-        </MudText>
-        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+        </span>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
             <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveDeathTemplatesAsync">
                 Save Death Templates
             </MudButton>
             <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetDeathTemplatesAsync">
                 Reset to Defaults
             </MudButton>
-        </MudStack>
+        </div>
 
         <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
             <MudExpansionPanel Expanded="@_deathTemplatesExpanded"
                                ExpandedChanged="SetDeathTemplatesExpanded"
                                KeepContentAlive="false">
                 <TitleContent>
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                        <MudStack Spacing="0">
-                            <MudText Typo="Typo.subtitle1">Quasar Defaults</MudText>
-                            <MudText Typo="Typo.caption">
+                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                        <div class="quasar-layout quasar-gap-0">
+                            <h3 class="quasar-text quasar-type-subtitle1">Quasar Defaults</h3>
+                            <span class="quasar-text quasar-type-caption">
                                 One line per template. Press Enter for another line.
-                            </MudText>
-                        </MudStack>
-                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                            </span>
+                        </div>
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
                             <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@DeathTemplateCategoryCount categories</MudChip>
                             <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@DeathTemplateLineCount lines</MudChip>
-                        </MudStack>
-                    </MudStack>
+                        </div>
+                    </div>
                 </TitleContent>
                 <ChildContent>
                     @if (_deathTemplatesExpanded)
@@ -363,15 +365,15 @@
                             @foreach (var category in deathTemplateCategories)
                             {
                                 <MudItem xs="12" md="6">
-                                    <MudPaper Class="pa-3" Outlined="true" @key="category.Key">
-                                        <MudStack Spacing="2">
-                                            <MudStack Row="true" AlignItems="AlignItems.Start" Justify="Justify.SpaceBetween">
-                                                <MudStack Spacing="0">
-                                                    <MudText Typo="Typo.subtitle1">@category.Title</MudText>
-                                                    <MudText Typo="Typo.caption">@category.Description</MudText>
-                                                </MudStack>
+                                    <section class="quasar-panel pa-3" @key="category.Key">
+                                        <div class="quasar-layout quasar-gap-2">
+                                            <div class="quasar-layout quasar-layout-row quasar-align-start quasar-justify-spacebetween quasar-gap-3">
+                                                <div class="quasar-layout quasar-gap-0">
+                                                    <h3 class="quasar-text quasar-type-subtitle1">@category.Title</h3>
+                                                    <span class="quasar-text quasar-type-caption">@category.Description</span>
+                                                </div>
                                                 <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@CountDeathMessageLines(category.EditorText)</MudChip>
-                                            </MudStack>
+                                            </div>
 
                                             <MudTextField T="string"
                                                           Value="@category.EditorText"
@@ -383,8 +385,8 @@
                                                           MaxLines="10000"
                                                           Immediate="true"
                                                           HelperText="One non-empty line per message template." />
-                                        </MudStack>
-                                    </MudPaper>
+                                        </div>
+                                    </section>
                                 </MudItem>
                             }
                         </MudGrid>
@@ -392,8 +394,8 @@
                 </ChildContent>
             </MudExpansionPanel>
         </MudExpansionPanels>
-    </MudStack>
-</MudPaper>
+    </div>
+</section>
 
 @code
 {

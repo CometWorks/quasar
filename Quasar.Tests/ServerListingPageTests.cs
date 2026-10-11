@@ -6,8 +6,6 @@ using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using MudBlazor;
-using MudBlazor.Extensions;
 using MudBlazor.Services;
 using Quasar.Components.Pages;
 using Quasar.Models;
@@ -66,21 +64,18 @@ public sealed class ServerListingPageTests : IDisposable
         Assert.Contains("Accept diagnostic data handling", page.Markup);
         Assert.Contains("Add a Steam identity", page.Markup);
         Assert.DoesNotContain("private-admin", page.Markup);
-        var names = page.FindComponents<MudTextField<string>>().Where(c => c.Instance.Label == "Public server name").ToArray();
-        Assert.Contains(names, c => c.Instance.GetState(x => x.Value) == "Public solo");
-        Assert.Contains(names, c => c.Instance.GetState(x => x.Value) == "Cluster fleet");
-        var ports = page.FindComponents<MudNumericField<int>>();
-        Assert.Contains(ports, c => c.Instance.GetState(x => x.Value) == 27116);
-        Assert.Contains(ports, c => c.Instance.GetState(x => x.Value) == 28000);
-
-        var addresses = page.FindComponents<MudTextField<string>>().Where(c => c.Instance.Label == "Public hostname or IP address").ToArray();
-        var switches = page.FindComponents<MudSwitch<bool>>().Where(c => c.Instance.Label == "Publish this server").ToArray();
-        for (int i = 0; i < addresses.Length; i++)
+        var names = page.FindAll("input[name='public-name']");
+        Assert.Contains(names, c => c.GetAttribute("value") == "Public solo");
+        Assert.Contains(names, c => c.GetAttribute("value") == "Cluster fleet");
+        var ports = page.FindAll("input[name='public-port']");
+        Assert.Contains(ports, c => c.GetAttribute("value") == "27116");
+        Assert.Contains(ports, c => c.GetAttribute("value") == "28000");
+        for (int i = 0; i < names.Count; i++)
         {
-            await page.InvokeAsync(() => addresses[i].Instance.ValueChanged.InvokeAsync("play.example.org"));
-            await page.InvokeAsync(() => switches[i].Instance.ValueChanged.InvokeAsync(true));
+            page.FindAll("input[name='public-host']")[i].Input("play.example.org");
+            page.FindAll("input[name='publish']")[i].Change(true);
         }
-        await page.FindAll("button").Single(b => b.TextContent.Trim() == "Save listings").ClickAsync();
+        await page.Find("form").SubmitAsync();
         var saved = context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Options;
         Assert.True(saved.Enabled); Assert.Equal(2, saved.Listings.Count);
         Assert.All(saved.Listings, e => { Assert.True(e.Enabled); Assert.Equal("play.example.org", e.PublicHost); });
@@ -95,11 +90,11 @@ public sealed class ServerListingPageTests : IDisposable
         var page = context.Render<ServerListing>();
         var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
-        await page.FindAll("button").Single(b => b.TextContent.Trim() == "Save listings").ClickAsync();
+        await page.Find("form").SubmitAsync();
         Assert.False(File.Exists(settings.SettingsPath));
         Assert.Equal(0, settings.GetSnapshot().Revision);
-        var visibility = page.FindComponents<MudSwitch<bool>>().Single(c => c.Instance.Label == "Show configured servers on se-servers.net");
-        await page.InvokeAsync(() => visibility.Instance.ValueChanged.InvokeAsync(true));
+        page.Find("input[name='listing-visibility']").Change(true);
+        Assert.False(page.Find("input[name='listing-visibility']").HasAttribute("checked"));
         Assert.False(context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings().ListingGranted);
     }
 

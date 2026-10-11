@@ -14,23 +14,23 @@
 
 <PageTitle>Backups</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Backups</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Save and restore all of Quasar's own configuration as a single ZIP file, stamped with the
-    Quasar version it was taken from (currently <strong>@WebServiceOptions.Version</strong>).
-</MudText>
+<QuasarPageHeading Section="Tools & settings">
+    <Title>Backups</Title>
+    <Description>Save and restore all of Quasar's own configuration as a single ZIP file, stamped with the
+    Quasar version it was taken from (currently <strong>@WebServiceOptions.Version</strong>).</Description>
+</QuasarPageHeading>
 
 <MudGrid>
     <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Style="height:100%">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Create &amp; restore</MudText>
-                <MudText Typo="Typo.body2">
+        <section class="quasar-panel pa-4" style="height:100%">
+            <div class="quasar-layout quasar-gap-3">
+                <h2 class="quasar-text quasar-type-h6">Create &amp; restore</h2>
+                <p class="quasar-text quasar-type-body2">
                     A backup contains all Quasar configurations (server configs, Config profiles, world
                     templates, Discord, branding, players, security/RBAC and more). <b>No world state is
                         backed up. Please use the world backup below for save files, and the server backup for
                         non-cache Dedicated Server and Magnetar app data.</b>
-                </MudText>
+                </p>
 
                 <MudButton Href="/api/backup/download"
                            Variant="Variant.Filled"
@@ -39,15 +39,15 @@
                     Back up Quasar configuration to file
                 </MudButton>
 
-                <MudDivider />
+                <hr class="quasar-divider" />
 
-                <MudText Typo="Typo.subtitle2">Restore</MudText>
-                <MudText Typo="Typo.body2">
+                <h3 class="quasar-text quasar-type-subtitle2">Restore</h3>
+                <p class="quasar-text quasar-type-body2">
                     Restoring <strong>merges</strong> the configuration backup into the current configuration:
                     items are matched by ID, so configs, templates and servers with new IDs are added while
                     matching IDs are overwritten. For a clean restore, delete Quasar's configs first, then restore.
                     Restoring the configuration does not change game data. You can restore the servers one by one.
-                </MudText>
+                </p>
                 <MudFileUpload T="IBrowserFile" Accept=".zip" FilesChanged="RestoreFromUploadAsync" Disabled="_busy">
                     <CustomContent Context="upload">
                         <MudButton Variant="Variant.Outlined"
@@ -69,17 +69,17 @@
                         }
                     </MudAlert>
                 }
-            </MudStack>
-        </MudPaper>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4" Style="height:100%">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Version compatibility</MudText>
-                <MudText Typo="Typo.body2">
+        <section class="quasar-panel pa-4" style="height:100%">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Version compatibility</h2>
+                <p class="quasar-text quasar-type-body2">
                     Backups follow semantic versioning:
-                </MudText>
+                </p>
                 <MudList T="string" Dense="true" Class="pl-2">
                     <MudListItem T="string" Icon="@Icons.Material.Filled.CheckCircle" IconColor="Color.Success">
                         Same major.minor version restores in full; patch versions are compatible both ways.
@@ -91,24 +91,24 @@
                         Restoring a backup from a newer major.minor version is not supported (no downgrade).
                     </MudListItem>
                 </MudList>
-                <MudText Typo="Typo.caption">
+                <span class="quasar-text quasar-type-caption">
                     Note: data-protection keys are not included, so a restored Steam Workshop API key must be
                     re-entered when moving the backup to a different machine.
-                </MudText>
-            </MudStack>
-        </MudPaper>
+                </span>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Server &amp; world backups</MudText>
-                <MudText Typo="Typo.body2">
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <h2 class="quasar-text quasar-type-h6">Server &amp; world backups</h2>
+                <p class="quasar-text quasar-type-body2">
                     Server backups include Quasar's server definition plus non-cache Dedicated Server and Magnetar app
                     data. World backups restore only world files and keep the current server/world config intact. World
                     backups can be taken while a server is running; when Space Engineers has a world <code>Backup</code>
                     folder, Quasar uses the latest valid snapshot from it.
-                </MudText>
+                </p>
 
                 @if (_servers.Count == 0)
                 {
@@ -132,7 +132,7 @@
                             <MudTd DataLabel="Unique name"><code>@context.UniqueName</code></MudTd>
                             <MudTd DataLabel="Server">@context.DisplayName</MudTd>
                             <MudTd DataLabel="" Class="quasar-actions-column">
-                                <MudStack Row="true" Spacing="0" AlignItems="AlignItems.Center">
+                                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-0">
                                     <MudTooltip Text="Back up server">
                                         <MudIconButton Icon="@Icons.Material.Filled.Inventory2"
                                                        Color="Color.Primary"
@@ -161,28 +161,28 @@
                                                        OnClick="@(() => RestoreLatestWorldBackupAsync(context.UniqueName))"
                                                        Disabled="@(_busy || serverRunning || latestWorldBackup is null)" />
                                     </MudTooltip>
-                                </MudStack>
+                                </div>
                             </MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
 
-                <MudDivider />
+                <hr class="quasar-divider" />
 
-                <MudText Typo="Typo.h6">Automatic backups</MudText>
-                <MudText Typo="Typo.body2">
+                <h2 class="quasar-text quasar-type-h6">Automatic backups</h2>
+                <p class="quasar-text quasar-type-body2">
                     Configure independent automatic backup rules. Server and world rules run for every configured
                     server and prune retained backups per server.
-                </MudText>
+                </p>
 
                 <MudExpansionPanels MultiExpansion="true">
                     <MudExpansionPanel Text="Quasar config" Expanded="@_settings.Configuration.Enabled">
-                        <MudStack Spacing="3">
-                            <MudText Typo="Typo.body2">
+                        <div class="quasar-layout quasar-gap-3">
+                            <p class="quasar-text quasar-type-body2">
                                 Backs up Quasar configuration only: server definitions, config profiles, world templates,
                                 Discord, branding, players, security/RBAC and other Quasar catalogs. It does not include
                                 Dedicated Server app data, Magnetar app data or world save files.
-                            </MudText>
+                            </p>
                             <MudSwitch @bind-Value="_settings.Configuration.Enabled" Color="Color.Primary" Label="Enable Quasar config backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -219,15 +219,15 @@
                                                      Variant="Variant.Outlined" Disabled="!_settings.Configuration.Enabled" />
                                 </MudItem>
                             </MudGrid>
-                        </MudStack>
+                        </div>
                     </MudExpansionPanel>
 
                     <MudExpansionPanel Text="Servers" Expanded="@_settings.Server.Enabled">
-                        <MudStack Spacing="3">
-                            <MudText Typo="Typo.body2">
+                        <div class="quasar-layout quasar-gap-3">
+                            <p class="quasar-text quasar-type-body2">
                                 Backs up each server's Quasar server definition plus non-cache Dedicated Server and
                                 Magnetar app data. It does not include world save files; use world backups for saves.
-                            </MudText>
+                            </p>
                             <MudSwitch @bind-Value="_settings.Server.Enabled" Color="Color.Primary" Label="Enable server backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -264,16 +264,16 @@
                                                      Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled" />
                                 </MudItem>
                             </MudGrid>
-                        </MudStack>
+                        </div>
                     </MudExpansionPanel>
 
                     <MudExpansionPanel Text="Worlds" Expanded="@_settings.World.Enabled">
-                        <MudStack Spacing="3">
-                            <MudText Typo="Typo.body2">
+                        <div class="quasar-layout quasar-gap-3">
+                            <p class="quasar-text quasar-type-body2">
                                 Backs up each server's world save files only. When a Space Engineers <code>Backup</code>
                                 snapshot exists, Quasar uses the latest valid snapshot so running servers can be backed up
                                 without copying the live save folder.
-                            </MudText>
+                            </p>
                             <MudSwitch @bind-Value="_settings.World.Enabled" Color="Color.Primary" Label="Enable world backups" />
                             <MudGrid>
                                 <MudItem xs="12" sm="6" md="3">
@@ -310,11 +310,11 @@
                                                      Variant="Variant.Outlined" Disabled="!_settings.World.Enabled" />
                                 </MudItem>
                             </MudGrid>
-                        </MudStack>
+                        </div>
                     </MudExpansionPanel>
                 </MudExpansionPanels>
 
-                <MudStack Row="true" Spacing="2">
+                <div class="quasar-layout quasar-layout-row quasar-gap-2">
                     <MudButton Variant="Variant.Filled" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Save" OnClick="SaveSettingsAsync" Disabled="_busy">
                         Save rules
@@ -323,18 +323,18 @@
                                StartIcon="@Icons.Material.Filled.BackupTable" OnClick="MakeBackupNowAsync" Disabled="_busy">
                         Run enabled rules now
                     </MudButton>
-                </MudStack>
-            </MudStack>
-        </MudPaper>
+                </div>
+            </div>
+        </section>
     </MudItem>
 
     <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Stored backups</MudText>
-                <MudText Typo="Typo.body2">
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Stored backups</h2>
+                <p class="quasar-text quasar-type-body2">
                     Folder: <CopyablePath Value="@BackupService.BackupDirectory" Inline="true" TextClass="" />
-                </MudText>
+                </p>
                 <MudGrid>
                     <MudItem xs="12" md="7">
                         <MudTextField @bind-Value="_backupDirectoryDraft"
@@ -344,7 +344,7 @@
                                       HelperText="Leave empty for the default install-root Backups folder. Relative paths resolve under the Quasar install directory." />
                     </MudItem>
                     <MudItem xs="12" md="5" Class="d-flex align-center justify-end">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Justify="Justify.FlexEnd">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-justify-flexend quasar-gap-1">
                             <MudButton Variant="Variant.Outlined"
                                        StartIcon="@Icons.Material.Filled.FolderOpen"
                                        Disabled="@BackupDirectoryEditorDisabled"
@@ -364,12 +364,12 @@
                                        OnClick="SaveBackupDirectoryAsync">
                                 Save folder
                             </MudButton>
-                        </MudStack>
+                        </div>
                     </MudItem>
                 </MudGrid>
-                <MudText Typo="Typo.caption">
+                <span class="quasar-text quasar-type-caption">
                     Setting stored in <CopyablePath Value="@_backupDirectorySettingsPath" Inline="true" TextClass="" />
-                </MudText>
+                </span>
                 @if (_backupDirectoryEnvironmentOverride)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
@@ -378,7 +378,7 @@
                 }
                 @if (_backups.Count == 0)
                 {
-                    <MudText Typo="Typo.body2">No backups in the configured backup folder yet.</MudText>
+                    <p class="quasar-text quasar-type-body2">No backups in the configured backup folder yet.</p>
                 }
                 else
                 {
@@ -417,8 +417,8 @@
                         </RowTemplate>
                     </MudTable>
                 }
-            </MudStack>
-        </MudPaper>
+            </div>
+        </section>
     </MudItem>
 </MudGrid>
 

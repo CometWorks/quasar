@@ -9,17 +9,19 @@
 
 <PageTitle>Chat</PageTitle>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-2">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-2">
     <div>
-        <MudText Typo="Typo.h5" Class="mb-2">Chat</MudText>
-        <MudText Typo="Typo.body2">Select a server, watch live chat, send messages, and run !commands through the agent.</MudText>
+        <QuasarPageHeading Section="Operations">
+    <Title>Chat</Title>
+    <Description>Select a server, watch live chat, send messages, and run !commands through the agent.</Description>
+</QuasarPageHeading>
     </div>
     <MudChip T="string" Variant="Variant.Outlined">@($"{ConnectedAgents.Count} connected")</MudChip>
-</MudStack>
+</div>
 
-<MudPaper Class="pa-4 server-card chat-console-card">
-    <MudStack Spacing="3">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+<section class="quasar-panel pa-4 server-card chat-console-card">
+    <div class="quasar-layout quasar-gap-3">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-2">
             <MudSelect T="string"
                        Label="Server"
                        Value="_selectedUniqueName"
@@ -32,7 +34,7 @@
                 }
             </MudSelect>
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1 mt-3">
                 <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.Refresh))" Disabled="@(!CanSendAgentCommand)">
                     Refresh
                 </MudButton>
@@ -42,8 +44,8 @@
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!CanRestartSelected)">
                     Restart
                 </MudButton>
-            </MudStack>
-        </MudStack>
+            </div>
+        </div>
 
         @if (ServerOptions.Count == 0)
         {
@@ -59,34 +61,34 @@
         }
         else
         {
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
                 <MudChip T="string" Variant="Variant.Outlined">Players @SelectedAgent.Snapshot.Metrics.PlayersOnline/@SelectedAgent.Snapshot.Metrics.MaxPlayers</MudChip>
                 <MudChip T="string" Variant="Variant.Outlined">World @SelectedAgent.WorldDisplayName</MudChip>
                 <MudChip T="string" Variant="Variant.Outlined">Agent connected</MudChip>
-            </MudStack>
+            </div>
         }
 
         <div id="@_chatScrollContainerId" class="admin-chat-list">
             @if (SelectedMessages.Count == 0)
             {
-                <MudText Typo="Typo.body2" Class="mud-text-secondary">No recent chat for this server.</MudText>
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No recent chat for this server.</p>
             }
             else
             {
                 @foreach (var message in SelectedMessages)
                 {
                     <div class="admin-chat-row">
-                        <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                        <MudText Typo="Typo.body2">
+                        <span class="quasar-text quasar-type-caption mono">@FormatTimestamp(message.TimestampTicksUtc)</span>
+                        <p class="quasar-text quasar-type-body2">
                             <span class="mono">[@FormatChannel(message)]</span>
                             <strong>@FormatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)
-                        </MudText>
+                        </p>
                     </div>
                 }
             }
         </div>
 
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="2">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-2">
             <MudAutocomplete T="string"
                              @bind-Value="_inputText"
                              SearchFunc="SearchCommandSuggestionsAsync"
@@ -113,12 +115,12 @@
                        Disabled="@(!CanSendAgentCommand || string.IsNullOrWhiteSpace(_inputText))">
                 @(IsCommandInput ? "Run" : "Send")
             </MudButton>
-        </MudStack>
+        </div>
 
         @if (SelectedAgent?.CommandResults.Count > 0)
         {
-            <MudDivider />
-            <MudText Typo="Typo.subtitle2">Recent Command Results</MudText>
+            <hr class="quasar-divider" />
+            <h3 class="quasar-text quasar-type-subtitle2">Recent Command Results</h3>
             @foreach (var result in SelectedAgent.CommandResults.Take(6))
             {
                 <MudAlert Dense="true" Severity="@(result.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
@@ -126,8 +128,8 @@
                 </MudAlert>
             }
         }
-    </MudStack>
-</MudPaper>
+    </div>
+</section>
 
 @code
 {

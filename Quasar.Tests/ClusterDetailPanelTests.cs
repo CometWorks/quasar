@@ -16,10 +16,13 @@ namespace Quasar.Tests;
 public sealed class ClusterDetailPanelTests
 {
     [Theory]
-    [InlineData(DedicatedServerGoalState.Off, true, false)]
-    [InlineData(DedicatedServerGoalState.Off, false, false)]
-    [InlineData(DedicatedServerGoalState.On, true, true)]
-    public async Task GatewayConnectionWarningDependsOnGoalState(DedicatedServerGoalState goal, bool managed, bool shouldWarn)
+    [InlineData(DedicatedServerGoalState.Off, true, false, false)]
+    [InlineData(DedicatedServerGoalState.Off, true, false, true)]
+    [InlineData(DedicatedServerGoalState.Off, false, false, false)]
+    [InlineData(DedicatedServerGoalState.Off, false, false, true)]
+    [InlineData(DedicatedServerGoalState.On, true, true, false)]
+    [InlineData(DedicatedServerGoalState.On, true, true, true)]
+    public async Task GatewayConnectionWarningDependsOnGoalState(DedicatedServerGoalState goal, bool managed, bool shouldWarn, bool collapseDetails)
     {
         await using var context = new BunitContext();
         context.Services.AddMudServices();
@@ -35,9 +38,16 @@ public sealed class ClusterDetailPanelTests
         var panel = context.Render<ClusterDetailPanel>(parameters => parameters
             .Add(p => p.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test", GoalState = goal,
                 Gateway = managed ? new GatewaySpec("test", GatewayGoal.Off, "/bundle", "hash", "rev", [], "/run") : null })
-            .Add(p => p.ShowConfigurationLinks, false));
+            .Add(p => p.ShowConfigurationLinks, false).Add(p => p.CollapseDetails, collapseDetails));
 
         Assert.Equal(shouldWarn, panel.Markup.Contains("Cannot reach the Cluster Registry", StringComparison.Ordinal));
+        if (collapseDetails)
+        {
+            Assert.False(panel.Find("details").HasAttribute("open"));
+            Assert.Contains("Desired state", panel.Find("details").TextContent);
+            Assert.All(panel.FindAll(".quasar-notice"), notice => Assert.Null(notice.Closest("details")));
+        }
+
     }
 
     [Fact]

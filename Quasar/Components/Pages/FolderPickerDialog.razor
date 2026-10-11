@@ -2,14 +2,14 @@
 
 <MudDialog>
     <TitleContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Cancel" />
-            <MudText Typo="Typo.h6">@DialogTitle</MudText>
-        </MudStack>
+            <h2 class="quasar-text quasar-type-h6">@DialogTitle</h2>
+        </div>
     </TitleContent>
     <DialogContent>
-        <MudStack Spacing="2" Style="min-width: 480px;">
-            <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+        <div class="quasar-layout quasar-gap-2" style="min-width: 480px;">
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
                 <MudTextField @bind-Value="_currentPath"
                               Variant="Variant.Outlined"
                               Immediate="false"
@@ -21,7 +21,7 @@
                               AdornmentIcon="@Icons.Material.Filled.Refresh" />
                 <MudButton Variant="Variant.Outlined" OnClick="Navigate">Go</MudButton>
                 <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" title="Up" OnClick="GoUp" />
-            </MudStack>
+            </div>
 
             <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden folders" Dense="true" />
 
@@ -34,17 +34,17 @@
 
             @if (_shortcuts.Count > 0)
             {
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
                     @foreach (var shortcut in _shortcuts)
                     {
                         <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => NavigateTo(shortcut.FullPath))">
                             @shortcut.Label
                         </MudChip>
                     }
-                </MudStack>
+                </div>
             }
 
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="0" Class="folder-picker-breadcrumbs">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-0 folder-picker-breadcrumbs">
                 @foreach (var crumb in _breadcrumbs)
                 {
                     var isCurrent = string.Equals(crumb.FullPath, _currentPath, StringComparison.OrdinalIgnoreCase);
@@ -56,7 +56,7 @@
                         @crumb.Label
                     </MudButton>
                 }
-            </MudStack>
+            </div>
 
             @if (!string.IsNullOrWhiteSpace(_error))
             {
@@ -73,20 +73,18 @@
                 @foreach (var entry in FilteredEntries)
                 {
                     <MudListItem T="FileBrowserEntry" OnClick="@(() => NavigateTo(entry.FullPath))">
-                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
-                            <MudIcon Icon="@(entry.IsWorldFolder ? Icons.Material.Filled.Public : Icons.Material.Filled.Folder)"
-                                     Color="@(entry.IsWorldFolder ? Color.Success : Color.Default)"
-                                     Size="Size.Small" />
-                            <MudText Typo="Typo.body2">@entry.Name</MudText>
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                            <QuasarIcon Icon="@(entry.IsWorldFolder ? Icons.Material.Filled.Public : Icons.Material.Filled.Folder)" Class="@("quasar-tone-" + ((entry.IsWorldFolder ? Color.Success : Color.Default)).ToString().ToLowerInvariant())" />
+                            <p class="quasar-text quasar-type-body2">@entry.Name</p>
                             @if (entry.IsWorldFolder)
                             {
                                 <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">world</MudChip>
                             }
-                        </MudStack>
+                        </div>
                     </MudListItem>
                 }
             </MudList>
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>

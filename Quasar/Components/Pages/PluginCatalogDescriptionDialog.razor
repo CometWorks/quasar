@@ -1,15 +1,15 @@
 <MudDialog>
     <TitleContent>
-        <MudStack Spacing="0">
-            <MudText Typo="Typo.h6">@DisplayName</MudText>
+        <div class="quasar-layout quasar-gap-0">
+            <h2 class="quasar-text quasar-type-h6">@DisplayName</h2>
             @if (!string.IsNullOrWhiteSpace(PluginId))
             {
-                <MudText Typo="Typo.caption" Class="mono" Style="opacity: 0.78;">@PluginId</MudText>
+                <span class="quasar-text quasar-type-caption mono" style="opacity: 0.78;">@PluginId</span>
             }
-        </MudStack>
+        </div>
     </TitleContent>
     <DialogContent>
-        <MudText Typo="Typo.body2" Style="white-space: pre-wrap;">@Description</MudText>
+        <p class="quasar-text quasar-type-body2" style="white-space: pre-wrap;">@Description</p>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>

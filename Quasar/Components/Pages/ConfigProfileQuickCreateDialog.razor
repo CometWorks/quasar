@@ -1,10 +1,10 @@
 <MudDialog>
     <DialogContent>
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">
                 Create a reusable config profile, then it will be selected in the server editor.
-            </MudText>
+            </p>
 
             <MudTextField
                 @bind-Value="_name"
@@ -23,7 +23,7 @@
                 Lines="3"
                 Sizing="InputSizing.Auto"
                 MaxLines="10000" />
-        </MudStack>
+        </div>
         </MudForm>
     </DialogContent>
     <DialogActions>

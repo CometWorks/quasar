@@ -12,20 +12,21 @@
     <MudButton Href="/hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add host machine</MudButton>
 </AuthorizeView>
 
-<MudText Typo="Typo.h5" Class="mb-2">Host machines</MudText>
-<MudText Typo="Typo.body2" Class="mb-2">@LocalHost.Status</MudText>
+<QuasarPageHeading Section="Infrastructure">
+    <Title>Host machines</Title>
+    <Description>@LocalHost.Status</Description>
+</QuasarPageHeading>
 @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-3">@LocalHost.Error</MudAlert> }
-<MudText Typo="Typo.body2" Class="mb-4">Process agents report standalone-server health. Enrolled Host executors independently keep Cluster Registry, Cluster Gateway and node slots reconciled while the central Quasar worker restarts.</MudText>
+<p class="quasar-text quasar-type-body2 mb-4">Process agents report standalone-server health. Enrolled Host executors independently keep Cluster Registry, Cluster Gateway and node slots reconciled while the central Quasar worker restarts.</p>
 
-<MudPaper Class="server-card mb-4">
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center"
-              Justify="Justify.SpaceBetween" Spacing="2" Class="pa-4 pb-2">
+<section class="quasar-panel server-card mb-4">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 pa-4 pb-2">
         <div>
-            <MudText Typo="Typo.h6">Host machines</MudText>
-            <MudText Typo="Typo.body2">Connection status and configured clusters across your host machines.</MudText>
+            <h2 class="quasar-text quasar-type-h6">Host machines</h2>
+            <p class="quasar-text quasar-type-body2">Connection status and configured clusters across your host machines.</p>
         </div>
         <MudChip T="string" Variant="Variant.Outlined">@($"{ExecutorRows.Count} executor(s)")</MudChip>
-    </MudStack>
+    </div>
     <MudTable T="ExecutorHostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="ExecutorRows">
         <HeaderContent>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.HostName)">Host machine</MudTableSortLabel></MudTh>
@@ -56,10 +57,10 @@
             </MudAlert>
         </NoRecordsContent>
     </MudTable>
-</MudPaper>
+</section>
 
-<MudPaper Class="server-card">
-    <MudText Typo="Typo.h6" Class="pa-4 pb-2">In-process agents</MudText>
+<section class="quasar-panel server-card">
+    <h2 class="quasar-text quasar-type-h6 pa-4 pb-2">In-process agents</h2>
     <MudTable T="HostRow" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="HostRows">
         <HeaderContent>
             <MudTh><MudTableSortLabel SortBy="new Func<HostRow, object>(x => x.HostName)">Host machine</MudTableSortLabel></MudTh>
@@ -79,7 +80,7 @@
             </MudAlert>
         </NoRecordsContent>
     </MudTable>
-</MudPaper>
+</section>
 
 @code
 {

@@ -1,11 +1,11 @@
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">Quasar power</MudText>
+        <h2 class="quasar-text quasar-type-h6">Quasar power</h2>
     </TitleContent>
     <DialogContent>
         @if (_pendingAction is null)
         {
-            <MudStack Spacing="2">
+            <div class="quasar-layout quasar-gap-2">
                 <MudButton Variant="Variant.Outlined"
                            Color="Color.Warning"
                            StartIcon="@Icons.Material.Filled.RestartAlt"
@@ -19,9 +19,9 @@
                 </MudButton>
                 @if (!IsRestartAvailable)
                 {
-                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                         Restart needs the Quasar launcher. This standalone process can only be shut down.
-                    </MudText>
+                    </span>
                 }
 
                 <MudButton Variant="Variant.Outlined"
@@ -45,16 +45,16 @@
                         <span class="quasar-control-action-body">Quasar keeps running and tracks the shutdown progress.</span>
                     </span>
                 </MudButton>
-            </MudStack>
+            </div>
         }
         else
         {
-            <MudStack Spacing="3">
+            <div class="quasar-layout quasar-gap-3">
                 <MudAlert Severity="@ConfirmationSeverity" Variant="Variant.Outlined">
                     @ConfirmationLead
                 </MudAlert>
-                <MudText Typo="Typo.body2">@ConfirmationBody</MudText>
-            </MudStack>
+                <p class="quasar-text quasar-type-body2">@ConfirmationBody</p>
+            </div>
         }
     </DialogContent>
     <DialogActions>

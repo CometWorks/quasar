@@ -8,16 +8,16 @@
 
 <MudExpansionPanels Class="server-card">
     <MudExpansionPanel Text="Mods and plugins" @bind-Expanded="_expanded">
-        <MudStack Spacing="2" Class="pt-3">
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+        <div class="quasar-layout quasar-gap-2 pt-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
                 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
                     <MudButton OnClick="CheckAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">@(_busy ? "Checking…" : "Check content updates")</MudButton>
                     <MudButton OnClick="QueueAsync" Disabled="@(_busy || Snapshot.CheckError is not null || !Snapshot.Items.Any(item => item.HasUpdate && item.Error is null && item.ObservedAt is not null))"
                                Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save">Queue mod and plugin updates</MudButton>
                 </AuthorizeView>
-            </MudStack>
-            <MudText Typo="Typo.caption">Last check: @(Snapshot.CheckedAt?.ToLocalTime().ToString("g") ?? "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</MudText>
+            </div>
+            <span class="quasar-text quasar-type-caption">Last check: @(Snapshot.CheckedAt?.ToLocalTime().ToString("g") ?? "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</span>
             @if (HasQueuedContent)
             {
                 <MudAlert Severity="Severity.Info">Observed versions queued. Review Pending update in Maintenance. Applying content changes remains blocked until pinned content preparation is supported.</MudAlert>
@@ -36,18 +36,18 @@
                     <MudTh>Content</MudTh><MudTh>Active pin / first observed</MudTh><MudTh>Latest observed</MudTh><MudTh>Status</MudTh><MudTh>Changes</MudTh>
                 </HeaderContent>
                 <RowTemplate>
-                    <MudTd DataLabel="Content">@context.Name <MudText Typo="Typo.caption">@context.Kind · @context.Id</MudText></MudTd>
+                    <MudTd DataLabel="Content">@context.Name <span class="quasar-text quasar-type-caption">@context.Kind · @context.Id</span></MudTd>
                     <MudTd DataLabel="Active pin / first observed">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</MudTd>
-                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<MudText Typo="Typo.caption">@(context.ObservedAt?.ToLocalTime().ToString("g"))</MudText></MudTd>
+                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<span class="quasar-text quasar-type-caption">@(context.ObservedAt?.ToLocalTime().ToString("g"))</span></MudTd>
                     <MudTd DataLabel="Status">
                         @if (context.Error is not null)
                         {
-                            <MudText Color="Color.Warning">@context.Error</MudText>
-                            @if (context.HasUpdate) { <MudText Typo="Typo.caption">Change detected at the last successful check</MudText> }
+                            <p class="quasar-text quasar-type-body1 quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">@context.Error</p>
+                            @if (context.HasUpdate) { <span class="quasar-text quasar-type-caption">Change detected at the last successful check</span> }
                         }
                         else
                         {
-                            <MudText Color="@(context.HasUpdate ? Color.Warning : Color.Default)">@(context.HasUpdate ? context.Kind == "mod" ? "Changed since first check" : "Different manifest commit available" : context.Kind == "mod" ? "No change observed" : "Matches active pin")</MudText>
+                            <p class="quasar-text quasar-type-body1 quasar-tone-@(((context.HasUpdate ? Color.Warning : Color.Default)).ToString().ToLowerInvariant())">@(context.HasUpdate ? context.Kind == "mod" ? "Changed since first check" : "Different manifest commit available" : context.Kind == "mod" ? "No change observed" : "Matches active pin")</p>
                         }
                     </MudTd>
                     <MudTd DataLabel="Changes">
@@ -57,10 +57,10 @@
                         }
                     </MudTd>
                 </RowTemplate>
-                <NoRecordsContent><MudText>No content observations yet.</MudText></NoRecordsContent>
+                <NoRecordsContent><p class="quasar-text quasar-type-body1">No content observations yet.</p></NoRecordsContent>
             </MudTable>
-            <MudText Typo="Typo.body2">Applying content updates is unavailable until cluster and Magnetar support pinned content preparation. Checks do not change running servers or block players from joining.</MudText>
-        </MudStack>
+            <p class="quasar-text quasar-type-body2">Applying content updates is unavailable until cluster and Magnetar support pinned content preparation. Checks do not change running servers or block players from joining.</p>
+        </div>
     </MudExpansionPanel>
 </MudExpansionPanels>
 
