@@ -111,7 +111,10 @@ public sealed record HostDeploymentPreparation(string ClusterId, string Installa
     string ConfigurationDirectory, string? ModDirectory = null);
 public sealed record HostPreparedConfiguration(string HostId, string Revision, string Manifest, string Sha256);
 
-public sealed record HostSnapshotRequest(string ClusterId, Guid SnapshotId, string ExpectedBundleManifestSha256, string CaptureFence);
+// Online: copy a running cluster without stopping it, at most BytesPerSecond. On the Gateway Host, the Gateway's
+// registry copy (RegistryArtifactId, with its RegistrySha256) stands in for the live registry database.
+public sealed record HostSnapshotRequest(string ClusterId, Guid SnapshotId, string ExpectedBundleManifestSha256, string CaptureFence,
+    bool Online = false, string? RegistryArtifactId = null, string? RegistrySha256 = null, long BytesPerSecond = 0);
 public sealed record HostSnapshot(string ClusterId, string HostId, Guid SnapshotId, string Revision,
     string BundleManifestSha256, string ArchiveSha256, long ArchiveBytes);
 public sealed record HostSnapshotRestore(string ClusterId, Guid RestoreId, Guid SnapshotId, string ArchiveSha256,

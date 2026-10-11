@@ -14,6 +14,7 @@ internal static class DeploymentSelfTest
         ProfileContentUpdate();
         ConfigurationReferenceRetention();
         SteamClientLibraryInstallation();
+        OnlineSnapshot();
         Assert(HostShutdown.ParseSystemdSeconds("2min") == 120 && HostShutdown.ParseSystemdSeconds("1min 30s") == 90
             && HostShutdown.ParseSystemdSeconds("500ms\n") == 0.5 && HostShutdown.ParseSystemdSeconds("infinity") is null
             && HostShutdown.ParseSystemdSeconds("5s junk") is null, "systemd time span parsing");
@@ -160,6 +161,89 @@ internal static class DeploymentSelfTest
             VerifiedHashCache(root);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    // An online snapshot of a running Gateway Host: the registry copy replaces the live database, temporary
+    // names, sockets and the export area stay out, and the one-pass archive ends with its manifest.
+    private static void OnlineSnapshot()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-online-snapshot-" + Guid.NewGuid());
+        string variable = "QUASAR_TEST_ONLINE_EXECUTOR_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(variable, "fixture-token");
+        try
+        {
+            string runtime = Path.Combine(root, "runtime"), state = Path.Combine(root, "state");
+            void Write(string relative, string text)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(runtime, relative))!);
+                File.WriteAllText(Path.Combine(runtime, relative), text);
+            }
+            Write("gateway/registry/registry.db", "live");
+            Write("gateway/registry/registry.db-wal", "wal");
+            Write("gateway/registry/events.jsonl", "events");
+            Write("gateway/exports/registry-op1/registry.db", "copy");
+            Write("gateway/exports/artifacts.json", "{}");
+            Write("gateway/gateway-relay.sock", "socket");
+            Write("nodes/one/data/cluster/saves/P-1/g1-s1.mps", "save");
+            Write("nodes/one/data/cluster/saves/P-1/.g1-s2.mps.node-1.0123.tmp", "in flight");
+            Write("nodes/one/data/cluster/saves/P-1/g1-s3.mps.node-1.part", "partial");
+            Write("nodes/one/data/node.log", "log");
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            string path = Path.Combine(root, "config/bundle.json");
+            var manifest = new BundleManifest(1, "revision-1", [], [], new GatewaySpawnSpec("gateway", "{runRoot}", [], []),
+                RuntimeRoot: runtime, ClusterId: "cluster", HostId: "host");
+            File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            string hash = ExecutionBundle.Hash(File.ReadAllBytes(path));
+            var attachments = new AttachmentStore(state, [new("cluster", "http://127.0.0.1:29416", variable, path, hash, runtime)]);
+            var snapshots = new DeploymentSnapshots(state, "host", attachments,
+                new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
+            var request = new HostContract.HostSnapshotRequest("cluster", Guid.NewGuid(), hash, new string('f', 64), Online: true,
+                RegistryArtifactId: "registry-op1", RegistrySha256: ExecutionBundle.Hash("copy"u8.ToArray()), BytesPerSecond: 1 << 30);
+            AssertThrows(() => snapshots.Capture(request with { RegistryArtifactId = null, RegistrySha256 = null }));
+            AssertThrows(() => snapshots.Capture(request with { RegistrySha256 = new string('0', 64) }));
+            AssertThrows(() => snapshots.Capture(request with { BytesPerSecond = 0 }));
+            var saved = snapshots.Capture(request);
+            string archive = snapshots.ArchivePath("cluster", saved.SnapshotId);
+            var entries = new List<(string Name, byte[] Data)>();
+            using (var reader = new System.Formats.Tar.TarReader(File.OpenRead(archive)))
+                while (reader.GetNextEntry() is { } entry)
+                {
+                    using var data = new MemoryStream();
+                    entry.DataStream?.CopyTo(data);
+                    entries.Add((entry.Name, data.ToArray()));
+                }
+            var names = entries.Select(e => e.Name).ToHashSet();
+            Assert(entries[^1].Name == "snapshot.json", "online snapshot manifest is not last");
+            Assert(System.Text.Encoding.UTF8.GetString(entries.Single(e => e.Name == "runtime/gateway/registry/registry.db").Data) == "copy",
+                "online snapshot did not take the registry copy");
+            Assert(names.SetEquals(["snapshot.json", "runtime/gateway/", "runtime/gateway/registry/", "runtime/gateway/exports/",
+                "runtime/nodes/", "runtime/nodes/one/", "runtime/nodes/one/data/", "runtime/nodes/one/data/cluster/",
+                "runtime/nodes/one/data/cluster/saves/", "runtime/nodes/one/data/cluster/saves/P-1/",
+                "runtime/gateway/registry/registry.db", "runtime/gateway/registry/events.jsonl",
+                "runtime/nodes/one/data/cluster/saves/P-1/g1-s1.mps", "runtime/nodes/one/data/node.log"]),
+                "online snapshot entries: " + string.Join(", ", names.Order()));
+            Assert(saved == snapshots.Capture(request), "online snapshot replay changed archive identity");
+
+            // Archives of earlier Hosts start with a schema 2 manifest; they must stay readable.
+            var legacy = JsonNode.Parse(entries[^1].Data)!;
+            legacy["schemaVersion"] = 2;
+            string old = Path.Combine(root, "legacy.tar");
+            using (var output = File.Create(old))
+            using (var writer = new System.Formats.Tar.TarWriter(output))
+            {
+                writer.WriteEntry(new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "snapshot.json")
+                    { DataStream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(legacy.ToJsonString())) });
+                using var reader = new System.Formats.Tar.TarReader(File.OpenRead(archive));
+                while (reader.GetNextEntry() is { } entry)
+                    if (entry.Name != "snapshot.json") writer.WriteEntry(entry);
+            }
+            Assert(snapshots.Describe(old, "cluster", saved.SnapshotId).SnapshotId == saved.SnapshotId, "schema 2 snapshot is unreadable");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, null);
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
     }
 
     private static void LocalWorldModsRequired()

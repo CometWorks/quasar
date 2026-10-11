@@ -80,12 +80,21 @@ public sealed class QuasarBackupSettings
     public const int MinRetentionCount = QuasarBackupRuleSettings.MinRetentionCount;
     public const int MaxRetentionCount = QuasarBackupRuleSettings.MaxRetentionCount;
     public const int DefaultRetentionCount = QuasarBackupRuleSettings.DefaultRetentionCount;
+    public const int MinOnlineClusterMiBPerSecond = 1;
+    public const int MaxOnlineClusterMiBPerSecond = 4096;
+    public const int DefaultOnlineClusterMiBPerSecond = 32;
 
     public QuasarBackupRuleSettings Configuration { get; set; } = new();
 
     public QuasarBackupRuleSettings Server { get; set; } = new();
 
     public QuasarBackupRuleSettings World { get; set; } = new();
+
+    /// <summary>
+    /// How fast a scheduled backup of a running cluster copies its runtime, in MiB/s. The copy competes
+    /// with the cluster's own saves for disk bandwidth.
+    /// </summary>
+    public int OnlineClusterMiBPerSecond { get; set; } = DefaultOnlineClusterMiBPerSecond;
 
     public QuasarBackupSettings Clone()
     {
@@ -94,6 +103,7 @@ public sealed class QuasarBackupSettings
             Configuration = Configuration.Clone(),
             Server = Server.Clone(),
             World = World.Clone(),
+            OnlineClusterMiBPerSecond = OnlineClusterMiBPerSecond,
         };
     }
 
@@ -107,6 +117,11 @@ public sealed class QuasarBackupSettings
             Configuration = QuasarBackupRuleSettings.Normalize(settings.Configuration),
             Server = QuasarBackupRuleSettings.Normalize(settings.Server),
             World = QuasarBackupRuleSettings.Normalize(settings.World),
+            OnlineClusterMiBPerSecond = Math.Clamp(
+                settings.OnlineClusterMiBPerSecond,
+                MinOnlineClusterMiBPerSecond,
+                MaxOnlineClusterMiBPerSecond
+            ),
         };
     }
 

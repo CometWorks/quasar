@@ -144,9 +144,10 @@ Host, with exact manifest/file hashes, inventory and byte counts checked before
 release. Single-Host data roots are generated automatically. Multi-Host exports need
 explicit Gateway-readable shared `exportDataRoots`; stopped native snapshots do not.
 
-Automatic native backups use existing server schedule/retention only while already
-cleanly stopped; scheduling does not introduce downtime. Manual backups/exports are
-retained. Online export scheduling is not part of automatic native backup policy.
+Automatic native backups use the existing server schedule and retention; scheduling does
+not introduce downtime. A cleanly stopped cluster gets a `Quiescent` backup, a running
+one a `CrashConsistent` online backup (see Configuration.md). Retention keeps the newest
+`Quiescent` backup beyond the count. Manual backups/exports are retained.
 
 Restore requires a stopped fleet and newly prepared credentials. It retains the
 previous runtime, journals each Host restore, fences old operations and blocks start
