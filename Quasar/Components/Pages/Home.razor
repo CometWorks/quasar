@@ -1318,7 +1318,7 @@ else
     private AgentRuntimeState? GetAgent(string uniqueName)
     {
         return Agents
-            .Where(agent => agent.IsConnected)
+            .Where(agent => agent.IsConnected && !agent.IsCluster)
             .FirstOrDefault(agent => string.Equals(agent.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
     }
 

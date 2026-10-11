@@ -10,8 +10,9 @@ public interface IQuasarCompanionChannel
     IReadOnlyList<QuasarCompanionServer> GetConnectedServers() => Array.Empty<QuasarCompanionServer>();
 
     /// <param name="serverId">
-    /// Connected server identifier. Current Quasar accepts the live agent id,
-    /// server key, or server unique name.
+    /// Use ServerId returned by GetConnectedServers or the live AgentId.
+    /// Standalone servers also accept their server key or unique name. Cluster
+    /// ServerId identifies one node incarnation, not a logical whole cluster.
     /// </param>
     Task<TResponse> SendAsync<TRequest, TResponse>(
         string serverId,

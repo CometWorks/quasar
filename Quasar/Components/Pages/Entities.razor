@@ -1,6 +1,7 @@
 @page "/entities"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanControlServers)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
+@inject QuasarPermissionService Permissions
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject EntityService EntityService
@@ -96,6 +97,7 @@
                    Disabled="@(_loading || _deletingSelected || _selectedEntityIds.Count == 0)">
             Clear
         </MudButton>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
         <MudButton Variant="Variant.Filled"
                    Color="Color.Error"
                    StartIcon="@Icons.Material.Filled.Delete"
@@ -103,6 +105,7 @@
                    Disabled="@(!CanDeleteSelected)">
             Delete selected
         </MudButton>
+        </AuthorizeView>
     }
     @if (_loading)
     {
@@ -184,7 +187,9 @@ else
                 <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1 plugin-actions" @onclick:stopPropagation="true">
                     <QuasarExtensionOutlet
                         TargetKey="@QuasarExtensionTargets.EntityActions"
+                        DefaultPolicy="@QuasarPolicyNames.CanControlServers"
                         Parameters="@CreateEntityExtensionParameters(context)">
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
                         <span @onclick:stopPropagation="true">
                             <MudTooltip Text="Delete entity">
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete"
@@ -194,6 +199,7 @@ else
                                                OnClick="@(() => DeleteEntityAsync(context))" />
                             </MudTooltip>
                         </span>
+                        </AuthorizeView>
                     </QuasarExtensionOutlet>
                 </div>
             </MudTd>
@@ -255,6 +261,7 @@ else
     // to "Space Engineers {pid}"). Matches how the Servers/dashboard cards resolve it.
     private string ResolveServerName(AgentRuntimeState agent)
     {
+        if (agent.IsCluster) return $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}";
         var configuredName = ServerCatalog.GetServer(agent.UniqueNameKey)?.DisplayName;
         return string.IsNullOrWhiteSpace(configuredName) ? agent.ServerDisplayName : configuredName;
     }
@@ -338,6 +345,7 @@ else
 
     private async Task DeleteSelectedEntitiesAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
         var agent = GetSelectedAgent();
         if (agent is null)
         {
@@ -376,6 +384,7 @@ else
             {
                 try
                 {
+                    if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) break;
                     var result = await EntityService.DeleteEntityAsync(agent, entity.EntityId);
                     if (result.Success)
                     {
@@ -416,6 +425,7 @@ else
 
     private async Task DeleteEntityAsync(EntitySummary entity)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
         var agent = GetSelectedAgent();
         if (agent is null)
         {
@@ -434,6 +444,7 @@ else
 
         try
         {
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
             var result = await EntityService.DeleteEntityAsync(agent, entity.EntityId);
             if (result.Success)
             {

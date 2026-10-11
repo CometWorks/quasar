@@ -160,27 +160,7 @@ public class Program
                         return Task.CompletedTask;
                     };
                 });
-            builder.Services.AddAuthorization(options =>
-            {
-                options.AddPolicy(QuasarPolicyNames.ClusterQuery, policy => policy.RequireAssertion(context =>
-                    context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Viewer)
-                    || context.User.IsInRole(QuasarRoles.Editor)
-                    || context.User.IsInRole(QuasarRoles.Admin)
-                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery)
-                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
-                options.AddPolicy(QuasarPolicyNames.ClusterManage, policy => policy.RequireAssertion(context =>
-                    context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Editor)
-                    || context.User.IsInRole(QuasarRoles.Admin)
-                    || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
-                AddRolePolicy(options, QuasarPolicyNames.CanView, QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanEditConfigs, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanEditServers, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanControlServers, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanManageDiscord, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanManageAppearance, QuasarRoles.Editor, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanManageSecurity, QuasarRoles.Admin);
-                AddRolePolicy(options, QuasarPolicyNames.CanShutdownQuasar, QuasarRoles.Admin);
-            });
+            builder.Services.AddAuthorization(ConfigureAuthorizationPolicies);
             var dataProtectionKeyringDirectory = MagnetarPaths.GetQuasarDataProtectionKeyringDirectory();
             Directory.CreateDirectory(dataProtectionKeyringDirectory);
             builder.Services.AddDataProtection()
@@ -776,6 +756,28 @@ public class Program
         return new CompositeDisposable(
             PosixSignalRegistration.Create(PosixSignal.SIGINT, HandleSignal),
             PosixSignalRegistration.Create(PosixSignal.SIGTERM, HandleSignal));
+    }
+
+    internal static void ConfigureAuthorizationPolicies(AuthorizationOptions options)
+    {
+        options.AddPolicy(QuasarPolicyNames.ClusterQuery, policy => policy.RequireAssertion(context =>
+            context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Viewer)
+            || context.User.IsInRole(QuasarRoles.Editor)
+            || context.User.IsInRole(QuasarRoles.Admin)
+            || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterQuery)
+            || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
+        options.AddPolicy(QuasarPolicyNames.ClusterManage, policy => policy.RequireAssertion(context =>
+            context.User.Identity?.IsAuthenticated == true && (context.User.IsInRole(QuasarRoles.Editor)
+            || context.User.IsInRole(QuasarRoles.Admin)
+            || context.User.HasClaim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage))));
+        AddRolePolicy(options, QuasarPolicyNames.CanView, QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanEditConfigs, QuasarRoles.Editor, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanEditServers, QuasarRoles.Editor, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanControlServers, QuasarRoles.Editor, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanManageDiscord, QuasarRoles.Editor, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanManageAppearance, QuasarRoles.Editor, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanManageSecurity, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanShutdownQuasar, QuasarRoles.Admin);
     }
 
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)

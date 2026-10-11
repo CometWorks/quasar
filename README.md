@@ -24,6 +24,10 @@ See the [Quick Start](Docs/QuickStart.md) guide to download a release, run Quasa
 from the terminal, install it as a background service, or run the GHCR image.
 <!-- END packaged install instructions -->
 
+Viewers have read-only access to every built-in Control Plane page. Editing,
+server commands, and administration retain separate permissions; credentials and
+raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration.md#rbac-enforcement).
+
 ## Documentation
 
 | Page | What it covers |
@@ -53,7 +57,8 @@ from the terminal, install it as a background service, or run the GHCR image.
 Entity Viewer companion plugins can now discover connected servers through
 `IQuasarCompanionChannel.GetConnectedServers()` and collect recording batches in
 background hosted services without an open browser. Stable server IDs are paired
-with current agent IDs. The Entity Viewer owns replay contracts, capture,
+with current agent IDs. Cluster nodes use separate incarnation IDs, which can be
+passed directly back to the companion channel. The Entity Viewer owns replay contracts, capture,
 24-hour storage, admin-only history endpoints, and playback; Quasar core supplies
 server discovery and the existing companion request transport. Install matching
 Quasar and Entity Viewer revisions to enable continuous history collection.

@@ -16,8 +16,13 @@
                 @foreach (var plugin in plugins)
                 {
                     <details class="quasar-details" @key="(plugin.PluginId, plugin.ConfigType)"><summary>@plugin.DisplayName</summary>
-                        <PluginConfigEditor Plugin="plugin" AgentId="" ConnectionId="" SaveValues="@(values => SavePluginAsync(plugin.PluginId, plugin.ConfigType, values))"
-                            ApplyLabel="Save and stage update" SuccessMessage="Configuration saved and staged. Apply the pending update from Maintenance when ready." />
+                        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="pluginPermission">
+                            <Authorized>
+                                <PluginConfigEditor Plugin="plugin" AgentId="" ConnectionId="" SaveValues="@(values => SavePluginAsync(plugin.PluginId, plugin.ConfigType, values))"
+                                    ApplyLabel="Save and stage update" SuccessMessage="Configuration saved and staged. Apply the pending update from Maintenance when ready." />
+                            </Authorized>
+                            <NotAuthorized><p class="quasar-muted">Configuration values require cluster management access because they may contain credentials.</p></NotAuthorized>
+                        </AuthorizeView>
                     </details>
                 }
             </div>

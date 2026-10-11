@@ -17,6 +17,7 @@ using Quasar.Components.Shared;
 using Quasar.Components.Dashboard;
 using Quasar.Models;
 using Quasar.Services;
+using Quasar.Services.Analytics;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -208,6 +209,15 @@ public sealed class NativeAppearanceTests : IDisposable
         using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build());
         await clusters.CreateAsync(new("cluster", "Beta Cluster", "http://gateway.invalid:27017", "QUASAR_TEST_MISSING_GATEWAY_TOKEN"), default);
         var registry = new AgentRegistry(null!, null!, null!, null!);
+        // Nodes use slot/process names, even before their incarnation receipt is ready.
+        foreach (var epoch in new long[] { 0, 42 })
+            registry.UpsertHello(new() { AgentId = "node-" + epoch, UniqueName = "slot-" + epoch,
+                ClusterMode = true, ClusterId = "cluster", ClusterSlot = "slot-" + epoch,
+                ClusterNodeId = "node-" + epoch, ClusterEpoch = epoch }, "connection-" + epoch, (_, _) => Task.CompletedTask);
+        registry.UpsertHello(new() { AgentId = "orphan", UniqueName = "alpha", ServerName = "Orphan node",
+            ClusterMode = true, ClusterId = "missing-cluster" }, "orphan", (_, _) => Task.CompletedTask);
+        registry.UpsertHello(new() { AgentId = "unmanaged", UniqueName = "cluster", ServerName = "Unmanaged standalone" },
+            "unmanaged", (_, _) => Task.CompletedTask);
         using var supervisor = new DedicatedServerSupervisor(catalog, registry, null!, null!, null!, new(), null!, NullLogger<DedicatedServerSupervisor>.Instance);
         using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         using var templates = new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance);
@@ -229,6 +239,10 @@ public sealed class NativeAppearanceTests : IDisposable
         context.ComponentFactories.AddStub<ServerDetailPanel>();
         context.ComponentFactories.AddStub<ClusterDetailPanel>();
         var page = context.Render<Servers>(p => p.Add(x => x.LaunchBlocked, true).Add(x => x.LaunchBlockedMessage, "Runtime preparing"));
+        Assert.Equal(2, page.FindAll(".quasar-agent-details").Count);
+        Assert.Contains("Orphan node", page.FindAll(".quasar-agent-details")[0].TextContent);
+        Assert.Contains("Register the owning cluster", page.Markup);
+        Assert.DoesNotContain("slot-42", string.Join(" ", page.FindAll(".quasar-agent-details").Select(x => x.TextContent)));
         Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
         Assert.Empty(page.FindAll("a[title='Convert to cluster']")); // Existing ClusterManage policy still applies.
         page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
@@ -260,6 +274,83 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Single(page.FindAll(".quasar-server-detail-row"));
         page.FindAll("button[title='Show live data']")[0].Click();
         Assert.Empty(page.FindAll(".quasar-server-detail-row"));
+    }
+
+    [Fact]
+    public async Task AnalyticsUsesSeparateIncarnationKeysAndReadableNodeLabels()
+    {
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("operator");
+        auth.SetPolicies(QuasarPolicyNames.CanView);
+        using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
+        using var metrics = new MetricsStoreService(catalog, new(), NullLogger<MetricsStoreService>.Instance);
+        var profiler = new ProfilerStoreService();
+        var stats = new PluginStatsStoreService();
+        var registry = new AgentRegistry(null!, metrics, profiler, stats);
+        foreach (var epoch in new long[] { 41, 42 })
+            registry.UpsertHello(new() { AgentId = "node-" + epoch, UniqueName = "same-slot-name",
+                ClusterMode = true, ClusterId = "cluster", ClusterSlot = "slot", ClusterNodeId = "node",
+                ClusterEpoch = epoch }, "connection-" + epoch, (_, _) => Task.CompletedTask);
+        context.Services.AddSingleton(catalog);
+        context.Services.AddSingleton(metrics);
+        context.Services.AddSingleton(profiler);
+        context.Services.AddSingleton(stats);
+        context.Services.AddSingleton(registry);
+        context.Services.AddSingleton(new BrowserStorageService(context.JSInterop.JSRuntime));
+        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
+        context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
+        context.Services.AddScoped<QuasarPermissionService>();
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Quasar.Components.Pages.Analytics>();
+        Assert.Contains("cluster / slot / node / epoch 41", page.Markup);
+        Assert.Contains("cluster / slot / node / epoch 42", page.Markup);
+        Assert.DoesNotContain("same-slot-name", page.Markup);
+        // Check the actual browser request, which also drives the analytics HTTP endpoints.
+        await page.WaitForAssertionAsync(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarCharts.sync"]));
+        var request = JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
+        foreach (var agent in registry.GetAgents()) Assert.Contains(agent.TelemetryKey, request);
+        Assert.DoesNotContain("same-slot-name", request);
+    }
+
+    [Fact]
+    public async Task ChatRoutesNodeViewsByIncarnationAndKeepsLifecycleControlsDisabled()
+    {
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("editor");
+        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers);
+        context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
+        context.Services.AddScoped<QuasarPermissionService>();
+        using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
+        var registry = new AgentRegistry(null!, null!, null!, null!);
+        var sent = new List<ServerCommandEnvelope>();
+        foreach (var epoch in new long[] { 41, 42 })
+            registry.UpsertHello(new() { AgentId = "node-" + epoch, UniqueName = "same-slot-name",
+                ClusterMode = true, ClusterId = "cluster", ClusterSlot = "slot", ClusterNodeId = "node",
+                ClusterEpoch = epoch }, "connection-" + epoch, (message, _) =>
+                { sent.Add(message.Command!); return Task.CompletedTask; });
+        using var supervisor = new DedicatedServerSupervisor(catalog, registry, null!, null!, null!, new(), null!, NullLogger<DedicatedServerSupervisor>.Instance);
+        context.Services.AddSingleton(catalog);
+        context.Services.AddSingleton(registry);
+        context.Services.AddSingleton(supervisor);
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Chat>();
+        var selector = page.FindComponent<MudSelect<string>>();
+        foreach (var agent in registry.GetAgents())
+        {
+            await page.InvokeAsync(() => selector.Instance.ValueChanged.InvokeAsync(agent.TelemetryKey));
+            Assert.True(page.FindAll("button").Single(b => b.TextContent.Trim() == "Save").HasAttribute("disabled"));
+            Assert.True(page.FindAll("button").Single(b => b.TextContent.Trim() == "Restart").HasAttribute("disabled"));
+            await page.FindAll("button").Single(b => b.TextContent.Trim() == "Refresh").ClickAsync();
+            Assert.Equal(agent.AgentId, sent[^1].AgentId);
+            Assert.Equal("same-slot-name", sent[^1].UniqueName);
+        }
+        Assert.Equal(2, sent.Count);
     }
 
     [Fact]

@@ -55,7 +55,7 @@ public sealed class DiscordClusterBridge(
     }
 
     internal static AgentRuntimeState[] MatchAgents(Admin.ClusterStatus status, IReadOnlyList<AgentRuntimeState> agents) =>
-        status.Nodes.Where(n => n.State == Admin.NodeState.Active && n.LeaseFresh)
+        status.Nodes.Where(n => n.State == Admin.NodeState.Active && n.LeaseFresh && n.LeaseExpires > DateTimeOffset.UtcNow)
             .Select(n => ClusterFleetService.MatchAgent(status.ClusterId, n, agents))
             .Where(a => a is { IsConnected: true, Snapshot: not null }
                 && DateTimeOffset.UtcNow - a.LastSnapshotReceivedUtc < TimeSpan.FromSeconds(15)).Cast<AgentRuntimeState>().ToArray();
@@ -81,7 +81,6 @@ public sealed class DiscordClusterBridge(
                     continue;
                 }
                 var status = (await gateway.GetStatusAsync(cluster, token)).Data;
-                ValidateIdentity(cluster, status);
                 var clients = settings.EnablePlayerNotifications || settings.EnableChatRelay
                     ? (await gateway.GetClientsAsync(cluster, token)).Data : Array.Empty<Admin.ClientSummary>();
                 _observations.TryGetValue(settings.UniqueName, out var previous);
@@ -132,7 +131,6 @@ public sealed class DiscordClusterBridge(
             throw new InvalidOperationException("Use the Gateway for cluster lifecycle and admission commands.");
         var cluster = RequireCluster(settings);
         var status = (await gateway.GetStatusAsync(cluster, token)).Data;
-        ValidateIdentity(cluster, status);
         var matched = MatchAgents(status, registry.GetAgents());
         if (type is ServerCommandType.SendChat or ServerCommandType.SendWhisper or ServerCommandType.SendFactionChat
             && (matched.Length != status.Nodes.Count(n => n.State == Admin.NodeState.Active)
@@ -203,7 +201,6 @@ public sealed class DiscordClusterBridge(
     {
         var cluster = RequireCluster(settings);
         var status = (await gateway.GetStatusAsync(cluster, token)).Data;
-        ValidateIdentity(cluster, status);
         return new EmbedBuilder().WithTitle($"{(string.IsNullOrWhiteSpace(cluster.DisplayName) ? cluster.UniqueName : cluster.DisplayName)} cluster")
             .WithColor(status.Health == Admin.AdminHealth.Healthy ? Color.Green : Color.Orange)
             .WithTimestamp(status.ObservedAt)
@@ -216,11 +213,6 @@ public sealed class DiscordClusterBridge(
 
     private ClusterDefinition RequireCluster(DiscordServerOptions settings) => catalog.GetCluster(settings.UniqueName)
         ?? throw new InvalidOperationException($"Cluster '{settings.UniqueName}' no longer exists.");
-    private static void ValidateIdentity(ClusterDefinition cluster, Admin.ClusterStatus status)
-    {
-        if (!string.Equals(cluster.UniqueName, status.ClusterId, StringComparison.Ordinal))
-            throw new InvalidOperationException("Gateway returned a different cluster identity.");
-    }
 
     internal static IReadOnlyList<string> StatusMessages(DiscordServerOptions settings, Admin.ClusterStatus previous,
         Admin.ClientSummary[] oldClients, Admin.ClusterStatus current, Admin.ClientSummary[] clients)

@@ -1,5 +1,5 @@
 @page "/plugins"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanEditConfigs)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
@@ -52,15 +52,25 @@ else
                         {
                             // Construct the editor only while its panel is open. Keeping every
                             // plugin's editor mounted at once is too many DOM nodes.
+                            <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="configPermission">
+                            <Authorized>
                             @if (selectedAgent.IsCluster)
                             {
-                                <MudAlert Severity="Severity.Info">Plugin configuration is managed for the whole cluster.</MudAlert>
+                                <MudAlert Severity="Severity.Info">
+                                    Plugin configuration is managed for the whole cluster.
+                                    <a href="@($"/clusters/{Uri.EscapeDataString(selectedAgent.ClusterId)}#cluster-configuration")">Open cluster configuration</a> to stage changes for all nodes.
+                                </MudAlert>
                                 <pre>@plugin.ConfigJson</pre>
                             }
                             else
                             {
                                 <PluginConfigEditor @key="(selectedAgent.AgentId, selectedAgent.ConnectionId, plugin.PluginId)" AgentId="@selectedAgent.AgentId" ConnectionId="@selectedAgent.ConnectionId" Plugin="@plugin" />
                             }
+                            </Authorized>
+                            <NotAuthorized>
+                                <p class="quasar-muted">Configuration values require editor access because they may contain credentials.</p>
+                            </NotAuthorized>
+                            </AuthorizeView>
                         }
                     </MudExpansionPanel>
                 }

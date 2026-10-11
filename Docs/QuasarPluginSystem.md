@@ -367,6 +367,12 @@ Plugin navigation items are rendered by the main Quasar sidebar. Supported zones
 `QuasarNavZones.Admin` inherits `QuasarPolicyNames.CanManageSecurity` when the
 plugin item does not specify its own policy. Navigation policy checks only hide
 links; plugin pages and endpoints must still enforce their own authorization.
+All built-in Control Plane pages now allow `CanView`. Contributions on these pages
+must enforce write permissions in their action handlers. The Entities action
+outlet defaults to `CanControlServers`; viewing outlets remain available to Viewers.
+The Plugins page exposes inventory and logs to Viewers, but configuration values
+require `CanEditConfigs`, or `ClusterManage` in cluster details, because plugin
+schemas do not reliably identify credentials.
 
 Extension contributions are rendered through named outlets. The first active
 hosted targets are:
@@ -659,6 +665,8 @@ exposes a generic channel instead of feature-specific Quasar endpoints.
 ```csharp
 public interface IQuasarCompanionChannel
 {
+    IReadOnlyList<QuasarCompanionServer> GetConnectedServers();
+
     Task<TResponse> SendAsync<TRequest, TResponse>(
         string serverId,
         string companionPluginId,
@@ -674,6 +682,15 @@ generic `CompanionPluginRequest` with JSON owned by the caller and target
 plugin. The agent dispatches the request to a loaded Magnetar plugin that
 implements `Magnetar.Protocol.Bridge.IQuasarCompanionRequestHandler` and returns
 a `CompanionPluginResponse`.
+
+Pass the `ServerId` returned by `GetConnectedServers()` back into `SendAsync`.
+For standalone servers this is the stable server name; for cluster nodes it is
+an incarnation telemetry key. Cluster replacements therefore have distinct IDs.
+An explicit live `AgentId` is also accepted. Legacy server-key/name aliases are
+accepted only for standalone agents. Disconnected or ambiguous matches fail;
+requests never silently fall through to another cluster incarnation. Discovery
+describes connected processes, not Registry-verified serving membership or a
+cluster-wide aggregate.
 
 Envelope fields:
 

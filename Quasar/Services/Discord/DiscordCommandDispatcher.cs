@@ -294,7 +294,7 @@ public sealed class DiscordCommandDispatcher
         var runtime = _supervisor.GetSnapshots()
             .FirstOrDefault(snapshot => string.Equals(snapshot.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase));
         var agent = _registry.GetAgents().FirstOrDefault(item =>
-            string.Equals(item.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
+            !item.IsCluster && string.Equals(item.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
         var metrics = agent?.Snapshot?.Metrics;
 
         var title = definition?.UniqueName ?? runtime?.UniqueName ?? uniqueName;

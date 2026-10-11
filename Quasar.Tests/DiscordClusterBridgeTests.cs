@@ -66,6 +66,7 @@ public sealed class DiscordClusterBridgeTests
         a.LastSnapshotReceivedUtc = DateTimeOffset.UtcNow.AddMinutes(-1);
         Assert.Equal([b], DiscordClusterBridge.MatchAgents(status, [a, b]));
         Assert.Empty(DiscordClusterBridge.MatchAgents(status with { Nodes = [status.Nodes[1] with { LeaseFresh = false }] }, [b]));
+        Assert.Empty(DiscordClusterBridge.MatchAgents(status with { Nodes = [status.Nodes[1] with { LeaseExpires = DateTimeOffset.UtcNow.AddSeconds(-1) }] }, [b]));
     }
 
     [Fact]

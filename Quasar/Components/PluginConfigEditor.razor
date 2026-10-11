@@ -1,3 +1,4 @@
+@inject QuasarPermissionService Permissions
 @using System.Globalization
 @using System.Text.Json
 @using System.Text.Json.Nodes
@@ -1141,6 +1142,7 @@ else
 
     private async Task ApplyAsync()
     {
+        if (SaveValues is null && !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (Plugin is null)
             return;
 

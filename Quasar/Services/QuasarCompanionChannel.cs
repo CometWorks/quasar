@@ -84,8 +84,15 @@ public sealed class QuasarCompanionChannel : IQuasarCompanionChannel
     {
         var agents = _registry.GetAgents().Where(agent => agent.IsConnected).ToList();
 
-        return agents.FirstOrDefault(agent => string.Equals(agent.AgentId, serverId, StringComparison.OrdinalIgnoreCase))
-               ?? agents.FirstOrDefault(agent => string.Equals(agent.ServerKey, serverId, StringComparison.OrdinalIgnoreCase))
-               ?? agents.FirstOrDefault(agent => string.Equals(agent.UniqueNameKey, serverId, StringComparison.OrdinalIgnoreCase));
+        var matches = agents.Where(agent => string.Equals(agent.AgentId, serverId, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(agent.TelemetryKey, serverId, StringComparison.OrdinalIgnoreCase)).ToArray();
+        if (matches.Length == 0)
+            matches = agents.Where(agent => !agent.IsCluster &&
+                (string.Equals(agent.ServerKey, serverId, StringComparison.OrdinalIgnoreCase)
+                 || string.Equals(agent.UniqueNameKey, serverId, StringComparison.OrdinalIgnoreCase))).ToArray();
+
+        // Cluster aliases can refer to different incarnations. Only discovery IDs or explicit
+        // process IDs address a node; ambiguous identities never select an arbitrary claimant.
+        return matches.Length == 1 ? matches[0] : null;
     }
 }

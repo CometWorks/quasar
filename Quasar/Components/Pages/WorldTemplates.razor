@@ -1,6 +1,7 @@
 @page "/world-templates"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanEditConfigs)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
+@inject QuasarPermissionService Permissions
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorkshopModResolver WorkshopMods
@@ -76,6 +77,7 @@
                                     </div>
                                 </MudTd>
                                 <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
+                                    <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="addPermission">
                                     <MudTooltip Text="Add template">
                                         <MudIconButton Icon="@Icons.Material.Filled.Add"
                                                        Color="Color.Primary"
@@ -83,6 +85,7 @@
                                                        Disabled="_importing"
                                                        OnClick="@(() => ImportInstalledTemplateAsync(context))" />
                                     </MudTooltip>
+                                    </AuthorizeView>
                                 </MudTd>
                             </RowTemplate>
                             <NoRecordsContent>
@@ -95,6 +98,7 @@
                 </div>
             </MudTabPanel>
 
+            <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="importPermission">
             <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
                 <div class="quasar-layout quasar-gap-2">
                     <div>
@@ -134,6 +138,7 @@
                     </div>
                 </div>
             </MudTabPanel>
+            </AuthorizeView>
         </MudTabs>
     </MudItem>
 
@@ -176,6 +181,7 @@
                         <MudTd DataLabel="Name">@context.Template.Name</MudTd>
                         <MudTd DataLabel="Description">@context.Template.Description</MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">
+                            <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="permissionContext">
                             <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-0">
                                 <MudTooltip Text="Create config profile from world settings">
                                     <MudIconButton Icon="@Icons.Material.Filled.SettingsApplications"
@@ -198,6 +204,7 @@
                                                    OnClick="@(() => DeleteAsync(context.Template))" />
                                 </MudTooltip>
                             </div>
+                            </AuthorizeView>
                         </MudTd>
                     </RowTemplate>
                 </MudTable>
@@ -251,6 +258,7 @@
 
     private async Task ImportAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (string.IsNullOrWhiteSpace(_name))
         {
             Snackbar.Add("Template name is required.", Severity.Warning);
@@ -286,6 +294,7 @@
 
     private async Task CloneAsync(WorldTemplateRow row)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var sourceDir = WorldTemplateCatalog.GetWorldDirectory(row.Template.WorldTemplateId);
         var newName = $"{row.Template.Name} (Copy)";
         _importing = true;
@@ -306,6 +315,7 @@
 
     private async Task ImportInstalledTemplateAsync(InstalledWorldTemplateSource source)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         _importing = true;
         try
         {
@@ -328,6 +338,7 @@
 
     private async Task CreateConfigProfileFromTemplateAsync(WorldTemplateRow row)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (!row.WorldExists)
             return;
 
@@ -379,11 +390,13 @@
 
     private async Task<string?> CreateConfigProfileAsync(QuasarConfigProfile? profile, string worldTemplateId)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return null;
         if (profile is null)
             return null;
 
         profile.SourceWorldTemplateId = worldTemplateId;
         await ResolveProfileModDependenciesAsync(profile);
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return null;
         await ConfigProfiles.UpsertAsync(profile);
         Snackbar.Add($"Config profile '{profile.Name}' created from world settings.", Severity.Success);
         await OpenConfigProfileEditorAsync(profile.ConfigProfileId);
@@ -437,6 +450,7 @@
 
     private async Task OpenFolderPickerAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var initialPath = await ImportLocations.GetInitialPathAsync(_sourcePath);
         var parameters = new DialogParameters
         {
@@ -453,12 +467,14 @@
         if (result is { Canceled: false, Data: string path })
         {
             _sourcePath = path;
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
             await ImportLocations.RememberAsync(path);
         }
     }
 
     private async Task DeleteAsync(QuasarWorldTemplate template)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Delete world template?",
             $"'{template.Name}' will be permanently removed along with its imported world files. This cannot be undone.",
@@ -468,6 +484,7 @@
         if (confirmed != true)
             return;
 
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await WorldTemplateCatalog.DeleteAsync(template.WorldTemplateId);
         Snackbar.Add("World template deleted.", Severity.Info);
     }

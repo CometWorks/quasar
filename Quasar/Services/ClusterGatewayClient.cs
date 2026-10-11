@@ -24,9 +24,15 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken cancellationToken) =>
         GetAsync<Admin.GatewayHealth>(cluster, "health", cancellationToken);
 
-    public Task<Admin.AdminEnvelope<Admin.ClusterStatus>> GetStatusAsync(
-        ClusterDefinition cluster, CancellationToken cancellationToken) =>
-        GetAsync<Admin.ClusterStatus>(cluster, "status", cancellationToken);
+    public async Task<Admin.AdminEnvelope<Admin.ClusterStatus>> GetStatusAsync(
+        ClusterDefinition cluster, CancellationToken cancellationToken)
+    {
+        var envelope = await GetAsync<Admin.ClusterStatus>(cluster, "status", cancellationToken);
+        if (!string.Equals(envelope.Data.ClusterId, cluster.UniqueName, StringComparison.Ordinal))
+            throw new ClusterGatewayException(HttpStatusCode.BadGateway, "cluster_identity_mismatch",
+                "Cluster Registry returned a different cluster identity. Check the registered Gateway address.");
+        return envelope;
+    }
 
     public Task<Admin.AdminEnvelope<Admin.NodePlan[]>> GetPlanAsync(
         ClusterDefinition cluster, CancellationToken cancellationToken) =>

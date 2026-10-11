@@ -146,6 +146,20 @@ public sealed class ClusterGatewayClientTests
         return response;
     })));
 
+    [Fact]
+    public async Task StatusRejectsAnotherClustersIdentityBeforeAnyConsumerUsesIt()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var status = new ClusterStatus("other", "world", ClusterPhase.Serving, StartupKind.Warm,
+            null, null, false, false, [], new(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0),
+            new(null, 0, 0, now), [], [], true, AdminHealth.Healthy, [], now);
+        var client = new ClusterGatewayClient(new HttpClient(new StubHandler(_ => Response(HttpStatusCode.OK,
+            new AdminEnvelope<ClusterStatus>(AdminProtocol.Version, now, status)))));
+        var error = await Assert.ThrowsAsync<ClusterGatewayException>(() => client.GetStatusAsync(Definition(), default));
+        Assert.Equal(HttpStatusCode.BadGateway, error.StatusCode);
+        Assert.Equal("cluster_identity_mismatch", error.Code);
+    }
+
     private static ClusterDefinition Definition() => new()
     {
         UniqueName = "demo",

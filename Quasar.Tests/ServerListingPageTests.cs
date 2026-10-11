@@ -98,6 +98,22 @@ public sealed class ServerListingPageTests : IDisposable
         Assert.False(context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings().ListingGranted);
     }
 
+    [Fact]
+    public async Task ViewerCanReadListingsButCannotSaveOrGrantConsent()
+    {
+        await using var context = await ContextAsync();
+        context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanView);
+        var page = context.Render<ServerListing>();
+        Assert.Contains("Public solo", page.Markup);
+        Assert.Contains("Cluster fleet", page.Markup);
+        Assert.True(page.Find("fieldset").HasAttribute("disabled"));
+        Assert.True(page.Find("input[name='listing-visibility']").HasAttribute("disabled"));
+        Assert.DoesNotContain("Save listings", page.Markup);
+        await page.Find("form").SubmitAsync();
+        Assert.Equal(0, context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Revision);
+        Assert.False(context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings().ListingGranted);
+    }
+
     public void Dispose()
     {
         _cache.SetValue(null, _previous);

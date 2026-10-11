@@ -1,0 +1,34 @@
+<section class="quasar-panel pa-4">
+    <h2>Bot status: @Status</h2>
+    <p class="quasar-muted">Read-only Discord integration. Bot credentials and console logs require editor access.</p>
+    <dl>
+        <dt>Enabled</dt><dd>@Options.Enabled</dd>
+        <dt>Guild ID</dt><dd>@Options.GuildId</dd>
+        <dt>Presence</dt><dd>@Options.Presence.Status · @Options.Presence.ActivityType · Activity visible: @Options.Presence.ShowActivity</dd>
+        <dt>Presence targets</dt><dd>@(Options.Presence.AllServers ? "All servers and clusters" : string.Join(", ", Options.Presence.SelectedTargets))</dd>
+    </dl>
+</section>
+@foreach (var server in Options.Servers)
+{
+    <section class="quasar-panel pa-4 mt-4">
+        <h2>@server.UniqueName @(server.IsCluster ? "(cluster)" : "")</h2>
+        <dl>
+            <dt>Command channel / prefix</dt><dd>@Channel(server.CommandChannelId) · @server.CommandPrefix</dd>
+            <dt>Chat relay</dt><dd>@server.EnableChatRelay · @Channel(server.ChatRelayChannelId)</dd>
+            <dt>Status channel</dt><dd>@Channel(server.StatusChannelId)</dd>
+            <dt>Player / server notifications</dt><dd>@server.EnablePlayerNotifications / @server.EnableServerNotifications</dd>
+            <dt>Admin channel</dt><dd>@Channel(server.AdminChannelId)</dd>
+            <dt>Log export</dt><dd>@server.EnableLogExport · @Channel(server.LogChannelId) · every @server.LogExportIntervalMinutes minutes</dd>
+            <dt>Analytics export</dt><dd>@server.EnableAnalyticsExport · @Channel(server.AnalyticsChannelId) · every @server.AnalyticsExportIntervalMinutes minutes</dd>
+            <dt>Death messages</dt><dd>@server.EnableDeathMessages · @Channel(server.DeathChannelId)</dd>
+            <dt>Simulation speed alerts</dt><dd>@server.EnableSimSpeedAlerts · @Channel(server.SimSpeedAlertChannelId)</dd>
+        </dl>
+        @foreach (var faction in server.FactionChannels) { <p>Faction @faction.FactionTag · @faction.ChannelId</p> }
+    </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public DiscordOptions Options { get; set; } = default!;
+    [Parameter] public string Status { get; set; } = string.Empty;
+    private static string Channel(ulong? channelId) => channelId?.ToString() ?? "Not configured";
+}

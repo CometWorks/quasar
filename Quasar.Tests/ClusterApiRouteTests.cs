@@ -14,6 +14,12 @@ public sealed class ClusterApiRouteTests
 {
     [Theory]
     [InlineData("/api/v1/clusters/{uniqueName}/fleet", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/diagnostics", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/clients", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/chat/history", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/config", false)]
+    [InlineData("/api/v1/clusters/{uniqueName}/config", true)]
+    [InlineData("/api/v1/clusters/{uniqueName}/config-profile-preparation", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/events", false)]
     [InlineData("/api/v1/clusters/{uniqueName}/content-updates", false)]
     [InlineData("/api/v1/clusters/{uniqueName}/content-updates/check", true)]

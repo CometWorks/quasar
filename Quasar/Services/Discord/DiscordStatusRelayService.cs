@@ -35,7 +35,7 @@ public sealed class DiscordStatusRelayService(
                 if (settings is null)
                     continue;
 
-                var agent = agents.FirstOrDefault(item => item.IsConnected &&
+                var agent = agents.FirstOrDefault(item => !item.IsCluster && item.IsConnected &&
                     string.Equals(item.UniqueNameKey, server.UniqueName, StringComparison.OrdinalIgnoreCase));
                 var channelId = settings.StatusChannelId ?? settings.ChatRelayChannelId;
                 foreach (var message in Observe(settings, server, agent))

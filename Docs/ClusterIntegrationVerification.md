@@ -393,3 +393,33 @@ These checks validate the source changes. They do not claim that the running Qua
 services have been upgraded or that a live combined release/content update has completed.
 The deployed storage audit and retained recovery roots are recorded separately under the
 installation's `Backups` directory. See [cluster storage](ClusterStorage.md).
+
+# Cluster agent ownership and endpoint routing
+
+The Servers page associates a cluster Agent with its registered `ClusterId`, including
+before its incarnation receipt arrives. A slot's process name is not a standalone
+server definition. Unknown cluster IDs remain visible as unmanaged; matching a
+standalone name does not authorize standalone controls. Live fleet telemetry still
+requires the Registry's exact cluster/slot/node/epoch match.
+
+| Surface | Cluster path and ownership |
+| --- | --- |
+| Agents and plugin observations | `GET /api/v1/clusters/{id}/fleet` joins Registry membership with Agent telemetry. Missing or ambiguous incarnations stay unknown. |
+| Analytics, profiler and plugin statistics | `/api/analytics/series` and `/api/analytics/plugin-stats/catalog` use the incarnation telemetry key from fleet/discovery. Analytics shows a separate, labelled option for each incarnation. |
+| Plugin configuration | Cluster details stage common PluginSdk settings through `ClusterUpdatePreparationService`; deployment preparation/activation applies the immutable revision to all Hosts. Direct per-Agent config updates remain rejected. |
+| Companion plugins | `GetConnectedServers().ServerId` round-trips through `SendAsync`. A cluster node's discovery ID identifies one incarnation; process-name aliases cannot silently route to replacements. |
+| Registry diagnostics | `GET /api/v1/clusters/{id}/diagnostics` uses the existing cluster query policy and credential allow-list. |
+| Crash diagnostics and dumps | Authenticated `/host/v1/diagnostics/policy` and `/host/v1/diagnostics/reports` cover enrolled Hosts. Consent, encryption, verified durable handover and acknowledgement are independent of Agent ownership. |
+| Discord | One logical cluster target; current Registry membership and unexpired leases select node telemetry. Lifecycle/admission use Gateway operations; SDK chat uses the current World Authority. Standalone status never selects a cluster process with a colliding name. |
+| Public listings | One cluster entry from Registry status/counts. Status identity must match the registered cluster; failures publish unknown availability. Private node/Host IDs remain excluded. |
+| Players and chat | Cluster clients, moderation and chat history use cluster API routes. Known Players excludes cluster processes. Chat node views use incarnation keys and keep standalone save/restart controls disabled. |
+
+The shared Gateway status client rejects a foreign cluster identity before UI, fleet,
+Discord, listings or lifecycle consumers can use it. Catalog ownership is display
+classification, not proof that a process is the currently serving incarnation.
+
+Regression coverage: `ClusterAgentIdentityTests`, `ClusterGatewayClientTests`,
+`ClusterApiRouteTests`, `NativeAppearanceTests`, `DiscordClusterBridgeTests`,
+`ServerListClusterTests` and `DiagnosticsUplinkTests`. These use fake transports,
+temporary storage and rendered components without starting Quasar. Live multi-Host
+acceptance remains separate.

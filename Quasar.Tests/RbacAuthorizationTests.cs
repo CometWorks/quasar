@@ -90,19 +90,20 @@ public sealed class RbacAuthorizationTests
 
     [Theory]
     [InlineData(typeof(Quasar.Components.Pages.Appearance), QuasarPolicyNames.CanManageAppearance)]
-    [InlineData(typeof(Quasar.Components.Pages.Chat), QuasarPolicyNames.CanControlServers)]
+    [InlineData(typeof(Quasar.Components.Pages.Chat), QuasarPolicyNames.CanView)]
     [InlineData(typeof(Quasar.Components.Pages.ClusterDetail), QuasarPolicyNames.ClusterQuery)]
-    [InlineData(typeof(Quasar.Components.Pages.Configs), QuasarPolicyNames.CanEditConfigs)]
-    [InlineData(typeof(Quasar.Components.Pages.Discord), QuasarPolicyNames.CanManageDiscord)]
-    [InlineData(typeof(Quasar.Components.Pages.Entities), QuasarPolicyNames.CanControlServers)]
-    [InlineData(typeof(Quasar.Components.Pages.Players), QuasarPolicyNames.CanControlServers)]
-    [InlineData(typeof(Quasar.Components.Pages.Plugins), QuasarPolicyNames.CanEditConfigs)]
+    [InlineData(typeof(Quasar.Components.Pages.Configs), QuasarPolicyNames.CanView)]
+    [InlineData(typeof(Quasar.Components.Pages.Discord), QuasarPolicyNames.CanView)]
+    [InlineData(typeof(Quasar.Components.Pages.Entities), QuasarPolicyNames.CanView)]
+    [InlineData(typeof(Quasar.Components.Pages.Players), QuasarPolicyNames.CanView)]
+    [InlineData(typeof(Quasar.Components.Pages.Plugins), QuasarPolicyNames.CanView)]
     [InlineData(typeof(Quasar.Components.Pages.Backup), QuasarPolicyNames.CanManageSecurity)]
     [InlineData(typeof(Quasar.Components.Pages.Security), QuasarPolicyNames.CanManageSecurity)]
     [InlineData(typeof(Quasar.Components.Pages.UiPlugins), QuasarPolicyNames.CanManageSecurity)]
     [InlineData(typeof(Quasar.Components.Pages.Updates), QuasarPolicyNames.CanManageSecurity)]
-    [InlineData(typeof(Quasar.Components.Pages.WorldTemplates), QuasarPolicyNames.CanEditConfigs)]
-    public void MutatingPagesRequireTheirPolicy(Type pageType, string policy)
+    [InlineData(typeof(Quasar.Components.Pages.WorldTemplates), QuasarPolicyNames.CanView)]
+    [InlineData(typeof(Quasar.Components.Pages.ServerListing), QuasarPolicyNames.CanView)]
+    public void PagesRequireTheirViewingPolicy(Type pageType, string policy)
     {
         var policies = pageType.GetCustomAttributes(typeof(AuthorizeAttribute), inherit: true)
             .Cast<AuthorizeAttribute>()

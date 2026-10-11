@@ -1,6 +1,7 @@
 @page "/configs"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanEditConfigs)]
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
+@inject QuasarPermissionService Permissions
 @using System.Globalization
 @using System.IO
 @using System.Text.Json
@@ -28,6 +29,7 @@
             </p>
         </div>
 
+        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="permissionContext">
         <form class="configs-create-form" @onsubmit="CreateProfileAsync" @onsubmit:preventDefault>
             <label class="quasar-field">
                 New profile name
@@ -37,6 +39,7 @@
                 Create profile
             </button>
         </form>
+        </AuthorizeView>
 
         @if (Templates.Count == 0)
         {
@@ -54,12 +57,14 @@
                             <span class="config-profile-name">@template.Name</span>
                             <span class="quasar-type-caption config-secondary">@GetProfileSummary(template)</span>
                         </button>
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="permissionContext">
                         <div class="config-profile-actions">
                             <QuasarIconButton Icon="@QuasarIcons.ContentCopy" Label="@($"Clone {template.Name}")"
                                               OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
                             <QuasarIconButton Icon="@QuasarIcons.Delete" Label="@($"Delete {template.Name}")" Class="quasar-text-error"
                                               OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
                         </div>
+                        </AuthorizeView>
                     </li>
                 }
             </ul>
@@ -75,6 +80,8 @@
         }
         else
         {
+            <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="editorPermission">
+            <Authorized>
             <div class="quasar-layout quasar-gap-3">
                 <section class="quasar-panel server-card pa-4">
                     <MudGrid>
@@ -946,6 +953,11 @@
                     </MudExpansionPanel>
                 </MudExpansionPanels>
             </div>
+            </Authorized>
+            <NotAuthorized>
+                <ConfigProfileReadOnly Profile="_editor" AssignedServers="@string.Join(", ", GetAssignedServers(_editor.ConfigProfileId).Select(server => server.UniqueName))" />
+            </NotAuthorized>
+            </AuthorizeView>
         }
     </div>
 </div>
@@ -1127,6 +1139,7 @@
 
     private async Task CreateProfileAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var name = _newProfileName.Trim();
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -1152,6 +1165,7 @@
 
     private async Task<bool> SaveTemplateInternalAsync(bool reselectAfterSave)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
         if (_editor is null)
             return true;
 
@@ -1168,6 +1182,7 @@
         }
 
         await ResolveProfileModDependenciesAsync(_editor);
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
         await ConfigProfiles.UpsertAsync(_editor);
         if (reselectAfterSave)
             SelectProfile(_editor.ConfigProfileId);
@@ -1183,6 +1198,7 @@
 
     private async Task CloneProfileAsync(string configProfileId)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var template = ConfigProfiles.GetProfile(configProfileId);
         if (template is null)
             return;
@@ -1190,6 +1206,7 @@
         template.ConfigProfileId = string.Empty;
         template.Name = $"{template.Name} (Copy)";
         await ResolveProfileModDependenciesAsync(template);
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await ConfigProfiles.UpsertAsync(template);
         SelectProfile(template.ConfigProfileId);
         Snackbar.Add("Config profile cloned.", Severity.Success);
@@ -1353,6 +1370,7 @@
 
     private async Task CloneCurrentProfileForCrossplayAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (_editor is null)
             return;
 
@@ -1375,6 +1393,7 @@
             return;
 
         var clone = CreateCrossplayClone(_editor);
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await ConfigProfiles.UpsertAsync(clone);
         SelectProfile(clone.ConfigProfileId);
         Snackbar.Add("Crossplay config profile cloned.", Severity.Success);
@@ -1382,6 +1401,7 @@
 
     private async Task DeleteProfileAsync(string configProfileId)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var assignedServers = GetAssignedServers(configProfileId);
         if (assignedServers.Count > 0)
         {
@@ -1400,6 +1420,7 @@
         if (confirmed != true)
             return;
 
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await ConfigProfiles.DeleteAsync(configProfileId);
         if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
             SelectProfile(Templates.FirstOrDefault(template => !string.Equals(template.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))?.ConfigProfileId ?? string.Empty);
@@ -1520,6 +1541,7 @@
 
     private async Task RefreshPluginCatalogAsync(bool showSuccessMessage = true)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (_catalogRefreshing)
             return;
 
@@ -1543,6 +1565,7 @@
 
     private async Task OpenWorkshopApiKeyDialogAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var parameters = new DialogParameters
         {
             ["CurrentWebApiKey"] = WorkshopCredentials.GetCredentials().WebApiKey,
@@ -1559,6 +1582,7 @@
 
         var credentials = WorkshopCredentials.GetCredentials();
         credentials.WebApiKey = webApiKey;
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await WorkshopCredentials.SaveAsync(credentials);
 
         _workshopSearchError = null;
@@ -1568,6 +1592,7 @@
 
     private async Task OpenSteamAccountDialogAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var current = WorkshopCredentials.GetCredentials();
         var dialog = await DialogService.ShowAsync<SteamWorkshopAccountDialog>("SteamCMD account",
             new DialogParameters { ["CurrentUsername"] = current.SteamUsername });
@@ -1575,6 +1600,7 @@
         if (result is null || result.Canceled || result.Data is not SteamWorkshopAccountDialog.SteamAccountUpdate update) return;
         current.SteamUsername = update.Username;
         current.SteamPassword = update.Clear ? "" : string.IsNullOrEmpty(update.Password) ? current.SteamPassword : update.Password;
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await WorkshopCredentials.SaveAsync(current);
         Snackbar.Add(update.Clear ? "SteamCMD account removed." : "SteamCMD account saved.", Severity.Success);
     }
@@ -2557,6 +2583,7 @@
 
     private async Task AddDevFolderAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var parameters = new DialogParameters
         {
             [nameof(PluginManifestPickerDialog.InitialPath)] = _lastDevFolderPath,
@@ -2610,18 +2637,21 @@
             DebugBuild = true,
         };
 
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await DevFolderCatalog.UpsertAsync(devFolder);
         Snackbar.Add("Dev folder added.", Severity.Success);
     }
 
     private async Task SetDevFolderDebugAsync(QuasarDevFolderSelection devFolder, bool value)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         devFolder.DebugBuild = value;
         await DevFolderCatalog.UpsertAsync(devFolder);
     }
 
     private async Task RemoveDevFolder(QuasarDevFolderSelection devFolder)
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         var name = string.IsNullOrWhiteSpace(devFolder.Name) ? devFolder.FolderPath : devFolder.Name.Trim();
         if (!await ConfirmDestructiveActionAsync(
                 "Remove dev folder?",
@@ -2631,6 +2661,7 @@
             return;
         }
 
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await DevFolderCatalog.DeleteAsync(devFolder.FolderPath, devFolder.DataFile);
     }
 
