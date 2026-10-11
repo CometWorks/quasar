@@ -318,8 +318,12 @@ internal sealed class NodeActualizer
     {
         using (process)
         {
-            if (!string.Equals(plan.IncumbentNode, record.NodeId, StringComparison.Ordinal)
-                    || plan.IncumbentEpoch <= 0 || plan.IncumbentEpoch != record.Epoch)
+            // A slot goal of Kill without a named incumbent (the Registry's emergency shutdown) stops whatever
+            // runs in the slot, as the documented executor contract and cluster-hostd do: nothing may run there,
+            // so there is no other incarnation to protect. A named incumbent must match the running one exactly.
+            bool slotKill = plan.Goal == Admin.NodeGoal.Kill && plan.IncumbentAction != Admin.IncumbentAction.Kill;
+            if (!slotKill && (!string.Equals(plan.IncumbentNode, record.NodeId, StringComparison.Ordinal)
+                    || plan.IncumbentEpoch <= 0 || plan.IncumbentEpoch != record.Epoch))
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
                     record.NodeId, "kill_authority_mismatch", record.Epoch ?? 0);
             try

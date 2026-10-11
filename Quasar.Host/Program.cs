@@ -674,6 +674,31 @@ internal static class Program
                     throw new InvalidOperationException($"self-test exit {exitCode} (rebooted: {rebooted}) reported {observed.State} {observed.Failure}");
             }
 
+            // An unfenced slot Kill (emergency shutdown) stops a Ready node; an incumbent Kill naming
+            // another incarnation still does not.
+            NodeExecutionObservation emergencySpawn = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)!;
+            childProcessId = record.ProcessId;
+            File.WriteAllBytes(Path.Combine(slotDirectory, ".quasar-node-ready.json"),
+                JsonSerializer.SerializeToUtf8Bytes(receipt with
+                {
+                    AttemptKey = record.AttemptKey, ProcessId = record.ProcessId!.Value,
+                }, JsonOptions));
+            NodeExecutionObservation emergencyReady = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            NodeExecutionObservation staleKill = (await actualizer.ReconcileAsync(attachment,
+                [kill with { Goal = Admin.NodeGoal.Kill, IncumbentEpoch = 6 }], CancellationToken.None)).Single();
+            NodeExecutionObservation emergencyKill = (await actualizer.ReconcileAsync(attachment,
+                [wanted with { Goal = Admin.NodeGoal.Kill, SpawnAllowed = false }], CancellationToken.None)).Single();
+            if (emergencySpawn.State != Admin.NodeObservation.Spawning || emergencyReady.State != Admin.NodeObservation.Ready
+                || staleKill.Failure != "kill_authority_mismatch"
+                || emergencyKill.State != Admin.NodeObservation.Gone || emergencyKill.Node != "node-a"
+                || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
+                throw new InvalidOperationException($"self-test slot kill failed: {emergencySpawn.State}, {emergencyReady.State}, "
+                    + $"{staleKill.Failure}, {emergencyKill.State} {emergencyKill.Failure}");
+            childProcessId = null;
+
             using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);
             conflict.Start();
             NodeExecutionObservation blocked = (await actualizer.ReconcileAsync(
