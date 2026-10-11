@@ -1846,6 +1846,10 @@ panel) closes such an update and unlocks those tools. Nothing is rolled back: be
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
 rollback is an ordinary new update. Abandon is refused while a deployment activation is half
 applied on the Hosts; resume that activation or recover the cluster instead.
+The one command an update accepts is an emergency shutdown (`cluster command NAME REQUEST.json`
+with `{"action":"shutdown","parameters":{"emergency":true}}`) while it stops or starts the cluster.
+It closes the update first, with the actor in `lastError`, because no clean shutdown proof can follow
+it. While Hosts switch deployments the Gateway is already down and the command is refused.
 Every update backs up the cleanly stopped cluster before activation, under the update's ID; it is
 the way back to the previous version and world. If nobody abandons a stuck update, Quasar gives it up
 itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in
