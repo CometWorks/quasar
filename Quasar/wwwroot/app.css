@@ -84,15 +84,13 @@ h1:focus {
     color: var(--mud-palette-primary);
 }
 
-/* Config profile selection lives in global CSS (not Configs.razor.css) because
-   MudBlazor components don't reliably receive the scoped-CSS attribute, so the
-   selected highlight would not paint and only the click ripple would show. */
-.mud-paper.config-profile-tile {
+/* Shared profile tiles retain their selection highlight in pages and dialogs. */
+.quasar-panel.config-profile-tile {
     background-color: var(--mud-palette-background-gray);
     transition: background-color 0.18s ease, color 0.18s ease;
 }
 
-.mud-paper.config-profile-tile.config-profile-selected {
+.quasar-panel.config-profile-tile.config-profile-selected {
     background-color: rgba(var(--mud-palette-primary-rgb), 0.3) !important;
 }
 
@@ -377,7 +375,7 @@ h1:focus {
     font-family: "JetBrains Mono", "Cascadia Code", monospace;
 }
 
-.mud-typography-caption.mono {
+.quasar-type-caption.mono {
     opacity: 0.5;
 }
 
@@ -403,7 +401,7 @@ td.quasar-actions-column > * {
     margin-left: auto;
 }
 
-td.quasar-actions-column > .mud-stack,
+td.quasar-actions-column > .quasar-layout,
 td.quasar-actions-column > .plugin-actions {
     justify-content: flex-end;
 }
@@ -670,7 +668,7 @@ td.quasar-actions-column > .plugin-actions {
         --mud-typography-button-size: 0.8125rem;
     }
 
-    .magnetar-body .mud-paper.pa-4 {
+    .quasar-main .quasar-panel.pa-4 {
         padding: 1rem !important;
     }
 

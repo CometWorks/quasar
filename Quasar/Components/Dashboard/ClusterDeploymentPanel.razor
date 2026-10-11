@@ -17,39 +17,39 @@
 @inject ILogger<ClusterDeploymentPanel> Logger
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-    <MudCard Class="server-card">
-    <MudCardContent>
-    <MudStack Spacing="3">
-        <MudText Typo="Typo.h6">Maintenance</MudText>
-        <MudText Class="cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</MudText>
+    <section class="quasar-panel server-card">
+    <div class="quasar-card-content">
+    <div class="quasar-layout quasar-gap-3">
+        <h2 class="quasar-text quasar-type-h6">Maintenance</h2>
+        <p class="quasar-text quasar-type-body1 cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</p>
         @if (Current.ActiveDeployment is not null && !ClusterReleaseMonitor.IsOnLatestRelease(Current, Releases.GetSnapshot().Release))
         {
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">Release update</MudText>
-                <MudText>Latest release: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</MudText>
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Release update</h2>
+                <p class="quasar-text quasar-type-body1">Latest release: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</p>
                 <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || UpdateLocked || Current.Preparation is null)"
                            Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Stage latest release</MudButton>
-                <MudText Typo="Typo.caption">Quasar selects the release, freezes matching dependencies and prepares every Host executor automatically. The cluster stays online until you apply the pending update.</MudText>
+                <span class="quasar-text quasar-type-caption">Quasar selects the release, freezes matching dependencies and prepares every Host executor automatically. The cluster stays online until you apply the pending update.</span>
                 @if (Current.Preparation is null)
                 {
-                    <MudText Typo="Typo.caption">Complete guided setup first. For externally provisioned clusters, import their preparation once using Advanced deployment tools.</MudText>
+                    <span class="quasar-text quasar-type-caption">Complete guided setup first. For externally provisioned clusters, import their preparation once using Advanced deployment tools.</span>
                 }
-            </MudStack>
+            </div>
         }
         @if (Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null)
         {
-            <MudPaper Outlined="true" Class="pa-4">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">Pending update</MudText>
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-2">
+                    <h2 class="quasar-text quasar-type-h6">Pending update</h2>
                     @if (Current.HasPreparedUpdate)
                     {
-                        <MudText>Deployment prepared on all host machines. Configuration and release changes are ready to apply.</MudText>
+                        <p class="quasar-text quasar-type-body1">Deployment prepared on all host machines. Configuration and release changes are ready to apply.</p>
                     }
                     @if (Current.QueuedContentUpdates is { } queued)
                     {
                         @foreach (var item in queued.Items)
                         {
-                            <MudText Class="cluster-long-value">@item.Name · @item.Kind · @item.TargetVersion</MudText>
+                            <p class="quasar-text quasar-type-body1 cluster-long-value">@item.Name · @item.Kind · @item.TargetVersion</p>
                         }
                         <MudAlert Severity="Severity.Warning">Content changes are queued, not downloaded or pinned. Applying this update is blocked until cluster and Magnetar support pinned content preparation.</MudAlert>
                         <MudButton OnClick="ClearQueuedContentAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Remove queued content changes</MudButton>
@@ -61,9 +61,9 @@
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
                                Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
-                    <MudText Typo="Typo.caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime.</MudText>
-                </MudStack>
-            </MudPaper>
+                    <span class="quasar-text quasar-type-caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime.</span>
+                </div>
+            </section>
         }
         @if (Current.PendingDeploymentHash is not null || Current.PendingRestoreHash is not null)
         {
@@ -71,22 +71,22 @@
         }
         @if (Current.Update is { } update)
         {
-            <MudText>Update @update.Id: @update.Phase</MudText>
+            <p class="quasar-text quasar-type-body1">Update @update.Id: @update.Phase</p>
             @if (update.BackupRequired)
             {
-                <MudText Typo="Typo.caption">Pre-migration backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</MudText>
+                <span class="quasar-text quasar-type-caption">Pre-migration backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</span>
             }
             @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
             @if (update.Phase != ClusterUpdatePhase.Complete)
             {
                 <MudButton OnClick="AbandonUpdateAsync" Disabled="_busy" Color="Color.Warning" Variant="Variant.Outlined">Abandon update</MudButton>
-                <MudText Typo="Typo.caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</MudText>
+                <span class="quasar-text quasar-type-caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</span>
             }
         }
         <MudExpansionPanels>
             <MudExpansionPanel Text="Backups">
-                <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                <MudText Typo="Typo.body2">Backups require a clean stop. Running clusters can store a Cluster Registry world export.</MudText>
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+                <p class="quasar-text quasar-type-body2">Backups require a clean stop. Running clusters can store a Cluster Registry world export.</p>
                 @if (Current.GoalState == DedicatedServerGoalState.Off)
                 {
                     <MudButton OnClick="BackupAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary">Back up stopped cluster</MudButton>
@@ -111,55 +111,55 @@
                 </MudExpansionPanel>
                 <MudExpansionPanel Text="Restore prepared backup">
                 <MudTextField T="string" Label="Restore request (JSON)" @bind-Value="_restore" Lines="8" Disabled="_busy" />
-                <MudText Typo="Typo.body2">Select a backup above and prepare it to fill this request. Restoring replaces current world and plugin data. The Host executor keeps the previous runtime data for recovery.</MudText>
+                <p class="quasar-text quasar-type-body2">Select a backup above and prepare it to fill this request. Restoring replaces current world and plugin data. The Host executor keeps the previous runtime data for recovery.</p>
                 <MudButton OnClick="RestoreAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_restore))">Restore backup</MudButton>
                 </MudExpansionPanel>
                 </MudExpansionPanels>
-                </MudStack>
+                </div>
             </MudExpansionPanel>
             @if (Current.GoalState == DedicatedServerGoalState.Off && Current.ActiveDeployment is not null)
             {
             <MudExpansionPanel Text="Recovery">
-                <MudStack Spacing="3" Class="py-2 cluster-form-section">
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
         <MudButton OnClick="RecoverAsync" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)" Variant="Variant.Outlined" Color="Color.Primary">Recover missing cluster services</MudButton>
-        <MudText Typo="Typo.caption">Recovery resumes the recorded cluster services and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.</MudText>
+        <span class="quasar-text quasar-type-caption">Recovery resumes the recorded cluster services and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.</span>
         <MudButton OnClick="RecoverStoppedAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || Current.GoalState != DedicatedServerGoalState.Off || Current.ActiveDeployment is null)">Recover stopped cluster after an unclean shutdown</MudButton>
-        <MudText Typo="Typo.caption">Requires every node to be stopped. Starts a new recovery generation from retained saves and plugin data; unsaved game changes may be lost.</MudText>
-                </MudStack>
+        <span class="quasar-text quasar-type-caption">Requires every node to be stopped. Starts a new recovery generation from retained saves and plugin data; unsaved game changes may be lost.</span>
+                </div>
             </MudExpansionPanel>
             }
             <MudExpansionPanel Text="Convert to a standalone server">
-                <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                    <MudText Typo="Typo.body2">Back up and convert a cleanly stopped cluster into a standalone server.</MudText>
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+                    <p class="quasar-text quasar-type-body2">Back up and convert a cleanly stopped cluster into a standalone server.</p>
                     <MudButton Href="@("/clusters/" + Uri.EscapeDataString(Cluster.UniqueName) + "/convert-to-server")"
                                Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Dns">Open conversion wizard</MudButton>
-                </MudStack>
+                </div>
             </MudExpansionPanel>
             <MudExpansionPanel Text="Advanced deployment tools">
-                <MudStack Spacing="3" Class="py-2 cluster-form-section">
-                    <MudText Typo="Typo.body2">Normal updates generate these requests automatically. Use these overrides only for custom installation or topology inputs.</MudText>
-                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+                    <p class="quasar-text quasar-type-body2">Normal updates generate these requests automatically. Use these overrides only for custom installation or topology inputs.</p>
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
                         <MudButton OnClick="StageLatestAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Select latest release only</MudButton>
                         <MudButton OnClick="FreezeDependenciesAsync" Disabled="@(_busy || UpdateLocked || Current.PackageSelection is null)" Variant="Variant.Outlined" Color="Color.Primary">Freeze selected dependencies</MudButton>
                         <MudButton OnClick="PrepareSelectedAsync" Disabled="@(_busy || UpdateLocked || Current.DependencyManifestSha256 is null || Current.Preparation is null)" Variant="Variant.Outlined" Color="Color.Primary">Stage selected release</MudButton>
-                    </MudStack>
-                    <MudDivider />
+                    </div>
+                    <hr class="quasar-divider" />
                     <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Download generated preparation</MudButton>
-                    <MudText Typo="Typo.caption">Import an edited preparation to override installation or topology. Staging prepares all host machines and generates the activation request.</MudText>
+                    <span class="quasar-text quasar-type-caption">Import an edited preparation to override installation or topology. Staging prepares all host machines and generates the activation request.</span>
                     <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@(_busy || UpdateLocked)" />
                     <MudButton OnClick="PrepareAsync" Disabled="@(_busy || UpdateLocked || _preparationRequest is null)" Variant="Variant.Outlined" Color="Color.Primary">Stage imported preparation</MudButton>
                     <MudTextField T="string" Label="Generated activation request (JSON override)" @bind-Value="_activation" Lines="8" Disabled="@(_busy || UpdateLocked)" />
                     <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Apply JSON override with downtime</MudButton>
                     <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.QueuedContentUpdates is not null || Current.GoalState != DedicatedServerGoalState.Off || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped host machines</MudButton>
                     <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.QueuedContentUpdates is not null || !CanRollbackWithoutDataRestore)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
-                    <MudText Typo="Typo.caption">Rollback preserves current world and plugin data. The Host executor refuses an older bundle that cannot preserve migrated profile content; restore the pre-migration backup with fresh credentials in that case.</MudText>
-                </MudStack>
+                    <span class="quasar-text quasar-type-caption">Rollback preserves current world and plugin data. The Host executor refuses an older bundle that cannot preserve migrated profile content; restore the pre-migration backup with fresh credentials in that case.</span>
+                </div>
             </MudExpansionPanel>
         </MudExpansionPanels>
         @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
-    </MudStack>
-    </MudCardContent>
-    </MudCard>
+    </div>
+    </div>
+    </section>
 </AuthorizeView>
 
 @code {

@@ -235,13 +235,10 @@ public sealed class ServerListPublisher : BackgroundService
                 try
                 {
                     var status = (await gateway.GetStatusAsync(cluster, token)).Data;
-                    result.Add(ServerListProtocol.IsFresh(status.ObservedAt, DateTimeOffset.UtcNow)
-                        ? new(entry.ListingId, entry.Name, entry.PublicHost, entry.PublicPort, status.ObservedAt,
-                            status.AcceptingPlayers, ServerListProtocol.NonNegative(status.Counts.ConnectedClients), null, null)
-                        : ServerListProtocol.Unknown(entry));
+                    result.Add(ServerListProtocol.FromCluster(entry, status, DateTimeOffset.UtcNow));
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                catch (Exception) { result.Add(ServerListProtocol.Unknown(entry)); }
+                catch (Exception) { result.Add(ServerListProtocol.UnknownCluster(entry)); }
             }
         }
         return result;

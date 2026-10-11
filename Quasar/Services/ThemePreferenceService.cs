@@ -9,8 +9,8 @@ public sealed class ThemePreferenceService
 {
     private const string StorageKey = "quasar.theme.mode";
     private readonly BrowserStorageService _storage;
-    private readonly BrandingService _brandingService;
     private readonly IJSRuntime _js;
+    private readonly BrandingService _brandingService;
     private bool _initialized;
 
     public ThemePreferenceService(BrowserStorageService storage, BrandingService brandingService, IJSRuntime js)
@@ -20,6 +20,7 @@ public sealed class ThemePreferenceService
         _js = js;
     }
 
+    // Compatibility surface for existing UI plugins; native controls use Quasar CSS tokens.
     public MudTheme Theme => _brandingService.BuildMudTheme();
     public event Action<bool>? ThemeModeChanged;
 

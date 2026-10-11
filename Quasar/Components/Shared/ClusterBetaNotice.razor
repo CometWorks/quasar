@@ -4,12 +4,12 @@
 @if (_show)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3">
-        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
-            <MudText>Managed clusters are still in beta. Review your backups before changing worlds, mods, or plugins.</MudText>
+        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-2">
+            <p class="quasar-text quasar-type-body1">Managed clusters are still in beta. Review your backups before changing worlds, mods, or plugins.</p>
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Inherit" Size="Size.Small"
                            Disabled="_closing" OnClick="CloseAsync" aria-label="Dismiss cluster beta notice" />
-        </MudStack>
-        @if (_error is not null) { <MudText Typo="Typo.caption">@_error</MudText> }
+        </div>
+        @if (_error is not null) { <span class="quasar-text quasar-type-caption">@_error</span> }
     </MudAlert>
 }
 

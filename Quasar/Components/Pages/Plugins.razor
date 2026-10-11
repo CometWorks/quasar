@@ -7,10 +7,10 @@
 
 <PageTitle>Plugins</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Plugin configuration</MudText>
-<MudText Typo="Typo.body2" Class="mb-4 mud-text-secondary">
-    Live configuration for plugins that expose a Quasar config provider.
-</MudText>
+<QuasarPageHeading Section="Operations">
+    <Title>Plugin configuration</Title>
+    <Description>Live configuration for plugins that expose a Quasar config provider.</Description>
+</QuasarPageHeading>
 
 @if (ConfigAgents.Count == 0)
 {
@@ -38,9 +38,9 @@ else
 
     @if (selectedAgent is not null)
     {
-        <MudPaper Class="server-card mb-4 pa-4">
-            <MudText Typo="Typo.h6">@ResolveServerName(selectedAgent)</MudText>
-            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block mb-3">@selectedAgent.HostDisplayName</MudText>
+        <section class="quasar-panel server-card mb-4 pa-4">
+            <h2 class="quasar-text quasar-type-h6">@ResolveServerName(selectedAgent)</h2>
+            <span class="quasar-text quasar-type-caption mud-text-secondary d-block mb-3">@selectedAgent.HostDisplayName</span>
             <MudExpansionPanels Class="mb-2" MultiExpansion="true">
                 @foreach (var plugin in ConfigService.GetConfigsForAgent(selectedAgent.AgentId))
                 {
@@ -65,14 +65,14 @@ else
                     </MudExpansionPanel>
                 }
             </MudExpansionPanels>
-        </MudPaper>
+        </section>
     }
 }
 
-<MudText Typo="Typo.h5" Class="mt-8 mb-2">Plugin logs</MudText>
-<MudText Typo="Typo.body2" Class="mb-4 mud-text-secondary">
+<h2 class="quasar-text quasar-type-h5 mt-8 mb-2">Plugin logs</h2>
+<p class="quasar-text quasar-type-body2 mb-4 mud-text-secondary">
     Structured logs emitted by plugins through the PluginSdk, captured from managed dedicated servers.
-</MudText>
+</p>
 
 <PluginLogPanel />
 

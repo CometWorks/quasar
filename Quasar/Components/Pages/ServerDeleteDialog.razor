@@ -1,23 +1,23 @@
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="3">
+        <div class="quasar-layout quasar-gap-3">
             @if (Confirm)
             {
-                <MudText Typo="Typo.body2">
+                <p class="quasar-text quasar-type-body2">
                     Delete server definition '<b>@Slug</b>'? The definition is archived as a deleted JSON
                     snapshot. Quasar does <b>not</b> delete the server folder below — world files, config,
                     and logs stay on disk.
-                </MudText>
+                </p>
             }
             else
             {
-                <MudText Typo="Typo.body2">
+                <p class="quasar-text quasar-type-body2">
                     Server '<b>@Slug</b>' was removed from the catalog. Quasar did <b>not</b> delete its folder.
-                </MudText>
+                </p>
             }
 
             <div>
-                <MudText Typo="Typo.caption" Class="mud-text-secondary">Server folder</MudText>
+                <span class="quasar-text quasar-type-caption mud-text-secondary">Server folder</span>
                 <CopyablePath Value="@FolderPath" Typo="Typo.body2" TextClass="" />
             </div>
 
@@ -31,7 +31,7 @@
                 folder is deleted, renamed, or moved elsewhere — otherwise the new server reuses the
                 leftover files in it.
             </MudAlert>
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         @if (Confirm)

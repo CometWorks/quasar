@@ -1,0 +1,83 @@
+@implements IAsyncDisposable
+@inject IJSRuntime JS
+@inject ThemePreferenceService ThemePreference
+@inject BrandingService BrandingService
+
+<section class="quasar-panel">
+    <div class="quasar-panel-heading"><h2>Simulation speed</h2><a class="quasar-table-link" href="/analytics">Open analytics ↗</a></div>
+    <div class="quasar-chart-body">
+        <div class="quasar-chart-frame">
+            <div id="@_containerId" class="quasar-fleet-chart" role="img" aria-label="Simulation speed over the last 30 minutes for configured standalone servers"></div>
+            @if (_status is not null) { <div class="quasar-chart-state" role="status">@_status</div> }
+        </div>
+    </div>
+    <div class="quasar-table-footer"><span>Last 30 minutes · Standalone servers</span><span>1.00× = real time</span></div>
+</section>
+
+@code {
+    [Parameter] public IReadOnlyList<DedicatedServerDefinition> Servers { get; set; } = [];
+    private readonly string _containerId = "fleet-simspeed-" + Guid.NewGuid().ToString("N");
+    private DateTimeOffset _nextSync;
+    private bool _syncing;
+    private bool _disposed;
+    private string? _status = "Waiting for recorded telemetry…";
+
+    protected override void OnInitialized()
+    {
+        ThemePreference.ThemeModeChanged += ThemeChanged;
+        BrandingService.Changed += AppearanceChanged;
+    }
+
+    private void ThemeChanged(bool _) => AppearanceChanged();
+    private void AppearanceChanged()
+    {
+        _nextSync = DateTimeOffset.MinValue;
+        if (!_disposed) _ = InvokeAsync(StateHasChanged);
+    }
+
+    // Home already re-renders on registry/catalog changes. Reuse those updates
+    // and throttle HTTP chart requests rather than adding another polling loop.
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_disposed || _syncing || DateTimeOffset.UtcNow < _nextSync) return;
+        _syncing = true;
+        _nextSync = DateTimeOffset.UtcNow.AddSeconds(10);
+        var previousStatus = _status;
+        try
+        {
+            var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var result = await JS.InvokeAsync<ChartResult?>("quasarCharts.sync", new
+            {
+                endpoint = "/api/analytics/series", from = now - 1800, to = now, maxPoints = 180,
+                servers = Servers.Select(server => server.UniqueName).ToArray(),
+                names = Servers.ToDictionary(server => server.UniqueName, server => string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName),
+                metrics = new[] { new { key = "simspeed", containerId = _containerId, height = 220 } },
+                dark = ThemePreference.IsDarkMode, lines = true, selectable = false,
+            });
+            _status = result is { Ok: false } ? "Telemetry could not be loaded. Open analytics to retry."
+                : result is { HasData: true } ? null : "No recorded telemetry yet. Start a server to see its simulation history.";
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        catch (TaskCanceledException) { }
+        finally { _syncing = false; }
+        if (!_disposed && previousStatus != _status) StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        ThemePreference.ThemeModeChanged -= ThemeChanged;
+        BrandingService.Changed -= AppearanceChanged;
+        try { await JS.InvokeVoidAsync("quasarCharts.dispose", _containerId); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    private sealed class ChartResult
+    {
+        public bool Ok { get; set; }
+        public bool HasData { get; set; }
+    }
+}

@@ -1,0 +1,21 @@
+<header class="quasar-page-heading">
+    <div class="quasar-page-intro">
+        <div class="quasar-eyebrow">@Section</div>
+        <h1>@Title</h1>
+        @if (Description is not null)
+        {
+            <div class="quasar-page-description">@Description</div>
+        }
+    </div>
+    @if (Actions is not null)
+    {
+        <div class="quasar-dashboard-actions">@Actions</div>
+    }
+</header>
+
+@code {
+    [Parameter] public string Section { get; set; } = "Operations";
+    [Parameter, EditorRequired] public RenderFragment Title { get; set; } = default!;
+    [Parameter] public RenderFragment? Description { get; set; }
+    [Parameter] public RenderFragment? Actions { get; set; }
+}

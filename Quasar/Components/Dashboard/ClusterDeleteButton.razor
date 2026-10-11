@@ -7,10 +7,7 @@
 @inject NavigationManager Navigation
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-    <MudTooltip Text="Delete cluster">
-        <MudIconButton aria-label="Delete cluster" Icon="@Icons.Material.Filled.Delete" Color="Color.Error"
-                       Size="Size.Small" Disabled="_busy" OnClick="DeleteAsync" />
-    </MudTooltip>
+    <QuasarIconButton Label="Delete cluster" Icon="@QuasarIcons.Delete" OnClick="DeleteAsync" Class="quasar-tone-error" Disabled="_busy" />
 </AuthorizeView>
 
 @code {

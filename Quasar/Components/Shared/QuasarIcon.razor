@@ -1,0 +1,14 @@
+@if (Icon.Contains('<', StringComparison.Ordinal))
+{
+    <svg class="quasar-icon @Class" viewBox="0 0 24 24" aria-hidden="true" focusable="false">@((MarkupString)Icon)</svg>
+}
+else
+{
+    @* Legacy UI plugins may contribute an icon-font name rather than SVG paths. *@
+    <span class="quasar-icon material-icons @Class" aria-hidden="true">@Icon</span>
+}
+
+@code {
+    [Parameter, EditorRequired] public string Icon { get; set; } = string.Empty;
+    [Parameter] public string? Class { get; set; }
+}

@@ -7,85 +7,99 @@
 @inject QuasarConfigProfileCatalog Profiles
 @inject QuasarWorldTemplateCatalog Worlds
 
-<MudCard Class="server-card">
-<MudCardContent>
-<MudStack Spacing="3">
-    <MudText Typo="Typo.h6">Cluster overview</MudText>
+<section class="@(CollapseDetails ? "quasar-cluster-summary" : "quasar-panel quasar-section")">
+<div class="quasar-card-content">
+<div class="quasar-stack">
+    @if (!CollapseDetails) { <h2>Cluster overview</h2> }
     @if (ShowConfigurationLinks) { <ClusterConfigurationLinks /> }
     @if (_loading && _status is null)
     {
-        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+        <QuasarProgress Label="Refreshing cluster status" Indeterminate="true" />
     }
     @if (_error is not null)
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+        <div class="quasar-notice quasar-notice-error" role="status">@_error</div>
     }
     @if (RecoveryRequired)
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@Reconciler.GetStatus(Cluster.UniqueName).Message</MudAlert>
+        <div class="quasar-notice quasar-notice-error" role="status">@Reconciler.GetStatus(Cluster.UniqueName).Message</div>
     }
 
     @if (Cluster.GoalState == DedicatedServerGoalState.On && _observedAt is { } observed)
     {
-        <MudText Typo="Typo.caption">@(_stale ? "Stale observation" : "Observed") · @observed.ToString("u") · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</MudText>
+        <p class="quasar-muted quasar-caption">@(_stale ? "Stale observation" : "Observed") · @observed.ToString("u") · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</p>
     }
     @if (_capabilities?.Scope == Admin.AdminScope.Query)
     {
-        <MudAlert Severity="Severity.Info">Cluster Registry access is query-only.</MudAlert>
+        <div class="quasar-notice quasar-notice-info" role="status">Cluster Registry access is query-only.</div>
     }
 
-    <MudGrid Spacing="2">
-        <MudItem xs="12" sm="6" lg="3">
+    <div class="quasar-detail-metrics">
+        <div class="quasar-detail-metric">
             <div>
-                <MudText Typo="Typo.overline">Status</MudText>
-                <MudText Typo="Typo.h6" Color="@PhaseColor">@PhaseText</MudText>
-                <MudText Typo="Typo.caption" Class="d-block">Cluster Registry · @GatewayText</MudText>
-                <MudText Typo="Typo.caption" Class="d-block">World Authority · @WorldAuthorityText</MudText>
+                <p class="quasar-eyebrow">Status</p>
+                <h2 class="quasar-tone-@(PhaseColor.ToString().ToLowerInvariant())">@PhaseText</h2>
+                <p class="d-block quasar-muted quasar-caption">Cluster Registry · @GatewayText</p>
+                <p class="d-block quasar-muted quasar-caption">World Authority · @WorldAuthorityText</p>
             </div>
-        </MudItem>
+        </div>
         @if (Cluster.GoalState == DedicatedServerGoalState.On)
         {
-        <MudItem xs="12" sm="6" lg="3">
+        <div class="quasar-detail-metric">
             <div>
-                <MudText Typo="Typo.overline">Players</MudText>
-                <MudText Typo="Typo.h6">@PlayerText</MudText>
-                <MudText Typo="Typo.caption">@JoinText</MudText>
+                <p class="quasar-eyebrow">Players</p>
+                <h2>@PlayerText</h2>
+                <p class="quasar-muted quasar-caption">@JoinText</p>
             </div>
-        </MudItem>
-        <MudItem xs="12" sm="6" lg="3">
+        </div>
+        <div class="quasar-detail-metric">
             <div>
-                <MudText Typo="Typo.overline">Capacity</MudText>
-                <MudText Typo="Typo.h6">@CapacityText</MudText>
-                <MudText Typo="Typo.caption">@CapacityDetail</MudText>
+                <p class="quasar-eyebrow">Capacity</p>
+                <h2>@CapacityText</h2>
+                <p class="quasar-muted quasar-caption">@CapacityDetail</p>
             </div>
-        </MudItem>
-        <MudItem xs="12" sm="6" lg="3">
+        </div>
+        <div class="quasar-detail-metric">
             <div>
-                <MudText Typo="Typo.overline">Recovery</MudText>
-                <MudText Typo="Typo.h6" Color="@RecoveryColor">@RecoveryText</MudText>
-                <MudText Typo="Typo.caption">@RecoveryDetail</MudText>
+                <p class="quasar-eyebrow">Recovery</p>
+                <h2 class="quasar-tone-@(RecoveryColor.ToString().ToLowerInvariant())">@RecoveryText</h2>
+                <p class="quasar-muted quasar-caption">@RecoveryDetail</p>
             </div>
-        </MudItem>
+        </div>
         }
-    </MudGrid>
+    </div>
 
     @if (Cluster.GoalState == DedicatedServerGoalState.On && !_stale && _status?.ReasonCodes.Length > 0)
     {
-        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+        <div class="quasar-notice quasar-notice-warning" role="status">
             @string.Join(" · ", _status.ReasonCodes)
-        </MudAlert>
+        </div>
     }
 
+    @if (CollapseDetails)
+    {
+        <details class="quasar-card-disclosure"><summary>Cluster details <span class="quasar-muted">World, configuration &amp; runtime</span></summary>@RuntimeDetails</details>
+    }
+    else { @RuntimeDetails }
+
+</div>
+</div>
+</section>
+
+@code
+{
+    [Parameter] public bool CollapseDetails { get; set; }
+    private RenderFragment RuntimeDetails => @<div class="quasar-live-details">
     <div>
-        <MudText Typo="Typo.h6">World and configuration</MudText>
-        <MudText>Active world: @(_status?.WorldId ?? "Unknown")</MudText>
-        <MudText>Configuration profile: @(Profiles.GetProfile(Cluster.ConfigProfileId)?.Name ?? ValueOrDash(Cluster.ConfigProfileId))</MudText>
-        <MudText>World template: @(Worlds.GetTemplate(Cluster.WorldTemplateId)?.Name ?? ValueOrDash(Cluster.WorldTemplateId))</MudText>
+        <h2>World and configuration</h2>
+        <p>Active world: @(_status?.WorldId ?? "Unknown")</p>
+        <p>Configuration profile: @(Profiles.GetProfile(Cluster.ConfigProfileId)?.Name ?? ValueOrDash(Cluster.ConfigProfileId))</p>
+        <p>World template: @(Worlds.GetTemplate(Cluster.WorldTemplateId)?.Name ?? ValueOrDash(Cluster.WorldTemplateId))</p>
     </div>
 
-    <MudDivider />
-    <MudText Typo="Typo.subtitle1">Runtime details</MudText>
-    <MudSimpleTable Dense="true" Hover="true" Class="cluster-details-table">
+    <hr class="quasar-divider">
+    <h3>Runtime details</h3>
+    <table class="cluster-details-table quasar-server-table quasar-runtime-table">
         <tbody>
             <tr><th>Desired state</th><td>@Cluster.GoalState</td></tr>
             <tr><th>Reconciler</th><td>@ReconcileText</td></tr>
@@ -97,13 +111,8 @@
             <tr><th>Cluster Registry process</th><td>@GatewayExecutorText</td></tr>
             <tr><th>Cluster Registry WAL</th><td>@RegistryText</td></tr>
         </tbody>
-    </MudSimpleTable>
-</MudStack>
-</MudCardContent>
-</MudCard>
+    </table>    </div>;
 
-@code
-{
     [Parameter] public bool ShowConfigurationLinks { get; set; } = true;
     private readonly CancellationTokenSource _shutdown = new();
     private Admin.ClusterStatus? _status;

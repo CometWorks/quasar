@@ -6,12 +6,13 @@ public sealed record BrandingPresetDefinition(string Id, string DisplayName);
 
 /// <summary>
 /// Built-in theme presets. "quasar" is the single source of truth derived from
-/// <see cref="QuasarTheme"/>; the others apply a small set of identity/surface
+/// <see cref="ThemePalette"/>; the others apply a small set of identity/surface
 /// overrides on top of the Quasar base palettes so they stay internally coherent.
 /// </summary>
 public static class BrandingPresets
 {
     public const string QuasarId = "quasar";
+    public const string CometWorksId = "cometworks";
     public const string MidnightId = "midnight";
     public const string SlateId = "slate";
     public const string HighContrastId = "high-contrast";
@@ -19,6 +20,7 @@ public static class BrandingPresets
     public static IReadOnlyList<BrandingPresetDefinition> All { get; } =
     [
         new(QuasarId, "Quasar Default"),
+        new(CometWorksId, "CometWorks (Quasar default)"),
         new(MidnightId, "Midnight Blue"),
         new(SlateId, "Slate"),
         new(HighContrastId, "High Contrast"),
@@ -34,6 +36,7 @@ public static class BrandingPresets
     {
         return presetId?.ToLowerInvariant() switch
         {
+            CometWorksId => ThemePalette.QuasarLight(),
             MidnightId => MidnightLight(),
             SlateId => SlateLight(),
             HighContrastId => HighContrastLight(),
@@ -45,6 +48,7 @@ public static class BrandingPresets
     {
         return presetId?.ToLowerInvariant() switch
         {
+            CometWorksId => ThemePalette.QuasarDark(),
             MidnightId => MidnightDark(),
             SlateId => SlateDark(),
             HighContrastId => HighContrastDark(),
@@ -54,7 +58,7 @@ public static class BrandingPresets
 
     private static ThemePalette MidnightLight()
     {
-        var palette = ThemePalette.QuasarLight();
+        var palette = ThemePalette.LegacyQuasarLight();
         palette.Primary = "#1e3a5f";
         palette.PrimaryContrastText = "#f0f4ff";
         palette.Secondary = "#475c7a";
@@ -74,7 +78,7 @@ public static class BrandingPresets
 
     private static ThemePalette MidnightDark()
     {
-        var palette = ThemePalette.QuasarDark();
+        var palette = ThemePalette.LegacyQuasarDark();
         palette.Primary = "#93c5fd";
         palette.PrimaryContrastText = "#0f1729";
         palette.Secondary = "#7f9cc4";
@@ -99,7 +103,7 @@ public static class BrandingPresets
 
     private static ThemePalette SlateLight()
     {
-        var palette = ThemePalette.QuasarLight();
+        var palette = ThemePalette.LegacyQuasarLight();
         palette.Primary = "#475569";
         palette.PrimaryContrastText = "#f8fafc";
         palette.Secondary = "#64748b";
@@ -119,7 +123,7 @@ public static class BrandingPresets
 
     private static ThemePalette SlateDark()
     {
-        var palette = ThemePalette.QuasarDark();
+        var palette = ThemePalette.LegacyQuasarDark();
         palette.Primary = "#cbd5e1";
         palette.PrimaryContrastText = "#1e293b";
         palette.Secondary = "#94a3b8";
@@ -144,7 +148,7 @@ public static class BrandingPresets
 
     private static ThemePalette HighContrastLight()
     {
-        var palette = ThemePalette.QuasarLight();
+        var palette = ThemePalette.LegacyQuasarLight();
         palette.Primary = "#000000";
         palette.PrimaryContrastText = "#ffffff";
         palette.Secondary = "#000000";
@@ -177,7 +181,7 @@ public static class BrandingPresets
 
     private static ThemePalette HighContrastDark()
     {
-        var palette = ThemePalette.QuasarDark();
+        var palette = ThemePalette.LegacyQuasarDark();
         palette.Primary = "#ffffff";
         palette.PrimaryContrastText = "#000000";
         palette.Secondary = "#ffff00";

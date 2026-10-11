@@ -4,124 +4,86 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
-<MudCard Class="server-card">
-    <MudCardHeader>
-        <CardHeaderContent>
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudText Typo="Typo.h6">@GetDisplayName()</MudText>
-                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor()">
-                        @GetStatusLabel()
-                    </MudChip>
-                </MudStack>
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                    <MudTooltip Text="Open console output">
-                        <MudIconButton Icon="@Icons.Material.Filled.Terminal"
-                                       Color="Color.Default"
-                                       Size="Size.Small"
-                                       OnClick="OpenConsoleAsync" />
-                    </MudTooltip>
-                    <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
-                        <Authorized>
-                            <MudTooltip Text="Clone server"><MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" Size="Size.Small" OnClick="CloneAsync" /></MudTooltip>
-                            <MudTooltip Text="Edit server"><MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" Size="Size.Small" OnClick="EditAsync" /></MudTooltip>
-                            <MudTooltip Text="Delete server"><MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" Disabled="@IsProcessActive" OnClick="DeleteAsync" /></MudTooltip>
-                        </Authorized>
-                    </AuthorizeView>
-                    <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
-                        <Authorized>
-                            <MudTooltip Text="Create world template"><MudIconButton Icon="@Icons.Material.Filled.Public" Color="Color.Default" Size="Size.Small" Disabled="@(!CanCreateTemplate)" OnClick="CreateTemplateAsync" /></MudTooltip>
-                        </Authorized>
-                    </AuthorizeView>
-                    <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
-                        <Authorized>
-                            @if (CanStart)
-                            {
-                                <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled" StartIcon="@Icons.Material.Filled.PlayArrow" OnClick="StartAsync">Start</MudButton>
-                            }
-                            @if (CanRestart)
-                            {
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartAsync">Restart</MudButton>
-                            }
-                            @if (CanStop)
-                            {
-                                <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.Stop" OnClick="StopAsync">Stop</MudButton>
-                            }
-                            @if (CanKillStarting)
-                            {
-                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.StopCircle" OnClick="KillStartingAsync">Kill</MudButton>
-                            }
-                        </Authorized>
-                    </AuthorizeView>
-                </MudStack>
-            </MudStack>
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.caption">@GetHostLabel() · @GetWorldLabel()</MudText>
-                <MudText Typo="Typo.caption" Class="mono">@Server.UniqueName</MudText>
-                @if (!string.IsNullOrWhiteSpace(Runtime?.LastMessage))
+<section class="quasar-panel quasar-fleet-card">
+    <header class="quasar-card-heading">
+        <div class="quasar-card-title-row">
+            <div class="quasar-card-identity">
+                <h2 title="@GetDisplayName()">@GetDisplayName()</h2>
+                <span class="mono quasar-muted quasar-caption" title="@Server.UniqueName">@Server.UniqueName</span>
+            </div>
+            <span class="quasar-state-badge quasar-tone-@(GetStatusColor().ToString().ToLowerInvariant())">@GetStatusLabel()</span>
+            <button type="button" class="quasar-icon-button" aria-label="More actions for @GetDisplayName()" title="More server actions" popovertarget="@_actionsId"><QuasarIcon Icon="@QuasarIcons.MoreVert" /></button>
+            <div id="@_actionsId" popover="auto" class="quasar-server-menu">
+                <strong>@GetDisplayName()</strong>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
+                    <Authorized>
+                        <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Clone server" Icon="@QuasarIcons.ContentCopy" OnClick="CloneAsync" />
+                        <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Edit server" Icon="@QuasarIcons.Edit" OnClick="EditAsync" />
+                        <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Delete server" Class="quasar-text-error" Icon="@QuasarIcons.Delete" Disabled="@IsProcessActive" OnClick="DeleteAsync" />
+                    </Authorized>
+                </AuthorizeView>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
+                    <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Create world template" Icon="@QuasarIcons.Public" Disabled="@(!CanCreateTemplate)" OnClick="CreateTemplateAsync" />
+                </AuthorizeView>
+            </div>
+        </div>
+        <dl class="quasar-card-facts">
+            <div><dt>World</dt><dd title="@GetWorldLabel()">@GetWorldLabel()</dd></div>
+            <div><dt>Host</dt><dd title="@GetHostLabel()">@GetHostLabel()</dd></div>
+            <div><dt>Connect</dt><dd><button class="quasar-table-link mono" type="button" title="@GetDirectConnectTooltip()" @onclick="CopyDirectConnectAsync">Port @Server.ServerPort <QuasarIcon Icon="@QuasarIcons.ContentCopy" /></button></dd></div>
+            <div><dt>Profile</dt><dd>
+                @if (CanOpenConfigProfile)
                 {
-                    <MudText Typo="Typo.caption">@Runtime.LastMessage</MudText>
+                    <button class="quasar-table-link" type="button" title="Open config profile: @GetConfigProfileName()" @onclick="OpenConfigProfileAsync">@GetConfigProfileName()</button>
                 }
-                @if (!string.IsNullOrWhiteSpace(Runtime?.HealthSummary))
-                {
-                    <MudText Typo="Typo.caption">@Runtime.HealthSummary</MudText>
-                }
-                @if (Runtime?.LastRestart is { } lastRestart)
-                {
-                    <MudTooltip Text="@GetRestartTooltip(lastRestart)">
-                        <MudText Typo="Typo.caption" Color="@GetRestartColor(lastRestart)">
-                            @GetRestartSummary(lastRestart)
-                        </MudText>
-                    </MudTooltip>
-                }
-                @if (ShouldShowLatestErrorLine)
-                {
-                    <MudTooltip Text="Open console at latest error lines">
-                        <MudLink Typo="Typo.caption"
-                                 Color="Color.Error"
-                                 Underline="Underline.Hover"
-                                 Style="display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-                                 @onclick="OpenErrorConsoleAsync">
-                            @Runtime!.LatestErrorLogLine
-                        </MudLink>
-                    </MudTooltip>
-                }
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
-                    <MudTooltip Text="@GetDirectConnectTooltip()">
-                        <MudChip T="string"
-                                 Variant="Variant.Outlined"
-                                 Icon="@Icons.Material.Filled.ContentCopy"
-                                 OnClick="CopyDirectConnectAsync">
-                            Port @Server.ServerPort
-                        </MudChip>
-                    </MudTooltip>
-                    @if (CanOpenConfigProfile)
+                else { <span title="@GetConfigProfileName()">@GetConfigProfileName()</span> }
+            </dd></div>
+        </dl>
+    </header>
+    @if (!string.IsNullOrWhiteSpace(Runtime?.LastMessage) || !string.IsNullOrWhiteSpace(Runtime?.HealthSummary) || Runtime?.LastRestart is not null || ShouldShowLatestErrorLine)
+    {
+        <div class="quasar-card-notices" role="status">
+            @if (!string.IsNullOrWhiteSpace(Runtime?.LastMessage)) { <p>@Runtime.LastMessage</p> }
+            @if (!string.IsNullOrWhiteSpace(Runtime?.HealthSummary)) { <p>@Runtime.HealthSummary</p> }
+            @if (Runtime?.LastRestart is { } lastRestart)
+            {
+                <p class="quasar-tone-@(GetRestartColor(lastRestart).ToString().ToLowerInvariant())" title="@GetRestartTooltip(lastRestart)">@GetRestartSummary(lastRestart)</p>
+            }
+            @if (ShouldShowLatestErrorLine)
+            {
+                <button type="button" class="quasar-table-link quasar-text-error quasar-error-line" title="Open console at latest error lines" @onclick="OpenErrorConsoleAsync">@Runtime!.LatestErrorLogLine</button>
+            }
+        </div>
+    }
+    <div class="quasar-card-content">
+        <ServerDetailPanel Server="@Server" Runtime="@Runtime" Agent="@Agent" CollapseDetails="true" />
+    </div>
+    <footer class="quasar-card-actions">
+        <button class="quasar-button quasar-card-console" type="button" @onclick="OpenConsoleAsync" aria-label="Open console output"><QuasarIcon Icon="@QuasarIcons.Terminal" />Console</button>
+        <div class="quasar-row">
+            <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+                <Authorized>
+                    @if (CanStart)
                     {
-                        <MudTooltip Text="Open config profile">
-                            <MudChip T="string"
-                                     Variant="Variant.Outlined"
-                                     Color="Color.Primary"
-                                     Icon="@Icons.Material.Filled.Tune"
-                                     OnClick="OpenConfigProfileAsync">
-                                Config @GetConfigProfileName()
-                            </MudChip>
-                        </MudTooltip>
+                        <button class="quasar-button quasar-tone-success" type="button" disabled="@IsStartDisabled" @onclick="StartAsync"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />Start</button>
                     }
-                    else
+                    @if (CanRestart)
                     {
-                        <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Tune">
-                            Config @GetConfigProfileName()
-                        </MudChip>
+                        <button class="quasar-button" type="button" @onclick="RestartAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Restart</button>
                     }
-                </MudStack>
-            </MudStack>
-        </CardHeaderContent>
-    </MudCardHeader>
-
-    <MudCardContent>
-        <ServerDetailPanel Server="@Server" Runtime="@Runtime" Agent="@Agent" />
-    </MudCardContent>
-</MudCard>
+                    @if (CanStop)
+                    {
+                        <button class="quasar-button quasar-tone-error" type="button" @onclick="StopAsync"><QuasarIcon Icon="@QuasarIcons.Stop" />Stop</button>
+                    }
+                    @if (CanKillStarting)
+                    {
+                        <button class="quasar-button quasar-tone-error" type="button" @onclick="KillStartingAsync"><QuasarIcon Icon="@QuasarIcons.StopCircle" />Kill</button>
+                    }
+                </Authorized>
+            </AuthorizeView>
+        </div>
+    </footer>
+</section>
 
 @code
 {
@@ -151,6 +113,8 @@
 
     [Parameter]
     public EventCallback<string> ConfigProfileSelected { get; set; }
+
+    private readonly string _actionsId = "card-actions-" + Guid.NewGuid().ToString("N");
 
     private DedicatedServerProcessState ProcessState => Runtime?.State ?? DedicatedServerProcessState.Stopped;
 
@@ -303,29 +267,29 @@
     private string GetStatusLabel()
     {
         if (ProcessState == DedicatedServerProcessState.Stopping)
-            return "STOPPING";
+            return "Stopping";
 
         if (ProcessState == DedicatedServerProcessState.Restarting)
-            return "RESTARTING";
+            return "Restarting";
 
         if (ProcessState == DedicatedServerProcessState.Crashed)
-            return "CRASHED";
+            return "Crashed";
 
         if (ProcessState == DedicatedServerProcessState.Faulted)
-            return "FAULTED";
+            return "Faulted";
 
         if (!IsProcessActive)
-            return "OFF";
+            return "Stopped";
 
         if (ProcessState == DedicatedServerProcessState.Running && Agent?.IsConnected == true && Agent.Snapshot is not null)
-            return "OPEN";
+            return "Running";
 
         // Process is up but the agent link isn't established yet — e.g. just after a
         // Quasar restart that adopted a running process, or a transient agent drop.
         if (ProcessState == DedicatedServerProcessState.Running)
-            return "CONNECTING";
+            return "Connecting";
 
-        return "STARTING";
+        return "Starting";
     }
 
     private Color GetStatusColor()
@@ -335,12 +299,12 @@
 
         return GetStatusLabel() switch
         {
-            "OPEN" => Color.Success,
-            "CONNECTING" => Color.Info,
-            "STARTING" => Color.Warning,
-            "RESTARTING" => Color.Warning,
-            "STOPPING" => Color.Warning,
-            "OFF" => Color.Error,
+            "Running" => Color.Success,
+            "Connecting" => Color.Info,
+            "Starting" => Color.Warning,
+            "Restarting" => Color.Warning,
+            "Stopping" => Color.Warning,
+            "Stopped" => Color.Default,
             _ => Color.Default,
         };
     }

@@ -2,8 +2,11 @@
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
 
 <PageTitle>Add host machine</PageTitle>
-<MudCard Class="server-card"><MudCardContent>
-    <MudText Typo="Typo.h5" Class="mb-3">Add host machine</MudText>
+<section class="quasar-panel server-card"><div class="quasar-card-content">
+    <QuasarPageHeading Section="Infrastructure">
+    <Title>Add host machine</Title>
+    <Description>Connect a host machine to the control plane.</Description>
+</QuasarPageHeading>
     <HostEnrollment />
     <MudButton Href="/clusters/new" Class="mt-3">Continue cluster setup</MudButton>
-</MudCardContent></MudCard>
+</div></section>

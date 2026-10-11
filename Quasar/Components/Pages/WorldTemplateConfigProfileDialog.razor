@@ -3,7 +3,7 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="3">
+        <div class="quasar-layout quasar-gap-3">
             @if (!string.IsNullOrWhiteSpace(_loadError))
             {
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
@@ -20,7 +20,7 @@
             @if (AllowSkip)
             {
                 <MudRadioGroup T="ConfigProfileImportAction" @bind-Value="_action">
-                    <MudStack Spacing="1">
+                    <div class="quasar-layout quasar-gap-1">
                         <MudRadio T="ConfigProfileImportAction"
                                   Value="ConfigProfileImportAction.CreateProfile"
                                   Color="Color.Primary"
@@ -30,14 +30,14 @@
                         <MudRadio T="ConfigProfileImportAction" Value="ConfigProfileImportAction.Skip" Color="Color.Primary">
                             Import the world template only
                         </MudRadio>
-                    </MudStack>
+                    </div>
                 </MudRadioGroup>
             }
 
             @if (_action == ConfigProfileImportAction.CreateProfile && CanCreateFromSource)
             {
                 <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-                    <MudStack Spacing="3">
+                    <div class="quasar-layout quasar-gap-3">
                         <MudTextField
                             @bind-Value="_profileName"
                             Label="Profile name"
@@ -55,10 +55,10 @@
                             Lines="3"
                             Sizing="InputSizing.Auto"
                             MaxLines="10000" />
-                    </MudStack>
+                    </div>
                 </MudForm>
             }
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>

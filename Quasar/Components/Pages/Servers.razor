@@ -23,243 +23,229 @@
 
 @if (!HideHeader)
 {
-    <MudText Typo="Typo.h5" Class="mb-2">Servers</MudText>
-    <MudText Typo="Typo.body2">Persistent standalone servers and clusters. Ordinary server controls stay here; cluster rows expose the Gateway, World Authority, node capacity, and recovery state as one managed server.</MudText>
+    <div class="quasar-page-heading"><div><div class="quasar-eyebrow">Control plane</div><h1>Servers</h1>
+    <p>Persistent standalone servers and clusters. Ordinary server controls stay here; cluster rows expose the Gateway, World Authority, node capacity, and recovery state as one managed server.</p></div></div>
 }
 
-<MudPaper Class="pa-4 server-card mt-2">
-    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-4">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-            <MudChip T="string" Variant="Variant.Outlined">@($"{ManagedServers.Count} server(s)")</MudChip>
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="OpenCreateDialogAsync">
-                Create Server
-            </MudButton>
-            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-                <MudButton Href="/clusters/new" Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add">
-                    Create Cluster
-                </MudButton>
-            </AuthorizeView>
-        </MudStack>
-    </MudStack>
-
+<section class="quasar-panel quasar-servers-panel @(_compactRows ? "quasar-density-compact" : null)">
+    <div class="quasar-panel-heading">
+        <h2>Dedicated servers <span class="quasar-muted quasar-caption">/ @ManagedServers.Count</span></h2>
+        <div class="quasar-dashboard-actions">
+            @if (!HideCreateActions)
+            {
+                <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
+                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><a href="/clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a></AuthorizeView>
+            }
+            @HeaderActions
+            <button type="button" class="quasar-button" aria-pressed="@(_compactRows ? "true" : "false")" @onclick="@(() => _compactRows = !_compactRows)">@(_compactRows ? "Comfortable rows" : "Compact rows")</button>
+        </div>
+    </div>
+    <div class="quasar-toolbar">
+        <label class="quasar-field quasar-search"><span class="quasar-visually-hidden">Search fleet</span><input type="search" placeholder="Server, world, host, or profile…" @bind="_search" @bind:event="oninput" /></label>
+        <label class="quasar-field"><span class="quasar-visually-hidden">Status</span><select @bind="_statusFilter"><option value="">All statuses</option>@foreach (var status in ManagedServers.Select(GetManagedStateText).Distinct().Order()) { <option value="@status">@status</option> }</select></label>
+        <label class="quasar-field"><span class="quasar-visually-hidden">Type</span><select @bind="_kindFilter"><option value="">All servers</option><option>Standalone</option><option>Cluster</option></select></label>
+        <label class="quasar-field"><span class="quasar-visually-hidden">Sort by</span><select @bind="_sortColumn">@foreach (var column in SortColumns) { <option value="@column">@column</option> }</select></label>
+        <label class="quasar-check"><input type="checkbox" @bind="_showTechnicalColumns" />Technical columns</label>
+        <span class="quasar-toolbar-meta" role="status">@FilteredServers.Count() of @ManagedServers.Count servers</span>
+    </div>
     @if (ManagedServers.Count == 0)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-            No servers defined yet.
-        </MudAlert>
+        <div class="quasar-empty"><QuasarIcon Icon="@QuasarIcons.Storage" /><h2>Your fleet starts here</h2><p>Create a server or import an existing installation to see its health, telemetry, and lifecycle controls.</p></div>
+    }
+    else if (!FilteredServers.Any())
+    {
+        <div class="quasar-empty" role="status"><h2>No servers match these filters</h2><p>Try a different name, status, or server type.</p><button type="button" class="quasar-button mt-3" @onclick="ClearFilters">Clear filters</button></div>
     }
     else
     {
-        <MudTable T="ManagedServerRow" Dense="true" Hover="true" Breakpoint="@ServerTableBreakpoint" Items="ManagedServers" Class="servers-list-table">
-            <HeaderContent>
-                <MudTh></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => x.Kind)">Type</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedStateText)">Status</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => x.UniqueName)">Unique name</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetEndpointSortValue)">Endpoint</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => GetConfigProfileName(x.ConfigProfileId))">Config</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedPlayerSortValue)">Players</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedProcessSortValue)">Process</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(GetManagedAttachmentStatus)">Agent / WA</MudTableSortLabel></MudTh>
-                <MudTh><MudTableSortLabel SortBy="new Func<ManagedServerRow, object>(x => x.DisplayName)">Name</MudTableSortLabel></MudTh>
-                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
-            </HeaderContent>
-            <RowTemplate>
-                <MudTd>
-                    <MudTooltip Text="Show live data">
-                        <MudIconButton Size="Size.Small"
-                                       Icon="@(IsExpanded(context.UniqueName) ? Icons.Material.Filled.ExpandLess : Icons.Material.Filled.ExpandMore)"
-                                       OnClick="@(() => ToggleExpanded(context.UniqueName))" />
-                    </MudTooltip>
-                </MudTd>
-                @if (context.Server is { } server)
+        <div class="quasar-table-scroll" role="region" aria-label="Managed servers" tabindex="0">
+        <table class="quasar-server-table">
+            <thead><tr>
+                <th scope="col"><span class="quasar-visually-hidden">Live details</span></th>
+                @foreach (var column in VisibleColumns)
                 {
-                    <MudTd DataLabel="Type">
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Standalone</MudChip>
-                    </MudTd>
-                    <MudTd DataLabel="Status">
-                        <MudChip T="string" Color="@GetStateColor(server.UniqueName)" Variant="Variant.Outlined">
-                            @GetStateText(server.UniqueName)
-                        </MudChip>
-                        @if (GetRuntime(server.UniqueName)?.LastRestart is { } lastRestart)
+                    <th scope="col" aria-sort="@GetSortDirection(column)"><button type="button" class="quasar-sort-button" @onclick="@(() => SortBy(column))">@(column == "Name" ? "Server / world" : column)<span aria-hidden="true">@(_sortColumn == column ? (_sortDescending ? " ↓" : " ↑") : "")</span></button></th>
+                }
+                <th scope="col"><span class="quasar-visually-hidden">Actions</span></th>
+            </tr></thead>
+            <tbody>
+            @foreach (var context in SortedServers)
+            {
+                var agent = context.Server is null ? null : GetAgent(context.UniqueName);
+                var metrics = agent?.Snapshot?.Metrics;
+                <tr @key="context.UniqueName">
+                    <td><QuasarIconButton Label="Show live data" Expanded="@IsExpanded(context.UniqueName)" Icon="@(IsExpanded(context.UniqueName) ? QuasarIcons.ExpandLess : QuasarIcons.ExpandMore)" OnClick="@(() => ToggleExpanded(context.UniqueName))" /></td>
+                    <td class="quasar-server-name-cell" title="@context.UniqueName">
+                        @if (context.Cluster is not null) { <a class="quasar-server-identity quasar-table-link" href="@ClusterHref(context.UniqueName)">@context.DisplayName</a> }
+                        else { <strong class="quasar-server-identity">@context.DisplayName</strong> }
+                        @if (_showTechnicalColumns) { <span class="quasar-server-secondary mono">@context.UniqueName</span> }
+                        <span class="quasar-server-secondary">@(agent?.WorldDisplayName ?? context.Kind)</span>
+                    </td>
+                    <td>
+                        <span class="quasar-state-badge" style="color:var(--quasar-palette-@((context.Server is null ? GetClusterStateColor(context.UniqueName) : GetStateColor(context.UniqueName)).ToString().ToLowerInvariant()),var(--quasar-palette-text-primary));" title="@(context.Cluster is null ? null : GetClusterError(context.UniqueName))">@GetManagedStateText(context)</span>
+                        @if (context.Server is not null && GetRuntime(context.UniqueName)?.LastRestart is { } lastRestart)
                         {
-                            <MudTooltip Text="@GetRestartTooltip(lastRestart)">
-                                <MudText Typo="Typo.caption"
-                                         Color="@GetRestartColor(lastRestart)"
-                                         Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
-                                    @GetRestartSummary(lastRestart)
-                                </MudText>
-                            </MudTooltip>
+                            <span class="quasar-server-secondary" title="@GetRestartTooltip(lastRestart)">@GetRestartSummary(lastRestart)</span>
                         }
-                        @if (ShouldShowLatestErrorLine(server.UniqueName))
+                        @if (context.Server is not null && ShouldShowLatestErrorLine(context.UniqueName))
                         {
-                            <MudTooltip Text="Open console at latest error lines">
-                                <MudLink Typo="Typo.caption" Color="Color.Error" Underline="Underline.Hover"
-                                         Style="display:block;max-width:18rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-                                         @onclick="@(() => OpenErrorConsoleDialogAsync(server.UniqueName))">
-                                    @GetRuntime(server.UniqueName)!.LatestErrorLogLine
-                                </MudLink>
-                            </MudTooltip>
+                            <button type="button" class="quasar-table-link quasar-server-secondary quasar-text-error" title="Open console at latest error lines" @onclick="@(() => OpenErrorConsoleDialogAsync(context.UniqueName))">@GetRuntime(context.UniqueName)!.LatestErrorLogLine</button>
                         }
-                    </MudTd>
-                    <MudTd DataLabel="Unique name" Class="mono">@server.UniqueName</MudTd>
-                    <MudTd DataLabel="Endpoint" Class="mono">
-                        <MudTooltip Text="@GetDirectConnectTooltip(server)">
-                            <MudLink Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Hover"
-                                     @onclick="@(() => CopyDirectConnectAsync(server))">
-                                @server.ServerPort
-                            </MudLink>
-                        </MudTooltip>
-                    </MudTd>
-                    <MudTd DataLabel="Config">
-                        @if (CanOpenConfigProfile(server.ConfigProfileId))
-                        {
-                            <MudLink Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Hover"
-                                     @onclick="@(() => OpenConfigProfileAsync(server.ConfigProfileId))">
-                                @GetConfigProfileName(server.ConfigProfileId)
-                            </MudLink>
-                        }
-                        else
-                        {
-                            <MudText Typo="Typo.body2">@GetConfigProfileName(server.ConfigProfileId)</MudText>
-                        }
-                    </MudTd>
-                    <MudTd DataLabel="Players">@GetPlayerCount(server.UniqueName)</MudTd>
-                    <MudTd DataLabel="Process" Class="mono">@GetProcessDisplay(server.UniqueName)</MudTd>
-                    <MudTd DataLabel="Agent / WA">@GetAttachmentStatus(server.UniqueName)</MudTd>
-                    <MudTd DataLabel="Name"><MudText Typo="Typo.body2">@GetDisplayName(server)</MudText></MudTd>
-                    <MudTd DataLabel="" Class="quasar-actions-column">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="0">
+                    </td>
+                    <td class="mono">
+                        @if (context.Server is { } endpointServer) { <button type="button" class="quasar-table-link" title="@GetDirectConnectTooltip(endpointServer)" @onclick="@(() => CopyDirectConnectAsync(endpointServer))">@endpointServer.ServerPort</button><span class="quasar-server-secondary">@agent?.HostDisplayName</span> }
+                        else { @GetGatewayEndpoint(context.Cluster!) }
+                    </td>
+                    <td class="mono">@(context.Server is null ? GetClusterPlayerCount(context.UniqueName) : GetPlayerCount(context.UniqueName))</td>
+                    <td class="mono @(metrics is { SimSpeed: < 0.95f } ? "quasar-text-warning" : null)">@(metrics is null ? "—" : metrics.SimSpeed.ToString("0.00") + "×")</td>
+                    <td class="mono">@(metrics is null ? "—" : metrics.ServerCpuLoadPercent.ToString("0") + "%")</td>
+                    <td class="mono">@(metrics?.MemoryWorkingSetMb is { } memory ? (memory / 1024d).ToString("0.0") + " GiB" : "—")</td>
+                    @if (_showTechnicalColumns)
+                    {
+                        <td>@context.Kind</td>
+                        <td>@if (CanOpenConfigProfile(context.ConfigProfileId)) { <button type="button" class="quasar-table-link" @onclick="@(() => OpenConfigProfileAsync(context.ConfigProfileId))">@GetConfigProfileName(context.ConfigProfileId)</button> } else { @GetConfigProfileName(context.ConfigProfileId) }</td>
+                        <td class="mono">@(context.Server is null ? GetClusterCapacity(context.UniqueName) : GetProcessDisplay(context.UniqueName))</td>
+                        <td>@GetManagedAttachmentStatus(context)</td>
+                    }
+                    @if (context.Server is { } server)
+                    {
+                        <td class="quasar-server-actions">
+                        <div class="quasar-dashboard-actions">
                             @if (CanStartServer(server.UniqueName))
                             {
-                                <MudTooltip Text="@GetStartTooltip(server)">
-                                    <MudIconButton Icon="@Icons.Material.Filled.PlayArrow" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled(server)" OnClick="@(() => StartAsync(server.UniqueName))" />
-                                </MudTooltip>
+                                <QuasarIconButton Label="@GetStartTooltip(server)" Class="quasar-text-success" Icon="@QuasarIcons.PlayArrow" Disabled="@IsStartDisabled(server)" OnClick="@(() => StartAsync(server.UniqueName))" />
                             }
                             @if (CanStopServer(server.UniqueName))
                             {
-                                <MudTooltip Text="Stop server"><MudIconButton Icon="@Icons.Material.Filled.Stop" Color="Color.Error" Size="Size.Small" OnClick="@(() => StopAsync(server.UniqueName))" /></MudTooltip>
+                                <QuasarIconButton Label="Stop server" Class="quasar-text-error" Icon="@QuasarIcons.Stop" OnClick="@(() => StopAsync(server.UniqueName))" />
                             }
                             @if (CanKillStartingServer(server.UniqueName))
                             {
-                                <MudTooltip Text="Kill starting server"><MudIconButton Icon="@Icons.Material.Filled.StopCircle" Color="Color.Error" Size="Size.Small" OnClick="@(() => KillStartingAsync(server.UniqueName))" /></MudTooltip>
+                                <QuasarIconButton Label="Kill starting server" Class="quasar-text-error" Icon="@QuasarIcons.StopCircle" OnClick="@(() => KillStartingAsync(server.UniqueName))" />
                             }
                             @if (CanRestartServer(server.UniqueName))
                             {
-                                <MudTooltip Text="Restart server"><MudIconButton Icon="@Icons.Material.Filled.RestartAlt" Color="Color.Primary" Size="Size.Small" OnClick="@(() => RestartAsync(server.UniqueName))" /></MudTooltip>
+                                <QuasarIconButton Label="Restart server" Icon="@QuasarIcons.RestartAlt" OnClick="@(() => RestartAsync(server.UniqueName))" />
                             }
-                            <MudTooltip Text="Show console output"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Terminal" Color="Color.Default" OnClick="@(() => OpenConsoleDialogAsync(server.UniqueName))" /></MudTooltip>
+                            <QuasarIconButton Label="Show console output" Icon="@QuasarIcons.Terminal" OnClick="@(() => OpenConsoleDialogAsync(server.UniqueName))" />
+                            <button type="button" class="quasar-icon-button" title="More server actions" aria-label="More actions for @context.DisplayName" popovertarget="@MenuId(context.UniqueName)" style="anchor-name: @MenuAnchor(context.UniqueName)"><QuasarIcon Icon="@Icons.Material.Filled.MoreVert" /></button>
+                            <div id="@MenuId(context.UniqueName)" popover="auto" class="quasar-server-menu" style="position-anchor: @MenuAnchor(context.UniqueName)">
+                                <strong>@context.DisplayName</strong>
                             <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="conversionAuth">
-                                <MudTooltip Text="Convert to cluster"><MudIconButton Href="@("/servers/" + Uri.EscapeDataString(server.UniqueName) + "/convert-to-cluster")" Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" /></MudTooltip>
+                                <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Convert to cluster" Href="@("/servers/" + Uri.EscapeDataString(server.UniqueName) + "/convert-to-cluster")" Icon="@QuasarIcons.AccountTree" />
                             </AuthorizeView>
-                            <MudTooltip Text="Clone server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" OnClick="@(() => OpenCloneDialogAsync(server))" /></MudTooltip>
-                            <MudTooltip Text="Create world template"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Public" Color="Color.Default" Disabled="@(!CanCreateWorldTemplate(server))" OnClick="@(() => CreateWorldTemplateAsync(server))" /></MudTooltip>
-                            <MudTooltip Text="Edit server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Edit" Color="Color.Default" OnClick="@(() => OpenEditDialogAsync(server))" /></MudTooltip>
-                            <MudTooltip Text="Delete server"><MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Delete" Color="Color.Error" OnClick="@(() => DeleteAsync(server.UniqueName))" /></MudTooltip>
-                        </MudStack>
-                    </MudTd>
-                }
-                else if (context.Cluster is { } cluster)
-                {
-                    <MudTd DataLabel="Type">
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Cluster</MudChip>
-                    </MudTd>
-                    <MudTd DataLabel="Status">
-                        <MudTooltip Text="@GetClusterError(cluster.UniqueName)">
-                            <MudChip T="string" Color="@GetClusterStateColor(cluster.UniqueName)" Variant="Variant.Outlined">
-                                @GetClusterStateText(cluster.UniqueName)
-                            </MudChip>
-                        </MudTooltip>
-                    </MudTd>
-                    <MudTd DataLabel="Unique name" Class="mono">@cluster.UniqueName</MudTd>
-                    <MudTd DataLabel="Endpoint" Class="mono">@GetGatewayEndpoint(cluster)</MudTd>
-                    <MudTd DataLabel="Config">
-                        @if (CanOpenConfigProfile(cluster.ConfigProfileId))
-                        {
-                            <MudLink Typo="Typo.body2" Color="Color.Primary" Underline="Underline.Hover"
-                                     @onclick="@(() => OpenConfigProfileAsync(cluster.ConfigProfileId))">
-                                @GetConfigProfileName(cluster.ConfigProfileId)
-                            </MudLink>
-                        }
-                        else
-                        {
-                            <MudText Typo="Typo.body2">@GetConfigProfileName(cluster.ConfigProfileId)</MudText>
-                        }
-                    </MudTd>
-                    <MudTd DataLabel="Players">@GetClusterPlayerCount(cluster.UniqueName)</MudTd>
-                    <MudTd DataLabel="Process">@GetClusterCapacity(cluster.UniqueName)</MudTd>
-                    <MudTd DataLabel="Agent / WA">@GetClusterWorldAuthority(cluster.UniqueName)</MudTd>
-                    <MudTd DataLabel="Name">
-                        <MudLink Href="@ClusterHref(cluster.UniqueName)" Typo="Typo.body2"
-                                 Color="Color.Primary" Underline="Underline.Hover">@cluster.DisplayName</MudLink>
-                    </MudTd>
-                    <MudTd DataLabel="" Class="quasar-actions-column">
+                            <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Clone server" Icon="@QuasarIcons.ContentCopy" OnClick="@(() => OpenCloneDialogAsync(server))" />
+                            <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Create world template" Icon="@QuasarIcons.Public" Disabled="@(!CanCreateWorldTemplate(server))" OnClick="@(() => CreateWorldTemplateAsync(server))" />
+                            <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Edit server" Icon="@QuasarIcons.Edit" OnClick="@(() => OpenEditDialogAsync(server))" />
+                            <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Delete server" Class="quasar-text-error" Icon="@QuasarIcons.Delete" OnClick="@(() => DeleteAsync(server.UniqueName))" />
+                            </div>
+                        </div>
+                    </td>
+                    }
+                    else if (context.Cluster is { } cluster)
+                    {
+                        <td class="quasar-server-actions">
                         @if (cluster.GoalState == DedicatedServerGoalState.Off)
                         {
-                            <MudTooltip Text="@(CanStartCluster(cluster.UniqueName) ? "Start cluster" : "Wait for a stable stopped Gateway before starting")">
-                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.PlayArrow"
-                                               Color="@(CanStartCluster(cluster.UniqueName) ? Color.Success : Color.Default)"
+                            <QuasarIconButton Class="quasar-text-success" Label="@(CanStartCluster(cluster.UniqueName) ? "Start cluster" : "Wait for a stable stopped Gateway before starting")" Icon="@QuasarIcons.PlayArrow"
                                                Disabled="@(!CanStartCluster(cluster.UniqueName))"
                                                OnClick="@(() => StartClusterAsync(cluster.UniqueName))" />
-                            </MudTooltip>
                         }
                         else
                         {
-                            <MudTooltip Text="Gracefully stop cluster">
-                                <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.Stop"
-                                               Color="Color.Error" OnClick="@(() => StopClusterAsync(cluster.UniqueName))" />
-                            </MudTooltip>
+                            <QuasarIconButton Label="Gracefully stop cluster" Class="quasar-text-error" Icon="@QuasarIcons.Stop" OnClick="@(() => StopClusterAsync(cluster.UniqueName))" />
                         }
-                        <MudTooltip Text="Open cluster details">
-                            <MudIconButton Size="Size.Small" Icon="@Icons.Material.Filled.OpenInNew"
-                                           Color="Color.Primary" OnClick="@(() => OpenCluster(cluster.UniqueName))" />
-                        </MudTooltip>
-                    </MudTd>
-                }
-            </RowTemplate>
-            <ChildRowContent>
+                        <QuasarIconButton Label="Open cluster details" Icon="@QuasarIcons.OpenInNew" OnClick="@(() => OpenCluster(cluster.UniqueName))" />
+                    </td>
+                    }
+                </tr>
                 @if (IsExpanded(context.UniqueName))
                 {
-                    <MudTr Class="servers-list-detail-row">
-                        <td colspan="11" style="padding: 0.75rem 1rem; background: var(--mud-palette-background);">
-                            @if (context.Server is { } server)
-                            {
-                                <ServerDetailPanel Server="@server" Runtime="@GetRuntime(server.UniqueName)" Agent="@GetAgent(server.UniqueName)" />
-                            }
-                            else if (context.Cluster is { } cluster)
-                            {
-                                <ClusterDetailPanel Cluster="@cluster" />
-                            }
-                        </td>
-                    </MudTr>
+                    <tr class="quasar-server-detail-row"><td colspan="@(VisibleColumns.Count() + 2)" class="quasar-server-detail">
+                        @if (context.Server is { } expandedServer) { <ServerDetailPanel Server="@expandedServer" Runtime="@GetRuntime(expandedServer.UniqueName)" Agent="@GetAgent(expandedServer.UniqueName)" /> }
+                        else if (context.Cluster is { } expandedCluster) { <ClusterDetailPanel Cluster="@expandedCluster" /> }
+                    </td></tr>
                 }
-            </ChildRowContent>
-        </MudTable>
+            }
+            </tbody>
+        </table>
+        </div>
     }
-</MudPaper>
+    <div class="quasar-table-footer"><span>Goal-state supervision · Agent telemetry</span><span>Process CPU can exceed 100% · Cluster resources are shown in live details</span></div>
+</section>
 
 @if (UnmanagedAgents.Count > 0)
 {
-    <MudPaper Class="pa-4 server-card mt-4">
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2" Class="mb-3">
+    <section class="quasar-panel quasar-servers-panel">
+        <div class="quasar-panel-heading">
             <div>
-                <MudText Typo="Typo.h6">Unmanaged Agents</MudText>
-                <MudText Typo="Typo.body2">Quasar.Agent processes reporting in without a matching server definition.</MudText>
+                <h2>Unmanaged Agents</h2>
+                <p>Quasar.Agent processes reporting in without a matching server definition.</p>
             </div>
-            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">@($"{UnmanagedAgents.Count} unmanaged")</MudChip>
-        </MudStack>
+            <span class="quasar-status quasar-tone-warning">@($"{UnmanagedAgents.Count} unmanaged")</span>
+        </div>
 
         @foreach (var agent in UnmanagedAgents)
         {
-            <MudExpansionPanel Text="@($"{agent.ServerDisplayName} · {agent.UniqueNameKey}")" Dense="true">
+            <details @key="agent.UniqueNameKey" class="quasar-agent-details"><summary>@($"{agent.ServerDisplayName} · {agent.UniqueNameKey}")</summary>
                 <ServerDetailPanel Agent="@agent" />
-            </MudExpansionPanel>
+            </details>
         }
-    </MudPaper>
+    </section>
 }
 
 @code
 {
+    private static readonly string[] SortColumns = ["Name", "Status", "Endpoint", "Players", "Sim speed", "CPU", "Memory", "Type", "Config", "Process", "Agent / WA", "Unique name"];
+    private IEnumerable<string> VisibleColumns => _showTechnicalColumns ? SortColumns.Take(11) : SortColumns.Take(7);
+    private string _search = string.Empty;
+    private string _statusFilter = string.Empty;
+    private string _kindFilter = string.Empty;
+    private bool _showTechnicalColumns;
+    private bool _compactRows = true;
+    private readonly string _menuPrefix = "server-actions-" + Guid.NewGuid().ToString("N");
+    private string MenuId(string name) => _menuPrefix + "-" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(name));
+    private string MenuAnchor(string name) => "--" + MenuId(name);
+    [Parameter] public bool HideCreateActions { get; set; }
+    [Parameter] public RenderFragment? HeaderActions { get; set; }
+    private IEnumerable<ManagedServerRow> FilteredServers => ManagedServers.Where(row =>
+        (_kindFilter.Length == 0 || row.Kind == _kindFilter)
+        && (_statusFilter.Length == 0 || GetManagedStateText(row) == _statusFilter)
+        && (_search.Length == 0 || string.Join(" ", row.DisplayName, row.UniqueName, GetConfigProfileName(row.ConfigProfileId),
+            GetAgent(row.UniqueName)?.WorldDisplayName, GetAgent(row.UniqueName)?.HostDisplayName,
+            row.Cluster?.GatewayUrl, row.Server?.ServerPort.ToString()).Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)));
+    private void ClearFilters() { _search = _statusFilter = _kindFilter = string.Empty; }
+    private string _sortColumn = "Name";
+    private bool _sortDescending;
+    private IEnumerable<ManagedServerRow> SortedServers => _sortDescending
+        ? FilteredServers.OrderByDescending(GetSortValue)
+        : FilteredServers.OrderBy(GetSortValue);
+
+    private object GetSortValue(ManagedServerRow row) => _sortColumn switch
+    {
+        "Type" => row.Kind,
+        "Sim speed" => (double?)GetAgent(row.UniqueName)?.Snapshot?.Metrics.SimSpeed ?? -1d,
+        "CPU" => (double?)GetAgent(row.UniqueName)?.Snapshot?.Metrics.ServerCpuLoadPercent ?? -1d,
+        "Memory" => GetAgent(row.UniqueName)?.Snapshot?.Metrics.MemoryWorkingSetMb ?? -1L,
+        "Status" => GetManagedStateText(row),
+        "Unique name" => row.UniqueName,
+        "Endpoint" => GetEndpointSortValue(row),
+        "Config" => GetConfigProfileName(row.ConfigProfileId),
+        "Players" => GetManagedPlayerSortValue(row),
+        "Process" => GetManagedProcessSortValue(row),
+        "Agent / WA" => GetManagedAttachmentStatus(row),
+        _ => row.DisplayName,
+    };
+
+    private void SortBy(string column)
+    {
+        _sortDescending = _sortColumn == column && !_sortDescending;
+        _sortColumn = column;
+    }
+
+    private string GetSortDirection(string column) => _sortColumn != column
+        ? "none" : _sortDescending ? "descending" : "ascending";
+
     private readonly HashSet<string> _expanded = new(StringComparer.OrdinalIgnoreCase);
     private readonly CancellationTokenSource _clusterRefreshShutdown = new();
     private IReadOnlyDictionary<string, ClusterListSnapshot> _clusterSnapshots =
@@ -283,7 +269,6 @@
     [Parameter]
     public string LaunchBlockedMessage { get; set; } = "Managed runtime is still preparing.";
 
-    private Breakpoint ServerTableBreakpoint => DisableResponsiveLayout ? Breakpoint.None : Breakpoint.Md;
 
     private IReadOnlyList<DedicatedServerDefinition> ServerDefinitions => ServerCatalog.GetServers();
     private IReadOnlyList<ClusterDefinition> ClusterDefinitions => ClusterCatalog.GetClusters();
@@ -867,8 +852,10 @@
     private string GetManagedStateText(ManagedServerRow row) => row.Server is not null
         ? GetStateText(row.UniqueName) : GetClusterStateText(row.UniqueName);
 
-    private object GetEndpointSortValue(ManagedServerRow row) => row.Server is not null
-        ? row.Server.ServerPort : GetGatewayEndpoint(row.Cluster!);
+    private static (string Host, int Port) GetEndpointSortValue(ManagedServerRow row) => row.Server is not null
+        ? (string.Empty, row.Server.ServerPort)
+        : Uri.TryCreate(row.Cluster!.GatewayUrl, UriKind.Absolute, out var endpoint)
+            ? (endpoint.Host, endpoint.Port) : (string.Empty, -1);
 
     private object GetManagedPlayerSortValue(ManagedServerRow row) => row.Server is not null
         ? GetPlayerSortValue(row.UniqueName)

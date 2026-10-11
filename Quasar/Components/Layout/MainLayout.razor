@@ -1,6 +1,5 @@
-﻿@using MudBlazor.Utilities
-@inherits LayoutComponentBase
-@implements IDisposable
+﻿@inherits LayoutComponentBase
+@implements IAsyncDisposable
 @inject ThemePreferenceService ThemePreference
 @inject QuasarShutdownService ShutdownService
 @inject WebServiceOptions WebServiceOptions
@@ -18,93 +17,87 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 
-<MudThemeProvider Theme="@ThemePreference.Theme" IsDarkMode="@_isDarkMode" IsDarkModeChanged="OnSystemDarkModeChangedAsync" ObserveSystemDarkModeChange="@(_themeMode == ThemeMode.System)" />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
-
+@* Temporary compatibility providers for pages and UI plugins still being migrated. *@
+<MudThemeProvider Theme="@BrandingService.BuildMudTheme()" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
 <BrandingHeadContent />
 
-<MudLayout Style="@HoverPaletteStyle">
-    <MudAppBar Elevation="0" Class="magnetar-appbar">
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="ToggleDrawer" />
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-brand">
-            <img class="quasar-brand-mark"
-                 src="@LogoSrc"
-                 alt="@($"{BrandingService.Settings.AppName} logo")" />
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.h6">@BrandingService.Settings.AppName</MudText>
-                <MudText Typo="Typo.caption" Class="magnetar-appbar-subtitle">@BrandingService.Settings.AppSubtitle</MudText>
-            </MudStack>
-        </MudStack>
-        <MudSpacer />
-        <MudTooltip Text="@GetUpdateBellTooltip()">
-            <MudBadge Visible="@HasUpdateBellBadge" Color="Color.Warning" Dot="true" Overlap="true">
-                <MudIconButton Href="@(CurrentNotice?.Url ?? "/notifications")"
-                               Icon="@(BrowserPush.Enabled ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.Notifications)"
-                               Color="@GetUpdateBellColor()" aria-label="Open current notification" />
-            </MudBadge>
-        </MudTooltip>
-        <MudMenu Icon="@GetThemeModeIcon()" Color="Color.Inherit" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight" Dense="true">
-            <MudMenuItem Icon="@Icons.Material.Filled.BrightnessAuto" IconColor="@(_themeMode == ThemeMode.System ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.System))">System</MudMenuItem>
-            <MudMenuItem Icon="@Icons.Material.Filled.LightMode" IconColor="@(_themeMode == ThemeMode.Light ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.Light))">Light</MudMenuItem>
-            <MudMenuItem Icon="@Icons.Material.Filled.DarkMode" IconColor="@(_themeMode == ThemeMode.Dark ? Color.Primary : Color.Default)" OnClick="@(() => SetThemeModeAsync(ThemeMode.Dark))">Dark</MudMenuItem>
-        </MudMenu>
-        <AuthorizeView>
-            <Authorized Context="authContext">
-                <MudTooltip Text="@GetAuthTooltip(authContext.User)">
-                    <MudIconButton
-                        Icon="@Icons.Material.Filled.Logout"
-                        Color="Color.Inherit"
-                        Href="/logout" />
-                </MudTooltip>
-            </Authorized>
-            <NotAuthorized>
-                <MudTooltip Text="Sign in">
-                    <MudIconButton
-                        Icon="@Icons.Material.Filled.Login"
-                        Color="Color.Inherit"
-                        Href="/login" />
-                </MudTooltip>
-            </NotAuthorized>
-        </AuthorizeView>
-        <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
-            <Authorized>
-                <MudTooltip Text="Quasar power actions">
-                    <MudIconButton
-                        Icon="@Icons.Material.Filled.PowerSettingsNew"
-                        Color="Color.Error"
-                        Disabled="@_isShuttingDown"
-                        OnClick="HandlePowerClickAsync" />
-                </MudTooltip>
-            </Authorized>
-        </AuthorizeView>
-    </MudAppBar>
-
-    <MudOverlay Visible="@_isShuttingDown" DarkBackground="true" AutoClose="false" ZIndex="9999">
-        <MudStack AlignItems="AlignItems.Center" Spacing="4">
-            <MudProgressCircular Color="Color.Primary" Indeterminate="true" Size="Size.Large" />
-            <MudText Typo="Typo.h6">@_shutdownStatus</MudText>
-        </MudStack>
-    </MudOverlay>
-
-    <MudDrawer
-        @bind-Open="_drawerOpen"
-        Variant="DrawerVariant.Responsive"
-        Breakpoint="Breakpoint.Md"
-        ClipMode="DrawerClipMode.Always"
-        Elevation="0"
-        Width="180px"
-        Class="magnetar-drawer">
-        <NavMenu />
-    </MudDrawer>
-
-    <MudMainContent Class="magnetar-body">
-        <MudContainer MaxWidth="MaxWidth.False" Class="magnetar-shell-content">
-            @Body
-        </MudContainer>
-    </MudMainContent>
-</MudLayout>
+<a class="quasar-skip-link" href="#quasar-main">Skip to content</a>
+<div class="quasar-shell @(!_drawerOpen ? "quasar-nav-collapsed" : null) @(_mobileDrawerOpen ? "quasar-nav-open" : null)"
+     style="@PaletteStyle" data-theme="@(_isDarkMode ? "dark" : "light")" @onkeydown="HandleShellKeyDownAsync">
+    <aside id="quasar-navigation" class="quasar-sidebar" aria-label="Main navigation" inert="@(_isShuttingDown ? string.Empty : null)">
+        <a class="quasar-brand" href="/" @onclick="CloseMobileDrawer">
+            <img class="quasar-brand-mark" src="@LogoSrc" alt="@($"{BrandingService.Settings.AppName} logo")" />
+            <div><strong>@BrandingService.Settings.AppName</strong><span>@BrandingService.Settings.AppSubtitle</span></div>
+        </a>
+        <div @onclick="CloseMobileDrawer"><NavMenu /></div>
+        <div class="quasar-sidebar-footer">
+            <strong>@BrandingService.Settings.AppName <span class="mono">@AppVersion</span></strong>
+            <span>Space Engineers control plane</span>
+        </div>
+    </aside>
+    <div class="quasar-shell-body">
+        <header class="quasar-topbar" inert="@(_isShuttingDown ? string.Empty : null)">
+            <div class="quasar-topbar-identity">
+                <button id="quasar-nav-toggle-desktop" type="button" class="quasar-icon-button quasar-desktop-nav-toggle" @onclick="@(() => _drawerOpen = !_drawerOpen)"
+                        aria-label="Toggle navigation" aria-controls="quasar-navigation" aria-expanded="@(_drawerOpen ? "true" : "false")">
+                    <QuasarIcon Icon="@QuasarIcons.Menu" />
+                </button>
+                <button id="quasar-nav-toggle" type="button" class="quasar-icon-button quasar-mobile-nav-toggle" @onclick="@(() => _mobileDrawerOpen = !_mobileDrawerOpen)"
+                        aria-label="Toggle navigation" aria-controls="quasar-navigation" aria-expanded="@(_mobileDrawerOpen ? "true" : "false")">
+                    <QuasarIcon Icon="@QuasarIcons.Menu" />
+                </button>
+                <nav class="quasar-breadcrumb" aria-label="Breadcrumb">
+                    <a href="/">@BrandingService.Settings.AppName</a>
+                    <span aria-hidden="true">/</span><span aria-current="page">@CurrentPageLabel</span>
+                </nav>
+            </div>
+            <div class="quasar-topbar-actions">
+                <a class="quasar-icon-button quasar-update-bell @GetUpdateBellClass()" href="@(CurrentNotice?.Url ?? "/notifications")"
+                   title="@GetUpdateBellTooltip()" aria-label="Open current notification">
+                    <QuasarIcon Icon="@(BrowserPush.Enabled ? QuasarIcons.Notifications : QuasarIcons.NotificationsOutlined)" />
+                    @if (HasUpdateBellBadge) { <span class="quasar-notification-dot" aria-hidden="true"></span> }
+                </a>
+                <label class="quasar-theme-select">
+                    <QuasarIcon Icon="@GetThemeModeIcon()" />
+                    <select value="@_themeMode" @onchange="HandleThemeSelectionAsync" aria-label="Color theme">
+                        <option value="@ThemeMode.System">System</option>
+                        <option value="@ThemeMode.Light">Light</option>
+                        <option value="@ThemeMode.Dark">Dark</option>
+                    </select>
+                </label>
+                <AuthorizeView>
+                    <Authorized Context="authContext">
+                        <span class="quasar-user-name">@authContext.User.Identity?.Name</span>
+                        <a class="quasar-icon-button" href="/logout" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></a>
+                    </Authorized>
+                    <NotAuthorized>
+                        <a class="quasar-icon-button" href="/login" title="Sign in" aria-label="Sign in"><QuasarIcon Icon="@QuasarIcons.Login" /></a>
+                    </NotAuthorized>
+                </AuthorizeView>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
+                    <Authorized>
+                        <button type="button" class="quasar-icon-button quasar-text-error" title="Quasar power actions" aria-label="Quasar power actions"
+                                disabled="@_isShuttingDown" @onclick="HandlePowerClickAsync"><QuasarIcon Icon="@QuasarIcons.PowerSettingsNew" /></button>
+                    </Authorized>
+                </AuthorizeView>
+            </div>
+        </header>
+        <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">@Body</main>
+        <div class="quasar-overlays">
+            <MudPopoverProvider />
+            <MudDialogProvider />
+            <MudSnackbarProvider />
+        </div>
+    </div>
+    @if (_mobileDrawerOpen)
+    {
+        <button type="button" class="quasar-nav-scrim" @onclick="CloseMobileDrawer" aria-label="Close navigation"></button>
+    }
+    @if (_isShuttingDown)
+    {
+        <div class="quasar-shutdown-overlay" role="alert" aria-busy="true"><span class="quasar-spinner" aria-hidden="true"></span><p>@_shutdownStatus</p></div>
+    }
+</div>
 
 <div id="blazor-error-ui" data-nosnippet>
     An unhandled error has occurred.
@@ -135,32 +128,37 @@
         ? (BrandingService.Settings.LogoDarkPath ?? "/Quasar.png")
         : (BrandingService.Settings.LogoLightPath ?? "/Quasar-inverted-transparent.png");
 
-    private string HoverPaletteStyle
+    private bool _mobileDrawerOpen;
+    private IJSObjectReference? _themeModule;
+    private IJSObjectReference? _themeSubscription;
+    private DotNetObjectReference<MainLayout>? _themeCallback;
+
+    private string PaletteStyle => QuasarTheme.BuildCss(
+        _isDarkMode ? BrandingService.Settings.DarkPalette : BrandingService.Settings.LightPalette, _isDarkMode);
+
+    private static string AppVersion => typeof(MainLayout).Assembly.GetName().Version?.ToString(3) ?? "";
+    private string CurrentPageLabel => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/') switch
     {
-        get
-        {
-            var settings = BrandingService.Settings;
-            var hoverPalette = _isDarkMode ? settings.DarkPalette : settings.LightPalette;
-            var fallbackPalette = _isDarkMode ? ThemePalette.QuasarDark() : ThemePalette.QuasarLight();
-            var background = NormalizeCssColor(hoverPalette.HoverBackground, fallbackPalette.HoverBackground);
-            var text = NormalizeCssColor(hoverPalette.HoverContrastText, fallbackPalette.HoverContrastText);
+        "" => "Fleet overview", "configs" => "Configuration profiles", "world-templates" => "World templates",
+        "plugins" => "Server plugins", "players" => "Players", "chat" => "Chat", "entities" => "Entities",
+        "analytics" => "Analytics", "discord" => "Discord", "hosts" => "Host machines", "hosts/enroll" => "Add host machine",
+        "backup" => "Backups", "notifications" => "Notifications", "settings/appearance" => "Appearance",
+        "settings/security" => "Security", "settings/ui-plugins" => "UI plugins", "settings/updates" => "Updates",
+        "settings/server-list" => "Server listing", "clusters/new" => "Set up cluster",
+        var route when route.StartsWith("clusters/", StringComparison.Ordinal) => "Cluster management",
+        var route when route.StartsWith("servers/", StringComparison.Ordinal) => "Server management",
+        _ => "Control plane",
+    };
 
-            return $"--quasar-hover-list-background:{background};--quasar-hover-list-text:{text};";
-        }
-    }
-
-    private static string NormalizeCssColor(string value, string fallback)
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
     {
-        if (MudColor.TryParse(value, out var color))
-            return color.ToString(MudColorOutputFormats.HexA);
-
-        return MudColor.TryParse(fallback, out var fallbackColor)
-            ? fallbackColor.ToString(MudColorOutputFormats.HexA)
-            : fallback;
+        CloseMobileDrawer();
+        _ = InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnInitializedAsync()
     {
+        Navigation.LocationChanged += OnLocationChanged;
         BrandingService.Changed += OnBrandingChanged;
         UpdateService.Changed += OnUpdatesChanged;
         ClusterReleases.Changed += OnClusterReleasesChanged;
@@ -175,8 +173,9 @@
         await RefreshNoticesAsync();
     }
 
-    public void Dispose()
+    public async ValueTask DisposeAsync()
     {
+        Navigation.LocationChanged -= OnLocationChanged;
         BrandingService.Changed -= OnBrandingChanged;
         UpdateService.Changed -= OnUpdatesChanged;
         ClusterReleases.Changed -= OnClusterReleasesChanged;
@@ -185,6 +184,18 @@
         Notifications.Changed -= OnClusterCatalogChanged;
         ClusterCatalog.Changed -= OnClusterCatalogChanged;
         RbacConfigCatalog.Changed -= OnRbacChanged;
+        try
+        {
+            if (_themeSubscription is not null)
+            {
+                await _themeSubscription.InvokeVoidAsync("dispose");
+                await _themeSubscription.DisposeAsync();
+            }
+            if (_themeModule is not null) await _themeModule.DisposeAsync();
+        }
+        catch (JSDisconnectedException) { }
+        finally { _themeCallback?.Dispose(); }
+
     }
 
     private void OnBrandingChanged()
@@ -275,14 +286,26 @@
         var (mode, isDark) = await ThemePreference.InitializeAsync();
         _themeMode = mode;
         _isDarkMode = isDark;
+        _themeModule = await JS.InvokeAsync<IJSObjectReference>("import", "./quasar-theme.js");
+        _themeCallback = DotNetObjectReference.Create(this);
+        _themeSubscription = await _themeModule.InvokeAsync<IJSObjectReference>("observeSystemTheme", _themeCallback);
         await BrowserPush.RefreshAsync();
         await InvokeAsync(StateHasChanged);
     }
 
-    private void ToggleDrawer()
+    private void CloseMobileDrawer() => _mobileDrawerOpen = false;
+
+    private async Task HandleShellKeyDownAsync(KeyboardEventArgs args)
     {
-        _drawerOpen = !_drawerOpen;
+        if (args.Key != "Escape" || !_mobileDrawerOpen) return;
+        CloseMobileDrawer();
+        await JS.InvokeVoidAsync("quasarConfigs.focusElement", "quasar-nav-toggle");
     }
+
+    private Task HandleThemeSelectionAsync(ChangeEventArgs args) =>
+        Enum.TryParse<ThemeMode>(args.Value?.ToString(), out var mode)
+            ? SetThemeModeAsync(mode)
+            : Task.CompletedTask;
 
     private async Task SetThemeModeAsync(ThemeMode mode)
     {
@@ -291,18 +314,19 @@
         _isDarkMode = ThemePreference.IsDarkMode;
     }
 
-    private async Task OnSystemDarkModeChangedAsync(bool isDark)
+    [JSInvokable]
+    public async Task OnSystemDarkModeChangedAsync(bool isDark)
     {
-        _isDarkMode = isDark;
         ThemePreference.SyncSystemDarkMode(isDark);
+        _isDarkMode = ThemePreference.IsDarkMode;
         await InvokeAsync(StateHasChanged);
     }
 
     private string GetThemeModeIcon() => _themeMode switch
     {
-        ThemeMode.Light => Icons.Material.Filled.LightMode,
-        ThemeMode.Dark => Icons.Material.Filled.DarkMode,
-        _ => Icons.Material.Filled.BrightnessAuto,
+        ThemeMode.Light => QuasarIcons.LightMode,
+        ThemeMode.Dark => QuasarIcons.DarkMode,
+        _ => QuasarIcons.BrightnessAuto,
     };
 
     private UpdateNotice? CurrentNotice => _notices.FirstOrDefault();
@@ -314,13 +338,9 @@
             .Where(cluster => _currentUser.CanQueryCluster(cluster.UniqueName)
                 && ClusterReleaseMonitor.IsUpdateAvailable(cluster, _clusterReleaseSnapshot.Release)).ToArray();
 
-    private Color GetUpdateBellColor()
-    {
-        if (_updateSnapshot.GitHubTokenExpired && CurrentNotice?.Key.StartsWith("token:", StringComparison.Ordinal) == true)
-            return Color.Error;
-
-        return HasUpdateBellBadge ? Color.Warning : Color.Inherit;
-    }
+    private string GetUpdateBellClass() => _updateSnapshot.GitHubTokenExpired && CurrentNotice?.Key.StartsWith("token:", StringComparison.Ordinal) == true
+        ? "quasar-text-error"
+        : HasUpdateBellBadge ? "quasar-text-warning" : string.Empty;
 
     private string GetUpdateBellTooltip() => CurrentNotice?.Body ?? "Notifications";
 

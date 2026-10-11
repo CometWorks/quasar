@@ -1,9 +1,9 @@
 <MudDialog>
     <TitleContent>
-        <MudText Typo="Typo.h6">Create World Template</MudText>
+        <h2 class="quasar-text quasar-type-h6">Create World Template</h2>
     </TitleContent>
     <DialogContent>
-        <MudStack Spacing="2">
+        <div class="quasar-layout quasar-gap-2">
             <MudTextField @bind-Value="_name"
                           Label="Template name"
                           Variant="Variant.Outlined"
@@ -16,10 +16,10 @@
                           Sizing="InputSizing.Auto"
                           MaxLines="10000" />
             <div>
-                <MudText Typo="Typo.caption">Source world path</MudText>
+                <span class="quasar-text quasar-type-caption">Source world path</span>
                 <CopyablePath Value="@WorldPath" TextClass="" />
             </div>
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>

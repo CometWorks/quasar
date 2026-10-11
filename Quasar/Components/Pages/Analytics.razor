@@ -15,10 +15,12 @@
 
 <PageTitle>Analytics</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Analytics</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Rolling server metrics with time-series charts, persisted filters, and configurable layout.</MudText>
+<QuasarPageHeading Section="Operations">
+    <Title>Analytics</Title>
+    <Description>Rolling server metrics with time-series charts, persisted filters, and configurable layout.</Description>
+</QuasarPageHeading>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.Center" Class="mb-4">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
     <div style="flex: 1 1 200px; min-width: 200px;">
         <MudSelect T="string" Label="Time range" Value="_config.SelectedRangeKey" ValueChanged="HandleRangeChanged" Variant="Variant.Outlined">
             @foreach (var option in RangeOptions)
@@ -37,16 +39,8 @@
         </MudSelect>
     </div>
     <MudSpacer />
-    <MudStack Row="true"
-              Spacing="1"
-              Wrap="Wrap.Wrap"
-              AlignItems="AlignItems.Center"
-              Justify="Justify.FlexEnd">
-        <MudStack Row="true"
-                  Spacing="1"
-                  Wrap="Wrap.Wrap"
-                  Justify="Justify.FlexEnd"
-                  AlignItems="AlignItems.Center">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-flexend quasar-gap-1">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-flexend quasar-gap-1">
             <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => RefreshAsync())">
                 Refresh
             </MudButton>
@@ -67,9 +61,9 @@
                     <MudMenuItem OnClick="@(() => RestorePanelAsync(panel))">@ResolveMetricTitle(panel.Key)</MudMenuItem>
                 }
             </MudMenu>
-        </MudStack>
-    </MudStack>
-</MudStack>
+        </div>
+    </div>
+</div>
 
 @if (IsCustomRange)
 {
@@ -89,17 +83,17 @@
     </MudGrid>
 }
 
-<MudPaper Class="pa-4 mb-4">
+<section class="quasar-panel pa-4 mb-4">
     <MudGrid>
         <MudItem xs="12" xl="8">
-            <MudStack Spacing="2">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Servers</MudText>
-                    <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Servers</h2>
+                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
                         <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
                         <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectNoneServersAsync">Select none</MudButton>
-                    </MudStack>
-                </MudStack>
+                    </div>
+                </div>
                 @if (_serverOptions.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No servers known yet.</MudAlert>
@@ -119,49 +113,49 @@
                     </MudGrid>
 
                 }
-            </MudStack>
+            </div>
         </MudItem>
         <MudItem xs="12" xl="4">
-            <MudStack Spacing="2">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                    <MudText Typo="Typo.h6">Grid</MudText>
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Grid</h2>
                     <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="ResetPanelsAsync">Reset panels</MudButton>
-                </MudStack>
+                </div>
                 <MudNumericField T="int" Label="Columns" Value="_config.GridColumns" ValueChanged="HandleGridColumnsChanged" Variant="Variant.Outlined" Min="1" Max="6" />
                 <MudNumericField T="int" Label="Rows" Value="_config.GridRows" ValueChanged="HandleGridRowsChanged" Variant="Variant.Outlined" Min="1" Max="12" />
                 <MudNumericField T="int" Label="Row height (px)" Value="_config.RowHeightPx" ValueChanged="HandleRowHeightChanged" Variant="Variant.Outlined" Min="180" Max="960" />
-            </MudStack>
+            </div>
         </MudItem>
     </MudGrid>
-</MudPaper>
+</section>
 
 <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mb-4">
     <MudExpansionPanel Expanded="@_analyticsProfilesExpanded" ExpandedChanged="SetAnalyticsProfilesExpanded" KeepContentAlive="false">
         <TitleContent>
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudText Typo="Typo.h6">Analytics Profiles</MudText>
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                    <h2 class="quasar-text quasar-type-h6">Analytics Profiles</h2>
                     <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@GetAnalyticsProfilesChipColor()">
                         @GetAnalyticsProfilesChipText()
                     </MudChip>
-                </MudStack>
-                <MudText Typo="Typo.caption">@GetAnalyticsProfilesSummaryText()</MudText>
-            </MudStack>
+                </div>
+                <span class="quasar-text quasar-type-caption">@GetAnalyticsProfilesSummaryText()</span>
+            </div>
         </TitleContent>
         <ChildContent>
-            <MudStack Spacing="2" Class="mt-2">
+            <div class="quasar-layout quasar-gap-2 mt-2">
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
                     Profiler samples render in the chart panels below. Simple mode fills Profiler: Frame, Update, Physics, Scripts, Network, and Other. Extensive mode also fills Profiler: Top Grids and Profiler: Entity Types.
                 </MudAlert>
 
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" AlignItems="AlignItems.Center">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
                     <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="@(() => ShowProfilerPanelsAsync(includeExtensive: false))">
                         Show simple profiler charts
                     </MudButton>
                     <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="@(() => ShowProfilerPanelsAsync(includeExtensive: true))">
                         Show extensive charts
                     </MudButton>
-                </MudStack>
+                </div>
 
                 @if (SelectedServerOptions.Count == 0)
                 {
@@ -183,8 +177,8 @@
                                 var profiler = GetProfilerView(context.UniqueName);
                             }
                             <MudTd DataLabel="Server">
-                                <MudText Typo="Typo.subtitle2">@context.DisplayName</MudText>
-                                <MudText Typo="Typo.caption">@context.UniqueName</MudText>
+                                <h3 class="quasar-text quasar-type-subtitle2">@context.DisplayName</h3>
+                                <span class="quasar-text quasar-type-caption">@context.UniqueName</span>
                             </MudTd>
                             <MudTd DataLabel="Mode">
                                 <MudSelect T="string"
@@ -202,58 +196,58 @@
                                 </MudSelect>
                             </MudTd>
                             <MudTd DataLabel="Live state">
-                                <MudStack Spacing="1">
+                                <div class="quasar-layout quasar-gap-1">
                                     <MudChip T="string" Size="Size.Small" Color="@GetProfilerChipColor(profiler)" Variant="Variant.Outlined">
                                         @GetLiveProfilerChipText(profiler)
                                     </MudChip>
-                                    <MudText Typo="Typo.caption">@GetLiveProfilerStatusText(profiler)</MudText>
-                                </MudStack>
+                                    <span class="quasar-text quasar-type-caption">@GetLiveProfilerStatusText(profiler)</span>
+                                </div>
                             </MudTd>
                             <MudTd DataLabel="Data appears in">
-                                <MudText Typo="Typo.body2">@GetProfilerChartTargetText(profiler)</MudText>
+                                <p class="quasar-text quasar-type-body2">@GetProfilerChartTargetText(profiler)</p>
                             </MudTd>
                         </RowTemplate>
                     </MudTable>
                 }
-            </MudStack>
+            </div>
         </ChildContent>
     </MudExpansionPanel>
 </MudExpansionPanels>
 
 @if (_pluginPanels.Count > 0)
 {
-    <MudPaper Class="pa-4 mb-4">
-        <MudStack Spacing="2">
-            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                <MudText Typo="Typo.h6">Plugin statistics</MudText>
-                <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Center">
+    <section class="quasar-panel pa-4 mb-4">
+        <div class="quasar-layout quasar-gap-2">
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <h2 class="quasar-text quasar-type-h6">Plugin statistics</h2>
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
                     <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="ShowPluginStatsPanelsAsync">
                         Show plugin statistics charts
                     </MudButton>
                     <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.VisibilityOff" OnClick="HidePluginStatsPanelsAsync">
                         Hide all
                     </MudButton>
-                </MudStack>
-            </MudStack>
-            <MudText Typo="Typo.body2">
+                </div>
+            </div>
+            <p class="quasar-text quasar-type-body2">
                 @_pluginPanels.Count metric@(_pluginPanels.Count == 1 ? "" : "s") published by plugins on the selected server@(_effectiveServers.Count == 1 ? "" : "s"), discovered from the schema each plugin ships. Show them all here, or add individual metrics from "Add panel". Each chart draws one line per instance (e.g. per cache).
-            </MudText>
-        </MudStack>
-    </MudPaper>
+            </p>
+        </div>
+    </section>
 }
 
-<MudStack Row="true" Spacing="1" Class="mb-4 analytics-chip-row">
+<div class="quasar-layout quasar-layout-row quasar-gap-1 mb-4 analytics-chip-row">
     @foreach (var chip in _summaryChips)
     {
         <MudChip T="string" Color="MudBlazor.Color.Primary" Variant="Variant.Outlined">@chip.Label: @chip.Value</MudChip>
     }
-</MudStack>
+</div>
 
-<MudText Typo="Typo.body2" Class="mb-4">
+<p class="quasar-text quasar-type-body2 mb-4">
     Process CPU adds usage across all server threads: 150% means about 1.5 logical CPUs in use.
     Server Simulation CPU measures the update frame budget: 25% means about 4.2 ms of the 16.67 ms available.
     These readings can coexist with smooth gameplay. Neither CPU percentage triggers automatic alerts or restarts.
-</MudText>
+</p>
 
 @if (_chartCards.Count == 0)
 {
@@ -267,21 +261,21 @@ else
         @foreach (var chart in _chartCards)
         {
             <div class="analytics-chart-card" style="@chart.LayoutStyle" @key="chart.Key">
-                <MudPaper Class="pa-4 analytics-chart-paper">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                        <MudStack Spacing="0">
-                            <MudText Typo="Typo.h6">@chart.Title</MudText>
-                            <MudText Typo="Typo.caption">@chart.Subtitle</MudText>
-                        </MudStack>
+                <section class="quasar-panel pa-4 analytics-chart-paper">
+                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 mb-2">
+                        <div class="quasar-layout quasar-gap-0">
+                            <h2 class="quasar-text quasar-type-h6">@chart.Title</h2>
+                            <span class="quasar-text quasar-type-caption">@chart.Subtitle</span>
+                        </div>
                         <MudTooltip Text="Panel settings">
                             <MudIconButton Icon="@Icons.Material.Filled.Tune"
                                            Size="MudBlazor.Size.Small"
                                            Color="MudBlazor.Color.Default"
                                            OnClick="@(() => OpenPanelDialogAsync(chart.Panel))" />
                         </MudTooltip>
-                    </MudStack>
+                    </div>
                     <div class="analytics-uplot" id="@chart.ContainerId" style="height: @(chart.Height)px;"></div>
-                </MudPaper>
+                </section>
             </div>
         }
     </div>

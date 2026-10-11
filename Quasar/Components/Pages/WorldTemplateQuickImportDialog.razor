@@ -10,18 +10,18 @@
                      TabPanelsClass="pa-4"
                      @bind-ActivePanelIndex="_activeDetailsTabIndex">
                 <MudTabPanel Text="Predefined worlds" Icon="@Icons.Material.Filled.Public">
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                    <div class="quasar-layout quasar-gap-2">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
                             <div>
-                                <MudText Typo="Typo.subtitle1">Predefined Worlds</MudText>
-                                <MudText Typo="Typo.body2">
+                                <h3 class="quasar-text quasar-type-subtitle1">Predefined Worlds</h3>
+                                <p class="quasar-text quasar-type-body2">
                                     Add a template from Dedicated Server content without entering a name or path.
-                                </MudText>
+                                </p>
                             </div>
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
-                        </MudStack>
+                        </div>
 
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
                             <MudTextField
                                 @bind-Value="_installedTemplateSearch"
                                 Label="Search installed templates"
@@ -33,7 +33,7 @@
                             <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
                                 Refresh
                             </MudButton>
-                        </MudStack>
+                        </div>
 
                         @if (_installedTemplates.Count == 0)
                         {
@@ -56,13 +56,13 @@
                                 </HeaderContent>
                                 <RowTemplate>
                                     <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
-                                        <MudText Typo="Typo.body2" Class="installed-world-template-name-text">@context.DisplayName</MudText>
+                                        <p class="quasar-text quasar-type-body2 installed-world-template-name-text">@context.DisplayName</p>
                                     </MudTd>
                                     <MudTd DataLabel="Source" Class="installed-world-template-source-cell">
-                                        <MudStack Spacing="0" Class="installed-world-template-source-stack">
-                                            <MudText Typo="Typo.caption" Class="installed-world-template-source-text">@context.Category</MudText>
-                                            <MudText Typo="Typo.caption" Class="mono installed-world-template-source-text">@context.SourceDisplayPath</MudText>
-                                        </MudStack>
+                                        <div class="quasar-layout quasar-gap-0 installed-world-template-source-stack">
+                                            <span class="quasar-text quasar-type-caption installed-world-template-source-text">@context.Category</span>
+                                            <span class="quasar-text quasar-type-caption mono installed-world-template-source-text">@context.SourceDisplayPath</span>
+                                        </div>
                                     </MudTd>
                                     <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
                                         <MudTooltip Text="Add template">
@@ -81,15 +81,15 @@
                                 </NoRecordsContent>
                             </MudTable>
                         }
-                    </MudStack>
+                    </div>
                 </MudTabPanel>
 
                 <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
                     <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-                    <MudStack Spacing="3">
-                        <MudText Typo="Typo.body2">
+                    <div class="quasar-layout quasar-gap-3">
+                        <p class="quasar-text quasar-type-body2">
                             Import an existing Space Engineers save folder as a reusable world template, then select it in the server editor.
-                        </MudText>
+                        </p>
 
                         <MudTextField
                             @bind-Value="_name"
@@ -109,7 +109,7 @@
                             Sizing="InputSizing.Auto"
                             MaxLines="10000" />
 
-                        <MudStack Row="true" Spacing="1" AlignItems="AlignItems.Start">
+                        <div class="quasar-layout quasar-layout-row quasar-align-start quasar-gap-1">
                             <MudTextField
                                 @bind-Value="_sourcePath"
                                 Label="Source world path"
@@ -126,16 +126,16 @@
                                        OnClick="OpenFolderPickerAsync">
                                 Browse
                             </MudButton>
-                        </MudStack>
-                    </MudStack>
+                        </div>
+                    </div>
                     </MudForm>
                 </MudTabPanel>
             </MudTabs>
         }
         else
         {
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.subtitle2">Template config profile</MudText>
+            <div class="quasar-layout quasar-gap-3">
+                <h3 class="quasar-text quasar-type-subtitle2">Template config profile</h3>
                 @if (!string.IsNullOrWhiteSpace(_sourceProfileLoadError))
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
@@ -150,7 +150,7 @@
                 }
 
                 <MudRadioGroup T="WorldImportModAction" @bind-Value="_modAction">
-                    <MudStack Spacing="1">
+                    <div class="quasar-layout quasar-gap-1">
                         <MudRadio T="WorldImportModAction"
                                   Value="WorldImportModAction.CreateProfile"
                                   Color="Color.Primary"
@@ -163,7 +163,7 @@
                         <MudRadio T="WorldImportModAction" Value="WorldImportModAction.None" Color="Color.Primary">
                             Import the world template only
                         </MudRadio>
-                    </MudStack>
+                    </div>
                 </MudRadioGroup>
 
                 @if (_modAction == WorldImportModAction.CreateProfile && CanCreateProfileFromSource)
@@ -213,7 +213,7 @@
                         </RowTemplate>
                     </MudTable>
                 }
-            </MudStack>
+            </div>
         }
     </DialogContent>
     <DialogActions>

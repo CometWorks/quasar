@@ -5,187 +5,133 @@
 @inject QuasarPermissionService Permissions
 
 @{
-    IReadOnlyList<string> modDownloadFailures = Runtime is null
-        ? Array.Empty<string>()
-        : Runtime.ModDownloadFailures;
+    IReadOnlyList<string> modDownloadFailures = Runtime is null ? Array.Empty<string>() : Runtime.ModDownloadFailures;
 }
-
 @if (modDownloadFailures.Count > 0)
 {
-    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Dense="true" Class="mb-3">
-        <MudText Typo="Typo.subtitle2">Mod download failed during world initialization.</MudText>
-        @foreach (var failure in modDownloadFailures.Take(5))
-        {
-            <MudText Typo="Typo.caption">@failure</MudText>
-        }
-        @if (modDownloadFailures.Count > 5)
-        {
-            <MudText Typo="Typo.caption">+@(modDownloadFailures.Count - 5) more in server logs.</MudText>
-        }
-    </MudAlert>
+    <div class="quasar-notice quasar-notice-error" role="status">
+        <strong>Mod download failed during world initialization.</strong>
+        @foreach (var failure in modDownloadFailures.Take(5)) { <p>@failure</p> }
+        @if (modDownloadFailures.Count > 5) { <p>+@(modDownloadFailures.Count - 5) more in server logs.</p> }
+    </div>
 }
-
 @if (Agent?.Snapshot is null)
 {
-    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-        @GetWaitingText()
-    </MudAlert>
-
-    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
-        <MudChip T="string" Variant="Variant.Outlined">State @(Runtime?.State.ToString() ?? "Stopped")</MudChip>
-        @if (Runtime?.ProcessId is int processId)
-        {
-            <MudChip T="string" Variant="Variant.Outlined">PID @processId</MudChip>
-        }
+    <p class="quasar-notice" role="status">@GetWaitingText()</p>
+    <div class="quasar-row">
+        <span class="quasar-status">State @(Runtime?.State.ToString() ?? "Stopped")</span>
+        @if (Runtime?.ProcessId is int processId) { <span class="quasar-status">PID @processId</span> }
         @if (Runtime?.StartedAtUtc is DateTimeOffset started)
         {
-            <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration((int)Math.Max(0, (DateTimeOffset.UtcNow - started).TotalSeconds))</MudChip>
+            <span class="quasar-status">Uptime @FormatDuration((int)Math.Max(0, (DateTimeOffset.UtcNow - started).TotalSeconds))</span>
         }
         @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
         {
-            <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Memory">Affinity @Server.CpuAffinity</MudChip>
+            <span class="quasar-status"><QuasarIcon Icon="@QuasarIcons.Memory" />Affinity @Server.CpuAffinity</span>
         }
-    </MudStack>
-
+    </div>
 }
 else
 {
     var pluginLoadSummary = GetPluginLoadSummary();
-
-    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mb-3">
-        <MudChip T="string" Variant="Variant.Outlined">Players @Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Sim @Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Process CPU @Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">PCU @Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Mods @Agent.Snapshot.Metrics.ModsLoaded</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined" Color="@GetPluginLoadColor(pluginLoadSummary)">Plugins @GetPluginLoadText(pluginLoadSummary)</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Uptime @FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</MudChip>
-        @if (GetSaveChipText() is { Length: > 0 } saveChipText)
+    <div class="quasar-detail-metrics">
+        <div><span class="quasar-eyebrow">Players</span><strong>@Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</strong></div>
+        <div><span class="quasar-eyebrow">Sim speed</span><strong>@Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</strong></div>
+        <div><span class="quasar-eyebrow">Process CPU</span><strong>@Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</strong></div>
+        @if (CollapseDetails)
         {
-            <MudTooltip Text="@GetSaveTooltipText()">
-                <MudChip T="string"
-                         Variant="Variant.Outlined"
-                         Color="@GetSaveChipColor()"
-                         Icon="@Icons.Material.Filled.Save">
-                    @saveChipText
-                </MudChip>
-            </MudTooltip>
+            <div><span class="quasar-eyebrow">Memory</span><strong>@(Agent.Snapshot.Metrics.MemoryWorkingSetMb is { } memory ? (memory / 1024d).ToString("0.0") + " GiB" : "—")</strong></div>
         }
-        @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
-        {
-            <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Memory">Affinity @Server.CpuAffinity</MudChip>
-        }
-    </MudStack>
-
-    <MudStack Row="true" Spacing="1" Class="mb-3">
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@(() => SendCommandAsync(ServerCommandType.Refresh))" Disabled="@(!Agent.IsConnected)">
-            Refresh
-        </MudButton>
-        <MudButton Variant="Variant.Filled" Color="Color.Info" OnClick="@(() => SendCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSaveWorld)">
-            Save
-        </MudButton>
-    </MudStack>
-
-    <MudText Typo="Typo.subtitle2" Class="mb-2">Send Chat</MudText>
-    @* Align to the top: the outlined text field reserves space below its input box for
-       helper text, so AlignItems.End would push the button below the visible input. *@
-    <MudStack Row="true" AlignItems="AlignItems.Start" Spacing="1" Class="mb-3">
-        <MudTextField @bind-Value="_chatText"
-                      Label="Broadcast message"
-                      Variant="Variant.Outlined"
-                      FullWidth="true"
-                      Immediate="true"
-                      OnKeyDown="HandleChatKeyDownAsync"
-                      Disabled="@(!Agent.IsConnected)" />
-        <MudButton Variant="Variant.Filled" Color="Color.Success" Class="mt-3" Style="height: 40px;" OnClick="SendChatAsync" Disabled="@(!Agent.IsConnected || string.IsNullOrWhiteSpace(_chatText))">
-            Send
-        </MudButton>
-    </MudStack>
-
-    <MudDivider Class="mb-3" />
-
-    <MudText Typo="Typo.subtitle2" Class="mb-2">Players</MudText>
-    <MudTable T="PlayerSnapshot" Dense="true" Hover="true" Items="Agent.Snapshot.Players">
-        <HeaderContent>
-            <MudTh>Steam ID</MudTh>
-            <MudTh>Service</MudTh>
-            <MudTh>Faction</MudTh>
-            <MudTh>Role</MudTh>
-            <MudTh>Ping</MudTh>
-            <MudTh>Name</MudTh>
-            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
-        </HeaderContent>
-        <RowTemplate>
-            <MudTd DataLabel="Steam ID">
-                <MudText Typo="Typo.body2" Class="mono">@context.SteamId</MudText>
-            </MudTd>
-            <MudTd DataLabel="Service">
-                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.ServiceName)</MudChip>
-            </MudTd>
-            <MudTd DataLabel="Faction">@context.FactionTag</MudTd>
-            <MudTd DataLabel="Role">@GetRoleLabel(context)</MudTd>
-            <MudTd DataLabel="Ping">@context.PingMs</MudTd>
-            <MudTd DataLabel="Name">
-                <MudText Typo="Typo.body2">@TextSanitizer.CleanGameText(context.DisplayName)</MudText>
-                @if (GetPlatformName(context) is { Length: > 0 } platformName)
-                {
-                    <MudText Typo="Typo.caption">Platform: @platformName</MudText>
-                }
-            </MudTd>
-            <MudTd DataLabel="" Class="quasar-actions-column">
-                <MudTooltip Text="Player actions">
-                    <MudMenu Dense="true"
-                             Icon="@Icons.Material.Filled.MoreVert"
-                             OpenChanged="@(open => _menuOpen = open)"
-                             AnchorOrigin="Origin.BottomRight"
-                             TransformOrigin="Origin.TopRight">
-                        <MudMenuItem Disabled="true">Set role</MudMenuItem>
-                        @foreach (var promoteLevel in PromoteLevels)
-                        {
-                            <MudMenuItem Disabled="@IsCurrentPromoteLevel(context, promoteLevel)"
-                                         OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, context.SteamId, promoteLevel))">
-                                @promoteLevel
-                            </MudMenuItem>
-                        }
-                        <MudDivider />
-                        <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, context.SteamId))">Kick</MudMenuItem>
-                        <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, context.SteamId))">Ban</MudMenuItem>
-                    </MudMenu>
-                </MudTooltip>
-            </MudTd>
-        </RowTemplate>
-    </MudTable>
-
-    <MudDivider Class="my-3" />
-
-    <MudText Typo="Typo.subtitle2" Class="mb-2">Recent Chat</MudText>
-    <div class="chat-list">
-        @foreach (var message in Agent.Snapshot.RecentChat.OrderByDescending(item => item.TimestampTicksUtc).Take(12))
-        {
-            <div class="chat-row">
-                <MudText Typo="Typo.caption" Class="mono">@FormatTimestamp(message.TimestampTicksUtc)</MudText>
-                <MudText Typo="Typo.body2"><span class="mono">[@FormatChatChannel(message)]</span> <strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</MudText>
-            </div>
-        }
+        <div><span class="quasar-eyebrow">PCU</span><strong>@Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</strong></div>
+        <div><span class="quasar-eyebrow">Mods</span><strong>@Agent.Snapshot.Metrics.ModsLoaded</strong></div>
+        <div><span class="quasar-eyebrow">Plugins</span><strong class="quasar-tone-@(GetPluginLoadColor(pluginLoadSummary).ToString().ToLowerInvariant())">@GetPluginLoadText(pluginLoadSummary)</strong></div>
+        <div><span class="quasar-eyebrow">Uptime</span><strong>@FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</strong></div>
     </div>
-
-    <MudDivider Class="my-3" />
-
-    @if (Agent.CommandResults.Count > 0)
+    @if (CollapseDetails)
     {
-        <MudDivider Class="my-3" />
-        <MudText Typo="Typo.subtitle2" Class="mb-2">Recent Command Results</MudText>
-        @foreach (var result in Agent.CommandResults.Take(6))
-        {
-            <MudAlert Dense="true" Severity="@(result.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Class="mb-2">
-                @result.Message
-            </MudAlert>
-        }
+        <details class="quasar-card-disclosure">
+            <summary>Live details <span class="quasar-muted">Players, chat &amp; commands</span></summary>
+            @LiveDetails
+        </details>
     }
+    else { @LiveDetails }
+
 }
 
 @code
 {
+    [Parameter] public bool CollapseDetails { get; set; }
+
+    private RenderFragment LiveDetails => @<div class="quasar-live-details">
+    <div class="quasar-row">
+        @if (GetSaveChipText() is { Length: > 0 } saveChipText)
+        {
+            <span class="quasar-status quasar-tone-@(GetSaveChipColor().ToString().ToLowerInvariant())" title="@GetSaveTooltipText()"><QuasarIcon Icon="@QuasarIcons.Save" />@saveChipText</span>
+        }
+        @if (!string.IsNullOrWhiteSpace(Server?.CpuAffinity))
+        {
+            <span class="quasar-status"><QuasarIcon Icon="@QuasarIcons.Memory" />Affinity @Server.CpuAffinity</span>
+        }
+        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+            <button type="button" class="quasar-button" @onclick="@(() => SendCommandAsync(ServerCommandType.Refresh))" disabled="@(!Agent.IsConnected)"><QuasarIcon Icon="@QuasarIcons.Refresh" />Refresh</button>
+            <button type="button" class="quasar-button quasar-tone-info" @onclick="@(() => SendCommandAsync(ServerCommandType.SaveWorld))" disabled="@(!CanSaveWorld)"><QuasarIcon Icon="@QuasarIcons.Save" />Save</button>
+        </AuthorizeView>
+    </div>
+    <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+        <form class="quasar-chat-form" @onsubmit="SendChatAsync" @onsubmit:preventDefault>
+            <label class="quasar-field"><span>Broadcast message</span><input @bind="_chatText" @bind:event="oninput" disabled="@(!Agent.IsConnected)" /></label>
+            <button type="submit" class="quasar-button quasar-button-primary" disabled="@(!Agent.IsConnected || string.IsNullOrWhiteSpace(_chatText))">Send</button>
+        </form>
+    </AuthorizeView>
+    <h3>Players</h3>
+    <div class="quasar-table-scroll">
+        <table class="quasar-server-table quasar-players-table">
+            <thead><tr><th scope="col">Steam ID</th><th scope="col">Service</th><th scope="col">Faction</th><th scope="col">Role</th><th scope="col">Ping</th><th scope="col">Name</th><th scope="col"><span class="quasar-visually-hidden">Actions</span></th></tr></thead>
+            <tbody>
+            @foreach (var player in Agent.Snapshot.Players)
+            {
+                var actionsId = $"{_playerActionsId}-{player.SteamId}";
+                <tr @key="player.SteamId">
+                    <td class="mono">@player.SteamId</td><td>@GetServiceLabel(player.ServiceName)</td><td>@player.FactionTag</td><td>@GetRoleLabel(player)</td><td>@player.PingMs</td>
+                    <td>@TextSanitizer.CleanGameText(player.DisplayName)
+                        @if (GetPlatformName(player) is { Length: > 0 } platformName) { <span class="quasar-server-secondary quasar-muted">Platform: @platformName</span> }
+                    </td>
+                    <td>
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
+                            <button type="button" class="quasar-icon-button" popovertarget="@actionsId" title="Player actions" aria-label="@($"Actions for {TextSanitizer.CleanGameText(player.DisplayName)}")" disabled="@(!Agent.IsConnected)"><QuasarIcon Icon="@QuasarIcons.MoreVert" /></button>
+                            <div id="@actionsId" popover="auto" class="quasar-player-actions">
+                                <strong>@TextSanitizer.CleanGameText(player.DisplayName)</strong><p class="quasar-muted">Set role</p>
+                                @foreach (var promoteLevel in PromoteLevels)
+                                {
+                                    <button type="button" popovertarget="@actionsId" popovertargetaction="hide" disabled="@(!Agent.IsConnected || IsCurrentPromoteLevel(player, promoteLevel))" @onclick="@(() => SendPlayerCommandAsync(ServerCommandType.SetPlayerPromoteLevel, player.SteamId, promoteLevel))">@promoteLevel</button>
+                                }
+                                <hr class="quasar-divider" />
+                                <button type="button" class="quasar-tone-error" popovertarget="@actionsId" popovertargetaction="hide" disabled="@(!Agent.IsConnected)" @onclick="@(() => SendPlayerCommandAsync(ServerCommandType.KickPlayer, player.SteamId))">Kick</button>
+                                <button type="button" class="quasar-tone-error" popovertarget="@actionsId" popovertargetaction="hide" disabled="@(!Agent.IsConnected)" @onclick="@(() => SendPlayerCommandAsync(ServerCommandType.BanPlayer, player.SteamId))">Ban</button>
+                            </div>
+                        </AuthorizeView>
+                    </td>
+                </tr>
+            }
+            </tbody>
+        </table>
+    </div>
+    <h3>Recent Chat</h3>
+    <div class="quasar-chat-list">
+        @foreach (var message in Agent.Snapshot.RecentChat.OrderByDescending(item => item.TimestampTicksUtc).Take(12))
+        {
+            <div class="quasar-chat-row"><time class="mono quasar-muted">@FormatTimestamp(message.TimestampTicksUtc)</time><p><span class="mono">[@FormatChatChannel(message)]</span> <strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</p></div>
+        }
+    </div>
+    @if (Agent.CommandResults.Count > 0)
+    {
+        <h3>Recent Command Results</h3>
+        @foreach (var result in Agent.CommandResults.Take(6))
+        {
+            <p class="quasar-notice @(result.Success ? "quasar-notice-success" : "quasar-notice-error")" role="status">@result.Message</p>
+        }
+    }    </div>;
+
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
 
     [Parameter]
@@ -207,19 +153,7 @@ else
 
     private bool CanSaveWorld => Agent?.IsConnected == true && !IsUnstable;
 
-    // True while a player's action menu is open. The parent re-renders this panel on every
-    // live snapshot; doing so under an open menu would close it, so we hold renders until the
-    // menu is dismissed (click outside / Escape / selection close it natively).
-    private bool _menuOpen;
-
-    // Skip live-update renders while a menu is open so the popup is not torn down underneath it.
-    protected override bool ShouldRender() => !_menuOpen;
-
-    private async Task HandleChatKeyDownAsync(KeyboardEventArgs args)
-    {
-        if (args.Key == "Enter")
-            await SendChatAsync();
-    }
+    private readonly string _playerActionsId = "player-actions-" + Guid.NewGuid().ToString("N");
 
     private async Task SendChatAsync()
     {
@@ -250,10 +184,15 @@ else
         if (Agent is null)
             return;
 
-        if (RequiresPlayerCommandConfirmation(commandType) &&
-            !await ConfirmPlayerCommandAsync(commandType, steamId))
+        if (RequiresPlayerCommandConfirmation(commandType))
         {
-            return;
+            if (!await ConfirmPlayerCommandAsync(commandType, steamId)) return;
+            // A confirmation can stay open while permissions change.
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            {
+                Snackbar.Add("Access denied: your current role cannot control servers.", Severity.Error);
+                return;
+            }
         }
 
         try
