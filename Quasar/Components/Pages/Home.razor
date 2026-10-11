@@ -16,7 +16,7 @@
 @inject BrowserStorageService BrowserStorage
 @inject QuasarPermissionService Permissions
 
-<PageTitle>@(IsListView ? "Servers" : "Dashboard")</PageTitle>
+<PageTitle>Fleet overview</PageTitle>
 
 @if (ShowDataHandlingConsentPrompt)
 {
@@ -45,10 +45,11 @@
 }
 
 <div class="quasar-page-heading">
-    <div><div class="quasar-eyebrow">Control plane</div><h1>Dashboard</h1><p>Live status and controls for your Space Engineers fleet.</p></div>
+    <div><div class="quasar-eyebrow">Infrastructure / overview</div><h1>Fleet overview</h1><p>Server health, live telemetry, and lifecycle controls.</p></div>
     <div class="quasar-dashboard-actions">
-        <button type="button" class="quasar-button" disabled="@ShowSetupWizard" @onclick="ShowSetupWizardAgain"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />First Setup Wizard</button>
-        <button type="button" class="quasar-button" @onclick="OpenExistingServerImportDialogAsync"><QuasarIcon Icon="@QuasarIcons.MoveToInbox" />Import Existing Server</button>
+        <button type="button" class="quasar-button" disabled="@ShowSetupWizard" @onclick="ShowSetupWizardAgain"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Setup guide</button>
+        <button type="button" class="quasar-button" @onclick="OpenExistingServerImportDialogAsync"><QuasarIcon Icon="@QuasarIcons.MoveToInbox" />Import server</button>
+        <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateServerDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
     </div>
 </div>
 
@@ -405,34 +406,40 @@
 }
 
 <section class="quasar-summary" aria-label="Fleet summary">
-    <div class="quasar-metric"><span class="quasar-metric-label">@(Clusters.Count > 0 ? "Online Standalone" : "Online Servers")</span><strong class="quasar-metric-value">@OnlineServerCount</strong></div>
-    <div class="quasar-metric"><span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone Players" : "Players Online")</span><strong class="quasar-metric-value">@PlayersOnline</strong></div>
-    <div class="quasar-metric @(WarningServerCount > 0 ? "quasar-metric-warning" : null)"><span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone Warnings" : "Health Warnings")</span><strong class="quasar-metric-value">@WarningServerCount</strong></div>
-    <div class="quasar-metric @(UnhealthyServerCount > 0 ? "quasar-metric-error" : null)"><span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone Errors" : "Errors")</span><strong class="quasar-metric-value">@UnhealthyServerCount</strong></div>
+    <div class="quasar-metric">
+        <span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone servers" : "Servers")<QuasarIcon Icon="@QuasarIcons.Storage" /></span>
+        <strong class="quasar-metric-value">@OnlineServerCount<small>/ @Servers.Count running</small></strong>
+        <span class="quasar-metric-note">@ConfiguredServerCount configured · @ConnectedAgentCount connected agents</span>
+    </div>
+    <div class="quasar-metric">
+        <span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone players" : "Players online")<QuasarIcon Icon="@QuasarIcons.Groups" /></span>
+        <strong class="quasar-metric-value">@PlayersOnline<small>/ @PlayerCapacity slots</small></strong>
+        <span class="quasar-metric-note">Across connected standalone servers</span>
+    </div>
+    <div class="quasar-metric @(WarningServerCount > 0 ? "quasar-metric-warning" : null)">
+        <span class="quasar-metric-label">Average sim speed<QuasarIcon Icon="@QuasarIcons.QueryStats" /></span>
+        <strong class="quasar-metric-value">@AverageSimSpeed<small>×</small></strong>
+        <span class="quasar-metric-note">@WarningServerCount health warnings · @UnhealthyServerCount errors</span>
+    </div>
+    <div class="quasar-metric @(UnhealthyServerCount > 0 ? "quasar-metric-error" : null)">
+        <span class="quasar-metric-label">Memory usage<QuasarIcon Icon="@QuasarIcons.Memory" /></span>
+        <strong class="quasar-metric-value">@TotalMemoryGiB<small>GiB</small></strong>
+        <span class="quasar-metric-note">Reported standalone working sets</span>
+    </div>
 </section>
 
-<div class="quasar-dashboard-heading">
-    <h2>Servers</h2>
-    <div class="quasar-dashboard-actions">
-        @if (IsCardsView)
-        {
-            <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateServerDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />Create Server</button>
-            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-                <a href="/clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.Add" />Create Cluster</a>
-            </AuthorizeView>
-        }
-        <div class="quasar-segmented quasar-view-selector" role="group" aria-label="Server view">
-            <button type="button" aria-pressed="@(IsCardsView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.Cards))"><QuasarIcon Icon="@QuasarIcons.Dashboard" />Cards</button>
-            <button type="button" aria-pressed="@(IsListView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.List))"><QuasarIcon Icon="@QuasarIcons.ViewList" />List</button>
-        </div>
-    </div>
-</div>
+@if (!IsListView)
+{
+    <div class="quasar-dashboard-heading"><h2>Fleet workspace</h2><div class="quasar-dashboard-actions">@FleetViewActions</div></div>
+}
 
 @* Keep this conditional: the landing page must not build hidden server-list/card DOM. *@
 @if (IsListView)
 {
     <Servers Embedded="true"
              HideHeader="true"
+             HideCreateActions="true"
+             HeaderActions="@FleetViewActions"
              DisableResponsiveLayout="true"
              LaunchBlocked="@IsLaunchBlocked"
              LaunchBlockedMessage="@RuntimeWarmupSnapshot.Message"
@@ -473,8 +480,38 @@ else
     </div>
 }
 
+<div class="quasar-insights">
+    <FleetTelemetryChart Servers="@Servers" />
+    <section class="quasar-panel">
+        <div class="quasar-panel-heading"><h2>Recent activity</h2><span>Lifecycle &amp; commands</span></div>
+        @if (RecentActivity.Count == 0)
+        {
+            <div class="quasar-empty"><h2>No recent activity</h2><p>Server starts, stops, restarts, and command results appear here.</p></div>
+        }
+        else
+        {
+            <ol class="quasar-activity">
+                @foreach (var activity in RecentActivity)
+                {
+                    <li><time datetime="@activity.At.ToString("O")" title="@activity.At.ToLocalTime().ToString("g")">@activity.At.ToLocalTime().ToString("HH:mm")</time><div><strong class="@activity.Tone">@activity.Message</strong><p>@activity.Server</p></div></li>
+                }
+            </ol>
+        }
+    </section>
+</div>
+
 @code
 {
+    private RenderFragment FleetViewActions => @<text>
+        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+            <a href="/clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a>
+        </AuthorizeView>
+        <div class="quasar-segmented quasar-view-selector" role="group" aria-label="Server view">
+            <button type="button" aria-pressed="@(IsCardsView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.Cards))"><QuasarIcon Icon="@QuasarIcons.Dashboard" />Cards</button>
+            <button type="button" aria-pressed="@(IsListView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.List))"><QuasarIcon Icon="@QuasarIcons.ViewList" />List</button>
+        </div>
+    </text>;
+
     private const string ServerViewStorageKey = "quasar.dashboard.serverView";
     private const string FirstSetupChoiceStorageKey = "quasar.dashboard.firstSetupChoiceShown";
 
@@ -528,6 +565,37 @@ else
         .Select(server => GetAgent(server.UniqueName))
         .Where(agent => agent?.IsConnected == true)
         .Sum(agent => agent?.Snapshot?.Metrics.PlayersOnline ?? 0);
+
+    private IReadOnlyList<Magnetar.Protocol.Model.ServerMetrics> LiveStandaloneMetrics => Servers
+        .Select(server => GetAgent(server.UniqueName))
+        .Where(agent => agent is { IsConnected: true, Snapshot: not null })
+        .Select(agent => agent!.Snapshot!.Metrics).ToArray();
+    private int PlayerCapacity => LiveStandaloneMetrics.Sum(metrics => metrics.MaxPlayers);
+    private string AverageSimSpeed => LiveStandaloneMetrics is { Count: > 0 } metrics
+        ? metrics.Average(value => value.SimSpeed).ToString("0.00") : "—";
+    private string TotalMemoryGiB => LiveStandaloneMetrics.Where(metrics => metrics.MemoryWorkingSetMb.HasValue).ToArray() is { Length: > 0 } metrics
+        ? (metrics.Sum(value => value.MemoryWorkingSetMb!.Value) / 1024d).ToString("0.0") : "—";
+
+    private IReadOnlyList<FleetActivity> RecentActivity
+    {
+        get
+        {
+            var events = new List<FleetActivity>();
+            foreach (var runtime in RuntimeSnapshotList)
+            {
+                if (runtime.StartedAtUtc is { } started) events.Add(new(started, runtime.UniqueName, "Server started", "quasar-text-success"));
+                if (runtime.StoppedAtUtc is { } stopped) events.Add(new(stopped, runtime.UniqueName, "Server stopped", ""));
+                if (runtime.LastRestart is { } restart) events.Add(new(restart.CompletedAtUtc ?? restart.RequestedAtUtc, runtime.UniqueName,
+                    string.IsNullOrWhiteSpace(restart.Reason) ? "Restart " + restart.Outcome.ToString().ToLowerInvariant() : restart.Reason,
+                    restart.Outcome == DedicatedServerRestartOutcome.Failed ? "quasar-text-error" : "quasar-text-warning"));
+            }
+            foreach (var agent in Agents)
+                foreach (var result in agent.CommandResults.Where(result => !string.IsNullOrWhiteSpace(result.Message)).Take(6))
+                    events.Add(new(result.CompletedAtUtc, agent.ServerDisplayName, result.Message, result.Success ? "" : "quasar-text-error"));
+            return events.OrderByDescending(entry => entry.At).Take(5).ToArray();
+        }
+    }
+    private sealed record FleetActivity(DateTimeOffset At, string Server, string Message, string Tone);
 
     private int ConfiguredServerCount => Servers.Count + Clusters.Count;
 

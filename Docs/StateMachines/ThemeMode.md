@@ -45,6 +45,11 @@ including analytics, still receive effective light/dark changes.
 
 The persisted palette schema and preset IDs are unchanged. Native CSS tokens
 and the temporary Mud compatibility theme derive from the same branding values.
+Quasar 1.3.0 defaults to the approved charcoal/cyan palette. Normalization upgrades
+only an unchanged legacy `quasar` palette pair; any custom color in either mode
+keeps both palettes. Identity/assets and other presets remain intact. Fleet and
+analytics charts read the active palette tokens and refresh cached chart styling
+after appearance changes. This does not change the browser mode preference.
 
 ---
 

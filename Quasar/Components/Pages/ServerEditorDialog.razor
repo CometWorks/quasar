@@ -1,18 +1,18 @@
 <MudDialog>
     <TitleContent>
-        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
+        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
             <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Discard changes" />
-            <MudText Typo="Typo.h6">@DialogTitle</MudText>
-        </MudStack>
+            <h2 class="quasar-text quasar-type-h6">@DialogTitle</h2>
+        </div>
     </TitleContent>
     <DialogContent>
         <div class="server-editor-dialog-content">
         <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-        <MudStack Spacing="3">
-            <MudText Typo="Typo.body2">@DialogDescription</MudText>
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">@DialogDescription</p>
 
             <section>
-                <MudText Typo="Typo.subtitle2" Class="mb-2">Identity</MudText>
+                <h3 class="quasar-text quasar-type-subtitle2 mb-2">Identity</h3>
                 <MudGrid>
                     <MudItem xs="12" md="6">
                         <MudTextField
@@ -79,7 +79,7 @@
                                       HelperText="0.0.0.0 listens on all interfaces. Set a specific IP to bind to one NIC." />
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start" Spacing="1">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-1">
                             <MudSelect T="string"
                                        @bind-Value="_editor.ConfigProfileId"
                                        Label="Configuration profile"
@@ -101,10 +101,10 @@
                                     </MudButton>
                                 </MudTooltip>
                             }
-                        </MudStack>
+                        </div>
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudStack Spacing="1">
+                        <div class="quasar-layout quasar-gap-1">
                             <MudSelect T="string"
                                        Value="_editor.WorldSaveName"
                                        ValueChanged="HandleWorldSaveChanged"
@@ -127,7 +127,7 @@
                                     Create From Template
                                 </MudButton>
                             </div>
-                        </MudStack>
+                        </div>
                     </MudItem>
                     <MudItem xs="12" md="6">
                         <MudSelect T="ManagedServerRuntime"
@@ -148,13 +148,13 @@
                 @if (SelectedWorldModsMissingFromProfile.Count > 0)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
-                        <MudText Typo="Typo.subtitle2">Selected world has @SelectedWorldModsMissingFromProfile.Count mod(s) not in the selected configuration profile.</MudText>
-                        <MudText Typo="Typo.body2" Class="mt-1">
+                        <h3 class="quasar-text quasar-type-subtitle2">Selected world has @SelectedWorldModsMissingFromProfile.Count mod(s) not in the selected configuration profile.</h3>
+                        <p class="quasar-text quasar-type-body2 mt-1">
                             Quasar writes the profile's mods into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
-                        </MudText>
-                        <MudText Typo="Typo.caption" Class="mt-1">
+                        </p>
+                        <span class="quasar-text quasar-type-caption mt-1">
                             Missing: @string.Join(", ", SelectedWorldModsMissingFromProfile.Take(8).Select(mod => mod.DisplayName))@(SelectedWorldModsMissingFromProfile.Count > 8 ? $", +{SelectedWorldModsMissingFromProfile.Count - 8} more" : string.Empty)
-                        </MudText>
+                        </span>
                         <div class="mt-2">
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Warning"
@@ -168,18 +168,18 @@
                 }
             </section>
 
-            <MudDivider />
+            <hr class="quasar-divider" />
 
             <section>
                 <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
                     <MudExpansionPanel Expanded="@_restartPolicyExpanded" ExpandedChanged="HandleRestartPolicyExpandedChanged">
                         <TitleContent>
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.subtitle2">Restart Policy</MudText>
-                                    <MudText Typo="Typo.caption">Crash recovery and retry behavior for managed server.</MudText>
-                                </MudStack>
-                            </MudStack>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Restart Policy</h3>
+                                    <span class="quasar-text quasar-type-caption">Crash recovery and retry behavior for managed server.</span>
+                                </div>
+                            </div>
                         </TitleContent>
                         <ChildContent>
                             <MudGrid>
@@ -214,12 +214,12 @@
 
                     <MudExpansionPanel Expanded="@_healthPolicyExpanded" ExpandedChanged="HandleHealthPolicyExpandedChanged">
                         <TitleContent>
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.subtitle2">Health Policy</MudText>
-                                    <MudText Typo="Typo.caption">Agent heartbeat, simulation progress, uptime, and recovery thresholds.</MudText>
-                                </MudStack>
-                            </MudStack>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Health Policy</h3>
+                                    <span class="quasar-text quasar-type-caption">Agent heartbeat, simulation progress, uptime, and recovery thresholds.</span>
+                                </div>
+                            </div>
                         </TitleContent>
                         <ChildContent>
                             <MudGrid>
@@ -283,13 +283,13 @@
 
                     <MudExpansionPanel Expanded="@_runtimeExpanded" ExpandedChanged="HandleRuntimeExpandedChanged">
                         <TitleContent>
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.subtitle2">Runtime</MudText>
-                                    <MudText Typo="Typo.caption">Process priority, CPU affinity, log retention, and launch arguments.</MudText>
-                                </MudStack>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Runtime</h3>
+                                    <span class="quasar-text quasar-type-caption">Process priority, CPU affinity, log retention, and launch arguments.</span>
+                                </div>
                                 <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">Advanced</MudChip>
-                            </MudStack>
+                            </div>
                         </TitleContent>
                         <ChildContent>
                             <MudGrid>
@@ -340,9 +340,9 @@
                                     <MudCheckBox @bind-Value="_editor.LogLaunchEnvironment"
                                                  Label="Log launch environment"
                                                  Color="Color.Warning" />
-                                    <MudText Typo="Typo.caption" Color="Color.Warning">
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">
                                         Writes Magnetar launch command, working directory, and environment variables to Quasar logs on next start. May expose secrets.
-                                    </MudText>
+                                    </span>
                                 </MudItem>
                                 <MudItem xs="12" md="6">
                                     <div class="server-editor-controlled-checkbox" style="@DisableImplicitMagnetarModLoadColorStyle">
@@ -356,9 +356,9 @@
                                                          Color="@DisableImplicitMagnetarModLoadColor" />
                                         </MudTooltip>
                                     </div>
-                                    <MudText Typo="Typo.caption" Color="Color.Warning">
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">
                                         @DisableImplicitMagnetarModLoadHint
-                                    </MudText>
+                                    </span>
                                 </MudItem>
                                 <MudItem xs="12">
                                     <MudTextField
@@ -376,13 +376,13 @@
 
                     <MudExpansionPanel Expanded="@_pathsExpanded" ExpandedChanged="HandlePathsExpandedChanged">
                         <TitleContent>
-                            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="w-100">
-                                <MudStack Spacing="0">
-                                    <MudText Typo="Typo.subtitle2">Paths</MudText>
-                                    <MudText Typo="Typo.caption">Advanced overrides for Quasar-managed executable and data paths.</MudText>
-                                </MudStack>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Paths</h3>
+                                    <span class="quasar-text quasar-type-caption">Advanced overrides for Quasar-managed executable and data paths.</span>
+                                </div>
                                 <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">Advanced</MudChip>
-                            </MudStack>
+                            </div>
                         </TitleContent>
                         <ChildContent>
                             <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-3">
@@ -456,7 +456,7 @@
                     </MudExpansionPanel>
                 </MudExpansionPanels>
             </section>
-        </MudStack>
+        </div>
         </MudForm>
         </div>
     </DialogContent>

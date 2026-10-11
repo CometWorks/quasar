@@ -10,10 +10,12 @@
 <PageTitle>Entities</PageTitle>
 
 <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntitiesPage">
-<MudText Typo="Typo.h5" Class="mb-2">Entities</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">Live world entity list for a connected server. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</MudText>
+<QuasarPageHeading Section="Operations">
+    <Title>Entities</Title>
+    <Description>Live world entity list for a connected server. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</Description>
+</QuasarPageHeading>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
     <MudSelect T="string"
                Label="Server"
                Value="_selectedAgentId"
@@ -61,9 +63,9 @@
                Disabled="@(_loading || _deletingSelected || GetSelectedAgent() is null)">
         Refresh
     </MudButton>
-</MudStack>
+</div>
 
-<MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2" Class="mb-4">
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
     @if (_lastResult is not null)
     {
         <MudChip T="string" Variant="Variant.Outlined">Matching @_lastResult.TotalCount</MudChip>
@@ -72,7 +74,7 @@
     }
     @if (_lastUpdated is not null)
     {
-        <MudText Typo="Typo.caption">Last updated: @_lastUpdated.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</MudText>
+        <span class="quasar-text quasar-type-caption">Last updated: @_lastUpdated.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
     }
     @if (_lastResult is not null)
     {
@@ -106,7 +108,7 @@
     {
         <MudProgressCircular Size="Size.Small" Indeterminate="true" />
     }
-</MudStack>
+</div>
 
 @if (ConnectedAgents.Count == 0)
 {
@@ -166,7 +168,7 @@ else
                 <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
             </MudTd>
             <MudTd DataLabel="Entity ID">
-                <MudText Typo="Typo.body2" Class="mono">@context.EntityId</MudText>
+                <p class="quasar-text quasar-type-body2 mono">@context.EntityId</p>
             </MudTd>
             <QuasarExtensionOutlet
                 TargetKey="@QuasarExtensionTargets.EntityViewerColumnCell"
@@ -179,7 +181,7 @@ else
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
             <MudTd DataLabel="Name">@context.DisplayName</MudTd>
             <MudTd DataLabel="" Class="quasar-actions-column">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Class="plugin-actions" @onclick:stopPropagation="true">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1 plugin-actions" @onclick:stopPropagation="true">
                     <QuasarExtensionOutlet
                         TargetKey="@QuasarExtensionTargets.EntityActions"
                         Parameters="@CreateEntityExtensionParameters(context)">
@@ -193,7 +195,7 @@ else
                             </MudTooltip>
                         </span>
                     </QuasarExtensionOutlet>
-                </MudStack>
+                </div>
             </MudTd>
         </RowTemplate>
         <PagerContent>

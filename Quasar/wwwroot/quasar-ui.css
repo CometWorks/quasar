@@ -4,7 +4,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell, .quasar-shell * { box-sizing: border-box; }
 .quasar-shell {
     display: grid;
-    grid-template-columns: 188px minmax(0, 1fr);
+    grid-template-columns: 224px minmax(0, 1fr);
     min-height: 100dvh;
     background: var(--quasar-palette-background);
     color: var(--quasar-palette-text-primary);
@@ -14,6 +14,8 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell[data-theme="light"], .quasar-preview[data-theme="light"] { color-scheme: light; }
 .quasar-shell-body { min-width: 0; }
 .quasar-sidebar {
+    display: flex;
+    flex-direction: column;
     position: sticky;
     top: 0;
     height: 100dvh;
@@ -41,7 +43,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     display: flex;
     gap: 10px;
     align-items: center;
-    padding: 8px 10px;
+    padding: 9px 12px;
     margin: 2px 0;
     border-radius: 4px;
     color: var(--quasar-palette-drawer-text);
@@ -69,7 +71,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-topbar-identity, .quasar-topbar-actions { display: flex; align-items: center; gap: 8px; }
 .quasar-topbar-identity { min-width: 0; font-size: 11px; }
 .quasar-topbar-subtitle { opacity: .75; }
-.quasar-main { padding: 24px 28px; min-width: 0; }
+.quasar-main { padding: 24px 28px 32px; min-width: 0; max-width: 1920px; margin-inline: auto; }
 .quasar-icon { display: inline-block; width: 18px; height: 18px; fill: currentColor; flex-shrink: 0; vertical-align: middle; }
 .quasar-icon-button {
     display: inline-flex;
@@ -99,14 +101,14 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell :is(a, button, input, select, summary):focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 3px; }
 .quasar-main:focus { outline: none; }
 .quasar-page-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px; margin-bottom: 20px; }
-.quasar-page-heading h1 { font: 700 27px "Manrope", system-ui, sans-serif; letter-spacing: -.8px; margin: 0 0 6px; }
-.quasar-page-heading p, .quasar-form-section p { color: var(--quasar-palette-text-secondary); font-size: 12px; line-height: 1.6; margin: 0; }
+.quasar-page-heading h1 { font: 700 32px/1.2 "Manrope", system-ui, sans-serif; letter-spacing: -.8px; margin: 0 0 6px; }
+.quasar-page-heading p, .quasar-page-description, .quasar-form-section p { color: var(--quasar-palette-text-secondary); font-size: 12px; line-height: 1.6; margin: 0; }
 .quasar-eyebrow { font-size: 9px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--quasar-palette-text-secondary); margin-bottom: 7px; }
 .quasar-panel { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-surface); border-radius: 6px; overflow: hidden; }
-.quasar-panel h2 { margin: 0 0 5px; font: 700 14px "Manrope", system-ui, sans-serif; }
-.quasar-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 15px; border-bottom: 1px solid var(--quasar-palette-divider); }
-.quasar-panel-heading h2 { margin: 0; }
-.quasar-panel-heading > span { color: var(--quasar-palette-text-secondary); font-size: 10px; }
+.quasar-panel h2 { margin: 0 0 5px; font: 700 15px "Manrope", system-ui, sans-serif; }
+.quasar-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 9px 15px; border-bottom: 1px solid var(--quasar-palette-divider); }
+.quasar-shell .quasar-panel-heading h2 { margin: 0; }
+.quasar-panel-heading > span { color: var(--quasar-palette-text-secondary); font-size: 11px; }
 .quasar-button {
     display: inline-flex;
     align-items: center;
@@ -133,7 +135,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-text-error, .quasar-field-error { color: var(--quasar-palette-error); }
 .quasar-field-error { display: block; font-size: 11px; margin-top: 5px; }
 .quasar-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-.quasar-appearance-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 18px; align-items: start; }
+.quasar-appearance-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 18px; align-items: start; }
 .quasar-appearance-preview { display: grid; gap: 16px; }
 .quasar-form-section { padding: 16px; border-bottom: 1px solid var(--quasar-palette-divider); }
 .quasar-form-section:last-child { border-bottom: 0; }
@@ -188,7 +190,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-metric { padding: 14px 18px; border-right: 1px solid var(--quasar-palette-divider); }
 .quasar-metric:last-child { border: 0; }
 .quasar-metric-label { font-size: 10px; color: var(--quasar-palette-text-secondary); }
-.quasar-metric-value { display: block; font: 700 27px "Manrope", system-ui, sans-serif; margin-top: 8px; }
+.quasar-metric-value { display: block; font: 700 32px "Manrope", system-ui, sans-serif; margin-top: 8px; }
 .quasar-metric-warning { background: color-mix(in srgb, var(--quasar-palette-warning) 8%, var(--quasar-palette-surface)); }
 .quasar-metric-error { background: color-mix(in srgb, var(--quasar-palette-error) 8%, var(--quasar-palette-surface)); }
 .quasar-dashboard-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
@@ -224,10 +226,10 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 /* Fleet table: keep every column and action available on narrow screens. */
 .quasar-mobile-nav-toggle { display: none; }
 .quasar-view-selector { margin: 0; }
-.quasar-server-table { position: relative; width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; font-size: 11px; }
+.quasar-server-table { position: relative; width: 100%; border-collapse: collapse; text-align: left; white-space: nowrap; font-size: 12px; }
 .quasar-table-scroll { overflow-x: auto; }
 .quasar-server-table th { padding: 8px 12px; background: var(--quasar-palette-background-gray); color: var(--quasar-palette-text-secondary); border-bottom: 1px solid var(--quasar-palette-table-lines); font-weight: 500; font-size: 10px; }
-.quasar-server-table td { padding: 7px 12px; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+.quasar-server-table td { padding: 9px 12px; border-bottom: 1px solid var(--quasar-palette-table-lines); }
 .quasar-server-table tbody > tr:not(.quasar-server-detail-row):hover { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
 .quasar-server-table p { margin: 0; }
 .quasar-sort-button { display: inline-flex; align-items: center; gap: 5px; font: inherit; color: inherit; border: 0; padding: 0; background: none; cursor: pointer; }
@@ -314,3 +316,201 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .copyable-path { display: flex; align-items: center; gap: 6px; }
 
 .quasar-field small { color: var(--quasar-palette-text-secondary); font-size: 11px; line-height: 1.5; }
+
+/* Shared workspace layout: the same hierarchy on operational pages and editors. */
+.quasar-overlays { display: contents; }
+.quasar-page-intro { min-width: 0; }
+.quasar-page-description { max-width: 78ch; line-height: 1.65; }
+.quasar-page-heading { align-items: flex-end; margin-bottom: 18px; }
+.quasar-page-heading .quasar-eyebrow::before { content: ""; display: inline-block; width: 5px; height: 5px; margin: 0 7px 2px 0; background: var(--quasar-palette-primary); border-radius: 50%; }
+.quasar-brand { flex-shrink: 0; }
+.quasar-brand span { color: var(--quasar-palette-text-secondary); font-size: 10px; line-height: 1.5; }
+.quasar-sidebar-footer { margin-top: auto; padding: 18px 20px; border-top: 1px solid var(--quasar-palette-divider); display: grid; gap: 7px; font-size: 10px; color: var(--quasar-palette-drawer-text); }
+.quasar-sidebar-footer strong { font-weight: 500; display: flex; justify-content: space-between; gap: 10px; }
+.quasar-sidebar-footer > span { opacity: .8; }
+.quasar-breadcrumb { display: flex; align-items: center; gap: 9px; font-size: 12px; min-width: 0; }
+.quasar-breadcrumb a { color: inherit; text-decoration: none; opacity: .7; }
+.quasar-breadcrumb a:hover { opacity: 1; }
+.quasar-breadcrumb [aria-current] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quasar-user-name { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+.quasar-layout { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.quasar-layout-row { flex-direction: row; }
+.quasar-wrap-wrap { flex-wrap: wrap; }
+.quasar-wrap-nowrap { flex-wrap: nowrap; }
+.quasar-wrap-wrapreverse { flex-wrap: wrap-reverse; }
+.quasar-align-center { align-items: center; }
+.quasar-align-start { align-items: flex-start; }
+.quasar-align-end { align-items: flex-end; }
+.quasar-align-stretch { align-items: stretch; }
+.quasar-align-baseline { align-items: baseline; }
+.quasar-justify-spacebetween { justify-content: space-between; }
+.quasar-justify-spacearound { justify-content: space-around; }
+.quasar-justify-center { justify-content: center; }
+.quasar-justify-flexend { justify-content: flex-end; }
+.quasar-gap-0 { gap: 0; }.quasar-gap-1 { gap: 4px; }.quasar-gap-2 { gap: 8px; }.quasar-gap-3 { gap: 12px; }.quasar-gap-4 { gap: 16px; }.quasar-gap-5 { gap: 20px; }.quasar-gap-6 { gap: 24px; }
+.quasar-layout > .quasar-page-heading { flex: 1; }
+.quasar-text { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
+.quasar-type-caption { font-size: 11px; }
+.quasar-type-overline { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
+.quasar-type-body1, .quasar-type-body2 { font-size: 13px; }
+.quasar-gutter { margin-bottom: 8px; }
+.quasar-text[class*="quasar-tone-"] { color: var(--quasar-control-color, inherit); }
+.quasar-square { border-radius: 0; }
+.quasar-shell .quasar-layout h2 { margin: 0; }
+.quasar-shell .quasar-layout h3 { margin: 0; font-size: 13px; }
+.quasar-shell .quasar-panel { box-shadow: none; }
+.quasar-panel:has(> .quasar-layout > .quasar-page-heading) { padding: 22px; }
+.quasar-panel > .quasar-panel-heading { min-height: 48px; }
+.quasar-section-label { font-size: 10px; letter-spacing: 1.1px; text-transform: uppercase; color: var(--quasar-palette-text-secondary); }
+.quasar-empty { padding: 40px 24px; text-align: center; color: var(--quasar-palette-text-secondary); }
+.quasar-empty .quasar-icon { width: 32px; height: 32px; margin-bottom: 12px; color: var(--quasar-palette-primary); }
+.quasar-empty h2 { color: var(--quasar-palette-text-primary); }
+.quasar-empty p { max-width: 55ch; margin: 8px auto 0; font-size: 12px; }
+.quasar-shell :is(a, button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 3px; }
+.quasar-summary { margin-bottom: 18px; }
+.quasar-metric { padding: 14px 18px; }
+.quasar-metric-label { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 10px; text-transform: uppercase; letter-spacing: .35px; }
+.quasar-metric-label .quasar-icon { width: 17px; height: 17px; opacity: .75; }
+.quasar-metric-value { line-height: 1.2; font-variant-numeric: tabular-nums; }
+.quasar-metric-value small { margin-left: 4px; font: 400 12px "DM Sans", system-ui, sans-serif; color: var(--quasar-palette-text-secondary); }
+.quasar-metric-note { display: block; margin-top: 9px; font-size: 11px; color: var(--quasar-palette-text-secondary); }
+.quasar-toolbar { display: flex; flex-wrap: wrap; align-items: end; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--quasar-palette-divider); }
+.quasar-toolbar .quasar-field { min-width: 140px; }
+.quasar-toolbar .quasar-search { flex: 1; max-width: 360px; min-width: 200px; }
+.quasar-toolbar-meta { margin-left: auto; align-self: center; font-size: 11px; color: var(--quasar-palette-text-secondary); }
+.quasar-table-footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px; padding: 7px 16px; font-size: 10px; color: var(--quasar-palette-text-secondary); background: color-mix(in srgb, var(--quasar-palette-background-gray) 30%, var(--quasar-palette-surface)); }
+.quasar-server-identity { display: block; font-weight: 650; font-size: 12px; color: var(--quasar-palette-text-primary); }
+.quasar-server-name-cell { min-width: 170px; }
+.quasar-status { font-size: 11px; line-height: 1.4; }
+.quasar-state-badge { border: 1px solid var(--quasar-palette-lines-default); padding: 3px 6px; border-radius: 4px; font-size: 10px; display: inline-flex; align-items: center; gap: 5px; }
+.quasar-state-badge::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
+.quasar-table-link { font-size: inherit; }
+.quasar-density-compact .quasar-server-table > tbody > tr:not(.quasar-server-detail-row) > td { padding-block: 5px; }
+.quasar-insights { display: grid; grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr); gap: 18px; margin-top: 18px; }
+.quasar-insights .quasar-panel { min-width: 0; }
+.quasar-activity { margin: 0; padding: 0; list-style: none; }
+.quasar-activity li { display: grid; grid-template-columns: 48px minmax(0, 1fr); gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--quasar-palette-table-lines); font-size: 12px; }
+.quasar-activity li:last-child { border-bottom: 0; }
+.quasar-activity time { font: 10px ui-monospace, monospace; color: var(--quasar-palette-text-secondary); margin-top: 3px; }
+.quasar-activity strong { font-size: 12px; font-weight: 500; }
+.quasar-activity p { margin: 4px 0 0; color: var(--quasar-palette-text-secondary); font-size: 11px; overflow-wrap: anywhere; }
+.quasar-chart-body { padding: 14px 16px 10px; min-height: 230px; }
+.quasar-chart-body .u-legend { font-size: 11px; }
+.quasar-chart-state { min-height: 205px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 12px; color: var(--quasar-palette-text-secondary); }
+.quasar-fleet-chart { height: 220px; }
+.quasar-appearance-preview { position: sticky; top: 20px; }
+.quasar-form-section { padding: 20px; }
+.quasar-form-actions { padding: 16px 20px; background: color-mix(in srgb, var(--quasar-palette-background-gray) 25%, var(--quasar-palette-surface)); }
+.quasar-form-section h2 { font-size: 16px; }
+.quasar-fields label, .quasar-color-field > label, .quasar-field { font-size: 11px; }
+.quasar-palette-group { padding: 14px 0; }
+.quasar-palette-group summary { font-size: 12px; }
+.quasar-color-control input[type="text"] { font-size: 11px; }
+.quasar-preview-surface { padding: 16px; }
+.quasar-preview-status { font-size: 12px; }
+.quasar-preview-bar { display: flex; align-items: center; gap: 9px; margin: -16px -16px 16px; padding: 12px 16px; border-bottom: 1px solid var(--quasar-palette-divider); background: var(--quasar-palette-appbar-background); color: var(--quasar-palette-appbar-text); }
+.quasar-preview-bar img { width: 25px; height: 25px; object-fit: contain; }
+.quasar-preview-bar strong { font-family: "Manrope", system-ui, sans-serif; }
+
+/* Shared visual treatment while behavioral Mud components are migrated.
+   Providers live inside the shell so dialogs and popovers inherit all 29 tokens. */
+.quasar-shell .mud-paper { box-shadow: none; }
+.quasar-shell :is(.mud-table, .mud-card, .mud-tabs-outlined) { border: 1px solid var(--quasar-palette-lines-default); border-radius: 6px; }
+.quasar-shell .mud-card { background: var(--quasar-palette-surface); }
+.quasar-shell .mud-table { background: var(--quasar-palette-surface); }
+.quasar-shell .mud-table-cell { font-size: 12px; padding: 9px 12px; border-bottom-color: var(--quasar-palette-table-lines); }
+.quasar-shell .mud-table-head .mud-table-cell { background: var(--quasar-palette-background-gray); font-size: 10px; font-weight: 500; color: var(--quasar-palette-text-secondary); white-space: nowrap; }
+.quasar-shell .mud-table-toolbar { min-height: 48px; padding-inline: 16px; }
+.quasar-shell .mud-table-pagination { border-top: 1px solid var(--quasar-palette-divider); min-height: 44px; font-size: 11px; }
+.quasar-shell .mud-table-pagination .mud-input { font-size: 11px; }
+.quasar-shell .mud-button-root { text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 500; border-radius: 4px; }
+.quasar-shell .mud-button { min-height: 32px; padding: 6px 12px; box-shadow: none; }
+.quasar-shell .mud-button-filled { box-shadow: none; }
+.quasar-shell .mud-button-filled-primary { font-weight: 650; }
+.quasar-shell .mud-icon-button { padding: 7px; }
+.quasar-shell .mud-icon-size-medium { font-size: 19px; }
+.quasar-shell .mud-chip { border-radius: 4px; font-size: 11px; min-height: 24px; height: auto; margin: 2px; }
+.quasar-shell .mud-chip-content { padding-block: 2px; }
+.quasar-shell .mud-input-control { margin-top: 6px; }
+.quasar-shell .mud-input-outlined { border-radius: 4px; background: var(--quasar-palette-surface); }
+.quasar-shell .mud-input { font-size: 13px; }
+.quasar-shell .mud-input-outlined > input.mud-input-root { padding: 11px 12px; }
+.quasar-shell .mud-input-label { font-size: 12px; }
+.quasar-shell .mud-input-label-outlined { transform: translate(12px, 13px) scale(1); }
+.quasar-shell .mud-input-label-outlined.mud-input-label-shrink { transform: translate(12px, -6px) scale(.8); }
+.quasar-shell .mud-input-helper-text { font-size: 10px; line-height: 1.5; }
+.quasar-shell .mud-tabs-toolbar { background: var(--quasar-palette-surface); border-bottom: 1px solid var(--quasar-palette-divider); }
+.quasar-shell .mud-tab { min-height: 43px; min-width: auto; padding: 10px 18px; text-transform: none; letter-spacing: 0; font-size: 12px; }
+.quasar-shell .mud-tab.mud-tab-active { background: color-mix(in srgb, var(--quasar-palette-primary) 6%, transparent); }
+.quasar-shell .mud-tab-slider { height: 2px; }
+.quasar-shell .mud-expand-panel { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-surface); }
+.quasar-shell .mud-expand-panel-header { min-height: 44px; padding: 12px 16px; font-size: 13px; font-weight: 600; }
+.quasar-shell .mud-expand-panel-content { padding: 0 16px 16px; }
+.quasar-shell .mud-dialog { border: 1px solid var(--quasar-palette-lines-default); border-radius: 8px; box-shadow: 0 24px 80px #0005; }
+.quasar-shell .mud-dialog-title { border-bottom: 1px solid var(--quasar-palette-divider); padding: 18px 22px; }
+.quasar-shell .mud-dialog-title .mud-typography-h6 { font-size: 19px; letter-spacing: -.4px; }
+.quasar-shell .mud-dialog-content { padding: 20px 22px; }
+.quasar-shell .mud-dialog-actions { border-top: 1px solid var(--quasar-palette-divider); padding: 14px 22px; gap: 8px; background: color-mix(in srgb, var(--quasar-palette-background-gray) 30%, var(--quasar-palette-surface)); }
+.quasar-shell .mud-popover { border: 1px solid var(--quasar-palette-lines-default); border-radius: 5px; box-shadow: 0 8px 24px #0003; }
+.quasar-shell .mud-list-item { min-height: 34px; padding-block: 7px; font-size: 12px; }
+.quasar-shell .mud-alert { border-radius: 5px; padding: 9px 14px; font-size: 12px; }
+.quasar-shell .mud-alert-outlined { background: var(--quasar-palette-surface); }
+.quasar-shell .mud-alert-message { padding-block: 3px; }
+.quasar-shell .mud-switch { margin-left: -8px; }
+.quasar-shell .mud-treeview-item-content { min-height: 32px; font-size: 12px; }
+.quasar-shell .configs-sidebar { background: var(--quasar-palette-surface); }
+.quasar-shell .config-profile-tile { border-radius: 4px; }
+.quasar-shell .analytics-chart-card { border: 1px solid var(--quasar-palette-lines-default); box-shadow: none; }
+.quasar-shell .admin-chat-list { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-background); border-radius: 5px; min-height: 240px; }
+.quasar-shell .admin-chat-row { padding: 8px 12px; border-bottom: 1px solid var(--quasar-palette-table-lines); }
+.quasar-console-tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--quasar-palette-divider); }
+.quasar-console-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; min-height: 42px; padding: 10px 16px; }
+.quasar-console-tabs button[aria-pressed="true"] { color: var(--quasar-palette-primary); border-bottom-color: var(--quasar-palette-primary); }
+.quasar-console-toolbar { align-items: center; padding: 12px 14px; border: 1px solid var(--quasar-palette-lines-default); border-bottom: 0; border-radius: 5px 5px 0 0; background: var(--quasar-palette-surface); }
+.quasar-console-toolbar .quasar-field { min-width: 220px; }
+.quasar-console-meta { min-width: 0; flex: 1; }
+.quasar-console-meta .copyable-path { font-size: 10px; }
+.quasar-console-output { height: 60vh; overflow: auto; background: var(--quasar-palette-background); border: 1px solid var(--quasar-palette-lines-default); border-radius: 0 0 5px 5px; padding: 12px 16px; font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.quasar-info-log-pre, .quasar-log-line { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--quasar-palette-text-primary); font: inherit; }
+.quasar-log-line { min-height: 1.7em; border-bottom: 1px solid color-mix(in srgb, var(--quasar-palette-divider) 30%, transparent); }
+.quasar-log-line:hover { background: var(--quasar-palette-hover-background); color: var(--quasar-palette-hover-contrast-text); }
+.quasar-console-hint { margin: 10px 0 0; color: var(--quasar-palette-text-secondary); font-size: 10px; }
+@media (max-width: 1100px) {
+    .quasar-insights { grid-template-columns: minmax(0, 1fr); }
+    .quasar-appearance-grid { grid-template-columns: minmax(0, 1fr) 290px; }
+    .quasar-user-name { display: none; }
+}
+@media (max-width: 900px) {
+    .quasar-appearance-grid { grid-template-columns: minmax(0, 1fr); }
+    .quasar-appearance-preview { position: static; }
+    .quasar-sidebar, .quasar-nav-collapsed .quasar-sidebar { display: flex; }
+    .quasar-breadcrumb { font-size: 11px; }
+}
+@media (max-width: 600px) {
+    .quasar-main { padding: 18px 14px 28px; }
+    .quasar-page-heading h1 { font-size: 28px; }
+    .quasar-page-heading { margin-bottom: 18px; align-items: flex-start; }
+    .quasar-page-description { font-size: 12px; }
+    .quasar-metric { padding: 14px; }
+    .quasar-metric-value { font-size: 28px; }
+    .quasar-toolbar .quasar-search, .quasar-toolbar .quasar-field { min-width: 0; flex: 1 1 100%; max-width: none; }
+    .quasar-toolbar-meta { margin-left: 0; }
+    .quasar-console-toolbar .quasar-field { min-width: 0; flex: 1 1 100%; }
+    .quasar-shell .mud-dialog-content { padding: 16px; }
+    .quasar-shell .mud-dialog-title { padding: 16px; }
+    .quasar-breadcrumb > a, .quasar-breadcrumb > span[aria-hidden] { display: none; }
+}
+.quasar-server-menu { padding: 8px; width: 240px; max-width: calc(100vw - 24px); white-space: normal; background: var(--quasar-palette-surface); color: var(--quasar-palette-text-primary); border: 1px solid var(--quasar-palette-lines-default); border-radius: 6px; box-shadow: 0 8px 32px #0005; }
+.quasar-server-menu > strong { display: block; padding: 8px 10px 12px; font-size: 12px; border-bottom: 1px solid var(--quasar-palette-divider); margin-bottom: 5px; }
+.quasar-server-menu .quasar-icon-button { display: flex; width: 100%; height: auto; min-height: 34px; justify-content: flex-start; gap: 10px; padding: 8px 10px; font: 12px "DM Sans", system-ui, sans-serif; }
+.quasar-server-menu .quasar-icon-button span { white-space: nowrap; }
+.quasar-icon[class*="quasar-tone-"] { color: var(--quasar-control-color, inherit); }
+@supports (position-area: bottom) {
+    .quasar-server-menu { inset: auto; position-area: bottom span-left; position-try-fallbacks: flip-block, flip-inline; margin: 4px 0; }
+}
+.quasar-chart-frame { position: relative; }
+.quasar-chart-frame > .quasar-chart-state { position: absolute; inset: 0; background: var(--quasar-palette-surface); }
+
+@media (max-width: 600px) {
+    .quasar-server-menu { inset: 0; margin: auto; position-area: none; }
+}

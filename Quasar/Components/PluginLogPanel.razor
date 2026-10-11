@@ -3,10 +3,10 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 
-<MudPaper Class="server-card pa-4">
+<section class="quasar-panel server-card pa-4">
     <div class="d-flex align-center justify-space-between mb-2">
-        <MudText Typo="Typo.h6">Recent plugin logs</MudText>
-        <MudText Typo="Typo.caption" Class="mud-text-secondary">@_entries.Count shown</MudText>
+        <h2 class="quasar-text quasar-type-h6">Recent plugin logs</h2>
+        <span class="quasar-text quasar-type-caption mud-text-secondary">@_entries.Count shown</span>
     </div>
 
     <MudGrid Class="mb-3">
@@ -73,7 +73,7 @@
             <RowTemplate>
                 <MudTd DataLabel="Time (UTC)">@context.TimestampUtc.ToString("yyyy-MM-dd HH:mm:ss.fff")</MudTd>
                 <MudTd DataLabel="Level">
-                    <MudText Typo="Typo.body2" Color="@LevelColor(context.Level)">@context.Level</MudText>
+                    <p class="quasar-text quasar-type-body2 quasar-tone-@((LevelColor(context.Level)).ToString().ToLowerInvariant())">@context.Level</p>
                 </MudTd>
                 <MudTd DataLabel="Server">@ServerName(context.UniqueName)</MudTd>
                 <MudTd DataLabel="Plugin">@context.Plugin</MudTd>
@@ -81,7 +81,7 @@
                     <div>@context.Message</div>
                     @if (!string.IsNullOrEmpty(context.Exception))
                     {
-                        <MudText Typo="Typo.caption" Color="Color.Error" Class="d-block" Style="white-space: pre-wrap;">@context.Exception</MudText>
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Error).ToString().ToLowerInvariant()) d-block" style="white-space: pre-wrap;">@context.Exception</span>
                     }
                 </MudTd>
             </RowTemplate>
@@ -90,7 +90,7 @@
             </PagerContent>
         </MudTable>
     }
-</MudPaper>
+</section>
 
 @code
 {

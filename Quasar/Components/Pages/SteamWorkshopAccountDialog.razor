@@ -2,12 +2,12 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="2">
-            <MudText>Quasar tries anonymous SteamCMD downloads first. A Steam account is used only when an item cannot be downloaded anonymously.</MudText>
+        <div class="quasar-layout quasar-gap-2">
+            <p class="quasar-text quasar-type-body1">Quasar tries anonymous SteamCMD downloads first. A Steam account is used only when an item cannot be downloaded anonymously.</p>
             <MudTextField T="string" Label="Steam account name" @bind-Value="_username" Variant="Variant.Outlined" />
             <MudTextField T="string" Label="Steam password" @bind-Value="_password" InputType="InputType.Password" Variant="Variant.Outlined" HelperText="Leave blank to keep the saved password." />
-            <MudText Typo="Typo.caption">Credentials are encrypted by this Quasar installation. Steam Guard may still require an interactive SteamCMD login before a managed download succeeds.</MudText>
-        </MudStack>
+            <span class="quasar-text quasar-type-caption">Credentials are encrypted by this Quasar installation. Steam Guard may still require an interactive SteamCMD login before a managed download succeeds.</span>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="Cancel">Cancel</MudButton>

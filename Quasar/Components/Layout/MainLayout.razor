@@ -19,9 +19,6 @@
 
 @* Temporary compatibility providers for pages and UI plugins still being migrated. *@
 <MudThemeProvider Theme="@BrandingService.BuildMudTheme()" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
-<MudPopoverProvider />
-<MudDialogProvider />
-<MudSnackbarProvider />
 <BrandingHeadContent />
 
 <a class="quasar-skip-link" href="#quasar-main">Skip to content</a>
@@ -33,6 +30,10 @@
             <div><strong>@BrandingService.Settings.AppName</strong><span>@BrandingService.Settings.AppSubtitle</span></div>
         </a>
         <div @onclick="CloseMobileDrawer"><NavMenu /></div>
+        <div class="quasar-sidebar-footer">
+            <strong>@BrandingService.Settings.AppName <span class="mono">@AppVersion</span></strong>
+            <span>Space Engineers control plane</span>
+        </div>
     </aside>
     <div class="quasar-shell-body">
         <header class="quasar-topbar" inert="@(_isShuttingDown ? string.Empty : null)">
@@ -45,7 +46,10 @@
                         aria-label="Toggle navigation" aria-controls="quasar-navigation" aria-expanded="@(_mobileDrawerOpen ? "true" : "false")">
                     <QuasarIcon Icon="@QuasarIcons.Menu" />
                 </button>
-                <span>@BrandingService.Settings.AppName <span class="quasar-topbar-subtitle">/ Control plane</span></span>
+                <nav class="quasar-breadcrumb" aria-label="Breadcrumb">
+                    <a href="/">@BrandingService.Settings.AppName</a>
+                    <span aria-hidden="true">/</span><span aria-current="page">@CurrentPageLabel</span>
+                </nav>
             </div>
             <div class="quasar-topbar-actions">
                 <a class="quasar-icon-button quasar-update-bell @GetUpdateBellClass()" href="@(CurrentNotice?.Url ?? "/notifications")"
@@ -63,6 +67,7 @@
                 </label>
                 <AuthorizeView>
                     <Authorized Context="authContext">
+                        <span class="quasar-user-name">@authContext.User.Identity?.Name</span>
                         <a class="quasar-icon-button" href="/logout" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></a>
                     </Authorized>
                     <NotAuthorized>
@@ -78,6 +83,11 @@
             </div>
         </header>
         <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">@Body</main>
+        <div class="quasar-overlays">
+            <MudPopoverProvider />
+            <MudDialogProvider />
+            <MudSnackbarProvider />
+        </div>
     </div>
     @if (_mobileDrawerOpen)
     {
@@ -126,8 +136,29 @@
     private string PaletteStyle => QuasarTheme.BuildCss(
         _isDarkMode ? BrandingService.Settings.DarkPalette : BrandingService.Settings.LightPalette, _isDarkMode);
 
+    private static string AppVersion => typeof(MainLayout).Assembly.GetName().Version?.ToString(3) ?? "";
+    private string CurrentPageLabel => Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Trim('/') switch
+    {
+        "" => "Fleet overview", "configs" => "Configuration profiles", "world-templates" => "World templates",
+        "plugins" => "Server plugins", "players" => "Players", "chat" => "Chat", "entities" => "Entities",
+        "analytics" => "Analytics", "discord" => "Discord", "hosts" => "Host machines", "hosts/enroll" => "Add host machine",
+        "backup" => "Backups", "notifications" => "Notifications", "settings/appearance" => "Appearance",
+        "settings/security" => "Security", "settings/ui-plugins" => "UI plugins", "settings/updates" => "Updates",
+        "settings/server-list" => "Server listing", "clusters/new" => "Set up cluster",
+        var route when route.StartsWith("clusters/", StringComparison.Ordinal) => "Cluster management",
+        var route when route.StartsWith("servers/", StringComparison.Ordinal) => "Server management",
+        _ => "Control plane",
+    };
+
+    private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
+    {
+        CloseMobileDrawer();
+        _ = InvokeAsync(StateHasChanged);
+    }
+
     protected override async Task OnInitializedAsync()
     {
+        Navigation.LocationChanged += OnLocationChanged;
         BrandingService.Changed += OnBrandingChanged;
         UpdateService.Changed += OnUpdatesChanged;
         ClusterReleases.Changed += OnClusterReleasesChanged;
@@ -144,6 +175,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        Navigation.LocationChanged -= OnLocationChanged;
         BrandingService.Changed -= OnBrandingChanged;
         UpdateService.Changed -= OnUpdatesChanged;
         ClusterReleases.Changed -= OnClusterReleasesChanged;

@@ -66,9 +66,9 @@ window.quasarCharts = (function () {
         };
     }
 
-    function buildOptions(chart, width, height, dark, colors, spanSeconds, xMin, xMax) {
+    function buildOptions(chart, width, height, dark, colors, spanSeconds, xMin, xMax, appearance, lines, selectable) {
         const colorsArr = colors && colors.length ? colors : ["#3b82f6", "#7dd3fc", "#a7f3d0", "#fde68a", "#f0abfc", "#c4b5fd"];
-        const c = axisColors(dark);
+        const c = appearance || axisColors(dark);
         const valueFmt = makeValueFormatter(chart.axis);
 
         const series = [{}]; // x
@@ -77,9 +77,9 @@ window.quasarCharts = (function () {
             series.push({
                 label: s.label,
                 stroke: color,
-                // Dots only: no connecting line (return null path), just filled markers.
-                paths: () => null,
-                points: { show: true, size: 5, stroke: color, fill: color, width: 0 },
+                // Fleet overview uses a line; detailed analytics retains individual sample markers.
+                ...(lines ? { width: 1.5, spanGaps: false } : { paths: () => null }),
+                points: { show: !lines, size: 5, stroke: color, fill: color, width: 0 },
                 value: (u, v) => (v == null ? "-" : valueFmt(v)),
             });
         });
@@ -94,7 +94,7 @@ window.quasarCharts = (function () {
                 points: { size: 7 },
                 // Drag an x-range to select it: draws a highlight band but does NOT zoom locally
                 // (setScale:false). The released selection is reported to Blazor, which repins the page.
-                drag: { x: true, y: false, setScale: false },
+                drag: { x: selectable, y: false, setScale: false },
             },
             legend: { show: true, live: true },
             hooks: {
@@ -174,7 +174,7 @@ window.quasarCharts = (function () {
             dotNet.invokeMethodAsync("OnChartRangeSelected", from, to);
     }
 
-    function renderChart(containerId, chart, dark, colors, spanSeconds, fallbackHeight, xMin, xMax) {
+    function renderChart(containerId, chart, dark, colors, spanSeconds, fallbackHeight, xMin, xMax, lines = false, selectable = true) {
         const el = document.getElementById(containerId);
         if (!el) return;
 
@@ -182,10 +182,16 @@ window.quasarCharts = (function () {
         const data = [chart.x.map(Number)];
         chart.series.forEach((s) => data.push(s.y.map((v) => (v == null ? null : Number(v)))));
 
+        const style = typeof getComputedStyle === "function" ? getComputedStyle(el) : null;
+        const token = key => style?.getPropertyValue("--quasar-palette-" + key).trim();
+        const fallback = axisColors(dark);
+        const appearance = { label: token("text-secondary") || fallback.label, grid: token("divider") || fallback.grid, tick: token("divider") || fallback.tick };
+        if (!colors?.length) colors = ["primary", "warning", "success", "secondary", "error"].map(token).filter(Boolean);
+        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, chart.series.map(s => s.label)]);
         const reserve = legendReserveFor(chart.series.length, fallbackHeight);
         const existing = instances.get(containerId);
 
-        if (existing && existing.seriesCount === chart.series.length) {
+        if (existing && existing.seriesCount === chart.series.length && existing.appearanceKey === appearanceKey) {
             existing.chart.setData(data);
             existing.chart.setSize(plotSize(el, fallbackHeight, reserve));
             applyXScale(existing.chart, xMin, xMax);
@@ -195,11 +201,11 @@ window.quasarCharts = (function () {
         if (existing) destroy(containerId);
 
         const size = plotSize(el, fallbackHeight, reserve);
-        const opts = buildOptions(chart, size.width, size.height, dark, colors, spanSeconds, xMin, xMax);
+        const opts = buildOptions(chart, size.width, size.height, dark, colors, spanSeconds, xMin, xMax, appearance, lines, selectable);
         const chartInstance = new uPlot(opts, data, el);
         applyXScale(chartInstance, xMin, xMax);
 
-        if (chartInstance.over) {
+        if (selectable && chartInstance.over) {
             // Pause real-time refreshes during a drag; the global mouseup handler finalizes the selected
             // range on release (it covers releases past the chart's edge too).
             chartInstance.over.addEventListener("mousedown", () => { chartInstance.__lastSel = null; suspendUpdates = true; });
@@ -217,7 +223,7 @@ window.quasarCharts = (function () {
         });
         ro.observe(el);
 
-        instances.set(containerId, { chart: chartInstance, seriesCount: chart.series.length, ro: ro });
+        instances.set(containerId, { appearanceKey, chart: chartInstance, seriesCount: chart.series.length, ro: ro });
     }
 
     function labelForSeries(names, uniqueName) {
@@ -258,6 +264,7 @@ window.quasarCharts = (function () {
         }
 
         if (!metrics.length || !request.servers || !request.servers.length) {
+            metrics.forEach(metric => destroy(metric.containerId));
             return { ok: true, charts: 0, bytes: 0 };
         }
 
@@ -303,7 +310,7 @@ window.quasarCharts = (function () {
             if (!panel) continue;
             // Attach human-readable series labels from the request's name map (kept server-agnostic).
             chart.series.forEach((s) => { s.label = labelForSeries(names, s.uniqueName); });
-            renderChart(panel.containerId, chart, !!request.dark, request.colors, spanSeconds, heightByMetric.get(chart.metric), xMin, xMax);
+            renderChart(panel.containerId, chart, !!request.dark, request.colors, spanSeconds, heightByMetric.get(chart.metric), xMin, xMax, request.lines === true, request.selectable !== false);
             present.add(panel.containerId);
             rendered++;
         }
@@ -313,7 +320,7 @@ window.quasarCharts = (function () {
             if (!present.has(m.containerId)) destroy(m.containerId);
         }
 
-        return { ok: true, charts: rendered, bytes: text.length };
+        return { ok: true, charts: rendered, bytes: text.length, hasData: (payload.charts || []).some(chart => chart.series.some(series => series.y.some(value => value != null))) };
     }
 
     function disposeAll() {

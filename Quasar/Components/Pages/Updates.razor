@@ -16,9 +16,12 @@
 
 <PageTitle>Updates</PageTitle>
 
-<MudStack Spacing="3">
-    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-        <MudText Typo="Typo.h5">Updates</MudText>
+<div class="quasar-layout quasar-gap-3">
+    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
+        <QuasarPageHeading Section="Tools & settings">
+    <Title>Updates</Title>
+    <Description>Manage Quasar, cluster packages, and dedicated server runtimes.</Description>
+</QuasarPageHeading>
         <MudSpacer />
         <MudButton Variant="Variant.Outlined"
                    Color="Color.Primary"
@@ -27,7 +30,7 @@
                    OnClick="CheckNowAsync">
             Check Quasar
         </MudButton>
-    </MudStack>
+    </div>
 
     <MudAlert Severity="@GetStatusSeverity()" Variant="Variant.Outlined">
         @_snapshot.Message
@@ -39,9 +42,9 @@
             appsettings.json could not be merged automatically. Compare the current and incoming files, choose a starting point, edit the final file if needed, then save it.
         </MudAlert>
 
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="2">
-                <MudText Typo="Typo.h6">appsettings.json conflict</MudText>
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">appsettings.json conflict</h2>
                 @if (!string.IsNullOrWhiteSpace(_snapshot.AppSettingsConflictPath))
                 {
                     <CopyablePath Value="@_snapshot.AppSettingsConflictPath" />
@@ -49,7 +52,7 @@
 
                 <MudGrid Spacing="2">
                     <MudItem xs="12" md="6">
-                        <MudStack Spacing="1">
+                        <div class="quasar-layout quasar-gap-1">
                             <MudTextField T="string"
                                           Value="_currentAppSettingsText"
                                           Label="Current appsettings.json"
@@ -67,10 +70,10 @@
                                        OnClick="TakeCurrentAppSettings">
                                 Take current
                             </MudButton>
-                        </MudStack>
+                        </div>
                     </MudItem>
                     <MudItem xs="12" md="6">
-                        <MudStack Spacing="1">
+                        <div class="quasar-layout quasar-gap-1">
                             <MudTextField T="string"
                                           Value="_incomingAppSettingsText"
                                           Label="Incoming appsettings.json"
@@ -88,7 +91,7 @@
                                        OnClick="TakeIncomingAppSettings">
                                 Take incoming
                             </MudButton>
-                        </MudStack>
+                        </div>
                     </MudItem>
                     <MudItem xs="12">
                         <MudTextField T="string"
@@ -105,7 +108,7 @@
                     </MudItem>
                 </MudGrid>
 
-                <MudStack Row="true" Spacing="2">
+                <div class="quasar-layout quasar-layout-row quasar-gap-2">
                     <MudButton Variant="Variant.Filled"
                                Color="Color.Primary"
                                StartIcon="@Icons.Material.Filled.Save"
@@ -113,9 +116,9 @@
                                OnClick="SaveAppSettingsResolutionAsync">
                         Save resolution
                     </MudButton>
-                </MudStack>
-            </MudStack>
-        </MudPaper>
+                </div>
+            </div>
+        </section>
     }
 
     @if (_includePrerelease)
@@ -127,16 +130,16 @@
 
     <MudGrid>
         <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">Quasar UI</MudText>
-                    <MudText Typo="Typo.body2">
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Quasar UI</h2>
+                    <p class="quasar-text quasar-type-body2">
                         Current version: <strong>@_snapshot.CurrentVersion</strong>
-                    </MudText>
+                    </p>
 
                     @if (_snapshot.WebReleases.Count == 0)
                     {
-                        <MudText Typo="Typo.body2">No UI releases detected.</MudText>
+                        <p class="quasar-text quasar-type-body2">No UI releases detected.</p>
                     }
                     else
                     {
@@ -169,11 +172,11 @@
 
                             @if (!string.IsNullOrWhiteSpace(_snapshot.Web.StagedDirectory))
                             {
-                                <MudText Typo="Typo.caption">Staged at @_snapshot.Web.StagedDirectory</MudText>
+                                <span class="quasar-text quasar-type-caption">Staged at @_snapshot.Web.StagedDirectory</span>
                             }
                         }
 
-                        <MudStack Row="true" Spacing="2">
+                        <div class="quasar-layout quasar-layout-row quasar-gap-2">
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Primary"
                                        StartIcon="@Icons.Material.Filled.Download"
@@ -188,30 +191,30 @@
                                        OnClick="ActivateAsync">
                                 Activate
                             </MudButton>
-                        </MudStack>
+                        </div>
                         @if (_snapshot.Web is { IsStaged: true, IsCurrent: false } && !IsUnderBootstrap)
                         {
-                            <MudText Typo="Typo.caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</MudText>
+                            <span class="quasar-text quasar-type-caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</span>
                         }
                     }
-                </MudStack>
-            </MudPaper>
+                </div>
+            </section>
         </MudItem>
 
         <MudItem xs="12" md="6">
-            <MudPaper Class="pa-4" Style="height:100%">
-                <MudStack Spacing="3">
-                    <MudText Typo="Typo.h6">Bootstrap</MudText>
-                    <MudText Typo="Typo.body2">
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Bootstrap</h2>
+                    <p class="quasar-text quasar-type-body2">
                         Bootstrap updates are installed automatically by the launcher when a newer primary Quasar release is available. Force activation asks the launcher to run that update now.
-                    </MudText>
-                    <MudText Typo="Typo.body2">
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
                         Current version: <strong>@FormatBootstrapVersion()</strong>
-                    </MudText>
+                    </p>
 
                     @if (_snapshot.Bootstrap is null)
                     {
-                        <MudText Typo="Typo.body2">No bootstrap update detected.</MudText>
+                        <p class="quasar-text quasar-type-body2">No bootstrap update detected.</p>
                     }
                     else
                     {
@@ -236,25 +239,25 @@
                         </MudButton>
                         @if (!IsUnderBootstrap)
                         {
-                            <MudText Typo="Typo.caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</MudText>
+                            <span class="quasar-text quasar-type-caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</span>
                         }
                     }
-                </MudStack>
-            </MudPaper>
+                </div>
+            </section>
         </MudItem>
 
         @if (OperatingSystem.IsLinux() && ClusterRows.Count > 0)
         {
         <MudItem xs="12">
-            <MudPaper Class="pa-4">
-                <MudStack Spacing="2">
-                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-2">
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
                         <div>
-                            <MudText Typo="Typo.h6">Cluster packages</MudText>
-                            <MudText Typo="Typo.body2">Latest release: @(_clusterReleaseSnapshot.Release?.Version ?? "Unknown") · Last check: @FormatTimestamp(_clusterReleaseSnapshot.LastCheckedUtc)</MudText>
+                            <h2 class="quasar-text quasar-type-h6">Cluster packages</h2>
+                            <p class="quasar-text quasar-type-body2">Latest release: @(_clusterReleaseSnapshot.Release?.Version ?? "Unknown") · Last check: @FormatTimestamp(_clusterReleaseSnapshot.LastCheckedUtc)</p>
                         </div>
                         <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_clusterBusy" OnClick="CheckClusterNowAsync">Check cluster release</MudButton>
-                    </MudStack>
+                    </div>
                     @if (_clusterReleaseSnapshot.Error is { } error)
                     {
                         <MudAlert Severity="Severity.Warning">@error</MudAlert>
@@ -268,23 +271,23 @@
                             <MudTd><MudButton Href="@($"/clusters/{Uri.EscapeDataString(context.UniqueName)}")" Variant="Variant.Text">Open cluster</MudButton></MudTd>
                         </RowTemplate>
                     </MudTable>
-                    <MudText Typo="Typo.caption">Release checks only notify. Open a cluster to stage and select the release, prepare it on the Hosts, and start its update.</MudText>
-                </MudStack>
-            </MudPaper>
+                    <span class="quasar-text quasar-type-caption">Release checks only notify. Open a cluster to stage and select the release, prepare it on the Hosts, and start its update.</span>
+                </div>
+            </section>
         </MudItem>
         }
 
         <MudItem xs="12">
-            <MudPaper Class="pa-4">
-                <MudStack Spacing="3">
-                    <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="2">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-3">
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2">
                         <div>
-                            <MudText Typo="Typo.h6">Managed Runtime</MudText>
-                            <MudText Typo="Typo.body2">
+                            <h2 class="quasar-text quasar-type-h6">Managed Runtime</h2>
+                            <p class="quasar-text quasar-type-body2">
                                 Magnetar checks run every @ManagedRuntimeWarmupService.MagnetarUpdateCheckPeriod.TotalMinutes.ToString("0") min. Dedicated Server checks run at startup and when requested here.
-                            </MudText>
+                            </p>
                         </div>
-                        <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Primary"
                                        StartIcon="@Icons.Material.Filled.Refresh"
@@ -299,8 +302,8 @@
                                        OnClick="CheckDedicatedServerNowAsync">
                                 Check Dedicated Server
                             </MudButton>
-                        </MudStack>
-                    </MudStack>
+                        </div>
+                    </div>
 
                     <MudTable Items="@ManagedRuntimeRows" Dense="true" Hover="true">
                         <HeaderContent>
@@ -321,14 +324,14 @@
                                 }
                                 else
                                 {
-                                    <MudText Typo="Typo.body2">-</MudText>
+                                    <p class="quasar-text quasar-type-body2">-</p>
                                 }
                             </MudTd>
                             <MudTd DataLabel="Last check">@FormatTimestamp(context.LastCheckedUtc)</MudTd>
                         </RowTemplate>
                     </MudTable>
 
-                    <MudDivider />
+                    <hr class="quasar-divider" />
                     <MudSelect T="DedicatedServerLaunchUpdateMode"
                                Value="_launchUpdateMode"
                                ValueChanged="HandleLaunchUpdateModeChanged"
@@ -340,30 +343,30 @@
                         <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Update">Update - check for a newer build (default)</MudSelectItem>
                         <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Validate">Validate - full re-check of every file (slowest)</MudSelectItem>
                     </MudSelect>
-                    <MudText Typo="Typo.body2">
+                    <p class="quasar-text quasar-type-body2">
                         Controls what happens to an already-installed Dedicated Server when a server starts. Validate re-hashes the whole multi-GB install and adds minutes to every launch; Update only downloads when Steam reports a newer build.
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+                    </p>
+                </div>
+            </section>
         </MudItem>
 
         <MudItem xs="12">
-            <MudPaper Class="pa-4">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">Source</MudText>
-                    <MudText Typo="Typo.body2">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-2">
+                    <h2 class="quasar-text quasar-type-h6">Source</h2>
+                    <p class="quasar-text quasar-type-body2">
                         GitHub: @Options.Owner/@Options.Repository
-                    </MudText>
-                    <MudText Typo="Typo.body2">
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
                         Check interval: @Options.CheckInterval.TotalMinutes.ToString("0") min
-                    </MudText>
-                    <MudText Typo="Typo.body2">
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
                         Release stream: @(_includePrerelease ? "stable and prerelease" : "stable only")
-                    </MudText>
-                    <MudDivider />
-                    <MudStack Spacing="2">
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="1">
-                            <MudText Typo="Typo.subtitle1">GitHub token</MudText>
+                    </p>
+                    <hr class="quasar-divider" />
+                    <div class="quasar-layout quasar-gap-2">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                            <h3 class="quasar-text quasar-type-subtitle1">GitHub token</h3>
                             <MudChip T="string"
                                      Size="Size.Small"
                                      Variant="Variant.Outlined"
@@ -371,21 +374,21 @@
                                      Icon="@GetGitHubTokenChipIcon()">
                                 @FormatGitHubTokenStatus()
                             </MudChip>
-                        </MudStack>
+                        </div>
                         @if (!string.IsNullOrWhiteSpace(_snapshot.GitHubTokenWarning))
                         {
                             <MudAlert Severity="@(_snapshot.GitHubTokenExpired ? Severity.Error : Severity.Warning)" Variant="Variant.Outlined" Dense="true">
                                 @_snapshot.GitHubTokenWarning
                             </MudAlert>
                         }
-                        <MudText Typo="Typo.body2">
+                        <p class="quasar-text quasar-type-body2">
                             Add a GitHub personal access token so Quasar update checks use your account rate limit instead of the shared public IP limit.
-                        </MudText>
+                        </p>
                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                            <MudStack Spacing="1">
-                                <MudText Typo="Typo.body2">
+                            <div class="quasar-layout quasar-gap-1">
+                                <p class="quasar-text quasar-type-body2">
                                     Create a classic personal access token without any permissions:
-                                </MudText>
+                                </p>
                                 <ol class="mud-typography mud-typography-body2 ma-0 pl-4">
                                     <li>Open GitHub's classic token creation page.</li>
                                     <li>Set Note to Quasar update checks and set an expiration you can renew before it ends.</li>
@@ -399,12 +402,12 @@
                                          Typo="Typo.subtitle2">
                                     Open GitHub classic token page
                                 </MudLink>
-                            </MudStack>
+                            </div>
                         </MudAlert>
-                        <MudText Typo="Typo.caption">
+                        <span class="quasar-text quasar-type-caption">
                             Stored encrypted in @System.IO.Path.GetFileName(MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath()) with the same local Data Protection keyring used for the Steam Workshop API key.
-                        </MudText>
-                        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Spacing="2">
+                        </span>
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2">
                             <MudTextField
                                 @bind-Value="_githubToken"
                                 Label="GitHub token"
@@ -429,9 +432,9 @@
                                        OnClick="ClearGitHubTokenAsync">
                                 Clear
                             </MudButton>
-                        </MudStack>
-                    </MudStack>
-                    <MudDivider />
+                        </div>
+                    </div>
+                    <hr class="quasar-divider" />
                     <MudSwitch T="bool"
                                Value="_includePrerelease"
                                ValueChanged="HandleIncludePrereleaseChanged"
@@ -446,23 +449,23 @@
                                  ValueChanged="HandleAutoStageWebUpdatesChanged"
                                  Disabled="_busy"
                                  Label="Automatically stage UI updates after checks" />
-                    <MudText Typo="Typo.caption">
+                    <span class="quasar-text quasar-type-caption">
                         Turn this off to only queue detected versions, then stage and activate the selected version manually.
-                    </MudText>
-                    <MudText Typo="Typo.body2">
+                    </span>
+                    <p class="quasar-text quasar-type-body2">
                         Last check: @(FormatTimestamp(_snapshot.LastCheckedUtc))
-                    </MudText>
-                    <MudText Typo="Typo.body2">
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
                         UI asset: @Options.WebAssetName
-                    </MudText>
-                    <MudText Typo="Typo.body2">
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
                         Bootstrap asset: @Options.BootstrapAssetName
-                    </MudText>
-                </MudStack>
-            </MudPaper>
+                    </p>
+                </div>
+            </section>
         </MudItem>
     </MudGrid>
-</MudStack>
+</div>
 
 @code {
     private QuasarUpdateSnapshot _snapshot = new();

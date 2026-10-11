@@ -1,6 +1,7 @@
 @inject QuasarUiPluginCatalog UiPlugins
 
 <nav class="quasar-nav" aria-label="Quasar sections">
+    <div class="quasar-nav-label">Control plane</div>
     <div class="quasar-nav-group">
         <NavLink class="quasar-nav-link" href="/" Match="NavLinkMatch.All"><QuasarIcon Icon="@QuasarIcons.Dashboard" />
             Dashboard
@@ -39,7 +40,7 @@
 
     <hr />
 
-    <div class="quasar-nav-label">Tools</div>
+    <div class="quasar-nav-label">Infrastructure & tools</div>
     <div class="quasar-nav-group">
         <NavLink class="quasar-nav-link" href="/hosts"><QuasarIcon Icon="@QuasarIcons.Dns" />
             Host machines
@@ -62,6 +63,7 @@
 
     <hr />
 
+    <div class="quasar-nav-label">Settings</div>
     <div class="quasar-nav-group">
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <NavLink class="quasar-nav-link" href="/notifications"><QuasarIcon Icon="@QuasarIcons.Notifications" />

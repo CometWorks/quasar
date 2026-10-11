@@ -334,17 +334,18 @@ The Blazor Server UI is migrating from MudBlazor to compact native HTML/CSS
 controls while retaining Blazor Server, supervisor services, and existing
 permissions. Migrated surfaces include the shell/navigation, appearance editor,
 dashboard/setup/runtime preparation, server list/cards/details, cluster overview
-and administration, notifications, and server listing settings. Other routed
-pages, configuration editors, and host dialogs/toasts still require MudBlazor.
+and administration, notifications, and server listing settings. Shared native page headings/panels/layout now cover operational routes,
+configuration editors, and dialogs. Remaining behavioral controls and host
+dialog/toast services still require MudBlazor.
 The external viewer and UI plugin template have native controls and preview
 hosts without that dependency. See the [migration record](Design/QuasarUiRewrite.md)
 for the workflow inventory and verification limits.
 
 Branding remains in `branding.json`, with separate light and dark palettes,
-all 29 color fields, app identity, logos, and favicon. The original Quasar,
-Midnight, Slate, and High Contrast presets retain their values. The optional
-**CometWorks** preset adds the approved charcoal/cyan style. Existing settings
-are not overwritten; select and save that preset in Appearance to adopt it.
+all 29 color fields, app identity, logos, and favicon. The Quasar default
+uses the approved charcoal/cyan style; CometWorks remains an alias. Only the
+exact old Quasar light/dark palette pair upgrades on normalization. Custom
+palettes and identity/assets survive, as do Midnight, Slate, and High Contrast.
 
 `QuasarTheme.BuildCss` supplies normalized `--quasar-palette-*` tokens to the
 native shell and draft preview. Its Mud theme adapter supplies the same colors

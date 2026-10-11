@@ -2,13 +2,13 @@
 
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.body2">
+        <div class="quasar-layout quasar-gap-2">
+            <p class="quasar-text quasar-type-body2">
                 Store the Steam Web API key used by Quasar server-side for Workshop search.
-            </MudText>
+            </p>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.body2">Generate or find the key on Steam's developer page.</MudText>
+                <div class="quasar-layout quasar-gap-1">
+                    <p class="quasar-text quasar-type-body2">Generate or find the key on Steam's developer page.</p>
                     <MudLink Href="https://steamcommunity.com/dev/apikey"
                              Target="_blank"
                              Underline="Underline.Always"
@@ -17,11 +17,11 @@
                              Style="font-weight: 700;">
                         Open Steam Web API key page
                     </MudLink>
-                </MudStack>
+                </div>
             </MudAlert>
-            <MudText Typo="Typo.body2" Color="Color.Secondary">
+            <p class="quasar-text quasar-type-body2 quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                 @StorageProtectionDescription
-            </MudText>
+            </p>
             <MudTextField
                 @bind-Value="_webApiKey"
                 Label="Steam Web API key"
@@ -30,7 +30,7 @@
                 Immediate="true"
                 Adornment="Adornment.Start"
                 AdornmentIcon="@Icons.Material.Filled.Key" />
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>

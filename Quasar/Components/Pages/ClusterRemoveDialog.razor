@@ -1,7 +1,7 @@
 <MudDialog>
     <DialogContent>
-        <MudStack Spacing="3">
-            <MudText>Remove '@Cluster.DisplayName' from Quasar? Its definition will be archived. Worlds, plugins, Host executor data and backups remain on disk.</MudText>
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body1">Remove '@Cluster.DisplayName' from Quasar? Its definition will be archived. Worlds, plugins, Host executor data and backups remain on disk.</p>
             <MudCheckBox T="bool" @bind-Value="_forget" Label="Forget registration without checking remote processes" />
             @if (_forget)
             {
@@ -11,9 +11,9 @@
             }
             else
             {
-                <MudText>Managed processes must be stopped and all operations complete. Quasar checks each Host executor before removing the definition.</MudText>
+                <p class="quasar-text quasar-type-body1">Managed processes must be stopped and all operations complete. Quasar checks each Host executor before removing the definition.</p>
             }
-        </MudStack>
+        </div>
     </DialogContent>
     <DialogActions>
         <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>

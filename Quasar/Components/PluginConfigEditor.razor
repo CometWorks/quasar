@@ -13,11 +13,11 @@
 }
 else if (_tabs.Count == 0)
 {
-    <MudText Typo="Typo.body2" Class="mud-text-secondary">No configurable options.</MudText>
+    <p class="quasar-text quasar-type-body2 mud-text-secondary">No configurable options.</p>
 }
 else
 {
-    <MudStack Spacing="2">
+    <div class="quasar-layout quasar-gap-2">
         @if (_tabs.Count == 1)
         {
             @RenderContainerBody(_tabs[0])
@@ -34,10 +34,10 @@ else
             </MudTabs>
         }
 
-        <MudStack Row="true" Wrap="Wrap.Wrap" Justify="Justify.FlexEnd" AlignItems="AlignItems.Center" Class="mt-2">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-flexend quasar-gap-3 mt-2">
             @if (_dirty)
             {
-                <MudText Typo="Typo.caption" Color="Color.Warning">Unsaved changes</MudText>
+                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Unsaved changes</span>
             }
             <MudButton Variant="Variant.Outlined"
                        Color="Color.Default"
@@ -53,8 +53,8 @@ else
                        OnClick="ApplyAsync">
                 @(_applying ? "Applying..." : ApplyLabel)
             </MudButton>
-        </MudStack>
-    </MudStack>
+        </div>
+    </div>
 }
 
 @code {
@@ -174,7 +174,7 @@ else
     private bool HasContent(ContainerModel container)
         => container.Fields.Count > 0 || container.Children.Any(HasContent);
 
-    private RenderFragment RenderContainerBody(ContainerModel container) => @<MudStack Spacing="2" Class="plugin-config-container">
+    private RenderFragment RenderContainerBody(ContainerModel container) => @<div class="quasar-layout quasar-gap-2 plugin-config-container">
         @foreach (var group in container.Children.Where(child => string.Equals(child.Kind, "column", StringComparison.OrdinalIgnoreCase)).Chunk(3))
         {
             <MudGrid Spacing="2">
@@ -196,7 +196,7 @@ else
         {
             @RenderField(field, () => _values[field.JsonKey], value => SetObjectValue(_values, field.JsonKey, value), field.JsonKey, null)
         }
-    </MudStack>;
+    </div>;
 
     private RenderFragment RenderContainerContent(ContainerModel container, bool framed) => @<div>
         @if (framed || string.Equals(container.Kind, "section", StringComparison.OrdinalIgnoreCase))
@@ -211,7 +211,7 @@ else
         {
             @if (!string.IsNullOrWhiteSpace(container.Caption))
             {
-                <MudText Typo="Typo.subtitle2" Class="mb-2">@container.Caption</MudText>
+                <h3 class="quasar-text quasar-type-subtitle2 mb-2">@container.Caption</h3>
             }
             @RenderContainerBody(container)
         }
@@ -314,7 +314,7 @@ else
     private RenderFragment RenderDescription(FieldModel field) => @<text>
         @if (!string.IsNullOrWhiteSpace(field.Description))
         {
-            <MudText Typo="Typo.caption" Class="mud-text-secondary d-block">@field.Description</MudText>
+            <span class="quasar-text quasar-type-caption mud-text-secondary d-block">@field.Description</span>
         }
     </text>;
 
@@ -329,15 +329,15 @@ else
         }
     </MudSelect>;
 
-    private RenderFragment RenderColorField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set) => @<MudStack Spacing="1">
+    private RenderFragment RenderColorField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set) => @<div class="quasar-layout quasar-gap-1">
         <MudColorPicker Label="@field.Name"
                         Value="@GetMudColor(get())"
                         ValueChanged="@((MudColor color) => { set(JsonValue.Create(FormatColor(color, field.HasAlpha))); MarkDirty(); })"
                         ShowAlpha="@field.HasAlpha"
                         ColorPickerView="ColorPickerView.Spectrum"
                         HelperText="@field.Description" />
-        <MudText Typo="Typo.caption" Class="mud-text-secondary">@GetString(get())</MudText>
-    </MudStack>;
+        <span class="quasar-text quasar-type-caption mud-text-secondary">@GetString(get())</span>
+    </div>;
 
     private RenderFragment RenderVectorField(
         FieldModel field,
@@ -345,8 +345,8 @@ else
         Action<JsonNode?> set,
         string path,
         bool integer,
-        int dimensions) => @<MudPaper Class="pa-3 plugin-config-composite" Elevation="0">
-        <MudText Typo="Typo.subtitle2">@field.Name</MudText>
+        int dimensions) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
         @RenderDescription(field)
         <MudGrid Spacing="2" Class="mt-1">
             @foreach (var component in VectorComponents.Take(dimensions))
@@ -360,10 +360,10 @@ else
                 </MudItem>
             }
         </MudGrid>
-    </MudPaper>;
+    </section>;
 
-    private RenderFragment RenderPoseField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<MudPaper Class="pa-3 plugin-config-composite" Elevation="0">
-        <MudText Typo="Typo.subtitle2">@field.Name</MudText>
+    private RenderFragment RenderPoseField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
         @RenderDescription(field)
         <MudGrid Spacing="2" Class="mt-1">
             <MudItem xs="12" lg="4">
@@ -376,10 +376,10 @@ else
                 @RenderNestedVector("Up", get, set, "up", integer: false)
             </MudItem>
         </MudGrid>
-    </MudPaper>;
+    </section>;
 
-    private RenderFragment RenderNestedVector(string label, Func<JsonNode?> get, Action<JsonNode?> set, string key, bool integer) => @<MudPaper Class="pa-2 plugin-config-nested" Elevation="0">
-        <MudText Typo="Typo.caption" Class="mud-text-secondary">@label</MudText>
+    private RenderFragment RenderNestedVector(string label, Func<JsonNode?> get, Action<JsonNode?> set, string key, bool integer) => @<section class="quasar-panel pa-2 plugin-config-nested">
+        <span class="quasar-text quasar-type-caption mud-text-secondary">@label</span>
         <MudGrid Spacing="1">
             @foreach (var component in VectorComponents)
             {
@@ -392,25 +392,25 @@ else
                 </MudItem>
             }
         </MudGrid>
-    </MudPaper>;
+    </section>;
 
     private RenderFragment RenderStructField(
         FieldModel field,
         Func<JsonNode?> get,
         Action<JsonNode?> set,
         string path,
-        TreeContext? treeContext) => @<MudPaper Class="pa-3 plugin-config-composite" Elevation="0">
-        <MudText Typo="Typo.subtitle2">@field.Name</MudText>
+        TreeContext? treeContext) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
         @RenderDescription(field)
         @RenderStructMembers(field.StructName, get, set, path, treeContext)
-    </MudPaper>;
+    </section>;
 
     private RenderFragment RenderStructMembers(
         string? structName,
         Func<JsonNode?> get,
         Action<JsonNode?> set,
         string path,
-        TreeContext? treeContext) => @<MudStack Spacing="2" Class="mt-2">
+        TreeContext? treeContext) => @<div class="quasar-layout quasar-gap-2 mt-2">
         @{
             var structInfo = GetStruct(structName);
             var obj = EnsureObject(get, set);
@@ -428,23 +428,23 @@ else
                 @RenderField(memberField, () => obj[memberField.JsonKey], value => SetObjectValue(obj, memberField.JsonKey, value), memberPath, treeContext)
             }
         }
-    </MudStack>;
+    </div>;
 
-    private RenderFragment RenderListField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<MudPaper Class="pa-3 plugin-config-composite" Elevation="0">
+    private RenderFragment RenderListField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
         @{
             var array = EnsureArray(get, set);
             var maxReached = field.MaxCount is > 0 && array.Count >= field.MaxCount.Value;
             var listField = FieldModel.FromListElement(field);
             var treeContext = BuildTreeContext(field, array);
         }
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.subtitle2">@field.Name</MudText>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+            <div class="quasar-layout quasar-gap-0">
+                <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
                 @if (!string.IsNullOrWhiteSpace(field.Description))
                 {
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@field.Description</MudText>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">@field.Description</span>
                 }
-            </MudStack>
+            </div>
             <MudButton Variant="Variant.Outlined"
                        Color="Color.Primary"
                        Size="Size.Small"
@@ -453,10 +453,10 @@ else
                        OnClick="@(() => AddListItem(array, field))">
                 Add
             </MudButton>
-        </MudStack>
+        </div>
         @if (field.MaxCount is > 0)
         {
-            <MudText Typo="Typo.caption" Class="mud-text-secondary">@array.Count / @field.MaxCount items</MudText>
+            <span class="quasar-text quasar-type-caption mud-text-secondary">@array.Count / @field.MaxCount items</span>
         }
         @if (array.Count == 0)
         {
@@ -471,15 +471,15 @@ else
                     var itemPath = $"{path}[{index}]";
                     <MudExpansionPanel Expanded="@(index == 0)">
                         <TitleContent>
-                            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-                                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1" Style="@($"padding-left:{entry.Depth * 1.25:0.##}rem")">
+                            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1" style="@($"padding-left:{entry.Depth * 1.25:0.##}rem")">
                                     @if (treeContext is not null)
                                     {
-                                        <MudIcon Icon="@Icons.Material.Filled.AccountTree" Size="Size.Small" />
+                                        <QuasarIcon Icon="@Icons.Material.Filled.AccountTree" />
                                     }
-                                    <MudText Typo="Typo.subtitle2">@GetListItemCaption(field, array[index], index)</MudText>
-                                </MudStack>
-                                <MudStack Row="true" Spacing="0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">@GetListItemCaption(field, array[index], index)</h3>
+                                </div>
+                                <div class="quasar-layout quasar-layout-row quasar-gap-0">
                                     <MudTooltip Text="Move item up">
                                         <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
                                     </MudTooltip>
@@ -489,8 +489,8 @@ else
                                     <MudTooltip Text="Remove item">
                                         <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
                                     </MudTooltip>
-                                </MudStack>
-                            </MudStack>
+                                </div>
+                            </div>
                         </TitleContent>
                         <ChildContent>
                             @RenderStructMembers(field.ElementStruct, () => array[index], value => SetArrayValue(array, index, value), itemPath, treeContext?.ForIndex(index))
@@ -501,18 +501,18 @@ else
         }
         else
         {
-            <MudStack Spacing="1" Class="mt-2">
+            <div class="quasar-layout quasar-gap-1 mt-2">
                 @for (var i = 0; i < array.Count; i++)
                 {
                     var index = i;
                     var itemPath = $"{path}[{index}]";
-                    <MudPaper Class="pa-2 plugin-config-list-row" Elevation="0">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
-                            <MudText Typo="Typo.caption" Class="mud-text-secondary plugin-config-row-index">@(index + 1)</MudText>
+                    <section class="quasar-panel pa-2 plugin-config-list-row">
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
+                            <span class="quasar-text quasar-type-caption mud-text-secondary plugin-config-row-index">@(index + 1)</span>
                             <div class="plugin-config-row-editor">
                                 @RenderField(listField.WithName($"Item {index + 1}"), () => array[index], value => SetArrayValue(array, index, value), itemPath, null)
                             </div>
-                            <MudStack Row="true" Spacing="0">
+                            <div class="quasar-layout quasar-layout-row quasar-gap-0">
                                 <MudTooltip Text="Move item up">
                                     <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
                                 </MudTooltip>
@@ -522,15 +522,15 @@ else
                                 <MudTooltip Text="Remove item">
                                     <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
                                 </MudTooltip>
-                            </MudStack>
-                        </MudStack>
-                    </MudPaper>
+                            </div>
+                        </div>
+                    </section>
                 }
-            </MudStack>
+            </div>
         }
-    </MudPaper>;
+    </section>;
 
-    private RenderFragment RenderDictField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<MudPaper Class="pa-3 plugin-config-composite" Elevation="0">
+    private RenderFragment RenderDictField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
         @{
             var dict = EnsureObject(get, set);
             var entries = dict.ToList();
@@ -538,20 +538,20 @@ else
             var valueField = FieldModel.FromDictValue(field);
             var keyValue = _newDictKeys.TryGetValue(path, out var pendingKey) ? pendingKey : string.Empty;
         }
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween">
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.subtitle2">@field.Name</MudText>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+            <div class="quasar-layout quasar-gap-0">
+                <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
                 @if (!string.IsNullOrWhiteSpace(field.Description))
                 {
-                    <MudText Typo="Typo.caption" Class="mud-text-secondary">@field.Description</MudText>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">@field.Description</span>
                 }
-            </MudStack>
+            </div>
             @if (field.MaxCount is > 0)
             {
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@entries.Count / @field.MaxCount</MudChip>
             }
-        </MudStack>
-        <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.End" Spacing="1" Class="mt-2">
+        </div>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-1 mt-2">
             <MudTextField T="string"
                           Label="@($"New {field.KeyType ?? "key"} key")"
                           Value="@keyValue"
@@ -564,20 +564,20 @@ else
                        OnClick="@(() => AddDictEntry(dict, field, path))">
                 Add entry
             </MudButton>
-        </MudStack>
+        </div>
         @if (entries.Count == 0)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">No entries.</MudAlert>
         }
         else
         {
-            <MudStack Spacing="1" Class="mt-2">
+            <div class="quasar-layout quasar-gap-1 mt-2">
                 @foreach (var entry in entries)
                 {
                     var key = entry.Key;
                     var itemPath = $"{path}.{key}";
-                    <MudPaper Class="pa-2 plugin-config-list-row" Elevation="0">
-                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                    <section class="quasar-panel pa-2 plugin-config-list-row">
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
                             <MudTextField T="string"
                                           Label="Key"
                                           Value="@key"
@@ -590,12 +590,12 @@ else
                             <MudTooltip Text="Remove entry">
                                 <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDictEntryAsync(dict, key))" />
                             </MudTooltip>
-                        </MudStack>
-                    </MudPaper>
+                        </div>
+                    </section>
                 }
-            </MudStack>
+            </div>
         }
-    </MudPaper>;
+    </section>;
 
     private RenderFragment RenderTreeParentSelector(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, TreeContext treeContext) => @<MudSelect T="string"
         Label="@field.Name"

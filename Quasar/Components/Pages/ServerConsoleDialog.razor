@@ -4,179 +4,76 @@
 
 <MudDialog>
     <DialogContent>
-        <MudTabs Elevation="0" Rounded="true" ApplyEffectsToContainer="true" TabPanelsClass="pt-3" @bind-ActivePanelIndex="_activeTabIndex">
-            <MudTabPanel Text="Server log" Icon="@Icons.Material.Filled.Terminal">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-log-selector-row">
-                        <MudSelect T="string"
-                                   Label="Log file"
-                                   Value="_serverLogSelection"
-                                   ValueChanged="HandleServerLogSelectionChanged"
-                                   Variant="Variant.Outlined"
-                                   Margin="Margin.Dense"
-                                   Dense="true"
-                                   Class="quasar-log-file-select">
-                            <MudSelectItem T="string" Value="@LatestLogSelection">Most recent</MudSelectItem>
-                            @foreach (var option in _serverLogOptions)
-                            {
-                                <MudSelectItem T="string" Value="@option.FileName">@option.Label</MudSelectItem>
-                            }
-                        </MudSelect>
-                        <MudStack Spacing="0">
-                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@ServerLogStatusText()</MudText>
-                            <CopyablePath Value="@_serverLogPath" />
-                        </MudStack>
-                    </MudStack>
-                    <MudStack Row="true" Spacing="1">
-                        <MudTooltip Text="Download full server log">
-                            <MudIconButton Icon="@Icons.Material.Filled.Download"
-                                           OnClick="DownloadServerLogAsync"
-                                           Disabled="@(!_serverLogLoaded || _serverLogMissing)"
-                                           Size="Size.Small" />
-                        </MudTooltip>
-                        <MudTooltip Text="Shortcuts in this dialog: Ctrl or Alt + PageUp/PageDown rolls 250 lines; Ctrl or Alt + Home/End jumps to the oldest or newest lines.">
-                            <MudIcon Icon="@Icons.Material.Filled.Keyboard" Size="Size.Small" Color="Color.Default" />
-                        </MudTooltip>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowServerLogErrorsAsync">Errors</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshServerLogAsync" Disabled="@(!CanRefreshServerLog)">Refresh</MudButton>
-                    </MudStack>
-                </MudStack>
-
-                @if (_serverLogMissing)
-                {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        Start the server at least once so Space Engineers Dedicated Server can write its log.
-                    </MudAlert>
-                }
-                else if (!string.IsNullOrEmpty(_serverLogError))
-                {
-                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_serverLogError</MudAlert>
-                }
-                else
-                {
-                    <div id="@_scrollContainerId" class="quasar-console-output" tabindex="0">
-                        @foreach (var line in _serverLogLines)
-                        {
-                            <div class="quasar-log-line">@line</div>
-                        }
-                    </div>
-                }
-            </MudTabPanel>
-
-            <MudTabPanel Text="Magnetar info log" Icon="@Icons.Material.Filled.Description">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2">
-                    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="quasar-log-selector-row">
-                        <MudSelect T="string"
-                                   Label="Log file"
-                                   Value="_infoLogSelection"
-                                   ValueChanged="HandleInfoLogSelectionChanged"
-                                   Variant="Variant.Outlined"
-                                   Margin="Margin.Dense"
-                                   Dense="true"
-                                   Class="quasar-log-file-select">
-                            <MudSelectItem T="string" Value="@LatestLogSelection">Most recent</MudSelectItem>
-                            @foreach (var option in _infoLogOptions)
-                            {
-                                <MudSelectItem T="string" Value="@option.FileName">@option.Label</MudSelectItem>
-                            }
-                        </MudSelect>
-                        <MudStack Spacing="0">
-                            <MudText Typo="Typo.body2" Class="mud-text-secondary">@InfoLogStatusText()</MudText>
-                            <CopyablePath Value="@_infoLogPath" />
-                        </MudStack>
-                    </MudStack>
-                    <MudStack Row="true" Spacing="1">
-                        <MudTooltip Text="Download info log">
-                            <MudIconButton Icon="@Icons.Material.Filled.Download"
-                                           OnClick="DownloadInfoLogAsync"
-                                           Disabled="@(!_infoLogLoaded || _infoLogMissing)"
-                                           Size="Size.Small" />
-                        </MudTooltip>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowInfoLogErrorsAsync">Errors</MudButton>
-                        <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInfoLogAsync" Disabled="@(!CanRefreshInfoLog)">Refresh</MudButton>
-                    </MudStack>
-                </MudStack>
-
-                @if (_infoLogMissing)
-                {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        Start the server at least once so Magnetar can write its log. Plugin startup exceptions appear here.
-                    </MudAlert>
-                }
-                else if (!string.IsNullOrEmpty(_infoLogError))
-                {
-                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_infoLogError</MudAlert>
-                }
-                else
-                {
-                    <div id="@_infoLogScrollContainerId" class="quasar-console-output">
-                        <pre class="quasar-info-log-pre">@_infoLogContent</pre>
-                    </div>
-                }
-            </MudTabPanel>
-        </MudTabs>
+        <div class="quasar-console-tabs" role="group" aria-label="Log source">
+            <button type="button" class="quasar-button" aria-pressed="@(_activeTabIndex == ServerLogTabIndex ? "true" : "false")" @onclick="@(() => _activeTabIndex = ServerLogTabIndex)"><QuasarIcon Icon="@QuasarIcons.Terminal" />Server log</button>
+            <button type="button" class="quasar-button" aria-pressed="@(_activeTabIndex == InfoLogTabIndex ? "true" : "false")" @onclick="@(() => _activeTabIndex = InfoLogTabIndex)"><QuasarIcon Icon="@Icons.Material.Filled.Description" />Magnetar info log</button>
+        </div>
+        @if (_activeTabIndex == ServerLogTabIndex)
+        {
+            <div class="quasar-row quasar-console-toolbar">
+                <label class="quasar-field">Log file
+                    <select value="@_serverLogSelection" @onchange="@(args => HandleServerLogSelectionChanged(args.Value?.ToString() ?? LatestLogSelection))">
+                        <option value="@LatestLogSelection">Most recent</option>
+                        @foreach (var option in _serverLogOptions) { <option value="@option.FileName">@option.Label</option> }
+                    </select>
+                </label>
+                <div class="quasar-console-meta"><p class="quasar-text quasar-caption quasar-muted">@ServerLogStatusText()</p><CopyablePath Value="@_serverLogPath" /></div>
+                <div class="quasar-row">
+                    <QuasarIconButton Label="Download full server log" Icon="@Icons.Material.Filled.Download" OnClick="DownloadServerLogAsync" Disabled="@(!_serverLogLoaded || _serverLogMissing)" />
+                    <button type="button" class="quasar-button" @onclick="ShowServerLogErrorsAsync"><QuasarIcon Icon="@Icons.Material.Filled.Search" />Errors</button>
+                    <button type="button" class="quasar-button" @onclick="RefreshServerLogAsync" disabled="@(!CanRefreshServerLog)"><QuasarIcon Icon="@QuasarIcons.Refresh" />Refresh</button>
+                </div>
+            </div>
+            @if (_serverLogMissing)
+            {
+                <div class="quasar-notice" role="status">Start the server at least once so Space Engineers Dedicated Server can write its log.</div>
+            }
+            else if (!string.IsNullOrEmpty(_serverLogError))
+            {
+                <div class="quasar-notice quasar-notice-error" role="alert">@_serverLogError</div>
+            }
+            else
+            {
+                <div id="@_scrollContainerId" class="quasar-console-output" role="region" aria-label="Server log output" tabindex="0">
+                    @foreach (var line in _serverLogLines) { <div class="quasar-log-line">@line</div> }
+                </div>
+            }
+            <p class="quasar-console-hint"><QuasarIcon Icon="@Icons.Material.Filled.Keyboard" /> Ctrl or Alt + PageUp / PageDown: 250 lines · Ctrl or Alt + Home / End: oldest / newest lines</p>
+        }
+        else
+        {
+            <div class="quasar-row quasar-console-toolbar">
+                <label class="quasar-field">Log file
+                    <select value="@_infoLogSelection" @onchange="@(args => HandleInfoLogSelectionChanged(args.Value?.ToString() ?? LatestLogSelection))">
+                        <option value="@LatestLogSelection">Most recent</option>
+                        @foreach (var option in _infoLogOptions) { <option value="@option.FileName">@option.Label</option> }
+                    </select>
+                </label>
+                <div class="quasar-console-meta"><p class="quasar-text quasar-caption quasar-muted">@InfoLogStatusText()</p><CopyablePath Value="@_infoLogPath" /></div>
+                <div class="quasar-row">
+                    <QuasarIconButton Label="Download info log" Icon="@Icons.Material.Filled.Download" OnClick="DownloadInfoLogAsync" Disabled="@(!_infoLogLoaded || _infoLogMissing)" />
+                    <button type="button" class="quasar-button" @onclick="ShowInfoLogErrorsAsync"><QuasarIcon Icon="@Icons.Material.Filled.Search" />Errors</button>
+                    <button type="button" class="quasar-button" @onclick="RefreshInfoLogAsync" disabled="@(!CanRefreshInfoLog)"><QuasarIcon Icon="@QuasarIcons.Refresh" />Refresh</button>
+                </div>
+            </div>
+            @if (_infoLogMissing)
+            {
+                <div class="quasar-notice" role="status">Start the server at least once so Magnetar can write its log. Plugin startup exceptions appear here.</div>
+            }
+            else if (!string.IsNullOrEmpty(_infoLogError))
+            {
+                <div class="quasar-notice quasar-notice-error" role="alert">@_infoLogError</div>
+            }
+            else
+            {
+                <div id="@_infoLogScrollContainerId" class="quasar-console-output" role="region" aria-label="Magnetar log output" tabindex="0"><pre class="quasar-info-log-pre">@_infoLogContent</pre></div>
+            }
+        }
     </DialogContent>
     <DialogActions>
-        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
+        <button type="button" class="quasar-button quasar-button-primary" @onclick="Close">Close</button>
     </DialogActions>
 </MudDialog>
-
-<style>
-    .quasar-console-output {
-        height: 60vh;
-        overflow-y: auto;
-        outline: none;
-        background: var(--mud-palette-background);
-        border: 1px solid var(--mud-palette-divider);
-        border-radius: 4px;
-        padding: 8px 12px;
-        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        font-size: 0.8125rem;
-        line-height: 1.45;
-        white-space: normal;
-        word-break: break-word;
-    }
-
-    .quasar-console-output:focus {
-        border-color: var(--mud-palette-primary);
-    }
-
-    .quasar-info-log-pre {
-        margin: 0;
-        white-space: pre-wrap;
-        word-break: break-word;
-        font: inherit;
-        color: var(--mud-palette-text-primary);
-    }
-
-    .quasar-log-line {
-        min-height: 1.45em;
-        white-space: pre-wrap;
-        word-break: break-word;
-        color: var(--mud-palette-text-primary);
-    }
-
-    .quasar-log-selector-row {
-        min-width: 0;
-    }
-
-    .quasar-log-file-select {
-        width: min(34vw, 360px);
-        min-width: 260px;
-    }
-
-    @@media (max-width: 720px) {
-        .quasar-log-selector-row {
-            flex-wrap: wrap;
-        }
-
-        .quasar-log-file-select {
-            width: 100%;
-            min-width: 0;
-        }
-    }
-
-</style>
 
 @code
 {

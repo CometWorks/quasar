@@ -13,17 +13,23 @@ This branch targets Quasar **1.3.0**, with the shared version declared in
 builds, allowing the core UI changes to be tested through the regular prerelease
 update flow.
 
-The approved rewrite has started. Migrated surfaces:
+The approved visual overhaul now extends across the core workspace. Migrated surfaces:
 
 - Native responsive shell, navigation, theme selector, notification/auth/power
   entry points, and shutdown overlay, with the current Quasar logo.
 - Native appearance form with all 29 fields in both palettes, presets, custom
   branding, separate mode-specific logo uploads, favicon, draft preview, save,
   reset, busy states, and invalid-color validation. RGB selection preserves alpha.
-- Native dashboard heading, summary metrics, card/list selector and layout.
-  New browsers default to the dense list; saved card/list choices and query
-  overrides still work. Metrics use existing standalone runtime data.
-- Native standalone/cluster server table with all nine sortable data columns,
+- Fleet overview with four summary tiles, compact server rows by default, a
+  shared table/view toolbar, and larger page headings. Saved card/list choices
+  and query overrides still work. Player capacity, average simulation speed,
+  and working-set totals exclude disconnected standalone snapshots.
+- Simulation history reuses the analytics endpoint and uPlot with a 30-minute
+  window, 10-second request throttle, gaps for missing samples, and theme-aware
+  colors. Recent activity derives from existing lifecycle and command results.
+  These panels have explicit empty/error states; production data is not mocked.
+- Native standalone/cluster server table with live search, status/type filters,
+  resource metrics, optional technical columns, all previous sort choices,
   live detail expansion, copy/config links, restart/error summaries, and existing
   actions/disabled states. Endpoint sorting uses comparable host/port pairs for
   mixed standalone and cluster rows. Unmanaged agent expansion remains available.
@@ -52,10 +58,21 @@ Additional migrated surfaces:
   host now have no MudBlazor dependency. They demonstrate scoped native controls,
   retained Material SVG icons, Quasar theme tokens, and updated plugin guidance.
 
-The charcoal/cyan **CometWorks** preset is optional. Choose it in Appearance and
-save to match the approved samples. Existing saved branding and the four original
-presets are preserved. The editor now labels light/dark uploads consistently
-with the shell's existing `LogoLightPath`/`LogoDarkPath` behavior.
+The charcoal/cyan design is now the **Quasar default**, in both dark and light
+modes. The CometWorks preset remains as an alias. On normalization, only a saved
+`quasar` preset with both complete palettes matching the old defaults is
+upgraded. Any edited color in either palette protects the pair; custom presets,
+identity, logos, favicon, Midnight, Slate, and High Contrast retain their values.
+All 29 fields remain editable in both modes. The live appearance preview includes
+the configured mode-specific Quasar logo.
+
+Operational pages, configuration/PluginSdk editors, host/cluster workflows, and
+dialogs now share native semantic headings, panels, stacks, and dividers. The
+remaining behavioral Mud tables, inputs, tabs, and dialogs receive the same
+compact visual treatment. Their providers sit inside the themed shell so native
+content in overlays inherits the palette. The server console interior uses
+native log-source buttons, file selectors, downloads, and error/refresh controls;
+existing log loading, history, auto-refresh, and keyboard rollover are retained.
 
 `QuasarTheme` is the temporary bridge from stored palette strings to native CSS
 and Mud themes. Legacy public theme accessors remain for plugin compatibility.
@@ -65,37 +82,41 @@ Native icons reuse Quasar's existing Material SVG paths; their Apache license is
 Core Mud assets/providers, dialog/snackbar services, color parsing, and some
 helper enum types remain during migration. This is not complete dependency removal.
 
-Focused verification passes 32 core component/service tests covering appearance,
-fleet sorting, native chat/player commands, live snapshots, save guards,
-confirmation-time permission revocation, listing saves, notification thresholds,
-and cluster console/content workflows. The core worker/Agent build passes.
-The native theme observer test passes. Both plugin adapters and preview hosts
-build without MudBlazor; viewer checks pass 3 component tests and 24 browser
-runtime tests. Offline rendered server details and viewer dialogs were inspected
-at desktop and 390-pixel widths, including native popover/modal Escape dismissal,
-focus return, theme propagation, and contained table scrolling. Quasar has not
-been launched. Real circuits, multi-session behavior, server/Agent commands,
-asset streaming, and installed plugin acceptance still need a requested smoketest.
+Focused verification passes 36 core component/service tests, including exact-default
+palette migration, custom-color preservation, live fleet totals, view switching,
+search/sort/technical columns, console history/download/error selection and
+keyboard-scroll reattachment, confirmation-time permission checks, notification
+preferences, and cluster content/console/PluginSdk configuration workflows.
+The build passes with the matching Magnetar SDK; existing warnings remain.
+Ten JavaScript tests pass, including chart palette changes/gaps/disposal, theme
+observation, and push registration. Offline browser checks cover fleet/appearance
+layout at desktop and 390-pixel widths, light/dark palette propagation, and native
+menu dismissal/focus. Screenshot capture became unavailable during final browser
+checks. Quasar has not been launched. Real circuits, multi-session behavior,
+server/Agent commands, asset streaming, and installed plugin acceptance still
+need an explicitly requested smoketest.
 
 ## Remaining workflow inventory
 
 | Area | Work remaining |
 | --- | --- |
 | Shared infrastructure | Native host dialogs/confirmations and toast notifications; migrate consumers in services as well as components. |
-| Server management | Creation, edit, clone, deletion, import, world/template/profile dialogs, filesystem picker, and server console. |
+| Server management | Replace remaining behavioral Mud controls and dialog host in creation/edit/clone/deletion/import, world/template/profile dialogs, filesystem picker, and the native console. |
 | Configuration | Profiles, world templates, Workshop credentials, pending changes, PluginSdk schema editor, and plugin logs. |
 | Clusters and hosts | Guided setup/conversion/enrollment, cluster route/console/remove dialogs, deployment/content/fleet panels, and recovery workflows. |
-| Operational pages | Players, chat, entities, analytics, Discord, security, backup, both plugin catalogs, updates, and route fallbacks. |
+| Operational pages | Replace remaining behavioral controls/services in players, chat, entities, analytics, Discord, security, backup, plugin catalogs, updates, and route fallbacks; shared visual layout is migrated. |
 | Dependency removal | Remove Mud providers, services, packages, imports, CSS/JS, palette adapters, helper enums, parser, and legacy test selectors when their final consumers migrate. |
-| Release integration | Publish/pin the native viewer revision in QuasarHub and coordinate remaining installed UI plugin migrations. |
+| Release integration | Native viewer pin is merged in QuasarHub; update installed viewer packages through the catalog and coordinate other external plugins. |
 | Acceptance | Keyboard/focus/contrast and responsive checks across remaining workflows, then an explicitly requested real Quasar/server/Agent/plugin smoketest. |
 
 The viewer and template changes have separate pull requests:
 [viewer #2](https://github.com/CometWorks/viewer/pull/2) and
 [UI plugin template #2](https://github.com/CometWorks/quasar-plugin-template/pull/2).
-The new viewer revision has not been published or pinned into QuasarHub. Updating
-Quasar alone does not update installed viewer plugins; those continue to use
-their currently pinned revisions until the plugin release is updated.
+Both are merged. [QuasarHub #1](https://github.com/CometWorks/quasar-hub/pull/1)
+is also merged, pinning viewer `868271714a4e4d978ed619d035144efc9011fad4`.
+Updating Quasar alone does not update installed viewer plugins: update Entity
+Viewer through the UI plugin catalog, then restart Quasar. No separate viewer
+binary release is required.
 
 ## Visual samples
 
@@ -126,7 +147,7 @@ Working sample interactions:
 - Separate light and dark palette editing, including CSS colors with alpha.
 - All 29 persisted palette fields and the four current Quasar presets, captured
   from `QuasarTheme` and `BrandingPresets` when the sample was created.
-- The CometWorks preset, now also selectable in the current production slices.
+- The original CometWorks palette, now the production Quasar default.
 - App name, subtitle, logo previews for each mode, and a tab favicon preview.
 - Sample settings saved only under `quasar.design-study.v1` in browser storage.
   Asset previews last for the current tab and are not persisted.

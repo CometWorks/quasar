@@ -20,7 +20,7 @@ public static class BrandingPresets
     public static IReadOnlyList<BrandingPresetDefinition> All { get; } =
     [
         new(QuasarId, "Quasar Default"),
-        new(CometWorksId, "CometWorks"),
+        new(CometWorksId, "CometWorks (Quasar default)"),
         new(MidnightId, "Midnight Blue"),
         new(SlateId, "Slate"),
         new(HighContrastId, "High Contrast"),
@@ -36,7 +36,7 @@ public static class BrandingPresets
     {
         return presetId?.ToLowerInvariant() switch
         {
-            CometWorksId => CometWorksLight(),
+            CometWorksId => ThemePalette.QuasarLight(),
             MidnightId => MidnightLight(),
             SlateId => SlateLight(),
             HighContrastId => HighContrastLight(),
@@ -48,7 +48,7 @@ public static class BrandingPresets
     {
         return presetId?.ToLowerInvariant() switch
         {
-            CometWorksId => CometWorksDark(),
+            CometWorksId => ThemePalette.QuasarDark(),
             MidnightId => MidnightDark(),
             SlateId => SlateDark(),
             HighContrastId => HighContrastDark(),
@@ -56,68 +56,9 @@ public static class BrandingPresets
         };
     }
 
-    private static ThemePalette CometWorksLight()
-    {
-        var palette = ThemePalette.QuasarLight();
-        palette.Primary = "#00769d";
-        palette.PrimaryContrastText = "#ffffff";
-        palette.Background = "#f4f5f6";
-        palette.BackgroundGray = "#e9ebee";
-        palette.Surface = "#ffffff";
-        palette.DrawerBackground = "#ffffff";
-        palette.DrawerText = "#24262b";
-        palette.DrawerIcon = "#616773";
-        palette.AppbarBackground = "#ffffff";
-        palette.AppbarText = "#24262b";
-        palette.TextPrimary = "#24262b";
-        palette.TextSecondary = "#616773";
-        palette.LinesDefault = "#d8dce2";
-        palette.LinesInputs = "#b1b7c0";
-        palette.TableLines = "#e3e6eb";
-        palette.Divider = "#d8dce2";
-        palette.DividerLight = "#e3e6eb";
-        palette.HoverBackground = "#e9ebee";
-        palette.HoverContrastText = "#24262b";
-        palette.Info = "#00769d";
-        palette.Success = "#236b47";
-        palette.Warning = "#875916";
-        palette.Error = "#aa3535";
-        return palette;
-    }
-
-    private static ThemePalette CometWorksDark()
-    {
-        var palette = ThemePalette.QuasarDark();
-        palette.Primary = "#00c0fd";
-        palette.PrimaryContrastText = "#10212b";
-        palette.Background = "#18191b";
-        palette.BackgroundGray = "#2c2e32";
-        palette.Surface = "#222427";
-        palette.DrawerBackground = "#1c1e20";
-        palette.DrawerText = "#f2f3f5";
-        palette.DrawerIcon = "#adb1b8";
-        palette.AppbarBackground = "#1c1e20";
-        palette.AppbarText = "#f2f3f5";
-        palette.TextPrimary = "#f2f3f5";
-        palette.TextSecondary = "#adb1b8";
-        palette.LinesDefault = "#3b3e43";
-        palette.LinesInputs = "#52565d";
-        palette.TableLines = "#34373c";
-        palette.Divider = "#3b3e43";
-        palette.DividerLight = "#34373c";
-        palette.HoverBackground = "#2c2e32";
-        palette.HoverContrastText = "#f2f3f5";
-        palette.Info = "#00c0fd";
-        palette.InfoContrastText = "#10212b";
-        palette.Success = "#8bd8ae";
-        palette.Warning = "#e8bb83";
-        palette.Error = "#f1a0a0";
-        return palette;
-    }
-
     private static ThemePalette MidnightLight()
     {
-        var palette = ThemePalette.QuasarLight();
+        var palette = ThemePalette.LegacyQuasarLight();
         palette.Primary = "#1e3a5f";
         palette.PrimaryContrastText = "#f0f4ff";
         palette.Secondary = "#475c7a";
@@ -137,7 +78,7 @@ public static class BrandingPresets
 
     private static ThemePalette MidnightDark()
     {
-        var palette = ThemePalette.QuasarDark();
+        var palette = ThemePalette.LegacyQuasarDark();
         palette.Primary = "#93c5fd";
         palette.PrimaryContrastText = "#0f1729";
         palette.Secondary = "#7f9cc4";
@@ -162,7 +103,7 @@ public static class BrandingPresets
 
     private static ThemePalette SlateLight()
     {
-        var palette = ThemePalette.QuasarLight();
+        var palette = ThemePalette.LegacyQuasarLight();
         palette.Primary = "#475569";
         palette.PrimaryContrastText = "#f8fafc";
         palette.Secondary = "#64748b";
@@ -182,7 +123,7 @@ public static class BrandingPresets
 
     private static ThemePalette SlateDark()
     {
-        var palette = ThemePalette.QuasarDark();
+        var palette = ThemePalette.LegacyQuasarDark();
         palette.Primary = "#cbd5e1";
         palette.PrimaryContrastText = "#1e293b";
         palette.Secondary = "#94a3b8";
@@ -207,7 +148,7 @@ public static class BrandingPresets
 
     private static ThemePalette HighContrastLight()
     {
-        var palette = ThemePalette.QuasarLight();
+        var palette = ThemePalette.LegacyQuasarLight();
         palette.Primary = "#000000";
         palette.PrimaryContrastText = "#ffffff";
         palette.Secondary = "#000000";
@@ -240,7 +181,7 @@ public static class BrandingPresets
 
     private static ThemePalette HighContrastDark()
     {
-        var palette = ThemePalette.QuasarDark();
+        var palette = ThemePalette.LegacyQuasarDark();
         palette.Primary = "#ffffff";
         palette.PrimaryContrastText = "#000000";
         palette.Secondary = "#ffff00";

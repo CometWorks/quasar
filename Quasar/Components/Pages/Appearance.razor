@@ -66,7 +66,7 @@
                     <div class="quasar-panel-heading"><h2>Live preview</h2><span>@(_editDark ? "Dark palette" : "Light palette")</span></div>
                     <div class="quasar-preview" style="@PreviewStyle" data-theme="@(_editDark ? "dark" : "light")">
                         <div class="quasar-preview-surface">
-                            <h3>@_draft.AppName</h3>
+                            <div class="quasar-preview-bar"><img src="@(_editDark ? (_draft.LogoDarkPath ?? "/Quasar.png") : (_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png"))" alt="" /><strong>@_draft.AppName</strong></div>
                             <p>@_draft.AppSubtitle</p>
                             <div class="quasar-preview-status"><span>Server status</span><span class="quasar-text-success">Running</span></div>
                             <div class="quasar-form-actions">

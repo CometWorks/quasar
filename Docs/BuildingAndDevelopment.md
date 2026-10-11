@@ -456,14 +456,21 @@ See [the migration record](Design/QuasarUiRewrite.md) for completed surfaces.
 Focused checks, without launching the web service:
 
 ```bash
-dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~NativeUiThemeTests|FullyQualifiedName~NativeAppearanceTests|FullyQualifiedName~QuasarControlDialogTests|FullyQualifiedName~ServerListingPageTests|FullyQualifiedName~InstanceNotificationTests|FullyQualifiedName~ClusterContentPanelTests|FullyQualifiedName~ClusterConsoleDialogTests'
-node --test Quasar.Tests/Browser/theme-observer.test.mjs
+dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~NativeUiThemeTests|FullyQualifiedName~NativeAppearanceTests|FullyQualifiedName~QuasarControlDialogTests|FullyQualifiedName~ServerListingPageTests|FullyQualifiedName~InstanceNotificationTests|FullyQualifiedName~ClusterContentPanelTests|FullyQualifiedName~ClusterConsoleDialogTests|FullyQualifiedName~ClusterPluginConfigurationPanelTests'
+node --test Quasar.Tests/Browser/*.test.mjs
 ```
 
 Use a Magnetar `PluginSdk.dll` that includes the clustering broadcast/view APIs
 already required by Quasar.Agent. Set `MagnetarBin` to that SDK directory when
 needed; the environment variable is also inherited by the nested agent build.
 Do not launch Quasar for a UI migration check unless a smoketest was requested.
+
+Set `QUASAR_UI_PREVIEW_OUTPUT` to a temporary file path when running the focused
+tests to export actual appearance, fleet, server/detail, and console markup with
+sample data. These exports need the current production CSS and a static shell
+for offline browser layout checks; they do not exercise an interactive circuit.
+The fleet chart uses `/api/analytics/series` in production; browser fixtures must
+be labeled sample data and must not be added to production endpoints.
 
 The sibling viewer and UI plugin template have separate native preview hosts.
 Build their adapters and preview hosts without launching Quasar. Viewer checks
