@@ -1131,6 +1131,8 @@ launcher update checks.
 `ClusterDeploymentService` prepares and activates one revision across Hosts.
 `ClusterBackupService` verifies native Host snapshots and Gateway world exports before
 retention/release; explicit restore journals each Host and fences earlier operations.
+Scheduled backups take a stopped cluster offline and a running one online, after a Gateway
+registry copy, without the lifecycle lock (see Configuration.md).
 `ClusterUpdateService` persists Stopping → Activating → Starting → Complete and reuses
 ordinary reconciliation for shutdown/startup. A failed activation or start goes to Reverting,
 which restores the backup taken before activation through the same restore path as Maintenance. Completion requires the exact runtime

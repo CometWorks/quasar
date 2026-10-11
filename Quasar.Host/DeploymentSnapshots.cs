@@ -5,7 +5,7 @@ using HostContract = Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
 
-// Caller holds the execution gate. Snapshots never stop a process or infer a clean shutdown.
+// Callers hold the execution gate, except for an online capture (see Capture). Snapshots never stop a process or infer a clean shutdown.
 internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, AttachmentStore attachments,
     NodeActualizer nodes, GatewayActualizer gateway)
 {
