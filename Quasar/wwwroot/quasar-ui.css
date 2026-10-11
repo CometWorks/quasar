@@ -36,10 +36,13 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     gap: 12px;
     height: var(--quasar-topbar-height);
     padding: 8px 16px;
-    border-bottom: 1px solid var(--quasar-palette-lines-default);
     background: var(--quasar-palette-drawer-background);
     color: var(--quasar-palette-drawer-text);
     text-decoration: none;
+}
+/* One separator treatment for both sides of the shell, including fractional zoom. */
+.quasar-brand, .quasar-topbar {
+    box-shadow: inset 0 -1px 0 var(--quasar-palette-lines-default);
 }
 .quasar-brand-mark { width: 44px; height: 44px; flex: 0 0 44px; object-fit: contain; }
 .quasar-brand div { min-width: 0; }
@@ -77,7 +80,6 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     justify-content: space-between;
     gap: 12px;
     padding: 12px 24px;
-    border-bottom: 1px solid var(--quasar-palette-lines-default);
     background: var(--quasar-palette-appbar-background);
     color: var(--quasar-palette-appbar-text);
 }
@@ -316,8 +318,37 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
 .quasar-check input { accent-color: var(--quasar-palette-primary); }
 .quasar-fieldset:disabled { opacity: .7; }
-.quasar-details { border-top: 1px solid var(--quasar-palette-divider); padding: 12px 0; }
-.quasar-details > summary { cursor: pointer; font-weight: 600; }
+.quasar-details {
+    min-width: 0;
+    padding: 0 16px;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 6px;
+    background: var(--quasar-palette-surface);
+}
+.quasar-details > summary {
+    min-height: 44px;
+    margin: 0 -16px;
+    padding: 12px 16px;
+    border-radius: inherit;
+    cursor: pointer;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+.quasar-details[open] { padding-bottom: 16px; }
+.quasar-details[open] > summary {
+    margin-bottom: 12px;
+    border-bottom: 1px solid var(--quasar-palette-divider);
+    border-radius: 5px 5px 0 0;
+    background: var(--quasar-palette-background-gray);
+}
+.quasar-details > summary:hover {
+    background: var(--quasar-palette-hover-background);
+    color: var(--quasar-palette-hover-contrast-text);
+}
+/* Both native and legacy child panels sit inside their parent's padded body. */
+.cluster-control-page :is(.quasar-details, .mud-expand-panel) :is(.quasar-details, .mud-expand-panel) {
+    border-inline-start: 3px solid var(--quasar-palette-divider);
+}
 @media (max-width: 600px) { .quasar-card-heading, .quasar-card-content { padding: 12px; } .quasar-detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .quasar-cluster-compact { display: contents; }
 .quasar-cluster-compact > div > .quasar-stack { gap: 8px; }
@@ -460,6 +491,9 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-expand-panel { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-surface); }
 .quasar-shell .mud-expand-panel-header { min-height: 44px; padding: 12px 16px; font-size: 13px; font-weight: 600; }
 .quasar-shell .mud-expand-panel-content { padding: 0 16px 16px; }
+.cluster-control-page .mud-expand-panel.mud-panel-expanded > .mud-expand-panel-header {
+    background: var(--quasar-palette-background-gray);
+}
 .quasar-shell .mud-dialog { border: 1px solid var(--quasar-palette-lines-default); border-radius: 8px; box-shadow: 0 24px 80px #0005; }
 .quasar-shell .mud-dialog-title { border-bottom: 1px solid var(--quasar-palette-divider); padding: 18px 22px; }
 .quasar-shell .mud-dialog-title .mud-typography-h6 { font-size: 19px; letter-spacing: -.4px; }
@@ -473,7 +507,6 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-switch { margin-left: -8px; }
 .quasar-shell .mud-treeview-item-content { min-height: 32px; font-size: 12px; }
 .quasar-shell .configs-sidebar { background: var(--quasar-palette-surface); }
-.quasar-shell .config-profile-tile { border-radius: 4px; }
 .quasar-shell .analytics-chart-card { border: 1px solid var(--quasar-palette-lines-default); box-shadow: none; }
 .quasar-shell .admin-chat-list { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-background); border-radius: 5px; min-height: 240px; }
 .quasar-shell .admin-chat-row { padding: 8px 12px; border-bottom: 1px solid var(--quasar-palette-table-lines); }

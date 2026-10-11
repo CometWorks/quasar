@@ -38,6 +38,27 @@ else
     </div>
 
     <div class="quasar-layout quasar-gap-4 cluster-control-page" @key="Cluster.UniqueName">
+        @{ var releaseSnapshot = ClusterReleases.GetSnapshot(); }
+        <section class="quasar-panel quasar-card-content" aria-label="Cluster versions">
+            <div class="quasar-detail-metrics">
+                <div>
+                    <p class="quasar-eyebrow">Deployed version</p>
+                    <strong class="cluster-long-value">@(Cluster.ActiveDeployment is null ? "Not deployed" : ClusterReleaseMonitor.GetDeployedVersion(Cluster) ?? "Unknown")</strong>
+                </div>
+                <div>
+                    <p class="quasar-eyebrow">Latest available version</p>
+                    <strong class="cluster-long-value">@(releaseSnapshot.Release?.Version ?? (releaseSnapshot.Error is not null ? "Unavailable" : "Not checked"))</strong>
+                </div>
+            </div>
+            @if (releaseSnapshot.LastCheckedUtc is { } checkedAt)
+            {
+                <p class="quasar-muted quasar-caption">Release checked: @checkedAt.ToLocalTime().ToString("g")</p>
+            }
+            @if (releaseSnapshot.Error is { } releaseError)
+            {
+                <p class="quasar-text-warning">@releaseError</p>
+            }
+        </section>
         @if (ClusterReleaseMonitor.IsUpdateAvailable(Cluster, ClusterReleases.GetSnapshot().Release))
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">

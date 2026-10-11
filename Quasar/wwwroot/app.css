@@ -84,16 +84,6 @@ h1:focus {
     color: var(--mud-palette-primary);
 }
 
-/* Shared profile tiles retain their selection highlight in pages and dialogs. */
-.quasar-panel.config-profile-tile {
-    background-color: var(--mud-palette-background-gray);
-    transition: background-color 0.18s ease, color 0.18s ease;
-}
-
-.quasar-panel.config-profile-tile.config-profile-selected {
-    background-color: rgba(var(--mud-palette-primary-rgb), 0.3) !important;
-}
-
 .summary-card {
     height: 100%;
     background: var(--mud-palette-surface);
@@ -124,17 +114,17 @@ h1:focus {
     margin-top: 0.5rem;
 }
 
-.mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header {
+.mud-expansion-panels > .mud-expand-panel > .mud-expand-panel-header {
     border-bottom: 1px solid transparent;
     transition: background-color 120ms ease, border-color 120ms ease;
 }
 
-.mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header:hover,
-.mud-expansion-panels > .mud-expand-panel .mud-expand-panel-header:focus-visible {
+.mud-expansion-panels > .mud-expand-panel > .mud-expand-panel-header:hover,
+.mud-expansion-panels > .mud-expand-panel > .mud-expand-panel-header:focus-visible {
     background: var(--mud-palette-action-default-hover);
 }
 
-.mud-expansion-panels > .mud-expand-panel.mud-panel-expanded .mud-expand-panel-header {
+.mud-expansion-panels > .mud-expand-panel.mud-panel-expanded > .mud-expand-panel-header {
     border-bottom-color: var(--mud-palette-lines-default);
 }
 
