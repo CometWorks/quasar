@@ -1,4 +1,6 @@
 using Discord;
+using Discord.Net.Rest;
+using Discord.Net.WebSockets;
 using Discord.WebSocket;
 using Quasar.Models;
 
@@ -220,10 +222,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
                 return;
             }
 
-            var client = new DiscordSocketClient(new DiscordSocketConfig
-            {
-                GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent,
-            });
+            var client = new DiscordSocketClient(CreateSocketConfig(options));
 
             var botLifetime = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
             client.Log += HandleClientLogAsync;
@@ -298,6 +297,13 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             _restartGate.Release();
         }
     }
+
+    internal static DiscordSocketConfig CreateSocketConfig(DiscordOptions options) => new()
+    {
+        GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent,
+        RestClientProvider = DefaultRestClientProvider.Create(useProxy: options.UseProxy),
+        WebSocketProvider = DefaultWebSocketProvider.Create(options.UseProxy ? HttpClient.DefaultProxy : null),
+    };
 
     private async Task StopBotCoreAsync(CancellationToken cancellationToken)
     {

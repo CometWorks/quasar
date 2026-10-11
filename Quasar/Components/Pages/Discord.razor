@@ -63,6 +63,9 @@
                                  Variant="Variant.Outlined"
                                  Min="0" />
 
+                <MudCheckBox T="bool" @bind-Value="_options.UseProxy" Label="Use system/environment proxy" />
+                <MudText Typo="Typo.caption">Applies to Discord API requests and the gateway connection. Uses the proxy settings available to the Quasar process, including HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, and NO_PROXY. Clear to connect directly. Saving reconnects the bot.</MudText>
+
                 <MudDivider />
                 <MudText Typo="Typo.h6">Bot presence</MudText>
                 <MudText Typo="Typo.caption">Choose which servers contribute to the bot's status and activity. Each cluster counts as one server. Relay and notification settings are independent.</MudText>

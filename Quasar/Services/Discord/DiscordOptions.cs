@@ -10,6 +10,8 @@ public sealed class DiscordOptions
 
     public bool Enabled { get; set; }
 
+    public bool UseProxy { get; set; } = true;
+
     public DiscordPresenceOptions Presence { get; set; } = new();
 
     public List<DiscordServerOptions> Servers { get; set; } = [];
@@ -21,6 +23,7 @@ public sealed class DiscordOptions
             BotToken = BotToken,
             GuildId = GuildId,
             Enabled = Enabled,
+            UseProxy = UseProxy,
             Presence = DiscordPresenceOptions.Normalize(Presence),
             Servers = Servers.Select(server => server.Clone()).ToList(),
         };
@@ -35,6 +38,7 @@ public sealed class DiscordOptions
             BotToken = options.BotToken?.Trim() ?? string.Empty,
             GuildId = options.GuildId,
             Enabled = options.Enabled,
+            UseProxy = options.UseProxy,
             Presence = DiscordPresenceOptions.Normalize(options.Presence),
             Servers = (options.Servers ?? [])
                 .Select(DiscordServerOptions.Normalize)
