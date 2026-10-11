@@ -15,7 +15,7 @@ public sealed class BrandingSettings
 
     public string AppName { get; set; } = "Quasar";
 
-    public string AppSubtitle { get; set; } = "Supervisor control plane";
+    public string AppSubtitle { get; set; } = "Control plane";
 
     public string? LogoLightPath { get; set; }
 
@@ -53,7 +53,7 @@ public sealed class BrandingSettings
 
         var appName = string.IsNullOrWhiteSpace(settings.AppName) ? "Quasar" : settings.AppName.Trim();
         var appSubtitle = string.IsNullOrWhiteSpace(settings.AppSubtitle)
-            ? "Supervisor control plane"
+            ? "Control plane"
             : settings.AppSubtitle.Trim();
 
         // Only migrate the exact built-in palette pair. A custom color in either
