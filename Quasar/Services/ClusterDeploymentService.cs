@@ -264,7 +264,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
         if (cluster.ActiveDeployment?.Revision != request.ExpectedRevision)
             throw new InvalidOperationException("Active deployment changed; refresh before activation.");
         if (!preflight && !restore && cluster.Gateway is not null && !cluster.IsProvenStopped())
-            throw new InvalidOperationException("Existing deployments require matching clean-Down proof before activation.");
+            throw new InvalidOperationException("Existing deployments require matching clean-Down or activation proof before activation.");
         var hostIds = request.Hosts.Select(h => h.HostId).Order(StringComparer.Ordinal).ToArray();
         if (cluster.ActiveDeployment is { } previous
             && !previous.Hosts.Select(h => h.HostId).Order(StringComparer.Ordinal).SequenceEqual(hostIds))
