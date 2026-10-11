@@ -424,7 +424,7 @@ public sealed class ClusterDeploymentTests : IDisposable
     }
 
     [Fact]
-    public async Task OverdueUpdateAbandonsItselfUnlessHostsAreHalfActivated()
+    public async Task FailedUpdateKeepsThePreviousVersionOrNamesItsBackup()
     {
         using var catalog = Catalog();
         var handler = new Handler(credential);
@@ -432,9 +432,10 @@ public sealed class ClusterDeploymentTests : IDisposable
         var client = new ClusterHostClient(new HttpClient(handler));
         await new ClusterDeploymentService(catalog, client, operations).ActivateAsync("demo", Request(), "initial", "test", default);
         await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
-        var gateway = new GatewayHandler();
+        var backups = new ClusterBackupService(catalog, client, operations, null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "update-backups") }, null!, null!);
         var update = new ClusterUpdateService(catalog, new ClusterDeploymentService(catalog, client, operations),
-            new ClusterGatewayClient(new HttpClient(gateway)), client, operations, NullLogger<ClusterUpdateService>.Instance);
+            new ClusterGatewayClient(new HttpClient(new GatewayHandler())), client, operations, NullLogger<ClusterUpdateService>.Instance, backups);
         handler.Revision = "candidate";
         var candidate = new ClusterDeploymentRequest("revision", "candidate", Request().Hosts.Select(h => h with {
             Activation = h.Activation with { ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
@@ -452,19 +453,32 @@ public sealed class ClusterDeploymentTests : IDisposable
                 new GatewayStopFence(pid, DateTimeOffset.UtcNow)), default);
         }
 
-        // Stopping: the clean shutdown never arrives.
+        // Stopping never finishes while the old Gateway still runs: the previous version carries on.
         await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-1", "test", default);
+        Assert.Equal(DedicatedServerGoalState.Off, catalog.GetCluster("demo")!.GoalState);
         await Backdate(ClusterUpdateService.StoppingTimeout);
+        handler.Recovery = true; // Host reports the Gateway running
         await update.AdvanceAllAsync(default);
+        handler.Recovery = false;
         var cluster = catalog.GetCluster("demo")!;
         Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
-        Assert.StartsWith("Abandoned by Quasar after 60 minutes in Stopping: still waiting for a verified clean shutdown.", cluster.Update.LastError);
+        Assert.StartsWith("Update failed after 60 minutes in Stopping: still waiting for a verified clean shutdown.", cluster.Update.LastError);
+        Assert.EndsWith("stays on its current deployment and its goal is On again.", cluster.Update.LastError);
         Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+
+        // The same, but the Gateway is gone without clean proof: it must not start unverified.
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-2", "test", default);
+        await Backdate(ClusterUpdateService.StoppingTimeout);
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.EndsWith("stays stopped: its Gateway has no clean shutdown proof; recover it in Maintenance → Recovery.", cluster.Update.LastError);
         Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
 
-        // Activating: every Host refuses before anything was applied.
+        // Activating: every Host refuses before anything was applied; a cluster stopped before the update stays stopped.
         await ProveCleanShutdown(121);
-        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-2", "test", default);
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-3", "test", default);
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
         handler.Deletion = "host-offline";
@@ -476,13 +490,18 @@ public sealed class ClusterDeploymentTests : IDisposable
         handler.Deletion = null;
         cluster = catalog.GetCluster("demo")!;
         Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
-        Assert.StartsWith("Abandoned by Quasar after 30 minutes in Activating: Cannot reach the Host executor", cluster.Update.LastError);
+        Assert.StartsWith("Update failed after 30 minutes in Activating: Cannot reach the Host executor", cluster.Update.LastError);
+        Assert.EndsWith("stays stopped: it was stopped before the update.", cluster.Update.LastError);
         Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
 
-        // Activating, half applied: the timeout must not abandon it; resuming still works.
+        // Activating, half applied: the timeout must not give it up; resuming still works.
         await ProveCleanShutdown(122);
-        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-3", "test", default);
+        var id = Guid.NewGuid();
+        await update.BeginAsync("demo", new(id, candidate), "begin-4", "test", default);
         await update.AdvanceAllAsync(default);
+        Assert.Equal(id, catalog.GetCluster("demo")!.Update!.Backup);
+        Assert.Single(backups.List("demo"), b => b.SnapshotId == id);
         handler.FailSecond = true;
         await update.AdvanceAllAsync(default);
         Assert.NotNull(catalog.GetCluster("demo")!.PendingDeploymentHash);
@@ -493,14 +512,15 @@ public sealed class ClusterDeploymentTests : IDisposable
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
 
-        // Starting: the Gateway never serves the new deployment.
+        // Starting: the new deployment never serves. Its pre-update backup is the way back.
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
         await Backdate(ClusterUpdateService.StartingTimeout);
         await update.AdvanceAllAsync(default);
         cluster = catalog.GetCluster("demo")!;
         Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
-        Assert.StartsWith("Abandoned by Quasar after 60 minutes in Starting: still waiting for the Gateway", cluster.Update.LastError);
+        Assert.StartsWith("Update failed after 60 minutes in Starting: still waiting for the Gateway", cluster.Update.LastError);
+        Assert.EndsWith($"set the goal Off, then in Maintenance restore backup {id:D}, taken before activation.", cluster.Update.LastError);
         Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
         Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
         await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off); // the lifecycle tools are unlocked again
@@ -558,7 +578,20 @@ public sealed class ClusterDeploymentTests : IDisposable
             string host = request.RequestUri!.Host;
             object data;
             if (Deletion == "host-offline") throw new HttpRequestException("Host unreachable");
-            if (Deletion is not null && request.Method == HttpMethod.Get)
+            if (request.RequestUri.AbsolutePath.Contains("/snapshots/"))
+            {
+                byte[] archive = [1, 2, 3];
+                if (request.Method == HttpMethod.Get) // the archive download is raw bytes, not an envelope
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) };
+                if (request.Method == HttpMethod.Post)
+                {
+                    var capture = JsonSerializer.Deserialize<HostSnapshotRequest>(await request.Content!.ReadAsStringAsync(token), Json)!;
+                    data = new HostSnapshot("demo", host, capture.SnapshotId, "revision", capture.ExpectedBundleManifestSha256,
+                        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(archive)), archive.Length);
+                }
+                else data = new { };
+            }
+            else if (Deletion is not null && request.Method == HttpMethod.Get)
                 data = new HostStatus(host, host, [], host == "one" ? [new("demo", GatewayGoal.Off,
                     Deletion == "gateway-running" ? GatewayObservedState.Running : GatewayObservedState.Missing,
                     active[host], Revision, [29416], "/runs/one/gateway", null, null, null)] : [], true);

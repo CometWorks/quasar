@@ -1,5 +1,6 @@
 using Quasar.Models;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
+using HostContract = Quasar.Host.Contract.V1;
 
 namespace Quasar.Services;
 
@@ -38,7 +39,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         if (backupRequired && backups is null)
             throw new InvalidOperationException("Profile migration needs cluster backup service.");
         var workflow = new ClusterUpdate(request.Id, candidate, cluster.ActiveDeployment, request.Rollback,
-            ClusterUpdatePhase.Stopping, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, BackupRequired: backupRequired);
+            ClusterUpdatePhase.Stopping, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, BackupRequired: backupRequired,
+            GoalBefore: cluster.GoalState);
         await catalog.RecordUpdateAsync(cluster, workflow, token, DedicatedServerGoalState.Off);
         return workflow; // Accepted, not converged. Query Update.Phase until Complete.
     }
@@ -47,7 +49,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     // lifecycle tool is locked meanwhile. The message names the way out.
     internal static readonly TimeSpan StoppingDeadline = TimeSpan.FromMinutes(20), StartingDeadline = TimeSpan.FromMinutes(30);
 
-    // Past these the update abandons itself, so a stuck update cannot lock the cluster forever.
+    // Past these the update gives itself up, so a stuck update cannot lock the cluster forever.
     // A half-applied activation is the exception: only its own resume or recovery can settle the Hosts.
     internal static readonly TimeSpan StoppingTimeout = TimeSpan.FromMinutes(60), ActivatingTimeout = TimeSpan.FromMinutes(30),
         StartingTimeout = TimeSpan.FromMinutes(60);
@@ -68,10 +70,11 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                         + (update.LastError is null ? "." : ": " + update.LastError), ct);
                 }, ct)), token);
 
-    private async Task<ClusterUpdate> AbandonCoreAsync(ClusterDefinition cluster, ClusterUpdate update, string reason, CancellationToken token)
+    private async Task<ClusterUpdate> AbandonCoreAsync(ClusterDefinition cluster, ClusterUpdate update, string reason, CancellationToken token,
+        DedicatedServerGoalState? goal = null)
     {
         var abandoned = update with { Phase = ClusterUpdatePhase.Complete, UpdatedAt = DateTimeOffset.UtcNow, LastError = reason };
-        await catalog.RecordUpdateAsync(cluster, abandoned, token);
+        await catalog.RecordUpdateAsync(cluster, abandoned, token, goal);
         logger.LogWarning("Cluster {Cluster} update {Update} was abandoned in phase {Phase}: {Reason}", cluster.UniqueName, update.Id, update.Phase, reason);
         return abandoned;
     }
@@ -128,11 +131,14 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                         case ClusterUpdatePhase.Stopping:
                             if (cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId())
                                 return await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown");
-                            if (workflow.BackupRequired)
-                                await backups!.CaptureCoreAsync(cluster, new(workflow.Id), token, updateId: workflow.Id);
+                            // The stopped cut taken here is the way back to the previous version and world
+                            // if the new deployment fails after it ran. Begin refuses a migration without it.
+                            if (backups is not null)
+                                await backups.CaptureCoreAsync(cluster, new(workflow.Id), token, updateId: workflow.Id);
                             await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, dryRun: true, update: true);
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Activating,
-                                LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow }, token);
+                                LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow,
+                                Backup = backups is null ? null : workflow.Id }, token);
                             break;
                         case ClusterUpdatePhase.Activating:
                             await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, update: true);
@@ -172,16 +178,45 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                 return true;
             }
 
-        // Past the phase timeout the update abandons itself, as an operator would.
+        // Past the phase timeout the update gives up by itself. Before any Host switched, the previous
+        // version simply carries on; afterwards the pre-update backup is the way back.
         async Task<bool> TimedOutAsync(ClusterDefinition cluster, ClusterUpdate workflow, string awaited)
         {
             var timeout = Timeout(workflow.Phase);
             if (PhaseAge(workflow) < timeout || cluster.PendingDeploymentHash is not null) return false;
-            await AbandonCoreAsync(cluster, workflow, $"Abandoned by Quasar after {timeout.TotalMinutes:0} minutes in {workflow.Phase}: {awaited.TrimEnd('.')}. "
-                + (workflow.Phase == ClusterUpdatePhase.Starting
-                    ? "The cluster keeps the new deployment and its goal On; start a rollback update if it cannot serve."
-                    : "Nothing was activated; the cluster keeps its current deployment and goal Off."), token);
+            string reason = $"Update failed after {timeout.TotalMinutes:0} minutes in {workflow.Phase}: {awaited.TrimEnd('.')}. ";
+            if (cluster.ActiveDeployment?.Revision == workflow.Deployment.Revision)
+            {
+                await AbandonCoreAsync(cluster, workflow, reason + "The cluster keeps the new deployment. " + (workflow.Backup is { } backup
+                    ? $"To return to the previous version and world, set the goal Off, then in Maintenance restore backup {backup:D}, taken before activation."
+                    : "Start a rollback update if it cannot serve."), token);
+                return true;
+            }
+            string? blocked = workflow.GoalBefore != DedicatedServerGoalState.On ? "it was stopped before the update"
+                : await StartBlockedAsync(cluster);
+            await AbandonCoreAsync(cluster, workflow, reason + "Nothing was activated; the cluster stays on its current deployment"
+                + (blocked is null ? " and its goal is On again." : $" and stays stopped: {blocked}."), token,
+                blocked is null ? DedicatedServerGoalState.On : null);
             return true;
+        }
+
+        // The previous version may run again if its Gateway never stopped (the reconciler adopts it, or waits
+        // for a clean Down) or stopped with the same clean proof a normal start needs.
+        async Task<string?> StartBlockedAsync(ClusterDefinition cluster)
+        {
+            try
+            {
+                var status = (await hosts.GetStatusAsync(cluster, token)).Data;
+                if (status.Gateways?.SingleOrDefault(g => g.ClusterId.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase))
+                        is { Observed: HostContract.GatewayObservedState.Running }
+                    || ClusterCommandService.CanStartFromHostState(cluster, status))
+                    return null;
+                return "its Gateway has no clean shutdown proof; recover it in Maintenance → Recovery";
+            }
+            catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested)
+            {
+                return "its Gateway Host cannot be checked (" + error.Message.TrimEnd('.') + ")";
+            }
         }
 
         // Still waiting: past the deadline the reason is recorded once so the UI and API show it.
@@ -189,7 +224,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         {
             if (await TimedOutAsync(cluster, workflow, "still waiting for " + awaited)) return true;
             if (workflow.LastError is not null || PhaseAge(workflow) < deadline) return false;
-            string message = $"Still waiting for {awaited} after {deadline.TotalMinutes:0} minutes. Check the cluster status; abandon the update to unlock the cluster controls, or Quasar abandons it after {Timeout(workflow.Phase).TotalMinutes:0} minutes.";
+            string message = $"Still waiting for {awaited} after {deadline.TotalMinutes:0} minutes. Check the cluster status; abandon the update to unlock the cluster controls, or Quasar gives it up after {Timeout(workflow.Phase).TotalMinutes:0} minutes.";
             logger.LogWarning("Cluster {Cluster} update {Update} is overdue in {Phase}.", cluster.UniqueName, workflow.Id, workflow.Phase);
             await catalog.RecordUpdateAsync(cluster, workflow with { LastError = message }, token);
             return false;
