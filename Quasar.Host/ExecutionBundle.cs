@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -42,10 +43,8 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
                 for (string? parent = full; parent is not null; parent = Path.GetDirectoryName(parent))
                     if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
                         throw new InvalidDataException("Execution files must not contain symbolic links");
-                using var stream = File.OpenRead(full);
-                string hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-                if (!hash.Equals(file.Sha256, StringComparison.OrdinalIgnoreCase))
-                    throw new CryptographicException($"Execution file '{file.Path}' failed SHA-256 verification");
+                string hash = VerifiedHash(full, file.Sha256)
+                    ?? throw new CryptographicException($"Execution file '{file.Path}' failed SHA-256 verification");
                 if (!pins.TryAdd(file.Path, hash)) throw new InvalidDataException("Execution file is duplicated");
             }
             return pins;
@@ -53,6 +52,30 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
         var pins = Verify(root, manifest.Files);
         Verify(configRoot, manifest.ConfigFiles ?? []);
         return new(root, manifest, pins) { ConfigRoot = configRoot };
+    }
+
+    // Files that already matched their pin, so a spawn does not re-hash the whole bundle. An entry is
+    // trusted only while the file keeps the size and modification time it had before it was hashed.
+    // That catches replaced, rewritten and partly copied files; it does not stop a writer who resets
+    // the modification time on purpose, which needs write access to the Host's own bundle files.
+    // A Host restart verifies everything again.
+    private static readonly ConcurrentDictionary<string, VerifiedFile> Verified = new(StringComparer.Ordinal);
+
+    private sealed record VerifiedFile(string Sha256, long Length, DateTime LastWriteTimeUtc);
+
+    // The lower-case hash when the file matches the expected one, otherwise null.
+    internal static string? VerifiedHash(string path, string expected)
+    {
+        var info = new FileInfo(path);
+        var current = new VerifiedFile(expected.ToLowerInvariant(), info.Length, info.LastWriteTimeUtc);
+        if (Verified.TryGetValue(path, out var cached) && cached == current) return current.Sha256;
+        string hash;
+        using (var stream = File.OpenRead(path))
+            hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        if (hash != current.Sha256) { Verified.TryRemove(path, out _); return null; }
+        // Stat taken before hashing: a write during hashing changes it, and the next load hashes again.
+        Verified[path] = current;
+        return hash;
     }
 
     // Only the stopped slot's private directory is refreshed. Plugin-owned extra files survive

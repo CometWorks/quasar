@@ -1146,7 +1146,9 @@ Host persists the level-triggered spec before reconciling it, re-adopts an exact
 after restart, and refuses to stop or replace a process whose recorded identity does not match.
 The Quasar API accepts `goal: Off` only after Gateway reports phase `Down` and a clean-shutdown
 marker; emergency recovery uses a separate audited path rather than weakening this gate.
-The marker must not predate the current shutdown start. Host also refuses an Off spec
+The marker must not predate the current shutdown start. Before it records shutdown proof
+or stops the Gateway, the reconciler also requires the CleanShutdown snapshot recorded with
+that marker to list nothing dirty, because a forced or emergency stop sets the same marker. Host also refuses an Off spec
 that differs from its running deployment, an executable hash mismatch, or a launch
 whose process identity was never committed. Direct Host actions through Quasar clear
 previous shutdown proof. Calling Host directly is an operator action outside Quasar's
@@ -1160,11 +1162,15 @@ For direct Host CLI/API Off requests, include `stopFence` with `processId` and
 fence. Old Hosts are refused with `gateway_stop_fencing_unavailable`.
 
 The retained, currently disabled node actualizer verifies the pinned manifest SHA-256 and every file hash,
-then uses its per-slot immutable spawn specifications. Each specification declares the
+then uses its per-slot immutable spawn specifications. Host remembers each file that matched its pin and
+hashes it again only when its size or modification time changes, or after a Host restart; Gateway
+spawns share the same check. Each specification declares the
 slot, node ID, role, bundle-relative executable, arguments/environment, reserved ports,
 and ready timeout. Host writes the launch intent before starting the process and records
 PID, process start time, executable identity, attempt, and bundle revision afterward.
 Those records let a restarted Host re-adopt an exact process without parenting it.
+The ready timeout runs on the system uptime clock recorded at launch, so a wall-clock
+step neither cuts a loading node short nor extends its deadline.
 
 PID existence is not readiness. Host passes `QUASAR_CLUSTER_READY_PATH` and the stable
 cluster/slot/attempt identity to the node. After Gateway registration and plugin readiness,
@@ -1172,7 +1178,8 @@ the planned integration requires the node to atomically write a versioned receip
 that path with the same identity plus
 its node ID, registry epoch, endpoint, and PID. Host reports `Spawning` until the receipt
 matches. Automatic kill requires the exact launch record and, for a ready node, the
-Gateway-requested node ID and epoch. The released node plugins do not yet write this
+Gateway-requested node ID and epoch. A slot goal of Kill that names no incumbent (the
+Registry's emergency shutdown) stops whatever runs in that slot. The released node plugins do not yet write this
 receipt. A mismatched process identity or occupied reserved
 port is reported as `unmanaged_conflict`; Host leaves the process untouched.
 
@@ -1812,11 +1819,22 @@ of preparation). For rollback use `{"id":"<new UUID>","rollback":true}`. Inspect
 `cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
 An update that cannot finish locks goal changes, commands, backup, restore and deletion. It
 records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
-30 minutes. `POST /api/v1/clusters/{name}/update/abandon` (the **Abandon update** button on
-the deployment panel) closes such an update and unlocks those tools. Nothing is rolled back:
-before activation the cluster stays stopped on its current deployment, afterwards it keeps
-the new one and a rollback is an ordinary new update. Abandon is refused while a deployment
-activation is half applied on the Hosts; resume that activation or recover the cluster instead.
+30 minutes. `cluster update-abandon NAME --idempotency-key KEY` (API
+`POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
+panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
+the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
+rollback is an ordinary new update. Abandon is refused while a deployment activation is half
+applied on the Hosts; resume that activation or recover the cluster instead.
+Every update backs up the cleanly stopped cluster before activation, under the update's ID; it is
+the way back to the previous version and world. If nobody abandons a stuck update, Quasar gives it up
+itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in
+Starting, and says why in `lastError`:
+- Before any Host switched, the previous version carries on. If the cluster was On before the update,
+  its goal returns to On when its Gateway still runs or stopped with clean proof; otherwise it stays
+  stopped and `lastError` says what to recover.
+- After activation the cluster keeps the new deployment, and `lastError` names the backup to restore
+  (goal Off, then the Maintenance restore) to return to the previous version and world.
+- A half-applied activation is never given up this way; it keeps retrying the same request.
 Preflight checks every Host before goal Off. Stopping, Activating and Starting are
 persistent checkpoints. Errors remain visible/retryable; completion requires matching
 Gateway revision, managed readiness and Host attachments. Previous installations remain

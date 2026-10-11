@@ -300,7 +300,10 @@ currently observed node and epoch; Gateway chooses an active regular replacement
 executes the request. Drain is available only for active regular nodes with a slot.
 
 For a managed cluster, Stop sets goal Off. Quasar waits for Gateway Down with a clean
-shutdown marker before stopping its process with a Host fence. A failed graceful shutdown
+shutdown marker before stopping its process with a Host fence. A forced or emergency stop
+sets the same marker, so Quasar also reads the CleanShutdown snapshot recorded with it: if
+that snapshot is missing or lists unsaved partitions, global save or nodes, the Gateway
+keeps running, no shutdown proof is recorded and the status is `shutdown_recovery_required`. A failed graceful shutdown
 may be retried while nodes remain live. Once no active nodes remain, a failed request
 cannot produce missing final saves, so Quasar retains the failed operation for that
 lifecycle and reports `shutdown_recovery_required` instead of submitting it forever.

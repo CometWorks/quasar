@@ -171,7 +171,7 @@ internal sealed class NodeActualizer
             }
 
             int timeout = spec?.ReadyTimeoutSeconds is > 0 ? spec.ReadyTimeoutSeconds : 120;
-            if (DateTimeOffset.UtcNow - record.LaunchedAt >= TimeSpan.FromSeconds(timeout))
+            if (SinceLaunch(record) >= TimeSpan.FromSeconds(timeout))
             {
                 if (record.DiagnosticDirectory is { } directory)
                 {
@@ -236,7 +236,10 @@ internal sealed class NodeActualizer
             var record = new LaunchRecord(SchemaVersion, attachment.ClusterId, plan.SlotKey,
                 attemptKey, spec.NodeId, null, null, bundle.Manifest.Revision,
                 attachment.BundleManifestSha256!, executablePath, executableHash, runDirectory,
-                null, null, DateTimeOffset.UtcNow, LaunchStatus.Launching, null);
+                null, null, DateTimeOffset.UtcNow, LaunchStatus.Launching, null)
+            {
+                LaunchedAtUptimeMs = Environment.TickCount64,
+            };
             // Verifying the bundle can outlast the executor lease. Give up before the Launching
             // record exists; nothing may cancel between that record and the committed identity.
             cancellationToken.ThrowIfCancellationRequested();
@@ -315,8 +318,12 @@ internal sealed class NodeActualizer
     {
         using (process)
         {
-            if (!string.Equals(plan.IncumbentNode, record.NodeId, StringComparison.Ordinal)
-                    || plan.IncumbentEpoch <= 0 || plan.IncumbentEpoch != record.Epoch)
+            // A slot goal of Kill without a named incumbent (the Registry's emergency shutdown) stops whatever
+            // runs in the slot, as the documented executor contract and cluster-hostd do: nothing may run there,
+            // so there is no other incarnation to protect. A named incumbent must match the running one exactly.
+            bool slotKill = plan.Goal == Admin.NodeGoal.Kill && plan.IncumbentAction != Admin.IncumbentAction.Kill;
+            if (!slotKill && (!string.Equals(plan.IncumbentNode, record.NodeId, StringComparison.Ordinal)
+                    || plan.IncumbentEpoch <= 0 || plan.IncumbentEpoch != record.Epoch))
                 return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Failed,
                     record.NodeId, "kill_authority_mismatch", record.Epoch ?? 0);
             try
@@ -334,6 +341,15 @@ internal sealed class NodeActualizer
         return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Gone,
             record.NodeId, null, record.Epoch ?? 0);
     }
+
+    // Time since launch on the monotonic uptime clock, which a wall-clock step does not move (on Linux,
+    // neither does time spent suspended). The process is alive here, so the record was written during
+    // this boot and its uptime stamp is comparable; records from Hosts without the stamp fall back to
+    // the wall clock.
+    internal static TimeSpan SinceLaunch(LaunchRecord record) =>
+        record.LaunchedAtUptimeMs is long launched && launched <= Environment.TickCount64
+            ? TimeSpan.FromMilliseconds(Environment.TickCount64 - launched)
+            : DateTimeOffset.UtcNow - record.LaunchedAt;
 
     private static async Task KillProcessAsync(Process process, CancellationToken cancellationToken)
     {
@@ -760,7 +776,8 @@ internal sealed record LaunchRecord(
     LaunchStatus Status,
     string? Failure,
     string? ProcessIdentity = null,
-    string? DiagnosticDirectory = null);
+    string? DiagnosticDirectory = null,
+    long? LaunchedAtUptimeMs = null);
 
 internal sealed record RunRootProvenance(int SchemaVersion, string ClusterId, string HostId);
 

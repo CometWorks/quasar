@@ -76,15 +76,15 @@
         @if (Current.Update is { } update)
         {
             <p class="quasar-text quasar-type-body1">Update @update.Id: @update.Phase</p>
-            @if (update.BackupRequired)
+            @if (update.BackupRequired || update.Backup is not null)
             {
-                <span class="quasar-text quasar-type-caption">Pre-migration backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</span>
+                <span class="quasar-text quasar-type-caption">Pre-update backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</span>
             }
             @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
             @if (update.Phase != ClusterUpdatePhase.Complete)
             {
                 <MudButton OnClick="AbandonUpdateAsync" Disabled="_busy" Color="Color.Warning" Variant="Variant.Outlined">Abandon update</MudButton>
-                <span class="quasar-text quasar-type-caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</span>
+                <span class="quasar-text quasar-type-caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one. Quasar gives up a stuck update by itself after 30 to 60 minutes, depending on the phase; before activation the previous version then carries on, afterwards the error names the pre-update backup to restore.</span>
             }
         }
         <MudExpansionPanels>

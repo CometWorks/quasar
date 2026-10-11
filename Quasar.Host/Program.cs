@@ -588,6 +588,31 @@ internal static class Program
             LaunchRecord record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)
                 ?? throw new InvalidOperationException("self-test launch record is empty");
             childProcessId = record.ProcessId;
+
+            // The ready timeout runs on the uptime clock: a wall-clock step does not kill a loading node,
+            // and the startup deadline still holds when the wall clock is stepped back.
+            if (record.LaunchedAtUptimeMs is null)
+                throw new InvalidOperationException("self-test launch record has no uptime stamp");
+            File.WriteAllBytes(recordPath, JsonSerializer.SerializeToUtf8Bytes(
+                record with { LaunchedAt = record.LaunchedAt.AddDays(-1) }, JsonOptions));
+            NodeExecutionObservation stillLoading = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            File.WriteAllBytes(recordPath, JsonSerializer.SerializeToUtf8Bytes(record with
+            {
+                LaunchedAt = record.LaunchedAt.AddDays(1), LaunchedAtUptimeMs = record.LaunchedAtUptimeMs - 31_000,
+            }, JsonOptions));
+            NodeExecutionObservation timedOut = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            if (stillLoading.State != Admin.NodeObservation.Spawning
+                || timedOut.State != Admin.NodeObservation.Failed || timedOut.Failure != "ready_timeout"
+                || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
+                throw new InvalidOperationException($"self-test ready timeout failed: {stillLoading.State}, {timedOut.State} {timedOut.Failure}");
+            childProcessId = null;
+            spawning = (await actualizer.ReconcileAsync(attachment, [wanted], CancellationToken.None)).Single();
+            if (spawning.State != Admin.NodeObservation.Spawning)
+                throw new InvalidOperationException("self-test respawn after ready timeout failed: " + spawning.Failure);
+            record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)!;
+            childProcessId = record.ProcessId;
             string slotDirectory = Directory.GetDirectories(runRoot).Single();
             var receipt = new ReadyReceipt(1, "demo", "slot-a", record.AttemptKey,
                 "node-a", 7, "127.0.0.1:30000", record.ProcessId!.Value, record.BundleRevision);
@@ -648,6 +673,31 @@ internal static class Program
                     || observed.Failure != failure || observed.Node != "node-a")
                     throw new InvalidOperationException($"self-test exit {exitCode} (rebooted: {rebooted}) reported {observed.State} {observed.Failure}");
             }
+
+            // An unfenced slot Kill (emergency shutdown) stops a Ready node; an incumbent Kill naming
+            // another incarnation still does not.
+            NodeExecutionObservation emergencySpawn = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)!;
+            childProcessId = record.ProcessId;
+            File.WriteAllBytes(Path.Combine(slotDirectory, ".quasar-node-ready.json"),
+                JsonSerializer.SerializeToUtf8Bytes(receipt with
+                {
+                    AttemptKey = record.AttemptKey, ProcessId = record.ProcessId!.Value,
+                }, JsonOptions));
+            NodeExecutionObservation emergencyReady = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            NodeExecutionObservation staleKill = (await actualizer.ReconcileAsync(attachment,
+                [kill with { Goal = Admin.NodeGoal.Kill, IncumbentEpoch = 6 }], CancellationToken.None)).Single();
+            NodeExecutionObservation emergencyKill = (await actualizer.ReconcileAsync(attachment,
+                [wanted with { Goal = Admin.NodeGoal.Kill, SpawnAllowed = false }], CancellationToken.None)).Single();
+            if (emergencySpawn.State != Admin.NodeObservation.Spawning || emergencyReady.State != Admin.NodeObservation.Ready
+                || staleKill.Failure != "kill_authority_mismatch"
+                || emergencyKill.State != Admin.NodeObservation.Gone || emergencyKill.Node != "node-a"
+                || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
+                throw new InvalidOperationException($"self-test slot kill failed: {emergencySpawn.State}, {emergencyReady.State}, "
+                    + $"{staleKill.Failure}, {emergencyKill.State} {emergencyKill.Failure}");
+            childProcessId = null;
 
             using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);
             conflict.Start();
