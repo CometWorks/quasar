@@ -1165,6 +1165,8 @@ slot, node ID, role, bundle-relative executable, arguments/environment, reserved
 and ready timeout. Host writes the launch intent before starting the process and records
 PID, process start time, executable identity, attempt, and bundle revision afterward.
 Those records let a restarted Host re-adopt an exact process without parenting it.
+The ready timeout runs on the system uptime clock recorded at launch, so a wall-clock
+step neither cuts a loading node short nor extends its deadline.
 
 PID existence is not readiness. Host passes `QUASAR_CLUSTER_READY_PATH` and the stable
 cluster/slot/attempt identity to the node. After Gateway registration and plugin readiness,
