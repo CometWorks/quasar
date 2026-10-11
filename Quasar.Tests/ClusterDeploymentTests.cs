@@ -567,12 +567,113 @@ public sealed class ClusterDeploymentTests : IDisposable
         await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off); // the lifecycle tools are unlocked again
     }
 
+    [Fact]
+    public async Task EmergencyShutdownEndsAnUpdateOnlyWhileItStopsOrStarts()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "emergency-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        await new ClusterDeploymentService(catalog, client, operations).ActivateAsync(
+            "demo",
+            Request(),
+            "initial",
+            "test",
+            default
+        );
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new GatewayHandler();
+        var gateway = new ClusterGatewayClient(new HttpClient(gatewayHandler));
+        var update = new ClusterUpdateService(
+            catalog,
+            new ClusterDeploymentService(catalog, client, operations),
+            gateway,
+            client,
+            operations,
+            NullLogger<ClusterUpdateService>.Instance
+        );
+        // Own store: a pending emergency shutdown would rightly hold back the second update's activation.
+        var commands = new ClusterCommandService(
+            catalog,
+            new ClusterOperationStore(Path.Combine(root, "emergency-commands")),
+            gateway,
+            client
+        );
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest(
+            "revision",
+            "candidate",
+            Request()
+                .Hosts.Select(h =>
+                    h with
+                    {
+                        Activation = h.Activation with
+                        {
+                            ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                            BundleManifestSha256 = new string('b', 64),
+                        },
+                    }
+                )
+                .ToArray()
+        );
+        ClusterAdminCommand Shutdown(bool emergency) =>
+            ClusterAdminCommand.Create(
+                "shutdown",
+                new CometWorks.ClusterGateway.AdminContract.V1.ShutdownRequest(Emergency: emergency)
+            );
+
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-1", "test", default);
+        var refused = await Assert.ThrowsAsync<ClusterOperationConflictException>(() =>
+            commands.SubmitAsync("demo", Shutdown(false), "graceful", "operator")
+        );
+        Assert.Equal("deployment_pending", refused.Code);
+        await Assert.ThrowsAsync<ClusterOperationConflictException>(() =>
+            commands.SubmitAsync("demo", ClusterAdminCommand.Create("save-all"), "save", "operator")
+        );
+        Assert.Empty(gatewayHandler.Posts);
+
+        var operation = await commands.SubmitAsync("demo", Shutdown(true), "emergency", "operator");
+        Assert.NotEqual(ClusterOperationState.Failed, operation.State); // Running until the Gateway reports Down
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.Equal(
+            "Abandoned by operator for an emergency shutdown while Stopping.",
+            cluster.Update.LastError
+        );
+        Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+        var post = Assert.Single(gatewayHandler.Posts);
+        Assert.EndsWith("/shutdown", post.Path);
+        Assert.Contains("\"emergency\":true", post.Body);
+
+        // While Hosts switch deployments the Gateway is already down; nothing may interrupt that.
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(
+            stopped,
+            new(
+                stopped.GetLifecycleId(),
+                DateTimeOffset.UtcNow,
+                new GatewayStopFence(121, DateTimeOffset.UtcNow)
+            ),
+            default
+        );
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-2", "test", default);
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+        await Assert.ThrowsAsync<ClusterOperationConflictException>(() =>
+            commands.SubmitAsync("demo", Shutdown(true), "emergency-2", "operator")
+        );
+        Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+    }
+
     private sealed class GatewayHandler : HttpMessageHandler
     {
         internal bool Ready;
         internal string Revision = "candidate";
+        internal readonly List<(string Path, string Body)> Posts = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
+            if (request.Method == HttpMethod.Post)
+                Posts.Add((request.RequestUri!.AbsolutePath, request.Content?.ReadAsStringAsync(token).GetAwaiter().GetResult() ?? ""));
             var status = new CometWorks.ClusterGateway.AdminContract.V1.ClusterStatus("demo", "world",
                 CometWorks.ClusterGateway.AdminContract.V1.ClusterPhase.Serving, CometWorks.ClusterGateway.AdminContract.V1.StartupKind.Warm,
                 null, null, false, false, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,

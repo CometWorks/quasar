@@ -95,12 +95,54 @@ public sealed class ClusterCommandService
             cluster => SubmitCoreAsync(cluster, command, idempotencyKey, actor, token), token);
     }
 
-    private Task<ClusterOperation> SubmitCoreAsync(ClusterDefinition cluster, ClusterAdminCommand command,
+    private async Task<ClusterOperation> SubmitCoreAsync(ClusterDefinition cluster, ClusterAdminCommand command,
         string idempotencyKey, string actor, CancellationToken token)
     {
-        if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete } || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-            throw Invalid("deployment_pending", "Complete the managed update or restore before submitting cluster commands.");
         string action = command.Action?.Trim().ToLowerInvariant() ?? "";
+        if (cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+            throw Invalid(
+                "deployment_pending",
+                "Complete the managed update or restore before submitting cluster commands."
+            );
+        if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete } update)
+        {
+            // An emergency stop ends the update: no clean shutdown proof can follow it, and the
+            // update must not go on to activate or judge a deployment the operator forced down.
+            bool emergency;
+            try
+            {
+                emergency = action == "shutdown" && Read(new Admin.ShutdownRequest()).Emergency;
+            }
+            catch (JsonException error)
+            {
+                throw Invalid("invalid_arguments", error.Message);
+            }
+            if (
+                !emergency
+                || update.Phase is not (ClusterUpdatePhase.Stopping or ClusterUpdatePhase.Starting)
+            )
+                throw Invalid(
+                    "deployment_pending",
+                    "Complete the managed update or restore before submitting cluster commands. Only an emergency shutdown may interrupt an update while it stops or starts the cluster."
+                );
+            cluster = await _catalog.RecordUpdateAsync(
+                cluster,
+                update with
+                {
+                    Phase = ClusterUpdatePhase.Complete,
+                    UpdatedAt = DateTimeOffset.UtcNow,
+                    LastError =
+                        $"Abandoned by {actor} for an emergency shutdown while {update.Phase}."
+                        + (
+                            update.Phase == ClusterUpdatePhase.Starting
+                            && update.Backup is { } backup
+                                ? $" To return to the previous version and world, restore backup {backup:D} in Maintenance once the cluster is stopped."
+                                : ""
+                        ),
+                },
+                token
+            );
+        }
         string method = "POST";
         string route;
         object body;
@@ -171,7 +213,7 @@ public sealed class ClusterCommandService
             }
         }
         catch (JsonException error) { throw Invalid("invalid_arguments", error.Message); }
-        return _operations.ExecuteGatewayAsync(cluster, "cluster." + action, method, route, body,
+        return await _operations.ExecuteGatewayAsync(cluster, "cluster." + action, method, route, body,
             idempotencyKey, actor, _client, token);
 
         T Read<T>(T? fallback = default) where T : class
