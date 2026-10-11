@@ -99,7 +99,7 @@ jobs:
             gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --silent
             ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}"
             if ref_response=$(gh api "$ref" 2>&1); then
-              gh api --method DELETE "$ref" --silent
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" --silent
             elif [[ "$ref_response" != *"HTTP 404"* ]]; then
               printf '%s\n' "$ref_response" >&2
               exit 1
@@ -797,7 +797,7 @@ jobs:
             gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${release_id}" --silent
             ref="repos/${GITHUB_REPOSITORY}/git/ref/tags/${tag}"
             if ref_response=$(gh api "$ref" 2>&1); then
-              gh api --method DELETE "$ref" --silent
+              gh api --method DELETE "repos/${GITHUB_REPOSITORY}/git/refs/tags/${tag}" --silent
             elif [[ "$ref_response" != *"HTTP 404"* ]]; then
               printf '%s\n' "$ref_response" >&2
               exit 1

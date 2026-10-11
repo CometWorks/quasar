@@ -86,6 +86,19 @@ checksum. No neighboring Gateway checkout or private contract package is needed.
   managed data directory, choose to install it with the system package manager,
   or cancel the plugin operation.
 
+## Release cleanup
+
+After publishing, the release workflow retains the two highest versions in each
+managed release stream (full releases, each PR, manual builds, and other
+prereleases), always preserving the current release. Older releases and their
+existing tags are deleted. Closing a PR removes its draft releases and existing
+tags.
+
+GitHub's tag API uses `GET /repos/{owner}/{repo}/git/ref/tags/{tag}` to check
+whether a tag exists and `DELETE /repos/{owner}/{repo}/git/refs/tags/{tag}` to
+delete it. Cleanup skips missing tags (HTTP 404 from the check); other API
+failures still fail the job.
+
 ## Local development plugins
 
 Register a plugin manifest under Configs → Dev folders, then select that local
