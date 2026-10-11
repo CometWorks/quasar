@@ -8,6 +8,12 @@ release's exact PluginSdk binary pin. If either installed release lacks
 the required capability or pin, setup stops and can be resumed. It never starts an older
 Magnetar with an unrecognized preparation flag.
 
+The cluster detail page shows the deployed package version and the latest published
+version, including the last release check time or its error. The deployed version
+comes from the active deployment; staging or selecting an update does not change
+it. Older deployments without an unambiguous package record show **Unknown**.
+These version details are also visible to users with query-only cluster access.
+
 ## Operator flow
 
 UI labels follow the [agreed terminology](ClusterTerminology.md): **Host machine**

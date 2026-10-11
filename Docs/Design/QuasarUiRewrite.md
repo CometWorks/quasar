@@ -94,6 +94,23 @@ content in overlays inherits the palette. The server console interior uses
 native log-source buttons, file selectors, downloads, and error/refresh controls;
 existing log loading, history, auto-refresh, and keyboard rollover are retained.
 
+The sidebar brand row and top bar share an inset separator so their horizontal
+edges meet consistently at fractional browser zoom levels.
+
+Configuration profiles use a native responsive grid and sidebar: the name field
+and Create profile button stay together above a scrollable list. Profile rows
+have left-aligned names, an explicit selected state, and separate labeled clone
+and delete buttons. The sidebar stays in view on desktop and stacks above the
+editor on smaller screens; the editor keeps normal page scrolling. Profile
+selection still prompts for unsaved changes, and deletion keeps its confirmation.
+
+Cluster expansion groups have enclosing borders and shaded expanded headers.
+Nested plugin settings, advanced controls, and backup tools sit inside the parent
+body's padding with a heavier leading border, making the hierarchy visible without
+opening every section. Native disclosures and remaining Mud expansion panels use
+the same grouping treatment; opening a parent no longer styles closed child headers
+as expanded. Keyboard disclosure behavior and action permissions are unchanged.
+
 `QuasarTheme` is the temporary bridge from stored palette strings to native CSS
 and Mud themes. Legacy public theme accessors remain for plugin compatibility.
 Native icons reuse Quasar's existing Material SVG paths; their Apache license is

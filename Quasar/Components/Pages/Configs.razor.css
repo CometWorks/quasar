@@ -1,6 +1,8 @@
 .configs-page-shell {
-    height: auto;
-    min-height: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 1.25rem;
 }
 
 .plugin-actions {
@@ -14,73 +16,87 @@
 .configs-sidebar {
     display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 0;
+    gap: 1rem;
+    min-width: 0;
+    padding: 1rem;
 }
 
-.configs-sidebar-inner {
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
+.configs-create-form {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.configs-sidebar > :not(.configs-profile-list) {
+    flex-shrink: 0;
 }
 
 .configs-profile-list {
-    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
     min-height: 0;
+    max-height: 24rem;
     overflow-y: auto;
+    list-style: none;
+    margin: 0;
+    padding: 0.25rem;
+    border-top: 1px solid var(--quasar-palette-divider);
+    padding-top: 1rem;
 }
 
 .configs-main-column {
-    height: auto;
-    min-height: 0;
-}
-
-.configs-editor-scroll {
-    height: auto;
-    min-height: 0;
-    overflow-y: visible;
-    padding-right: 0.25rem;
+    min-width: 0;
 }
 
 .config-profile-tile {
-    background: var(--mud-palette-background-gray);
-    border-radius: calc(var(--mud-default-borderradius) + 2px);
-    transition: background-color 0.15s ease, color 0.15s ease, transform 0.15s ease;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 4px;
+    background: var(--quasar-palette-surface);
 }
 
-/* .config-profile-selected (the persistent selected highlight) lives in the
-   global app.css — scoped CSS does not reliably reach the MudPaper tile. */
-
-.config-profile-row {
-    flex-wrap: nowrap;
+.config-profile-tile:has([aria-pressed="true"]) {
+    border-color: var(--quasar-palette-primary);
+    background: color-mix(in srgb, var(--quasar-palette-primary) 12%, var(--quasar-palette-surface));
+    box-shadow: inset 3px 0 var(--quasar-palette-primary);
 }
 
 .config-profile-button {
-    border-radius: inherit;
-    color: inherit;
-    flex: 1 1 auto;
-    height: 100%;
-    justify-content: flex-start;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    align-self: stretch;
+    justify-content: center;
+    gap: 0.2rem;
+    flex: 1;
     min-width: 0;
-    padding: 0;
+    padding: 0.75rem;
+    border: 0;
+    border-radius: inherit;
+    background: transparent;
+    color: inherit;
+    font: inherit;
     text-align: left;
-    text-transform: none;
-    width: auto;
+    overflow-wrap: anywhere;
+    cursor: pointer;
 }
 
-.config-profile-button-selected {
-    box-shadow: inset 4px 0 0 currentColor;
+.config-profile-button:hover {
+    background: var(--quasar-palette-hover-background);
+    color: var(--quasar-palette-hover-contrast-text);
 }
 
-.config-profile-button ::deep .mud-button-label {
-    align-items: stretch;
-    height: 100%;
-    justify-content: flex-start;
-    width: 100%;
+.config-profile-name {
+    font-size: 13px;
+    font-weight: 600;
 }
 
-.config-profile-delete {
-    flex: 0 0 auto;
+.config-profile-actions {
+    display: flex;
+    flex-shrink: 0;
+    padding-right: 0.5rem;
 }
 
 .config-secondary {
@@ -346,29 +362,21 @@
 
 @media (min-width: 1280px) {
     .configs-page-shell {
-        height: calc(100vh - 11rem);
-        min-height: 42rem;
-    }
-
-    .configs-main-column,
-    .configs-editor-scroll {
-        height: 100%;
-        overflow-y: auto;
+        grid-template-columns: minmax(18rem, 22rem) minmax(0, 1fr);
     }
 
     .configs-sidebar {
         position: sticky;
-        top: calc(64px + 1rem);
+        top: calc(var(--quasar-topbar-height) + 1rem);
+        max-height: calc(100dvh - var(--quasar-topbar-height) - 2rem);
+    }
+
+    .configs-profile-list {
+        max-height: none;
     }
 }
 
 @media (max-width: 599px) {
-    .configs-main-column,
-    .configs-editor-scroll {
-        height: auto;
-        overflow: visible;
-    }
-
     .mod-load-order-header {
         display: none;
     }

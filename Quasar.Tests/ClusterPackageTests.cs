@@ -74,6 +74,32 @@ public sealed class ClusterPackageTests
         Assert.False(ClusterReleaseMonitor.IsOnLatestRelease(cluster, release));
     }
 
+    [Fact]
+    public void DeployedVersionNeverUsesPendingOrAmbiguousSelection()
+    {
+        var cluster = new Quasar.Models.ClusterDefinition
+        {
+            PackageSelection = new(1, "1.0.4", new string('a', 64), new string('c', 40), "selection"),
+        };
+        Assert.Null(ClusterReleaseMonitor.GetDeployedVersion(cluster));
+        cluster.ActiveDeployment = new("active", [], DateTimeOffset.UtcNow);
+        Assert.Equal("1.0.4", ClusterReleaseMonitor.GetDeployedVersion(cluster));
+        cluster.PreparedDeployment = new("active", "pending", []);
+        Assert.Null(ClusterReleaseMonitor.GetDeployedVersion(cluster));
+        cluster.ActiveDeployment = cluster.ActiveDeployment with { PackageVersion = "1.0.3" };
+        Assert.Equal("1.0.3", ClusterReleaseMonitor.GetDeployedVersion(cluster));
+        cluster.ActiveDeployment = cluster.ActiveDeployment with
+        {
+            PackageVersion = null,
+            Provenance = new(cluster.PackageSelection with { Version = "1.0.2" }, new string('d', 64), new("pin", "{}", "", []))
+        };
+        Assert.Equal("1.0.2", ClusterReleaseMonitor.GetDeployedVersion(cluster));
+        cluster.ActiveDeployment = cluster.ActiveDeployment with { Provenance = null };
+        cluster.PreparedDeployment = null;
+        cluster.PackageSelection = cluster.PackageSelection with { Revision = 2 };
+        Assert.Null(ClusterReleaseMonitor.GetDeployedVersion(cluster));
+    }
+
     [Theory]
     [InlineData(HttpStatusCode.NotFound, "private repository", "Updates → GitHub token")]
     [InlineData(HttpStatusCode.Unauthorized, "rejected authentication", "Updates → GitHub token")]

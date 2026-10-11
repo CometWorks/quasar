@@ -19,82 +19,54 @@
 
 <QuasarPageHeading Section="Configuration"><Title>Configuration profiles</Title><Description>Edit server settings, Workshop mods, and plugin selections in one workspace.</Description></QuasarPageHeading>
 
-<MudGrid Class="configs-page-shell">
-    <MudItem xs="12" lg="3">
-        <section class="quasar-panel server-card pa-4 configs-sidebar">
-            <div class="quasar-layout quasar-gap-2 configs-sidebar-inner">
-                <div>
-                    <h2 class="quasar-text quasar-type-h6">Config Profiles</h2>
-                    <p class="quasar-text quasar-type-body2 mb-4">
-                        Reusable Magnetar config profiles. Applied to the assigned servers when they start.
-                    </p>
-                </div>
-                
-                <MudTextField
-                    @bind-Value="_newProfileName"
-                    Label="New profile name"
-                    Variant="Variant.Outlined"
-                    Immediate="true"
-                    OnKeyDown="HandleNewProfileKeyDown" />
+<div class="configs-page-shell">
+    <section class="quasar-panel configs-sidebar" aria-labelledby="config-profiles-heading">
+        <div>
+            <h2 id="config-profiles-heading" class="quasar-text quasar-type-h6">Profiles</h2>
+            <p class="quasar-text quasar-type-body2 config-secondary">
+                Reusable settings applied to assigned servers when they start.
+            </p>
+        </div>
 
-                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateProfileAsync" Disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
-                    Create Profile
-                </MudButton>
+        <form class="configs-create-form" @onsubmit="CreateProfileAsync" @onsubmit:preventDefault>
+            <label class="quasar-field">
+                New profile name
+                <input @bind="_newProfileName" @bind:event="oninput" />
+            </label>
+            <button type="submit" class="quasar-button quasar-button-primary" disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
+                Create profile
+            </button>
+        </form>
 
-                <hr class="quasar-divider" />
-
-                @if (Templates.Count == 0)
+        @if (Templates.Count == 0)
+        {
+            <p class="quasar-text quasar-type-body2 config-secondary">No config profiles yet.</p>
+        }
+        else
+        {
+            <ul class="configs-profile-list" aria-label="Configuration profiles">
+                @foreach (var template in Templates)
                 {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                        No config profiles yet.
-                    </MudAlert>
+                    var isSelected = string.Equals(_selectedProfileId, template.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
+                    <li class="config-profile-tile" @key="template.ConfigProfileId">
+                        <button type="button" class="config-profile-button" aria-pressed="@isSelected.ToString().ToLowerInvariant()"
+                                @onclick="@(() => SelectProfileFromListAsync(template.ConfigProfileId))">
+                            <span class="config-profile-name">@template.Name</span>
+                            <span class="quasar-type-caption config-secondary">@GetProfileSummary(template)</span>
+                        </button>
+                        <div class="config-profile-actions">
+                            <QuasarIconButton Icon="@QuasarIcons.ContentCopy" Label="@($"Clone {template.Name}")"
+                                              OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
+                            <QuasarIconButton Icon="@QuasarIcons.Delete" Label="@($"Delete {template.Name}")" Class="quasar-text-error"
+                                              OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
+                        </div>
+                    </li>
                 }
-                else
-                {
-                    <div class="quasar-layout quasar-gap-1 configs-profile-list">
-                        @foreach (var template in Templates)
-                        {
-                            var isSelected = string.Equals(_selectedProfileId, template.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
-                            var profileTileClass = GetProfileTileCssClass(isSelected);
-                            var profileButtonClass = isSelected
-                                ? "config-profile-button config-profile-button-selected"
-                                : "config-profile-button";
-                            <section class="quasar-panel @profileTileClass" @key="template.ConfigProfileId">
-                                <div class="quasar-layout quasar-layout-row quasar-align-start quasar-justify-spacebetween quasar-gap-1 config-profile-row">
-                                    <MudButton Variant="Variant.Text" Color="Color.Inherit" Class="@profileButtonClass" Style="flex: 1 1 auto; min-width: 0;" OnClick="@(() => SelectProfileFromListAsync(template.ConfigProfileId))">
-                                        <div class="quasar-layout quasar-align-start quasar-gap-0">
-                                            <h3 class="quasar-text quasar-type-subtitle2">@template.Name</h3>
-                                            <span class="quasar-text quasar-type-caption config-secondary">
-                                                @GetProfileSummary(template)
-                                            </span>
-                                        </div>
-                                    </MudButton>
-                                    <MudTooltip Text="Clone profile">
-                                        <MudIconButton
-                                            Icon="@Icons.Material.Filled.ContentCopy"
-                                            Color="Color.Default"
-                                            Size="Size.Small"
-                                            OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
-                                    </MudTooltip>
-                                    <MudTooltip Text="Delete profile">
-                                        <MudIconButton
-                                            Icon="@Icons.Material.Filled.DeleteOutline"
-                                            Color="Color.Error"
-                                            Size="Size.Small"
-                                            Class="config-profile-delete"
-                                            OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
-                                    </MudTooltip>
-                                </div>
-                            </section>
-                        }
-                    </div>
-                }
-            </div>
-        </section>
-    </MudItem>
+            </ul>
+        }
+    </section>
 
-    <MudItem xs="12" lg="9" Class="configs-main-column">
-        <div class="configs-editor-scroll">
+    <div class="configs-main-column">
         @if (_editor is null)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
@@ -975,9 +947,8 @@
                 </MudExpansionPanels>
             </div>
         }
-        </div>
-    </MudItem>
-</MudGrid>
+    </div>
+</div>
 
 @code
 {
@@ -1765,11 +1736,6 @@
 
     private string GetOptionAnchorId(QuasarConfigOptionDefinition option) =>
         $"config-option-{option.Scope.ToString().ToLowerInvariant()}-{option.PropertyName.ToLowerInvariant()}";
-
-    private static string GetProfileTileCssClass(bool isSelected) =>
-        isSelected
-            ? "pa-3 config-profile-tile config-profile-selected"
-            : "pa-3 config-profile-tile";
 
     private string GetOptionCssClass(QuasarConfigOptionDefinition option)
     {
@@ -2887,14 +2853,6 @@
     private void HandleWorkshopCredentialsChanged()
     {
         _ = InvokeAsync(StateHasChanged);
-    }
-
-    private Task HandleNewProfileKeyDown(KeyboardEventArgs args)
-    {
-        if (string.Equals(args.Key, "Enter", StringComparison.Ordinal))
-            return CreateProfileAsync();
-
-        return Task.CompletedTask;
     }
 
     private static bool MatchesSearchTerms(string searchText, params string[] values)

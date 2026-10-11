@@ -24,15 +24,21 @@ public sealed class ClusterReleaseMonitor(ClusterCatalog catalog, ClusterPackage
         if (release is null || cluster.ActiveDeployment is null)
             return false;
 
-        // Existing first deployments predate the recorded active package version.
-        var activeSelection = cluster.ActiveDeployment.Provenance?.PackageSelection
+        var activeSelection = GetActiveSelection(cluster);
+        return activeSelection is not null && activeSelection.Version == release.Version
+            && activeSelection.Sha256.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase);
+    }
+
+    public static string? GetDeployedVersion(ClusterDefinition cluster) =>
+        cluster.ActiveDeployment?.PackageVersion ?? GetActiveSelection(cluster)?.Version;
+
+    private static ClusterPackageSelection? GetActiveSelection(ClusterDefinition cluster) =>
+        cluster.ActiveDeployment is null ? null : cluster.ActiveDeployment.Provenance?.PackageSelection
+            // Existing first deployments predate the recorded active package version.
             ?? (cluster.ActiveDeployment.PackageVersion is null
                 && cluster.PackageSelection is { Revision: 1 } selection
                 && cluster.PreviousDeployment is null && cluster.PreparedDeployment is null
                 && cluster.Update is null ? selection : null);
-        return activeSelection is not null && activeSelection.Version == release.Version
-            && activeSelection.Sha256.Equals(release.Sha256, StringComparison.OrdinalIgnoreCase);
-    }
 
     public async Task CheckNowAsync(CancellationToken token = default)
     {
