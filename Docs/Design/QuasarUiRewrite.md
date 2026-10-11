@@ -17,7 +17,7 @@ The approved visual overhaul now extends across the core workspace. Migrated sur
 
 - Native responsive shell, navigation, theme selector, notification/auth/power
   entry points, and shutdown overlay, with the current Quasar logo. The sidebar
-  is 240px wide on desktop and in the mobile drawer, with 16px navigation labels,
+  is 200px wide on desktop and in the mobile drawer, with 16px navigation labels,
   22px icons, larger click targets, and the shortened “Hosts” link. The logo,
   title, and subtitle stay docked at the top while the sidebar scrolls. The
   default subtitle is “Control plane”; saved custom subtitles remain unchanged.

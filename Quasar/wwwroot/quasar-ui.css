@@ -1,5 +1,5 @@
 /* Native Quasar controls. Palette values come from the existing branding file. */
-:root { --quasar-topbar-height: 65px; --quasar-sidebar-width: 240px; }
+:root { --quasar-topbar-height: 65px; --quasar-sidebar-width: 200px; }
 html { scroll-padding-top: var(--quasar-topbar-height); }
 [hidden] { display: none !important; }
 body { font-family: "DM Sans", system-ui, sans-serif; }
