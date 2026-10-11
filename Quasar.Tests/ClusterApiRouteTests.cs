@@ -151,7 +151,6 @@ public sealed class ClusterApiRouteTests
         builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
         builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
         builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
-        builder.Services.AddSingleton<ClusterFleetService>(_ => null!);
         builder.Services.AddSingleton<ClusterUpdatePreparationService>(_ => null!);
         WebApplication app = builder.Build();
         app.MapClusterApi(new QuasarAuthOptions { Enabled = authEnabled });
