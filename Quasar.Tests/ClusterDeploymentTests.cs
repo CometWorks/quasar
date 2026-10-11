@@ -423,6 +423,89 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
     }
 
+    [Fact]
+    public async Task OverdueUpdateAbandonsItselfUnlessHostsAreHalfActivated()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "timeout-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        await new ClusterDeploymentService(catalog, client, operations).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gateway = new GatewayHandler();
+        var update = new ClusterUpdateService(catalog, new ClusterDeploymentService(catalog, client, operations),
+            new ClusterGatewayClient(new HttpClient(gateway)), client, operations, NullLogger<ClusterUpdateService>.Instance);
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest("revision", "candidate", Request().Hosts.Select(h => h with {
+            Activation = h.Activation with { ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                BundleManifestSha256 = new string('b', 64) } }).ToArray());
+        async Task Backdate(TimeSpan age)
+        {
+            var current = catalog.GetCluster("demo")!;
+            var past = DateTimeOffset.UtcNow - age - TimeSpan.FromSeconds(1);
+            await catalog.RecordUpdateAsync(current, current.Update! with { StartedAt = past, PhaseStartedAt = past }, default);
+        }
+        async Task ProveCleanShutdown(int pid)
+        {
+            var stopped = catalog.GetCluster("demo")!;
+            await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,
+                new GatewayStopFence(pid, DateTimeOffset.UtcNow)), default);
+        }
+
+        // Stopping: the clean shutdown never arrives.
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-1", "test", default);
+        await Backdate(ClusterUpdateService.StoppingTimeout);
+        await update.AdvanceAllAsync(default);
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.StartsWith("Abandoned by Quasar after 60 minutes in Stopping: still waiting for a verified clean shutdown.", cluster.Update.LastError);
+        Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+
+        // Activating: every Host refuses before anything was applied.
+        await ProveCleanShutdown(121);
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-2", "test", default);
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+        handler.Deletion = "host-offline";
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+        Assert.Null(catalog.GetCluster("demo")!.PendingDeploymentHash);
+        await Backdate(ClusterUpdateService.ActivatingTimeout);
+        await update.AdvanceAllAsync(default);
+        handler.Deletion = null;
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.StartsWith("Abandoned by Quasar after 30 minutes in Activating: Cannot reach the Host executor", cluster.Update.LastError);
+        Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
+
+        // Activating, half applied: the timeout must not abandon it; resuming still works.
+        await ProveCleanShutdown(122);
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin-3", "test", default);
+        await update.AdvanceAllAsync(default);
+        handler.FailSecond = true;
+        await update.AdvanceAllAsync(default);
+        Assert.NotNull(catalog.GetCluster("demo")!.PendingDeploymentHash);
+        await Backdate(ClusterUpdateService.ActivatingTimeout);
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+        handler.FailSecond = false;
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
+
+        // Starting: the Gateway never serves the new deployment.
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
+        await Backdate(ClusterUpdateService.StartingTimeout);
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.StartsWith("Abandoned by Quasar after 60 minutes in Starting: still waiting for the Gateway", cluster.Update.LastError);
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off); // the lifecycle tools are unlocked again
+    }
+
     private sealed class GatewayHandler : HttpMessageHandler
     {
         internal bool Ready;

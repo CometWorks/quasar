@@ -80,7 +80,7 @@
             @if (update.Phase != ClusterUpdatePhase.Complete)
             {
                 <MudButton OnClick="AbandonUpdateAsync" Disabled="_busy" Color="Color.Warning" Variant="Variant.Outlined">Abandon update</MudButton>
-                <span class="quasar-text quasar-type-caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one.</span>
+                <span class="quasar-text quasar-type-caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one. Quasar abandons a stuck update by itself after 30 to 60 minutes, depending on the phase.</span>
             }
         }
         <MudExpansionPanels>
