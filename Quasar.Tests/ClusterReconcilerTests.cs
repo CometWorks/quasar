@@ -156,6 +156,86 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.Null(catalog.GetCluster("demo")!.ShutdownProof);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task DirtyOrUnprovenShutdownIsNotRecordedAsClean(bool hasSnapshot)
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off);
+        int hostApplies = 0;
+        var host = new ContractHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Put) hostApplies++;
+            return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
+        });
+        // An emergency shutdown also reaches Down with a marker; only its snapshot names the dirty state.
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down)))
+        {
+            Snapshots = hasSnapshot
+                ? [Snapshot() with { SnapshotId = "earlier", ClusterTime = 1 }, Snapshot("partition:11", "node:node-1")]
+                : [Snapshot() with { ClusterTime = 1 }],
+        };
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(default);
+
+        ClusterReconcileStatus status = reconciler.GetStatus("demo");
+        Assert.Equal(0, hostApplies);
+        Assert.Equal(ClusterReconcileState.ConfigurationRequired, status.State);
+        Assert.Equal("shutdown_recovery_required", status.ErrorCode);
+        if (hasSnapshot) Assert.Contains("partition:11, node:node-1", status.Message);
+        Assert.Null(catalog.GetCluster("demo")!.ShutdownProof);
+        Assert.False(new ClusterOperationStore(Path.Combine(_directory, "operations")).HasPendingShutdown("demo"));
+    }
+
+    [Fact]
+    public async Task OnDoesNotRestartAfterDirtyShutdownAtHostRestart()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.On);
+        Guid generation = Guid.NewGuid();
+        await catalog.SetGatewayAsync("demo", Spec() with { StartGeneration = generation });
+        var current = GatewayStatus(GatewayGoal.On, GatewayObservedState.Running) with { StartGeneration = generation };
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return HostResponse(Host([current]) with { StartedAt = DateTimeOffset.UnixEpoch.AddSeconds(60) });
+        });
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down)))
+            { Snapshots = [Snapshot("global")] };
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(default);
+
+        Assert.Equal(generation, catalog.GetCluster("demo")!.Gateway!.StartGeneration);
+        Assert.Equal("cluster_down", reconciler.GetStatus("demo").ErrorCode);
+    }
+
+    [Fact]
+    public async Task NewGenerationDoesNotStopDirtyDownGateway()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.On);
+        Guid oldGeneration = Guid.NewGuid();
+        await catalog.SetGatewayAsync("demo", Spec() with { StartGeneration = Guid.NewGuid() });
+        var current = GatewayStatus(GatewayGoal.On, GatewayObservedState.Running) with { StartGeneration = oldGeneration };
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return HostResponse(Host([current]));
+        });
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down)))
+            { Snapshots = [Snapshot("global")] };
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(default);
+
+        Assert.Equal(ClusterReconcileState.ConfigurationRequired, reconciler.GetStatus("demo").State);
+        Assert.Equal("shutdown_recovery_required", reconciler.GetStatus("demo").ErrorCode);
+        Assert.Contains("global", reconciler.GetStatus("demo").Message);
+    }
+
     [Fact]
     public async Task PersistedOffWithoutProofRequiresRecoveryAndDoesNotRestartGateway()
     {
@@ -656,18 +736,27 @@ public sealed class ClusterReconcilerTests : IDisposable
         return response;
     }
 
+    private static Admin.SnapshotSummary Snapshot(params string[] dirty) => new(
+        "shutdown-0", Admin.AdminSnapshotKind.CleanShutdown, DateTimeOffset.UnixEpoch.UtcTicks, 2, true, 0, dirty);
+
+    // Gateway snapshot reads are answered here so each test's handler only sees the calls it is about.
+    // By default the Gateway's last shutdown, at UnixEpoch like Status(Down), left nothing dirty.
     private sealed class ContractHandler(
         Func<HttpRequestMessage, CancellationToken, HttpResponseMessage> response) : HttpMessageHandler
     {
+        public Admin.SnapshotSummary[] Snapshots { get; set; } = [Snapshot()];
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken) =>
-            Task.FromResult(response(request, cancellationToken));
+            Task.FromResult(request.RequestUri!.AbsolutePath.EndsWith("/snapshots")
+                ? GatewayResponse(Snapshots) : response(request, cancellationToken));
     }
 
     private sealed class AsyncHandler(
         Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> response) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) =>
-            response(request, token);
+            request.RequestUri!.AbsolutePath.EndsWith("/snapshots")
+                ? Task.FromResult(GatewayResponse(new[] { Snapshot() })) : response(request, token);
     }
 }
