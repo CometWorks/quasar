@@ -71,7 +71,11 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                     {
                         if (catalog.GetCluster(request.UniqueName) is not null) throw new InvalidOperationException("This cluster ID already belongs to an existing registration. Choose a new ID.");
                         var profile = profiles.GetProfile(request.ConfigProfileId) ?? throw new InvalidOperationException("Choose a configuration profile.");
-                        if (worlds.GetTemplate(request.WorldTemplateId) is null) throw new InvalidOperationException("Choose a world template.");
+                        var template = worlds.GetTemplate(request.WorldTemplateId) ?? throw new InvalidOperationException("Choose a world template.");
+                        // Checked before the ID is bound: the converter only fails minutes later, and a bound ID keeps its template.
+                        if (LacksStaticGrid(worlds.GetWorldDirectory(request.WorldTemplateId)))
+                            throw new InvalidOperationException($"The world \"{template.Name}\" has no static grid. A cluster needs at least one station "
+                                + "or other static grid to split the world between its nodes. Choose another world, or add a static grid to this one.");
                         try { ClusterConversionService.ValidateAdmission(profile); }
                         catch (InvalidDataException error) { throw new InvalidOperationException("Configuration profile cannot be used for a cluster: " + error.Message); }
                         await WriteAsync(Path.Combine(work, "profile.json"), profile, ct);
@@ -229,6 +233,44 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     }
     private static ClusterDefinition Target(ClusterDefinition cluster, EnrolledClusterHost host)
     { var copy = cluster.Clone(); copy.HostCommandUrl = host.CommandUrl; copy.HostCommandTokenEnvironmentVariable = host.CredentialReference; return copy; }
+    // The cluster world converter (MagnetarWorld to-split) places partitions by static grid and refuses a world
+    // that has grids, characters or floating objects but no static grid. False when the sector is not saved as
+    // XML here: the converter decides then.
+    internal static bool LacksStaticGrid(string worldDirectory)
+    {
+        string path = Path.Combine(worldDirectory, "SANDBOX_0_0_0_.sbs");
+        if (!File.Exists(path)) return false;
+        using Stream file = File.OpenRead(path);
+        bool gzip = file.ReadByte() == 0x1f && file.ReadByte() == 0x8b;
+        file.Position = 0;
+        using Stream input = gzip ? new System.IO.Compression.GZipStream(file, System.IO.Compression.CompressionMode.Decompress) : file;
+        using var reader = System.Xml.XmlReader.Create(input, new() { DtdProcessing = System.Xml.DtdProcessing.Prohibit, IgnoreWhitespace = true });
+        if (!reader.ReadToFollowing("SectorObjects") || reader.IsEmptyElement) return false;
+        int depth = reader.Depth + 1;
+        bool partitioned = false;
+        reader.Read();
+        while (reader.Depth >= depth)
+        {
+            if (reader.NodeType != System.Xml.XmlNodeType.Element || reader.Depth != depth) { reader.Read(); continue; }
+            string? type = null;
+            for (bool more = reader.MoveToFirstAttribute(); more; more = reader.MoveToNextAttribute())
+                if (reader.LocalName == "type") type = reader.Value;
+            reader.MoveToElement();
+            partitioned |= type is "MyObjectBuilder_CubeGrid" or "MyObjectBuilder_Character" or "MyObjectBuilder_FloatingObject"
+                or "MyObjectBuilder_InventoryBagEntity" or "MyObjectBuilder_Meteor" or "MyObjectBuilder_Missile";
+            if (type == "MyObjectBuilder_CubeGrid" && !reader.IsEmptyElement)
+            {
+                using var grid = reader.ReadSubtree();
+                grid.Read();
+                while (grid.Read())
+                    if (grid.Depth == 1 && grid.NodeType == System.Xml.XmlNodeType.Element && grid.LocalName == "IsStatic"
+                        && grid.ReadElementContentAsString().Trim() == "true")
+                        return false;
+            }
+            reader.Skip();
+        }
+        return partitioned;
+    }
     private static void ValidateId(string id)
     { if (string.IsNullOrWhiteSpace(id) || !Regex.IsMatch(id, "^[a-zA-Z0-9_-]{1,64}$")) throw new ArgumentException("Use a cluster ID with 1–64 letters, numbers, hyphens or underscores."); }
     private async Task CheckHostsAsync(ClusterSetupRequest request, EnrolledClusterHost[] selected, CancellationToken token)

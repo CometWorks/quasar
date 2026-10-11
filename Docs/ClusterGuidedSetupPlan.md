@@ -53,6 +53,10 @@ inputs; removed cluster IDs remain reserved.
    creation or resume is enabled. Quasar checks authenticated Host executor identity and
    required capabilities before creating a cluster registration; an offline or
    incompatible Host executor leaves no new cluster registration.
+   The world needs at least one static grid (a station) if it has any grids, characters
+   or floating objects, because the cluster splits the world between nodes by static
+   grid. Quasar checks this before the cluster ID is taken, so a world like the
+   predefined Empty World is refused at once and the ID stays free.
 4. Quasar provisions DS/Magnetar, stages the verified latest cluster release whose
    PluginSdk pin matches the installed Magnetar, prepares common plugins and Direct
    Transport, and freezes the runtime snapshot.
