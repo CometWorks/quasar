@@ -338,9 +338,10 @@ internal sealed class NodeActualizer
             record.NodeId, null, record.Epoch ?? 0);
     }
 
-    // Time since launch on the monotonic uptime clock, which a wall-clock step or a suspended VM does
-    // not move. The process is alive here, so the record was written during this boot and its uptime
-    // stamp is comparable; records from Hosts without the stamp fall back to the wall clock.
+    // Time since launch on the monotonic uptime clock, which a wall-clock step does not move (on Linux,
+    // neither does time spent suspended). The process is alive here, so the record was written during
+    // this boot and its uptime stamp is comparable; records from Hosts without the stamp fall back to
+    // the wall clock.
     internal static TimeSpan SinceLaunch(LaunchRecord record) =>
         record.LaunchedAtUptimeMs is long launched && launched <= Environment.TickCount64
             ? TimeSpan.FromMilliseconds(Environment.TickCount64 - launched)
