@@ -4,124 +4,108 @@
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
 
-<MudCard Class="server-card">
-    <MudCardHeader>
-        <CardHeaderContent>
-            <MudStack Row="true" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Spacing="1">
-                <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="1">
-                    <MudText Typo="Typo.h6">@GetDisplayName()</MudText>
-                    <MudChip T="string" Size="Size.Small" Color="@GetStatusColor()">
+<section class="quasar-panel quasar-section">
+    <header class="quasar-card-heading">
+            <div class="quasar-row quasar-between">
+                <div class="quasar-row">
+                    <h2>@GetDisplayName()</h2>
+                    <span class="quasar-status quasar-tone-@(GetStatusColor().ToString().ToLowerInvariant())">
                         @GetStatusLabel()
-                    </MudChip>
-                </MudStack>
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1">
-                    <MudTooltip Text="Open console output">
-                        <MudIconButton Icon="@Icons.Material.Filled.Terminal"
-                                       Color="Color.Default"
-                                       Size="Size.Small"
-                                       OnClick="OpenConsoleAsync" />
-                    </MudTooltip>
+                    </span>
+                </div>
+                <div class="quasar-row">
+                    <span class="quasar-tooltip" title="Open console output">
+                        <button class="quasar-icon-button quasar-tone-default" type="button" @onclick="OpenConsoleAsync" aria-label="Open console output"><QuasarIcon Icon="@QuasarIcons.Terminal" /></button>
+                    </span>
                     <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
                         <Authorized>
-                            <MudTooltip Text="Clone server"><MudIconButton Icon="@Icons.Material.Filled.ContentCopy" Color="Color.Default" Size="Size.Small" OnClick="CloneAsync" /></MudTooltip>
-                            <MudTooltip Text="Edit server"><MudIconButton Icon="@Icons.Material.Filled.Edit" Color="Color.Default" Size="Size.Small" OnClick="EditAsync" /></MudTooltip>
-                            <MudTooltip Text="Delete server"><MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small" Disabled="@IsProcessActive" OnClick="DeleteAsync" /></MudTooltip>
+                            <span class="quasar-tooltip" title="Clone server"><button class="quasar-icon-button quasar-tone-default" type="button" @onclick="CloneAsync" aria-label="Clone server"><QuasarIcon Icon="@QuasarIcons.ContentCopy" /></button></span>
+                            <span class="quasar-tooltip" title="Edit server"><button class="quasar-icon-button quasar-tone-default" type="button" @onclick="EditAsync" aria-label="Edit server"><QuasarIcon Icon="@QuasarIcons.Edit" /></button></span>
+                            <span class="quasar-tooltip" title="Delete server"><button class="quasar-icon-button quasar-tone-error" type="button" disabled="@IsProcessActive" @onclick="DeleteAsync" aria-label="Delete server"><QuasarIcon Icon="@QuasarIcons.Delete" /></button></span>
                         </Authorized>
                     </AuthorizeView>
                     <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
                         <Authorized>
-                            <MudTooltip Text="Create world template"><MudIconButton Icon="@Icons.Material.Filled.Public" Color="Color.Default" Size="Size.Small" Disabled="@(!CanCreateTemplate)" OnClick="CreateTemplateAsync" /></MudTooltip>
+                            <span class="quasar-tooltip" title="Create world template"><button class="quasar-icon-button quasar-tone-default" type="button" disabled="@(!CanCreateTemplate)" @onclick="CreateTemplateAsync" aria-label="Create world template"><QuasarIcon Icon="@QuasarIcons.Public" /></button></span>
                         </Authorized>
                     </AuthorizeView>
                     <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
                         <Authorized>
                             @if (CanStart)
                             {
-                                <MudButton Variant="Variant.Filled" Color="Color.Success" Size="Size.Small" Disabled="@IsStartDisabled" StartIcon="@Icons.Material.Filled.PlayArrow" OnClick="StartAsync">Start</MudButton>
+                                <button class="quasar-button quasar-tone-success quasar-button-fill" type="button" disabled="@IsStartDisabled" @onclick="StartAsync"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />Start</button>
                             }
                             @if (CanRestart)
                             {
-                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" Size="Size.Small" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartAsync">Restart</MudButton>
+                                <button class="quasar-button quasar-tone-primary" type="button" @onclick="RestartAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Restart</button>
                             }
                             @if (CanStop)
                             {
-                                <MudButton Variant="Variant.Filled" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.Stop" OnClick="StopAsync">Stop</MudButton>
+                                <button class="quasar-button quasar-tone-error quasar-button-fill" type="button" @onclick="StopAsync"><QuasarIcon Icon="@QuasarIcons.Stop" />Stop</button>
                             }
                             @if (CanKillStarting)
                             {
-                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Size="Size.Small" StartIcon="@Icons.Material.Filled.StopCircle" OnClick="KillStartingAsync">Kill</MudButton>
+                                <button class="quasar-button quasar-tone-error" type="button" @onclick="KillStartingAsync"><QuasarIcon Icon="@QuasarIcons.StopCircle" />Kill</button>
                             }
                         </Authorized>
                     </AuthorizeView>
-                </MudStack>
-            </MudStack>
-            <MudStack Spacing="0">
-                <MudText Typo="Typo.caption">@GetHostLabel() · @GetWorldLabel()</MudText>
-                <MudText Typo="Typo.caption" Class="mono">@Server.UniqueName</MudText>
+                </div>
+            </div>
+            <div class="quasar-stack">
+                <p class="quasar-muted quasar-caption">@GetHostLabel() · @GetWorldLabel()</p>
+                <p class="mono quasar-muted quasar-caption">@Server.UniqueName</p>
                 @if (!string.IsNullOrWhiteSpace(Runtime?.LastMessage))
                 {
-                    <MudText Typo="Typo.caption">@Runtime.LastMessage</MudText>
+                    <p class="quasar-muted quasar-caption">@Runtime.LastMessage</p>
                 }
                 @if (!string.IsNullOrWhiteSpace(Runtime?.HealthSummary))
                 {
-                    <MudText Typo="Typo.caption">@Runtime.HealthSummary</MudText>
+                    <p class="quasar-muted quasar-caption">@Runtime.HealthSummary</p>
                 }
                 @if (Runtime?.LastRestart is { } lastRestart)
                 {
-                    <MudTooltip Text="@GetRestartTooltip(lastRestart)">
-                        <MudText Typo="Typo.caption" Color="@GetRestartColor(lastRestart)">
+                    <span class="quasar-tooltip" title="@GetRestartTooltip(lastRestart)">
+                        <p class="quasar-muted quasar-caption quasar-tone-@(GetRestartColor(lastRestart).ToString().ToLowerInvariant())">
                             @GetRestartSummary(lastRestart)
-                        </MudText>
-                    </MudTooltip>
+                        </p>
+                    </span>
                 }
                 @if (ShouldShowLatestErrorLine)
                 {
-                    <MudTooltip Text="Open console at latest error lines">
-                        <MudLink Typo="Typo.caption"
-                                 Color="Color.Error"
-                                 Underline="Underline.Hover"
-                                 Style="display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
-                                 @onclick="OpenErrorConsoleAsync">
+                    <span class="quasar-tooltip" title="Open console at latest error lines">
+                        <button type="button" class="quasar-table-link quasar-tone-error quasar-error-line" @onclick="OpenErrorConsoleAsync">
                             @Runtime!.LatestErrorLogLine
-                        </MudLink>
-                    </MudTooltip>
+                        </button>
+                    </span>
                 }
-                <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="1" Class="mt-1">
-                    <MudTooltip Text="@GetDirectConnectTooltip()">
-                        <MudChip T="string"
-                                 Variant="Variant.Outlined"
-                                 Icon="@Icons.Material.Filled.ContentCopy"
-                                 OnClick="CopyDirectConnectAsync">
+                <div class="mt-1 quasar-row">
+                    <span class="quasar-tooltip" title="@GetDirectConnectTooltip()">
+                        <button class="quasar-button" type="button" @onclick="CopyDirectConnectAsync"><QuasarIcon Icon="@QuasarIcons.ContentCopy" />
                             Port @Server.ServerPort
-                        </MudChip>
-                    </MudTooltip>
+                        </button>
+                    </span>
                     @if (CanOpenConfigProfile)
                     {
-                        <MudTooltip Text="Open config profile">
-                            <MudChip T="string"
-                                     Variant="Variant.Outlined"
-                                     Color="Color.Primary"
-                                     Icon="@Icons.Material.Filled.Tune"
-                                     OnClick="OpenConfigProfileAsync">
+                        <span class="quasar-tooltip" title="Open config profile">
+                            <button class="quasar-button quasar-tone-primary" type="button" @onclick="OpenConfigProfileAsync"><QuasarIcon Icon="@QuasarIcons.Tune" />
                                 Config @GetConfigProfileName()
-                            </MudChip>
-                        </MudTooltip>
+                            </button>
+                        </span>
                     }
                     else
                     {
-                        <MudChip T="string" Variant="Variant.Outlined" Icon="@Icons.Material.Filled.Tune">
+                        <span class="quasar-status"><QuasarIcon Icon="@QuasarIcons.Tune" />
                             Config @GetConfigProfileName()
-                        </MudChip>
+                        </span>
                     }
-                </MudStack>
-            </MudStack>
-        </CardHeaderContent>
-    </MudCardHeader>
+                </div>
+            </div>
+    </header>
 
-    <MudCardContent>
+    <div class="quasar-card-content">
         <ServerDetailPanel Server="@Server" Runtime="@Runtime" Agent="@Agent" />
-    </MudCardContent>
-</MudCard>
+    </div>
+</section>
 
 @code
 {

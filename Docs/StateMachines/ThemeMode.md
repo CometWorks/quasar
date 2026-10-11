@@ -35,6 +35,17 @@ stateDiagram-v2
 string (`"light"` / `"dark"` / `"system"`). In `System` mode the effective
 dark/light value is queried from JS (`quasarConfigs.getSystemDarkMode`).
 
+The native shell subscribes to `prefers-color-scheme` using
+[`quasar-theme.js`](../../Quasar/wwwroot/quasar-theme.js). Each layout owns and
+disposes its listener and .NET callback reference. The listener reports initial
+and changed OS preferences; `SyncSystemDarkMode` applies them only in System
+mode. MudBlazor's observer is disabled so both native controls and legacy
+components follow the same service state. Existing `ThemeModeChanged` consumers,
+including analytics, still receive effective light/dark changes.
+
+The persisted palette schema and preset IDs are unchanged. Native CSS tokens
+and the temporary Mud compatibility theme derive from the same branding values.
+
 ---
 
 ## Related

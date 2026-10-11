@@ -69,12 +69,7 @@ public sealed class BrandingService : IDisposable
             snapshot = _settings;
         }
 
-        return new MudTheme
-        {
-            LayoutProperties = QuasarTheme.Default.LayoutProperties,
-            PaletteLight = snapshot.LightPalette.ToMudPaletteLight(),
-            PaletteDark = snapshot.DarkPalette.ToMudPaletteDark(),
-        };
+        return QuasarTheme.Create(snapshot);
     }
 
     public async Task SaveAsync(BrandingSettings settings, CancellationToken cancellationToken = default)

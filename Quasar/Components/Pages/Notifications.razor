@@ -12,123 +12,118 @@
 
 <PageTitle>Notifications</PageTitle>
 
-<MudStack Spacing="3">
-    <MudText Typo="Typo.h5">Notifications</MudText>
-    <MudText Typo="Typo.body2">
+<div class="quasar-stack">
+    <h1>Notifications</h1>
+    <p>
         Quasar and cluster updates, plus optional instance health alerts. Open a notice to review its details.
-    </MudText>
-    <MudPaper Class="pa-4" Outlined="true">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Browser push notifications</MudText>
-            <MudText Typo="Typo.body2">@(!Push.Checked ? "Checking this browser…" : Push.Enabled ? "Push notifications are enabled on this browser." : "Push notifications are not enabled on this browser.")</MudText>
-            <MudText Typo="Typo.caption">These controls affect only this browser and account. Other subscribed clients keep receiving notifications.</MudText>
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2">
+    </p>
+    <section class="pa-4 quasar-panel quasar-section">
+        <div class="quasar-stack">
+            <h2>Browser push notifications</h2>
+            <p>@(!Push.Checked ? "Checking this browser…" : Push.Enabled ? "Push notifications are enabled on this browser." : "Push notifications are not enabled on this browser.")</p>
+            <p class="quasar-muted quasar-caption">These controls affect only this browser and account. Other subscribed clients keep receiving notifications.</p>
+            <div class="quasar-row">
                 @if (Push.Enabled)
                 {
-                    <MudButton OnClick="Push.DisableAsync" Disabled="@Push.Busy" Variant="Variant.Outlined"
-                               Color="Color.Primary" StartIcon="@Icons.Material.Filled.NotificationsOff">Disable push notifications</MudButton>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Push.Busy" @onclick="Push.DisableAsync"><QuasarIcon Icon="@QuasarIcons.NotificationsOff" />Disable push notifications</button>
                 }
                 else
                 {
-                    <MudButton OnClick="Push.EnableAsync" Disabled="@(!Push.Checked || !Push.Supported || !Push.ServiceAvailable || Push.Busy)"
-                               Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.NotificationsActive">Enable push notifications</MudButton>
+                    <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(!Push.Checked || !Push.Supported || !Push.ServiceAvailable || Push.Busy)" @onclick="Push.EnableAsync"><QuasarIcon Icon="@QuasarIcons.NotificationsActive" />Enable push notifications</button>
                 }
-                <MudButton OnClick="Push.RefreshAsync" Disabled="@Push.Busy" Variant="Variant.Outlined"
-                           StartIcon="@Icons.Material.Filled.Refresh">Refresh status</MudButton>
-            </MudStack>
+                <button class="quasar-button" type="button" disabled="@Push.Busy" @onclick="Push.RefreshAsync"><QuasarIcon Icon="@QuasarIcons.Refresh" />Refresh status</button>
+            </div>
             @if (Push.Error is not null)
             {
-                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@Push.Error</MudAlert>
+                <div class="quasar-notice quasar-notice-warning" role="status">@Push.Error</div>
             }
             else if (Push.Checked && !Push.Supported)
             {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Push requires HTTPS or localhost and a supported browser.</MudAlert>
+                <div class="quasar-notice quasar-notice-info" role="status">Push requires HTTPS or localhost and a supported browser.</div>
             }
-        </MudStack>
-    </MudPaper>
-    <MudPaper Class="pa-4" Outlined="true">
-        <MudStack Spacing="2">
-            <MudText Typo="Typo.h6">Notification preferences</MudText>
-            <MudText Typo="Typo.body2">Choose which notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default.</MudText>
+        </div>
+    </section>
+    <section class="pa-4 quasar-panel quasar-section">
+        <div class="quasar-stack">
+            <h2>Notification preferences</h2>
+            <p>Choose which notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default.</p>
             @if (_preferences is not null)
             {
-                <MudForm @ref="_form">
-                    <MudStack Spacing="2">
-                        <MudCheckBox T="bool" @bind-Value="_preferences.Updates" Label="Quasar and cluster updates" />
-                        <MudCheckBox T="bool" @bind-Value="_preferences.Crashes" Label="Instance crashes and failures (including automatic crash recovery)" />
-                        <MudCheckBox T="bool" @bind-Value="_preferences.HealthRestarts" Label="Restarts caused by health checks or agent attach failures" />
-                        <MudGrid>
-                            <MudItem xs="12" sm="6">
-                                <MudCheckBox T="bool" @bind-Value="_preferences.LowSimSpeed" Label="Low simulation speed" />
-                                <MudNumericField T="float" @bind-Value="_preferences.SimSpeedThreshold" Label="Alert below simulation speed" Min="0.001f" Max="1f" Step="0.05f" Required="true" Disabled="@(!_preferences.LowSimSpeed)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudCheckBox T="bool" @bind-Value="_preferences.HighCpu" Label="High process CPU usage" />
-                                <MudNumericField T="float" @bind-Value="_preferences.CpuThreshold" Label="Alert above CPU (%)" Min="0.1f" Max="100000f" Required="true" HelperText="100% equals one logical CPU; process usage can exceed 100%." Disabled="@(!_preferences.HighCpu)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudCheckBox T="bool" @bind-Value="_preferences.HighMemory" Label="High memory usage" />
-                                <MudNumericField T="long" @bind-Value="_preferences.MemoryThresholdMb" Label="Alert above working set (MB)" Min="1L" Max="1048576L" Required="true" Disabled="@(!_preferences.HighMemory)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudCheckBox T="bool" @bind-Value="_preferences.UnsavedWorld" Label="World has unsaved changes" />
-                                <MudNumericField T="int" @bind-Value="_preferences.UnsavedThresholdMinutes" Label="Alert above unsaved game time (minutes)" Min="1" Max="10080" Required="true" Disabled="@(!_preferences.UnsavedWorld)" />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudNumericField T="int" @bind-Value="_preferences.SustainedSeconds" Label="Metric alert duration (seconds)" Min="5" Max="3600" Required="true" HelperText="A metric must stay past its threshold for this long." />
-                            </MudItem>
-                            <MudItem xs="12" sm="6">
-                                <MudNumericField T="int" @bind-Value="_preferences.CooldownSeconds" Label="Metric alert cooldown (seconds)" Min="30" Max="86400" Required="true" HelperText="Minimum time between alerts for the same instance and metric." />
-                            </MudItem>
-                        </MudGrid>
-                        <MudCheckBox T="bool" @bind-Value="_preferences.Recoveries" Label="Notify when an alerted metric recovers" />
-                        <MudText Typo="Typo.caption">Metric alerts use fresh telemetry from running instances, including cluster nodes. Crash and health-restart alerts cover locally supervised instances. Recent instance alerts remain here for up to 24 hours (100 per account), until Quasar restarts or preferences are saved.</MudText>
-                        <div><MudButton OnClick="SavePreferencesAsync" Disabled="@_saving" Variant="Variant.Filled" Color="Color.Primary">Save preferences</MudButton></div>
-                    </MudStack>
-                </MudForm>
+                <form @onsubmit="SavePreferencesAsync" @onsubmit:preventDefault><fieldset class="quasar-fieldset" disabled="@_saving">
+                    <div class="quasar-stack">
+                        <label class="quasar-check"><input type="checkbox" @bind="_preferences.Updates" />Quasar and cluster updates</label>
+                        <label class="quasar-check"><input type="checkbox" @bind="_preferences.Crashes" />Instance crashes and failures (including automatic crash recovery)</label>
+                        <label class="quasar-check"><input type="checkbox" @bind="_preferences.HealthRestarts" />Restarts caused by health checks or agent attach failures</label>
+                        <div class="quasar-detail-metrics">
+                            <div class="quasar-detail-metric">
+                                <label class="quasar-check"><input type="checkbox" @bind="_preferences.LowSimSpeed" />Low simulation speed</label>
+                                <label class="quasar-field"><span>Alert below simulation speed</span><input type="number" @bind="_preferences.SimSpeedThreshold" min="0.001" max="1" step="any" required disabled="@(!_preferences.LowSimSpeed)" /></label>
+                            </div>
+                            <div class="quasar-detail-metric">
+                                <label class="quasar-check"><input type="checkbox" @bind="_preferences.HighCpu" />High process CPU usage</label>
+                                <label class="quasar-field"><span>Alert above CPU (%)</span><input type="number" @bind="_preferences.CpuThreshold" min="0.1" max="100000" step="any" required disabled="@(!_preferences.HighCpu)" /><small>100% equals one logical CPU; process usage can exceed 100%.</small></label>
+                            </div>
+                            <div class="quasar-detail-metric">
+                                <label class="quasar-check"><input type="checkbox" @bind="_preferences.HighMemory" />High memory usage</label>
+                                <label class="quasar-field"><span>Alert above working set (MB)</span><input type="number" @bind="_preferences.MemoryThresholdMb" min="1" max="1048576" step="1" required disabled="@(!_preferences.HighMemory)" /></label>
+                            </div>
+                            <div class="quasar-detail-metric">
+                                <label class="quasar-check"><input type="checkbox" @bind="_preferences.UnsavedWorld" />World has unsaved changes</label>
+                                <label class="quasar-field"><span>Alert above unsaved game time (minutes)</span><input type="number" @bind="_preferences.UnsavedThresholdMinutes" min="1" max="10080" step="1" required disabled="@(!_preferences.UnsavedWorld)" /></label>
+                            </div>
+                            <div class="quasar-detail-metric">
+                                <label class="quasar-field"><span>Metric alert duration (seconds)</span><input type="number" @bind="_preferences.SustainedSeconds" min="5" max="3600" step="1" required disabled="false" /><small>A metric must stay past its threshold for this long.</small></label>
+                            </div>
+                            <div class="quasar-detail-metric">
+                                <label class="quasar-field"><span>Metric alert cooldown (seconds)</span><input type="number" @bind="_preferences.CooldownSeconds" min="30" max="86400" step="1" required disabled="false" /><small>Minimum time between alerts for the same instance and metric.</small></label>
+                            </div>
+                        </div>
+                        <label class="quasar-check"><input type="checkbox" @bind="_preferences.Recoveries" />Notify when an alerted metric recovers</label>
+                        <p class="quasar-muted quasar-caption">Metric alerts use fresh telemetry from running instances, including cluster nodes. Crash and health-restart alerts cover locally supervised instances. Recent instance alerts remain here for up to 24 hours (100 per account), until Quasar restarts or preferences are saved.</p>
+                        <div><button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@_saving" @onclick="SavePreferencesAsync">Save preferences</button></div>
+                    </div>
+                </fieldset></form>
             }
             @if (_settingsError is not null)
             {
-                <MudAlert Severity="Severity.Error">@_settingsError</MudAlert>
+                <div class="quasar-notice quasar-notice-error" role="status">@_settingsError</div>
             }
             @if (_saved)
             {
-                <MudAlert Severity="Severity.Success">Notification preferences saved.</MudAlert>
+                <div class="quasar-notice quasar-notice-success" role="status">Notification preferences saved.</div>
             }
-        </MudStack>
-    </MudPaper>
+        </div>
+    </section>
     @if (_notices.Length == 0)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No notifications.</MudAlert>
+        <div class="quasar-notice quasar-notice-info" role="status">No notifications.</div>
     }
     else
     {
         @foreach (var notice in _notices)
         {
-            <MudPaper @key="notice.Key" Class="pa-4" Outlined="true">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">@notice.Title</MudText>
+            <section class="pa-4 quasar-panel quasar-section" @key="notice.Key">
+                <div class="quasar-stack">
+                    <h2>@notice.Title</h2>
                     @if (notice.OccurredAt is { } occurredAt)
                     {
-                        <MudText Typo="Typo.caption">@occurredAt.UtcDateTime.ToString("u")</MudText>
+                        <p class="quasar-muted quasar-caption">@occurredAt.UtcDateTime.ToString("u")</p>
                     }
-                    <MudText Typo="Typo.body2">@notice.Body</MudText>
+                    <p>@notice.Body</p>
                     <div>
-                        <MudButton Href="@notice.Url" Variant="Variant.Outlined" Color="Color.Primary"
-                                   StartIcon="@Icons.Material.Filled.OpenInNew" aria-label="@($"Open {notice.Title}: {notice.Body}")">
+                        <a class="quasar-button quasar-tone-primary" aria-label="@($"Open {notice.Title}: {notice.Body}")" href="@notice.Url"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />
                             Open details
-                        </MudButton>
+                        </a>
                     </div>
-                </MudStack>
-            </MudPaper>
+                </div>
+            </section>
         }
     }
-</MudStack>
+</div>
 
 @code {
     private UpdateNotice[] _notices = [];
     private NotificationPreferences? _preferences;
-    private MudForm? _form;
     private bool _saving;
     private bool _saved;
     private string? _settingsError;
@@ -174,14 +169,12 @@
 
     private async Task SavePreferencesAsync()
     {
-        if (_saving || _preferences is null || _form is null) return;
+        if (_saving || _preferences is null) return;
         _saving = true;
         _saved = false;
         _settingsError = null;
         try
         {
-            await _form.ValidateAsync();
-            if (!_form.IsValid) return;
             var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
             await NotificationService.SavePreferencesAsync(user, _preferences);
             _saved = true;

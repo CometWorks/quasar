@@ -1,89 +1,89 @@
 @inject QuasarUiPluginCatalog UiPlugins
 
-<MudStack Class="pa-4" Spacing="3">
-    <MudNavMenu Class="magnetar-nav-menu">
-        <MudNavLink Href="/" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Dashboard">
+<nav class="quasar-nav" aria-label="Quasar sections">
+    <div class="quasar-nav-group">
+        <NavLink class="quasar-nav-link" href="/" Match="NavLinkMatch.All"><QuasarIcon Icon="@QuasarIcons.Dashboard" />
             Dashboard
-        </MudNavLink>
+        </NavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs">
             <Authorized>
-                <MudNavLink Href="/configs" Icon="@Icons.Material.Filled.Tune">Configs</MudNavLink>
-                <MudNavLink Href="/world-templates" Icon="@Icons.Material.Filled.Public">Worlds</MudNavLink>
-                <MudNavLink Href="/plugins" Icon="@Icons.Material.Filled.Extension">Plugins</MudNavLink>
+                <NavLink class="quasar-nav-link" href="/configs"><QuasarIcon Icon="@QuasarIcons.Tune" />Configs</NavLink>
+                <NavLink class="quasar-nav-link" href="/world-templates"><QuasarIcon Icon="@QuasarIcons.Public" />Worlds</NavLink>
+                <NavLink class="quasar-nav-link" href="/plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />Plugins</NavLink>
             </Authorized>
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers">
             <Authorized>
-                <MudNavLink Href="/players" Icon="@Icons.Material.Filled.Groups">Players</MudNavLink>
-                <MudNavLink Href="/chat" Icon="@Icons.Material.Filled.Chat">Chat</MudNavLink>
-                <MudNavLink Href="/entities" Icon="@Icons.Material.Filled.ViewInAr">Entities</MudNavLink>
+                <NavLink class="quasar-nav-link" href="/players"><QuasarIcon Icon="@QuasarIcons.Groups" />Players</NavLink>
+                <NavLink class="quasar-nav-link" href="/chat"><QuasarIcon Icon="@QuasarIcons.Chat" />Chat</NavLink>
+                <NavLink class="quasar-nav-link" href="/entities"><QuasarIcon Icon="@QuasarIcons.ViewInAr" />Entities</NavLink>
             </Authorized>
         </AuthorizeView>
-        <MudNavLink Href="/analytics" Icon="@Icons.Material.Filled.QueryStats">
+        <NavLink class="quasar-nav-link" href="/analytics"><QuasarIcon Icon="@QuasarIcons.QueryStats" />
             Analytics
-        </MudNavLink>
+        </NavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageDiscord">
             <Authorized>
-                <MudNavLink Href="/discord" Icon="@Icons.Material.Filled.Forum">Discord</MudNavLink>
+                <NavLink class="quasar-nav-link" href="/discord"><QuasarIcon Icon="@QuasarIcons.Forum" />Discord</NavLink>
             </Authorized>
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
-                <MudNavLink Href="/settings/server-list" Icon="@Icons.Material.Filled.Public">
+                <NavLink class="quasar-nav-link" href="/settings/server-list"><QuasarIcon Icon="@QuasarIcons.Public" />
                     Listings
-                </MudNavLink>
+                </NavLink>
             </Authorized>
         </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Main" />
-    </MudNavMenu>
+    </div>
 
-    <MudDivider />
+    <hr />
 
-    <MudText Typo="Typo.overline" Class="px-4">Tools</MudText>
-    <MudNavMenu Class="magnetar-nav-menu">
-        <MudNavLink Href="/hosts" Icon="@Icons.Material.Filled.Dns">
-            Hosts
-        </MudNavLink>
+    <div class="quasar-nav-label">Tools</div>
+    <div class="quasar-nav-group">
+        <NavLink class="quasar-nav-link" href="/hosts"><QuasarIcon Icon="@QuasarIcons.Dns" />
+            Host machines
+        </NavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
-                <MudNavLink Href="/settings/security" Icon="@Icons.Material.Filled.Security">
+                <NavLink class="quasar-nav-link" href="/settings/security"><QuasarIcon Icon="@QuasarIcons.Security" />
                     Security
-                </MudNavLink>
-                <MudNavLink Href="/settings/ui-plugins" Icon="@Icons.Material.Filled.Extension">
+                </NavLink>
+                <NavLink class="quasar-nav-link" href="/settings/ui-plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />
                     UI Plugins
-                </MudNavLink>
-                <MudNavLink Href="/backup" Icon="@Icons.Material.Filled.Backup">
+                </NavLink>
+                <NavLink class="quasar-nav-link" href="/backup"><QuasarIcon Icon="@QuasarIcons.Backup" />
                     Backups
-                </MudNavLink>
+                </NavLink>
             </Authorized>
         </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Tools" />
-    </MudNavMenu>
+    </div>
 
-    <MudDivider />
+    <hr />
 
-    <MudNavMenu Class="magnetar-nav-menu">
+    <div class="quasar-nav-group">
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
-            <MudNavLink Href="/notifications" Icon="@Icons.Material.Filled.Notifications">
+            <NavLink class="quasar-nav-link" href="/notifications"><QuasarIcon Icon="@QuasarIcons.Notifications" />
                 Notifications
-            </MudNavLink>
+            </NavLink>
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageAppearance">
             <Authorized>
-                <MudNavLink Href="/settings/appearance" Icon="@Icons.Material.Filled.Palette">Appearance</MudNavLink>
+                <NavLink class="quasar-nav-link" href="/settings/appearance"><QuasarIcon Icon="@QuasarIcons.Palette" />Appearance</NavLink>
             </Authorized>
         </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Settings" />
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
-                <MudNavLink Href="/settings/updates" Icon="@Icons.Material.Filled.Upgrade">
+                <NavLink class="quasar-nav-link" href="/settings/updates"><QuasarIcon Icon="@QuasarIcons.Upgrade" />
                     Updates
-                </MudNavLink>
+                </NavLink>
                 <PluginNavItems
                     Items="@UiPlugins.NavItems"
                     Zone="@QuasarNavZones.Admin"
                     DefaultPolicy="@QuasarPolicyNames.CanManageSecurity" />
             </Authorized>
         </AuthorizeView>
-    </MudNavMenu>
-</MudStack>
+    </div>
+</nav>

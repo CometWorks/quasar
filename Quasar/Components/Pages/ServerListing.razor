@@ -10,71 +10,47 @@
 @inject ISnackbar Snackbar
 
 <PageTitle>Server listing</PageTitle>
-<MudText Typo="Typo.h5" Class="mb-2">Server listing</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Choose which standalone Magnetar servers and clusters appear on se-servers.net.
-    Names and game ports are suggested from your existing servers. Enter the address players use to connect.
-</MudText>
-
-<MudPaper Class="pa-4 mb-4">
-    <MudStack Spacing="2">
-        <MudSwitch T="bool" Value="@Consent.GetSettings().ListingGranted" ValueChanged="SaveVisibilityAsync"
-                   Disabled="_saving" Color="Color.Primary" Label="Show configured servers on se-servers.net" />
-        @if (!Consent.GetSettings().DiagnosticsGranted)
-        {
-            <MudAlert Severity="Severity.Warning">Accept diagnostic data handling in <MudLink Href="/settings/security">Security</MudLink> before publishing.</MudAlert>
-        }
-        @if (ServerListProtocol.GetAdmins(Rbac.GetConfig()).Length == 0)
-        {
-            <MudAlert Severity="Severity.Warning">Add a Steam identity with the admin role in <MudLink Href="/settings/security">Security</MudLink> to publish and manage your listings.</MudAlert>
-        }
-        @if (Settings.LoadError is { } error)
-        {
-            <MudAlert Severity="Severity.Error">@error</MudAlert>
-        }
-        <MudText Typo="Typo.body2">
-            Listings become visible when the backoffice confirms current Quasar log delivery.
-            No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.
-        </MudText>
-    </MudStack>
-</MudPaper>
-
+<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Settings</div><h1>Server listing</h1><p>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</p></div></div>
+<p class="quasar-muted">Names and game ports are suggested from your existing servers. Enter the address players use to connect.</p>
+<section class="quasar-panel quasar-section"><div class="quasar-stack">
+    <label class="quasar-check"><input name="listing-visibility" type="checkbox" @bind:get="Consent.GetSettings().ListingGranted" @bind:set="SaveVisibilityAsync" disabled="@_saving" />Show configured servers on se-servers.net</label>
+    @if (!Consent.GetSettings().DiagnosticsGranted)
+    {
+        <p class="quasar-notice quasar-notice-warning" role="status">Accept diagnostic data handling in <a href="/settings/security">Security</a> before publishing.</p>
+    }
+    @if (ServerListProtocol.GetAdmins(Rbac.GetConfig()).Length == 0)
+    {
+        <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="/settings/security">Security</a> to publish and manage your listings.</p>
+    }
+    @if (Settings.LoadError is { } error) { <p class="quasar-notice quasar-notice-error" role="status">@error</p> }
+    <p>Listings become visible when the backoffice confirms current Quasar log delivery. No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.</p>
+</div></section>
 @if (_entries.Count == 0)
 {
-    <MudAlert Severity="Severity.Info" Class="mb-4">Create a standalone server or cluster first. It will appear here automatically.</MudAlert>
+    <p class="quasar-notice">Create a standalone server or cluster first. It will appear here automatically.</p>
 }
-<MudGrid>
-    @foreach (var entry in _entries)
-    {
-        <MudItem xs="12" lg="6" @key="@($"{entry.Kind}:{entry.UniqueName}")">
-            <MudPaper Class="pa-4 server-card">
-                <MudStack Spacing="2">
-                    <MudText Typo="Typo.h6">@SourceName(entry)</MudText>
-                    <MudText Typo="Typo.caption">@(entry.Kind == "cluster" ? "Cluster · Steam gateway" : "Standalone Magnetar server")</MudText>
-                    @if (!SourceExists(entry))
-                    {
-                        <MudAlert Severity="Severity.Warning">This source no longer exists. Its listing will be omitted from publication.</MudAlert>
-                    }
-                    <MudSwitch T="bool" @bind-Value="entry.Enabled" Label="Publish this server" Color="Color.Primary"
-                               Disabled="@(_saving || !SourceExists(entry) && !entry.Enabled)" />
-                    <MudTextField T="string" @bind-Value="entry.Name" Label="Public server name" MaxLength="128"
-                                  Variant="Variant.Outlined" Immediate="true" Disabled="_saving" />
-                    <MudTextField T="string" @bind-Value="entry.PublicHost" Label="Public hostname or IP address"
-                                  HelperText="For example, play.example.org. Enter only the hostname or IP, without a URL scheme or port."
-                                  Variant="Variant.Outlined" Immediate="true" Disabled="_saving" />
-                    <MudNumericField T="int" @bind-Value="entry.PublicPort" Label="Public game port" Min="1" Max="65535"
-                                     HelperText="Use the port exposed to players; for a cluster, use its Steam gateway port."
-                                     Variant="Variant.Outlined" Immediate="true" Disabled="_saving" />
-                </MudStack>
-            </MudPaper>
-        </MudItem>
-    }
-</MudGrid>
-<MudStack Row="true" Spacing="2" Class="mt-4">
-    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
-               OnClick="SaveAsync" Disabled="_saving">Save listings</MudButton>
-    <MudButton Variant="Variant.Outlined" OnClick="Reload" Disabled="_saving">Reload</MudButton>
-</MudStack>
+<form @onsubmit="SaveAsync" @onsubmit:preventDefault>
+    <fieldset class="quasar-fieldset" disabled="@_saving">
+        <div class="quasar-card-grid">
+            @foreach (var entry in _entries)
+            {
+                <section class="quasar-panel quasar-section" @key="@($"{entry.Kind}:{entry.UniqueName}")"><div class="quasar-stack">
+                    <h2>@SourceName(entry)</h2>
+                    <p class="quasar-muted">@(entry.Kind == "cluster" ? "Cluster · Steam gateway" : "Standalone Magnetar server")</p>
+                    @if (!SourceExists(entry)) { <p class="quasar-notice quasar-notice-warning">This source no longer exists. Its listing will be omitted from publication.</p> }
+                    <label class="quasar-check"><input name="publish" type="checkbox" @bind="entry.Enabled" disabled="@(!SourceExists(entry) && !entry.Enabled)" />Publish this server</label>
+                    <label class="quasar-field"><span>Public server name</span><input name="public-name" @bind="entry.Name" @bind:event="oninput" maxlength="128" /></label>
+                    <label class="quasar-field"><span>Public hostname or IP address</span><input name="public-host" @bind="entry.PublicHost" @bind:event="oninput" required="@entry.Enabled" /><small>For example, play.example.org. Enter only the hostname or IP, without a URL scheme or port.</small></label>
+                    <label class="quasar-field"><span>Public game port</span><input name="public-port" type="number" @bind="entry.PublicPort" min="1" max="65535" required /><small>Use the port exposed to players; for a cluster, use its Steam gateway port.</small></label>
+                </div></section>
+            }
+        </div>
+        <div class="quasar-row quasar-form-actions">
+            <button type="submit" class="quasar-button quasar-button-primary"><QuasarIcon Icon="@QuasarIcons.Save" />Save listings</button>
+            <button type="button" class="quasar-button" @onclick="Reload">Reload</button>
+        </div>
+    </fieldset>
+</form>
 
 @code {
     private List<ServerListEntry> _entries = [];
@@ -102,11 +78,12 @@
 
     private async Task SaveAsync()
     {
-        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
-        { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
+        if (_saving) return;
         _saving = true;
         try
         {
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
             var entries = _entries.Where(e => e.Enabled || !string.IsNullOrWhiteSpace(e.PublicHost)
                 || _savedSources.Contains((e.Kind, e.UniqueName.ToLowerInvariant()))).Select(e => e.Clone()).ToList();
             await Settings.SaveAsync(new() { Enabled = entries.Any(e => e.Enabled), Listings = entries }, _revision);
@@ -119,13 +96,16 @@
 
     private async Task SaveVisibilityAsync(bool visible)
     {
-        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
-        { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
+        if (_saving) return;
+        _saving = true;
         try
         {
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
             await Consent.SaveListingVisibilityAsync(visible);
             Snackbar.Add("Listing visibility saved.", Severity.Success);
         }
         catch (Exception error) { Snackbar.Add($"Could not save visibility: {error.Message}", Severity.Error); }
+        finally { _saving = false; }
     }
 }

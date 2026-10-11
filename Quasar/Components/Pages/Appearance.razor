@@ -1,165 +1,114 @@
 @page "/settings/appearance"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageAppearance)]
-@using MudBlazor.Utilities
 @implements IDisposable
 @inject BrandingService BrandingService
-@inject ISnackbar Snackbar
+@inject ThemePreferenceService ThemePreference
 
 <PageTitle>Appearance</PageTitle>
 
-<MudText Typo="Typo.h5" Class="mb-2">Appearance</MudText>
-<MudText Typo="Typo.body2" Class="mb-4">
-    Customize branding, theme colors, logos, and favicon. Changes apply live across all open sessions once saved.
-</MudText>
+<div class="quasar-page-heading">
+    <div>
+        <div class="quasar-eyebrow">Settings / identity and theme</div>
+        <h1>Appearance</h1>
+        <p>Customize branding and palettes. Saved changes apply live across all open sessions.</p>
+    </div>
+</div>
 
-<MudGrid>
-    <MudItem xs="12" md="4">
-        <MudPaper Class="pa-4 summary-card">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Branding</MudText>
-                <MudTextField @bind-Value="_draft.AppName"
-                              Label="App name"
-                              Variant="Variant.Outlined" />
-                <MudTextField @bind-Value="_draft.AppSubtitle"
-                              Label="Subtitle"
-                              Variant="Variant.Outlined" />
-            </MudStack>
-        </MudPaper>
-    </MudItem>
-
-    <MudItem xs="12" md="8">
-        <MudPaper Class="pa-4 server-card">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Preset Theme</MudText>
-                <MudText Typo="Typo.body2">
-                    Pick a starting palette. Editing any color below switches to a custom theme.
-                </MudText>
-                <MudSelect T="string"
-                           Value="@(_draft.PresetId ?? CustomPresetValue)"
-                           ValueChanged="ApplyPreset"
-                           Label="Preset"
-                           Variant="Variant.Outlined">
-                    @foreach (var preset in BrandingPresets.All)
-                    {
-                        <MudSelectItem T="string" Value="@preset.Id">@preset.DisplayName</MudSelectItem>
-                    }
-                    <MudSelectItem T="string" Value="@CustomPresetValue" Disabled="true">Custom (edited)</MudSelectItem>
-                </MudSelect>
-            </MudStack>
-        </MudPaper>
-    </MudItem>
-
-    <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudText Typo="Typo.h6" Class="mb-2">Colors</MudText>
-            <MudTabs Elevation="0" Rounded="true" Outlined="true" ApplyEffectsToContainer="true" TabPanelsClass="pa-4">
-                <MudTabPanel Text="Light">
-                    @RenderPaletteEditor(_draft.LightPalette)
-                </MudTabPanel>
-                <MudTabPanel Text="Dark">
-                    @RenderPaletteEditor(_draft.DarkPalette)
-                </MudTabPanel>
-            </MudTabs>
-        </MudPaper>
-    </MudItem>
-
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Logo</MudText>
-
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Light mode logo</MudText>
-                    <div class="branding-logo-preview branding-logo-preview-dark">
-                        <img src="@(_draft.LogoDarkPath ?? "/Quasar.png")" alt="Light mode logo preview" />
-                    </div>
-                    <MudFileUpload T="IBrowserFile"
-                                   Accept=".png,.jpg,.jpeg,.webp,.svg"
-                                   FilesChanged="@(file => UploadLogoAsync(file, isDark: true))">
-                        <CustomContent Context="upload">
-                            <MudButton Variant="Variant.Outlined"
-                                       StartIcon="@Icons.Material.Filled.CloudUpload"
-                                       OnClick="@(() => upload.OpenFilePickerAsync())">
-                                Upload light-mode logo
-                            </MudButton>
-                        </CustomContent>
-                    </MudFileUpload>
-                </MudStack>
-
-                <MudDivider />
-
-                <MudStack Spacing="1">
-                    <MudText Typo="Typo.subtitle2">Dark mode logo</MudText>
-                    <div class="branding-logo-preview branding-logo-preview-light">
-                        <img src="@(_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png")" alt="Dark mode logo preview" />
-                    </div>
-                    <MudFileUpload T="IBrowserFile"
-                                   Accept=".png,.jpg,.jpeg,.webp,.svg"
-                                   FilesChanged="@(file => UploadLogoAsync(file, isDark: false))">
-                        <CustomContent Context="upload">
-                            <MudButton Variant="Variant.Outlined"
-                                       StartIcon="@Icons.Material.Filled.CloudUpload"
-                                       OnClick="@(() => upload.OpenFilePickerAsync())">
-                                Upload dark-mode logo
-                            </MudButton>
-                        </CustomContent>
-                    </MudFileUpload>
-                </MudStack>
-            </MudStack>
-        </MudPaper>
-    </MudItem>
-
-    <MudItem xs="12" md="6">
-        <MudPaper Class="pa-4">
-            <MudStack Spacing="3">
-                <MudText Typo="Typo.h6">Favicon</MudText>
-                <div class="branding-favicon-preview">
-                    <img src="@(_draft.FaviconPath ?? "/Quasar.ico")" alt="Favicon preview" />
-                </div>
-                <MudFileUpload T="IBrowserFile"
-                               Accept=".ico,.png"
-                               FilesChanged="UploadFaviconAsync">
-                    <CustomContent Context="upload">
-                        <MudButton Variant="Variant.Outlined"
-                                   StartIcon="@Icons.Material.Filled.CloudUpload"
-                                   OnClick="@(() => upload.OpenFilePickerAsync())">
-                            Upload favicon
-                        </MudButton>
-                    </CustomContent>
-                </MudFileUpload>
-                <MudText Typo="Typo.caption">
-                    A browser tab may need one refresh to drop an aggressively cached favicon.
-                </MudText>
-            </MudStack>
-        </MudPaper>
-    </MudItem>
-
-    <MudItem xs="12">
-        <MudPaper Class="pa-4">
-            <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" AlignItems="AlignItems.Center">
-                <MudButton Variant="Variant.Filled"
-                           Color="Color.Primary"
-                           StartIcon="@Icons.Material.Filled.Save"
-                           OnClick="SaveAsync">
-                    Save Changes
-                </MudButton>
-                <MudButton Variant="Variant.Text"
-                           Color="Color.Default"
-                           StartIcon="@Icons.Material.Filled.RestartAlt"
-                           OnClick="ResetAsync">
-                    Reset to Quasar Default
-                </MudButton>
-            </MudStack>
-        </MudPaper>
-    </MudItem>
-</MudGrid>
-
-@code
+@if (_notice is not null)
 {
+    <div class="quasar-notice @(_noticeError ? "quasar-notice-error" : "quasar-notice-success")" role="@(_noticeError ? "alert" : "status")">@_notice</div>
+}
+
+<form @onsubmit="SaveAsync" @onsubmit:preventDefault>
+    <fieldset class="quasar-fieldset" disabled="@_busy">
+        <div class="quasar-appearance-grid">
+            <div class="quasar-panel">
+                <section class="quasar-form-section">
+                    <h2>Brand identity</h2>
+                    <p>Your instance name, subtitle, and visual identity.</p>
+                    <div class="quasar-fields">
+                        <label>App name<input type="text" @bind="_draft.AppName" @bind:event="oninput" /></label>
+                        <label>Subtitle<input type="text" @bind="_draft.AppSubtitle" @bind:event="oninput" /></label>
+                    </div>
+                </section>
+                <section class="quasar-form-section">
+                    <h2>Theme palette</h2>
+                    <p>Light and dark colors are editable independently. Color edits create a custom palette.</p>
+                    <div class="quasar-fields">
+                        <label>Preset
+                            <select value="@(_draft.PresetId ?? CustomPresetValue)" @onchange="@(args => ApplyPreset(args.Value?.ToString() ?? string.Empty))">
+                                @foreach (var preset in BrandingPresets.All)
+                                {
+                                    <option value="@preset.Id">@preset.DisplayName</option>
+                                }
+                                <option value="@CustomPresetValue" disabled>Custom (edited)</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="quasar-segmented" role="group" aria-label="Palette to edit">
+                        <button type="button" aria-pressed="@(!_editDark ? "true" : "false")" @onclick="@(() => _editDark = false)"><QuasarIcon Icon="@QuasarIcons.LightMode" />Light palette</button>
+                        <button type="button" aria-pressed="@(_editDark ? "true" : "false")" @onclick="@(() => _editDark = true)"><QuasarIcon Icon="@QuasarIcons.DarkMode" />Dark palette</button>
+                    </div>
+                    <div hidden="@_editDark">@RenderPaletteEditor(_draft.LightPalette, false)</div>
+                    <div hidden="@(!_editDark)">@RenderPaletteEditor(_draft.DarkPalette, true)</div>
+                </section>
+                <div class="quasar-form-actions">
+                    <button type="submit" class="quasar-button quasar-button-primary" disabled="@(_busy || _invalidColors.Count > 0)"><QuasarIcon Icon="@QuasarIcons.Save" />@(_busy ? "Saving…" : "Save changes")</button>
+                    <button type="button" class="quasar-button" @onclick="ResetAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Reset to Quasar default</button>
+                    @if (_invalidColors.Count > 0)
+                    {
+                        <span class="quasar-field-error" role="status">Correct invalid colors before saving.</span>
+                    }
+                </div>
+            </div>
+            <div class="quasar-appearance-preview">
+                <section class="quasar-panel">
+                    <div class="quasar-panel-heading"><h2>Live preview</h2><span>@(_editDark ? "Dark palette" : "Light palette")</span></div>
+                    <div class="quasar-preview" style="@PreviewStyle" data-theme="@(_editDark ? "dark" : "light")">
+                        <div class="quasar-preview-surface">
+                            <h3>@_draft.AppName</h3>
+                            <p>@_draft.AppSubtitle</p>
+                            <div class="quasar-preview-status"><span>Server status</span><span class="quasar-text-success">Running</span></div>
+                            <div class="quasar-form-actions">
+                                <span class="quasar-button quasar-button-primary"><QuasarIcon Icon="@QuasarIcons.Save" />Save world</span>
+                                <span class="quasar-button"><QuasarIcon Icon="@QuasarIcons.Tune" />Configure</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="quasar-panel">
+                    <div class="quasar-panel-heading"><h2>Logos and favicon</h2></div>
+                    <div class="quasar-form-section">
+                        <label class="quasar-upload">Light-mode logo
+                            <div class="quasar-asset-preview quasar-asset-light"><img src="@(_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png")" alt="Light-mode logo preview" /></div>
+                            <InputFile OnChange="@(args => UploadLogoAsync(args.File, false))" accept=".png,.jpg,.jpeg,.webp,.svg" aria-label="Upload light-mode logo" />
+                        </label>
+                        <label class="quasar-upload">Dark-mode logo
+                            <div class="quasar-asset-preview quasar-asset-dark"><img src="@(_draft.LogoDarkPath ?? "/Quasar.png")" alt="Dark-mode logo preview" /></div>
+                            <InputFile OnChange="@(args => UploadLogoAsync(args.File, true))" accept=".png,.jpg,.jpeg,.webp,.svg" aria-label="Upload dark-mode logo" />
+                        </label>
+                        <label class="quasar-upload">Favicon
+                            <div class="quasar-asset-preview quasar-favicon-preview"><img src="@(_draft.FaviconPath ?? "/Quasar.ico")" alt="Favicon preview" /></div>
+                            <InputFile OnChange="@(args => UploadFaviconAsync(args.File))" accept=".ico,.png" aria-label="Upload favicon" />
+                        </label>
+                        <p class="quasar-upload-hint">Uploads persist immediately. Maximum file size: 10 MiB. A cached favicon may need a browser refresh.</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </fieldset>
+</form>
+
+@code {
     private const string CustomPresetValue = "__custom";
     private const long MaxUploadBytes = 10 * 1024 * 1024;
-
     private BrandingSettings _draft = BrandingSettings.Normalize(null);
+    private readonly HashSet<string> _invalidColors = new(StringComparer.Ordinal);
+    private bool _editDark = true;
+    private bool _busy;
+    private string? _notice;
+    private bool _noticeError;
+    private string PreviewStyle => QuasarTheme.BuildCss(_editDark ? _draft.DarkPalette : _draft.LightPalette, _editDark);
 
     private static readonly IReadOnlyList<ColorGroup> ColorGroups =
     [
@@ -178,8 +127,8 @@
         ]),
         new("Hover",
         [
-            new("Hover background", p => p.HoverBackground, (p, v) => p.HoverBackground = v, MudColorOutputFormats.HexA),
-            new("Hover text", p => p.HoverContrastText, (p, v) => p.HoverContrastText = v, MudColorOutputFormats.HexA),
+            new("Hover background", p => p.HoverBackground, (p, v) => p.HoverBackground = v),
+            new("Hover text", p => p.HoverContrastText, (p, v) => p.HoverContrastText = v),
         ]),
         new("Navigation",
         [
@@ -218,172 +167,114 @@
     protected override void OnInitialized()
     {
         _draft = BrandingService.GetSettings();
+        _editDark = ThemePreference.IsDarkMode;
         BrandingService.Changed += HandleBrandingChanged;
     }
 
-    public void Dispose()
-    {
-        BrandingService.Changed -= HandleBrandingChanged;
-    }
+    public void Dispose() => BrandingService.Changed -= HandleBrandingChanged;
 
-    private RenderFragment RenderPaletteEditor(ThemePalette palette) => __builder =>
+    private RenderFragment RenderPaletteEditor(ThemePalette palette, bool isDark) => __builder =>
     {
         foreach (var group in ColorGroups)
         {
-            <MudText Typo="Typo.subtitle2" Class="mt-2 mb-1">@group.Title</MudText>
-            <MudGrid>
-                @foreach (var field in group.Fields)
-                {
-                    <MudItem xs="6" sm="4" md="3" @key="@($"{group.Title}-{field.Label}")">
-                        <div class="appearance-color-field" style="@GetColorPreviewStyle(field.Get(palette))">
-                            <MudColorPicker Label="@field.Label"
-                                            Value="@(new MudColor(field.Get(palette)))"
-                                            ValueChanged="@(color => HandleColorChanged(palette, field, color))"
-                                            Variant="Variant.Outlined"
-                                            ColorPickerView="ColorPickerView.Spectrum" />
-                        </div>
-                    </MudItem>
-                }
-            </MudGrid>
+            <details class="quasar-palette-group" open="@(group.Title is "Identity" or "Surfaces")">
+                <summary>@group.Title <span>@group.Fields.Count colors</span></summary>
+                <div class="quasar-color-grid">
+                    @foreach (var field in group.Fields)
+                    {
+                        var key = $"{isDark}-{field.Label}";
+                        <QuasarColorField @key="(palette, field.Label)" Label="@field.Label" Value="@field.Get(palette)"
+                                          ValueChanged="@(value => HandleColorChanged(palette, field, value))"
+                                          ValidityChanged="@(valid => HandleValidityChanged(key, valid))" />
+                    }
+                </div>
+            </details>
         }
     };
 
-    private static string GetColorPreviewStyle(string value)
+    private void HandleValidityChanged(string key, bool valid)
     {
-        if (!MudColor.TryParse(value, out var color))
-            return "--appearance-color-field-color:transparent;--appearance-color-field-text:#111827;";
-
-        var previewColor = color.ToString(MudColorOutputFormats.HexA);
-        var previewTextColor = GetPreviewTextColor(color);
-
-        return $"--appearance-color-field-color:{previewColor};--appearance-color-field-text:{previewTextColor};";
-    }
-
-    private static string GetPreviewTextColor(MudColor color)
-    {
-        var alpha = color.A / 255d;
-        var red = CompositeOverWhite(color.R, alpha);
-        var green = CompositeOverWhite(color.G, alpha);
-        var blue = CompositeOverWhite(color.B, alpha);
-        var luminance = GetRelativeLuminance(red, green, blue);
-        var darkTextLuminance = GetRelativeLuminance(17d, 24d, 39d);
-        var darkTextContrast = GetContrastRatio(luminance, darkTextLuminance);
-        var lightTextContrast = GetContrastRatio(luminance, 1d);
-
-        return darkTextContrast >= lightTextContrast ? "#111827" : "#ffffffff";
-    }
-
-    private static double CompositeOverWhite(double channel, double alpha) =>
-        (channel * alpha) + (255d * (1d - alpha));
-
-    private static double GetRelativeLuminance(double red, double green, double blue) =>
-        (0.2126d * ToLinearColorChannel(red)) +
-        (0.7152d * ToLinearColorChannel(green)) +
-        (0.0722d * ToLinearColorChannel(blue));
-
-    private static double GetContrastRatio(double firstLuminance, double secondLuminance)
-    {
-        var lighter = Math.Max(firstLuminance, secondLuminance);
-        var darker = Math.Min(firstLuminance, secondLuminance);
-        return (lighter + 0.05d) / (darker + 0.05d);
-    }
-
-    private static double ToLinearColorChannel(double channel)
-    {
-        var normalized = channel / 255d;
-        return normalized <= 0.04045d
-            ? normalized / 12.92d
-            : Math.Pow((normalized + 0.055d) / 1.055d, 2.4d);
+        if (valid) _invalidColors.Remove(key);
+        else _invalidColors.Add(key);
     }
 
     private void ApplyPreset(string presetId)
     {
-        if (string.IsNullOrWhiteSpace(presetId) ||
-            string.Equals(presetId, CustomPresetValue, StringComparison.Ordinal) ||
-            !BrandingPresets.IsKnownPreset(presetId))
-        {
-            return;
-        }
-
+        if (!BrandingPresets.IsKnownPreset(presetId)) return;
         _draft.PresetId = presetId;
         _draft.LightPalette = BrandingPresets.GetLightPalette(presetId);
         _draft.DarkPalette = BrandingPresets.GetDarkPalette(presetId);
+        _invalidColors.Clear();
     }
 
-    private void HandleColorChanged(ThemePalette palette, ColorField field, MudColor color)
+    private void HandleColorChanged(ThemePalette palette, ColorField field, string value)
     {
-        field.Set(palette, color.ToString(field.OutputFormat));
-
-        // A manual color edit means the palette no longer matches any preset.
+        field.Set(palette, value);
         _draft.PresetId = null;
     }
 
-    private async Task UploadLogoAsync(IBrowserFile? file, bool isDark)
+    private async Task UploadLogoAsync(IBrowserFile file, bool isDark)
     {
-        if (file is null)
-            return;
-
+        if (_busy) return;
+        _busy = true;
         try
         {
             await using var stream = file.OpenReadStream(MaxUploadBytes);
             await BrandingService.SaveLogoAsync(isDark, stream, Path.GetExtension(file.Name));
             SyncAssetPaths();
-            Snackbar.Add($"{(isDark ? "Dark" : "Light")}-mode logo updated.", Severity.Success);
+            Notice($"{(isDark ? "Dark" : "Light")}-mode logo updated.");
         }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Logo upload failed: {exception.Message}", Severity.Error);
-        }
+        catch (Exception exception) { Notice($"Logo upload failed: {exception.Message}", true); }
+        finally { _busy = false; }
     }
 
-    private async Task UploadFaviconAsync(IBrowserFile? file)
+    private async Task UploadFaviconAsync(IBrowserFile file)
     {
-        if (file is null)
-            return;
-
+        if (_busy) return;
+        _busy = true;
         try
         {
             await using var stream = file.OpenReadStream(MaxUploadBytes);
             await BrandingService.SaveFaviconAsync(stream, Path.GetExtension(file.Name));
             SyncAssetPaths();
-            Snackbar.Add("Favicon updated.", Severity.Success);
+            Notice("Favicon updated.");
         }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Favicon upload failed: {exception.Message}", Severity.Error);
-        }
+        catch (Exception exception) { Notice($"Favicon upload failed: {exception.Message}", true); }
+        finally { _busy = false; }
     }
 
     private async Task SaveAsync()
     {
+        if (_busy || _invalidColors.Count > 0) return;
+        _busy = true;
         try
         {
             await BrandingService.SaveAsync(_draft);
             _draft = BrandingService.GetSettings();
-            Snackbar.Add("Appearance saved.", Severity.Success);
+            Notice("Appearance saved.");
         }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Save failed: {exception.Message}", Severity.Error);
-        }
+        catch (Exception exception) { Notice($"Save failed: {exception.Message}", true); }
+        finally { _busy = false; }
     }
 
     private async Task ResetAsync()
     {
+        if (_busy) return;
+        _busy = true;
         try
         {
             await BrandingService.ResetToDefaultAsync();
             _draft = BrandingService.GetSettings();
-            Snackbar.Add("Appearance reset to Quasar default.", Severity.Success);
+            _invalidColors.Clear();
+            Notice("Appearance reset to Quasar default.");
         }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Reset failed: {exception.Message}", Severity.Error);
-        }
+        catch (Exception exception) { Notice($"Reset failed: {exception.Message}", true); }
+        finally { _busy = false; }
     }
 
-    // Logo / favicon uploads take effect immediately and persist their own paths.
-    // Pull those paths back into the draft so a later "Save Changes" keeps them.
+    private void Notice(string message, bool error = false) { _notice = message; _noticeError = error; }
+
+    // Uploads persist independently; keep their paths when a draft is later saved.
     private void SyncAssetPaths()
     {
         var current = BrandingService.Settings;
@@ -392,16 +283,8 @@
         _draft.FaviconPath = current.FaviconPath;
     }
 
-    private void HandleBrandingChanged()
-    {
-        _ = InvokeAsync(StateHasChanged);
-    }
+    private void HandleBrandingChanged() => _ = InvokeAsync(StateHasChanged);
 
-    private sealed record ColorField(
-        string Label,
-        Func<ThemePalette, string> Get,
-        Action<ThemePalette, string> Set,
-        MudColorOutputFormats OutputFormat = MudColorOutputFormats.Hex);
-
+    private sealed record ColorField(string Label, Func<ThemePalette, string> Get, Action<ThemePalette, string> Set);
     private sealed record ColorGroup(string Title, IReadOnlyList<ColorField> Fields);
 }

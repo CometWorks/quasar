@@ -6,12 +6,13 @@ public sealed record BrandingPresetDefinition(string Id, string DisplayName);
 
 /// <summary>
 /// Built-in theme presets. "quasar" is the single source of truth derived from
-/// <see cref="QuasarTheme"/>; the others apply a small set of identity/surface
+/// <see cref="ThemePalette"/>; the others apply a small set of identity/surface
 /// overrides on top of the Quasar base palettes so they stay internally coherent.
 /// </summary>
 public static class BrandingPresets
 {
     public const string QuasarId = "quasar";
+    public const string CometWorksId = "cometworks";
     public const string MidnightId = "midnight";
     public const string SlateId = "slate";
     public const string HighContrastId = "high-contrast";
@@ -19,6 +20,7 @@ public static class BrandingPresets
     public static IReadOnlyList<BrandingPresetDefinition> All { get; } =
     [
         new(QuasarId, "Quasar Default"),
+        new(CometWorksId, "CometWorks"),
         new(MidnightId, "Midnight Blue"),
         new(SlateId, "Slate"),
         new(HighContrastId, "High Contrast"),
@@ -34,6 +36,7 @@ public static class BrandingPresets
     {
         return presetId?.ToLowerInvariant() switch
         {
+            CometWorksId => CometWorksLight(),
             MidnightId => MidnightLight(),
             SlateId => SlateLight(),
             HighContrastId => HighContrastLight(),
@@ -45,11 +48,71 @@ public static class BrandingPresets
     {
         return presetId?.ToLowerInvariant() switch
         {
+            CometWorksId => CometWorksDark(),
             MidnightId => MidnightDark(),
             SlateId => SlateDark(),
             HighContrastId => HighContrastDark(),
             _ => ThemePalette.QuasarDark(),
         };
+    }
+
+    private static ThemePalette CometWorksLight()
+    {
+        var palette = ThemePalette.QuasarLight();
+        palette.Primary = "#00769d";
+        palette.PrimaryContrastText = "#ffffff";
+        palette.Background = "#f4f5f6";
+        palette.BackgroundGray = "#e9ebee";
+        palette.Surface = "#ffffff";
+        palette.DrawerBackground = "#ffffff";
+        palette.DrawerText = "#24262b";
+        palette.DrawerIcon = "#616773";
+        palette.AppbarBackground = "#ffffff";
+        palette.AppbarText = "#24262b";
+        palette.TextPrimary = "#24262b";
+        palette.TextSecondary = "#616773";
+        palette.LinesDefault = "#d8dce2";
+        palette.LinesInputs = "#b1b7c0";
+        palette.TableLines = "#e3e6eb";
+        palette.Divider = "#d8dce2";
+        palette.DividerLight = "#e3e6eb";
+        palette.HoverBackground = "#e9ebee";
+        palette.HoverContrastText = "#24262b";
+        palette.Info = "#00769d";
+        palette.Success = "#236b47";
+        palette.Warning = "#875916";
+        palette.Error = "#aa3535";
+        return palette;
+    }
+
+    private static ThemePalette CometWorksDark()
+    {
+        var palette = ThemePalette.QuasarDark();
+        palette.Primary = "#00c0fd";
+        palette.PrimaryContrastText = "#10212b";
+        palette.Background = "#18191b";
+        palette.BackgroundGray = "#2c2e32";
+        palette.Surface = "#222427";
+        palette.DrawerBackground = "#1c1e20";
+        palette.DrawerText = "#f2f3f5";
+        palette.DrawerIcon = "#adb1b8";
+        palette.AppbarBackground = "#1c1e20";
+        palette.AppbarText = "#f2f3f5";
+        palette.TextPrimary = "#f2f3f5";
+        palette.TextSecondary = "#adb1b8";
+        palette.LinesDefault = "#3b3e43";
+        palette.LinesInputs = "#52565d";
+        palette.TableLines = "#34373c";
+        palette.Divider = "#3b3e43";
+        palette.DividerLight = "#34373c";
+        palette.HoverBackground = "#2c2e32";
+        palette.HoverContrastText = "#f2f3f5";
+        palette.Info = "#00c0fd";
+        palette.InfoContrastText = "#10212b";
+        palette.Success = "#8bd8ae";
+        palette.Warning = "#e8bb83";
+        palette.Error = "#f1a0a0";
+        return palette;
     }
 
     private static ThemePalette MidnightLight()

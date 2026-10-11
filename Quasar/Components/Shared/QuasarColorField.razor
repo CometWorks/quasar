@@ -1,0 +1,68 @@
+@using MudBlazor.Utilities
+
+<div class="quasar-color-field">
+    <label for="@_inputId">@Label</label>
+    <div class="quasar-color-control">
+        <input type="color" value="@PickerColor" @oninput="PickColorAsync" aria-label="@($"Choose {Label} color")" />
+        <input id="@_inputId" type="text" value="@_text" @onchange="EditColorAsync"
+               spellcheck="false" aria-invalid="@(_error is not null ? "true" : "false")"
+               aria-describedby="@(_error is null ? null : _inputId + "-error")" />
+    </div>
+    @if (_error is not null)
+    {
+        <span id="@(_inputId + "-error")" class="quasar-field-error" role="alert">@_error</span>
+    }
+</div>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Value { get; set; } = string.Empty;
+    [Parameter] public EventCallback<string> ValueChanged { get; set; }
+    [Parameter] public EventCallback<bool> ValidityChanged { get; set; }
+
+    private readonly string _inputId = "color-" + Guid.NewGuid().ToString("N");
+    private string _text = string.Empty;
+    private string? _lastValue;
+    private string? _error;
+
+    private string PickerColor => MudColor.TryParse(Value, out var color)
+        ? color.ToString(MudColorOutputFormats.Hex)
+        : "#000000";
+
+    protected override void OnParametersSet()
+    {
+        if (string.Equals(_lastValue, Value, StringComparison.Ordinal))
+            return;
+        _lastValue = Value;
+        _text = Value;
+        _error = null;
+    }
+
+    private async Task PickColorAsync(ChangeEventArgs args)
+    {
+        var picked = new MudColor(args.Value?.ToString() ?? "#000000");
+        // The native picker edits RGB only. Keep an existing transparent hover's alpha.
+        var alpha = MudColor.TryParse(Value, out var current) ? current.A : 255;
+        await ApplyColorAsync(new MudColor(picked.R, picked.G, picked.B, alpha));
+    }
+
+    private async Task EditColorAsync(ChangeEventArgs args)
+    {
+        _text = args.Value?.ToString() ?? string.Empty;
+        if (!MudColor.TryParse(_text, out var color))
+        {
+            _error = "Enter a valid color, for example #00c0fd or #00c0fd33.";
+            await ValidityChanged.InvokeAsync(false);
+            return;
+        }
+        await ApplyColorAsync(color);
+    }
+
+    private async Task ApplyColorAsync(MudColor color)
+    {
+        _error = null;
+        _text = color.ToString(color.A == 255 ? MudColorOutputFormats.Hex : MudColorOutputFormats.HexA);
+        await ValidityChanged.InvokeAsync(true);
+        await ValueChanged.InvokeAsync(_text);
+    }
+}
