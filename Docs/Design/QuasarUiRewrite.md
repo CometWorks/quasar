@@ -16,7 +16,9 @@ update flow.
 The approved visual overhaul now extends across the core workspace. Migrated surfaces:
 
 - Native responsive shell, navigation, theme selector, notification/auth/power
-  entry points, and shutdown overlay, with the current Quasar logo.
+  entry points, and shutdown overlay, with the current Quasar logo. The sidebar
+  is 160px wide on desktop and in the mobile drawer, with 14px navigation labels
+  and the shortened “Hosts” link.
 - Native appearance form with all 29 fields in both palettes, presets, custom
   branding, separate mode-specific logo uploads, favicon, draft preview, save,
   reset, busy states, and invalid-color validation. RGB selection preserves alpha.
