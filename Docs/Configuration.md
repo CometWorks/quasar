@@ -1803,11 +1803,15 @@ of preparation). For rollback use `{"id":"<new UUID>","rollback":true}`. Inspect
 `cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
 An update that cannot finish locks goal changes, commands, backup, restore and deletion. It
 records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
-30 minutes. `POST /api/v1/clusters/{name}/update/abandon` (the **Abandon update** button on
-the deployment panel) closes such an update and unlocks those tools. Nothing is rolled back:
-before activation the cluster stays stopped on its current deployment, afterwards it keeps
-the new one and a rollback is an ordinary new update. Abandon is refused while a deployment
-activation is half applied on the Hosts; resume that activation or recover the cluster instead.
+30 minutes. `cluster update-abandon NAME --idempotency-key KEY` (API
+`POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
+panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
+the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
+rollback is an ordinary new update. Abandon is refused while a deployment activation is half
+applied on the Hosts; resume that activation or recover the cluster instead.
+If nobody abandons it, Quasar does so itself after 60 minutes in Stopping, 30 minutes of
+failed attempts in Activating or 60 minutes in Starting, and says so in `lastError`. A half-applied
+activation is never abandoned this way; it keeps retrying the same request.
 Preflight checks every Host before goal Off. Stopping, Activating and Starting are
 persistent checkpoints. Errors remain visible/retryable; completion requires matching
 Gateway revision, managed readiness and Host attachments. Previous installations remain

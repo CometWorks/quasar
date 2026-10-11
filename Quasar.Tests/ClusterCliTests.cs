@@ -99,6 +99,25 @@ public sealed class ClusterCliTests
             "7", "--url", "http://quasar.test", "--idempotency-key", "select-1"], handler, new StringWriter(), new StringWriter()));
     }
 
+    [Fact]
+    public async Task UpdateAbandonPostsWithIdempotencyKey()
+    {
+        var handler = new Handler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/api/v1/clusters/demo/update/abandon", request.RequestUri!.AbsolutePath);
+            Assert.Equal("abandon-1", request.Headers.GetValues("Idempotency-Key").Single());
+            return Response(HttpStatusCode.Accepted, """{"protocolVersion":1,"data":{"operationId":"op","state":"Succeeded"}}""");
+        });
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "update-abandon", "demo", "--url", "http://quasar.test",
+            "--idempotency-key", "abandon-1"], handler, new StringWriter(), new StringWriter()));
+        Assert.Equal(1, handler.Calls);
+
+        var unsent = new Handler((_, _) => throw new InvalidOperationException("must not send"));
+        Assert.Equal(2, await ClusterCli.RunAsync(["cluster", "update-abandon", "demo", "--url", "http://quasar.test"],
+            unsent, new StringWriter(), new StringWriter()));
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("9223372036854775807")]
