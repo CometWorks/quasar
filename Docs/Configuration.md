@@ -1174,7 +1174,8 @@ the planned integration requires the node to atomically write a versioned receip
 that path with the same identity plus
 its node ID, registry epoch, endpoint, and PID. Host reports `Spawning` until the receipt
 matches. Automatic kill requires the exact launch record and, for a ready node, the
-Gateway-requested node ID and epoch. The released node plugins do not yet write this
+Gateway-requested node ID and epoch. A slot goal of Kill that names no incumbent (the
+Registry's emergency shutdown) stops whatever runs in that slot. The released node plugins do not yet write this
 receipt. A mismatched process identity or occupied reserved
 port is reported as `unmanaged_conflict`; Host leaves the process untouched.
 
