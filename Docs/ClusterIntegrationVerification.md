@@ -374,3 +374,22 @@ One separate guided-setup metadata test needs published Quasar source-commit
 provenance and cannot pass from this unstamped local build.
 These checks did not launch Quasar or game processes. Live startup, managed update,
 and multi-Host shared filesystem behavior remain unverified.
+
+
+## Shared content storage and combined staging (2026-10-11)
+
+Focused regression coverage exercises immutable object sharing, last-reference pruning,
+multiple-cluster mod ownership, corrupt/missing bases, sparse installation and mod transfer,
+removed files, mutable-copy isolation, nested workflow leases, retained revision roots and
+mod version receipt verification. Existing dependency, deployment, content UI, Host client,
+setup and conversion tests also run. The Host self-test includes configuration retention
+and protection of runtime data; `scripts/test_host_deployment.py` checks portable imports
+and deliberate tampering of read-only objects.
+
+The complete cluster test selection passed: 364 tests, zero failures. The Host build,
+inert-process self-test and portable preparation/import/tamper script also passed.
+
+These checks validate the source changes. They do not claim that the running Quasar/Host
+services have been upgraded or that a live combined release/content update has completed.
+The deployed storage audit and retained recovery roots are recorded separately under the
+installation's `Backups` directory. See [cluster storage](ClusterStorage.md).

@@ -29,6 +29,7 @@ class HostDeploymentCommandTest(unittest.TestCase):
             payload = dependencies / "payload"
             for name in ("DedicatedServer/DedicatedServer64/SpaceEngineersDedicated.exe",
                          "Magnetar/MagnetarInterim.bin", "Magnetar/Libraries/MagnetarInterim/PluginSdk.dll",
+                         "Magnetar/Libraries/MagnetarInterim/libsteam_api.so",
                          "DirectTransport/DirectTransport.dll", "DirectTransport/DirectTransport.xml", "DirectTransport/LiteNetLib.dll"):
                 write(payload, name, "inert fixture, must never execute")
             (payload / "Magnetar/MagnetarInterim.bin").chmod(0o700)
@@ -83,7 +84,9 @@ class HostDeploymentCommandTest(unittest.TestCase):
                 tar.addfile(bad, io.BytesIO(b"x"))
             self.assertNotEqual(subprocess.run(transfer, capture_output=True, timeout=30).returncode, 0)
             self.assertFalse((root / "escape").exists())
-            (Path(prepared["directory"]) / "Dependencies/payload/CommonPlugins/linux-compat/libHavok.so").write_text("changed")
+            native = Path(prepared["directory"]) / "Dependencies/payload/CommonPlugins/linux-compat/libHavok.so"
+            native.chmod(0o600)  # Deliberate tampering bypasses immutable-object permissions.
+            native.write_text("changed")
             self.assertNotEqual(run().returncode, 0)
 
 

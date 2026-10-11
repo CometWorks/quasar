@@ -35,7 +35,9 @@ public sealed class ClusterWorldConversionTests : IDisposable
         string destination = await Import();
         Assert.Equal(destination, await Import());
         await ClusterWorldFiles.VerifyAsync(destination, original, default);
-        File.WriteAllText(Path.Combine(destination, "Sandbox.sbc"), "changed");
+        string checkpoint = Path.Combine(destination, "Sandbox.sbc");
+        if (OperatingSystem.IsLinux()) File.SetUnixFileMode(checkpoint, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.WriteAllText(checkpoint, "changed");
         await Assert.ThrowsAsync<InvalidDataException>(Import);
         await ClusterWorldFiles.VerifyAsync(source, original, default);
         Assert.Empty(Directory.GetDirectories(Path.Combine(root, "host"), ".world-*"));
@@ -65,7 +67,9 @@ public sealed class ClusterWorldConversionTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => ClusterWorldFiles.UnpackAsync(archive,
             ClusterDeploymentFiles.Hash(metadata), Path.Combine(root, "host"), default));
         Assert.False(File.Exists(Path.Combine(root, "escape")));
-        Assert.Empty(Directory.GetDirectories(Path.Combine(root, "host")));
+        Assert.Empty(Directory.GetDirectories(Path.Combine(root, "host")).Where(p => Path.GetFileName(p) != ".objects"));
+        string objects = Path.Combine(root, "host", ".objects");
+        if (Directory.Exists(objects)) Assert.Empty(Directory.GetFiles(objects).Where(p => Path.GetFileName(p) != ".lock"));
     }
 
     [Fact]

@@ -351,6 +351,7 @@ public sealed class ClusterCatalog : IDisposable
     internal async Task<T> WithLifecycleAsync<T>(string uniqueName,
         Func<ClusterDefinition, Task<T>> action, CancellationToken token)
     {
+        using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(token);
         var gate = _lifecycleGates.GetOrAdd(uniqueName, _ => new(1, 1));
         await gate.WaitAsync(token);
         try
@@ -367,6 +368,8 @@ public sealed class ClusterCatalog : IDisposable
     internal async Task<bool> TryWithLifecycleAsync(string uniqueName,
         Func<ClusterDefinition, Task> action, CancellationToken token)
     {
+        using var storage = Quasar.ClusterDeployment.ClusterStorageActivity.TryBegin();
+        if (storage is null) return false;
         var gate = _lifecycleGates.GetOrAdd(uniqueName, _ => new(1, 1));
         if (!await gate.WaitAsync(0, token)) return false;
         try

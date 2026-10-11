@@ -36,6 +36,7 @@ public class Program
         {
             string[] workerArgs = NormalizeWorkerArguments(args);
             var builder = WebApplication.CreateBuilder(workerArgs);
+            Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory();
             AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, workerArgs);
 
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
@@ -268,6 +269,7 @@ public class Program
             builder.Services.AddSingleton<ClusterContentMonitor>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterContentMonitor>());
             builder.Services.AddSingleton<ClusterDependencyService>();
+            builder.Services.AddHostedService<ClusterStorageMaintenance>();
             builder.Services.AddSingleton<ClusterOperationStore>();
             builder.Services.AddHostedService<ClusterOperationReconciler>();
             builder.Services.AddSingleton<ClusterCommandService>();

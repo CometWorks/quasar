@@ -313,6 +313,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
     {
         var state = new ClusterConversionStatus(id, cluster, direction, "Complete — destination remains stopped", destination, null, DateTimeOffset.UtcNow);
         await WriteAsync(Path.Combine(Workspace(id), "completed.json"), state, token);
+        ClusterSetupService.CleanupTransferFiles(Workspace(id));
         await WriteAsync(Path.Combine(Workspace(id), "progress.json"), state, token);
         progress[id] = state; Changed?.Invoke(); return state;
     }

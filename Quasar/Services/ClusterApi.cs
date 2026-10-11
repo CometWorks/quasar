@@ -561,6 +561,7 @@ internal static class ClusterApi
                 {
                     try
                     {
+                        using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(cancellation);
                         var staged = await dependencies.StageAsync(cluster, request, cancellation);
                         await catalog.SelectDependenciesAsync(uniqueName, request, cancellation);
                         return Envelope(staged);

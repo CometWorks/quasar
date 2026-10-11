@@ -21,6 +21,13 @@
     <div class="quasar-card-content">
     <div class="quasar-layout quasar-gap-3">
         <h2 class="quasar-text quasar-type-h6">Maintenance</h2>
+        @if (_busy)
+        {
+            <div role="status" aria-live="polite">
+                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                <p class="quasar-text quasar-type-body1">@_message</p>
+            </div>
+        }
         <p class="quasar-text quasar-type-body1 cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</p>
         @if (Current.ActiveDeployment is not null && !ClusterReleaseMonitor.IsOnLatestRelease(Current, Releases.GetSnapshot().Release))
         {
@@ -29,7 +36,7 @@
                 <p class="quasar-text quasar-type-body1">Latest release: @(Releases.GetSnapshot().Release?.Version ?? "Unknown")</p>
                 <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || UpdateLocked || Current.Preparation is null)"
                            Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Stage latest release</MudButton>
-                <span class="quasar-text quasar-type-caption">Quasar selects the release, freezes matching dependencies and prepares every Host executor automatically. The cluster stays online until you apply the pending update.</span>
+                <span class="quasar-text quasar-type-caption">Quasar stages the release and any queued mod or plugin updates together. Unchanged pinned files are reused. The cluster stays online until you apply the combined update.</span>
                 @if (Current.Preparation is null)
                 {
                     <span class="quasar-text quasar-type-caption">Complete guided setup first. For externally provisioned clusters, import their preparation once using Advanced deployment tools.</span>
@@ -43,7 +50,9 @@
                     <h2 class="quasar-text quasar-type-h6">Pending update</h2>
                     @if (Current.HasPreparedUpdate)
                     {
-                        <p class="quasar-text quasar-type-body1">Deployment prepared on all host machines. Configuration and release changes are ready to apply.</p>
+                        <p class="quasar-text quasar-type-body1">@(Current.QueuedContentUpdates is null
+                            ? "Deployment prepared on all host machines. Configuration and release changes are ready to apply."
+                            : "Release prepared on all host machines. Queued content still needs staging before the combined update can be applied.")</p>
                     }
                     @if (Current.QueuedContentUpdates is { } queued)
                     {
@@ -266,6 +275,8 @@
     });
     private Task PrepareLatestUpdateAsync() => ExecuteAsync(async actor =>
     {
+        using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(default);
+        await EnsureQueuedContentPermissionAsync();
         await ShowProgressAsync("Checking and staging the latest cluster release...");
         var release = await Packages.GetReleaseAsync(null, default);
         var prior = Current;
@@ -279,7 +290,8 @@
             await FreezeDependenciesCoreAsync(reusable);
         }
         await ShowProgressAsync("Transferring and preparing the selected release on all Hosts...");
-        var result = await UpdatePreparation.PrepareAsync(Cluster.UniqueName, actor, default);
+        bool allowContent = await EnsureQueuedContentPermissionAsync();
+        var result = await UpdatePreparation.PrepareAsync(Cluster.UniqueName, actor, default, PreparationProgress(), allowContent);
         if (result.State == ClusterOperationState.Succeeded) _preparationRequest = Current.Preparation;
         return result;
     });
@@ -320,6 +332,7 @@
     });
     private async Task FreezeDependenciesCoreAsync(Dictionary<string, string>? sources = null)
     {
+        using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(default);
         var cluster = Current;
         var candidate = await Dependencies.InspectAsync(cluster, sources, default);
         var request = new ClusterDependencyRequest(candidate.ManifestSha256, cluster.PackageSelection!.Revision, cluster.DependencyManifestSha256);
@@ -328,7 +341,8 @@
     }
     private Task PrepareSelectedAsync() => ExecuteAsync(async actor =>
     {
-        var result = await UpdatePreparation.PrepareAsync(Cluster.UniqueName, actor, default);
+        bool allowContent = await EnsureQueuedContentPermissionAsync();
+        var result = await UpdatePreparation.PrepareAsync(Cluster.UniqueName, actor, default, PreparationProgress(), allowContent);
         if (result.State == ClusterOperationState.Succeeded) _preparationRequest = Current.Preparation;
         return result;
     });
@@ -338,7 +352,20 @@
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
             throw new InvalidOperationException("Configuration editing permission is required to stage content updates.");
         await ShowProgressAsync("Downloading and pinning profile content, then preparing every Host...");
-        return await UpdatePreparation.StageProfileSelectionAsync(Cluster.UniqueName, Current.ConfigProfileId, actor, default);
+        return await UpdatePreparation.StageProfileSelectionAsync(Cluster.UniqueName, Current.ConfigProfileId, actor, default, PreparationProgress());
+    });
+    private async Task<bool> EnsureQueuedContentPermissionAsync()
+    {
+        bool allowed = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs);
+        if (Current.QueuedContentUpdates is not null && !allowed)
+            throw new InvalidOperationException("Configuration editing permission is required to stage queued content with a release update.");
+        return allowed;
+    }
+    private IProgress<string> PreparationProgress() => new Progress<string>(message =>
+    {
+        if (!_busy) return;
+        _message = message;
+        _ = InvokeAsync(StateHasChanged);
     });
     private Task StartPreparedUpdateAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
         new(Guid.NewGuid(), Current.PreparedDeployment ?? throw new InvalidDataException("Prepare a deployment first.")),

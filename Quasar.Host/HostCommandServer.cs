@@ -361,13 +361,17 @@ internal sealed class HostCommandServer : IDisposable
     private async Task HandleProtectedAsync(HttpListenerContext context, CancellationToken cancellationToken)
     {
         bool entered = false;
+        IDisposable? storage = null;
         try
         {
             // Candidate preparation writes only immutable directories and must not suspend executor heartbeats.
             bool preparing = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/", StringComparison.Ordinal) == true || context.Request.HttpMethod == "POST" &&
                 context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
             bool diagnostics = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/diagnostics/", StringComparison.Ordinal) == true;
-            if (!preparing && !diagnostics) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
+            bool collecting = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-references/", StringComparison.Ordinal) == true;
+            if (!collecting && !diagnostics)
+                storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(cancellationToken);
+            if (!preparing && !diagnostics && !collecting) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
             await HandleAsync(context, cancellationToken);
         }
         catch (OperationCanceledException) { context.Response.Abort(); }
@@ -388,6 +392,7 @@ internal sealed class HostCommandServer : IDisposable
         }
         finally
         {
+            storage?.Dispose();
             if (entered) _executionGate.Release();
             context.Response.Close();
         }
@@ -460,6 +465,57 @@ internal sealed class HostCommandServer : IDisposable
             return;
         }
 
+        string inputsPrefix = HostContract.HostProtocol.RoutePrefix + "/deployment-inputs/";
+        if (context.Request.HttpMethod == "GET" && path.StartsWith(inputsPrefix, StringComparison.Ordinal))
+        {
+            try
+            {
+                var inputs = await Quasar.ClusterDeployment.ClusterDeploymentFiles.ReadInstalledInputsAsync(
+                    Path.Combine(_config.StateDirectory, "conversions/installations"), path[inputsPrefix.Length..], cancellationToken);
+                await WriteAsync(context, 200, inputs, cancellationToken);
+            }
+            catch (IOException error) when (error is FileNotFoundException or DirectoryNotFoundException)
+            { await WriteErrorAsync(context, 404, "installation_missing", "Deployment inputs are not installed.", cancellationToken); }
+            return;
+        }
+        string referencesPrefix = HostContract.HostProtocol.RoutePrefix + "/deployment-references/";
+        if (context.Request.HttpMethod == "POST" && path.StartsWith(referencesPrefix, StringComparison.Ordinal))
+        {
+            string clusterId = Uri.UnescapeDataString(path[referencesPrefix.Length..]);
+            var references = await ReadJsonAsync<HostContract.HostDeploymentReferences>(context.Request, cancellationToken);
+            if (references.Installations is null || references.Mods is null || references.Worlds is null || references.Configurations is null
+                || references.Installations.Length + references.Mods.Length + references.Worlds.Length + references.Configurations.Length > 30_000)
+                throw new InvalidDataException("Invalid deployment references.");
+            using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.CollectAsync(cancellationToken);
+            var activeRoots = _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a =>
+                ExecutionBundle.ReadManifest(a.BundleManifestPath!, a.BundleManifestSha256!).ArtifactRoot
+                    ?? Path.GetDirectoryName(a.BundleManifestPath!)!).ToArray();
+            using (var content = await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken))
+                DeploymentConfigurationReferences.Retain(_config.StateDirectory, clusterId, references.Configurations,
+                    _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a => Path.GetDirectoryName(a.BundleManifestPath!)!));
+            int removed = await Quasar.ClusterDeployment.ClusterDeploymentFiles.CollectInstallationsAsync(
+                Path.Combine(_config.StateDirectory, "conversions/installations"), clusterId,
+                references.Installations.ToHashSet(StringComparer.Ordinal), activeRoots, cancellationToken);
+            await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/mods"),
+                clusterId, references.Mods.ToHashSet(StringComparer.Ordinal), cancellationToken);
+            await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/worlds"),
+                clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken);
+            await WriteAsync(context, 200, removed, cancellationToken);
+            return;
+        }
+        string modsPrefix = HostContract.HostProtocol.RoutePrefix + "/deployment-mods/";
+        if (context.Request.HttpMethod == "GET" && path.StartsWith(modsPrefix, StringComparison.Ordinal))
+        {
+            try
+            {
+                var pins = await Quasar.ClusterDeployment.ClusterWorldFiles.ReadPinsAsync(
+                    Path.Combine(_config.StateDirectory, "conversions/mods"), path[modsPrefix.Length..], cancellationToken);
+                await WriteAsync(context, 200, pins, cancellationToken);
+            }
+            catch (DirectoryNotFoundException)
+            { await WriteErrorAsync(context, 404, "mods_missing", "Mod inputs are not installed.", cancellationToken); }
+            return;
+        }
         string conversionPrefix = HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/";
         if (context.Request.HttpMethod == "PUT" && path.StartsWith(conversionPrefix, StringComparison.Ordinal))
         {
@@ -470,14 +526,18 @@ internal sealed class HostCommandServer : IDisposable
             string root = Path.Combine(_config.StateDirectory, "conversions");
             Directory.CreateDirectory(root);
             Quasar.ClusterDeployment.ClusterWorldFiles.Private(root);
+            if (parts[1] is "mods" or "world" && context.Request.QueryString["clusterId"] is { Length: > 0 } owner)
+                Quasar.ClusterDeployment.ClusterInputOwners.Track(Path.Combine(root, parts[1] == "world" ? "worlds" : "mods"), hash, owner);
             string directory = parts[1] switch
             {
                 "installation" => (await Quasar.ClusterDeployment.ClusterDeploymentFiles.ImportAsync(
-                    context.Request.InputStream, hash, Path.Combine(root, "installations"), cancellationToken)).Directory,
+                    context.Request.InputStream, hash, Path.Combine(root, "installations"), cancellationToken,
+                    context.Request.QueryString["baseInputsSha256"])).Directory,
                 "world" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
                     context.Request.InputStream, hash, Path.Combine(root, "worlds"), cancellationToken),
                 "mods" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
-                    context.Request.InputStream, hash, Path.Combine(root, "mods"), cancellationToken, requireCheckpoint: false),
+                    context.Request.InputStream, hash, Path.Combine(root, "mods"), cancellationToken, requireCheckpoint: false,
+                    baseHash: context.Request.QueryString["baseInputsSha256"]),
                 _ => throw new InvalidDataException("Unknown conversion input."),
             };
             string workspace = Path.Combine(root, id.ToString("N"));
@@ -557,7 +617,9 @@ internal sealed class HostCommandServer : IDisposable
             var request = await ReadJsonAsync<HostContract.HostDeploymentPreparation>(context.Request, cancellationToken);
             if (Uri.UnescapeDataString(path[preparationPrefix.Length..]) != request.ClusterId)
                 throw new ArgumentException("Route cluster ID does not match deployment preparation.");
-            await WriteAsync(context, 200, await ManagedPreparation.PrepareAsync(request, _config.HostId, cancellationToken), cancellationToken);
+            var prepared = await ManagedPreparation.PrepareAsync(request, _config.HostId, cancellationToken);
+            DeploymentConfigurationReferences.Track(_config.StateDirectory, request.ClusterId, request.ConfigurationDirectory);
+            await WriteAsync(context, 200, prepared, cancellationToken);
             return;
         }
         string prefix = HostContract.HostProtocol.RoutePrefix + "/deployments/";

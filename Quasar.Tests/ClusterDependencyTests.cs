@@ -12,6 +12,7 @@ using Xunit;
 
 namespace Quasar.Tests;
 
+[Collection("Cluster storage")]
 public sealed class ClusterDependencyTests
 {
     [Fact]
@@ -178,7 +179,9 @@ public sealed class ClusterDependencyTests
         fixture.Cluster.Preparation = fixture.Cluster.Preparation with { SpecificationJson = "{\"candidate\":true}" };
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.ReadActivePluginPinsAsync(fixture.Cluster, default));
         fixture.Cluster.Preparation = fixture.Cluster.Preparation with { SpecificationJson = "{}" };
-        File.AppendAllText(Path.Combine(inputs.DependencyDirectory, "payload/CommonPlugins/linux-compat/linux-compat.xml"), "changed");
+        string metadata = Path.Combine(inputs.DependencyDirectory, "payload/CommonPlugins/linux-compat/linux-compat.xml");
+        File.SetUnixFileMode(metadata, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.AppendAllText(metadata, "changed");
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.ReadActivePluginPinsAsync(fixture.Cluster, default));
     }
 
@@ -233,6 +236,7 @@ public sealed class ClusterDependencyTests
         var reused = await fixture.Service.ReusableSourcesAsync(fixture.Cluster, default);
         Assert.Equal(candidate, await fixture.Service.InspectAsync(fixture.Cluster, reused, default));
         Assert.Empty(Directory.GetDirectories(fixture.Store, ".stage-*"));
+        File.SetUnixFileMode(ds, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         File.WriteAllText(ds, "tampered");
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.VerifyAsync(fixture.Cluster, candidate.ManifestSha256, default));
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.StageAsync(fixture.Cluster, request, default));
@@ -347,7 +351,9 @@ public sealed class ClusterDependencyTests
         Directory.Delete(inputs.PackageDirectory, true);
         Directory.Delete(inputs.DependencyDirectory, true);
         Assert.Equal(prepared, await ClusterDeploymentFiles.PrepareAsync(bytes, hash, destination, default));
-        File.AppendAllText(Path.Combine(prepared.Directory, "Dependencies/payload/CommonPlugins/linux-compat/libHavok.so"), "tampered");
+        string native = Path.Combine(prepared.Directory, "Dependencies/payload/CommonPlugins/linux-compat/libHavok.so");
+        File.SetUnixFileMode(native, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.AppendAllText(native, "tampered");
         await Assert.ThrowsAsync<InvalidDataException>(() => ClusterDeploymentFiles.PrepareAsync(bytes, hash, destination, default));
         Assert.Empty(Directory.GetDirectories(destination, ".stage-*"));
     }
@@ -399,6 +405,87 @@ public sealed class ClusterDependencyTests
         File.WriteAllText(Path.Combine(old.PackagePath, "cli/deployment-capabilities.json"),
             "{\"schemaVersion\":1,\"frozenPluginBundles\":false}");
         Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.ValidateCapabilities(old.PackagePath));
+    }
+
+    [LinuxFact]
+    public async Task ReleaseSnapshotsShareContentAndSparseHostTransfersVerifyReusedBytes()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var first = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(first, ClusterDeploymentFiles.JsonOptions);
+        string originalHash = ClusterDeploymentFiles.Hash(bytes), host = Path.Combine(fixture.Root, "host");
+        using var full = new MemoryStream();
+        await ClusterDeploymentFiles.ExportInputsAsync(bytes, originalHash, full, default);
+        full.Position = 0;
+        var original = await ClusterDeploymentFiles.ImportAsync(full, originalHash, host, default);
+        var second = first with { PackageSelectionRevision = 2 };
+        bytes = JsonSerializer.SerializeToUtf8Bytes(second, ClusterDeploymentFiles.JsonOptions);
+        string nextHash = ClusterDeploymentFiles.Hash(bytes);
+        using var sparse = new MemoryStream();
+        await ClusterDeploymentFiles.ExportInputsAsync(bytes, nextHash, sparse, default, first.Files);
+        Assert.True(sparse.Length < full.Length);
+        sparse.Position = 0;
+        var next = await ClusterDeploymentFiles.ImportAsync(sparse, nextHash, host, default, originalHash);
+        string relative = "Dependencies/payload/DedicatedServer/Content/world.sbc";
+        Assert.True(ClusterContentStore.ReferenceCount(Path.Combine(next.Directory, relative)) > 2);
+        Assert.Equal(1, await ClusterDeploymentFiles.CollectInstallationsAsync(host, fixture.Cluster.UniqueName,
+            new HashSet<string> { nextHash }, [], default));
+        Assert.False(Directory.Exists(original.Directory));
+        Assert.Equal(next, await ClusterDeploymentFiles.PrepareAsync(bytes, nextHash, host, default));
+        sparse.Position = 0;
+        await Assert.ThrowsAnyAsync<IOException>(() => ClusterDeploymentFiles.ImportAsync(sparse, nextHash, host, default, originalHash));
+        string corrupted = Path.Combine(next.Directory, relative);
+        File.SetUnixFileMode(corrupted, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        File.WriteAllText(corrupted, "corrupt");
+        var third = second with { PackageSelectionRevision = 3 };
+        bytes = JsonSerializer.SerializeToUtf8Bytes(third, ClusterDeploymentFiles.JsonOptions);
+        using var badBase = new MemoryStream();
+        await ClusterDeploymentFiles.ExportInputsAsync(bytes, ClusterDeploymentFiles.Hash(bytes), badBase, default, second.Files);
+        badBase.Position = 0;
+        await Assert.ThrowsAsync<InvalidDataException>(() => ClusterDeploymentFiles.ImportAsync(badBase,
+            ClusterDeploymentFiles.Hash(bytes), host, default, nextHash));
+    }
+
+    [LinuxFact]
+    public async Task UncommittedSnapshotIsPrunedWithoutRemovingRetainedContent()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var first = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(first.ManifestSha256, 1, null), default);
+        string changed = Path.Combine(fixture.Sources["DedicatedServer/Content"], "world.sbc");
+        File.WriteAllText(changed, "new world content");
+        var second = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(second.ManifestSha256, 1, null), default);
+        using (await ClusterStorageActivity.CollectAsync(default))
+            await fixture.Service.CollectAsync(new HashSet<string> { first.ManifestSha256 }, default);
+        Assert.False(Directory.Exists(Path.Combine(fixture.Store, second.ManifestSha256)));
+        Assert.Equal(first, await fixture.Service.VerifyAsync(fixture.Cluster, first.ManifestSha256, default));
+        string changedHash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes("new world content"));
+        Assert.False(File.Exists(Path.Combine(fixture.Store, ".objects", changedHash + "-r")));
+    }
+
+    [Fact]
+    public async Task ReleaseStagingCannotAcquireConfigPermissionFromAConcurrentContentQueue()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cluster-staging-permission-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(root, "demo"));
+            var cluster = new ClusterDefinition { UniqueName = "demo", GatewayUrl = "http://gateway.test",
+                ActiveDeployment = new("active", [], DateTimeOffset.UtcNow),
+                QueuedContentUpdates = new("active", DateTimeOffset.UtcNow, [new("mod", "123", "mod", "42", DateTimeOffset.UtcNow)]) };
+            await File.WriteAllTextAsync(Path.Combine(root, "demo/cluster.json"), JsonSerializer.Serialize(cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = root }).Build());
+            var service = new ClusterUpdatePreparationService(catalog, null!, null!, null!, null!, null!, null!, null!);
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.PrepareAsync("demo", "release-manager", default));
+            Assert.Contains("Configuration editing permission", error.Message);
+            Assert.NotNull(catalog.GetCluster("demo")!.QueuedContentUpdates);
+        }
+        finally { Directory.Delete(root, true); }
     }
 
     private sealed class LinuxFactAttribute : FactAttribute

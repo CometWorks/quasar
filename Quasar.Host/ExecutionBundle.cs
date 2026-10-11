@@ -147,7 +147,8 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
             using var input = File.OpenRead(sourceFile);
             using var output = new FileStream(destination, FileMode.CreateNew);
             input.CopyTo(output); output.Flush(true);
-            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(destination, File.GetUnixFileMode(sourceFile) & (UnixFileMode)511);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(destination,
+                (File.GetUnixFileMode(sourceFile) & (UnixFileMode)511) | UnixFileMode.UserRead | UnixFileMode.UserWrite);
         }
     }
 

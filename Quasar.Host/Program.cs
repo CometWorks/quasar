@@ -98,6 +98,7 @@ internal static class Program
         var actualizer = new NodeActualizer(config.StateDirectory, config.HostId, diagnostics);
         var gatewayActualizer = new GatewayActualizer(config.StateDirectory, config.HostId, diagnostics);
         Directory.CreateDirectory(config.StateDirectory);
+        Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = Path.Combine(config.StateDirectory, "conversions");
         using var executionLock = new FileStream(Path.Combine(config.StateDirectory, "executor.lock"),
             FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
         using var executionGate = new SemaphoreSlim(1, 1);

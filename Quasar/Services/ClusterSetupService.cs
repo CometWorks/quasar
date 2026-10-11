@@ -225,7 +225,15 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     private async Task<ClusterSetupStatus> StageAsync(ClusterSetupRequest request, string phase, string? error, CancellationToken token)
     {
         var state = new ClusterSetupStatus(request, phase, error, DateTimeOffset.UtcNow);
-        await WriteAsync(Path.Combine(Workspace(request.UniqueName), "status.json"), state, token); return state;
+        await WriteAsync(Path.Combine(Workspace(request.UniqueName), "status.json"), state, token);
+        if (phase == "Ready to start") CleanupTransferFiles(Workspace(request.UniqueName));
+        return state;
+    }
+    internal static void CleanupTransferFiles(string work)
+    {
+        foreach (string name in new[] { "installation.tar", "world.tar", "split-world.tar" }) File.Delete(Path.Combine(work, name));
+        string installation = Path.Combine(work, "installation");
+        if (Directory.Exists(installation)) { ClusterWorldFiles.Private(installation); Directory.Delete(installation, true); }
     }
     private static ClusterDefinition Target(ClusterDefinition cluster, EnrolledClusterHost host)
     { var copy = cluster.Clone(); copy.HostCommandUrl = host.CommandUrl; copy.HostCommandTokenEnvironmentVariable = host.CredentialReference; return copy; }

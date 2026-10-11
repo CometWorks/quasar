@@ -164,12 +164,52 @@ public sealed partial class ClusterHostClient
             HostContract.HostProtocol.SteamClientLibraryRoute + "?sha256=" + hash, content, token, longRunning: true)).Data;
     }
 
+    public async Task<HostContract.ClusterDeploymentInputs?> GetDeploymentInputsAsync(ClusterDefinition cluster,
+        string hash, CancellationToken token)
+    {
+        if (!ClusterPackageService.IsHash(hash, 64)) throw new InvalidDataException("Invalid installation hash.");
+        try
+        {
+            return (await SendAsync<HostContract.ClusterDeploymentInputs>(cluster, HttpMethod.Get,
+                HostContract.HostProtocol.RoutePrefix + "/deployment-inputs/" + hash, null, token)).Data;
+        }
+        catch (ClusterHostException error) when (error.StatusCode == HttpStatusCode.NotFound)
+        {
+            return null; // Older Hosts use the complete archive protocol.
+        }
+    }
+
+    internal async Task RetainDeploymentInputsAsync(ClusterDefinition cluster, HostContract.HostDeploymentReferences references, CancellationToken token)
+    {
+        try
+        {
+            await SendAsync<int>(cluster, HttpMethod.Post, HostContract.HostProtocol.RoutePrefix
+                + "/deployment-references/" + Uri.EscapeDataString(cluster.UniqueName), references, token);
+        }
+        catch (ClusterHostException error) when (error.StatusCode == HttpStatusCode.NotFound)
+        { /* Older Hosts retain their installations until upgraded. */ }
+    }
+
+    internal async Task<Dictionary<string, HostContract.DeploymentFile>?> GetModInputsAsync(ClusterDefinition cluster,
+        string hash, CancellationToken token)
+    {
+        if (!ClusterPackageService.IsHash(hash, 64)) return null;
+        try
+        {
+            return (await SendAsync<Dictionary<string, HostContract.DeploymentFile>>(cluster, HttpMethod.Get,
+                HostContract.HostProtocol.RoutePrefix + "/deployment-mods/" + hash, null, token)).Data;
+        }
+        catch (ClusterHostException error) when (error.StatusCode == HttpStatusCode.NotFound) { return null; }
+    }
+
     public async Task<HostContract.HostConversionPaths> TransferConversionInputAsync(ClusterDefinition cluster, Guid id,
-        string kind, string archive, string hash, CancellationToken token)
+        string kind, string archive, string hash, CancellationToken token, string? baseInputsHash = null)
     {
         using var content = new StreamContent(File.OpenRead(archive));
         var response = await SendAsync<HostContract.HostConversionPaths>(cluster, HttpMethod.Put,
-            HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/" + id + "/" + kind + "?sha256=" + hash,
+            HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/" + id + "/" + kind + "?sha256=" + hash
+                + "&clusterId=" + Uri.EscapeDataString(cluster.UniqueName)
+                + (baseInputsHash is null ? "" : "&baseInputsSha256=" + Uri.EscapeDataString(baseInputsHash)),
             content, token, longRunning: true);
         return response.Data;
     }

@@ -26,6 +26,8 @@ internal static class ClusterWorldFiles
                 string target = Path.Combine(staging, name);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
                 File.Copy(Path.Combine(source, name), target);
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(target,
+                    File.GetUnixFileMode(target) | UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
             await VerifyAsync(staging, pins, token);
             await VerifyAsync(source, pins, token);
@@ -42,7 +44,8 @@ internal static class ClusterWorldFiles
             throw new InvalidDataException("World inventory or contents changed.");
     }
 
-    internal static async Task<string> PackAsync(string root, string archive, CancellationToken token, bool requireCheckpoint = true)
+    internal static async Task<string> PackAsync(string root, string archive, CancellationToken token, bool requireCheckpoint = true,
+        Dictionary<string, DeploymentFile>? previous = null)
     {
         var pins = await ClusterDeploymentFiles.InspectAsync(root, token);
         if (requireCheckpoint && !pins.ContainsKey("Sandbox.sbc")) throw new InvalidDataException("World has no Sandbox.sbc.");
@@ -54,6 +57,7 @@ internal static class ClusterWorldFiles
             await writer.WriteEntryAsync(new PaxTarEntry(TarEntryType.RegularFile, "world-files.json") { DataStream = header }, token);
             foreach (string name in pins.Keys.Order(StringComparer.Ordinal))
             {
+                if (previous is not null && previous.TryGetValue(name, out var old) && old == pins[name]) continue;
                 using var file = File.OpenRead(Path.Combine(root, name));
                 await writer.WriteEntryAsync(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = file }, token);
             }
@@ -64,10 +68,12 @@ internal static class ClusterWorldFiles
     }
 
     internal static async Task<string> UnpackAsync(Stream input, string hash, string directory, CancellationToken token,
-        bool requireCheckpoint = true)
+        bool requireCheckpoint = true, string? baseHash = null)
     {
         if (hash.Length != 64 || !hash.All(Uri.IsHexDigit)) throw new InvalidDataException("Invalid world hash.");
         Directory.CreateDirectory(directory);
+        using var content = OperatingSystem.IsLinux() ? await ClusterContentStore.OpenAsync(directory, token) : null;
+        var previous = baseHash is null ? null : await ReadPinsAsync(directory, baseHash, token);
         string destination = Path.Combine(directory, hash);
         string staging = Path.Combine(directory, ".world-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging); Private(staging);
@@ -94,16 +100,39 @@ internal static class ClusterWorldFiles
                     || entry.Length != pin.Bytes || !seen.Add(entry.Name)) throw new InvalidDataException("Unexpected world entry.");
                 string file = Path.Combine(staging, entry.Name);
                 Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-                await using var output = new FileStream(file, FileMode.CreateNew);
-                if (entry.DataStream is not null) await entry.DataStream.CopyToAsync(output, token);
+                await using (var output = new FileStream(file, FileMode.CreateNew))
+                    if (entry.DataStream is not null) await entry.DataStream.CopyToAsync(output, token);
+                if (content is not null) await content.AdoptAsync(file, pin, token);
             }
-            if (seen.Count != pins.Count) throw new InvalidDataException("World transfer is incomplete.");
+            foreach (var (name, pin) in pins.Where(p => !seen.Contains(p.Key)))
+            {
+                Relative(name);
+                if (previous is null || !previous.TryGetValue(name, out var old) || old != pin)
+                    throw new InvalidDataException("World transfer is incomplete or has mismatched reuse pins.");
+                string target = Path.Combine(staging, name);
+                if (content is not null) await content.ReferenceAsync(Path.Combine(directory, baseHash!, name), target, pin, token);
+                else
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    File.Copy(Path.Combine(directory, baseHash!, name), target);
+                }
+            }
             await VerifyAsync(staging, pins, token);
             if (!Directory.Exists(destination)) Directory.Move(staging, destination);
             await VerifyAsync(destination, pins, token);
             return destination;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+    }
+
+    internal static async Task<Dictionary<string, DeploymentFile>> ReadPinsAsync(string directory, string hash, CancellationToken token)
+    {
+        if (hash.Length != 64 || hash != hash.ToLowerInvariant() || !hash.All(Uri.IsHexDigit))
+            throw new InvalidDataException("Invalid world input hash.");
+        var pins = await ClusterDeploymentFiles.InspectAsync(Path.Combine(directory, hash), token);
+        if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(pins, ClusterDeploymentFiles.JsonOptions)) != hash)
+            throw new InvalidDataException("Stored world input changed.");
+        return pins;
     }
 
     internal static void Relative(string name)
