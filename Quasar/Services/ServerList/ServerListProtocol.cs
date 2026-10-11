@@ -11,7 +11,11 @@ public sealed record ServerListWithdrawal(int SchemaVersion, string Installation
 public sealed record ServerListChallenge(string Nonce, DateTimeOffset ExpiresAtUtc, long DiagnosticsGeneration);
 public sealed record ServerListAdmin(string Provider, string Subject);
 public sealed record ServerListListing(string ListingId, string Name, string PublicHost, int PublicPort,
-    DateTimeOffset? ObservedAtUtc, bool? Running, int? PlayersOnline, int? MaxPlayers, float? SimSpeed);
+    DateTimeOffset? ObservedAtUtc, bool? Running, int? PlayersOnline, int? MaxPlayers, float? SimSpeed,
+    string Platform = "Magnetar", ServerListCluster? Cluster = null);
+public sealed record ServerListCluster(string Kind, int? Online, int? Total, ServerListNode[]? Nodes = null,
+    string? Phase = null, string? Health = null, int? Partitions = null, int? Handovers = null);
+public sealed record ServerListNode(string Name, string Role, string State, bool? Online, int? QuarantinedPartitions);
 
 public static class ServerListProtocol
 {
@@ -47,9 +51,27 @@ public static class ServerListProtocol
                 && metrics.SimSpeed >= 0 ? Math.Min(metrics.SimSpeed, 1f) : null);
     }
 
+    internal static ServerListListing FromCluster(ServerListEntry entry,
+        CometWorks.ClusterGateway.AdminContract.V1.ClusterStatus status, DateTimeOffset now)
+    {
+        if (!IsFresh(status.ObservedAt, now)) return UnknownCluster(entry);
+        // Publish ordinal labels rather than private host names, node identifiers or endpoints.
+        var nodes = status.Nodes.Select((node, index) => new ServerListNode($"Node {index + 1}",
+            node.Role.ToString(), node.State.ToString(), node.LeaseFresh && node.LeaseExpires > now
+                && node.State != CometWorks.ClusterGateway.AdminContract.V1.NodeState.Dead,
+            NonNegative(node.QuarantinedPartitions))).ToArray();
+        return new(entry.ListingId, entry.Name, entry.PublicHost, entry.PublicPort, status.ObservedAt,
+            status.AcceptingPlayers, NonNegative(status.Counts.ConnectedClients), null, null, "Magnetar",
+            new("CometWorks", nodes.Count(n => n.Online == true), nodes.Length, nodes,
+                status.Phase.ToString(), status.Health.ToString(), NonNegative(status.Counts.Partitions),
+                NonNegative(status.Counts.Handovers)));
+    }
+
     internal static bool IsFresh(DateTimeOffset observed, DateTimeOffset now) => observed <= now
         && now - observed <= Freshness;
     internal static int? NonNegative(int value) => value >= 0 ? value : null;
+    internal static ServerListListing UnknownCluster(ServerListEntry entry) => Unknown(entry) with
+        { Cluster = new("CometWorks", null, null) };
     internal static ServerListListing Unknown(ServerListEntry entry) => new(entry.ListingId, entry.Name,
         entry.PublicHost, entry.PublicPort, null, null, null, null, null);
 }
