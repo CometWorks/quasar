@@ -14,11 +14,18 @@ any other selected content; **Apply pending update** uses backed-up full-cluster
 See [configuration](Configuration.md#cluster-content-update-observations)
 and the [maintained plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md).
 
+Release selection and queued content can be staged in the same changeset. **Stage latest
+release** includes queued mods/plugins; it does not require applying the release first.
+Snapshots reference shared immutable content, and the Host receives only changed files
+when it supports inventories. Unused content is pruned after its last retained reference
+is released. See [cluster storage](ClusterStorage.md) for retention and migration behavior.
+
 ## Staged profile changes (cluster 0.1.0 beta)
 
 Administrators can stage the active profile again after editing it, or choose another
 profile. Staging resolves complete Workshop dependencies with the configured Web API
-key, downloads each payload with Quasar-managed SteamCMD, and transfers hash-pinned
+key, reuses matching verified versions or downloads changed payloads with Quasar-managed
+SteamCMD, and transfers hash-pinned
 `<id>.sbm` directories to every Host. Anonymous SteamCMD access is attempted first;
 private items require a saved Steam account. Quasar exports the chosen common plugin
 selection through Magnetar's managed preparation command, freezes its exact bundles

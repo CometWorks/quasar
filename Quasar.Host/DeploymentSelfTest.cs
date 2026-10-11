@@ -12,6 +12,7 @@ internal static class DeploymentSelfTest
         CredentialInstallation();
         LocalWorldModsRequired();
         ProfileContentUpdate();
+        ConfigurationReferenceRetention();
         SteamClientLibraryInstallation();
         Assert(HostShutdown.ParseSystemdSeconds("2min") == 120 && HostShutdown.ParseSystemdSeconds("1min 30s") == 90
             && HostShutdown.ParseSystemdSeconds("500ms\n") == 0.5 && HostShutdown.ParseSystemdSeconds("infinity") is null
@@ -189,6 +190,33 @@ internal static class DeploymentSelfTest
             }
         }
         finally { Environment.SetEnvironmentVariable(variable, null); }
+    }
+
+    private static void ConfigurationReferenceRetention()
+    {
+        string state = Path.Combine(Path.GetTempPath(), "configuration-retention-" + Guid.NewGuid().ToString("N"));
+        string first = Path.Combine(state, "conversions/first/configuration"), next = Path.Combine(state, "conversions/next/configuration");
+        string runtime = Path.Combine(state, "conversions/runtime");
+        try
+        {
+            Directory.CreateDirectory(runtime);
+            File.WriteAllText(Path.Combine(runtime, "world"), "live world");
+            foreach (string directory in new[] { first, next })
+            {
+                Directory.CreateDirectory(directory);
+                File.WriteAllBytes(Path.Combine(directory, "bundle.json"), JsonSerializer.SerializeToUtf8Bytes(
+                    new BundleManifest(1, "revision", [], [], RuntimeRoot: runtime, ClusterId: "demo"),
+                    new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                DeploymentConfigurationReferences.Track(state, "demo", directory);
+            }
+            DeploymentConfigurationReferences.Retain(state, "demo", [next], [first]);
+            Assert(Directory.Exists(first) && Directory.Exists(next), "active configuration was not retained");
+            DeploymentConfigurationReferences.Retain(state, "demo", [next], []);
+            Assert(!Directory.Exists(first) && Directory.Exists(next), "unused configuration was not pruned");
+            DeploymentConfigurationReferences.Retain(state, "demo", [], []);
+            Assert(!Directory.Exists(next) && File.ReadAllText(Path.Combine(runtime, "world")) == "live world", "runtime was affected by configuration pruning");
+        }
+        finally { if (Directory.Exists(state)) Directory.Delete(state, true); }
     }
 
     private static void ProfileContentUpdate()

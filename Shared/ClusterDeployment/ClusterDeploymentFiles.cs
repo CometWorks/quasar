@@ -91,6 +91,7 @@ internal static partial class ClusterDeploymentFiles
         await VerifyAsync(inputs, inputs.PackageDirectory, inputs.DependencyDirectory, token);
         Directory.CreateDirectory(directory);
         RefuseLinks(directory);
+        using var content = await ClusterContentStore.OpenAsync(directory, token);
         string staging = Path.Combine(directory, ".stage-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(staging);
         try
@@ -103,23 +104,7 @@ internal static partial class ClusterDeploymentFiles
                     path[(package ? "Package/".Length : "Dependencies/".Length)..]);
                 string target = Path.Combine(staging, path);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                await using var input = File.OpenRead(source);
-                await using var output = File.Create(target);
-                using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                byte[] buffer = new byte[81920];
-                long copied = 0;
-                int read;
-                while ((read = await input.ReadAsync(buffer, token)) != 0)
-                {
-                    copied += read;
-                    if (copied > pin.Bytes) throw new InvalidDataException("Deployment source changed during copy.");
-                    hash.AppendData(buffer, 0, read);
-                    await output.WriteAsync(buffer.AsMemory(0, read), token);
-                }
-                if (copied != pin.Bytes || Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant() != pin.Sha256)
-                    throw new InvalidDataException("Deployment source changed during copy.");
-                File.SetUnixFileMode(target, UnixFileMode.UserRead | UnixFileMode.UserWrite
-                    | (pin.Executable ? UnixFileMode.UserExecute : 0));
+                await content.ReferenceAsync(source, target, pin, token);
             }
             await File.WriteAllBytesAsync(Path.Combine(staging, "inputs.json"), bytes, token);
             await File.WriteAllBytesAsync(Path.Combine(staging, "launch-environment.json"), environmentBytes, token);

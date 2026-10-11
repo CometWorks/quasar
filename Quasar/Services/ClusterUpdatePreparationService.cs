@@ -15,7 +15,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
     public Task<ClusterOperation> StageProfileSelectionAsync(string clusterId, string profileId,
-        string actor, CancellationToken token) => catalog.WithLifecycleAsync(clusterId, async cluster =>
+        string actor, CancellationToken token, IProgress<string>? progress = null) => catalog.WithLifecycleAsync(clusterId, async cluster =>
         {
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
@@ -37,30 +37,37 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             ClusterWorldFiles.Private(work);
             try
             {
+                progress?.Report("Verifying the selected release and dependency pins...");
                 var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
                 ClusterDeploymentFiles.RequireProfileUpdates(inputs.PackageDirectory);
-                if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
-                    throw new InvalidOperationException("Stage the selected release before changing profiles.");
+                // The retained seed/topology can belong to the old release. This path rebuilds
+                // content and canonical plugin configuration against the selected installation.
                 if (activeDeployment.Provenance is null)
                     await catalog.RecordActiveProvenanceAsync(cluster, token);
 
-                var resolved = await workshop.ResolveDependenciesAsync(selected.Mods, sortLoadOrder: true, cancellationToken: token);
+                progress?.Report("Resolving the profile's Workshop dependencies...");
+                var requestedMods = selected.Mods.ToList();
+                // Magnetar adds its Steam companion implicitly. Pin it with the rest of
+                // the managed payload so profile migration cannot drop it or download at launch.
+                if (!selected.RootSettings.CrossPlatform && requestedMods.All(m => m.WorkshopId != 3750200326))
+                    requestedMods.Add(new() { WorkshopId = 3750200326, DisplayName = "MagnetarMod" });
+                var resolved = await workshop.ResolveDependenciesAsync(requestedMods, sortLoadOrder: true, cancellationToken: token);
                 var unresolved = resolved.Warnings.Where(w => !w.StartsWith("Reordered dependency ", StringComparison.Ordinal)).ToArray();
                 if (unresolved.Length != 0)
                     throw new InvalidOperationException("Resolve Workshop dependencies before staging: " + string.Join(" ", unresolved));
                 var effective = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(selected, Json), Json)!;
                 effective.Mods = resolved.Mods.ToList();
-                if (queued is not null)
-                    ValidateQueuedMods(queued, effective.Mods,
-                        await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token));
-                string mods = await modStager.StageAsync(effective.Mods, work, token);
-                if (queued is not null)
-                    ValidateQueuedMods(queued, effective.Mods,
-                        await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token));
+                var observations = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
+                if (queued is not null) ValidateQueuedMods(queued, effective.Mods, observations);
+                string mods = await modStager.StageAsync(effective.Mods, work, token, progress, observations);
+                var afterDownload = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
+                foreach (var mod in effective.Mods)
+                    if (ClusterWorkshopModStager.ObservedVersion(mod.WorkshopId, observations)
+                        != ClusterWorkshopModStager.ObservedVersion(mod.WorkshopId, afterDownload))
+                        throw new InvalidOperationException($"Workshop item {mod.WorkshopId} changed during preparation. Check updates and stage again.");
                 var modFiles = (await ClusterDeploymentFiles.InspectAsync(mods, token))
                     .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
                 string modArchive = Path.Combine(work, "mods.tar");
-                string modHash = await ClusterWorldFiles.PackAsync(mods, modArchive, token, requireCheckpoint: false);
 
                 string sourceWorld = Path.Combine(work, "profile-source");
                 Directory.CreateDirectory(sourceWorld);
@@ -70,6 +77,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 await WorldSandboxConfigEditor.WriteProfileAsync(checkpoint, effective, cluster.DisplayName, token);
                 string patch = XDocument.Load(checkpoint).ToString(SaveOptions.DisableFormatting);
                 string exported = Path.Combine(work, "exported");
+                progress?.Report("Preparing pinned plugins and their configuration...");
                 var excluded = await setup.ExportProfilePluginsAsync(cluster.UniqueName, cluster.DisplayName,
                     selected.ConfigProfileId, sourceWorld, effective, work, exported, token);
                 if (excluded.Count != 0)
@@ -90,10 +98,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 inputs = await dependencies.GetDeploymentInputsAsync(stagedCluster, token);
                 byte[] inputBytes = JsonSerializer.SerializeToUtf8Bytes(inputs, Json);
                 string inputsHash = ClusterDeploymentFiles.Hash(inputBytes);
-                var installed = await ClusterDeploymentFiles.PrepareAsync(inputBytes, inputsHash, Path.Combine(work, "installation"), token);
                 string archive = Path.Combine(work, "installation.tar");
-                await using (var output = File.Create(archive))
-                    await ClusterDeploymentFiles.ExportAsync(installed.Directory, output, token);
 
                 var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
                 spec["memberLimit"] = ClusterConversionService.MemberLimit(effective);
@@ -101,6 +106,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 spec["selectedConfigProfileId"] = effective.ConfigProfileId;
                 spec["profileSettingsXml"] = patch;
                 spec["modFiles"] = JsonSerializer.SerializeToNode(modFiles, Json);
+                spec["modVersions"] = JsonSerializer.SerializeToNode(effective.Mods.ToDictionary(m =>
+                    m.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    m => ClusterWorkshopModStager.ObservedVersion(m.WorkshopId, observations)), Json);
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);
@@ -115,8 +123,14 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     var target = cluster.Clone();
                     target.HostCommandUrl = active.CommandUrl;
                     target.HostCommandTokenEnvironmentVariable = active.TokenEnvironmentVariable;
-                    var installation = await hosts.TransferConversionInputAsync(target, transfer, "installation", archive, inputsHash, token);
-                    var payload = await hosts.TransferConversionInputAsync(target, transfer, "mods", modArchive, modHash, token);
+                    var installation = await TransferInstallationAsync(target, old.HostId, request.InputsSha256,
+                        transfer, inputBytes, inputsHash, archive, token, progress);
+                    string previousModsHash = Path.GetFileName(old.ModDirectory) ?? "";
+                    var previousMods = await hosts.GetModInputsAsync(target, previousModsHash, token);
+                    string modHash = await ClusterWorldFiles.PackAsync(mods, modArchive, token, requireCheckpoint: false, previous: previousMods);
+                    progress?.Report($"Transferring {new FileInfo(modArchive).Length / 1048576d:N1} MiB of changed mod files to {old.HostId}...");
+                    var payload = await hosts.TransferConversionInputAsync(target, transfer, "mods", modArchive, modHash, token,
+                        previousMods is null ? null : previousModsHash);
                     if (installation.HostId != old.HostId || payload.HostId != old.HostId)
                         throw new InvalidDataException("Transfer returned another Host identity.");
                     preparationHosts.Add(old with { CommandUrl = active.CommandUrl,
@@ -128,6 +142,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 await catalog.SelectDependenciesAsync(clusterId,
                     new(candidate.ManifestSha256, cluster.PackageSelection.Revision, cluster.DependencyManifestSha256), token);
                 cluster = catalog.GetCluster(clusterId)!;
+                progress?.Report("Preparing and validating the combined deployment on every Host...");
                 var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
                 if (result.State == ClusterOperationState.Succeeded)
                 {
@@ -250,9 +265,17 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             ?? throw new InvalidDataException("Plugin settings must be a JSON object.");
     }
 
-    public async Task<ClusterOperation> PrepareAsync(string clusterId, string actor, CancellationToken token)
+    public async Task<ClusterOperation> PrepareAsync(string clusterId, string actor, CancellationToken token,
+        IProgress<string>? progress = null, bool allowQueuedContent = false)
     {
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
         var cluster = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);
+        if (cluster.QueuedContentUpdates is not null)
+        {
+            if (!allowQueuedContent)
+                throw new InvalidOperationException("Configuration editing permission is required to stage queued content with a release update.");
+            return await StageProfileSelectionAsync(clusterId, cluster.ConfigProfileId, actor, token, progress);
+        }
         var previous = cluster.Preparation ?? throw new InvalidOperationException("No saved preparation exists. Import a deployment request first.");
         if (cluster.ActiveDeployment is null || cluster.PackageSelection is null || cluster.DependencyManifestSha256 is null)
             throw new InvalidOperationException("Select a cluster package and freeze its dependencies first.");
@@ -263,16 +286,16 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             || previous.Hosts.Any(host => cluster.ActiveDeployment.Hosts.All(active => active.HostId != host.HostId)))
             throw new InvalidOperationException("Saved preparation has a different Host inventory. Import a current deployment request.");
 
+        progress?.Report("Verifying the selected release and dependency pins...");
         var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
         byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(inputs, Json);
         string hash = ClusterDeploymentFiles.Hash(bytes);
         string workspace = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ClusterUpdates", Guid.NewGuid().ToString("N"));
         try
         {
-            var installed = await ClusterDeploymentFiles.PrepareAsync(bytes, hash, Path.Combine(workspace, "installation"), token);
+            Directory.CreateDirectory(workspace);
+            ClusterWorldFiles.Private(workspace);
             string archive = Path.Combine(workspace, "installation.tar");
-            await using (var output = File.Create(archive))
-                await ClusterDeploymentFiles.ExportAsync(installed.Directory, output, token);
             var transfer = Guid.NewGuid();
             var preparationHosts = new List<ClusterPreparationHost>();
             foreach (var old in previous.Hosts)
@@ -281,7 +304,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var target = cluster.Clone();
                 target.HostCommandUrl = active.CommandUrl;
                 target.HostCommandTokenEnvironmentVariable = active.TokenEnvironmentVariable;
-                var remote = await hosts.TransferConversionInputAsync(target, transfer, "installation", archive, hash, token);
+                var remote = await TransferInstallationAsync(target, old.HostId, previous.InputsSha256,
+                    transfer, bytes, hash, archive, token, progress);
                 if (remote.HostId != old.HostId) throw new InvalidDataException("Transfer returned another Host identity.");
                 preparationHosts.Add(old with { CommandUrl = active.CommandUrl,
                     TokenEnvironmentVariable = active.TokenEnvironmentVariable,
@@ -294,6 +318,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             if (catalog.GetCluster(clusterId)?.PackageSelection != cluster.PackageSelection
                 || catalog.GetCluster(clusterId)?.DependencyManifestSha256 != cluster.DependencyManifestSha256)
                 throw new InvalidOperationException("Package inputs changed during transfer. Prepare again.");
+            progress?.Report("Preparing and validating the selected deployment on every Host...");
             var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
             if (result.State == ClusterOperationState.Succeeded)
             {
@@ -308,5 +333,19 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         {
             if (Directory.Exists(workspace)) Directory.Delete(workspace, recursive: true);
         }
+    }
+
+    private async Task<global::Quasar.Host.Contract.V1.HostConversionPaths> TransferInstallationAsync(
+        ClusterDefinition target, string hostId, string previousHash, Guid transfer, byte[] inputs, string hash,
+        string archive, CancellationToken token, IProgress<string>? progress)
+    {
+        progress?.Report($"Checking reusable deployment files on {hostId}...");
+        var previous = await hosts.GetDeploymentInputsAsync(target, previousHash, token);
+        await using (var output = File.Create(archive))
+            await ClusterDeploymentFiles.ExportInputsAsync(inputs, hash, output, token, previous?.Files, progress);
+        long bytes = new FileInfo(archive).Length;
+        progress?.Report($"Transferring {bytes / 1048576d:N1} MiB of new or changed files to {hostId}...");
+        return await hosts.TransferConversionInputAsync(target, transfer, "installation", archive, hash, token,
+            previous is null ? null : previousHash);
     }
 }

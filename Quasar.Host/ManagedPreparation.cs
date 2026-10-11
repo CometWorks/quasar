@@ -21,16 +21,22 @@ internal static class ManagedPreparation
             throw new InvalidDataException("Installation directory does not match its pinned inputs.");
         await ClusterDeploymentFiles.PrepareAsync(inputs, request.InputsSha256, Path.GetDirectoryName(root)!, token);
         string temporary = Path.Combine(Path.GetTempPath(), "quasar-spec-" + Guid.NewGuid().ToString("N"));
+        string mutableInputs = temporary + ".inputs";
         try
         {
+            // The packaged generator edits its copied checkpoint/configuration. Give
+            // copytree writable copies while keeping shared snapshot objects read-only.
+            await ClusterWorldFiles.CopyAsync(request.WorldDirectory, Path.Combine(mutableInputs, "world"), token);
+            if (request.ModDirectory is { } modInput)
+                await ClusterWorldFiles.CopyAsync(modInput, Path.Combine(mutableInputs, "mods"), token);
             await File.WriteAllBytesAsync(temporary, specification, token);
             var start = new ProcessStartInfo("python3") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
             start.ArgumentList.Add("-B"); // Imports must not write bytecode into the verified package.
             foreach (string value in new[] { Path.Combine(root, "Package/cli/managed_deployment.py"), "--installation", root,
                 "prepare", "--spec", temporary, "--sha256", request.SpecificationSha256, "--host", hostId,
-                "--world", request.WorldDirectory, "--destination", request.ConfigurationDirectory }) start.ArgumentList.Add(value);
+                "--world", Path.Combine(mutableInputs, "world"), "--destination", request.ConfigurationDirectory }) start.ArgumentList.Add(value);
             if (request.ModDirectory is { } mods)
-            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(mods); }
+            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(Path.Combine(mutableInputs, "mods")); }
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start packaged preparation.");
             var output = process.StandardOutput.ReadToEndAsync(token);
             var error = process.StandardError.ReadToEndAsync(token);
@@ -43,9 +49,16 @@ internal static class ManagedPreparation
             var bundle = ExecutionBundle.Load(manifest, hash);
             if (bundle.Manifest.ClusterId != request.ClusterId || bundle.Manifest.HostId != hostId)
                 throw new InvalidDataException("Prepared deployment identity mismatch.");
+            using (var content = await ClusterContentStore.OpenAsync(Path.GetDirectoryName(request.ConfigurationDirectory)!, token))
+                foreach (var (relative, pin) in await ClusterDeploymentFiles.InspectAsync(request.ConfigurationDirectory, token))
+                    await content.AdoptAsync(Path.Combine(request.ConfigurationDirectory, relative), pin, token);
             return new(hostId, bundle.Manifest.Revision, manifest, hash);
         }
-        finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        finally
+        {
+            if (File.Exists(temporary)) File.Delete(temporary);
+            if (Directory.Exists(mutableInputs)) Directory.Delete(mutableInputs, true);
+        }
     }
 
     internal static async Task<int> RunAsync(string[] args)
@@ -66,22 +79,12 @@ internal static class ManagedPreparation
             byte[] inputs = await File.ReadAllBytesAsync(Path.Combine(root, "inputs.json"));
             string hash = ClusterDeploymentFiles.Hash(inputs);
             if (Path.GetFileName(root) != hash) throw new InvalidDataException("Installation path does not match its input hash.");
-            await ClusterDeploymentFiles.PrepareAsync(inputs, hash, Path.GetDirectoryName(root)!, default);
-            string script = Path.Combine(root, "Package/cli/managed_deployment.py");
-            if (!File.Exists(script)) throw new InvalidDataException("Cluster release lacks managed deployment preparation.");
-            var start = new ProcessStartInfo("python3") { UseShellExecute = false };
-            start.ArgumentList.Add("-B");
-            foreach (string argument in new[] { script, "--installation", root, "prepare", "--spec", values["--file"],
-                "--sha256", values["--sha256"], "--host", values["--host"], "--world", values["--world"],
-                "--destination", values["--directory"] }) start.ArgumentList.Add(argument);
-            if (values.TryGetValue("--mods", out string? mods))
-            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(mods); }
-            using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start packaged preparation.");
-            await process.WaitForExitAsync();
-            if (process.ExitCode != 0) return process.ExitCode;
-            // Verify the emitted execution manifest independently of the packaged generator.
-            string manifest = Path.Combine(Path.GetFullPath(values["--directory"]), "bundle.json");
-            ExecutionBundle.Load(manifest, ExecutionBundle.Hash(await File.ReadAllBytesAsync(manifest)));
+            string specification = await File.ReadAllTextAsync(values["--file"]);
+            using var document = JsonDocument.Parse(specification);
+            var prepared = await PrepareAsync(new(document.RootElement.GetProperty("clusterId").GetString()!, root, hash,
+                specification, values["--sha256"], values["--world"], values["--directory"], values.GetValueOrDefault("--mods")),
+                values["--host"], default);
+            Console.WriteLine(JsonSerializer.Serialize(prepared, ClusterDeploymentFiles.JsonOptions));
             return 0;
         }
         catch (Exception error) when (error is IOException or ArgumentException or InvalidDataException

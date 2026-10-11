@@ -8,7 +8,7 @@ using Quasar.ClusterDeployment;
 
 namespace Quasar.Services;
 
-/// <summary>Copies approved dependency bytes into an isolated, immutable installation. Never starts or updates a runtime.</summary>
+/// <summary>Publishes immutable dependency snapshots referencing shared verified content.</summary>
 public sealed class ClusterDependencyService
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
@@ -18,6 +18,39 @@ public sealed class ClusterDependencyService
     private readonly string _directory;
     private readonly ClusterPackageService _packages;
     private readonly SemaphoreSlim _gate = new(1, 1);
+
+    // Caller owns the storage collection lease, so no staging/selection can race it.
+    internal async Task CollectAsync(IReadOnlySet<string> retained, CancellationToken token)
+    {
+        if (!Directory.Exists(_directory)) return;
+        await _gate.WaitAsync(token);
+        try
+        {
+            using var content = await ClusterContentStore.OpenAsync(_directory, token);
+            foreach (string path in Directory.EnumerateDirectories(_directory))
+            {
+                string hash = Path.GetFileName(path);
+                if (!ClusterPackageService.IsHash(hash, 64)) continue;
+                RefuseLink(path);
+                if (!retained.Contains(hash)) { Directory.Delete(path, true); continue; }
+                // Migrate old copies in place without changing snapshot identity or paths.
+                byte[] bytes = await File.ReadAllBytesAsync(Path.Combine(path, "manifest.json"), token);
+                if (Hash(bytes) != hash) throw new InvalidDataException("Dependency manifest changed during collection.");
+                var manifest = JsonSerializer.Deserialize<ClusterDependencyManifest>(bytes, JsonOptions)
+                    ?? throw new InvalidDataException("Missing dependency manifest.");
+                foreach (var (relative, pin) in manifest.Files)
+                {
+                    ClusterWorldFiles.Relative(relative);
+                    string file = Path.Combine(path, "payload", relative);
+                    if (ClusterContentStore.ReferenceCount(file) == 1)
+                        await content.AdoptAsync(file, new(pin.Sha256, pin.Bytes, pin.Executable), token);
+                }
+            }
+            foreach (string path in Directory.EnumerateDirectories(_directory, ".stage-*"))
+            { RefuseLink(path); Directory.Delete(path, true); }
+        }
+        finally { _gate.Release(); }
+    }
 
     public ClusterDependencyService(ManagedDedicatedServerRuntimeResolver runtime, IConfiguration configuration,
         ClusterPackageService packages)
@@ -32,6 +65,7 @@ public sealed class ClusterDependencyService
 
     internal async Task<ClusterDependencyCandidate> InspectAsync(ClusterDefinition cluster, Dictionary<string, string>? sources, CancellationToken token)
     {
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
         await _gate.WaitAsync(token);
         try
         {
@@ -51,10 +85,12 @@ public sealed class ClusterDependencyService
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Cluster dependency provisioning requires Linux.");
         ValidateRequest(request);
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
         await _gate.WaitAsync(token);
         string? staging = null;
         try
         {
+            using var content = await ClusterContentStore.OpenAsync(_directory, token);
             var selected = await VerifyPackageAsync(cluster, token);
             if (selected.Revision != request.ExpectedPackageRevision)
                 throw new ClusterOperationConflictException(409, "package_selection_conflict", "Package selection changed.");
@@ -86,7 +122,7 @@ public sealed class ClusterDependencyService
                 }
                 string target = Path.Combine(staging, "payload", relative);
                 Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                await CopyVerifiedAsync(sourcePath, target, pin, token);
+                await content.ReferenceAsync(sourcePath, target, new(pin.Sha256, pin.Bytes, pin.Executable), token);
             }
             await File.WriteAllBytesAsync(Path.Combine(staging, "manifest.json"), Serialize(manifest), token);
             // A same-filesystem rename publishes all dependencies together; never overwrite a pin.
@@ -104,6 +140,7 @@ public sealed class ClusterDependencyService
     public async Task<ClusterDependencyCandidate> VerifyAsync(ClusterDefinition cluster, string hash, CancellationToken token)
     {
         ValidateHash(hash);
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
         await _gate.WaitAsync(token);
         try { return await VerifyAsyncCore(await VerifyPackageAsync(cluster, token), hash, token); }
         finally { _gate.Release(); }
@@ -129,6 +166,7 @@ public sealed class ClusterDependencyService
     {
         string hash = cluster.DependencyManifestSha256 ?? throw new InvalidDataException("Select a dependency snapshot first.");
         ValidateHash(hash);
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
         await _gate.WaitAsync(token);
         try
         {
@@ -160,6 +198,7 @@ public sealed class ClusterDependencyService
     // candidate selection. A selected snapshot alone is not evidence of deployment.
     internal async Task<ClusterPluginPin[]> ReadActivePluginPinsAsync(ClusterDefinition cluster, CancellationToken token)
     {
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
         var preparation = cluster.Preparation
             ?? throw new InvalidDataException("Active deployment has no retained preparation provenance.");
         if (cluster.ActiveDeployment is null || DeploymentRevision(preparation) != cluster.ActiveDeployment.Revision)
@@ -342,30 +381,6 @@ public sealed class ClusterDependencyService
             }
         }
         return files.ToDictionary(pair => pair.Key, pair => pair.Value, StringComparer.Ordinal);
-    }
-
-    private static async Task CopyVerifiedAsync(string source, string destination, ClusterDependencyFile pin, CancellationToken token)
-    {
-        await using var input = File.OpenRead(source);
-        await using var output = File.Create(destination);
-        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] buffer = new byte[81920];
-        long copied = 0;
-        int read;
-        while ((read = await input.ReadAsync(buffer, token)) != 0)
-        {
-            copied += read;
-            if (copied > pin.Bytes) throw new InvalidDataException("Dependency input changed during provisioning.");
-            hash.AppendData(buffer, 0, read);
-            await output.WriteAsync(buffer.AsMemory(0, read), token);
-        }
-        if (copied != pin.Bytes || Convert.ToHexString(hash.GetHashAndReset()).ToLowerInvariant() != pin.Sha256)
-            throw new InvalidDataException("Dependency input changed during provisioning.");
-        await output.FlushAsync(token);
-        if (!OperatingSystem.IsWindows())
-            File.SetUnixFileMode(destination, UnixFileMode.UserRead | UnixFileMode.UserWrite
-                | UnixFileMode.GroupRead | UnixFileMode.OtherRead
-                | (pin.Executable ? UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute : 0));
     }
 
     private static void RefuseLink(string path)

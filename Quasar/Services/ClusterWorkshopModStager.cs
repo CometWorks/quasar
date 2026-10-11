@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using Quasar.Host.Contract.V1;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
 using Quasar.Models;
@@ -7,16 +9,89 @@ namespace Quasar.Services;
 
 /// <summary>Downloads exact Workshop bytes into a private, disposable deployment input.</summary>
 public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolver runtime,
-    SteamWorkshopCredentialsCatalog credentials, ManagedRuntimeOptions options)
+    SteamWorkshopCredentialsCatalog credentials, ManagedRuntimeOptions options, QuasarWorkshopModResolver workshop)
 {
     private const string WorkshopAppId = "244850";
+    private readonly SemaphoreSlim gate = new(1, 1);
+    internal static string StorageDirectory => Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "ClusterModVersions");
+    internal sealed record Receipt(long Id, long Version, Dictionary<string, DeploymentFile> Files);
 
-    public async Task<string> StageAsync(IReadOnlyList<QuasarModSelection> mods, string work, CancellationToken token)
+
+    public async Task<string> StageAsync(IReadOnlyList<QuasarModSelection> mods, string work, CancellationToken token,
+        IProgress<string>? progress, IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)
     {
-        string destination = Path.Combine(work, "mods");
-        Directory.CreateDirectory(destination);
-        ClusterWorldFiles.Private(destination);
-        if (mods.Count == 0) return destination;
+        using var activity = await ClusterStorageActivity.BeginAsync(token);
+        await gate.WaitAsync(token); // SteamCMD may write its shared HOME even with a private install directory.
+        try
+        {
+            string destination = Path.Combine(work, "mods");
+            Directory.CreateDirectory(destination);
+            ClusterWorldFiles.Private(destination);
+            if (mods.Count == 0) return destination;
+            using var content = await ClusterContentStore.OpenAsync(StorageDirectory, token);
+            int index = 0;
+            foreach (var mod in mods)
+            {
+                long version = ObservedVersion(mod.WorkshopId, observations);
+                string id = mod.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                string versionPath = Path.Combine(StorageDirectory, id + "-" + version);
+                Receipt receipt;
+                if (Directory.Exists(versionPath))
+                {
+                    progress?.Report($"Reusing verified mod {++index}/{mods.Count}: {mod.DisplayName} ({id})...");
+                    receipt = await ReadReceiptAsync(versionPath, mod.WorkshopId, version, token);
+                }
+                else
+                {
+                    progress?.Report($"Downloading changed mod {++index}/{mods.Count}: {mod.DisplayName} ({id})...");
+                    string source = await DownloadModAsync(id, work, token);
+                    var pins = await ClusterDeploymentFiles.InspectAsync(source, token);
+                    if (pins.Count == 0) throw new InvalidDataException($"Workshop item {id} has no mod payload.");
+                    if (ObservedVersion(mod.WorkshopId, await workshop.CheckUpdatesAsync([mod.WorkshopId], token)) != version)
+                        throw new InvalidOperationException($"Workshop item {id} changed during download. Check updates and stage again.");
+                    receipt = new(mod.WorkshopId, version, pins);
+                    string staging = versionPath + ".stage-" + Guid.NewGuid().ToString("N");
+                    Directory.CreateDirectory(staging);
+                    try
+                    {
+                        foreach (var (name, pin) in pins)
+                            await content.ReferenceAsync(Path.Combine(source, name), Path.Combine(staging, "payload", name), pin, token);
+                        await File.WriteAllBytesAsync(Path.Combine(staging, "receipt.json"),
+                            JsonSerializer.SerializeToUtf8Bytes(receipt, ClusterDeploymentFiles.JsonOptions), token);
+                        Directory.Move(staging, versionPath);
+                    }
+                    finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+                }
+                foreach (var (name, pin) in receipt.Files)
+                    await content.ReferenceAsync(Path.Combine(versionPath, "payload", name), Path.Combine(destination, id + ".sbm", name), pin, token);
+            }
+            return destination;
+        }
+        finally { gate.Release(); }
+    }
+
+    internal static long ObservedVersion(long id, IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)
+    {
+        if (id <= 0 || !observations.TryGetValue(id, out var observed) || observed.Error is not null
+            || observed.UpdatedTimestamp is not > 0)
+            throw new InvalidOperationException($"Workshop version for {id} is unavailable. Check content updates and stage again.");
+        return observed.UpdatedTimestamp.Value;
+    }
+
+    internal static async Task<Receipt> ReadReceiptAsync(string path, long id, long version, CancellationToken token)
+    {
+        ClusterWorldFiles.Private(path);
+        var receipt = JsonSerializer.Deserialize<Receipt>(await File.ReadAllBytesAsync(Path.Combine(path, "receipt.json"), token),
+            ClusterDeploymentFiles.JsonOptions) ?? throw new InvalidDataException("Missing mod version receipt.");
+        if (receipt.Id != id || receipt.Version != version || receipt.Files is null || receipt.Files.Count == 0)
+            throw new InvalidDataException("Mod version receipt does not match the requested version.");
+        foreach (string name in receipt.Files.Keys) ClusterWorldFiles.Relative(name);
+        await ClusterWorldFiles.VerifyAsync(Path.Combine(path, "payload"), receipt.Files, token);
+        return receipt;
+    }
+
+    private async Task<string> DownloadModAsync(string id, string work, CancellationToken token)
+    {
         string steamCmd = runtime.GetInstalledVersions().SteamCmdPath;
         if (string.IsNullOrWhiteSpace(steamCmd) || !File.Exists(steamCmd))
             throw new InvalidOperationException("Install Quasar's managed SteamCMD before staging cluster mods.");
@@ -25,29 +100,17 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
         ClusterWorldFiles.Private(install);
         Directory.CreateDirectory(options.SteamCmdHomeDirectory);
         ClusterWorldFiles.Private(options.SteamCmdHomeDirectory);
-        var account = credentials.GetCredentials();
-        foreach (var mod in mods)
+        if (!await DownloadAsync(steamCmd, install, id, null, token))
         {
-            if (mod.WorkshopId <= 0) throw new InvalidDataException("Workshop mod ID must be positive.");
-            string id = mod.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            if (!await DownloadAsync(steamCmd, install, id, null, token))
-            {
-                if (string.IsNullOrWhiteSpace(account.SteamUsername) || string.IsNullOrEmpty(account.SteamPassword))
-                    throw new InvalidOperationException($"SteamCMD could not download Workshop item {id} anonymously. Configure Steam credentials in Steam Workshop settings and stage again.");
-                if (!await DownloadAsync(steamCmd, install, id, account, token))
-                    throw new InvalidOperationException($"SteamCMD could not download Workshop item {id} with the configured account. Check its Workshop access and Steam Guard authentication.");
-            }
-            // SteamCMD builds differ in whether Workshop content is written under
-            // force_install_dir, its HOME, or the SteamCMD installation directory.
-            string source = new[] { install, Path.Combine(options.SteamCmdHomeDirectory, ".steam", "steamcmd"),
-                    Path.GetDirectoryName(steamCmd)! }
-                .Select(root => Path.Combine(root, "steamapps", "workshop", "content", WorkshopAppId, id))
-                .FirstOrDefault(Directory.Exists) ?? "";
-            if (!Directory.Exists(source) || !Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Any())
-                throw new InvalidDataException($"SteamCMD reported success but Workshop item {id} has no mod payload.");
-            await ClusterWorldFiles.CopyAsync(source, Path.Combine(destination, id + ".sbm"), token);
+            var account = credentials.GetCredentials();
+            if (string.IsNullOrWhiteSpace(account.SteamUsername) || string.IsNullOrEmpty(account.SteamPassword))
+                throw new InvalidOperationException($"SteamCMD could not download Workshop item {id} anonymously. Configure Steam credentials in Steam Workshop settings and stage again.");
+            if (!await DownloadAsync(steamCmd, install, id, account, token))
+                throw new InvalidOperationException($"SteamCMD could not download Workshop item {id} with the configured account. Check its Workshop access and Steam Guard authentication.");
         }
-        return destination;
+        return new[] { install, Path.Combine(options.SteamCmdHomeDirectory, ".steam", "steamcmd"), Path.GetDirectoryName(steamCmd)! }
+            .Select(root => Path.Combine(root, "steamapps", "workshop", "content", WorkshopAppId, id))
+            .FirstOrDefault(Directory.Exists) ?? throw new InvalidDataException($"Workshop item {id} has no downloaded payload.");
     }
 
     private async Task<bool> DownloadAsync(string steamCmd, string install, string id,

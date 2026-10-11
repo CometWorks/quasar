@@ -70,6 +70,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
         string actor, CancellationToken token) => operations.ExecuteAsync(clusterId, "cluster.deployment.prepare", key, actor,
             request, async cancellation =>
             {
+                using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(cancellation);
                 var cluster = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);
                 using var spec = JsonDocument.Parse(request.SpecificationJson);
                 if (spec.RootElement.GetProperty("clusterId").GetString() != clusterId)
