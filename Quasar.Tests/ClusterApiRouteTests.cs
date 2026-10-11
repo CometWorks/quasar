@@ -44,16 +44,7 @@ public sealed class ClusterApiRouteTests
     [InlineData("/api/v1/clusters/{uniqueName}/deployment", false)]
     public void ExpandedRoutesRetainQueryAndManageSeparation(string path, bool manage)
     {
-        var builder = WebApplication.CreateBuilder();
-        builder.Services.AddSingleton<ClusterCatalog>(_ => null!);
-        builder.Services.AddSingleton<ClusterGatewayClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterHostClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
-        builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
-        builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
-        builder.Services.AddSingleton<ClusterFleetService>(_ => null!);
-        var app = builder.Build();
-        app.MapClusterApi(new QuasarAuthOptions { Enabled = true });
+        WebApplication app = MapRoutes(authEnabled: true);
         var endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints)
             .OfType<RouteEndpoint>(), e => e.RoutePattern.RawText == path
                 && (path.EndsWith("/deployment-inputs") || e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Any(m => m != "GET") == manage));
@@ -70,15 +61,7 @@ public sealed class ClusterApiRouteTests
     [InlineData("conversions/{id:guid}")]
     public void ConversionRequiresServerAndConfigurationPermissions(string suffix)
     {
-        var builder = WebApplication.CreateBuilder();
-        builder.Services.AddSingleton<ClusterCatalog>(_ => null!);
-        builder.Services.AddSingleton<ClusterGatewayClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterHostClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
-        builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
-        builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
-        var app = builder.Build();
-        app.MapClusterApi(new QuasarAuthOptions { Enabled = true });
+        WebApplication app = MapRoutes(authEnabled: true);
         var endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints)
             .OfType<RouteEndpoint>(), e => e.RoutePattern.RawText == "/api/v1/clusters/{uniqueName}/" + suffix);
         var policies = endpoint.Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>().Select(p => p.Policy);
@@ -91,15 +74,7 @@ public sealed class ClusterApiRouteTests
     [Fact]
     public void GatewayApplyRouteIsPut()
     {
-        WebApplicationBuilder builder = WebApplication.CreateBuilder();
-        builder.Services.AddSingleton<ClusterCatalog>(_ => null!);
-        builder.Services.AddSingleton<ClusterGatewayClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterHostClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
-        builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
-        builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
-        WebApplication app = builder.Build();
-        app.MapClusterApi(new QuasarAuthOptions { Enabled = false });
+        WebApplication app = MapRoutes(authEnabled: false);
 
         RouteEndpoint endpoint = Assert.Single(((IEndpointRouteBuilder)app).DataSources
             .SelectMany(source => source.Endpoints)
@@ -112,15 +87,7 @@ public sealed class ClusterApiRouteTests
     [Fact]
     public void GoalAndLifecycleRoutesAreHeadlessApiRoutes()
     {
-        WebApplicationBuilder builder = WebApplication.CreateBuilder();
-        builder.Services.AddSingleton<ClusterCatalog>(_ => null!);
-        builder.Services.AddSingleton<ClusterGatewayClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterHostClient>(_ => null!);
-        builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
-        builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
-        builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
-        WebApplication app = builder.Build();
-        app.MapClusterApi(new QuasarAuthOptions { Enabled = false });
+        WebApplication app = MapRoutes(authEnabled: false);
         RouteEndpoint[] endpoints = ((IEndpointRouteBuilder)app).DataSources
             .SelectMany(source => source.Endpoints).OfType<RouteEndpoint>().ToArray();
 
@@ -171,5 +138,22 @@ public sealed class ClusterApiRouteTests
         // The cluster API and cluster.json keep the readable names.
         Assert.Contains("\"goal\":\"On\"", JsonSerializer.Serialize(new ClusterGoalRequest(DedicatedServerGoalState.On), options));
         Assert.Contains("\"goalState\":\"On\"", JsonSerializer.Serialize(new ClusterDefinition { GoalState = DedicatedServerGoalState.On }, options));
+    }
+
+    // Minimal API infers a handler parameter as a service only when it is registered, so every service a
+    // cluster route takes without [FromServices] has to be here, or building the route table throws.
+    private static WebApplication MapRoutes(bool authEnabled)
+    {
+        WebApplicationBuilder builder = WebApplication.CreateBuilder();
+        builder.Services.AddSingleton<ClusterCatalog>(_ => null!);
+        builder.Services.AddSingleton<ClusterGatewayClient>(_ => null!);
+        builder.Services.AddSingleton<ClusterHostClient>(_ => null!);
+        builder.Services.AddSingleton<ClusterOperationStore>(_ => null!);
+        builder.Services.AddSingleton<ClusterCommandService>(_ => null!);
+        builder.Services.AddSingleton<ClusterReconciler>(_ => null!);
+        builder.Services.AddSingleton<ClusterUpdatePreparationService>(_ => null!);
+        WebApplication app = builder.Build();
+        app.MapClusterApi(new QuasarAuthOptions { Enabled = authEnabled });
+        return app;
     }
 }
