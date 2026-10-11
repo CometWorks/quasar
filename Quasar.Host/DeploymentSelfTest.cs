@@ -156,6 +156,7 @@ internal static class DeploymentSelfTest
             }
             File.WriteAllText(Path.Combine(config, "seed/world.dat"), "tampered seed");
             AssertThrows(() => ExecutionBundle.Load(path, hash));
+            VerifiedHashCache(root);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
@@ -323,6 +324,29 @@ internal static class DeploymentSelfTest
                 Environment.SetEnvironmentVariable(Ref("restore:" + generation + ":" + purpose), null);
             if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
+    }
+
+    // A verified file is not hashed again until its size or modification time changes.
+    private static void VerifiedHashCache(string root)
+    {
+        string file = Path.Combine(root, "cached.bin");
+        File.WriteAllText(file, "first");
+        DateTime written = File.GetLastWriteTimeUtc(file);
+        string pin = ExecutionBundle.Hash("first"u8.ToArray());
+        Assert(ExecutionBundle.VerifiedHash(file, pin.ToUpperInvariant()) == pin, "verified hash mismatch");
+        // Same size and time: served from the cache, so this content change is not seen.
+        File.WriteAllText(file, "other");
+        File.SetLastWriteTimeUtc(file, written);
+        Assert(ExecutionBundle.VerifiedHash(file, pin) == pin, "verified hash was not cached");
+        File.SetLastWriteTimeUtc(file, written.AddSeconds(1));
+        Assert(ExecutionBundle.VerifiedHash(file, pin) is null, "changed modification time did not invalidate the cache");
+        Assert(ExecutionBundle.VerifiedHash(file, pin) is null, "failed verification was cached");
+        File.WriteAllText(file, "first");
+        File.SetLastWriteTimeUtc(file, written);
+        Assert(ExecutionBundle.VerifiedHash(file, pin) == pin, "restored file did not verify");
+        File.WriteAllText(file, "first!");
+        File.SetLastWriteTimeUtc(file, written);
+        Assert(ExecutionBundle.VerifiedHash(file, pin) is null, "changed size did not invalidate the cache");
     }
 
     private static void Assert(bool condition, string message)
