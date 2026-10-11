@@ -588,6 +588,31 @@ internal static class Program
             LaunchRecord record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)
                 ?? throw new InvalidOperationException("self-test launch record is empty");
             childProcessId = record.ProcessId;
+
+            // The ready timeout runs on the uptime clock: a wall-clock step does not kill a loading node,
+            // and the startup deadline still holds when the wall clock is stepped back.
+            if (record.LaunchedAtUptimeMs is null)
+                throw new InvalidOperationException("self-test launch record has no uptime stamp");
+            File.WriteAllBytes(recordPath, JsonSerializer.SerializeToUtf8Bytes(
+                record with { LaunchedAt = record.LaunchedAt.AddDays(-1) }, JsonOptions));
+            NodeExecutionObservation stillLoading = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            File.WriteAllBytes(recordPath, JsonSerializer.SerializeToUtf8Bytes(record with
+            {
+                LaunchedAt = record.LaunchedAt.AddDays(1), LaunchedAtUptimeMs = record.LaunchedAtUptimeMs - 31_000,
+            }, JsonOptions));
+            NodeExecutionObservation timedOut = (await actualizer.ReconcileAsync(
+                attachment, [wanted], CancellationToken.None)).Single();
+            if (stillLoading.State != Admin.NodeObservation.Spawning
+                || timedOut.State != Admin.NodeObservation.Failed || timedOut.Failure != "ready_timeout"
+                || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
+                throw new InvalidOperationException($"self-test ready timeout failed: {stillLoading.State}, {timedOut.State} {timedOut.Failure}");
+            childProcessId = null;
+            spawning = (await actualizer.ReconcileAsync(attachment, [wanted], CancellationToken.None)).Single();
+            if (spawning.State != Admin.NodeObservation.Spawning)
+                throw new InvalidOperationException("self-test respawn after ready timeout failed: " + spawning.Failure);
+            record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)!;
+            childProcessId = record.ProcessId;
             string slotDirectory = Directory.GetDirectories(runRoot).Single();
             var receipt = new ReadyReceipt(1, "demo", "slot-a", record.AttemptKey,
                 "node-a", 7, "127.0.0.1:30000", record.ProcessId!.Value, record.BundleRevision);
