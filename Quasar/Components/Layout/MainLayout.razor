@@ -27,7 +27,7 @@
     <aside id="quasar-navigation" class="quasar-sidebar" aria-label="Main navigation" inert="@(_isShuttingDown ? string.Empty : null)">
         <a class="quasar-brand" href="/" @onclick="CloseMobileDrawer">
             <img class="quasar-brand-mark" src="@LogoSrc" alt="@($"{BrandingService.Settings.AppName} logo")" />
-            <div><strong>@BrandingService.Settings.AppName</strong><span>@BrandingService.Settings.AppSubtitle</span></div>
+            <div><strong title="@BrandingService.Settings.AppName">@BrandingService.Settings.AppName</strong><span title="@BrandingService.Settings.AppSubtitle">@BrandingService.Settings.AppSubtitle</span></div>
         </a>
         <div @onclick="CloseMobileDrawer"><NavMenu /></div>
         <div class="quasar-sidebar-footer">
