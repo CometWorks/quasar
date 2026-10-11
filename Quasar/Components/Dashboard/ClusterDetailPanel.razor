@@ -7,10 +7,10 @@
 @inject QuasarConfigProfileCatalog Profiles
 @inject QuasarWorldTemplateCatalog Worlds
 
-<section class="quasar-panel quasar-section">
+<section class="@(CollapseDetails ? "quasar-cluster-summary" : "quasar-panel quasar-section")">
 <div class="quasar-card-content">
 <div class="quasar-stack">
-    <h2>Cluster overview</h2>
+    @if (!CollapseDetails) { <h2>Cluster overview</h2> }
     @if (ShowConfigurationLinks) { <ClusterConfigurationLinks /> }
     @if (_loading && _status is null)
     {
@@ -76,6 +76,20 @@
         </div>
     }
 
+    @if (CollapseDetails)
+    {
+        <details class="quasar-card-disclosure"><summary>Cluster details <span class="quasar-muted">World, configuration &amp; runtime</span></summary>@RuntimeDetails</details>
+    }
+    else { @RuntimeDetails }
+
+</div>
+</div>
+</section>
+
+@code
+{
+    [Parameter] public bool CollapseDetails { get; set; }
+    private RenderFragment RuntimeDetails => @<div class="quasar-live-details">
     <div>
         <h2>World and configuration</h2>
         <p>Active world: @(_status?.WorldId ?? "Unknown")</p>
@@ -97,13 +111,8 @@
             <tr><th>Cluster Registry process</th><td>@GatewayExecutorText</td></tr>
             <tr><th>Cluster Registry WAL</th><td>@RegistryText</td></tr>
         </tbody>
-    </table>
-</div>
-</div>
-</section>
+    </table>    </div>;
 
-@code
-{
     [Parameter] public bool ShowConfigurationLinks { get; set; } = true;
     private readonly CancellationTokenSource _shutdown = new();
     private Admin.ClusterStatus? _status;

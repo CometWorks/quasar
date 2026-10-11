@@ -459,7 +459,7 @@ else
     <div class="quasar-card-grid">
         @foreach (var server in Servers)
         {
-            <div>
+            <div class="quasar-card-cell" @key="@("server:" + server.UniqueName)">
                 <ServerCard Server="@server"
                             Runtime="@GetRuntime(server.UniqueName)"
                             Agent="@GetAgent(server.UniqueName)"
@@ -473,7 +473,7 @@ else
         }
         @foreach (var cluster in Clusters)
         {
-            <div>
+            <div class="quasar-card-cell" @key="@("cluster:" + cluster.UniqueName)">
                 <ClusterCard Cluster="@cluster" />
             </div>
         }

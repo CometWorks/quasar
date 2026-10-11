@@ -1,24 +1,25 @@
-<section class="quasar-panel quasar-section">
+<section class="quasar-panel quasar-fleet-card">
     <header class="quasar-card-heading">
-            <div class="quasar-row quasar-between">
-                <div class="quasar-row">
-                    <h2>@Cluster.DisplayName</h2>
-                    <span class="quasar-status quasar-tone-primary">
-                        Cluster
-                    </span>
-                </div>
-                <div class="quasar-row">
-                    <ClusterConsoleButton Cluster="Cluster" />
-                    <ClusterDeleteButton Cluster="Cluster" />
-                    <span class="quasar-tooltip" title="Cluster details"><a aria-label="Cluster details" class="quasar-icon-button" href="@($"/clusters/{Uri.EscapeDataString(Cluster.UniqueName)}")"><QuasarIcon Icon="@QuasarIcons.OpenInNew" /></a></span>
-                    <ClusterAdminPanel Cluster="Cluster" Compact="true" />
-                </div>
+        <div class="quasar-card-title-row">
+            <div class="quasar-card-identity">
+                <h2 title="@Cluster.DisplayName">@Cluster.DisplayName</h2>
+                <span class="mono quasar-muted quasar-caption" title="@Cluster.UniqueName">@Cluster.UniqueName</span>
             </div>
-            <p class="mono quasar-muted quasar-caption">@Cluster.UniqueName · @Cluster.GatewayUrl</p>
+            <span class="quasar-state-badge quasar-tone-primary">Cluster</span>
+            <ClusterDeleteButton Cluster="Cluster" />
+        </div>
+        <dl class="quasar-card-facts">
+            <div><dt>Gateway</dt><dd title="@Cluster.GatewayUrl">@Cluster.GatewayUrl</dd></div>
+            <div><dt>Desired state</dt><dd>@Cluster.GoalState</dd></div>
+        </dl>
     </header>
     <div class="quasar-card-content">
-        <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" />
+        <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" CollapseDetails="true" />
     </div>
+    <footer class="quasar-card-actions">
+        <div class="quasar-row"><ClusterConsoleButton Cluster="Cluster" /><a class="quasar-table-link" href="@($"/clusters/{Uri.EscapeDataString(Cluster.UniqueName)}")">Manage cluster <QuasarIcon Icon="@QuasarIcons.OpenInNew" /></a></div>
+        <ClusterAdminPanel Cluster="Cluster" Compact="true" />
+    </footer>
 </section>
 
 @code

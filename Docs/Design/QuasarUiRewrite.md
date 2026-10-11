@@ -38,7 +38,16 @@ Additional migrated surfaces:
 
 - Dashboard consent/setup wizard, errors, managed-runtime preparation, progress,
   retries, and copyable paths. Existing setup and lifecycle handlers are retained.
-- Server and cluster cards, live detail metrics, chat, player role actions,
+- Server and cluster cards use flat metric rows, structured world/host/profile
+  metadata, compact action footers, and expandable live details. Advanced server
+  actions use native menus; warning/error summaries remain visible. The grid
+  adapts to available content width instead of a fixed two-column layout, and
+  the workspace has no desktop width cap. Narrow cards use two metric columns
+  and contain player-table scrolling. Responsive browser checks cover widths
+  from 320 to 3440 pixels: one column on phones, two at 1440, three at 1920,
+  and six at 3440 with the six-server fixture. Twelve focused component tests
+  cover this card refinement, retained commands, and visible cluster warnings.
+- Live detail metrics, chat, player role actions,
   kick/ban confirmations, save guards, and command results. Native player
   popovers preserve their keyed elements across snapshots and use browser
   Escape/light-dismiss behavior. Confirmed player actions recheck permissions

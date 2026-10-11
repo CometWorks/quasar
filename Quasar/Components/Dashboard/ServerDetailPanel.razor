@@ -38,11 +38,31 @@ else
         <div><span class="quasar-eyebrow">Players</span><strong>@Agent.Snapshot.Metrics.PlayersOnline/@GetMaxPlayers()</strong></div>
         <div><span class="quasar-eyebrow">Sim speed</span><strong>@Agent.Snapshot.Metrics.SimSpeed.ToString("0.00")</strong></div>
         <div><span class="quasar-eyebrow">Process CPU</span><strong>@Agent.Snapshot.Metrics.ServerCpuLoadPercent.ToString("0.0")%</strong></div>
+        @if (CollapseDetails)
+        {
+            <div><span class="quasar-eyebrow">Memory</span><strong>@(Agent.Snapshot.Metrics.MemoryWorkingSetMb is { } memory ? (memory / 1024d).ToString("0.0") + " GiB" : "—")</strong></div>
+        }
         <div><span class="quasar-eyebrow">PCU</span><strong>@Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</strong></div>
         <div><span class="quasar-eyebrow">Mods</span><strong>@Agent.Snapshot.Metrics.ModsLoaded</strong></div>
         <div><span class="quasar-eyebrow">Plugins</span><strong class="quasar-tone-@(GetPluginLoadColor(pluginLoadSummary).ToString().ToLowerInvariant())">@GetPluginLoadText(pluginLoadSummary)</strong></div>
         <div><span class="quasar-eyebrow">Uptime</span><strong>@FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</strong></div>
     </div>
+    @if (CollapseDetails)
+    {
+        <details class="quasar-card-disclosure">
+            <summary>Live details <span class="quasar-muted">Players, chat &amp; commands</span></summary>
+            @LiveDetails
+        </details>
+    }
+    else { @LiveDetails }
+
+}
+
+@code
+{
+    [Parameter] public bool CollapseDetails { get; set; }
+
+    private RenderFragment LiveDetails => @<div class="quasar-live-details">
     <div class="quasar-row">
         @if (GetSaveChipText() is { Length: > 0 } saveChipText)
         {
@@ -110,11 +130,8 @@ else
         {
             <p class="quasar-notice @(result.Success ? "quasar-notice-success" : "quasar-notice-error")" role="status">@result.Message</p>
         }
-    }
-}
+    }    </div>;
 
-@code
-{
     private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
 
     [Parameter]

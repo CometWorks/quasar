@@ -71,7 +71,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-topbar-identity, .quasar-topbar-actions { display: flex; align-items: center; gap: 8px; }
 .quasar-topbar-identity { min-width: 0; font-size: 11px; }
 .quasar-topbar-subtitle { opacity: .75; }
-.quasar-main { padding: 24px 28px 32px; min-width: 0; max-width: 1920px; margin-inline: auto; }
+.quasar-main { padding: 24px 28px 32px; min-width: 0; width: 100%; }
 .quasar-icon { display: inline-block; width: 18px; height: 18px; fill: currentColor; flex-shrink: 0; vertical-align: middle; }
 .quasar-icon-button {
     display: inline-flex;
@@ -196,12 +196,12 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-dashboard-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .quasar-dashboard-heading { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .quasar-dashboard-heading h2 { margin: 0; font: 700 15px "Manrope", system-ui, sans-serif; }
-.quasar-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.quasar-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); align-items: start; gap: 16px; }
 .quasar-shutdown-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; background: color-mix(in srgb, var(--quasar-palette-background) 90%, transparent); }
 .quasar-shutdown-overlay p { max-width: 560px; text-align: center; }
 .quasar-spinner { width: 36px; height: 36px; border: 3px solid var(--quasar-palette-lines-default); border-top-color: var(--quasar-palette-primary); border-radius: 50%; animation: quasar-spin 1s linear infinite; }
 @keyframes quasar-spin { to { transform: rotate(360deg); } }
-@media (max-width: 1200px) { .quasar-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .quasar-card-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 1200px) { .quasar-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) {
     .quasar-shell { grid-template-columns: minmax(0, 1fr); }
     .quasar-sidebar, .quasar-nav-collapsed .quasar-sidebar { display: block; position: fixed; top: 0; bottom: 0; left: 0; width: 220px; z-index: 50; transform: translateX(-100%); visibility: hidden; }
@@ -513,4 +513,58 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 
 @media (max-width: 600px) {
     .quasar-server-menu { inset: 0; margin: auto; position-area: none; }
+}
+
+/* Fleet cards use the same flat sections and compact rows as the list view.
+   The grid follows available content width, including collapsed navigation. */
+.quasar-card-cell { min-width: 0; container-type: inline-size; }
+.quasar-fleet-card { min-width: 0; }
+.quasar-fleet-card [class*="quasar-tone-"]:not(.quasar-button-fill) { color: var(--quasar-control-color, inherit); }
+.quasar-fleet-card .quasar-card-heading { padding: 16px 18px 14px; }
+.quasar-card-title-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.quasar-card-identity { min-width: 0; flex: 1; }
+.quasar-shell .quasar-card-identity h2 { margin: 0 0 4px; font-size: 17px; line-height: 1.3; }
+.quasar-card-identity :is(h2, span) { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.quasar-card-title-row > .quasar-state-badge { flex-shrink: 0; }
+.quasar-card-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 20px; margin: 14px 0 0; font-size: 11px; }
+.quasar-card-facts > div { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.quasar-card-facts dt { color: var(--quasar-palette-text-secondary); flex: 0 0 48px; }
+.quasar-card-facts dd { margin: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.quasar-card-facts dd > :is(button, span) { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+.quasar-card-facts .quasar-icon { width: 12px; height: 12px; margin-left: 3px; }
+.quasar-card-notices { padding: 10px 18px; border-bottom: 1px solid var(--quasar-palette-divider); color: var(--quasar-palette-text-secondary); font-size: 11px; }
+.quasar-card-notices p { margin: 0; overflow-wrap: anywhere; }
+.quasar-card-notices p + p { margin-top: 5px; }
+.quasar-fleet-card > .quasar-card-content { padding: 0; }
+.quasar-fleet-card .quasar-detail-metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 0; }
+.quasar-fleet-card .quasar-detail-metrics > div { padding: 13px 16px; border: 0; border-right: 1px solid var(--quasar-palette-divider); border-bottom: 1px solid var(--quasar-palette-divider); border-radius: 0; background: transparent; min-width: 0; }
+.quasar-fleet-card .quasar-detail-metrics > div:nth-child(4n) { border-right: 0; }
+.quasar-fleet-card .quasar-detail-metrics .quasar-eyebrow { font-size: 9px; letter-spacing: .5px; }
+.quasar-fleet-card .quasar-detail-metrics strong { font-size: 19px; font-variant-numeric: tabular-nums; font-weight: 600; overflow-wrap: anywhere; }
+.quasar-fleet-card .quasar-detail-metrics > div:nth-child(n+5) strong { font-size: 13px; }
+.quasar-card-disclosure > summary { padding: 12px 18px; cursor: pointer; font-size: 12px; font-weight: 500; }
+.quasar-card-disclosure > summary::marker { color: var(--quasar-palette-primary); }
+.quasar-card-disclosure > summary > span { font-size: 10px; font-weight: 400; margin-left: 8px; }
+.quasar-card-disclosure[open] > summary { border-bottom: 1px solid var(--quasar-palette-divider); }
+.quasar-card-disclosure > .quasar-live-details { padding: 16px 18px; }
+.quasar-card-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 18px; border-top: 1px solid var(--quasar-palette-divider); background: color-mix(in srgb, var(--quasar-palette-background-gray) 30%, var(--quasar-palette-surface)); }
+.quasar-card-console { color: var(--quasar-palette-primary); border-color: transparent; background: transparent; padding-inline: 0; }
+.quasar-fleet-card > .quasar-card-content > :is(.quasar-notice, .quasar-row) { margin: 12px 18px; }
+.quasar-cluster-summary > .quasar-card-content { padding: 0; }
+.quasar-cluster-summary > .quasar-card-content > .quasar-stack { gap: 0; }
+.quasar-cluster-summary .quasar-stack > :is(p, .quasar-notice, .quasar-progress) { margin: 12px 18px; }
+.quasar-cluster-summary .quasar-detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.quasar-cluster-summary .quasar-detail-metrics > div:nth-child(2n) { border-right: 0; }
+@container (max-width: 420px) {
+    .quasar-card-facts { grid-template-columns: minmax(0, 1fr); }
+    .quasar-fleet-card .quasar-detail-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .quasar-fleet-card .quasar-detail-metrics > div { padding: 12px 16px; }
+    .quasar-fleet-card .quasar-detail-metrics > div:nth-child(2n) { border-right: 0; }
+    .quasar-fleet-card .quasar-detail-metrics strong { font-size: 18px; }
+    .quasar-card-disclosure > summary > span { display: block; margin: 5px 0 0 14px; }
+    .quasar-card-title-row { gap: 6px; align-items: flex-start; }
+    .quasar-card-identity h2 { white-space: normal; overflow-wrap: anywhere; }
+}
+@media (pointer: coarse) {
+    .quasar-fleet-card :is(.quasar-button, .quasar-icon-button), .quasar-card-disclosure > summary { min-height: 44px; }
 }

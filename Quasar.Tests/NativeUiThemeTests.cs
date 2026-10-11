@@ -399,6 +399,14 @@ public sealed class NativeAppearanceTests : IDisposable
         page.FindAll(".quasar-view-selector button").Single(x => x.TextContent.Contains("Cards")).Click();
         Assert.Empty(page.FindAll(".quasar-server-name-cell"));
         Assert.NotEmpty(page.FindAll(".quasar-card-grid"));
+        Assert.Equal(6, page.FindAll(".quasar-fleet-card").Count);
+        Assert.Equal(5, page.FindAll("details.quasar-card-disclosure").Count);
+        Assert.All(page.FindAll("details.quasar-card-disclosure"), details => Assert.False(details.HasAttribute("open")));
+        Assert.Equal(5, page.FindAll("details.quasar-card-disclosure form").Count);
+        Assert.Equal(5, page.FindAll(".quasar-card-actions button").Count(button => button.TextContent == "Stop"));
+        Assert.Single(page.FindAll(".quasar-card-actions button").Where(button => button.TextContent == "Start"));
+        if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } cardsPreview)
+            await File.WriteAllTextAsync(cardsPreview + ".cards", $"<div style=\"{QuasarTheme.BuildCss(ThemePalette.QuasarDark(), true)}\">{page.Markup}</div>");
         page.FindAll(".quasar-view-selector button").Single(x => x.TextContent.Contains("List")).Click();
         Assert.Equal(6, page.FindAll(".quasar-server-name-cell").Count);
     }
