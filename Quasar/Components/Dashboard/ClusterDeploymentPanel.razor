@@ -67,12 +67,12 @@
                         </AuthorizeView>
                         <MudButton OnClick="ClearQueuedContentAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Remove queued content changes</MudButton>
                     }
-                    @if (Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())
+                    @if (Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && !Current.IsProvenStopped())
                     {
                         <MudAlert Severity="Severity.Warning">Recover the stopped cluster after its unclean shutdown before applying an update.</MudAlert>
                     }
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
-                               Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && Current.ShutdownProof?.LifecycleId != Current.GetLifecycleId())"
+                               Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && !Current.IsProvenStopped())"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
                     <span class="quasar-text quasar-type-caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime.</span>
                 </div>

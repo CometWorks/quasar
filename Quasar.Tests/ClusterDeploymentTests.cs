@@ -337,6 +337,101 @@ public sealed class ClusterDeploymentTests : IDisposable
     }
 
     [Fact]
+    public async Task ActivationIsProvenStoppedUntilTheGatewayFirstStarts()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var service = Service(catalog, handler);
+        await service.ActivateAsync("demo", Request(), "first", "test", default);
+        var first = catalog.GetCluster("demo")!;
+        Assert.True(first.HasActivationProof());
+        Assert.Null(first.ActivationProof!.CleanShutdownAt);
+        Assert.True(first.IsProvenStopped());
+        Assert.False(first.IsProvenStopped(requireRun: true));
+        var recover = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.RecoverGatewayAsync("demo", "recover", "test", default)
+        );
+        Assert.Contains("normal start", recover.Message);
+
+        // A second activation before the first start no longer needs a clean Down that never happened.
+        handler.Revision = "second";
+        var second = await service.ActivateAsync(
+            "demo",
+            Next("revision", "second", 'a', 'b'),
+            "second",
+            "test",
+            default
+        );
+        Assert.Equal(ClusterOperationState.Succeeded, second.State);
+        var activated = catalog.GetCluster("demo")!;
+        Assert.Equal("second", activated.ActiveDeployment!.Revision);
+        Assert.True(activated.HasActivationProof());
+        Assert.Null(activated.ActivationProof!.CleanShutdownAt);
+
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        Assert.Null(catalog.GetCluster("demo")!.ActivationProof);
+        var stopped = await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        Assert.False(stopped.IsProvenStopped());
+        var clean = new ClusterShutdownProof(
+            stopped.GetLifecycleId(),
+            DateTimeOffset.UnixEpoch,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow)
+        );
+        await catalog.RecordShutdownProofAsync(stopped, clean, default);
+
+        // After a clean Down the record keeps the time of that Down, so conversion may use it.
+        handler.Revision = "third";
+        await service.ActivateAsync(
+            "demo",
+            Next("second", "third", 'b', 'c'),
+            "third",
+            "test",
+            default
+        );
+        var third = catalog.GetCluster("demo")!;
+        Assert.Null(third.ShutdownProof);
+        Assert.Equal(DateTimeOffset.UnixEpoch, third.ActivationProof!.CleanShutdownAt);
+        Assert.True(third.IsProvenStopped(requireRun: true));
+    }
+
+    [Fact]
+    public async Task UpdateOfADeploymentThatNeverRanActivatesWithoutAShutdown()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "update-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        var deployment = new ClusterDeploymentService(catalog, client, operations);
+        await deployment.ActivateAsync("demo", Request(), "initial", "test", default);
+        var update = new ClusterUpdateService(
+            catalog,
+            deployment,
+            new ClusterGatewayClient(new HttpClient(new GatewayHandler())),
+            client,
+            operations,
+            NullLogger<ClusterUpdateService>.Instance
+        );
+        handler.Revision = "candidate";
+
+        await update.BeginAsync(
+            "demo",
+            new(Guid.NewGuid(), Next("revision", "candidate", 'a', 'b')),
+            "begin",
+            "test",
+            default
+        );
+        await update.AdvanceAllAsync(default);
+        await update.AdvanceAllAsync(default);
+
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(ClusterUpdatePhase.Starting, cluster.Update!.Phase);
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        Assert.Null(cluster.ActivationProof);
+        Assert.Equal(0, handler.GatewayStops);
+    }
+
+    [Fact]
     public async Task UpdateCheckpointsSurviveRestartAndOnlyCompleteForExactReadyRevision()
     {
         using var catalog = Catalog();
@@ -1021,6 +1116,9 @@ public sealed class ClusterDeploymentTests : IDisposable
         new ClusterHostClient(new HttpClient(handler)), new ClusterOperationStore(Path.Combine(root, "operations")));
 
     private ClusterDeploymentRequest Request() => new(null, "revision", [Host("one"), Host("two")]);
+    private ClusterDeploymentRequest Next(string expected, string revision, char from, char to) => new(expected, revision,
+        Request().Hosts.Select(h => h with { Activation = h.Activation with {
+            ExpectedBundleManifestSha256 = new string(from, 64), BundleManifestSha256 = new string(to, 64) } }).ToArray());
     private ClusterHostActivation Host(string id) => new(id, "http://" + id, credential,
         new("demo", null, "/" + id + "/bundle.json", new string('a', 64), "http://gateway.test", credential));
 

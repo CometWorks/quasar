@@ -188,8 +188,10 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         {
             if (Completed(request.Id) is { } done) return done;
             if (cluster.GetLifecycleId() != request.SourceLifecycle || cluster.GoalState != DedicatedServerGoalState.Off
-                || cluster.ShutdownProof?.LifecycleId != cluster.GetLifecycleId() || cluster.ActiveDeployment is null)
+                || !cluster.IsProvenStopped() || cluster.ActiveDeployment is null)
                 throw new InvalidOperationException("Conversion requires the reviewed, cleanly stopped cluster.");
+            if (!cluster.IsProvenStopped(requireRun: true))
+                throw new InvalidOperationException("The cluster has not run since setup, so it has no saved state to convert. Start the cluster once first.");
             if (request.Port is < 1 or > 65535 || !Regex.IsMatch(request.UniqueName, "^[a-zA-Z0-9_-]{1,64}$"))
                 throw new InvalidDataException("Choose a valid destination server name and port.");
             var published = servers.GetServer(request.UniqueName);

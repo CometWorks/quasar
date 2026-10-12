@@ -123,8 +123,15 @@ public sealed class ClusterReconciler : BackgroundService
         if (cluster.GoalState == DedicatedServerGoalState.Off
             && (current is null || current.Observed == HostContract.GatewayObservedState.Missing))
         {
+            if (current is { Goal: HostContract.GatewayGoal.Off, Failure: null, CompletedStopFence: null }
+                && MatchesSpec(current, on) && cluster.HasActivationProof())
+            {
+                Set(cluster, ClusterReconcileState.Converged, current.Observed, Admin.ClusterPhase.Down, null,
+                    "Deployment activated; the Gateway has not run since.");
+                return;
+            }
             bool clean = host.GatewayStopFencing && current is { Goal: HostContract.GatewayGoal.Off, Failure: null }
-                && MatchesSpec(current, on) && HasShutdownProof(cluster)
+                && MatchesSpec(current, on) && cluster.HasCleanShutdownProof()
                 && current.CompletedStopFence is not null
                 && current.CompletedStopFence == cluster.ShutdownProof!.StopFence;
             if (clean) await _operations.CompleteShutdownAsync(cluster, cancellationToken);
@@ -360,9 +367,6 @@ public sealed class ClusterReconciler : BackgroundService
         return "The last cluster shutdown left unsaved state: " + string.Join(", ", shutdown.Dirty.Take(12))
             + (shutdown.Dirty.Length > 12 ? $" and {shutdown.Dirty.Length - 12} more." : ".");
     }
-
-    private static bool HasShutdownProof(ClusterDefinition cluster) =>
-        cluster.ShutdownProof?.LifecycleId == cluster.GetLifecycleId();
 
     private void Failed(ClusterDefinition cluster, string code, string message)
     {

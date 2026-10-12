@@ -61,8 +61,7 @@ public sealed class ClusterCommandService
             ? cluster.ShutdownProof is null && cluster.Gateway.StartGeneration is { } generation
                 && cluster.ActiveDeployment?.Hosts.Any(hostRevision =>
                     hostRevision.Deployment.Gateway?.StartGeneration == generation) == true
-            : cluster.ShutdownProof is { } proof && proof.LifecycleId == cluster.GetLifecycleId()
-                && proof.StopFence == gateway.CompletedStopFence;
+            : cluster.HasCleanShutdownProof() && cluster.ShutdownProof!.StopFence == gateway.CompletedStopFence;
     }
 
     public Task<ClusterOperation> SetGoalAsync(string uniqueName, ClusterGoalRequest request,

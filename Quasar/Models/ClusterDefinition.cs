@@ -24,6 +24,7 @@ public sealed class ClusterDefinition
     public int ShutdownGracePeriodSeconds { get; set; } = 60;
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
     public ClusterShutdownProof? ShutdownProof { get; set; }
+    public ClusterActivationProof? ActivationProof { get; set; }
     public ClusterActiveRevision? ActiveDeployment { get; set; }
     public string? PendingDeploymentHash { get; set; }
     public string? PendingRestoreHash { get; set; }
@@ -47,6 +48,15 @@ public sealed class ClusterDefinition
             ConfigProfileId, WorldTemplateId, ShutdownGracePeriodSeconds,
         }))).ToLowerInvariant();
 
+    internal bool HasCleanShutdownProof() => ShutdownProof?.LifecycleId == GetLifecycleId();
+
+    internal bool HasActivationProof() => ActivationProof?.LifecycleId == GetLifecycleId();
+
+    // Nothing of this lifecycle runs: it shut down cleanly, or was activated and has not started since.
+    // requireRun also refuses a first deployment that never ran, so there is no saved cluster state yet.
+    internal bool IsProvenStopped(bool requireRun = false) => HasCleanShutdownProof()
+        || HasActivationProof() && (!requireRun || ActivationProof!.CleanShutdownAt is not null);
+
     public ClusterDefinition Clone() => new()
     {
         UniqueName = UniqueName,
@@ -64,6 +74,7 @@ public sealed class ClusterDefinition
         ShutdownGracePeriodSeconds = ShutdownGracePeriodSeconds,
         UpdatedAtUtc = UpdatedAtUtc,
         ShutdownProof = ShutdownProof,
+        ActivationProof = ActivationProof,
         ActiveDeployment = ActiveDeployment,
         PendingDeploymentHash = PendingDeploymentHash,
         PendingRestoreHash = PendingRestoreHash,
@@ -92,6 +103,11 @@ public sealed record ClusterPreparedProfile(string ProfileId, string DeploymentR
 // authoritative clean-Down observation. Valid only for the exact lifecycle identity.
 public sealed record ClusterShutdownProof(string LifecycleId, DateTimeOffset CleanShutdownAt,
     HostContract.GatewayStopFence StopFence);
+
+// Written with the activation that follows a clean Down, or with the first deployment. Every way of
+// running the Gateway changes the lifecycle identity first, so while it matches, the activated Gateway
+// has not run. CleanShutdownAt is the clean Down it replaced, null for a first deployment.
+public sealed record ClusterActivationProof(string LifecycleId, DateTimeOffset? CleanShutdownAt);
 
 public sealed record ClusterActiveRevision(string Revision, ClusterHostRevision[] Hosts, DateTimeOffset ActivatedAt,
     string? PackageVersion = null)
