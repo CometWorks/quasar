@@ -4,6 +4,7 @@ namespace Quasar.Services.Updates;
 public sealed record NotificationPreferences
 {
     public bool Updates { get; set; } = true;
+    public bool UiPluginUpdates { get; set; }
     public bool Crashes { get; set; }
     public bool HealthRestarts { get; set; }
     public bool LowSimSpeed { get; set; }

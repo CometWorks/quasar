@@ -27,7 +27,7 @@ public sealed class QuasarUpdateService : BackgroundService
     private readonly WebServiceOptions _webOptions;
     private readonly GitHubUpdateCredentialsCatalog _githubCredentials;
     private readonly ILogger<QuasarUpdateService> _logger;
-    private readonly SemaphoreSlim _gate = new(1, 1);
+    internal SemaphoreSlim MaintenanceGate { get; } = new(1, 1);
     private readonly object _sync = new();
     private QuasarUpdateSnapshot _snapshot;
     private DateTimeOffset? _githubTokenExpiresAtUtc;
@@ -84,55 +84,94 @@ public sealed class QuasarUpdateService : BackgroundService
         }
     }
 
+    public async Task SetAutoApplyUpdatesAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
+        {
+            await PersistUpdateBooleanAsync("AutoApplyUpdates", enabled, cancellationToken);
+            _options.AutoApplyUpdates = enabled;
+            SetSnapshot(_snapshot with { Message = "Automatic Quasar update policy saved." });
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
+    public async Task SetAutoUpdateUiPluginsAsync(bool enabled, CancellationToken cancellationToken = default)
+    {
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
+        {
+            await PersistUpdateBooleanAsync("AutoUpdateUiPlugins", enabled, cancellationToken);
+            _options.AutoUpdateUiPlugins = enabled;
+            SetSnapshot(_snapshot with { Message = "Automatic UI plugin update policy saved." });
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
     public async Task SetIncludePrereleaseAsync(bool includePrerelease, CancellationToken cancellationToken = default)
     {
-        _options.IncludePrerelease = includePrerelease;
-        await PersistUpdateBooleanAsync("IncludePrerelease", includePrerelease, cancellationToken).ConfigureAwait(false);
-
-        SetSnapshot(_snapshot with
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
         {
-            Message = includePrerelease
-                ? "Prerelease versions are enabled for selection."
-                : "Stable update stream enabled.",
-            Status = QuasarUpdateStatus.Idle,
-        });
+            await PersistUpdateBooleanAsync("IncludePrerelease", includePrerelease, cancellationToken).ConfigureAwait(false);
+            _options.IncludePrerelease = includePrerelease;
+
+            SetSnapshot(_snapshot with
+            {
+                Message = includePrerelease
+                    ? "Prerelease versions are enabled for selection."
+                    : "Stable update stream enabled.",
+                Status = QuasarUpdateStatus.Idle,
+            });
+
+        }
+        finally { MaintenanceGate.Release(); }
     }
 
     public async Task SetAutoStageWebUpdatesAsync(bool autoStageWebUpdates, CancellationToken cancellationToken = default)
     {
-        _options.AutoStageWebUpdates = autoStageWebUpdates;
-        await PersistUpdateBooleanAsync("AutoStageWebUpdates", autoStageWebUpdates, cancellationToken).ConfigureAwait(false);
-
-        SetSnapshot(_snapshot with
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
         {
-            Message = autoStageWebUpdates
-                ? "Automatic UI update staging enabled."
-                : "Manual UI update staging enabled.",
-            Status = QuasarUpdateStatus.Idle,
-        });
+            await PersistUpdateBooleanAsync("AutoStageWebUpdates", autoStageWebUpdates, cancellationToken).ConfigureAwait(false);
+            _options.AutoStageWebUpdates = autoStageWebUpdates;
+
+            SetSnapshot(_snapshot with
+            {
+                Message = autoStageWebUpdates
+                    ? "Automatic UI update staging enabled."
+                    : "Manual UI update staging enabled.",
+                Status = QuasarUpdateStatus.Idle,
+            });
+
+        }
+        finally { MaintenanceGate.Release(); }
     }
 
-    public Task SelectWebReleaseAsync(string version, CancellationToken cancellationToken = default)
+    public async Task SelectWebReleaseAsync(string version, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-
-        var normalizedVersion = QuasarReleaseVersion.Normalize(version);
-        var selected = _snapshot.WebReleases.FirstOrDefault(candidate =>
-            string.Equals(candidate.Version, normalizedVersion, StringComparison.OrdinalIgnoreCase));
-
-        SetSnapshot(_snapshot with
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
         {
-            Web = selected,
-            SelectedWebVersion = selected?.Version ?? string.Empty,
-            Message = selected is null
-                ? "No Quasar UI release selected."
-                : BuildSelectedWebReleaseMessage(selected),
-            Status = selected is null
-                ? QuasarUpdateStatus.Idle
-                : selected.IsStaged ? QuasarUpdateStatus.Staged : QuasarUpdateStatus.UpdateQueued,
-        });
+            cancellationToken.ThrowIfCancellationRequested();
 
-        return Task.CompletedTask;
+            var normalizedVersion = QuasarReleaseVersion.Normalize(version);
+            var selected = _snapshot.WebReleases.FirstOrDefault(candidate =>
+                string.Equals(candidate.Version, normalizedVersion, StringComparison.OrdinalIgnoreCase));
+
+            SetSnapshot(_snapshot with
+            {
+                Web = selected,
+                SelectedWebVersion = selected?.Version ?? string.Empty,
+                Message = selected is null
+                    ? "No Quasar UI release selected."
+                    : BuildSelectedWebReleaseMessage(selected),
+                Status = selected is null
+                    ? QuasarUpdateStatus.Idle
+                    : selected.IsStaged ? QuasarUpdateStatus.Staged : QuasarUpdateStatus.UpdateQueued,
+            });
+        }
+        finally { MaintenanceGate.Release(); }
     }
 
     public async Task CheckNowAsync(CancellationToken cancellationToken = default)
@@ -157,9 +196,10 @@ public sealed class QuasarUpdateService : BackgroundService
             return;
         }
 
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        await MaintenanceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             SetSnapshot(_snapshot with
             {
                 Status = QuasarUpdateStatus.Checking,
@@ -194,6 +234,14 @@ public sealed class QuasarUpdateService : BackgroundService
             if (_options.AutoStageWebUpdates && selectedWeb?.IsNewer != true)
                 selectedWeb = webReleases.FirstOrDefault(candidate => candidate.IsNewer) ?? selectedWeb;
 
+            if (_options.AutoApplyUpdates)
+            {
+                var pair = SelectAutomaticRelease(webReleases,
+                    BuildCandidates(releases, _options.BootstrapAssetName, _webOptions.BootstrapVersion, requiresPrivilegedInstall: true));
+                selectedWeb = pair.Web;
+                bootstrap = pair.Bootstrap;
+            }
+
             SetSnapshot(_snapshot with
             {
                 Status = webReleases.Any(candidate => candidate.IsNewer) || bootstrap is not null
@@ -206,11 +254,25 @@ public sealed class QuasarUpdateService : BackgroundService
                 Web = selectedWeb,
                 WebReleases = webReleases,
                 SelectedWebVersion = selectedWeb?.Version ?? string.Empty,
-                Bootstrap = bootstrap,
+                Bootstrap = bootstrap is { IsNewer: true } ? bootstrap : null,
             });
 
-            if (_options.AutoStageWebUpdates && selectedWeb is not null && selectedWeb.IsNewer)
-                await StageWebUpdateAsync(cancellationToken).ConfigureAwait(false);
+            if ((_options.AutoStageWebUpdates || _options.AutoApplyUpdates) && selectedWeb is { IsNewer: true })
+                await StageWebUpdateCoreAsync(false, cancellationToken).ConfigureAwait(false);
+            if (_options.AutoApplyUpdates && selectedWeb is not null && !string.IsNullOrWhiteSpace(_webOptions.LauncherToken)
+                && !GetSnapshot().AppSettingsConflict)
+            {
+                if (bootstrap is { IsNewer: true })
+                {
+                    var pointer = selectedWeb.IsNewer ? PrepareStagedWebRelease() : null;
+                    // Older launchers ignore the paired pointer. Upgrade the launcher
+                    // first during migration; the next check activates the staged UI.
+                    var coordinated = string.Equals(Environment.GetEnvironmentVariable("QUASAR_COORDINATED_UPDATES"), "true", StringComparison.OrdinalIgnoreCase);
+                    await RequestBootstrapUpdateCoreAsync(coordinated ? pointer : null, cancellationToken);
+                }
+                else if (selectedWeb.IsNewer)
+                    await ActivateStagedWebUpdateCoreAsync(cancellationToken);
+            }
         }
         catch (Exception exception)
         {
@@ -224,7 +286,7 @@ public sealed class QuasarUpdateService : BackgroundService
         }
         finally
         {
-            _gate.Release();
+            MaintenanceGate.Release();
         }
     }
 
@@ -232,6 +294,17 @@ public sealed class QuasarUpdateService : BackgroundService
         StageWebUpdateAsync(forceAppSettingsOverride: false, cancellationToken);
 
     public async Task StageWebUpdateAsync(bool forceAppSettingsOverride, CancellationToken cancellationToken = default)
+    {
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
+        {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            await StageWebUpdateCoreAsync(forceAppSettingsOverride, cancellationToken);
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
+    private async Task StageWebUpdateCoreAsync(bool forceAppSettingsOverride, CancellationToken cancellationToken)
     {
         var candidate = GetSnapshot().Web;
         if (candidate is null)
@@ -351,58 +424,85 @@ public sealed class QuasarUpdateService : BackgroundService
 
     public async Task ResolveAppSettingsConflictAsync(string resolvedText, CancellationToken cancellationToken = default)
     {
-        var snapshot = GetSnapshot();
-        var candidate = snapshot.Web;
-        if (candidate is null || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
-            throw new InvalidOperationException("No staged appsettings.json conflict is available to resolve.");
-
-        var appSettingsPath = snapshot.AppSettingsConflictPath;
-        if (string.IsNullOrWhiteSpace(appSettingsPath))
-            appSettingsPath = Path.Combine(candidate.StagedDirectory, AppSettingsFileName);
-
-        if (ContainsConflictMarkers(resolvedText))
-            throw new InvalidOperationException("Resolve all conflict markers before saving appsettings.json.");
-
-        var resolved = ParseJsonObject(resolvedText, "resolved appsettings.json");
-        await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(resolved), cancellationToken).ConfigureAwait(false);
-
-        var releaseBasePath = Path.Combine(candidate.StagedDirectory, AppSettingsReleaseBaseFileName);
-        if (File.Exists(releaseBasePath))
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
         {
-            var releaseBase = await ReadJsonObjectAsync(releaseBasePath, "release appsettings.json", cancellationToken).ConfigureAwait(false);
-            await PersistAppSettingsBaseAsync(releaseBase, cancellationToken).ConfigureAwait(false);
-            TryDeleteFile(releaseBasePath);
+            var snapshot = GetSnapshot();
+            var candidate = snapshot.Web;
+            if (candidate is null || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
+                throw new InvalidOperationException("No staged appsettings.json conflict is available to resolve.");
+
+            var appSettingsPath = snapshot.AppSettingsConflictPath;
+            if (string.IsNullOrWhiteSpace(appSettingsPath))
+                appSettingsPath = Path.Combine(candidate.StagedDirectory, AppSettingsFileName);
+
+            if (ContainsConflictMarkers(resolvedText))
+                throw new InvalidOperationException("Resolve all conflict markers before saving appsettings.json.");
+
+            var resolved = ParseJsonObject(resolvedText, "resolved appsettings.json");
+            await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(resolved), cancellationToken).ConfigureAwait(false);
+
+            var releaseBasePath = Path.Combine(candidate.StagedDirectory, AppSettingsReleaseBaseFileName);
+            if (File.Exists(releaseBasePath))
+            {
+                var releaseBase = await ReadJsonObjectAsync(releaseBasePath, "release appsettings.json", cancellationToken).ConfigureAwait(false);
+                await PersistAppSettingsBaseAsync(releaseBase, cancellationToken).ConfigureAwait(false);
+                TryDeleteFile(releaseBasePath);
+            }
+
+            QuasarWebReleaseLayout.ValidateDirectory(candidate.StagedDirectory);
+            EnsureExecutableBit(Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
+
+            var staged = candidate with
+            {
+                IsStaged = true,
+                StagedDirectory = candidate.StagedDirectory,
+            };
+
+            var webReleases = _snapshot.WebReleases
+                .Select(release => string.Equals(release.Version, staged.Version, StringComparison.OrdinalIgnoreCase)
+                    ? staged
+                    : release)
+                .ToArray();
+
+            SetSnapshot(_snapshot with
+            {
+                Status = QuasarUpdateStatus.Staged,
+                Message = $"Quasar UI {candidate.Version} is staged and ready to activate.",
+                Web = staged,
+                WebReleases = webReleases,
+                SelectedWebVersion = staged.Version,
+                AppSettingsConflict = false,
+                AppSettingsConflictPath = string.Empty,
+                AppSettingsConflictMessage = string.Empty,
+            });
+
         }
-
-        QuasarWebReleaseLayout.ValidateDirectory(candidate.StagedDirectory);
-        EnsureExecutableBit(Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
-
-        var staged = candidate with
-        {
-            IsStaged = true,
-            StagedDirectory = candidate.StagedDirectory,
-        };
-
-        var webReleases = _snapshot.WebReleases
-            .Select(release => string.Equals(release.Version, staged.Version, StringComparison.OrdinalIgnoreCase)
-                ? staged
-                : release)
-            .ToArray();
-
-        SetSnapshot(_snapshot with
-        {
-            Status = QuasarUpdateStatus.Staged,
-            Message = $"Quasar UI {candidate.Version} is staged and ready to activate.",
-            Web = staged,
-            WebReleases = webReleases,
-            SelectedWebVersion = staged.Version,
-            AppSettingsConflict = false,
-            AppSettingsConflictPath = string.Empty,
-            AppSettingsConflictMessage = string.Empty,
-        });
+        finally { MaintenanceGate.Release(); }
     }
 
-    public Task ActivateStagedWebUpdateAsync(CancellationToken cancellationToken = default)
+    public async Task ActivateStagedWebUpdateAsync(CancellationToken cancellationToken = default)
+    {
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
+        {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            await ActivateStagedWebUpdateCoreAsync(cancellationToken);
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
+    private async Task ActivateStagedWebUpdateCoreAsync(CancellationToken cancellationToken)
+    {
+        var pointer = PrepareStagedWebRelease();
+        var path = MagnetarPaths.GetQuasarActiveReleasePath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await AtomicFileWriter.WriteTextAsync(path, JsonSerializer.Serialize(pointer, JsonOptions), cancellationToken);
+        CleanupStagedUpdates(pointer.WorkingDirectory);
+        SetSnapshot(_snapshot with { Status = QuasarUpdateStatus.Activating, Message = $"Activating Quasar UI {pointer.Version}." });
+    }
+
+    private QuasarActiveReleasePointer PrepareStagedWebRelease()
     {
         if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
             throw new InvalidOperationException("Quasar is not running under Bootstrap, so staged UI updates cannot be activated from the UI.");
@@ -418,13 +518,6 @@ public sealed class QuasarUpdateService : BackgroundService
         if (!File.Exists(workerPath))
             throw new InvalidOperationException($"Staged Quasar UI executable not found: {workerPath}");
 
-        SetSnapshot(_snapshot with
-        {
-            Status = QuasarUpdateStatus.Activating,
-            Message = $"Activating Quasar UI {candidate.Version}.",
-            Web = null,
-        });
-
         var activeDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(candidate.Version);
         var activeWorkerPath = Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
         PrepareActiveWebRelease(candidate.StagedDirectory, activeDirectory);
@@ -439,14 +532,21 @@ public sealed class QuasarUpdateService : BackgroundService
             ActivatedAtUtc = DateTimeOffset.UtcNow,
         };
 
-        var path = MagnetarPaths.GetQuasarActiveReleasePath();
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(pointer, JsonOptions));
-        CleanupStagedUpdates(activeDirectory);
-        return Task.CompletedTask;
+        return pointer;
     }
 
     public async Task RequestBootstrapUpdateActivationAsync(CancellationToken cancellationToken = default)
+    {
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
+        {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            await RequestBootstrapUpdateCoreAsync(null, cancellationToken);
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
+    private async Task RequestBootstrapUpdateCoreAsync(QuasarActiveReleasePointer? webRelease, CancellationToken cancellationToken)
     {
         var bootstrap = GetSnapshot().Bootstrap;
         if (bootstrap is null || !bootstrap.IsNewer)
@@ -464,6 +564,7 @@ public sealed class QuasarUpdateService : BackgroundService
             ["version"] = bootstrap.Version,
             ["assetName"] = bootstrap.AssetName,
             ["workerVersion"] = _webOptions.Version,
+            ["webRelease"] = webRelease is null ? null : JsonSerializer.SerializeToNode(webRelease, JsonOptions),
         };
 
         await AtomicFileWriter.WriteTextAsync(path, request.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
@@ -486,6 +587,18 @@ public sealed class QuasarUpdateService : BackgroundService
             await CheckNowAsync(stoppingToken).ConfigureAwait(false);
             await Task.Delay(_options.CheckInterval, stoppingToken).ConfigureAwait(false);
         }
+    }
+
+    internal static (QuasarUpdateCandidate? Web, QuasarUpdateCandidate? Bootstrap) SelectAutomaticRelease(
+        IReadOnlyList<QuasarUpdateCandidate> web, IReadOnlyList<QuasarUpdateCandidate> bootstrap)
+    {
+        foreach (var candidate in web)
+        {
+            if (!candidate.IsNewer && !candidate.IsCurrent) continue;
+            var launcher = bootstrap.FirstOrDefault(b => b.Version == candidate.Version && (b.IsNewer || b.IsCurrent));
+            if (launcher is not null && (candidate.IsNewer || launcher.IsNewer)) return (candidate, launcher);
+        }
+        return (null, null);
     }
 
     private static string BuildReleaseFoundMessage(QuasarUpdateCandidate? web, QuasarUpdateCandidate? bootstrap)

@@ -4,6 +4,7 @@ using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
 using Quasar.Services.Auth;
+using Quasar.Services.Plugins;
 using WebPush;
 
 namespace Quasar.Services.Updates;
@@ -14,7 +15,7 @@ public sealed record BrowserPushSubscription(string Endpoint, string P256dh, str
 public sealed class PushNotificationService(
     IDataProtectionProvider protection, QuasarUpdateService updates, ClusterReleaseMonitor releases,
     ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
-    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor) : BackgroundService
+    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins) : BackgroundService
 {
     private const string VapidSubject = "https://github.com/CometWorks/quasar";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -72,7 +73,9 @@ public sealed class PushNotificationService(
         _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
             .Concat(Preferences(state, provider, subject).Updates
                 ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
-                : []).ToArray();
+                : [])
+            .Concat(Preferences(state, provider, subject).UiPluginUpdates
+                ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []).ToArray();
 
     internal static NotificationPreferences Preferences(PushState state, string provider, string subject) =>
         state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject)?.Options ?? new();
@@ -139,8 +142,11 @@ public sealed class PushNotificationService(
         finally { _gate.Release(); }
     }
 
+    private void OnUiPluginsChanged() => Changed?.Invoke();
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        uiPlugins.Changed += OnUiPluginsChanged;
         agents.Changed += ObserveInstances;
         supervisor.Changed += ObserveInstances;
         try
@@ -164,6 +170,7 @@ public sealed class PushNotificationService(
         }
         finally
         {
+            uiPlugins.Changed -= OnUiPluginsChanged;
             agents.Changed -= ObserveInstances;
             supervisor.Changed -= ObserveInstances;
         }

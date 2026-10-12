@@ -1964,3 +1964,42 @@ plugin settings, UUID-based resume and matching API/CLI routes. Reverse conversi
 uses native snapshots from all Hosts and needs no shared filesystem. Canonical plugin
 settings are exported for review/reapplication; private/shared plugin storage remains
 in the backup.
+
+## Automatic Quasar and UI plugin updates
+
+On **Updates**, enable **Automatically update Quasar UI and Bootstrap together**
+to apply a matching release after a successful check. This is independent of the
+existing stage-only option. On **UI Plugins**, enable **Automatically update
+installed UI plugins and restart Quasar** for enabled catalog plugins. Both
+application policies default to off and require Bootstrap. They are stored under
+`Quasar:Updates` as `AutoApplyUpdates` and `AutoUpdateUiPlugins`; environment
+variables `QUASAR_UPDATES_AUTO_APPLY` and `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS`
+provide startup overrides. UI saves update the install-root `appsettings.json`.
+
+Quasar selects a release containing both platform assets and never automatically
+downgrades either component. It stages and validates the UI, including the normal
+appsettings merge, before requesting launcher activation. Conflicts stop automatic
+activation. Bootstrap verifies and installs its archive, publishes the prepared UI
+pointer, and restarts into that release. Failed UI health checks on startup restore
+the previous UI pointer. Bootstrap no longer independently applies releases on a
+timer; the worker owns automatic policy. When migrating from an older launcher,
+the launcher is upgraded first, and the next worker check activates the staged UI.
+
+Plugin checks reuse the 15-minute catalog refresh. Only already-installed, enabled
+plugins with a different catalog commit are automatically updated; unknown version
+constraints, incompatible requirements, invalid installs, and safe boot pause that
+path. Exact numeric versions and `>=` minimums are supported for unattended
+compatibility checks. Builds finish before installed files are replaced; build
+failures retain the old package. Successful automatic updates request a worker
+restart through Bootstrap. Quasar updates and plugin builds share a maintenance
+lock. Running game servers are preserved by the existing launcher drain protocol.
+Local/source-only plugins remain manual. Implicit catalog entries can still install
+initially; updating an installed revision follows this policy. The launcher also
+shares an OS-owned file lease with plugin publication, so a downloaded update
+cannot interrupt a build. A process exit releases that lease automatically.
+
+On **Notifications**, administrators can opt into **Quasar UI plugin updates**.
+This account preference controls the notification list, bell, and subscribed browser
+push independently of Quasar/cluster notices. Notices identify installed catalog
+revisions, disappear after installation, and use revision keys to avoid repeated
+push delivery. Automatic application does not require notifications to be enabled.

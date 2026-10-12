@@ -5,13 +5,17 @@ public sealed class QuasarUiPluginHubRefreshService : BackgroundService
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(15);
 
     private readonly QuasarUiPluginHubCatalogService _catalog;
+    private readonly QuasarShutdownService _shutdown;
+
     private readonly ILogger<QuasarUiPluginHubRefreshService> _logger;
 
     public QuasarUiPluginHubRefreshService(
         QuasarUiPluginHubCatalogService catalog,
+        QuasarShutdownService shutdown,
         ILogger<QuasarUiPluginHubRefreshService> logger)
     {
         _catalog = catalog;
+        _shutdown = shutdown;
         _logger = logger;
     }
 
@@ -35,6 +39,7 @@ public sealed class QuasarUiPluginHubRefreshService : BackgroundService
         try
         {
             await _catalog.RefreshAsync(cancellationToken);
+            await _catalog.RestartAfterAutomaticUpdatesAsync(_shutdown, cancellationToken);
         }
         catch (OperationCanceledException)
         {

@@ -5,6 +5,8 @@
 @inject QuasarUiPluginHubCatalogService HubCatalog
 @inject QuasarUiPluginStateStore PluginStates
 @inject QuasarShutdownService ShutdownService
+@inject QuasarUpdateService UpdateService
+@inject QuasarUpdateOptions UpdateOptions
 @inject WebServiceOptions WebOptions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -198,23 +200,14 @@
                 </MudAlert>
             }
 
-            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-1 ui-plugin-hub-filter-row">
-                <MudTextField @bind-Value="_hubSearch"
-                              Label="Search hub"
-                              Variant="Variant.Outlined"
-                              Immediate="true"
-                              Adornment="Adornment.Start"
-                              AdornmentIcon="@Icons.Material.Filled.Search"
-                              Class="ui-plugin-search-field" />
-                <MudButton Variant="Variant.Outlined"
-                           Color="Color.Default"
-                           StartIcon="@Icons.Material.Filled.OpenInNew"
-                           Href="https://github.com/CometWorks/quasar-hub"
-                           Target="_blank"
-                           Class="ui-plugin-hub-open-button">
-                    Open Hub
-                </MudButton>
+            <div class="ui-plugin-hub-filter-row">
+                <label class="quasar-field ui-plugin-search-field"><span>Search hub</span>
+                    <input type="search" @bind="_hubSearch" @bind:event="oninput" />
+                </label>
+                <a class="quasar-button ui-plugin-hub-open-button" href="https://github.com/CometWorks/quasar-hub" target="_blank" rel="noopener noreferrer"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />Open Hub</a>
             </div>
+            <label class="quasar-check"><input type="checkbox" checked="@UpdateOptions.AutoUpdateUiPlugins" disabled="@_savingUpdatePolicy" @onchange="SetAutomaticPluginUpdatesAsync" />Automatically update installed UI plugins and restart Quasar</label>
+            <p class="quasar-muted quasar-caption">Applies to enabled catalog plugins after scheduled checks. Requires Bootstrap; safe boot pauses automatic plugin updates. Running game servers stay online. Configure update notices on the <a href="/notifications">Notifications page</a>.</p>
 
             @if (HubEntries.Count == 0)
             {
@@ -583,6 +576,16 @@
     private string _hubSearch = string.Empty;
     private bool _hubRefreshing;
     private bool _restartRequested;
+    private bool _savingUpdatePolicy;
+
+    private async Task SetAutomaticPluginUpdatesAsync(ChangeEventArgs args)
+    {
+        _savingUpdatePolicy = true;
+        try { await UpdateService.SetAutoUpdateUiPluginsAsync(args.Value is true); }
+        catch (Exception error) { Snackbar.Add($"Could not save automatic updates: {error.Message}", Severity.Error); }
+        finally { _savingUpdatePolicy = false; }
+    }
+
     private bool _dotNetSdkInstallerBusy;
     private string _hubBusyCatalogId = string.Empty;
     private QuasarDotNetSdkInstallResult? _lastDotNetSdkInstallResult;

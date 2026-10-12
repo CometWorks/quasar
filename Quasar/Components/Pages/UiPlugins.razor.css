@@ -4,7 +4,10 @@
 }
 
 .ui-plugin-hub-filter-row {
-    align-items: flex-start;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 8px;
 }
 
 .ui-plugin-actions {
@@ -20,8 +23,13 @@
     max-width: 28rem;
 }
 
+.ui-plugin-search-field input {
+    min-height: 36px;
+}
+
 .ui-plugin-hub-open-button {
-    min-height: 56px;
+    min-height: 36px;
+    margin-bottom: 0;
 }
 
 .ui-plugin-description-line {
@@ -118,7 +126,7 @@
     }
 
     .ui-plugin-hub-open-button {
-        min-height: 40px;
+        min-height: 36px;
     }
 
     .ui-plugin-truncate-line {

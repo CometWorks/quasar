@@ -15,7 +15,7 @@
 <div class="quasar-stack">
     <h1>Notifications</h1>
     <p>
-        Quasar and cluster updates, plus optional instance health alerts. Open a notice to review its details.
+        Quasar and cluster updates, plus optional UI plugin updates and instance health alerts. Open a notice to review its details.
     </p>
     <section class="pa-4 quasar-panel quasar-section">
         <div class="quasar-stack">
@@ -52,6 +52,7 @@
                 <form @onsubmit="SavePreferencesAsync" @onsubmit:preventDefault><fieldset class="quasar-fieldset" disabled="@_saving">
                     <div class="quasar-stack">
                         <label class="quasar-check"><input type="checkbox" @bind="_preferences.Updates" />Quasar and cluster updates</label>
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity"><label class="quasar-check"><input type="checkbox" @bind="_preferences.UiPluginUpdates" />Quasar UI plugin updates</label></AuthorizeView>
                         <label class="quasar-check"><input type="checkbox" @bind="_preferences.Crashes" />Instance crashes and failures (including automatic crash recovery)</label>
                         <label class="quasar-check"><input type="checkbox" @bind="_preferences.HealthRestarts" />Restarts caused by health checks or agent attach failures</label>
                         <div class="quasar-detail-metrics">
