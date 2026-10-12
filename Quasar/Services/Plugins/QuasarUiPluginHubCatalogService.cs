@@ -29,6 +29,25 @@ public sealed class QuasarUiPluginHubCatalogService
     };
 
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _installGate;
+    private readonly Quasar.Services.Updates.QuasarUpdateOptions _updateOptions;
+    private readonly WebServiceOptions _webOptions;
+    private bool AutomaticRestartPending { get; set; }
+
+    public async Task RestartAfterAutomaticUpdatesAsync(QuasarShutdownService shutdown, CancellationToken cancellationToken)
+    {
+        await _installGate.WaitAsync(cancellationToken);
+        try
+        {
+            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode)
+            {
+                await shutdown.RestartWorkerAsync();
+                AutomaticRestartPending = false;
+            }
+        }
+        finally { _installGate.Release(); }
+    }
+
     private readonly ILogger<QuasarUiPluginHubCatalogService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IConfiguration _configuration;
@@ -47,8 +66,14 @@ public sealed class QuasarUiPluginHubCatalogService
         QuasarUiPluginStateStore pluginStates,
         QuasarUiPluginCatalog uiPluginCatalog,
         ManagedDedicatedServerRuntimeResolver dedicatedServerRuntimeResolver,
-        QuasarManagedDotNetSdkService managedDotNetSdk)
+        QuasarManagedDotNetSdkService managedDotNetSdk,
+        Quasar.Services.Updates.QuasarUpdateOptions updateOptions,
+        WebServiceOptions webOptions,
+        Quasar.Services.Updates.QuasarUpdateService updates)
     {
+        _installGate = updates.MaintenanceGate;
+        _updateOptions = updateOptions;
+        _webOptions = webOptions;
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _configuration = configuration;
@@ -233,11 +258,42 @@ public sealed class QuasarUiPluginHubCatalogService
         };
     }
 
-    public async Task InstallOrUpdateAsync(
+    public async Task InstallOrUpdateAsync(QuasarUiPluginHubEntry entry,
+        CancellationToken cancellationToken = default, bool enableAfterInstall = true)
+    {
+        await _installGate.WaitAsync(cancellationToken);
+        try { await InstallOrUpdateCoreAsync(entry, cancellationToken, enableAfterInstall); }
+        finally { _installGate.Release(); }
+    }
+
+    public static bool HasUpdate(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState state) =>
+        state.Installed && !string.IsNullOrWhiteSpace(state.InstalledCommit)
+        && !string.IsNullOrWhiteSpace(entry.Commit)
+        && !string.Equals(state.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase);
+
+    internal static bool CanAutomaticallyUpdate(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState state, string version) =>
+        state.Enabled && string.IsNullOrWhiteSpace(state.Error) && HasUpdate(entry, state) && SupportsAutomaticUpdate(entry, version);
+
+    internal static bool SupportsAutomaticUpdate(QuasarUiPluginHubEntry entry, string version)
+    {
+        // Catalogs currently use exact versions or minimum versions. Unknown constraints
+        // require manual review instead of automatically installing an incompatible plugin.
+        if (!System.Version.TryParse(version.Split('-')[0], out _)) return false;
+        var requirement = entry.QuasarVersion.Trim();
+        if (requirement.Length == 0) return true;
+        var minimum = requirement.StartsWith(">=", StringComparison.Ordinal);
+        var target = (minimum ? requirement[2..] : requirement).Trim();
+        if (!System.Version.TryParse(target, out _)) return false;
+        return minimum ? !QuasarReleaseVersion.IsNewer(target, version)
+            : string.Equals(QuasarReleaseVersion.Normalize(target), QuasarReleaseVersion.Normalize(version), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private async Task InstallOrUpdateCoreAsync(
         QuasarUiPluginHubEntry entry,
         CancellationToken cancellationToken = default,
-        bool enableAfterInstall = true)
+        bool? enableAfterInstall = true)
     {
+        using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
         var sdkStatus = RefreshDotNetSdkStatus();
         if (!sdkStatus.CanBuildUiPlugins)
             throw new InvalidOperationException(sdkStatus.Message);
@@ -284,7 +340,8 @@ public sealed class QuasarUiPluginHubCatalogService
             Directory.Move(repositoryRoot, installDirectory);
             installDirectoryReplaced = true;
             await WriteInstallMetadataAsync(installDirectory, entry, manifest, cancellationToken);
-            await _pluginStates.SetEnabledAsync(manifest.Id, enableAfterInstall, cancellationToken);
+            if (enableAfterInstall is { } enabled)
+                await _pluginStates.SetEnabledAsync(manifest.Id, enabled, cancellationToken);
             await _pluginStates.SetImplicitInstallSuppressedAsync(
                 entry.CatalogId,
                 suppressed: false,
@@ -330,59 +387,75 @@ public sealed class QuasarUiPluginHubCatalogService
         if (_uiPluginCatalog.SafeMode)
             return;
 
-        foreach (var entry in entries.Where(entry => ShouldInstallImplicitPlugin(entry, _pluginStates)))
+        foreach (var entry in entries)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            var installState = GetInstallState(entry);
-            var currentCommitInstalled = installState.Installed &&
-                string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase);
-            if (currentCommitInstalled && string.IsNullOrWhiteSpace(installState.Error))
-                continue;
-
-            if (string.IsNullOrWhiteSpace(entry.RepoId) || string.IsNullOrWhiteSpace(entry.Commit))
-            {
-                _logger.LogWarning(
-                    "Implicit Quasar UI plugin {Plugin} cannot be installed because its QuasarHub entry has no repository or commit.",
-                    GetEntryLogName(entry));
-                continue;
-            }
-
-            var enableAfterInstall = !installState.Installed || installState.Enabled;
+            await _installGate.WaitAsync(cancellationToken);
             try
             {
-                await InstallOrUpdateAsync(entry, cancellationToken, enableAfterInstall);
-                _logger.LogInformation(
-                    "Implicit Quasar UI plugin {Plugin} installed or updated from QuasarHub.",
-                    GetEntryLogName(entry));
+                var installState = GetInstallState(entry);
+                var autoUpdate = _updateOptions.AutoUpdateUiPlugins && !string.IsNullOrWhiteSpace(_webOptions.LauncherToken)
+                    && CanAutomaticallyUpdate(entry, installState, _webOptions.Version);
+                if (!autoUpdate && !ShouldInstallImplicitPlugin(entry, _pluginStates)) continue;
+                // Implicit catalog entries may install initially; all installed revisions follow the update policy.
+                if (installState.Installed && !autoUpdate) continue;
+                var currentCommitInstalled = installState.Installed &&
+                    string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase);
+                if (currentCommitInstalled && string.IsNullOrWhiteSpace(installState.Error))
+                    continue;
+
+                if (string.IsNullOrWhiteSpace(entry.RepoId) || string.IsNullOrWhiteSpace(entry.Commit))
+                {
+                    _logger.LogWarning(
+                        "Scheduled Quasar UI plugin {Plugin} cannot be installed because its QuasarHub entry has no repository or commit.",
+                        GetEntryLogName(entry));
+                    continue;
+                }
+
+                bool? enableAfterInstall = installState.Installed ? null : true;
+                try
+                {
+                    await InstallOrUpdateCoreAsync(entry, cancellationToken, enableAfterInstall);
+                    if (autoUpdate) AutomaticRestartPending = true;
+                    _logger.LogInformation(
+                        "Scheduled Quasar UI plugin {Plugin} installed or updated from QuasarHub.",
+                        GetEntryLogName(entry));
+                }
+                catch (Exception exception) when (exception is not OperationCanceledException)
+                {
+                    _logger.LogWarning(
+                        exception,
+                        "Scheduled Quasar UI plugin {Plugin} install or update failed.",
+                        GetEntryLogName(entry));
+                }
             }
-            catch (Exception exception) when (exception is not OperationCanceledException)
-            {
-                _logger.LogWarning(
-                    exception,
-                    "Implicit Quasar UI plugin {Plugin} install or update failed.",
-                    GetEntryLogName(entry));
-            }
+            finally { _installGate.Release(); }
         }
     }
 
     public async Task RemoveAsync(QuasarUiPluginHubEntry entry, CancellationToken cancellationToken = default)
     {
-        cancellationToken.ThrowIfCancellationRequested();
-        var installState = GetInstallState(entry);
-        var installDirectory = GetInstallDirectory(entry);
-        await _pluginStates.SetImplicitInstallSuppressedAsync(
-            entry.CatalogId,
-            suppressed: true,
-            cancellationToken: cancellationToken);
-        if (Directory.Exists(installDirectory))
-            Directory.Delete(installDirectory, recursive: true);
+        await _installGate.WaitAsync(cancellationToken);
+        try
+        {
+            var installState = GetInstallState(entry);
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            var installDirectory = GetInstallDirectory(entry);
+            await _pluginStates.SetImplicitInstallSuppressedAsync(
+                entry.CatalogId,
+                suppressed: true,
+                cancellationToken: cancellationToken);
+            if (Directory.Exists(installDirectory))
+                Directory.Delete(installDirectory, recursive: true);
 
-        if (!string.IsNullOrWhiteSpace(installState.RuntimePluginId))
-            await _pluginStates.RemoveAsync(installState.RuntimePluginId, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(installState.RuntimePluginId))
+                await _pluginStates.RemoveAsync(installState.RuntimePluginId, cancellationToken);
 
-        Changed?.Invoke();
-        _logger.LogInformation("Removed Quasar UI plugin package {Plugin} from {Directory}.", entry.FriendlyName, installDirectory);
+            Changed?.Invoke();
+            _logger.LogInformation("Removed Quasar UI plugin package {Plugin} from {Directory}.", entry.FriendlyName, installDirectory);
+        }
+        finally { _installGate.Release(); }
     }
 
     public string GetInstallDirectory(QuasarUiPluginHubEntry entry) =>

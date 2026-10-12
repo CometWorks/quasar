@@ -2,6 +2,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
 using Quasar.Models;
+using Quasar.Services.Plugins;
 using Quasar.Services.Auth;
 
 namespace Quasar.Services.Updates;
@@ -10,6 +11,20 @@ internal sealed record UpdateNotice(string Key, string Title, string Body, strin
 
 internal static class UpdateNotices
 {
+    internal static IEnumerable<UpdateNotice> UiPlugins(IEnumerable<QuasarUiPluginHubEntry> entries,
+        Func<QuasarUiPluginHubEntry, QuasarUiPluginInstallState> state, ClaimsPrincipal user)
+    {
+        if (!user.IsInRole(QuasarRoles.Admin)) yield break;
+        foreach (var entry in entries.OrderBy(e => e.CatalogId, StringComparer.Ordinal))
+        {
+            var installed = state(entry);
+            if (!QuasarUiPluginHubCatalogService.HasUpdate(entry, installed)) continue;
+            yield return new("ui-plugin:" + entry.CatalogId + ":" + entry.Commit,
+                "Quasar UI plugin update available", $"{entry.FriendlyName} has a new catalog revision. Open UI Plugins to review it.",
+                "/settings/ui-plugins");
+        }
+    }
+
     internal static UpdateNotice? Current(QuasarUpdateSnapshot updates, ClusterReleaseSnapshot releases,
         IEnumerable<ClusterDefinition> clusters, ClaimsPrincipal user) =>
         All(updates, releases, clusters, user).FirstOrDefault();

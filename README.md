@@ -62,3 +62,9 @@ passed directly back to the companion channel. The Entity Viewer owns replay con
 24-hour storage, admin-only history endpoints, and playback; Quasar core supplies
 server discovery and the existing companion request transport. Install matching
 Quasar and Entity Viewer revisions to enable continuous history collection.
+
+Quasar and UI plugin automatic updates are separately opt-in on **Updates** and
+**UI Plugins**. Automatic Quasar application coordinates UI and Bootstrap releases;
+plugin updates can restart the worker after a successful build. Administrators can
+opt into UI plugin notices on **Notifications**. See
+[automatic update configuration](Docs/Configuration.md#automatic-quasar-and-ui-plugin-updates).

@@ -52,7 +52,7 @@ GitHub release checks and downloads retry transient transport failures, HTTP
 `408`, `429`, and `5xx` responses up to four times after the initial request.
 Retries use 1, 2, 4, and 8 second delays, honor GitHub's `Retry-After` header,
 and cap any delay at 30 seconds. Permanent failures still enter `Failed`; the
-running worker and Bootstrap monitor remain available for a later retry.
+running worker remains available for a later check or manual retry.
 
 ---
 
@@ -94,8 +94,8 @@ stateDiagram-v2
 | `Draining` | Pointer change or `Updates/worker-restart-request.json` detected; the launcher posts `/api/internal/drain` (authenticated with the per-session launcher token) and waits for graceful exit. Pointer changes start the new active release; worker-restart requests start the same active release again. |
 | `Retired` / `ForceKilled` | Old worker exited within the grace window, or was killed after timeout. |
 | `Restarting` | Worker exited unexpectedly (not a launcher request); relaunched with `force`. |
-| `Stopping` | UI **Shutdown Quasar** wrote `launcher-shutdown-request` and the worker exited; Bootstrap prevents worker respawn, cleans up its watchers/update monitor, and exits **0**. The installed service/task restart-on-failure policy leaves it stopped until explicitly started again. |
-| `SelfUpgrade` | A newer Bootstrap asset was applied by the periodic monitor or by a consumed `Updates/bootstrap-update-request.json` request from the Updates page; forced requests target the detected version and platform asset. Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
+| `Stopping` | UI **Shutdown Quasar** wrote `launcher-shutdown-request` and the worker exited; Bootstrap prevents worker respawn, cleans up its watchers, and exits **0**. The installed service/task restart-on-failure policy leaves it stopped until explicitly started again. |
+| `SelfUpgrade` | A newer Bootstrap asset was applied by a consumed `Updates/bootstrap-update-request.json` request from the worker’s automatic update policy or the Updates page; requests target the detected version and platform asset. Linux exits **75** so systemd restarts it; Windows spawns a detached `Quasar.exe serve --quiet` replacement and exits **0**. |
 
 The pointer is `Updates/active-release.json`
 ([`QuasarActiveReleasePointer`](../../Magnetar.Protocol/Runtime/QuasarActiveReleasePointer.cs)),
@@ -122,3 +122,16 @@ process starts again.
 - [Managed Runtime Provisioning](ManagedRuntimeProvisioning.md) — DS/SteamCMD install before a server can start.
 - [Architecture › Self-Update and Version Rollover](../QuasarArchitecture.md#self-update-and-version-rollover)
 - Back to the [State Machine Index](Index.md).
+
+Automatic application is opt-in (`Quasar:Updates:AutoApplyUpdates`). It selects
+matching UI/Bootstrap assets, stages the UI first, and sends its prepared pointer
+in the Bootstrap request. Bootstrap publishes it only after installer verification,
+then suppresses pointer-triggered worker replacement during launcher cutover.
+A saved previous pointer provides UI rollback if the new worker fails startup
+health checks. Stage-only mode and manual activation remain available. See
+[automatic update configuration](../Configuration.md#automatic-quasar-and-ui-plugin-updates).
+
+The Bootstrap installer leaves `WebService/` and root `appsettings.json` intact:
+UI activation uses the separately staged release pointer. This also preserves the
+packaged worker when it is the rollback target. Bootstrap revalidates the prepared
+UI directory after download, under the shared maintenance lease, before cutover.

@@ -444,6 +444,8 @@
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
                         Prerelease versions are for testing only and should not be used by regular users.
                     </MudAlert>
+                    <label class="quasar-check"><input type="checkbox" checked="@Options.AutoApplyUpdates" disabled="@_busy" @onchange="HandleAutoApplyUpdatesChanged" />Automatically update Quasar UI and Bootstrap together</label>
+                    <p class="quasar-muted quasar-caption">Applies matching releases after checks and restarts Quasar while keeping game servers online. Appsettings conflicts require manual resolution.</p>
                     <MudCheckBox T="bool"
                                  Value="_autoStageWebUpdates"
                                  ValueChanged="HandleAutoStageWebUpdatesChanged"
@@ -785,6 +787,12 @@
         {
             _busy = false;
         }
+    }
+
+    private async Task HandleAutoApplyUpdatesChanged(ChangeEventArgs args)
+    {
+        await RunBusyAsync(() => UpdateService.SetAutoApplyUpdatesAsync(args.Value is true),
+            "Automatic Quasar update policy saved.", "Could not save automatic update policy");
     }
 
     private async Task HandleAutoStageWebUpdatesChanged(bool value)

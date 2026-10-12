@@ -552,11 +552,17 @@ internal static class Program
             : fileName;
     }
 
-    private static void WriteActiveReleasePointer(QuasarActiveReleasePointer pointer)
+    private static void WriteActiveReleasePointer(QuasarActiveReleasePointer pointer, string? destination = null)
     {
-        var path = MagnetarPaths.GetQuasarActiveReleasePath();
+        var path = destination ?? MagnetarPaths.GetQuasarActiveReleasePath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(pointer, LauncherCoordinator.JsonOptions));
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(pointer, LauncherCoordinator.JsonOptions));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     internal static void StartDetachedProcess(string fileName, string arguments, string workingDirectory)
@@ -840,8 +846,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private readonly Queue<DateTimeOffset> _workerStartupFailures = new();
     private FileSystemWatcher? _watcher;
     private CancellationTokenSource? _reloadDebounce;
-    private CancellationTokenSource? _bootstrapUpdateMonitor;
-    private Task? _bootstrapUpdateMonitorTask;
     private FileSystemWatcher? _bootstrapUpdateRequestWatcher;
     private CancellationTokenSource? _bootstrapUpdateRequestDebounce;
     private FileSystemWatcher? _workerRestartRequestWatcher;
@@ -945,9 +949,20 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
+        var previousPath = MagnetarPaths.GetQuasarActiveReleasePath() + ".previous";
+        if (_currentWorker is null && File.Exists(previousPath))
+        {
+            var previous = JsonSerializer.Deserialize<QuasarActiveReleasePointer>(await File.ReadAllTextAsync(previousPath, cancellationToken), JsonOptions);
+            if (previous is not null && IsReleasePointerUsable(previous, allowExternalPointer: false))
+            {
+                _logger.LogWarning("Coordinated UI update failed health checks; restoring {Version}.", previous.Version);
+                WriteActiveReleasePointer(previous);
+                await ActivateCurrentReleaseAsync(force: false, cancellationToken);
+            }
+        }
+        if (_currentWorker is not null) TryDeleteFile(previousPath);
         StartWatchingReleasePointer();
         StartWatchingWorkerRestartRequests();
-        StartBootstrapUpdateMonitor();
         StartWatchingBootstrapUpdateRequests();
     }
 
@@ -957,7 +972,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _watcher?.Dispose();
         _reloadDebounce?.Cancel();
         _reloadDebounce?.Dispose();
-        _bootstrapUpdateMonitor?.Cancel();
         _bootstrapUpdateRequestWatcher?.Dispose();
         _bootstrapUpdateRequestDebounce?.Cancel();
         _bootstrapUpdateRequestDebounce?.Dispose();
@@ -975,16 +989,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (worker is not null)
             await DrainAndRetireWorkerAsync(worker, TimeSpan.Zero, stopManagedServers: !_options.PreserveServersOnShutdown, cancellationToken);
 
-        if (_bootstrapUpdateMonitorTask is not null)
-        {
-            try
-            {
-                await _bootstrapUpdateMonitorTask.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken).ConfigureAwait(false);
-            }
-            catch
-            {
-            }
-        }
     }
 
     public void Dispose()
@@ -992,8 +996,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _watcher?.Dispose();
         _reloadDebounce?.Cancel();
         _reloadDebounce?.Dispose();
-        _bootstrapUpdateMonitor?.Cancel();
-        _bootstrapUpdateMonitor?.Dispose();
         _bootstrapUpdateRequestWatcher?.Dispose();
         _bootstrapUpdateRequestDebounce?.Cancel();
         _bootstrapUpdateRequestDebounce?.Dispose();
@@ -1004,17 +1006,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         _bootstrapUpdateLock.Dispose();
         _healthClient.Dispose();
         _downloadClient.Dispose();
-    }
-
-    private void StartBootstrapUpdateMonitor()
-    {
-        if (!_options.UpdatesEnabled || (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows()))
-            return;
-
-        _bootstrapUpdateMonitor = new CancellationTokenSource();
-        _bootstrapUpdateMonitorTask = Task.Run(
-            () => RunBootstrapUpdateMonitorAsync(_bootstrapUpdateMonitor.Token),
-            CancellationToken.None);
     }
 
     private void StartWatchingWorkerRestartRequests()
@@ -1146,39 +1137,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }, CancellationToken.None);
     }
 
-    private async Task RunBootstrapUpdateMonitorAsync(CancellationToken cancellationToken)
-    {
-        try
-        {
-            await Task.Delay(TimeSpan.FromSeconds(30), cancellationToken).ConfigureAwait(false);
-            while (!cancellationToken.IsCancellationRequested)
-            {
-                try
-                {
-                    await TryUpgradeBootstrapAsync(cancellationToken).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogWarning(exception, "Bootstrap update check failed.");
-                }
-
-                await Task.Delay(_options.UpdatesCheckInterval, cancellationToken).ConfigureAwait(false);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-        }
-        catch (Exception exception)
-        {
-            _logger.LogWarning(exception, "Bootstrap update monitor stopped unexpectedly.");
-        }
-    }
-
-    private async Task TryUpgradeBootstrapAsync(CancellationToken cancellationToken, BootstrapUpdateRequest? request = null)
+    private async Task TryUpgradeBootstrapAsync(CancellationToken cancellationToken, BootstrapUpdateRequest request)
     {
         if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
             return;
@@ -1189,8 +1148,15 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
                 return;
 
-            var requestedVersion = QuasarReleaseVersion.Normalize(request?.Version ?? string.Empty);
-            var assetName = string.IsNullOrWhiteSpace(request?.AssetName)
+            if (request.WebRelease is { } prepared)
+            {
+                if (!string.Equals(prepared.Version, QuasarReleaseVersion.Normalize(request.Version), StringComparison.OrdinalIgnoreCase)
+                    || !IsReleasePointerUsable(prepared, allowExternalPointer: false))
+                    throw new InvalidDataException("Coordinated update has an invalid or mismatched UI release.");
+                QuasarWebReleaseLayout.ValidateDirectory(prepared.WorkingDirectory);
+            }
+            var requestedVersion = QuasarReleaseVersion.Normalize(request.Version);
+            var assetName = string.IsNullOrWhiteSpace(request.AssetName)
                 ? _options.BootstrapAssetName
                 : request.AssetName.Trim();
             var release = string.IsNullOrWhiteSpace(requestedVersion)
@@ -1265,25 +1231,38 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     "Bootstrap release {Version} is already installed at {Path}; skipping worker drain and launcher restart.",
                     version,
                     installedLauncher);
-                return;
+                if (request.WebRelease is null) return;
             }
-
-            ApplyBootstrapUpdate(payloadDirectory, AppContext.BaseDirectory);
-            _logger.LogInformation("Installed Bootstrap update {Version}; restarting Bootstrap.", version);
-            _isRestartingForBootstrapUpdate = true;
-
-            WorkerProcessHandle? worker;
-            lock (_sync)
+            await _activationLock.WaitAsync(cancellationToken);
+            try
             {
-                worker = _currentWorker;
-                _currentWorker = null;
+                using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+                if (request.WebRelease is { } ready) QuasarWebReleaseLayout.ValidateDirectory(ready.WorkingDirectory);
+                ApplyBootstrapUpdate(payloadDirectory, AppContext.BaseDirectory);
+                _logger.LogInformation("Installed Bootstrap update {Version}; restarting Bootstrap.", version);
+                _isRestartingForBootstrapUpdate = true;
+                // Publish only once both artifacts are prepared. The pointer watcher is
+                // suppressed during this cutover; the replacement launcher starts this UI.
+                if (request.WebRelease is { } web)
+                {
+                    var previous = ReadActiveReleasePointer();
+                    if (previous is not null)
+                        WriteActiveReleasePointer(previous, MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
+                    WriteActiveReleasePointer(web);
+                }
+                WorkerProcessHandle? worker;
+                lock (_sync) { worker = _currentWorker; _currentWorker = null; }
+                if (worker is not null)
+                    await DrainAndRetireWorkerAsync(worker, TimeSpan.FromSeconds(20), stopManagedServers: false, cancellationToken);
+                if (!IsDrained()) RestartBootstrap();
             }
+            catch
+            {
+                _isRestartingForBootstrapUpdate = false;
+                throw;
+            }
+            finally { _activationLock.Release(); }
 
-            if (worker is not null)
-                await DrainAndRetireWorkerAsync(worker, TimeSpan.FromSeconds(20), stopManagedServers: false, cancellationToken).ConfigureAwait(false);
-
-            if (!IsDrained())
-                RestartBootstrap();
         }
         finally
         {
@@ -1341,8 +1320,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
         {
             var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
-            if (string.Equals(relativePath, "appsettings.json", StringComparison.OrdinalIgnoreCase))
-                continue;
+            if (string.Equals(relativePath, "appsettings.json", StringComparison.OrdinalIgnoreCase)
+                || relativePath.StartsWith("WebService" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                continue; // UI releases use their own staged pointer; preserve the packaged worker for rollback.
 
             var destinationPath = Path.GetFullPath(Path.Combine(installDirectory, relativePath));
             var installRoot = Path.GetFullPath(installDirectory + Path.DirectorySeparatorChar);
@@ -1696,10 +1676,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         await _activationLock.WaitAsync(cancellationToken);
         try
         {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             WorkerProcessHandle? current;
             lock (_sync)
             {
-                if (_isDrained)
+                if (_isDrained || _isRestartingForBootstrapUpdate)
                     return;
 
                 current = _currentWorker;
@@ -1744,7 +1725,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 _currentWorker = nextWorker;
             }
 
-            CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
+            if (!File.Exists(MagnetarPaths.GetQuasarActiveReleasePath() + ".previous"))
+                CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
             _logger.LogInformation("Activated Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
         }
         finally
@@ -1755,12 +1737,13 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private async Task RestartCurrentWorkerAsync(CancellationToken cancellationToken)
     {
-        if (IsDrained())
+        if (IsDrained() || _isRestartingForBootstrapUpdate)
             return;
 
         await _activationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             var pointer = ReadActiveReleasePointer();
             if (pointer is null)
                 return;
@@ -1770,7 +1753,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             WorkerProcessHandle? current;
             lock (_sync)
             {
-                if (_isDrained)
+                if (_isDrained || _isRestartingForBootstrapUpdate)
                     return;
 
                 current = _currentWorker;
@@ -1787,7 +1770,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     cancellationToken).ConfigureAwait(false);
             }
 
-            if (IsDrained())
+            if (IsDrained() || _isRestartingForBootstrapUpdate)
                 return;
 
             var nextWorker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
@@ -1819,6 +1802,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         await _activationLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             if (IsDrained())
                 return;
 
@@ -1881,6 +1865,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
+        startInfo.Environment["QUASAR_COORDINATED_UPDATES"] = "true";
         startInfo.Environment["QUASAR_INSTALL_DIR"] = ResolveInstallDirectoryForWorker();
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
@@ -2228,7 +2213,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
         catch
         {
-            request = new BootstrapUpdateRequest();
+            TryDeleteFile(path);
+            return false;
         }
 
         try
@@ -2239,7 +2225,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
         }
 
-        return true;
+        return !string.IsNullOrWhiteSpace(request.Version);
     }
 
     private static string GetLauncherShutdownRequestPath() =>
@@ -2281,11 +2267,17 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
     }
 
-    private static void WriteActiveReleasePointer(QuasarActiveReleasePointer pointer)
+    private static void WriteActiveReleasePointer(QuasarActiveReleasePointer pointer, string? destination = null)
     {
-        var path = MagnetarPaths.GetQuasarActiveReleasePath();
+        var path = destination ?? MagnetarPaths.GetQuasarActiveReleasePath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        File.WriteAllText(path, JsonSerializer.Serialize(pointer, JsonOptions));
+        var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            File.WriteAllText(temporary, JsonSerializer.Serialize(pointer, JsonOptions));
+            File.Move(temporary, path, overwrite: true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
     private static void CleanupStagedUpdates(string activeWorkingDirectory)
@@ -2675,6 +2667,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         public string AssetName { get; set; } = string.Empty;
 
         public string WorkerVersion { get; set; } = string.Empty;
+
+        public QuasarActiveReleasePointer? WebRelease { get; set; }
 
         public DateTimeOffset? RequestedAtUtc { get; set; }
     }
