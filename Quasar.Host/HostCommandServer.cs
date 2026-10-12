@@ -358,6 +358,10 @@ internal sealed class HostCommandServer : IDisposable
         }
     }
 
+    private static bool OnlineCapture(HttpListenerRequest request) => request.HttpMethod == "POST"
+        && request.QueryString["online"] == "true"
+        && request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/snapshots/", StringComparison.Ordinal) == true;
+
     private async Task HandleProtectedAsync(HttpListenerContext context, CancellationToken cancellationToken)
     {
         bool entered = false;
@@ -369,9 +373,11 @@ internal sealed class HostCommandServer : IDisposable
                 context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
             bool diagnostics = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/diagnostics/", StringComparison.Ordinal) == true;
             bool collecting = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-references/", StringComparison.Ordinal) == true;
+            // An online snapshot copies for minutes; holding the gate would stop executor heartbeats of a live cluster.
+            bool onlineCapture = OnlineCapture(context.Request);
             if (!collecting && !diagnostics)
                 storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(cancellationToken);
-            if (!preparing && !diagnostics && !collecting) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
+            if (!preparing && !diagnostics && !collecting && !onlineCapture) { await _executionGate.WaitAsync(cancellationToken); entered = true; }
             await HandleAsync(context, cancellationToken);
         }
         catch (OperationCanceledException) { context.Response.Abort(); }
@@ -574,7 +580,8 @@ internal sealed class HostCommandServer : IDisposable
             if (context.Request.HttpMethod == "POST")
             {
                 var request = await ReadJsonAsync<HostContract.HostSnapshotRequest>(context.Request, cancellationToken);
-                if (request.ClusterId != clusterId || request.SnapshotId != id) throw new ArgumentException("Snapshot route identity mismatch.");
+                if (request.ClusterId != clusterId || request.SnapshotId != id || request.Online != OnlineCapture(context.Request))
+                    throw new ArgumentException("Snapshot route identity mismatch.");
                 await WriteAsync(context, 200, _snapshots.Capture(request), cancellationToken);
                 return;
             }
@@ -628,6 +635,7 @@ internal sealed class HostCommandServer : IDisposable
             var request = await ReadJsonAsync<HostContract.HostDeploymentActivation>(context.Request, cancellationToken);
             if (Uri.UnescapeDataString(path[prefix.Length..]) != request.ClusterId)
                 throw new ArgumentException("Route cluster ID does not match deployment activation.");
+            if (context.Request.HttpMethod == "PUT") _snapshots.RefuseDuringOnlineCapture(request.ClusterId);
             await WriteAsync(context, 200, _deployments.Apply(request, preview: context.Request.HttpMethod == "POST", online: context.Request.QueryString["online"] == "true"), cancellationToken);
             return;
         }

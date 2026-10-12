@@ -5,7 +5,7 @@ using HostContract = Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
 
-// Caller holds the execution gate. Snapshots never stop a process or infer a clean shutdown.
+// Callers hold the execution gate, except for an online capture (see Capture). Snapshots never stop a process or infer a clean shutdown.
 internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, AttachmentStore attachments,
     NodeActualizer nodes, GatewayActualizer gateway)
 {
@@ -30,8 +30,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
 
     internal void ExportArtifact(string clusterId, string artifactId, Stream output)
     {
-        if (artifactId.Length is < 1 or > 128 || artifactId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-'))
-            throw new InvalidDataException("Invalid artifact ID.");
+        ValidArtifactId(artifactId);
         var attachment = attachments.GetAll().Single(a => a.ClusterId == clusterId);
         var manifest = ExecutionBundle.ReadManifest(attachment.BundleManifestPath!, attachment.BundleManifestSha256!);
         if (manifest.Gateway is null || manifest.RuntimeRoot is null) throw new InvalidOperationException("This Host does not own the Gateway.");
@@ -100,76 +99,158 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
+    // Online captures copy a running cluster outside the execution gate, so Host supervision keeps going.
+    // While one runs, nothing else may move or rewrite that cluster's runtime.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _online = new(StringComparer.OrdinalIgnoreCase);
+
+    internal void RefuseDuringOnlineCapture(string clusterId)
+    {
+        if (_online.ContainsKey(clusterId))
+            throw new InvalidOperationException("An online backup is copying this cluster's runtime; retry when it completes.");
+    }
+
     internal HostContract.HostSnapshot Capture(HostContract.HostSnapshotRequest request)
     {
         if (request.SnapshotId == Guid.Empty || request.CaptureFence.Length != 64 || !request.CaptureFence.All(Uri.IsHexDigit)) throw new InvalidDataException("Snapshot ID is required.");
+        if (request.Online != request.BytesPerSecond > 0) throw new InvalidDataException("An online snapshot needs a byte rate, an offline one none.");
         var attachment = attachments.GetAll().Single(a => a.ClusterId == request.ClusterId);
         if (attachment.BundleManifestSha256 != request.ExpectedBundleManifestSha256)
             throw new InvalidOperationException("Active deployment changed before snapshot.");
-        nodes.EnsureStopped(request.ClusterId);
-        gateway.EnsureStopped(request.ClusterId);
+        if (!request.Online)
+        {
+            RefuseDuringOnlineCapture(request.ClusterId);
+            nodes.EnsureStopped(request.ClusterId);
+            gateway.EnsureStopped(request.ClusterId);
+            return CaptureCore(request, attachment);
+        }
+        if (!_online.TryAdd(request.ClusterId, true)) throw new InvalidOperationException("An online backup of this cluster is already running.");
+        try { return CaptureCore(request, attachment); }
+        finally { _online.TryRemove(request.ClusterId, out _); }
+    }
+
+    // One pass from the runtime into the archive, hashing on the way; the manifest goes last (schema 3).
+    private HostContract.HostSnapshot CaptureCore(HostContract.HostSnapshotRequest request, HostContract.HostAttachmentSpec attachment)
+    {
         string archive = ArchivePath(request.ClusterId, request.SnapshotId);
         if (File.Exists(archive)) return Describe(archive, request.ClusterId, request.SnapshotId, request.ExpectedBundleManifestSha256, request.CaptureFence);
         var bundle = ExecutionBundle.Load(attachment.BundleManifestPath!, attachment.BundleManifestSha256!);
         string runtime = bundle.Manifest.RuntimeRoot ?? throw new InvalidDataException("Snapshot requires a managed runtime root.");
+        if (request.Online && (bundle.Manifest.Gateway is null) != (request.RegistryArtifactId is null))
+            throw new InvalidDataException("An online snapshot takes the Gateway's registry copy on the Gateway Host, and only there.");
+        string? registry = request.RegistryArtifactId is { } artifactId
+            ? Path.Combine(runtime, "gateway", "exports", ValidArtifactId(artifactId), RegistryFile) : null;
         Directory.CreateDirectory(Root(request.ClusterId));
         if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Root(request.ClusterId), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        string staging = Path.Combine(Root(request.ClusterId), ".capture-" + Guid.NewGuid().ToString("N"));
-        Directory.CreateDirectory(staging);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(staging, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string temporary = archive + ".tmp";
         try
         {
+            var (directories, sources) = Walk(runtime, request.Online);
             var files = new Dictionary<string, string>(StringComparer.Ordinal);
             var modes = new Dictionary<string, int>(StringComparer.Ordinal);
-            var directories = new Dictionary<string, int>(StringComparer.Ordinal);
-            ExecutionBundle.RefuseTree(runtime);
-            foreach (string source in Directory.EnumerateDirectories(runtime, "*", SearchOption.AllDirectories))
-                directories.Add("runtime/" + Path.GetRelativePath(runtime, source).Replace('\\', '/') + "/", Mode(source));
-            foreach (string source in ExecutionBundle.RefuseTree(runtime))
-            {
-                string relative = Path.GetRelativePath(runtime, source);
-                string copy = Path.Combine(staging, "runtime", relative);
-                Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
-                using (var input = File.OpenRead(source))
-                using (var output = new FileStream(copy, FileMode.CreateNew))
-                { input.CopyTo(output); output.Flush(true); }
-                files.Add("runtime/" + relative, HashFile(copy));
-                modes.Add("runtime/" + relative, Mode(source));
-            }
-            if (files.Count == 0) throw new InvalidDataException("Runtime data is empty.");
-            var manifest = new SnapshotManifest(2, request.ClusterId, hostId, request.SnapshotId, bundle.Manifest.Revision,
-                request.ExpectedBundleManifestSha256, files, Credentials(bundle.Manifest, attachment.TokenEnvironmentVariable), bundle.Manifest.StorageFormats, request.CaptureFence, modes, directories);
-            using (var output = new FileStream(archive + ".tmp", FileMode.Create, FileAccess.Write, FileShare.None))
+            var directoryModes = new Dictionary<string, int>(StringComparer.Ordinal);
+            var rate = request.Online ? new ByteRate(request.BytesPerSecond) : null;
+            using (var output = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
             {
                 using (var writer = new TarWriter(output, leaveOpen: true))
                 {
+                    foreach (string source in directories.Order(StringComparer.Ordinal))
+                    {
+                        string relative = Path.GetRelativePath(runtime, source).Replace('\\', '/');
+                        if (request.Online && LeftOutOnline(relative)) continue;
+                        int mode;
+                        try { mode = Mode(source); }
+                        catch (Exception error) when (request.Online && error is FileNotFoundException or DirectoryNotFoundException) { continue; }
+                        writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, "runtime/" + relative + "/") { Mode = (UnixFileMode)mode });
+                        directoryModes.Add("runtime/" + relative + "/", mode);
+                    }
+                    foreach (string source in sources.Order(StringComparer.Ordinal))
+                    {
+                        string relative = Path.GetRelativePath(runtime, source).Replace('\\', '/');
+                        if (request.Online && LeftOutOnline(relative)) continue;
+                        WriteFile(writer, source, "runtime/" + relative, request.Online, rate, files, modes);
+                    }
+                    if (registry is not null)
+                    {
+                        string name = "runtime/gateway/registry/" + RegistryFile;
+                        if (!WriteFile(writer, registry, name, false, rate, files, modes)
+                            || !files[name].Equals(request.RegistrySha256, StringComparison.OrdinalIgnoreCase))
+                            throw new InvalidDataException("The Gateway's registry copy does not match its checksum.");
+                    }
+                    if (files.Count == 0) throw new InvalidDataException("Runtime data is empty.");
+                    var manifest = new SnapshotManifest(3, request.ClusterId, hostId, request.SnapshotId, bundle.Manifest.Revision,
+                        request.ExpectedBundleManifestSha256, files, Credentials(bundle.Manifest, attachment.TokenEnvironmentVariable), bundle.Manifest.StorageFormats, request.CaptureFence, modes, directoryModes);
                     using var metadata = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(manifest, Json));
                     writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "snapshot.json") { DataStream = metadata });
-                    foreach (var (name, mode) in directories.OrderBy(d => d.Key, StringComparer.Ordinal))
-                        writer.WriteEntry(new PaxTarEntry(TarEntryType.Directory, name) { Mode = (UnixFileMode)mode });
-                    foreach (var file in files.Keys.Order(StringComparer.Ordinal))
-                    {
-                        using var data = File.OpenRead(Path.Combine(staging, file));
-                        writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, file) { DataStream = data, Mode = (UnixFileMode)modes[file] });
-                    }
                 }
                 output.Flush(true);
             }
-            File.Move(archive + ".tmp", archive);
+            File.Move(temporary, archive);
             return Describe(archive, request.ClusterId, request.SnapshotId, request.ExpectedBundleManifestSha256, request.CaptureFence);
         }
-        finally
-        {
-            Directory.Delete(staging, true);
-            if (File.Exists(archive + ".tmp")) File.Delete(archive + ".tmp");
-        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
+
+    private const string RegistryFile = "registry.db";
+
+    // A stopped runtime must be complete and free of links. A live one changes under the walk: entries that
+    // vanish (retention deletes old saves) are skipped, and files written after the walk are not copied.
+    private static (string[] Directories, string[] Files) Walk(string runtime, bool online)
+    {
+        if (!online)
+        {
+            string[] files = ExecutionBundle.RefuseTree(runtime);
+            return (Directory.EnumerateDirectories(runtime, "*", SearchOption.AllDirectories).ToArray(), files);
+        }
+        var entries = new DirectoryInfo(runtime).EnumerateFileSystemInfos("*",
+            new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0 }).ToArray();
+        if ((File.GetAttributes(runtime) & FileAttributes.ReparsePoint) != 0
+            || entries.Any(entry => (entry.Attributes & FileAttributes.ReparsePoint) != 0))
+            throw new InvalidDataException("Runtime paths must not contain symbolic links.");
+        return (entries.OfType<DirectoryInfo>().Select(entry => entry.FullName).ToArray(),
+            entries.OfType<FileInfo>().Select(entry => entry.FullName).ToArray());
+    }
+
+    // What an online copy leaves out: the live registry database, which the Gateway's consistent copy
+    // replaces; the export area, which holds that copy; temporary names of writes still in flight; sockets.
+    // A restore is a crash at the registry copy time, and none of these survive a crash usefully.
+    internal static bool LeftOutOnline(string relative)
+    {
+        string name = Path.GetFileName(relative);
+        return relative.StartsWith("gateway/exports/", StringComparison.Ordinal)
+            || relative.StartsWith("gateway/registry/" + RegistryFile, StringComparison.Ordinal)
+            || name.EndsWith(".tmp", StringComparison.Ordinal) || name.Contains(".tmp-", StringComparison.Ordinal)
+            || name.EndsWith(".part", StringComparison.Ordinal) || name.EndsWith(".partial", StringComparison.Ordinal)
+            || name.EndsWith(".sock", StringComparison.Ordinal);
+    }
+
+    // False when an online source vanished before it was opened.
+    private static bool WriteFile(TarWriter writer, string source, string name, bool online, ByteRate? rate,
+        Dictionary<string, string> files, Dictionary<string, int> modes)
+    {
+        FileStream input;
+        try { input = File.OpenRead(source); }
+        catch (Exception error) when (online && error is FileNotFoundException or DirectoryNotFoundException) { return false; }
+        using (input)
+        {
+            int mode = OperatingSystem.IsWindows() ? 448 : (int)File.GetUnixFileMode(input.SafeFileHandle) & 511;
+            using var data = new SnapshotFileStream(input, rate);
+            writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = data, Mode = (UnixFileMode)mode });
+            if (data.Shrunk) Console.Error.WriteLine($"snapshot: {name} shrank while it was copied; its end is zero-filled.");
+            files.Add(name, data.Sha256());
+            modes.Add(name, mode);
+        }
+        return true;
+    }
+
+    private static string ValidArtifactId(string artifactId) =>
+        artifactId.Length is < 1 or > 128 || artifactId.Any(c => !char.IsAsciiLetterOrDigit(c) && c != '-')
+            ? throw new InvalidDataException("Invalid artifact ID.") : artifactId;
 
     internal HostContract.HostSnapshot Describe(string archive, string clusterId, Guid id, string? expectedBundle = null, string? expectedFence = null)
     {
         using var input = File.OpenRead(archive);
+        var manifest = ReadManifest(input);
         using var reader = new TarReader(input);
-        var manifest = ReadManifest(reader);
         if (manifest.ClusterId != clusterId || manifest.HostId != hostId || manifest.SnapshotId != id
             || expectedBundle is not null && manifest.BundleManifestSha256 != expectedBundle
             || expectedFence is not null && manifest.CaptureFence != expectedFence)
@@ -177,6 +258,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         var seen = new HashSet<string>(StringComparer.Ordinal);
         while (reader.GetNextEntry() is { } entry)
         {
+            if (entry.Name == ManifestEntry) continue;
             ValidateEntryPath(entry.Name);
             if (entry.EntryType == TarEntryType.Directory && manifest.Directories.TryGetValue(entry.Name, out int mode)
                 && (int)entry.Mode == mode && seen.Add(entry.Name)) continue;
@@ -195,6 +277,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     internal void Restore(HostContract.HostSnapshotRestore request, bool preview = false)
     {
         if (request.RestoreId == Guid.Empty) throw new InvalidDataException("Restore ID is required.");
+        RefuseDuringOnlineCapture(request.ClusterId);
         nodes.EnsureStopped(request.ClusterId);
         gateway.EnsureStopped(request.ClusterId);
         var attachment = attachments.GetAll().Single(a => a.ClusterId == request.ClusterId);
@@ -235,8 +318,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         try
         {
             using var input = File.OpenRead(archive);
+            var manifest = ReadManifest(input);
             using var reader = new TarReader(input);
-            var manifest = ReadManifest(reader);
             if (manifest.ClusterId != request.ClusterId || manifest.HostId != hostId || manifest.SnapshotId != request.SnapshotId)
                 throw new InvalidDataException("Snapshot belongs to a different cluster or Host.");
             ExecutionBundle.RequireCompatibleStorage(candidate.Manifest.StorageFormats, manifest.StorageFormats);
@@ -247,6 +330,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             var seen = new HashSet<string>(StringComparer.Ordinal);
             while (reader.GetNextEntry() is { } entry)
             {
+                if (entry.Name == ManifestEntry) continue;
                 ValidateEntryPath(entry.Name);
                 if (entry.EntryType == TarEntryType.Directory && manifest.Directories.TryGetValue(entry.Name, out int mode)
                     && (int)entry.Mode == mode && seen.Add(entry.Name))
@@ -295,15 +379,30 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
     }
 
-    private static SnapshotManifest ReadManifest(TarReader reader)
+    private const string ManifestEntry = "snapshot.json";
+
+    // Schema 2 archives start with the manifest. Schema 3 archives are written in one pass and end with it.
+    // Leaves the stream at the start for the caller's own pass.
+    private static SnapshotManifest ReadManifest(Stream archive)
     {
-        var entry = reader.GetNextEntry();
-        if (entry?.Name != "snapshot.json" || entry.EntryType != TarEntryType.RegularFile
-            || entry.Length is <= 0 or > 64 * 1024 * 1024 || entry.DataStream is null)
-            throw new InvalidDataException("Invalid snapshot manifest.");
-        var manifest = JsonSerializer.Deserialize<SnapshotManifest>(entry.DataStream, Json)
-            ?? throw new InvalidDataException("Missing snapshot manifest.");
-        if (manifest.SchemaVersion != 2 || manifest.Files.Count is < 1 or > 500_000
+        SnapshotManifest? manifest = null;
+        bool first = false, last = false;
+        using (var reader = new TarReader(archive, leaveOpen: true))
+            for (int index = 0; reader.GetNextEntry() is { } entry; index++)
+            {
+                last = false;
+                if (entry.Name != ManifestEntry) continue;
+                if (manifest is not null || entry.EntryType != TarEntryType.RegularFile
+                    || entry.Length is <= 0 or > 64 * 1024 * 1024 || entry.DataStream is null)
+                    throw new InvalidDataException("Invalid snapshot manifest.");
+                manifest = JsonSerializer.Deserialize<SnapshotManifest>(entry.DataStream, Json)
+                    ?? throw new InvalidDataException("Missing snapshot manifest.");
+                first = index == 0;
+                last = true;
+            }
+        archive.Position = 0;
+        if (manifest is null || !(manifest.SchemaVersion == 2 && first || manifest.SchemaVersion == 3 && last)
+            || manifest.Files.Count is < 1 or > 500_000
             || manifest.Directories is null || manifest.Modes is null || manifest.Directories.Count > 500_000
             || manifest.Modes.Count != manifest.Files.Count || manifest.Modes.Values.Concat(manifest.Directories.Values).Any(m => m < 0 || m > 511))
             throw new InvalidDataException("Unsupported snapshot schema or file count.");
@@ -346,4 +445,61 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     }
     private static string HashFile(string path)
     { using var file = File.OpenRead(path); return Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant(); }
+}
+
+// A source file read once into the archive. Its length is fixed when it is opened: a file that keeps
+// growing is cut there, and one that shrinks is zero-filled to keep the archive valid. The bytes are
+// hashed as they pass and paced to the online byte rate.
+internal sealed class SnapshotFileStream(FileStream source, ByteRate? rate) : Stream
+{
+    private readonly long _length = source.Length;
+    private readonly IncrementalHash _hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+    private long _position;
+    internal bool Shrunk { get; private set; }
+    public override bool CanRead => true;
+    public override bool CanSeek => true; // TarWriter reads the entry size from Length.
+    public override bool CanWrite => false;
+    public override long Length => _length;
+    public override long Position { get => _position; set => throw new NotSupportedException(); }
+    public override int Read(byte[] buffer, int offset, int count) => Read(buffer.AsSpan(offset, count));
+    public override int Read(Span<byte> buffer)
+    {
+        int wanted = (int)Math.Min(buffer.Length, _length - _position);
+        if (wanted == 0) return 0;
+        int read = Shrunk ? 0 : source.Read(buffer[..wanted]);
+        if (read == 0)
+        {
+            Shrunk = true;
+            buffer[..wanted].Clear();
+            read = wanted;
+        }
+        _hash.AppendData(buffer[..read]);
+        _position += read;
+        rate?.Pace(read);
+        return read;
+    }
+    internal string Sha256() => Convert.ToHexString(_hash.GetHashAndReset()).ToLowerInvariant();
+    public override void Flush() { }
+    public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+    public override void SetLength(long value) => throw new NotSupportedException();
+    public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) _hash.Dispose();
+        base.Dispose(disposing);
+    }
+}
+
+// Keeps an online copy to its byte rate, so it does not starve the game's own saves of disk bandwidth.
+internal sealed class ByteRate(long bytesPerSecond)
+{
+    private readonly System.Diagnostics.Stopwatch _clock = System.Diagnostics.Stopwatch.StartNew();
+    private long _bytes;
+
+    internal void Pace(int count)
+    {
+        _bytes += count;
+        long ahead = (long)(_bytes * 1000.0 / bytesPerSecond) - _clock.ElapsedMilliseconds;
+        if (ahead > 0) Thread.Sleep(TimeSpan.FromMilliseconds(ahead));
+    }
 }

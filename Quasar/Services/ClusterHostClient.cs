@@ -68,8 +68,8 @@ public sealed partial class ClusterHostClient
 
     public Task<HostContract.HostEnvelope<HostContract.HostSnapshot>> CaptureSnapshotAsync(ClusterDefinition cluster,
         HostContract.HostSnapshotRequest request, CancellationToken token) => SendAsync<HostContract.HostSnapshot>(cluster,
-            HttpMethod.Post, HostContract.HostProtocol.RoutePrefix + "/snapshots/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + request.SnapshotId,
-            request, token, longRunning: true);
+            HttpMethod.Post, HostContract.HostProtocol.RoutePrefix + "/snapshots/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + request.SnapshotId
+            + (request.Online ? "?online=true" : ""), request, token, longRunning: true);
 
     public Task<HostContract.HostEnvelope<JsonElement>> RestoreSnapshotAsync(ClusterDefinition cluster,
         HostContract.HostSnapshotRestore request, CancellationToken token, bool preview = false) => SendAsync<JsonElement>(cluster,

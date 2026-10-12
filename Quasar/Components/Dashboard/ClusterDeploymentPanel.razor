@@ -99,10 +99,14 @@
         <MudExpansionPanels>
             <MudExpansionPanel Text="Backups">
                 <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
-                <p class="quasar-text quasar-type-body2">Backups require a clean stop. Running clusters can store a Cluster Registry world export.</p>
+                <p class="quasar-text quasar-type-body2">A backup of a cleanly stopped cluster is clean (Quiescent). A running cluster is copied without downtime; that backup restores to the state of a crash at the start of the copy (CrashConsistent). Scheduled server backups cover clusters both ways.</p>
                 @if (Current.GoalState == DedicatedServerGoalState.Off)
                 {
                     <MudButton OnClick="BackupAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary">Back up stopped cluster</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="OnlineBackupAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Back up running cluster</MudButton>
                 }
                 <MudButton OnClick="ListBackups" Disabled="_busy" Variant="Variant.Outlined" Color="Color.Primary">List backups</MudButton>
                 @if (_backups is not null) { <pre style="max-height:300px;overflow:auto">@_backups</pre> }
@@ -111,7 +115,7 @@
                     <MudSelect T="Guid" @bind-Value="RestoreSnapshotId" Label="Backup to restore" Variant="Variant.Outlined">
                         @foreach (var backup in Backups.List(Cluster.UniqueName))
                         {
-                            <MudSelectItem T="Guid" Value="@backup.SnapshotId">@backup.CreatedAt.ToLocalTime() · @backup.SnapshotId</MudSelectItem>
+                            <MudSelectItem T="Guid" Value="@backup.SnapshotId">@backup.CreatedAt.ToLocalTime() · @backup.Consistency · @backup.SnapshotId</MudSelectItem>
                         }
                     </MudSelect>
                     <MudButton OnClick="PrepareRestoreAsync" Disabled="@(_busy || _restoreSnapshotId == Guid.Empty || UpdateLocked)"
@@ -243,11 +247,13 @@
         finally { _busy = false; }
     }
     private void ListBackups() => _backups = JsonSerializer.Serialize(Backups.List(Cluster.UniqueName)
-        .Select(b => new { b.SnapshotId, b.CreatedAt, b.Consistency }), Json);
+        .Select(b => new { b.SnapshotId, b.CreatedAt, b.Consistency, b.Online }), Json);
     private Task ArchiveExportAsync() => ExecuteAsync(actor => Backups.ArchiveExportAsync(Cluster.UniqueName,
         _artifactId, Guid.NewGuid().ToString("N"), actor, default));
     private Task BackupAsync() => ExecuteAsync(actor => Backups.CaptureAsync(Cluster.UniqueName,
         new(Guid.NewGuid()), Guid.NewGuid().ToString("N"), actor, default));
+    private Task OnlineBackupAsync() => ExecuteAsync(actor => Backups.CaptureAsync(Cluster.UniqueName,
+        new(Guid.NewGuid(), AllowCrashConsistent: true, Online: true), Guid.NewGuid().ToString("N"), actor, default));
     private async Task RestoreAsync()
     {
         if (string.IsNullOrWhiteSpace(_restore)) return;

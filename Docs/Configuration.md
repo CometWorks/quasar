@@ -1900,12 +1900,28 @@ the Gateway artifact. Checks include manifest, exact inventory, file hashes and 
 For multiple Hosts, `exportDataRoots` must name paths readable by the Gateway Host.
 Native stopped snapshots capture every Host independently without shared storage.
 
-Automatic native cluster backups reuse the existing server schedule/retention only
-while a cluster is already cleanly stopped. They do not schedule downtime, so a cluster
-that runs around the clock gets no scheduled backups; the deployment panel says so. A failed
-scheduled capture is logged and retried after an hour within the same stopped period. Manual
+Automatic native cluster backups follow the server backup schedule. A cleanly stopped
+cluster gets an offline backup (`Quiescent`). A running cluster gets an online backup
+(`CrashConsistent`) without downtime: Quasar runs `save-all`, which pins the newest saves
+against retention, has the Gateway copy its registry database (`POST
+/admin/v1/registry-backups`, a cluster release that has it is required), then each Host
+streams its runtime into the snapshot, the Gateway Host first, with the registry copy in
+place of the live database. Temporary files of writes in flight, sockets and the Gateway
+export area stay out. The copy runs at most at **Running cluster copy rate** on the Backup
+page (32 MiB/s by default). A restored online backup is the cluster as it would be after
+a crash at the registry copy time. Like every restore, its first start is a recovery start
+that fences all earlier nodes. Saves are write-once and catalogued only once complete, so
+every save the registry copy names is whole, and newer files are ignored by recovery.
+
+Retention keeps the newest **Keep last N per server** automatic backups of a cluster,
+plus its newest `Quiescent` one. An online backup holds no lifecycle lock, so stopping
+the cluster, even by emergency shutdown, never waits for it; Hosts refuse to activate or
+restore a cluster while they copy it. A failed scheduled capture is logged and retried
+after an hour. A manual online backup is `cluster backup NAME REQUEST.json` with
+`{"snapshotId":"NEW-UUID","allowCrashConsistent":true,"online":true}`, or **Back up running
+cluster** in the deployment panel. Manual
 native backups and archived vanilla exports are retained. Snapshot capture IDs bind
-the stopped lifecycle. Restore rotates runtime credentials, retains the prior runtime,
+the lifecycle. Restore rotates runtime credentials, retains the prior runtime,
 changes plugin store identity and fences old operations before startup is allowed.
 
 ### Explicit recovery after unclean cluster shutdown

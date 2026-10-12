@@ -14,8 +14,9 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     ILogger<ClusterBackupService>? logger = null, ClusterDependencyService? dependencies = null,
     ClusterCredentialStore? credentials = null, QuasarConfigProfileCatalog? profiles = null)
 {
-    // A failed scheduled capture is tried again this long after its failure, within the same stopped lifecycle.
-    internal static readonly TimeSpan ScheduledRetryDelay = TimeSpan.FromHours(1);
+    // A failed scheduled capture is tried again this long after its failure.
+    internal TimeSpan ScheduledRetryDelay { get; init; } = TimeSpan.FromHours(1);
+    private static readonly TimeSpan GatewayStepTimeout = TimeSpan.FromMinutes(10);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _unreadable = new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
@@ -87,27 +88,36 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             return new Admin.AdminEnvelope<Admin.ArtifactDescriptor>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, descriptor);
         }, ct), token);
 
-    internal async Task CaptureDueAsync(CancellationToken token)
+    internal Task CaptureDueAsync(CancellationToken token) => CaptureDueAsync(settings.GetSettings(), token);
+
+    internal async Task CaptureDueAsync(QuasarBackupSettings current, CancellationToken token)
     {
-        var rule = settings.GetSettings().Server;
+        var rule = current.Server;
         if (!rule.Enabled) return;
         foreach (var cluster in catalog.GetClusters())
         {
-            // Scheduled backups are offline backups: they need a cleanly stopped cluster.
-            if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.ActiveDeployment is null
-                || !cluster.IsProvenStopped() || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) continue;
+            if (cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null
+                || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) continue;
+            // A proven stopped cluster gets an offline backup. A running one gets an online backup, which is
+            // crash-consistent: without it a cluster that never stops would never be backed up.
+            bool offline = cluster.GoalState == DedicatedServerGoalState.Off && cluster.IsProvenStopped();
+            bool online = cluster.GoalState == DedicatedServerGoalState.On && cluster.Gateway is not null;
+            if (!offline && !online) continue;
             try
             {
                 rule.LastBackupUtc = List(cluster.UniqueName).Where(b => b.Automatic).Select(b => (DateTimeOffset?)b.CreatedAt).FirstOrDefault();
                 if (!AutomaticBackupService.IsDue(rule, DateTimeOffset.UtcNow)) continue;
-                // Stable within the stopped lifecycle: a lost response does not capture another cut.
+                // Stable within the lifecycle: a lost response does not capture another cut.
                 // A failed capture keeps its snapshot ID but is retried under a new operation key.
                 var id = new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster.GetLifecycleId() + ":" + rule.LastBackupUtc))[..16]);
                 string key = operations.AttemptKey(cluster.UniqueName, "cluster.backup.create", "scheduled-" + id.ToString("N"), ScheduledRetryDelay);
                 bool replay = operations.Find(cluster.UniqueName, "cluster.backup.create", key) is not null;
-                var result = await CaptureAsync(cluster.UniqueName, new(id, Automatic: true), key, "backup-scheduler", token);
+                var result = await CaptureAsync(cluster.UniqueName,
+                    new(id, AllowCrashConsistent: online, Automatic: true, Online: online), key, "backup-scheduler",
+                    current.OnlineClusterMiBPerSecond * 1024L * 1024, token);
                 if (result.State == ClusterOperationState.Failed && !replay)
                     logger?.LogError("Scheduled backup of cluster {Cluster} failed: {Code}: {Message}", cluster.UniqueName, result.Error?.Code, result.Error?.Message);
+                if (result.State == ClusterOperationState.Succeeded) Prune(cluster.UniqueName, rule.RetentionCount);
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
             // One cluster's failure must not skip the scheduled backups of the others.
@@ -118,10 +128,27 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         }
     }
 
+    // Keeps the newest automatic backups, plus the newest Quiescent one: online backups must not push out
+    // the last clean cut of a cluster that rarely stops.
+    internal void Prune(string clusterId, int retentionCount)
+    {
+        var automatic = List(clusterId).Where(b => b.Automatic).ToArray();
+        var keep = automatic.Take(retentionCount)
+            .Concat(automatic.Where(b => b.Consistency == Admin.ExportConsistency.Quiescent).Take(1))
+            .Select(b => b.SnapshotId).ToHashSet();
+        foreach (var old in automatic.Where(b => !keep.Contains(b.SnapshotId)))
+            Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
+    }
+
     public Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor, CancellationToken token) =>
+        CaptureAsync(clusterId, request, key, actor, request.Online ? settings.GetSettings().OnlineClusterMiBPerSecond * 1024L * 1024 : 0, token);
+
+    internal Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor,
+        long bytesPerSecond, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.backup.create", key, actor, request,
-            async ct => new Admin.AdminEnvelope<ClusterBackup>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
-                await catalog.WithLifecycleAsync(clusterId, cluster => CaptureCoreAsync(cluster, request, ct), ct)), token);
+            async ct => new Admin.AdminEnvelope<ClusterBackup>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, request.Online
+                ? await CaptureOnlineCoreAsync(catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId), request, key, bytesPerSecond, ct)
+                : await catalog.WithLifecycleAsync(clusterId, cluster => CaptureCoreAsync(cluster, request, ct), ct)), token);
 
     internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token,
         Guid? updateId = null)
@@ -170,13 +197,113 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             Verify(staging, cluster.UniqueName);
             Directory.Move(staging, destination);
             await ReleaseHostCopiesAsync(backup, token);
-            if (request.Automatic)
-                foreach (var old in List(cluster.UniqueName).Where(b => b.Automatic)
-                    .Skip(settings.GetSettings().Server.RetentionCount))
-                    Directory.Delete(Path.Combine(Root(cluster.UniqueName), old.SnapshotId.ToString("N")), true);
             return backup;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+    }
+
+    // A running cluster, copied so that a restore is a crash at the registry copy time: save-all pins the
+    // newest saves against retention, the Gateway copies its registry, then each Host streams its runtime,
+    // the Gateway Host first. Saves are write-once and catalogued only once complete, so every save the
+    // registry copy names is copied whole, and newer files are uncatalogued and ignored by recovery.
+    // No lifecycle gate: a stop or an emergency shutdown must not wait for the copy. Hosts refuse to
+    // activate or restore a cluster while they copy it.
+    internal async Task<ClusterBackup> CaptureOnlineCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, string key,
+        long bytesPerSecond, CancellationToken token)
+    {
+        if (request.SnapshotId == Guid.Empty || !request.AllowCrashConsistent || bytesPerSecond <= 0
+            || cluster.GoalState != DedicatedServerGoalState.On || cluster.ActiveDeployment is null || cluster.Gateway is null
+            || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null
+            || cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
+            throw new InvalidOperationException("An online backup requires an explicit crash-consistent request, goal On and a complete managed deployment.");
+        string destination = Path.Combine(Root(cluster.UniqueName), request.SnapshotId.ToString("N"));
+        if (Directory.Exists(destination))
+        {
+            var existing = Verify(destination, cluster.UniqueName);
+            if (existing.Deployment.GetLifecycleId() != cluster.GetLifecycleId())
+                throw new InvalidOperationException("Snapshot ID belongs to a different lifecycle.");
+            await ReleaseHostCopiesAsync(existing, token);
+            return existing;
+        }
+        var capabilities = (await gateway.GetCapabilitiesAsync(cluster, token)).Data;
+        if (!capabilities.Operations.Contains("POST " + Admin.AdminProtocol.RoutePrefix + "/registry-backups"))
+            throw new InvalidOperationException("This cluster's Gateway cannot copy its registry while it runs. Update the cluster to get online backups.");
+        var phase = (await gateway.GetStatusAsync(cluster, token)).Data.Phase;
+        if (phase != Admin.ClusterPhase.Serving)
+            throw new InvalidOperationException($"An online backup needs a serving cluster; this one is {phase}.");
+        // The Gateway steps follow the attempt, so a retry after a failure runs them again.
+        string gatewayKey = "quasar-backup-" + Convert.ToHexString(SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes(cluster.UniqueName + ":" + key)))[..32].ToLowerInvariant();
+        await RunGatewayAsync(cluster, "save-all", new Admin.SaveAllRequest(), gatewayKey + "-save", token);
+        var copy = await RunGatewayAsync(cluster, "registry-backups", new { ttlHours = 6 }, gatewayKey + "-registry", token);
+        string artifactId = copy.Result?.GetValueOrDefault("artifactId") ?? throw new InvalidDataException("The Gateway's registry copy has no artifact.");
+        Directory.CreateDirectory(Root(cluster.UniqueName));
+        string staging = Path.Combine(Root(cluster.UniqueName), ".capture-" + request.SnapshotId.ToString("N"));
+        try
+        {
+            var descriptor = (await gateway.GetArtifactAsync(cluster, artifactId, token)).Data;
+            if (descriptor.ArtifactId != artifactId || descriptor.FileChecksums.Count != 1
+                || !descriptor.FileChecksums.TryGetValue("registry.db", out var registrySha256))
+                throw new InvalidDataException("The Gateway's registry copy is not a single registry database.");
+            if (Directory.Exists(staging)) Directory.Delete(staging, true);
+            Directory.CreateDirectory(staging);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(staging, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            // Not the stopped lifecycle: conversion, which starts from a stopped cut, refuses this capture.
+            string fence = Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(
+                "online:" + request.SnapshotId.ToString("N")))).ToLowerInvariant();
+            var snapshots = new List<HostContract.HostSnapshot>();
+            foreach (var host in cluster.ActiveDeployment.Hosts.OrderByDescending(h => h.Deployment.Gateway is not null))
+            {
+                bool owner = host.Deployment.Gateway is not null;
+                var target = Target(cluster, host);
+                var snapshot = (await hosts.CaptureSnapshotAsync(target, new(cluster.UniqueName, request.SnapshotId,
+                    host.Deployment.BundleManifestSha256, fence, Online: true, RegistryArtifactId: owner ? artifactId : null,
+                    RegistrySha256: owner ? registrySha256 : null, BytesPerSecond: bytesPerSecond), token)).Data;
+                if (snapshot.ClusterId != cluster.UniqueName || snapshot.HostId != host.HostId
+                    || snapshot.SnapshotId != request.SnapshotId || snapshot.Revision != cluster.ActiveDeployment.Revision
+                    || snapshot.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
+                    throw new InvalidDataException("Host snapshot does not match the running deployment.");
+                await hosts.TransferSnapshotAsync(target, snapshot, Path.Combine(staging, FileName(snapshot.HostId)), false, token);
+                snapshots.Add(snapshot);
+            }
+            var backup = new ClusterBackup(request.SnapshotId, cluster.UniqueName, DateTimeOffset.UtcNow,
+                Admin.ExportConsistency.CrashConsistent, cluster.Clone(), snapshots.ToArray(), request.Automatic, Online: true);
+            await File.WriteAllBytesAsync(Path.Combine(staging, "backup.json"), JsonSerializer.SerializeToUtf8Bytes(backup, Json), token);
+            Verify(staging, cluster.UniqueName);
+            Directory.Move(staging, destination);
+            await ReleaseHostCopiesAsync(backup, token);
+            return backup;
+        }
+        finally
+        {
+            if (Directory.Exists(staging)) Directory.Delete(staging, true);
+            try
+            {
+                await gateway.MutateAsync(cluster, "artifacts/" + Uri.EscapeDataString(artifactId), HttpMethod.Delete, null,
+                    gatewayKey + "-release", CancellationToken.None);
+            }
+            // It expires on its own; a cluster stopped during the copy cannot release it now.
+            catch (Exception error) when (error is ClusterGatewayException or HttpRequestException or TaskCanceledException)
+            {
+                logger?.LogWarning("Registry copy {Artifact} of cluster {Cluster} was not released: {Message}", artifactId, cluster.UniqueName, error.Message);
+            }
+        }
+    }
+
+    private async Task<Admin.AdminOperation> RunGatewayAsync(ClusterDefinition cluster, string route, object body, string key, CancellationToken token)
+    {
+        var operation = (await gateway.MutateAsync(cluster, route, HttpMethod.Post, body, key, token)).Data;
+        var deadline = DateTimeOffset.UtcNow + GatewayStepTimeout;
+        while (operation.State == Admin.AdminOperationState.Running)
+        {
+            if (DateTimeOffset.UtcNow > deadline)
+                throw new InvalidOperationException($"The Gateway's {route} did not finish within {GatewayStepTimeout.TotalMinutes:0} minutes.");
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            operation = (await gateway.GetOperationAsync(cluster, operation.OperationId, token)).Data;
+        }
+        if (operation.State == Admin.AdminOperationState.Failed)
+            throw new InvalidOperationException($"The Gateway's {route} failed: {operation.Error?.Code}: {operation.Error?.Message}");
+        return operation;
     }
 
     // Conversion works against this verified stopped cut, never a live Host runtime.
@@ -409,8 +536,9 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     }
 }
 
-public sealed record ClusterBackupRequest(Guid SnapshotId, bool AllowCrashConsistent = false, bool Automatic = false);
+// Online copies a running cluster (crash-consistent, so AllowCrashConsistent is required too).
+public sealed record ClusterBackupRequest(Guid SnapshotId, bool AllowCrashConsistent = false, bool Automatic = false, bool Online = false);
 public sealed record ClusterRestorePreparationRequest(Guid SnapshotId, Guid RestoreId);
 public sealed record ClusterRestoreRequest(Guid SnapshotId, Guid RestoreId, ClusterDeploymentRequest Deployment);
 public sealed record ClusterBackup(Guid SnapshotId, string ClusterId, DateTimeOffset CreatedAt, Admin.ExportConsistency Consistency,
-    ClusterDefinition Deployment, HostContract.HostSnapshot[] Hosts, bool Automatic);
+    ClusterDefinition Deployment, HostContract.HostSnapshot[] Hosts, bool Automatic, bool Online = false);

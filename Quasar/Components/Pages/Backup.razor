@@ -263,7 +263,18 @@
                                                      Max="QuasarBackupSettings.MaxRetentionCount"
                                                      Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled" />
                                 </MudItem>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudNumericField T="int" @bind-Value="_settings.OnlineClusterMiBPerSecond" Label="Running cluster copy rate (MiB/s)"
+                                                     Min="QuasarBackupSettings.MinOnlineClusterMiBPerSecond"
+                                                     Max="QuasarBackupSettings.MaxOnlineClusterMiBPerSecond"
+                                                     Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled" />
+                                </MudItem>
                             </MudGrid>
+                            <p class="quasar-text quasar-type-caption">
+                                Managed clusters follow the same schedule. A stopped cluster gets a clean backup. A running one is
+                                copied without downtime, at most at the copy rate, and restores to the state of a crash at the
+                                start of the copy. The newest clean backup is kept beyond the retention count.
+                            </p>
                         </div>
                     </MudExpansionPanel>
 

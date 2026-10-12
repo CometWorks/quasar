@@ -3,6 +3,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using CometWorks.ClusterGateway.AdminContract.V1;
 using Quasar.Host.Contract.V1;
 using Quasar.Models;
 using Quasar.Services;
@@ -282,6 +283,156 @@ public sealed class ClusterDeploymentTests : IDisposable
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.CaptureAsync("demo",
             new(id, AllowCrashConsistent: true), "different-cut", "test", default));
         Assert.Equal(2, cleanup.Releases);
+    }
+
+    [Fact]
+    public async Task ScheduledBackupRetriesAFailedCaptureOnlyAfterTheDelay()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential) { FailCaptures = 1 };
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        var cluster = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(cluster, new(cluster.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true, Frequency = BackupFrequency.Hourly } };
+        var operations = new ClusterOperationStore(Path.Combine(root, "scheduled-operations"));
+        ClusterBackupService Backups(TimeSpan retryDelay) => new(catalog, new ClusterHostClient(new HttpClient(handler)), operations, null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "scheduled-backups") }, null!, null!) { ScheduledRetryDelay = retryDelay };
+
+        await Backups(TimeSpan.FromHours(1)).CaptureDueAsync(settings, default);
+        var failed = Assert.Single(handler.Captures);
+        Assert.Empty(Backups(TimeSpan.FromHours(1)).List("demo"));
+        // Within the delay the failed attempt stands: no second capture.
+        await Backups(TimeSpan.FromHours(1)).CaptureDueAsync(settings, default);
+        Assert.Single(handler.Captures);
+        // After it, a new attempt captures the same cut under a new operation key.
+        var backups = Backups(TimeSpan.Zero);
+        await backups.CaptureDueAsync(settings, default);
+        var backup = Assert.Single(backups.List("demo"));
+        Assert.Equal(failed.Request.SnapshotId, backup.SnapshotId);
+        Assert.True(backup.Automatic);
+        Assert.False(backup.Online);
+        Assert.Equal(CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.Quiescent, backup.Consistency);
+        Assert.All(handler.Captures, c => Assert.False(c.Request.Online));
+        // Done for this interval: the next pass captures nothing.
+        int captures = handler.Captures.Count;
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(captures, handler.Captures.Count);
+    }
+
+    [Fact]
+    public async Task ScheduledBackupCopiesARunningClusterOnlineAfterTheRegistryCopy()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler);
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "online-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "online-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler)));
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true }, OnlineClusterMiBPerSecond = 8 };
+
+        await backups.CaptureDueAsync(settings, default);
+
+        var backup = Assert.Single(backups.List("demo"));
+        Assert.True(backup.Online);
+        Assert.True(backup.Automatic);
+        Assert.Equal(CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.CrashConsistent, backup.Consistency);
+        // save-all pins the saves, the registry copy comes next, the Hosts copy after it, then the copy is released.
+        Assert.Equal(["POST /admin/v1/save-all", "POST /admin/v1/registry-backups", "GET /admin/v1/artifacts/registry-r1",
+            "host one", "host two", "DELETE /admin/v1/artifacts/registry-r1"],
+            gatewayHandler.Calls.Where(c => !c.StartsWith("GET /admin/v1/capabilities") && !c.StartsWith("GET /admin/v1/status")));
+        Assert.Equal(["one", "two"], handler.Captures.Select(c => c.Host));
+        Assert.All(handler.Captures, c => Assert.True(c.Request.Online && c.Request.BytesPerSecond == 8L * 1024 * 1024));
+        Assert.Equal(("registry-r1", OnlineGatewayHandler.RegistrySha256),
+            (handler.Captures[0].Request.RegistryArtifactId, handler.Captures[0].Request.RegistrySha256));
+        Assert.Null(handler.Captures[1].Request.RegistryArtifactId);
+        Assert.NotEqual(catalog.GetCluster("demo")!.GetLifecycleId(), handler.Captures[0].Request.CaptureFence);
+    }
+
+    [Fact]
+    public async Task OnlineBackupRefusesAGatewayThatCannotCopyItsRegistry()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler) { RegistryBackups = false };
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "old-gateway-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "old-gateway-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler)));
+        var request = new ClusterBackupRequest(Guid.NewGuid(), AllowCrashConsistent: true, Online: true);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backups.CaptureAsync("demo", request, "old", "test", 1024, default));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => backups.CaptureAsync("demo",
+            request with { SnapshotId = Guid.NewGuid(), AllowCrashConsistent = false }, "implicit", "test", 1024, default));
+        Assert.DoesNotContain(gatewayHandler.Calls, c => c.StartsWith("POST"));
+        Assert.Empty(handler.Captures);
+    }
+
+    [Fact]
+    public async Task RetentionKeepsTheNewestQuiescentBackupBeyondTheCount()
+    {
+        using var catalog = Catalog();
+        await Service(catalog, new Handler(credential)).ActivateAsync("demo", Request(), "initial", "test", default);
+        var cluster = catalog.GetCluster("demo")!;
+        string backupRoot = Path.Combine(root, "retention-backups");
+        var backups = new ClusterBackupService(catalog, null!, new ClusterOperationStore(Path.Combine(root, "retention-operations")),
+            null!, new WebServiceOptions { BackupDirectory = backupRoot }, null!, null!);
+        string Hash(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+        var start = DateTimeOffset.UtcNow.AddDays(-1);
+        Guid Write(int hour, bool quiescent, bool automatic = true)
+        {
+            var id = Guid.NewGuid();
+            string directory = Path.Combine(backupRoot, "Clusters", Hash("demo"), id.ToString("N"));
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "backup.json"), JsonSerializer.Serialize(new ClusterBackup(id, "demo", start.AddHours(hour),
+                quiescent ? CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.Quiescent : CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.CrashConsistent,
+                cluster, [], automatic, Online: !quiescent), Json));
+            return id;
+        }
+        Guid oldClean = Write(0, true), newestClean = Write(1, true), manual = Write(2, true, automatic: false);
+        Guid[] online = [Write(3, false), Write(4, false), Write(5, false)];
+        backups.Prune("demo", 2);
+        Assert.Equal(new[] { online[2], online[1], manual, newestClean }, backups.List("demo").Select(b => b.SnapshotId));
+        Assert.DoesNotContain(oldClean, backups.List("demo").Select(b => b.SnapshotId));
+    }
+
+    // A Gateway serving the online backup steps; host captures are logged into the same call order.
+    private sealed class OnlineGatewayHandler : HttpMessageHandler
+    {
+        internal const string RegistrySha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        internal bool RegistryBackups = true;
+        internal readonly List<string> Calls = [];
+        internal OnlineGatewayHandler(Handler hosts) => hosts.CaptureObserved = host => Calls.Add("host " + host);
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            string path = request.RequestUri!.AbsolutePath;
+            Calls.Add(request.Method + " " + path);
+            AdminOperation Done(string kind, Dictionary<string, string> result) => new(kind + "-1", kind, AdminOperationState.Succeeded, "quasar",
+                request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, result, null);
+            object data = path switch
+            {
+                "/admin/v1/capabilities" => new AdminCapabilities("gateway", AdminScope.Manage,
+                    RegistryBackups ? [.. AdminProtocol.Operations, "POST /admin/v1/registry-backups"] : AdminProtocol.Operations, new Dictionary<string, string>()),
+                "/admin/v1/status" => new ClusterStatus("demo", "world", ClusterPhase.Serving, StartupKind.Warm,
+                    null, null, false, false, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,
+                    AdminHealth.Healthy, [], DateTimeOffset.UtcNow, "revision", true),
+                "/admin/v1/save-all" => Done("save-all", new() { ["snapshotId"] = "save-all-1" }),
+                "/admin/v1/registry-backups" => Done("registry-backup", new() { ["artifactId"] = "registry-r1" }),
+                "/admin/v1/artifacts/registry-r1" when request.Method == HttpMethod.Get => new ArtifactDescriptor("registry-r1",
+                    "ClusterRegistrySqlite", "save-all-1", ExportConsistency.CrashConsistent, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddHours(6),
+                    4096, new string('a', 64), new Dictionary<string, string> { ["registry.db"] = RegistrySha256 },
+                    new(ArtifactRetrievalKind.SharedPath, "/runs/one/gateway/exports/registry-r1"), []),
+                "/admin/v1/artifacts/registry-r1" => Done("artifact-release", new()),
+                _ => throw new InvalidOperationException("Unexpected Gateway call " + path),
+            };
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new AdminEnvelope<object>(1, DateTimeOffset.UtcNow, data)) };
+            response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
+            return Task.FromResult(response);
+        }
     }
 
     private sealed class SnapshotCleanupHandler : HttpMessageHandler
@@ -1135,6 +1286,9 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal readonly List<string> DeletePreviews = [];
         private readonly Dictionary<string, string> active = [];
         internal readonly List<string> Applied = [];
+        internal int FailCaptures;
+        internal Action<string>? CaptureObserved;
+        internal readonly List<(string Host, HostSnapshotRequest Request)> Captures = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string host = request.RequestUri!.Host;
@@ -1148,6 +1302,10 @@ public sealed class ClusterDeploymentTests : IDisposable
                 if (request.Method == HttpMethod.Post)
                 {
                     var capture = JsonSerializer.Deserialize<HostSnapshotRequest>(await request.Content!.ReadAsStringAsync(token), Json)!;
+                    Captures.Add((host, capture));
+                    CaptureObserved?.Invoke(host);
+                    if (FailCaptures > 0 && FailCaptures-- > 0) throw new HttpRequestException("disk full");
+                    Assert.Equal(capture.Online, request.RequestUri.Query == "?online=true");
                     data = new HostSnapshot("demo", host, capture.SnapshotId, "revision", capture.ExpectedBundleManifestSha256,
                         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(archive)), archive.Length);
                 }
