@@ -53,6 +53,7 @@ raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
 | [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
+| [Admin handbook](skills/quasar-book/TOC.md) | Task-oriented handbook for server admins, written from the code: install, servers, plugins, updates, backups, clusters, troubleshooting. Also an AI skill (`quasar-book`), used by the Clangy support bot. |
 
 Entity Viewer companion plugins can now discover connected servers through
 `IQuasarCompanionChannel.GetConnectedServers()` and collect recording batches in

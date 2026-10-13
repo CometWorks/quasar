@@ -14,6 +14,8 @@ These skills are not exhaustive; use any other relevant skills as needed. If any
 
 Make sure to update all relevant documentation after making changes to the project's code or configuration.
 
+`skills/quasar-book` is the admin handbook, also used by the Clangy support bot. When a change affects what admins see or do, update the affected pages. `python3 skills/quasar-book/data/book.py stale` lists the pages whose source files changed, see `skills/quasar-book/SKILL.md`.
+
 Do not launch the Quasar web service process (`dotnet run --project Quasar/Quasar.csproj`) unless the user explicitly asks for a smoketest.
 
 Also read the project's `README.md` to understand its purpose and context.
