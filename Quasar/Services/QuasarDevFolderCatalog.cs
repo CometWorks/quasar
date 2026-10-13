@@ -121,15 +121,32 @@ public sealed class QuasarDevFolderCatalog
             .OrderBy(devFolder => devFolder.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-    private static QuasarDevFolderSelection Normalize(QuasarDevFolderSelection devFolder) =>
-        new()
+    private static QuasarDevFolderSelection Normalize(QuasarDevFolderSelection devFolder)
+    {
+        var folderPath = devFolder.FolderPath?.Trim() ?? string.Empty;
+        var dataFile = devFolder.DataFile?.Trim() ?? string.Empty;
+        return new()
         {
             Name = devFolder.Name?.Trim() ?? string.Empty,
-            FolderPath = devFolder.FolderPath?.Trim() ?? string.Empty,
-            DataFile = devFolder.DataFile?.Trim() ?? string.Empty,
-            PluginId = devFolder.PluginId?.Trim() ?? string.Empty,
+            FolderPath = folderPath,
+            DataFile = dataFile,
+            PluginId = GetPluginId(folderPath, dataFile, devFolder.PluginId),
             DebugBuild = devFolder.DebugBuild,
         };
+    }
+
+    // Magnetar knows a dev folder by its manifest <Id>, or by its folder name when the
+    // manifest has none. Quasar used to store the folder name even when the manifest had an
+    // Id, so the key is re-derived from the manifest on every load. The stored key stays
+    // while the manifest can't be read, for example while the folder is missing.
+    private static string GetPluginId(string folderPath, string dataFile, string? storedPluginId)
+    {
+        var manifestId = string.IsNullOrEmpty(folderPath) || string.IsNullOrEmpty(dataFile)
+            ? string.Empty
+            : PluginManifestReader.ReadMetadata(Path.Combine(folderPath, dataFile)).Id;
+        return new[] { manifestId, storedPluginId?.Trim(), QuasarDevFolderSelection.GetSourceFolderName(folderPath) }
+            .FirstOrDefault(id => !string.IsNullOrWhiteSpace(id)) ?? string.Empty;
+    }
 
     private static bool IsSameDevFolder(QuasarDevFolderSelection devFolder, string folderPath, string dataFile) =>
         string.Equals(devFolder.FolderPath, folderPath?.Trim(), StringComparison.OrdinalIgnoreCase) &&

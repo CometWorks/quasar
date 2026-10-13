@@ -15,16 +15,20 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
 
     private readonly object _sync = new();
     private readonly ILogger<QuasarConfigProfileCatalog> _logger;
+    private readonly QuasarDevFolderCatalog? _devFolders;
     private List<QuasarConfigProfile> _profiles;
     private string _snapshot;
     private DebouncedFileWatcher? _watcher;
 
-    public QuasarConfigProfileCatalog(ILogger<QuasarConfigProfileCatalog> logger)
+    public QuasarConfigProfileCatalog(ILogger<QuasarConfigProfileCatalog> logger, QuasarDevFolderCatalog? devFolders = null)
     {
         _logger = logger;
+        _devFolders = devFolders;
         _profiles = LoadProfiles();
         _snapshot = CreateSnapshot(_profiles);
         StartWatching();
+        if (_devFolders is not null)
+            _devFolders.Changed += ReloadFromDisk;
     }
 
     public event Action? Changed;
@@ -32,6 +36,8 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     public void Dispose()
     {
         _watcher?.Dispose();
+        if (_devFolders is not null)
+            _devFolders.Changed -= ReloadFromDisk;
     }
 
     public IReadOnlyList<QuasarConfigProfile> GetProfiles()
@@ -184,7 +190,21 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         _logger.LogInformation("Deleted active Quasar config profile at {Path}", currentPath);
     }
 
-    private static QuasarConfigProfile Normalize(QuasarConfigProfile profile)
+    private QuasarConfigProfile Normalize(QuasarConfigProfile profile) =>
+        Normalize(profile, GetLegacyDevFolderIds(_devFolders?.GetDevFolders() ?? []));
+
+    // Profiles saved by older Quasar releases select a dev folder by its folder name.
+    // Map those selections to the dev folder's current id, the one Magnetar exports.
+    internal static Dictionary<string, string> GetLegacyDevFolderIds(IReadOnlyList<QuasarDevFolderSelection> devFolders)
+    {
+        var currentIds = devFolders.Select(devFolder => devFolder.PluginId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return devFolders
+            .Where(devFolder => !string.IsNullOrWhiteSpace(devFolder.PluginId) && !currentIds.Contains(devFolder.SourceFolderName))
+            .DistinctBy(devFolder => devFolder.SourceFolderName, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(devFolder => devFolder.SourceFolderName, devFolder => devFolder.PluginId, StringComparer.OrdinalIgnoreCase);
+    }
+
+    internal static QuasarConfigProfile Normalize(QuasarConfigProfile profile, IReadOnlyDictionary<string, string> legacyDevFolderIds)
     {
         profile.ConfigProfileId = string.IsNullOrWhiteSpace(profile.ConfigProfileId)
             ? Guid.NewGuid().ToString("N")
@@ -214,7 +234,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             .Where(plugin => !string.IsNullOrWhiteSpace(plugin.PluginId))
             .Select(plugin => new QuasarPluginSelection
             {
-                PluginId = plugin.PluginId.Trim(),
+                PluginId = legacyDevFolderIds.GetValueOrDefault(plugin.PluginId.Trim(), plugin.PluginId.Trim()),
                 DisplayName = string.IsNullOrWhiteSpace(plugin.DisplayName) ? plugin.PluginId.Trim() : plugin.DisplayName.Trim(),
                 SelectedVersion = plugin.SelectedVersion?.Trim() ?? string.Empty,
             })
@@ -298,7 +318,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         Changed?.Invoke();
     }
 
-    private static string CreateSnapshot(IEnumerable<QuasarConfigProfile> profiles)
+    private string CreateSnapshot(IEnumerable<QuasarConfigProfile> profiles)
     {
         var normalized = profiles
             .Select(profile => Normalize(Clone(profile)))

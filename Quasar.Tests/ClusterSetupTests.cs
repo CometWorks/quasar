@@ -130,6 +130,31 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void ManagedExportBuildsDevFoldersInRelease()
+    {
+        string config = Path.Combine(Path.GetTempPath(), "cluster-release-build-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Profiles"));
+        try
+        {
+            string path = Path.Combine(config, "Profiles/Current.xml");
+            File.WriteAllText(path, """
+                <Profile>
+                  <GitHub><GitHubPluginConfig><Id>hub-plugin</Id><SelectedVersion /></GitHubPluginConfig></GitHub>
+                  <DevFolder>
+                    <LocalFolderConfig><Id>debug-plugin</Id><DebugBuild>true</DebugBuild></LocalFolderConfig>
+                    <LocalFolderConfig><Id>release-plugin</Id><DebugBuild>false</DebugBuild></LocalFolderConfig>
+                  </DevFolder>
+                </Profile>
+                """);
+            ClusterSetupService.UseReleaseBuilds(config);
+            var profile = System.Xml.Linq.XDocument.Load(path).Root!;
+            Assert.Equal(["false", "false"], profile.Element("DevFolder")!.Elements("LocalFolderConfig").Select(c => c.Element("DebugBuild")!.Value));
+            Assert.Equal("hub-plugin", profile.Element("GitHub")!.Element("GitHubPluginConfig")!.Element("Id")!.Value);
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
     public void NodeBinaryVersionIsTheGameAssemblyVersionTheRegistryCompares()
     {
         string installation = Path.Combine(Path.GetTempPath(), "cluster-setup-binary-" + Guid.NewGuid());

@@ -66,15 +66,14 @@ public sealed class QuasarDevFolderSelection
 
     public string DataFile { get; set; } = string.Empty;   // manifest XML filename, relative to FolderPath
 
-    public string PluginId { get; set; } = string.Empty;   // Quasar selection key; defaults to the source folder name
+    public string PluginId { get; set; } = string.Empty;   // selection key: the manifest Id, or the source folder name without one
 
     public bool DebugBuild { get; set; } = true;
 
     /// <summary>
-    /// The innermost folder name of <see cref="FolderPath"/>. This is the
-    /// default Quasar selection key and Magnetar's fallback identity when the
-    /// manifest has no <c>&lt;Id&gt;</c>. Magnetar's generated active profile uses
-    /// the manifest ID when available.
+    /// The innermost folder name of <see cref="FolderPath"/>. Quasar and Magnetar
+    /// use it as the plugin id when the manifest has no <c>&lt;Id&gt;</c>. Older Quasar
+    /// releases used it as the selection key even when the manifest had one.
     /// </summary>
     [JsonIgnore]
     public string SourceFolderName => GetSourceFolderName(FolderPath);
