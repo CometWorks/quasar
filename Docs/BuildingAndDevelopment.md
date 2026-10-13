@@ -110,6 +110,16 @@ The generated `Profiles/Current.xml` uses the manifest's `Id` for
 `DebugBuild` remains in the profile; the obsolete profile `DataFile` field is
 not generated. Existing Quasar profile selections keep their stored selection key.
 
+A cluster can use a dev folder too, but it doesn't follow the checkout. Cluster setup
+and every profile staging run Magnetar's managed preparation (`-prepareManaged`),
+which compiles the dev folder once and pins the result to the checkout's HEAD commit
+and the manifest's `RepoId`. Nodes run that frozen build. Preparation fails if the
+git repository holding the folder has modified, staged or untracked files, or if the
+manifest has no `RepoId`. To deploy a newer commit, commit it, choose **Stage profile
+changes** for the cluster, then apply the pending update from Maintenance. This needs
+a Magnetar release with dev folder support in managed preparation; older releases
+refuse dev folders and fail the setup.
+
 ## Managed runtime selection
 
 - On Windows, managed servers can run on either Magnetar build — .NET 10 (the
