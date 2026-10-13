@@ -21,7 +21,7 @@ Source and releases: https://github.com/CometWorks/quasar
 | Space Engineers Dedicated Server (DS) | Each dedicated server | The game server itself. Quasar downloads it with SteamCMD (app 298740) and keeps a managed copy. |
 | Quasar.Host | Each cluster machine | The host executor of clusters. A separate background service on every machine that runs cluster processes. See [Cluster hosts](ClusterHosts.md). |
 
-Quasar keeps running servers detached: restarting or updating Quasar does not stop them, and the agents reconnect when the new worker is up. See [Servers](Servers.md) and [Updates](Updates.md).
+Servers run detached from Quasar. By default restarting or updating Quasar does not stop them, and the agents reconnect when Quasar is back. The Docker image is the exception: there servers stop with the container. An agent that can't reach Quasar for an hour saves the world and stops its server. See [Servers](Servers.md#servers-survive-quasar-restarts) and [Updates](Updates.md).
 
 ## Server runtimes
 
@@ -66,3 +66,5 @@ A cluster splits one world across several server processes, possibly on several 
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
 - `Quasar/Services/ClusterBetaNoticeCatalog.cs`
+- `Dockerfile`
+- `Quasar.Agent/AgentConnection.cs`

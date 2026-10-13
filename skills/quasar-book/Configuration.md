@@ -78,7 +78,7 @@ Changes that apply without a restart:
 | Trust loopback, trust same subnet | **Security** page (trusted proxy changes need a restart) |
 | Data handling consent | **Security** page or `data-handling-consent.json` |
 | Discord settings | **Discord** page or `discord.json` |
-| Backup folder | **Backup** page (a hand edit of `Quasar:BackupDirectory` needs a restart) |
+| Backup folder | **Backups** page (a hand edit of `Quasar:BackupDirectory` needs a restart) |
 | Automatic update and prerelease toggles | **Updates** page |
 
 Settings passed to Quasar.Agent inside a server (`Agent*` keys) need a Quasar restart and then apply to each server on its next start.
