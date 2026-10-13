@@ -354,6 +354,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         PrepareAgentMetadata(prepared.MagnetarAppDataPath);
         PrepareCompanionMetadata(prepared.MagnetarAppDataPath, preparer.GetOwnedCompanions());
         RemoveDirectTransportDevSource(prepared.MagnetarAppDataPath);
+        UseReleaseBuilds(prepared.MagnetarAppDataPath);
         var excluded = ExcludeLocalPluginsWithoutProvenance(prepared.MagnetarAppDataPath);
         if (Directory.Exists(destination)) Directory.Delete(destination, true); // Export has no committed receipt yet.
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
@@ -369,6 +370,16 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             .Where(source => string.Equals(source.Element("Name")?.Value, "direct-transport", StringComparison.OrdinalIgnoreCase))
             .ToArray() ?? []) source.Remove();
         sources.Save(path);
+    }
+    // Every node runs the frozen export, so dev folders build release there whatever their
+    // Debug build setting for regular servers.
+    internal static void UseReleaseBuilds(string config)
+    {
+        string path = Path.Combine(config, "Profiles/Current.xml");
+        var profile = XDocument.Load(path);
+        foreach (var debugBuild in profile.Root?.Element("DevFolder")?.Elements("LocalFolderConfig").Elements("DebugBuild") ?? [])
+            debugBuild.Value = "false";
+        profile.Save(path);
     }
     // The Registry admits a node only when its MySandboxGame.BuildVersion equals the specification's
     // binaryVersion. That is the assembly version of Sandbox.Game.dll ("0.1.1.0"), not the game version

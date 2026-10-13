@@ -915,7 +915,7 @@
                         <p class="quasar-text quasar-type-body2 mb-3">
                             A cluster builds its dev folders once, at setup and whenever its profile is staged, and runs that build until the next staging.
                             The folder's git repository must have no uncommitted or untracked changes, and the cluster records its HEAD commit.
-                            The manifest needs a <span class="mono">RepoId</span>.
+                            The manifest needs a <span class="mono">RepoId</span>. The cluster build is always a release build; the Debug build setting applies to regular servers.
                         </p>
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders">
@@ -2638,7 +2638,7 @@
             Name = displayName,
             FolderPath = folderPath,
             DataFile = dataFile,
-            PluginId = folderName,
+            PluginId = string.IsNullOrWhiteSpace(metadata.Id) ? folderName : metadata.Id,
             DebugBuild = true,
         };
 

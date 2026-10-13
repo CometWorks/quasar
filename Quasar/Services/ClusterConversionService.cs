@@ -372,8 +372,9 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         string common = Path.Combine(installation, "Dependencies/payload/CommonPlugins");
         var pins = ReadPluginPins(common);
         var ids = pins.Keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
-        if (profile.Plugins.Any(p => !ids.Contains(p.PluginId)))
-            throw new InvalidDataException("Frozen dependency snapshot does not contain every selected source plugin.");
+        var missing = profile.Plugins.Select(p => p.PluginId).Where(id => !ids.Contains(id)).ToArray();
+        if (missing.Length != 0)
+            throw new InvalidDataException("Frozen dependency snapshot does not contain every selected source plugin. Missing: " + string.Join(", ", missing));
         if (profile.Plugins.Any(p => p.SelectedVersion.Length == 40 && p.SelectedVersion.All(Uri.IsHexDigit)
             && !pins[p.PluginId].Equals(p.SelectedVersion, StringComparison.OrdinalIgnoreCase)))
             throw new InvalidDataException("Frozen plugin commit differs from an explicitly pinned source plugin.");

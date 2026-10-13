@@ -108,17 +108,21 @@ that manifest for source directory filtering, NuGet dependencies and metadata.
 The generated `Profiles/Current.xml` uses the manifest's `Id` for
 `LocalFolderConfig/Id`, falling back to the folder name when the ID is absent.
 `DebugBuild` remains in the profile; the obsolete profile `DataFile` field is
-not generated. Existing Quasar profile selections keep their stored selection key.
+not generated. Quasar selects a dev folder by the same id: the manifest's `Id`, or
+the folder name without one. Older releases used the folder name even when the
+manifest had an `Id`. Such profile selections are mapped to the manifest `Id` when
+Quasar loads them and saved that way with the next profile edit.
 
 A cluster can use a dev folder too, but it doesn't follow the checkout. Cluster setup
 and every profile staging run Magnetar's managed preparation (`-prepareManaged`),
 which compiles the dev folder once and pins the result to the checkout's HEAD commit
 and the manifest's `RepoId`. Nodes run that frozen build. Preparation fails if the
 git repository holding the folder has modified, staged or untracked files, or if the
-manifest has no `RepoId`. To deploy a newer commit, commit it, choose **Stage profile
-changes** for the cluster, then apply the pending update from Maintenance. This needs
-a Magnetar release with dev folder support in managed preparation; older releases
-refuse dev folders and fail the setup.
+manifest has no `RepoId`. The cluster always gets a release build; the dev folder's
+**Debug build** setting applies to regular servers only. To deploy a newer commit,
+commit it, choose **Stage profile changes** for the cluster, then apply the pending
+update from Maintenance. This needs a Magnetar release with dev folder support in
+managed preparation; older releases refuse dev folders and fail the setup.
 
 ## Managed runtime selection
 

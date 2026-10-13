@@ -16,7 +16,8 @@ plus access to the selected cluster. The initial cluster release targets Linux.
    with a verified release package and frozen dependency snapshot. The page links to
    cluster registration and package/dependency setup when needed.
 3. Review the frozen plugin commits. The common plugin IDs must match the source
-   selection, apart from implicit compatibility/Agent plugins. Frozen commits govern
+   selection, apart from implicit compatibility/Agent plugins. A dev folder counts by
+   its manifest `Id`, or its folder name without one. Frozen commits govern
    the deployed versions; moving source version labels may resolve differently.
    An explicitly selected 40-character source commit must match the frozen commit.
 4. Enter Host executor endpoints, private IPs, credential environment-variable names,
