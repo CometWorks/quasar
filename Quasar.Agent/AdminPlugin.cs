@@ -6,6 +6,7 @@ using System.Linq;
 using System.Reflection;
 using Magnetar.Protocol.Model;
 using PluginSdk;
+using PluginSdk.Clustering;
 using PluginSdk.Commands;
 using Sandbox.Game;
 using Sandbox.Game.World;
@@ -25,6 +26,7 @@ namespace Quasar.Agent
         private GameBridge _bridge;
         private AgentConnection _connection;
         private PluginLogOutbox _outbox;
+        private SupervisedLifecycle _lifecycle;
         private readonly object _adminStopSync = new object();
         private readonly object _adminRestartSync = new object();
         private bool _adminStopReported;
@@ -56,8 +58,14 @@ namespace Quasar.Agent
             {
                 StopCommand.AdminStopRequested = ReportAdminStop;
                 QuitCommand.AdminStopRequested = ReportAdminStop;
-                RestartCommand.AdminRestartRequested = ReportAdminRestart;
+                RestartCommand.AdminRestartRequested = () => ReportAdminRestart();
                 ServerControl.Terminating += OnServerTerminating;
+                _lifecycle = new SupervisedLifecycle(ReportAdminRestart);
+                if (!ClusterLifecycle.Register(_lifecycle))
+                {
+                    _lifecycle = null;
+                    Console.WriteLine("[Quasar.Agent] Another lifecycle provider is registered; plugin restarts stay with Magnetar.");
+                }
             }
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
@@ -75,6 +83,9 @@ namespace Quasar.Agent
         {
             if (!_clusterMode)
                 ServerControl.Terminating -= OnServerTerminating;
+            if (_lifecycle != null)
+                ClusterLifecycle.Unregister(_lifecycle);
+            _lifecycle = null;
             StopCommand.AdminStopRequested = null;
             QuitCommand.AdminStopRequested = null;
             RestartCommand.AdminRestartRequested = null;
@@ -122,15 +133,14 @@ namespace Quasar.Agent
             }
         }
 
-        private void ReportAdminRestart()
+        private bool ReportAdminRestart()
         {
             lock (_adminRestartSync)
             {
                 _adminRestartRequested = true;
-                if (_adminRestartReported)
-                    return;
-
-                _adminRestartReported = _connection?.TrySendAdminRestart() == true;
+                if (!_adminRestartReported)
+                    _adminRestartReported = _connection?.TrySendAdminRestart() == true;
+                return _adminRestartReported;
             }
         }
 
