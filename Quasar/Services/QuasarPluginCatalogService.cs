@@ -9,13 +9,14 @@ namespace Quasar.Services;
 
 public sealed class QuasarPluginCatalogService
 {
-    private const int CacheSchemaVersion = 8;
+    private const int CacheSchemaVersion = 9;
     // Core compatibility plugins Magnetar force-loads by id on start (see GetCorePlugins in
     // Magnetar's Pulsar/Legacy/Program.cs) from whatever source lists them; they never need
     // to appear in the profile. Magnetar 2.3.3.0 and later finds them in the hub source.
     public const string DotNetCompatPluginId = "dotnet-compat";
     public const string LinuxCompatPluginId = "linux-compat";
     public const string ErrorReportingPluginId = "error-reporting";
+    public static readonly string[] CorePluginIds = [DotNetCompatPluginId, LinuxCompatPluginId, ErrorReportingPluginId];
     // LEGACY-MAGNETAR-COMPAT: Magnetar before 2.3.3.0 force-loads the se- prefixed ids,
     // which the hub keeps in the *LegacyId.xml manifests. Remove with the Legacy style in
     // the first 2027 Quasar release.
@@ -39,58 +40,100 @@ public sealed class QuasarPluginCatalogService
     private readonly ILogger<QuasarPluginCatalogService> _logger;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly QuasarDevFolderCatalog _devFolderCatalog;
+    private readonly Func<IReadOnlyList<QuasarPluginHub>> _registeredHubs;
+    private readonly Func<string?> _gitHubToken;
     private readonly string _cachePath;
-    private List<QuasarPluginCatalogEntry> _entries;
-    private string? _etag;
+    private Dictionary<string, HubState> _hubStates;
 
     public QuasarPluginCatalogService(
         ILogger<QuasarPluginCatalogService> logger,
         IHttpClientFactory httpClientFactory,
-        QuasarDevFolderCatalog devFolderCatalog)
-        : this(logger, httpClientFactory, devFolderCatalog, GetCachePath()) { }
+        QuasarDevFolderCatalog devFolderCatalog,
+        QuasarPluginHubCatalog? hubCatalog = null,
+        GitHubUpdateCredentialsCatalog? gitHubCredentials = null)
+        : this(logger, httpClientFactory, devFolderCatalog, GetCachePath(),
+            hubCatalog is null ? null : hubCatalog.GetHubs,
+            gitHubCredentials is null ? null : () => gitHubCredentials.GetCredentials().Token) { }
 
     internal QuasarPluginCatalogService(ILogger<QuasarPluginCatalogService> logger,
-        IHttpClientFactory httpClientFactory, QuasarDevFolderCatalog devFolderCatalog, string cachePath)
+        IHttpClientFactory httpClientFactory, QuasarDevFolderCatalog devFolderCatalog, string cachePath,
+        Func<IReadOnlyList<QuasarPluginHub>>? registeredHubs = null, Func<string?>? gitHubToken = null)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
         _devFolderCatalog = devFolderCatalog;
+        _registeredHubs = registeredHubs ?? (() => []);
+        _gitHubToken = gitHubToken ?? (() => null);
         _cachePath = cachePath;
-        _entries = LoadCache();
+        _hubStates = LoadCache();
     }
 
     public DateTimeOffset? LastRefreshUtc { get; private set; }
 
     public string LastError { get; private set; } = string.Empty;
 
+    /// <summary>The operator's extra hubs, without MagnetarHub.</summary>
+    public IReadOnlyList<QuasarPluginHub> GetRegisteredHubs() => _registeredHubs();
+
     // Update observations must use hub manifests, never a local dev-folder override.
+    // MagnetarHub comes first, then the registered hubs in their order. An id that more
+    // than one hub lists keeps the first hub's entry and names every hub in ConflictingHubs.
     public IReadOnlyList<QuasarPluginCatalogEntry> GetHubEntries()
     {
-        lock (_sync) return _entries.Select(Clone).ToArray();
-    }
-
-    public IReadOnlyList<QuasarPluginCatalogEntry> GetEntries()
-    {
-        var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        var merged = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         lock (_sync)
         {
-            foreach (var entry in _entries)
+            foreach (var hub in GetAllHubs())
             {
-                if (string.IsNullOrWhiteSpace(entry.PluginId))
+                if (!_hubStates.TryGetValue(hub.Key, out var state))
                     continue;
 
-                entries[entry.PluginId] = Clone(entry);
+                foreach (var entry in state.Entries)
+                {
+                    if (string.IsNullOrWhiteSpace(entry.PluginId))
+                        continue;
+
+                    if (merged.TryGetValue(entry.PluginId, out var first))
+                    {
+                        if (first.ConflictingHubs.Count == 0)
+                            first.ConflictingHubs.Add(first.HubName);
+                        if (!first.ConflictingHubs.Contains(hub.Name, StringComparer.OrdinalIgnoreCase))
+                            first.ConflictingHubs.Add(hub.Name);
+                        continue;
+                    }
+
+                    var clone = Clone(entry);
+                    clone.HubName = hub.Name;
+                    clone.HubError = state.Error;
+                    clone.ConflictingHubs = [];
+                    merged[entry.PluginId] = clone;
+                }
             }
         }
 
+        return Sort(merged.Values);
+    }
+
+    // A dev folder overrides a hub entry with the same id, the way Magnetar prefers it.
+    public IReadOnlyList<QuasarPluginCatalogEntry> GetEntries()
+    {
+        var entries = GetHubEntries().ToDictionary(entry => entry.PluginId, StringComparer.OrdinalIgnoreCase);
         foreach (var entry in BuildDevFolderEntries())
             entries[entry.PluginId] = entry;
 
-        return entries.Values
-            .OrderBy(item => item.Hidden)
-            .ThenBy(item => item.FriendlyName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.PluginId, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+        return Sort(entries.Values);
+    }
+
+    public IReadOnlyList<QuasarPluginHubStatus> GetHubStatuses()
+    {
+        lock (_sync)
+        {
+            return GetAllHubs()
+                .Select(hub => _hubStates.TryGetValue(hub.Key, out var state)
+                    ? new QuasarPluginHubStatus(hub, IsDefaultHub(hub), state.Entries.Count, state.LastRefreshUtc, state.Error)
+                    : new QuasarPluginHubStatus(hub, IsDefaultHub(hub), 0, null, string.Empty))
+                .ToList();
+        }
     }
 
     public static bool IsManualSelectionAllowed(string pluginId)
@@ -142,137 +185,228 @@ public sealed class QuasarPluginCatalogService
         finally { _refreshGate.Release(); }
     }
 
+    // Every hub refreshes on its own. A hub that fails keeps its cached entries and records
+    // the error on them, so one unreachable hub never hides the plugins of the others.
     private async Task RefreshCoreAsync(CancellationToken cancellationToken)
     {
-        var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
-        var archiveUrl = $"https://github.com/{DefaultHubRepo}/archive/refs/heads/{DefaultHubBranch}.zip";
+        var hubs = GetAllHubs();
+        Dictionary<string, HubState> previous;
+        lock (_sync)
+            previous = new(_hubStates, StringComparer.OrdinalIgnoreCase);
+
+        var next = new Dictionary<string, HubState>(StringComparer.OrdinalIgnoreCase);
+        foreach (var hub in hubs)
+        {
+            previous.TryGetValue(hub.Key, out var old);
+            var state = hub.IsLocal
+                ? RefreshLocalHub(hub, old)
+                : await RefreshRemoteHubAsync(hub, old, cancellationToken);
+            next[hub.Key] = state;
+        }
+
+        lock (_sync)
+            _hubStates = next;
+
+        var errors = next.Values.Where(state => state.Error.Length != 0).Select(state => state.Error).ToList();
+        LastRefreshUtc = DateTimeOffset.UtcNow;
+        LastError = string.Join(" ", errors);
+        try
+        {
+            await SaveCacheAsync(next.Values.ToList(), cancellationToken);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(exception, "Failed to save the Quasar plugin catalog cache.");
+        }
+        _logger.LogInformation("Refreshed the Quasar plugin catalog from {Hubs} hubs with {Count} entries.",
+            hubs.Count, next.Values.Sum(state => state.Entries.Count));
+    }
+
+    private async Task<HubState> RefreshRemoteHubAsync(QuasarPluginHub hub, HubState? old, CancellationToken cancellationToken)
+    {
+        // MagnetarHub is public and always downloads anonymously. Another hub may be a private
+        // repository, so it goes through the API with the GitHub token when one is set.
+        var token = IsDefaultHub(hub) ? null : _gitHubToken()?.Trim();
+        var url = string.IsNullOrEmpty(token)
+            ? $"https://github.com/{hub.Repo}/archive/refs/heads/{hub.Branch}.zip"
+            : $"https://api.github.com/repos/{hub.Repo}/zipball/{hub.Branch}";
+        var etag = old is not null && old.Url == url ? old.ETag : null;
 
         try
         {
             using var client = _httpClientFactory.CreateClient();
             client.Timeout = TimeSpan.FromSeconds(30);
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, archiveUrl);
-            if (_etag is not null) request.Headers.TryAddWithoutValidation("If-None-Match", _etag);
+            using var request = new HttpRequestMessage(HttpMethod.Get, url);
+            if (etag is not null) request.Headers.TryAddWithoutValidation("If-None-Match", etag);
+            if (!string.IsNullOrEmpty(token))
+            {
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+                request.Headers.UserAgent.ParseAdd("Quasar");
+            }
             using var response = await client.SendAsync(request, cancellationToken);
-            if (response.StatusCode == System.Net.HttpStatusCode.NotModified && _etag is not null)
-            {
-                LastRefreshUtc = DateTimeOffset.UtcNow;
-                LastError = string.Empty;
-                return;
-            }
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified && etag is not null)
+                return old! with { LastRefreshUtc = DateTimeOffset.UtcNow, Error = string.Empty };
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+                throw new HttpRequestException(string.IsNullOrEmpty(token)
+                    ? "Repository or branch not found. A private repository needs a GitHub token with read access in Updates."
+                    : "Repository or branch not found, or the GitHub token can't read it.");
             response.EnsureSuccessStatusCode();
-            await using var archiveStream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: false);
 
-            foreach (var entry in archive.Entries)
+            var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+            await using (var archiveStream = await response.Content.ReadAsStreamAsync(cancellationToken))
+            using (var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: false))
             {
-                if (!entry.FullName.Contains("/Plugins/", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                if (!entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
-                    continue;
-
-                await using var entryStream = entry.Open();
-                try
+                foreach (var entry in archive.Entries)
                 {
-                    var document = XDocument.Load(entryStream, LoadOptions.None);
-                    var root = document.Root;
-                    if (root is null)
+                    // MagnetarHub keeps its manifests in Plugins/ and a sample at the top. Magnetar
+                    // reads every manifest of any other hub.
+                    if (IsDefaultHub(hub) && !entry.FullName.Contains("/Plugins/", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    var pluginId = root.Element("Id")?.Value?.Trim();
-                    if (string.IsNullOrWhiteSpace(pluginId))
+                    if (!entry.FullName.EndsWith(".xml", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    entries[pluginId] = new QuasarPluginCatalogEntry
-                    {
-                        PluginId = pluginId,
-                        SourceCommit = GetValue(root, "Commit").ToLowerInvariant(),
-                        FriendlyName = GetValue(root, "FriendlyName", pluginId),
-                        Author = GetValue(root, "Author"),
-                        Description = GetValue(root, "Description"),
-                        Tooltip = GetValue(root, "Tooltip"),
-                        Runtimes = GetValue(root, "Runtimes"),
-                        SourceRepo = GetValue(root, "RepoId", DefaultHubRepo),
-                        ManifestRepo = DefaultHubRepo,
-                        ManifestBranch = DefaultHubBranch,
-                        ManifestFile = GetArchiveEntryRelativePath(entry.FullName),
-                        Hidden = GetBoolean(root, "Hidden"),
-                    };
-                }
-                catch (Exception exception)
-                {
-                    _logger.LogDebug(exception, "Failed to parse plugin catalog entry {EntryName}", entry.FullName);
+                    await using var entryStream = entry.Open();
+                    AddManifest(entries, hub, entryStream, GetArchiveEntryRelativePath(entry.FullName));
                 }
             }
 
-            var normalized = entries.Values
-                .OrderBy(item => item.Hidden)
-                .ThenBy(item => item.FriendlyName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(item => item.PluginId, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            lock (_sync)
-                _entries = normalized;
-
-            LastRefreshUtc = DateTimeOffset.UtcNow;
-            LastError = string.Empty;
-            _etag = response.Headers.ETag?.ToString();
-            await SaveCacheAsync(normalized, cancellationToken);
-            _logger.LogInformation("Downloaded Quasar plugin catalog with {Count} entries.", normalized.Count);
+            return new HubState
+            {
+                Key = hub.Key,
+                Url = url,
+                ETag = response.Headers.ETag?.ToString(),
+                LastRefreshUtc = DateTimeOffset.UtcNow,
+                Entries = Sort(entries.Values),
+            };
         }
-        catch (Exception exception)
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            LastError = exception.Message;
-            _logger.LogWarning(exception, "Failed to refresh Quasar plugin catalog.");
-            throw;
+            _logger.LogWarning(exception, "Failed to refresh plugin hub {Hub} ({Repo}).", hub.Name, hub.Repo);
+            return Failed(hub, old, $"{hub.Name}: {exception.Message}");
         }
     }
 
-    private List<QuasarPluginCatalogEntry> LoadCache()
+    private HubState RefreshLocalHub(QuasarPluginHub hub, HubState? old)
+    {
+        if (!Directory.Exists(hub.Folder))
+            return Failed(hub, old, $"{hub.Name}: folder {hub.Folder} is missing.");
+
+        try
+        {
+            // Magnetar reads every manifest under a local hub folder, subfolders included.
+            var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+            foreach (var path in Directory.EnumerateFiles(hub.Folder, "*.xml", SearchOption.AllDirectories).Order(StringComparer.Ordinal))
+            {
+                using var stream = File.OpenRead(path);
+                AddManifest(entries, hub, stream, Path.GetRelativePath(hub.Folder, path).Replace('\\', '/'));
+            }
+
+            return new HubState { Key = hub.Key, LastRefreshUtc = DateTimeOffset.UtcNow, Entries = Sort(entries.Values) };
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(exception, "Failed to read local plugin hub {Hub} at {Folder}.", hub.Name, hub.Folder);
+            return Failed(hub, old, $"{hub.Name}: {exception.Message}");
+        }
+    }
+
+    private static HubState Failed(QuasarPluginHub hub, HubState? old, string error) =>
+        old is null
+            ? new HubState { Key = hub.Key, Error = error }
+            : old with { Error = error };
+
+    private void AddManifest(Dictionary<string, QuasarPluginCatalogEntry> entries, QuasarPluginHub hub, Stream stream, string relativePath)
     {
         try
         {
-            var path = _cachePath;
-            if (!File.Exists(path))
-                return [];
+            var root = XDocument.Load(stream, LoadOptions.None).Root;
+            if (root is null || root.Name.LocalName != "PluginData")
+                return;
 
-            var json = File.ReadAllText(path);
-            var cache = JsonSerializer.Deserialize<QuasarPluginCatalogCache>(json, JsonOptions);
+            var pluginId = root.Element("Id")?.Value?.Trim();
+            if (string.IsNullOrWhiteSpace(pluginId))
+                return;
+
+            entries[pluginId] = new QuasarPluginCatalogEntry
+            {
+                PluginId = pluginId,
+                SourceCommit = GetValue(root, "Commit").ToLowerInvariant(),
+                FriendlyName = GetValue(root, "FriendlyName", pluginId),
+                Author = GetValue(root, "Author"),
+                Description = GetValue(root, "Description"),
+                Tooltip = GetValue(root, "Tooltip"),
+                Runtimes = GetValue(root, "Runtimes"),
+                SourceRepo = GetValue(root, "RepoId", hub.Repo),
+                ManifestRepo = hub.Repo,
+                ManifestBranch = hub.Branch,
+                ManifestFile = relativePath,
+                Hidden = GetBoolean(root, "Hidden"),
+                HubName = hub.Name,
+            };
+        }
+        catch (Exception exception) when (exception is System.Xml.XmlException or IOException or InvalidDataException)
+        {
+            _logger.LogDebug(exception, "Failed to parse plugin manifest {File} of hub {Hub}", relativePath, hub.Name);
+        }
+    }
+
+    private IReadOnlyList<QuasarPluginHub> GetAllHubs() =>
+        [DefaultHub, .. _registeredHubs().Where(hub => !string.Equals(hub.Key, DefaultHubRepo, StringComparison.OrdinalIgnoreCase))];
+
+    private static readonly QuasarPluginHub DefaultHub = new() { Name = DefaultHubName, Repo = DefaultHubRepo, Branch = DefaultHubBranch };
+
+    public static bool IsDefaultHubEntry(QuasarPluginCatalogEntry entry) =>
+        !entry.IsLocalDevFolder &&
+        (string.IsNullOrEmpty(entry.HubName) || string.Equals(entry.HubName, DefaultHubName, StringComparison.Ordinal));
+
+    public static bool IsDefaultHub(QuasarPluginHub hub) =>
+        !hub.IsLocal && string.Equals(hub.Repo, DefaultHubRepo, StringComparison.OrdinalIgnoreCase);
+
+    private static List<QuasarPluginCatalogEntry> Sort(IEnumerable<QuasarPluginCatalogEntry> entries) =>
+        entries
+            .OrderBy(item => item.Hidden)
+            .ThenBy(item => item.FriendlyName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.PluginId, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+    private Dictionary<string, HubState> LoadCache()
+    {
+        try
+        {
+            if (!File.Exists(_cachePath))
+                return new(StringComparer.OrdinalIgnoreCase);
+
+            var cache = JsonSerializer.Deserialize<QuasarPluginCatalogCache>(File.ReadAllText(_cachePath), JsonOptions);
             if (cache?.SchemaVersion != CacheSchemaVersion)
-                return [];
+                return new(StringComparer.OrdinalIgnoreCase);
 
-            LastRefreshUtc = cache?.LastRefreshUtc;
-            _etag = cache?.ETag;
-            return cache?.Entries?
-                       .Select(Clone)
-                       .OrderBy(item => item.Hidden)
-                       .ThenBy(item => item.FriendlyName, StringComparer.OrdinalIgnoreCase)
-                       .ThenBy(item => item.PluginId, StringComparer.OrdinalIgnoreCase)
-                       .ToList()
-                   ?? [];
+            LastRefreshUtc = cache.LastRefreshUtc;
+            return cache.Hubs
+                .Where(state => !string.IsNullOrWhiteSpace(state.Key))
+                .DistinctBy(state => state.Key, StringComparer.OrdinalIgnoreCase)
+                .ToDictionary(state => state.Key, state => state with { Entries = Sort(state.Entries.Select(Clone)) },
+                    StringComparer.OrdinalIgnoreCase);
         }
         catch (Exception exception)
         {
             _logger.LogDebug(exception, "Failed to load Quasar plugin catalog cache.");
-            return [];
+            return new(StringComparer.OrdinalIgnoreCase);
         }
     }
 
-    private async Task SaveCacheAsync(IReadOnlyList<QuasarPluginCatalogEntry> entries, CancellationToken cancellationToken)
+    private async Task SaveCacheAsync(IReadOnlyList<HubState> hubs, CancellationToken cancellationToken)
     {
-        var path = _cachePath;
         var payload = new QuasarPluginCatalogCache
         {
             SchemaVersion = CacheSchemaVersion,
             LastRefreshUtc = LastRefreshUtc,
-            ETag = _etag,
-            Entries = entries.Select(Clone).ToList(),
+            Hubs = hubs.ToList(),
         };
 
         var json = JsonSerializer.Serialize(payload, JsonOptions);
-        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
+        await AtomicFileWriter.WriteTextAsync(_cachePath, json, cancellationToken);
     }
 
     private static string GetValue(XElement root, string name, string fallback = "") =>
@@ -307,6 +441,9 @@ public sealed class QuasarPluginCatalogService
             ManifestFile = entry.ManifestFile,
             Hidden = entry.Hidden,
             IsLocalDevFolder = entry.IsLocalDevFolder,
+            HubName = entry.HubName,
+            ConflictingHubs = [.. entry.ConflictingHubs],
+            HubError = entry.HubError,
         };
     }
 
@@ -348,11 +485,32 @@ public sealed class QuasarPluginCatalogService
 
     private sealed class QuasarPluginCatalogCache
     {
-        public string? ETag { get; set; }
         public int SchemaVersion { get; set; } = CacheSchemaVersion;
 
         public DateTimeOffset? LastRefreshUtc { get; set; }
 
-        public List<QuasarPluginCatalogEntry> Entries { get; set; } = [];
+        public List<HubState> Hubs { get; set; } = [];
+    }
+
+    private sealed record HubState
+    {
+        public string Key { get; init; } = string.Empty;   // QuasarPluginHub.Key
+
+        public string Url { get; init; } = string.Empty;   // the ETag belongs to this download URL
+
+        public string? ETag { get; init; }
+
+        public DateTimeOffset? LastRefreshUtc { get; init; }
+
+        public string Error { get; init; } = string.Empty;
+
+        public List<QuasarPluginCatalogEntry> Entries { get; init; } = [];
     }
 }
+
+public sealed record QuasarPluginHubStatus(
+    QuasarPluginHub Hub,
+    bool IsDefault,
+    int PluginCount,
+    DateTimeOffset? LastRefreshUtc,
+    string Error);

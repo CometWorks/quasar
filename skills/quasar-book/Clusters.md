@@ -120,6 +120,7 @@ Every node (regular nodes, the World Authority, spares and replacements) runs th
 - Quasar adds the Quasar Agent (`quasar-agent`) pinned to Quasar's own source commit. This needs a published Quasar build; a build without commit information fails with "The Quasar build has no source commit provenance."
 - A server-side companion of a Quasar UI plugin is included only when that UI plugin was installed from QuasarHub. Other local plugins without source metadata are left out, and setup reports "left out, no provenance metadata: <names>".
 - Dev folder plugins are compiled from the checkout during preparation, always as a Release build, whatever their **Debug build** setting. A dev folder is identified by its manifest `Id`, or its folder name when the manifest has none.
+- Plugins from a registered [plugin hub](Plugins.md#plugin-hubs) are frozen like MagnetarHub plugins, at their manifest's `Commit`. Setup and staging stop with "No plugin hub or dev folder lists the selected plugins ..." when the profile selects an id no hub lists, and with "More than one plugin hub lists ..." when two hubs list it.
 
 ### Plugin settings
 
@@ -135,7 +136,7 @@ With one host machine, Quasar sets the plugin shared directory (`PluginStorage.G
 
 The **Mods and plugins** panel on the cluster page tracks changes after deployment:
 
-1. **Check content updates** reads the Steam Workshop `time_updated` timestamp of each mod in the cluster profile and compares the deployed plugin commits with MagnetarHub. Scheduled checks follow the Quasar update check setting (every 15 minutes by default). Repeated manual checks share one run and are limited to one per minute.
+1. **Check content updates** reads the Steam Workshop `time_updated` timestamp of each mod in the cluster profile and compares the deployed plugin commits with the hub that lists each plugin. Scheduled checks follow the Quasar update check setting (every 15 minutes by default). Repeated manual checks share one run and are limited to one per minute.
 2. **Queue mod and plugin updates** saves the observed changes as a pending request.
 3. **Maintenance → Stage queued content updates** (needs configuration editing) restages the whole active profile. Quasar downloads each changed mod with its managed SteamCMD, checks the Workshop timestamp before and after the download, checks each queued plugin commit against Magnetar's export, and prepares every host machine. It clears the queue only when every Host prepared successfully.
 4. **Apply pending update** stops the cluster, backs it up, activates the new deployment on every host machine and starts it again.

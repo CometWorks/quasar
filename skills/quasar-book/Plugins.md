@@ -1,19 +1,19 @@
 # Magnetar server plugins
 
-This page covers the plugins that run inside each managed Dedicated Server (DS): where Quasar gets the plugin catalog, how to pick plugins for a server, how to edit their settings, local dev folders, and the Quasar.Agent plugin that Quasar deploys into every server. Quasar UI plugins, which run inside the Quasar web app, are a different thing; see [UI plugins](UiPlugins.md).
+This page covers the plugins that run inside each managed Dedicated Server (DS): where Quasar gets the plugin catalog, how to pick plugins for a server, how to edit their settings, extra plugin hubs, local dev folders, and the Quasar.Agent plugin that Quasar deploys into every server. Quasar UI plugins, which run inside the Quasar web app, are a different thing; see [UI plugins](UiPlugins.md).
 
 ## Server plugins and UI plugins
 
 | | Magnetar server plugins (this page) | Quasar UI plugins |
 | --- | --- | --- |
 | Runs in | Each DS process, loaded by Magnetar | The Quasar web worker |
-| Catalog | MagnetarHub, https://github.com/CometWorks/magnetar-hub | QuasarHub, https://github.com/CometWorks/quasar-hub |
+| Catalog | MagnetarHub, https://github.com/CometWorks/magnetar-hub, plus the plugin hubs you register | QuasarHub, https://github.com/CometWorks/quasar-hub |
 | Where you pick them | **Configs** page, per config profile | **UI Plugins** page, for the whole Quasar install |
 | API | Magnetar PluginSdk | `Quasar.Plugin.Abstractions` |
 
 ## Where the catalog comes from
 
-Quasar downloads the `main` branch of MagnetarHub (`CometWorks/magnetar-hub`) as a zip archive from GitHub and reads every `.xml` file under `Plugins/`. Each file with an `<Id>` becomes one catalog entry. Quasar reads `Id`, `FriendlyName`, `Author`, `Description`, `Tooltip`, `Runtimes`, `RepoId`, `Commit` and `Hidden` from the manifest.
+Quasar downloads the `main` branch of MagnetarHub (`CometWorks/magnetar-hub`) as a zip archive from GitHub and reads every `.xml` file under `Plugins/`. Each file with an `<Id>` becomes one catalog entry. Registered [plugin hubs](#plugin-hubs) add their plugins to the same catalog. Quasar reads `Id`, `FriendlyName`, `Author`, `Description`, `Tooltip`, `Runtimes`, `RepoId`, `Commit` and `Hidden` from the manifest.
 
 When Quasar refreshes the catalog:
 
@@ -21,9 +21,9 @@ When Quasar refreshes the catalog:
 - When you click **Refresh Catalog** in a config profile's **Plugins** tab, and each time you open the **Plugin catalog** panel there.
 - Before a server starts, when the profile selects a plugin id that the cached catalog does not have.
 
-Quasar sends the previous ETag, so an unchanged hub is not downloaded again. The catalog is cached in `{Quasar install directory}/Caches/plugin-catalog.json`. The install directory is `~/.local/share/Quasar` for the default Linux user service; on Windows it is the folder the installer was extracted to (see [Configuration](Configuration.md)).
+Each hub refreshes on its own. Quasar sends the previous ETag, so an unchanged hub is not downloaded again. The catalog is cached in `{Quasar install directory}/Caches/plugin-catalog.json`. The install directory is `~/.local/share/Quasar` for the default Linux user service; on Windows it is the folder the installer was extracted to (see [Configuration](Configuration.md)).
 
-If a refresh fails, Quasar keeps the cached catalog and the profile editor shows a **Catalog stale** chip. An empty catalog shows "Plugin catalog empty. Refresh to download MagnetarHub."
+If a hub can't be read, Quasar keeps that hub's cached plugins, marks them "Hub unreachable, cached entry", shows the error in the hub list under **Developer**, and the profile editor shows a **Catalog stale** chip. **Refresh Catalog** then warns "Some plugin hubs could not be read, their cached plugins are shown: ...". An empty catalog shows "Plugin catalog empty. Refresh to download the plugin hubs."
 
 ## Adding and removing plugins on a server
 
@@ -32,7 +32,7 @@ Plugins belong to a config profile, not to a single server. Every server assigne
 1. Open **Configs** in the navigation and select the profile.
 2. Open the **Plugins** tab.
 3. In **Plugin catalog**, tick **Use** next to each plugin you want. Search matches name, id, author, description and tooltip. Untick to remove, or use the delete button in **Plugins to load**.
-4. To add a plugin by id without the catalog, open **Advanced/manual plugin setup**, type the id in **Add custom plugin ID** and click **Add Custom**.
+4. To add a plugin by id without the catalog, open **Advanced/manual plugin setup**, type the id in **Add custom plugin ID** and click **Add Custom**. If no hub or dev folder lists that id, Quasar adds it anyway and warns: "No plugin hub or dev folder lists this plugin yet. Magnetar won't load it, and cluster setup refuses it, until one does." **Plugins to load** marks it "Not listed by any plugin hub".
 5. Click **Save Profile**.
 
 Quasar writes the plugin list into the server's Magnetar files each time it prepares a server start. A running server picks up plugin changes at its next start or restart.
@@ -42,7 +42,8 @@ Editing needs the `CanEditConfigs` permission. Viewers see a read-only summary o
 ### Plugins you cannot select
 
 - `dotnet-compat` and `error-reporting` (and the legacy `se-dotnet-compat`) are managed by Magnetar. Selecting them shows "This plugin is managed automatically by Magnetar and cannot be selected manually." Magnetar loads `dotnet-compat`, `error-reporting`, and `linux-compat` on Linux by itself, so they never need to be in a profile.
-- Entries marked `Hidden` in MagnetarHub show "Hidden in hub" and cannot be ticked: "This plugin is hidden in MagnetarHub and cannot be selected manually."
+- Entries marked `Hidden` in their hub show "Hidden in hub" and cannot be ticked: "This plugin is hidden in {hub name} and cannot be selected manually."
+- A plugin id that more than one hub lists shows "Listed by more than one hub: ..." and cannot be ticked. See [Plugin hubs](#plugin-hubs).
 
 ### Checking that plugins loaded
 
@@ -54,8 +55,8 @@ Each server has its own Magnetar app-data folder, by default `{Quasar install di
 
 | File | Content |
 | --- | --- |
-| `Sources/sources.xml` | The MagnetarHub hub source, per-plugin `RemotePlugin` entries pointing at hub manifests, every registered dev folder as a `LocalPlugin`, and the profile's Workshop mods |
-| `Profiles/Current.xml` | Profile named after the config profile: selected hub plugins under `GitHub`, selected dev folders under `DevFolder`, and Quasar.Agent plus UI plugin companions under `Local` |
+| `Sources/sources.xml` | The MagnetarHub hub source, every registered plugin hub (`LocalHub` or `RemoteHub`), per-plugin `RemotePlugin` entries pointing at MagnetarHub manifests, every registered dev folder as a `LocalPlugin`, and the profile's Workshop mods |
+| `Profiles/Current.xml` | Profile named after the config profile: selected hub plugins of any hub under `GitHub`, selected dev folders under `DevFolder`, and Quasar.Agent plus UI plugin companions under `Local` |
 | `Local/` | `Quasar.Agent.dll`, `Magnetar.Protocol.dll`, `0Harmony.dll` and built companions of enabled UI plugins |
 
 If you saved a GitHub token on the **Updates** page, Quasar passes it to Magnetar in the `PULSAR_GITHUB_TOKEN` environment variable for plugin hub downloads. It never puts the token on the command line for current Magnetar builds. See [Updates](Updates.md).
@@ -64,7 +65,7 @@ If you saved a GitHub token on the **Updates** page, Quasar passes it to Magneta
 
 For a standalone server, Quasar does not pin plugin versions. The generated files point Magnetar at the MagnetarHub manifests on the `main` branch, and Quasar has no per-plugin update button for standalone servers. A plugin update in MagnetarHub reaches a server through Magnetar when the server starts.
 
-Clusters work differently. Staging a cluster profile freezes the exact plugin builds and source commits, Quasar watches MagnetarHub for new commits, and you queue and apply plugin updates from the cluster page. See [Clusters](Clusters.md).
+Clusters work differently. Staging a cluster profile freezes the exact plugin builds and source commits, Quasar watches each plugin's hub for new commits, and you queue and apply plugin updates from the cluster page. See [Clusters](Clusters.md).
 
 ## Plugin configuration
 
@@ -97,6 +98,34 @@ The **Plugin logs** section on the **Plugins** page shows structured log lines t
 
 Plugin logs and chat can contain player or server information, so think before sharing screenshots.
 
+## Plugin hubs
+
+A plugin hub is a list of plugin manifests: a GitHub repository and branch, or a local folder. MagnetarHub is always used. Register another hub to select plugins that aren't in MagnetarHub, such as a private plugin, a world's own plugin or an unpublished fork, on regular servers and clusters.
+
+### Registering a hub
+
+1. Open **Configs** and expand **Developer** at the bottom of the profile editor.
+2. Under **Plugin hubs**, either type the **GitHub repository (owner/name)**, the **Branch** (default `main`) and an optional **Hub name**, then click **Add GitHub hub**; or click **Add local hub folder...** and pick the folder on the machine that runs Quasar.
+3. Quasar reads the hub right away and reports "Hub added with N plugins.", or "Hub added, but it could not be read: ..." when it can't reach it.
+4. The hub's plugins appear in every profile's **Plugin catalog**, marked "Hub: {hub name}". Tick them like MagnetarHub plugins.
+
+Rules and errors:
+
+- Each manifest needs an `<Id>`, plus `RepoId` and `Commit`, like a MagnetarHub manifest. Quasar and Magnetar read every `.xml` manifest in the hub, in subfolders too.
+- A private repository needs a GitHub token with read access on the **Updates** page. Without one, the download fails with "Repository or branch not found. A private repository needs a GitHub token with read access in Updates.". See [Updates](Updates.md).
+- A repository can be registered once, whatever the branch: "This repository is already a registered hub. Magnetar reads one branch per repository." MagnetarHub itself can't be added, and hub names must be unique.
+- A local hub folder must be an absolute path that exists.
+
+Hubs are global to the Quasar install and stored in `{Quasar install directory}/plugin-hubs.json`. Every server's `sources.xml` lists every hub, but Magnetar loads only the plugins its profile selects. Adding and removing hubs needs `CanEditConfigs`.
+
+### Two hubs with the same plugin id
+
+Magnetar would load the plugin from whichever hub it reads first, so Quasar refuses to choose. The catalog entry shows "Listed by more than one hub: MagnetarHub, {hub}", it can't be selected, and a server whose profile already selects it fails to start with "More than one plugin hub lists {id} ({hubs}). Remove the plugin from all but one hub, or unregister a hub, then try again." The same applies to the compatibility plugins Magnetar loads by itself, such as `linux-compat`, even though no profile selects them. A dev folder with the same id is not a conflict; it overrides the hub plugin.
+
+### Removing a hub
+
+Click the delete button next to the hub. The confirmation names the config profiles that use plugins only that hub lists. After removal, regular servers start without those plugins (Quasar logs "Server {name} selects plugins that no plugin hub or dev folder lists"), and cluster setup and profile staging stop with "No plugin hub or dev folder lists the selected plugins ...". Remove the plugins from the profiles, or register a hub that lists them.
+
 ## Dev folders
 
 A dev folder registers a local plugin source checkout so it shows up in the plugin catalog like a hub plugin. It is meant for plugin development.
@@ -114,7 +143,7 @@ Dev folders are global to the Quasar install and stored in `{Quasar install dire
 
 Quasar identifies a dev folder by the `<Id>` in its manifest, or by the folder name when the manifest has no `<Id>`. Magnetar uses the same id. Quasar re-reads the manifest id each time it loads the dev folder list, and maps profile selections saved by older Quasar releases (which used the folder name) to the manifest id.
 
-When a dev folder has the same id as a MagnetarHub plugin, the dev folder replaces the hub entry in the catalog, and servers load the dev folder build instead of the hub plugin.
+When a dev folder has the same id as a hub plugin, the dev folder replaces the hub entry in the catalog, and servers load the dev folder build instead of the hub plugin.
 
 ### Build behavior
 
@@ -179,13 +208,15 @@ Quasar integrates with plugins through Magnetar's PluginSdk. The code under `Qua
 
 ## Registering a new plugin
 
-Quasar's catalog is MagnetarHub. To make a plugin selectable for everyone, open a pull request to https://github.com/CometWorks/magnetar-hub that adds an XML manifest under `Plugins/`. After it is merged, Quasar sees it at the next catalog refresh, or immediately after **Refresh Catalog**. Until then you can test the plugin locally through a dev folder, or add its id through **Advanced/manual plugin setup**.
+Quasar's shared catalog is MagnetarHub. To make a plugin selectable for everyone, open a pull request to https://github.com/CometWorks/magnetar-hub that adds an XML manifest under `Plugins/`. After it is merged, Quasar sees it at the next catalog refresh, or immediately after **Refresh Catalog**. Until then you can test the plugin locally through a dev folder, or serve it from your own [plugin hub](#plugin-hubs).
 
 ## Common problems
 
 - **A selected plugin does not load.** The server panel shows fewer loaded than selected plugins. Check the server's Magnetar log (`info_*.log` in `Magnetars/{server}/Magnetar`) for build or load errors, then the **Plugin logs** panel. Quasar itself does not compile hub plugins; Magnetar does.
-- **"Plugin catalog empty. Refresh to download MagnetarHub."** Quasar has not downloaded the hub yet or cannot reach GitHub. Click **Refresh Catalog** and check Quasar's log for "Failed to refresh Quasar plugin catalog."
-- **"MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually."** Every catalog entry is hidden or a Magnetar core plugin.
+- **"Plugin catalog empty. Refresh to download the plugin hubs."** Quasar has not downloaded the hubs yet or cannot reach GitHub. Click **Refresh Catalog** and check the hub list under **Developer** and Quasar's log for "Failed to refresh plugin hub".
+- **"The plugin hubs currently expose only hidden or automatic plugins. They are not selectable manually."** Every catalog entry is hidden or a Magnetar core plugin.
+- **A server fails to start with "More than one plugin hub lists ..."** Two hubs list the same plugin id. Remove the manifest from one hub, or remove one hub.
+- **A hub shows an error in the hub list.** GitHub is unreachable, the repository or branch is wrong, the repository is private and the token can't read it, or the local folder is missing. Its cached plugins stay selectable.
 - **"Dev folder already registered."** The same folder and manifest file are already in the list.
 - **The Plugins page lists no servers.** The server is stopped, its agent is not connected, or none of its plugins exposes a configuration.
 - **"Fix the invalid JSON values before applying."** A raw JSON field in the config editor does not parse.
@@ -204,6 +235,7 @@ Quasar's catalog is MagnetarHub. To make a plugin selectable for everyone, open 
 - `Quasar/Services/PluginCatalogRefreshService.cs`
 - `Quasar/Services/PluginManifestReader.cs`
 - `Quasar/Services/QuasarDevFolderCatalog.cs`
+- `Quasar/Services/QuasarPluginHubCatalog.cs`
 - `Quasar/Services/QuasarConfigProfileCatalog.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
@@ -237,4 +269,5 @@ Quasar's catalog is MagnetarHub. To make a plugin selectable for everyone, open 
 - `Magnetar.Protocol/Transport/ServerCommandType.cs`
 - `Quasar.Tests/CorePluginManifestTests.cs`
 - `Quasar.Tests/DevFolderRuntimePreparationTests.cs`
+- `Quasar.Tests/PluginHubTests.cs`
 - `Quasar.Tests/PluginConfigSnapshotPersistenceTests.cs`

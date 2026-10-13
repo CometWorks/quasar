@@ -28,6 +28,7 @@ Files and folders in the data directory:
 | `branding.json`, `Branding/` | Appearance settings and uploaded logos |
 | `backup-settings.json`, `Backups/` | Backup settings and stored backups, see [Backups](Backups.md) |
 | `dev-folders.json` | Magnetar plugin dev folders, see [Plugins](Plugins.md) |
+| `plugin-hubs.json` | Extra Magnetar plugin hubs, see [Plugins](Plugins.md#plugin-hubs) |
 | `known-players.json`, `known-player-settings.json` | Player list data |
 | `PushNotifications.json` | Browser push subscriptions |
 | `Magnetars/<server>/` | One folder per server: `server.json`, `DedicatedServer/`, `Magnetar/`, `History/`, `analytics.jsonl` |

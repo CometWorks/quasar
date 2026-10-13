@@ -80,6 +80,37 @@ directory listings additionally publish their chosen name, public join address
 and summary statistics, and privately share current Steam admin subjects to
 authorize description edits.
 
+## Plugin hubs
+
+MagnetarHub (`CometWorks/magnetar-hub`, `main`) is always a plugin source. Operators can
+register more hubs in **Configs → Developer → Plugin hubs**: a GitHub repository and
+branch, or a local folder of plugin manifests. Their plugins appear in the plugin catalog
+of every config profile, marked with the hub's name, and are selected like MagnetarHub
+plugins. The list is stored in `plugin-hubs.json` in the Quasar directory and is part of
+the configuration backup.
+
+- Quasar reads every `.xml` manifest with a `PluginData` root in a registered hub, at any
+  depth, the same way Magnetar does. MagnetarHub is still read from `Plugins/` only.
+- A GitHub hub is downloaded anonymously, unless a GitHub token is saved in **Updates**.
+  With a token, Quasar uses the GitHub API so a private repository works, and Magnetar
+  gets the same token in `PULSAR_GITHUB_TOKEN`. Magnetar reads one branch per
+  repository, so a repository can be registered once.
+- Every server's `Sources/sources.xml` lists all registered hubs, local folders under
+  `LocalHubSources` and repositories under `RemoteHubSources`. A plugin from a registered
+  hub is selected by id in `Profiles/Current.xml` and needs no per-plugin source.
+- Each hub refreshes on its own. A hub that can't be read keeps its cached plugins, shows
+  the error in the hub list, and the cluster content monitor reports "Plugin hub ... could
+  not be checked" for its plugins instead of a version.
+- When two hubs list the same plugin id, Magnetar would load whichever it reads first, so
+  Quasar doesn't pick one. The catalog names every hub that lists the id, the profile
+  editor won't select it, and server preparation fails with "More than one plugin hub
+  lists ..." until only one hub lists it. This covers the compatibility plugins Magnetar
+  loads by itself, such as `linux-compat`. A dev folder with the same id is not a
+  conflict: it overrides the hub plugin.
+- Removing a hub asks for confirmation and names the profiles that use its plugins. A
+  regular server then starts without those plugins and Quasar logs their ids. Cluster
+  setup and profile staging refuse plugins that no hub or dev folder lists.
+
 ## Implicit Magnetar mod
 
 Each server definition defaults **Disable implicit Magnetar mod load** to off.

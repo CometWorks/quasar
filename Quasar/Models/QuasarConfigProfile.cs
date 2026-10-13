@@ -583,4 +583,38 @@ public sealed class QuasarPluginCatalogEntry
     public bool Hidden { get; set; }
 
     public bool IsLocalDevFolder { get; set; }
+
+    public string HubName { get; set; } = string.Empty;   // the hub that lists the plugin, empty for a dev folder
+
+    // The hubs that list this id when more than one does. Magnetar would load whichever it
+    // reads first, so Quasar refuses to prepare a server with such a plugin.
+    public List<string> ConflictingHubs { get; set; } = [];
+
+    public string HubError { get; set; } = string.Empty;  // why the hub's last refresh failed; the entry is from the cache
+}
+
+/// <summary>
+/// An extra plugin hub registered by the operator: a GitHub repository and branch, or a
+/// local folder of plugin manifests. MagnetarHub is always used and is not registered.
+/// </summary>
+public sealed class QuasarPluginHub
+{
+    public string Name { get; set; } = string.Empty;
+
+    public string Repo { get; set; } = string.Empty;    // owner/name, for a GitHub hub
+
+    public string Branch { get; set; } = string.Empty;  // for a GitHub hub
+
+    public string Folder { get; set; } = string.Empty;  // absolute path, for a local hub
+
+    [JsonIgnore]
+    public bool IsLocal => !string.IsNullOrWhiteSpace(Folder);
+
+    // Magnetar keys hubs by repository or folder, so the same repository can't be added
+    // twice with different branches.
+    [JsonIgnore]
+    public string Key => IsLocal ? Folder : Repo;
+
+    [JsonIgnore]
+    public string Location => IsLocal ? Folder : $"{Repo} ({Branch})";
 }

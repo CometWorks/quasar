@@ -228,6 +228,7 @@ public class Program
             builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
+            builder.Services.AddSingleton<QuasarPluginHubCatalog>();
             builder.Services.AddSingleton<QuasarWorldTemplateCatalog>();
             builder.Services.AddSingleton<QuasarPluginCatalogService>();
             builder.Services.AddSingleton(runtimePluginCatalog);

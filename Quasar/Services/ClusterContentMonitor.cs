@@ -170,6 +170,10 @@ public sealed class ClusterContentMonitor : BackgroundService
     internal static ClusterContentItem ObservePlugin(ClusterPluginPin pin, QuasarPluginCatalogEntry? entry,
         ClusterContentItem? prior, string? error, DateTimeOffset now)
     {
+        if (error is null && entry is { HubError.Length: > 0 })
+            error = $"Plugin hub {entry.HubName} could not be checked; previous observation retained.";
+        if (error is null && entry is { ConflictingHubs.Count: > 1 })
+            error = "More than one plugin hub lists this plugin: " + string.Join(", ", entry.ConflictingHubs) + ".";
         if (error is null && (entry is null || !ClusterPackageService.IsHash(entry.SourceCommit, 40)))
             error = "Plugin manifest is unavailable or has no exact commit.";
         if (error is null && (string.IsNullOrWhiteSpace(pin.Repository)

@@ -69,6 +69,7 @@ If Quasar itself stays down, a server that had connected keeps running and its a
 
 - **Stays Stopped with "Managed SteamCMD, Magnetar, and Dedicated Server runtime are still preparing."**: the managed runtime is still downloading or failed. Watch the **Managed Runtime** panel on the Dashboard and click **Retry** on a failed row. See [Updates](Updates.md#managed-runtime-warmup).
 - **Faulted right after Start**: the card shows the reason, for example "World save required." or the oxygen guard message. The full table is in [Servers](Servers.md#launch-failures-that-fault-a-server).
+- **Faulted with "More than one plugin hub lists ..."**: two plugin hubs list a plugin the profile selects, or a compatibility plugin Magnetar loads by itself. Remove it from one hub, or remove a hub. See [Plugins](Plugins.md#two-hubs-with-the-same-plugin-id).
 - **Crashes, restarts, and ends Faulted with "Process exited with code N. Restart attempt limit (3) reached."**: the server crashes within a minute of each start. Read the DS log and the Magnetar info log of the last run. Quasar does not retry a Faulted server; click **Start** after fixing the cause, or **Clear Error Status**.
 - **Restarts with cause "Health policy"**: health went Unhealthy (stale heartbeat, low simulation frame rate, agent disconnected). The health summary on the card says which. See [Servers](Servers.md#health-checks-and-the-watchdog).
 - **Restarts every 8 hours**: **Maximum uptime** defaults to `08:00`. See [Servers](Servers.md#crash-detection-and-automatic-restart).
