@@ -912,6 +912,11 @@
                         <p class="quasar-text quasar-type-body2 mb-3 mt-2">
                             Register local plugin source folders so they appear in the plugin catalog. Enable them per config profile before Magnetar loads them.
                         </p>
+                        <p class="quasar-text quasar-type-body2 mb-3">
+                            A cluster builds its dev folders once, at setup and whenever its profile is staged, and runs that build until the next staging.
+                            The folder's git repository must have no uncommitted or untracked changes, and the cluster records its HEAD commit.
+                            The manifest needs a <span class="mono">RepoId</span>.
+                        </p>
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders">
                             <HeaderContent>

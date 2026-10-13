@@ -33,6 +33,12 @@ in a matching dependency snapshot, and keeps existing plugin values only when th
 exported configuration schema still matches. A single changed session setting uses
 the same path as a complete session-settings and mod/plugin change.
 
+A plugin selected from a dev folder is compiled from the checkout during that
+preparation and pinned to its HEAD commit, which `preparation.json` reports with
+`source: "dev-folder"`. The repository must be clean. Content update monitoring looks
+for new commits in the plugin hub only, so it can't report one for a dev folder plugin;
+a new commit reaches the cluster only when the profile is staged again. See [local development plugins](BuildingAndDevelopment.md#local-development-plugins).
+
 The update workflow stops the cluster, captures a verified backup under its update ID,
 then migrates preserved checkpoints and node mod directories. It starts the cluster only
 after every Host activates the same revision. Interrupted activation replays the pinned
