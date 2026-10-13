@@ -1,6 +1,8 @@
 using PluginSdk;
 using PluginSdk.Clustering;
 using Quasar.Agent;
+using Quasar.Models;
+using Quasar.Services;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -40,6 +42,26 @@ public sealed class AgentSupervisedLifecycleTests
 
         Assert.Equal(0, reports);
         Assert.Equal([(ServerTerminationKind.Shutdown, true)], calls);
+    }
+
+    [Fact]
+    public void ProcessOlderThanPendingRestartIsTheOneQuitting()
+    {
+        var requested = DateTimeOffset.Parse("2026-10-13T18:00:00Z");
+        var restart = new DedicatedServerRestartInfo
+        {
+            Cause = DedicatedServerRestartCause.InGame,
+            RequestedAtUtc = requested,
+            Outcome = DedicatedServerRestartOutcome.Pending,
+        };
+
+        Assert.True(DedicatedServerSupervisor.IsAwaitingRestartExit(requested.AddMinutes(-5), restart));
+        Assert.False(DedicatedServerSupervisor.IsAwaitingRestartExit(requested.AddSeconds(5), restart));
+        Assert.False(DedicatedServerSupervisor.IsAwaitingRestartExit(null, restart));
+        Assert.False(DedicatedServerSupervisor.IsAwaitingRestartExit(requested.AddMinutes(-5), null));
+
+        restart.Outcome = DedicatedServerRestartOutcome.Recovered;
+        Assert.False(DedicatedServerSupervisor.IsAwaitingRestartExit(requested.AddMinutes(-5), restart));
     }
 
     private static (List<(ServerTerminationKind, bool)> Calls, int Reports) Run(

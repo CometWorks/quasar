@@ -739,7 +739,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (processActive &&
                     state.State is DedicatedServerProcessState.Starting or DedicatedServerProcessState.Restarting &&
                     agent?.IsConnected == true &&
-                    agent.Snapshot?.IsRunning == true)
+                    agent.Snapshot?.IsRunning == true &&
+                    !IsAwaitingRestartExit(state.StartedAtUtc, state.LastRestart))
                 {
                     state.State = DedicatedServerProcessState.Running;
                     state.LastMessage = "Server online.";
@@ -2774,6 +2775,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 DedicatedServerHealthState.Unhealthy,
                 $"Quasar.Agent did not {expectedAction}; startup logs were inactive for {state.Definition.AgentStartupGraceSeconds}s.");
     }
+
+    // An in-game restart is reported just before the old process saves and
+    // quits, and that process still looks online until it exits. Taking it for
+    // the restarted server would complete the restart early and turn the exit
+    // into a crash.
+    internal static bool IsAwaitingRestartExit(
+        DateTimeOffset? processStartedAtUtc,
+        DedicatedServerRestartInfo? restart) =>
+        restart is { Outcome: DedicatedServerRestartOutcome.Pending } &&
+        processStartedAtUtc < restart.RequestedAtUtc;
 
     internal static AgentStartupTimeoutKind EvaluateAgentStartupTimeout(
         DateTimeOffset watchStartedAtUtc,

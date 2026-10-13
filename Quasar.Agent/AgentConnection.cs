@@ -25,6 +25,7 @@ namespace Quasar.Agent
         private readonly AgentOptions _options;
         private readonly PluginLogOutbox _outbox;
         private readonly Random _rng = new Random();
+        private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(2);
         private readonly SemaphoreSlim _sendLock = new SemaphoreSlim(1, 1);
         private CancellationTokenSource _cancellation;
         private Task _runTask;
@@ -63,6 +64,7 @@ namespace Quasar.Agent
             if (_cancellation == null)
                 return;
 
+            CloseGracefully();
             try
             {
                 _cancellation.Cancel();
@@ -79,6 +81,41 @@ namespace Quasar.Agent
             }
 
             Log("Agent connection loop stopped.");
+        }
+
+        // Cancelling the loops aborts the socket, and the reset can make Quasar
+        // drop what it has not read yet, such as the admin-restart sent right
+        // before a quit. Quasar answers a close frame only after handling every
+        // message sent before it, so close first and wait for that answer.
+        private void CloseGracefully()
+        {
+            var socket = _socket;
+            if (socket == null || socket.State != WebSocketState.Open)
+                return;
+
+            try
+            {
+                if (!_sendLock.Wait(CloseTimeout))
+                    return;
+                try
+                {
+                    socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "agent stopping", CancellationToken.None)
+                        .Wait(CloseTimeout);
+                }
+                finally
+                {
+                    _sendLock.Release();
+                }
+
+                // The receive loop reads Quasar's close frame, which closes the socket.
+                var deadline = DateTime.UtcNow + CloseTimeout;
+                while (socket.State == WebSocketState.CloseSent && DateTime.UtcNow < deadline)
+                    Thread.Sleep(20);
+            }
+            catch (Exception exception)
+            {
+                Log($"Failed closing the connection to Quasar: {exception.Message}");
+            }
         }
 
         private async Task RunAsync(CancellationToken cancellationToken)
