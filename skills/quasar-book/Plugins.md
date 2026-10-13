@@ -1,0 +1,240 @@
+# Magnetar server plugins
+
+This page covers the plugins that run inside each managed Dedicated Server (DS): where Quasar gets the plugin catalog, how to pick plugins for a server, how to edit their settings, local dev folders, and the Quasar.Agent plugin that Quasar deploys into every server. Quasar UI plugins, which run inside the Quasar web app, are a different thing; see [UI plugins](UiPlugins.md).
+
+## Server plugins and UI plugins
+
+| | Magnetar server plugins (this page) | Quasar UI plugins |
+| --- | --- | --- |
+| Runs in | Each DS process, loaded by Magnetar | The Quasar web worker |
+| Catalog | MagnetarHub, https://github.com/CometWorks/magnetar-hub | QuasarHub, https://github.com/CometWorks/quasar-hub |
+| Where you pick them | **Configs** page, per config profile | **UI Plugins** page, for the whole Quasar install |
+| API | Magnetar PluginSdk | `Quasar.Plugin.Abstractions` |
+
+## Where the catalog comes from
+
+Quasar downloads the `main` branch of MagnetarHub (`CometWorks/magnetar-hub`) as a zip archive from GitHub and reads every `.xml` file under `Plugins/`. Each file with an `<Id>` becomes one catalog entry. Quasar reads `Id`, `FriendlyName`, `Author`, `Description`, `Tooltip`, `Runtimes`, `RepoId`, `Commit` and `Hidden` from the manifest.
+
+When Quasar refreshes the catalog:
+
+- 2 seconds after Quasar starts, then every 8 hours.
+- When you click **Refresh Catalog** in a config profile's **Plugins** tab, and each time you open the **Plugin catalog** panel there.
+- Before a server starts, when the profile selects a plugin id that the cached catalog does not have.
+
+Quasar sends the previous ETag, so an unchanged hub is not downloaded again. The catalog is cached in `{Quasar install directory}/Caches/plugin-catalog.json`. The install directory is `~/.local/share/Quasar` for the default Linux user service; on Windows it is the folder the installer was extracted to (see [Configuration](Configuration.md)).
+
+If a refresh fails, Quasar keeps the cached catalog and the profile editor shows a **Catalog stale** chip. An empty catalog shows "Plugin catalog empty. Refresh to download MagnetarHub."
+
+## Adding and removing plugins on a server
+
+Plugins belong to a config profile, not to a single server. Every server assigned to the profile gets the same plugin list. See [Config profiles](ConfigProfiles.md) for profiles in general.
+
+1. Open **Configs** in the navigation and select the profile.
+2. Open the **Plugins** tab.
+3. In **Plugin catalog**, tick **Use** next to each plugin you want. Search matches name, id, author, description and tooltip. Untick to remove, or use the delete button in **Plugins to load**.
+4. To add a plugin by id without the catalog, open **Advanced/manual plugin setup**, type the id in **Add custom plugin ID** and click **Add Custom**.
+5. Click **Save Profile**.
+
+Quasar writes the plugin list into the server's Magnetar files each time it prepares a server start. A running server picks up plugin changes at its next start or restart.
+
+Editing needs the `CanEditConfigs` permission. Viewers see a read-only summary of the profile, including its plugins. See [Access control](AccessControl.md).
+
+### Plugins you cannot select
+
+- `dotnet-compat` and `error-reporting` (and the legacy `se-dotnet-compat`) are managed by Magnetar. Selecting them shows "This plugin is managed automatically by Magnetar and cannot be selected manually." Magnetar loads `dotnet-compat`, `error-reporting`, and `linux-compat` on Linux by itself, so they never need to be in a profile.
+- Entries marked `Hidden` in MagnetarHub show "Hidden in hub" and cannot be ticked: "This plugin is hidden in MagnetarHub and cannot be selected manually."
+
+### Checking that plugins loaded
+
+The server's detail panel on the Dashboard shows **Plugins** as loaded/selected, for example `3/4`. Quasar compares the profile's plugin list with the plugins the agent reports as loaded. The value turns to the warning color when the numbers differ.
+
+## Files Quasar writes for Magnetar
+
+Each server has its own Magnetar app-data folder, by default `{Quasar install directory}/Magnetars/{server unique name}/Magnetar`. Quasar rewrites these files on every server start:
+
+| File | Content |
+| --- | --- |
+| `Sources/sources.xml` | The MagnetarHub hub source, per-plugin `RemotePlugin` entries pointing at hub manifests, every registered dev folder as a `LocalPlugin`, and the profile's Workshop mods |
+| `Profiles/Current.xml` | Profile named after the config profile: selected hub plugins under `GitHub`, selected dev folders under `DevFolder`, and Quasar.Agent plus UI plugin companions under `Local` |
+| `Local/` | `Quasar.Agent.dll`, `Magnetar.Protocol.dll`, `0Harmony.dll` and built companions of enabled UI plugins |
+
+If you saved a GitHub token on the **Updates** page, Quasar passes it to Magnetar in the `PULSAR_GITHUB_TOKEN` environment variable for plugin hub downloads. It never puts the token on the command line for current Magnetar builds. See [Updates](Updates.md).
+
+## Plugin versions and updates
+
+For a standalone server, Quasar does not pin plugin versions. The generated files point Magnetar at the MagnetarHub manifests on the `main` branch, and Quasar has no per-plugin update button for standalone servers. A plugin update in MagnetarHub reaches a server through Magnetar when the server starts.
+
+Clusters work differently. Staging a cluster profile freezes the exact plugin builds and source commits, Quasar watches MagnetarHub for new commits, and you queue and apply plugin updates from the cluster page. See [Clusters](Clusters.md).
+
+## Plugin configuration
+
+The **Plugins** page (navigation **Plugins**, title "Plugin configuration") edits live settings of plugins that expose a configuration to Quasar.
+
+1. Pick the server in **Server**. Only connected servers that report at least one configurable plugin are listed. With none, the page shows "No connected server is exposing editable plugin configuration."
+2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries). Values that have no dedicated field type are edited as raw JSON text.
+3. Click the apply button. **Reset defaults** fills in the plugin's default values; you still have to apply them.
+
+Quasar sends the new values to the server through the agent and the plugin applies them on the game thread. The success message ("Applied configuration to ...") means Quasar delivered the values to the server.
+
+Who may see and edit configuration:
+
+- Any user with `CanView` can open the **Plugins** page and see the plugin list and logs.
+- Configuration values need `CanEditConfigs`, because plugin settings may contain credentials. Others see "Configuration values require editor access because they may contain credentials."
+- Cluster nodes are not edited here. The page shows "Plugin configuration is managed for the whole cluster." with a link to the cluster's configuration, which needs the `ClusterManage` permission. See [Clusters](Clusters.md).
+
+### Configuration snapshots
+
+Each time a standalone server's agent reports its plugin configuration, Quasar stores the last known copy in `{Quasar install directory}/PluginConfigSnapshots/`, one JSON file per server, named by a hash of the server name. On Linux the folder and files are readable by the Quasar user only. Quasar uses these snapshots when converting a standalone server into a cluster; they are not live state and stay after the server stops. See [Clusters](Clusters.md).
+
+## Plugin logs
+
+The **Plugin logs** section on the **Plugins** page shows structured log lines that plugins write through the PluginSdk logger on managed servers. Filters: **Server**, **Plugin**, **Level**, **Range** (last 1h, 24h, 7d or all), **Limit** and **Filter text**. Times are UTC.
+
+- Quasar keeps the newest 10,000 entries per server in memory. They are gone after a Quasar restart.
+- While Quasar is unreachable, the agent buffers up to 10,000 lines and sends them after it reconnects.
+- The agent also writes these lines into the server's Magnetar log (`info_*.log` in the server's Magnetar folder, `info.current` points at the active file).
+- Lines from Magnetar itself are not shown in this panel.
+
+Plugin logs and chat can contain player or server information, so think before sharing screenshots.
+
+## Dev folders
+
+A dev folder registers a local plugin source checkout so it shows up in the plugin catalog like a hub plugin. It is meant for plugin development.
+
+### Registering a dev folder
+
+1. Open **Configs** and expand **Developer** at the bottom of the profile editor.
+2. Click **Add dev folder...** and pick the plugin's manifest XML in the file browser. The browser shows the file system of the machine that runs Quasar.
+3. Quasar checks the file exists and is valid XML, then adds the folder. Errors: "Plugin manifest not found: {path}" or "Plugin manifest could not be parsed: {path} (...)".
+4. In the profile's **Plugins** tab, tick the dev folder entry in **Plugin catalog** (marked "Local dev folder") and save the profile.
+
+Dev folders are global to the Quasar install and stored in `{Quasar install directory}/dev-folders.json`. Quasar lists every registered dev folder as a plugin source for every server, but Magnetar loads it only on servers whose profile selects it. Removing a dev folder needs `CanEditConfigs` and asks for confirmation.
+
+### Plugin id
+
+Quasar identifies a dev folder by the `<Id>` in its manifest, or by the folder name when the manifest has no `<Id>`. Magnetar uses the same id. Quasar re-reads the manifest id each time it loads the dev folder list, and maps profile selections saved by older Quasar releases (which used the folder name) to the manifest id.
+
+When a dev folder has the same id as a MagnetarHub plugin, the dev folder replaces the hub entry in the catalog, and servers load the dev folder build instead of the hub plugin.
+
+### Build behavior
+
+- For regular servers, Magnetar compiles the plugin from the folder when the server starts. The **Debug build** checkbox next to a selected dev folder in **Plugins to load** chooses a debug or release build. New dev folders default to debug.
+- For clusters, Quasar builds each selected dev folder once, at cluster setup and whenever the profile is staged, always as a release build. The folder's git repository must have no uncommitted or untracked changes, the manifest needs a `RepoId`, and the cluster records the HEAD commit. Nodes keep running that build until the next staging, and the cluster content monitor never reports new dev folder commits. See [Clusters](Clusters.md).
+
+## Quasar.Agent
+
+Quasar.Agent is a Magnetar plugin (`Quasar.Agent.dll`) that Quasar installs into every managed server. It connects back to Quasar, reports telemetry and runs commands sent from the web UI.
+
+### How Quasar deploys it
+
+On every server start Quasar copies `Quasar.Agent.dll` and `Magnetar.Protocol.dll` from the `Agent` folder of the Quasar install into the server's Magnetar `Local` folder, together with the matching `0Harmony.dll` (.NET 10 or .NET Framework 4.8 build). It only copies a file when its SHA-256 hash differs, and adds `Quasar.Agent.dll` to the `Local` list of `Profiles/Current.xml`. You never select the agent in a profile.
+
+If the `Agent` folder is missing, Quasar logs "Quasar.Agent.dll could not be located on disk; the agent plugin will not be deployed." and the server runs without telemetry or remote commands. A missing `0Harmony.dll` only disables profiler telemetry.
+
+### What it does
+
+The agent connects to Quasar's `/ws/agent` WebSocket. It finds Quasar through `QUASAR_BASE_URL` (Quasar sets it when launching the server), `QUASAR_PUBLIC_BASE_URL`, `MAGNETAR_WEB_BASE_URL`, or the `service-manifest.json` in the Quasar install directory, and checks `/api/health` before connecting.
+
+Every 2 seconds it sends:
+
+- a server snapshot: metrics, players, recent chat, deaths, chat commands, loaded and declared plugins, profiler samples and plugin statistics
+- the plugin configuration snapshot, when it changed since the last one
+- buffered plugin log lines
+
+It runs commands from Quasar: refresh, send chat, whisper and faction chat, save world, stop server, kick, ban, unban, promote, demote, set promote level, clear kick cooldown, list and delete entities, change profiler mode, apply plugin configuration, and companion requests from UI plugins. Cluster nodes reject the agent-local save and stop commands.
+
+Plugin statistics appear on **Analytics**; players, chat and entities on their own pages. See [Monitoring](Monitoring.md).
+
+### In-game commands
+
+On standalone servers the agent registers three chat commands:
+
+| Command | Effect |
+| --- | --- |
+| `!stop` | Saves the world and shuts the server down. Quasar sets the server's goal state to Off, so it stays stopped. |
+| `!restart [seconds]` | Saves and restarts after the delay (default 10, 0 to 3600), with countdown announcements. Quasar keeps the goal state On. "Restart already scheduled." if one is pending. |
+| `!quit` | Quits immediately without saving. |
+
+### When Quasar is unreachable
+
+The agent keeps the server running and retries the connection. If it had connected at least once and Quasar stays unreachable for the offline window, the agent saves the world and stops the server. Cluster nodes never stop on their own.
+
+| Setting (`Quasar` section of appsettings.json) | Environment variable | Default |
+| --- | --- | --- |
+| `AgentOfflineShutdownSeconds` | `QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS` | `3600` (0 or less stops promptly) |
+| `AgentReconnectIntervalSeconds` | `QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS` | `10` |
+| `AgentReconnectJitterSeconds` | `QUASAR_AGENT_RECONNECT_JITTER_SECONDS` | `3` |
+| `AgentProfilerMode` | `QUASAR_AGENT_PROFILER_MODE` | `SafeContinuous` (also `Off`, `DeepContinuous`) |
+
+Quasar passes these to each server at launch, so changes apply at the next server start. The profiler mode can also be set per server on **Analytics**, which overrides the default. See [Configuration](Configuration.md) and [Monitoring](Monitoring.md).
+
+## Making a server plugin work with Quasar
+
+Quasar integrates with plugins through Magnetar's PluginSdk. The code under `Quasar/Services/PluginSdk` is Quasar's receiving side; it is not a separate SDK.
+
+- **Configuration editor.** A plugin whose public `PluginConfig` property uses PluginSdk config options appears on the **Plugins** page with an editor built from its schema. A plugin can also implement `IQuasarConfigProvider` from `Magnetar.Protocol` and exchange the config as JSON. Configs the SDK tracks but the plugin does not expose through a public property are read-only: "SDK-tracked configuration is read-only here. Edit its plugin-owned settings directly, or prepare cluster configuration."
+- **Logs.** Quasar sets `QUASAR_AGENT` for every managed server, which makes the PluginSdk logger send structured lines to the **Plugin logs** panel.
+- **Statistics.** Statistics published through PluginSdk `PluginStats` are forwarded by the agent and charted on **Analytics**.
+- **UI plugin companions.** A server plugin that implements `IQuasarCompanionRequestHandler` can answer requests from a Quasar UI plugin. See [UI plugins](UiPlugins.md#companion-data-channel).
+
+## Registering a new plugin
+
+Quasar's catalog is MagnetarHub. To make a plugin selectable for everyone, open a pull request to https://github.com/CometWorks/magnetar-hub that adds an XML manifest under `Plugins/`. After it is merged, Quasar sees it at the next catalog refresh, or immediately after **Refresh Catalog**. Until then you can test the plugin locally through a dev folder, or add its id through **Advanced/manual plugin setup**.
+
+## Common problems
+
+- **A selected plugin does not load.** The server panel shows fewer loaded than selected plugins. Check the server's Magnetar log (`info_*.log` in `Magnetars/{server}/Magnetar`) for build or load errors, then the **Plugin logs** panel. Quasar itself does not compile hub plugins; Magnetar does.
+- **"Plugin catalog empty. Refresh to download MagnetarHub."** Quasar has not downloaded the hub yet or cannot reach GitHub. Click **Refresh Catalog** and check Quasar's log for "Failed to refresh Quasar plugin catalog."
+- **"MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually."** Every catalog entry is hidden or a Magnetar core plugin.
+- **"Dev folder already registered."** The same folder and manifest file are already in the list.
+- **The Plugins page lists no servers.** The server is stopped, its agent is not connected, or none of its plugins exposes a configuration.
+- **"Fix the invalid JSON values before applying."** A raw JSON field in the config editor does not parse.
+- **"Could not reach the server: ..."** The agent connection changed or dropped while applying; reopen the page and try again.
+- **Plugin settings changed in the editor have no effect.** Quasar reports success once it delivers the values. If the plugin rejects them, the agent writes "Failed applying plugin config to '...'" to the server's console output.
+- **A dev folder plugin builds on a server but cluster staging fails.** Commit or remove local changes in the dev folder's repository and add a `RepoId` to its manifest.
+
+## Sources
+- `README.md`
+- `Docs/ClusterPlugins.md`
+- `Docs/BuildingAndDevelopment.md`
+- `Docs/Configuration.md`
+- `Docs/QuickStart.md`
+- `Docs/WindowsDeploymentAndUpdates.md`
+- `Quasar/Services/QuasarPluginCatalogService.cs`
+- `Quasar/Services/PluginCatalogRefreshService.cs`
+- `Quasar/Services/PluginManifestReader.cs`
+- `Quasar/Services/QuasarDevFolderCatalog.cs`
+- `Quasar/Services/QuasarConfigProfileCatalog.cs`
+- `Quasar/Services/DedicatedServerRuntimePreparer.cs`
+- `Quasar/Services/DedicatedServerSupervisor.cs`
+- `Quasar/Services/WebServiceOptions.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
+- `Quasar/Services/ClusterSetupService.cs`
+- `Quasar/Services/PluginSdk/PluginConfigService.cs`
+- `Quasar/Services/PluginSdk/PluginConfigDtos.cs`
+- `Quasar/Services/PluginSdk/PluginLogStream.cs`
+- `Quasar/Models/QuasarConfigProfile.cs`
+- `Quasar/Models/DedicatedServerPathResolver.cs`
+- `Quasar/Components/Pages/Plugins.razor`
+- `Quasar/Components/Pages/Configs.razor`
+- `Quasar/Components/Pages/PluginManifestPickerDialog.razor`
+- `Quasar/Components/PluginConfigEditor.razor`
+- `Quasar/Components/PluginLogPanel.razor`
+- `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar/Components/Pages/Analytics.razor`
+- `Quasar/Components/Dashboard/ClusterPluginConfigurationPanel.razor`
+- `Quasar/Components/Layout/NavMenu.razor`
+- `Quasar.Agent/AdminPlugin.cs`
+- `Quasar.Agent/AgentConnection.cs`
+- `Quasar.Agent/AgentOptions.cs`
+- `Quasar.Agent/GameBridge.cs`
+- `Quasar.Agent/PluginLogOutbox.cs`
+- `Quasar.Agent/StopCommand.cs`
+- `Quasar.Agent/WebServiceLocator.cs`
+- `Magnetar.Protocol/Bridge/IQuasarConfigProvider.cs`
+- `Magnetar.Protocol/Bridge/IQuasarCompanionRequestHandler.cs`
+- `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Magnetar.Protocol/Transport/ServerCommandType.cs`
+- `Quasar.Tests/CorePluginManifestTests.cs`
+- `Quasar.Tests/DevFolderRuntimePreparationTests.cs`
+- `Quasar.Tests/PluginConfigSnapshotPersistenceTests.cs`

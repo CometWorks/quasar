@@ -1,0 +1,361 @@
+# Monitoring
+
+This page covers the pages Quasar has for watching and running live servers: the Dashboard, Analytics, Players, Chat, Entities, Notifications and the Discord integration, plus the Appearance page. Server lifecycle, health checks and restart policy are in [Servers](Servers.md). Error reporting and the public server listing are in [Diagnostics](Diagnostics.md).
+
+## Where the data comes from
+
+Quasar.Agent runs inside every managed server and sends Quasar a telemetry snapshot about every 2 seconds: players, sim speed, CPU, memory, PCU, grid and entity counts, recent chat, registered chat commands and profiler data. Every live view on these pages needs a connected agent. A server without one shows "Waiting for Quasar.Agent..." texts or "Selected server has no connected agent snapshot yet." See [Plugins](Plugins.md#quasaragent) for how the agent is deployed and [Troubleshooting](Troubleshooting.md#the-agent-never-connects) when it does not connect.
+
+All pages below need at least the `viewer` role. Changing anything needs the permission named in each section. See [Access control](AccessControl.md#roles-and-permissions).
+
+## Dashboard
+
+The **Dashboard** (`/`, page title **Fleet overview**) is the landing page.
+
+### Summary tiles
+
+| Tile | Shows |
+| --- | --- |
+| **Servers** (**Standalone servers** when clusters exist) | Running servers out of all servers, configured count, connected agents |
+| **Players online** | Players across connected standalone servers, out of their total slots |
+| **Average sim speed** | Average sim speed of connected standalone servers, and the count of health warnings and errors |
+| **Memory usage** | Sum of the working sets the agents report, in GiB |
+
+### Card view and list view
+
+The **Cards** and **List** buttons switch the server view. List is the default. The choice is stored per browser (`quasar.dashboard.serverView` in local storage), and `?view=cards` or `?view=list` in the URL selects it too. List view embeds the same table as the **Servers** page. Card view shows one card per server and one per cluster.
+
+A server card has:
+
+- The status badge: **Running** (agent connected and snapshot received), **Connecting** (process running, agent not attached yet, for example right after Quasar restarted and adopted the process), **Starting**, **Restarting**, **Stopping**, **Stopped**, **Crashed** or **Faulted**.
+- **World**, **Host**, **Connect** (click the port to copy the direct connect address) and **Profile**.
+- Status lines, each shown only when present:
+  - the last supervisor message, for example "Launch requested. Waiting for process and agent." or a fault reason
+  - the health summary, for example "Quasar.Agent heartbeat stale beyond 20s timeout."
+  - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the UTC time. Hover for the reason.
+  - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
+- Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime.
+- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures.
+- **Console** opens the log console (see [Servers](Servers.md#the-server-console)).
+- **Start**, **Stop**, **Restart** and **Kill** buttons (need `CanControlServers`). Their behavior is in [Servers](Servers.md#dashboard-and-server-controls).
+
+### Latest error line
+
+When a server crashes or faults, Quasar reads the last 256 KiB of the newest `SpaceEngineersDedicated*.log` in the DS app-data folder and of the newest `info*.log` in the Magnetar app-data folder. It takes the last line written since the server started that contains "exception", "fatal", "critical" or "error", from whichever file changed last. Starting the server again clears it.
+
+### Problem banner
+
+Above the cards, a banner shows the first server that needs attention: a **Crashed** or **Faulted** server first, then an **Unhealthy** one, then one with a health **Warning**. For crashed and faulted servers it has **Clear Error Status**, which sets the goal Off and returns the server to **Stopped**.
+
+### Other panels
+
+- **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
+- **Simulation speed** charts the last 30 minutes for standalone servers (1.00x is real time) and links to Analytics.
+- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results.
+- **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
+
+## Analytics
+
+**Analytics** (`/analytics`) charts the metrics history of the servers you select.
+
+### Controls
+
+| Control | Values |
+| --- | --- |
+| **Time range** | 30s, 1m, 2m, 5m, 15m, 30m, 1h (default), 6h, 24h, 7d, 30d, **Custom** (from and to date and time) |
+| **Auto refresh** | Off, 5s, 15s, 30s, 60s |
+| **Servers** | Check boxes, **Select all**, **Select none** |
+| **Grid** | **Columns** 1 to 6 (default 2), **Rows** 1 to 12 (default 4), **Row height (px)** 180 to 960 (default 320), **Reset panels** |
+| **Add panel** | Shows a hidden panel again. The tune icon on each chart opens its panel settings. |
+| **Reset layout** | Back to 2 columns, 4 rows, 320 px |
+| **Export** | Writes the in-memory analytics to disk now ("Analytics persisted to disk."). It does not download a file. |
+
+The layout, selected servers and range are stored per browser in local storage (`quasar.analytics.view.v2`), not on the server.
+
+### Panels
+
+| Panel | Meaning |
+| --- | --- |
+| **SimSpeed** | Simulation ratio. The axis tops out at 1.00, which is real time. |
+| **Process CPU %** | CPU used by all threads of the server process. 100% is one fully used logical CPU, so values above 100% are normal on a multi-core machine. |
+| **Server Simulation CPU %** | Time spent on one server update as a share of the 16.67 ms frame budget at 60 updates per second. Above 100% means updates ran over budget. |
+| **Memory GB** | Working set |
+| **Player Count** | Players online |
+| **Frame Time ms** | Derived from sim speed |
+| **PCU Used** | Used PCU |
+| **Active Grids** | Grid count |
+| **Active Entities** | Entity count |
+| **Profiler: Frame / Update / Physics / Scripts / Network / Other ms** | Simple profiler buckets |
+| **Profiler: Top Grids ms**, **Profiler: Entity Types ms** | Extensive profiler only |
+
+Summary chips above the charts show the latest values averaged over the selected servers. A **Plugin statistics** section appears when Magnetar plugins on the selected servers publish their own metrics. **Show plugin statistics charts** adds them, one line per instance.
+
+### Process CPU and simulation CPU
+
+The two CPU numbers measure different things and do not convert into each other:
+
+- **Process CPU %** adds up CPU time of every thread in the DS process. 150% means about 1.5 logical CPUs in use. It does not mean the whole machine is overloaded.
+- **Server Simulation CPU %** matches the in-game Shift+F11 row **Server simulation CPU Load** (use the row with "Server" in it; the row without it measures the local client). 25% means about 4.2 ms of the 16.67 ms budget. The in-game value is smoothed and rounded, so it will not match the chart exactly at every moment.
+
+High readings on either can coexist with sim speed near 1.0 and smooth gameplay. Neither CPU value triggers Quasar restarts or alerts. Health checks use simulation frame progress, Discord alerts use SimSpeed, and the Notifications page has its own CPU threshold.
+
+### History and retention
+
+Quasar keeps three tiers per server:
+
+| Tier | Size | Used for ranges |
+| --- | --- | --- |
+| Raw samples (one per agent snapshot, about every 2 seconds) | last 3600 samples | up to 2 hours |
+| 1-minute averages | retention days x 1440 | up to 24 hours |
+| 1-hour averages | retention days x 24 | longer ranges |
+
+Retention defaults to 30 days. Allowed values are 30, 45, 60 and 90; any other value falls back to 30. Set it with `QUASAR_ANALYTICS_RETENTION_DAYS`, `Quasar:AnalyticsRetentionDays` or `Quasar:Analytics:RetentionDays` (checked in that order) and restart Quasar.
+
+History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts. Old entries without simulation CPU show as gaps. Profiler and plugin statistics are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
+
+### Profiler mode
+
+Expand **Analytics Profiles** to see one row per selected server with **Mode**, **Live state** and where the data appears. The mode (**Startup and live mode**) is:
+
+| Option | Value | Fills |
+| --- | --- | --- |
+| **Simple, low overhead** (default) | `SafeContinuous` | Profiler: Frame, Update, Physics, Scripts, Network, Other |
+| **Extensive, deep detail** | `DeepContinuous` | Also Profiler: Top Grids and Profiler: Entity Types |
+| **Off** | `Off` | Nothing |
+
+Changing the mode needs `CanControlServers`. Quasar saves it in the server's `server.json` and applies it to a connected agent right away, without a restart. Servers without their own setting use `Quasar:AgentProfilerMode` or `QUASAR_AGENT_PROFILER_MODE`. Use Simple or Off if a game update breaks the deep profiler. **Show simple profiler charts** and **Show extensive charts** add the matching panels.
+
+## Players
+
+**Players** (`/players`, heading **Known Players**) lists every player Quasar has seen on a standalone server, with server, Steam ID, client service, faction, role, status and last seen time. Cluster players are managed from the cluster's details page.
+
+- Filters: **Server**, **Type** (All, Online, Offline, Banned, Kick cooldown) and **Search players**.
+- The row menu (needs `CanControlServers` and a connected agent): **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown**, **Ban** or **Unban**. A row of a server without a connected agent shows "agent offline" and has no actions.
+- **Clean Server** and **Clean All** delete saved known players. Players still online are recorded again on the next snapshot.
+- **Auto clear after** removes players not seen for that many days (default 30, range 1 to 3650). Click **Save** next to it (needs `CanControlServers`).
+
+Quasar stores the list in `<data dir>/known-players.json` and the auto-clear setting in `known-player-settings.json`.
+
+## Chat
+
+**Chat** (`/chat`) shows the recent chat of one server or cluster node and lets you send to it.
+
+- Pick the server in **Server**. Only servers with a connected agent show chat. The page shows the agent's last 100 chat messages; Quasar does not store chat history.
+- **Refresh** asks the agent for a new snapshot. **Save** and **Restart** act on the server (need `CanControlServers`). Cluster saves and restarts are done from the cluster details page.
+- The input box (needs `CanControlServers`) broadcasts to global chat. Messages appear from **Server**. Press Enter to send.
+- Text that starts with `!` switches the box to **Command text** and suggests matching chat commands registered on that server (Quasar.Agent and Magnetar plugin commands), up to 30 at a time.
+
+Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get them.
+
+## Entities
+
+**Entities** (`/entities`) lists live world entities of a connected server.
+
+- Choose **Server**, **Type** (Grids, Characters, Floating objects, Voxels) and optionally **Search name / id / owner**, then press **Refresh**. The list does not refresh by itself.
+- Quasar asks the agent for up to 500 entities. Chips show **Matching**, **Shown** and **Live total**.
+- Columns: type, entity ID, sub-type, blocks, PCU, size, owner, position, name.
+- Deleting (row delete button, or select and delete several) needs `CanControlServers`. It asks "Permanently delete N selected entities? This cannot be undone." There is no undo; take a world backup first if unsure.
+
+The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
+
+## Notifications
+
+**Notifications** (`/notifications`, under **Settings** in the menu) and the bell in the app bar show update notices and optional instance alerts. Update notices are described in [Updates](Updates.md#update-notices-on-the-notifications-page).
+
+### Notification preferences
+
+Preferences are per account and apply to the page, the bell and browser push on every browser. Click **Save preferences**.
+
+| Preference | Default |
+| --- | --- |
+| **Quasar and cluster updates** | on |
+| **Quasar UI plugin updates** (admins only) | off |
+| **Instance crashes and failures (including automatic crash recovery)** | off |
+| **Restarts caused by health checks or agent attach failures** | off |
+| **Low simulation speed**, **Alert below simulation speed** | off, 0.8 (above 0, at most 1) |
+| **High process CPU usage**, **Alert above CPU (%)** | off, 200 (100% is one logical CPU) |
+| **High memory usage**, **Alert above working set (MB)** | off, 8192 (1 to 1,048,576) |
+| **World has unsaved changes**, **Alert above unsaved game time (minutes)** | off, 15 (1 to 10,080) |
+| **Metric alert duration (seconds)** | 30 (5 to 3,600). A metric must stay past its threshold this long. |
+| **Metric alert cooldown (seconds)** | 300 (30 to 86,400). Minimum time between alerts for the same instance and metric. |
+| **Notify when an alerted metric recovers** | off |
+
+Out-of-range values fail with "Check notification thresholds: ...".
+
+Metric alerts use telemetry no older than 30 seconds from running instances, including cluster nodes. Crash and health-restart alerts cover locally supervised servers only. Instance alerts are kept in memory for up to 24 hours, at most 100 per account, and are cleared when Quasar restarts or preferences are saved.
+
+### Browser push notifications
+
+**Enable push notifications** subscribes the current browser for the signed-in account. **Disable push notifications** and **Refresh status** affect only this browser.
+
+- Push needs HTTPS or `localhost` and a supported browser. Otherwise the page says "Push requires HTTPS or localhost and a supported browser."
+- Push needs at least the viewer role ("Sign in with a viewer account to enable push notifications."). Trusted-network access shares one notification identity for all such browsers.
+- An account can have at most 16 push subscriptions: "This account already has 16 push subscriptions. Disable one from its browser first."
+- Quasar checks for new notices to push every 30 seconds.
+
+Subscriptions, the generated VAPID keys and all notification preferences are in `<data dir>/PushNotifications.json`, encrypted with the Data Protection keys in `DataProtection-Keys/`.
+
+## Discord integration
+
+The **Discord** page (`/discord`) configures one Discord bot for all servers and clusters. Viewers see a read-only summary. Changing settings, **Console Logs** and the Discord log download need `CanManageDiscord` (editor or admin).
+
+### Bot setup
+
+1. In the Discord Developer Portal, create an application and a bot, and copy the bot token.
+2. Enable **Message Content Intent** for the bot if you use text commands or chat relay. Quasar connects with the Guilds, Guild Messages and Message Content gateway intents.
+3. Invite the bot with the `bot` and `applications.commands` scopes and these permissions: View Channel, Send Messages, Read Message History, Attach Files, Embed Links, and Manage Channels (only for `/faction-channel`).
+4. On the Discord page under **Bot Settings**: check **Enabled**, paste the **Bot token**, enter the **Guild ID** (your Discord server's ID), click **Save Bot Settings**.
+
+**Use system/environment proxy** (default on) sends Discord API and gateway traffic through the proxy settings of the Quasar process (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`). Clear it to connect directly. Saving reconnects the bot.
+
+The status chip shows the bot state: Disabled, NotConfigured ("Bot token and guild ID required."), Starting, Running or Faulted with the error. **Console Logs** shows the last 256 KiB of `discord.log` and a download button.
+
+### Bot presence
+
+Under **Bot presence**: **Include all servers** or a selection (new servers are not added to a selection automatically; each cluster counts as one server), **Status indicator** (Automatic, Online, Idle, Do not disturb, Invisible), **Show activity text**, **Activity type** (Watching, Playing, Listening to, Competing in), and what the activity text includes: **Online server count**, **Player count**, **Issues and warnings**, **Server names**, **Server names and states**. A preview shows the result. Discord limits activity text to 128 characters. Quasar updates presence at most every 5 seconds.
+
+### Per-server bindings
+
+Expand a server or cluster under **Per-Server Bindings**, fill in channel IDs (right-click a channel in Discord with Developer Mode on to copy its ID) and click **Save settings**. A cluster entry covers the whole cluster across all Hosts.
+
+| Field | Default | Purpose |
+| --- | --- | --- |
+| **Command prefix** | empty | Prefix for text commands, for example `;;` |
+| **Command channel ID** | empty | Channel where text commands work. Commands need both the prefix and this channel. |
+| **Chat relay channel ID** | empty | Global game chat goes here; messages posted here go into the game |
+| **Admin whisper channel ID** | empty | Private game whispers go here. The channel must be admin-only (see below). |
+| **Log channel ID**, **Log export interval (minutes)** | empty, 30 | New lines of the newest DS log, posted in code blocks |
+| **Analytics channel ID**, **Analytics export interval (minutes)** | empty, 60 | An analytics summary per interval: average sim speed, process CPU, simulation CPU, memory, max players, PCU, grids, entities, uptime, state |
+| **Death messages channel ID** | empty | Player death messages |
+| **SimSpeed alert channel ID** | empty | SimSpeed alerts. Uses the analytics channel when empty. |
+| **Status channel ID** | empty | Player join/leave and server lifecycle messages. Uses the chat relay channel when empty. |
+| **Enable player connection notifications** | on | "**Name** connected to the server!" and disconnected messages |
+| **Enable server lifecycle notifications** | on | "Server is going to Restart!", "Server Started!", "Server Closed!" |
+| **Enable chat relay** | on | |
+| **Enable log export**, **Enable analytics export** | on | |
+| **Enable death messages**, **Death emotes (comma-separated)** | off | |
+
+A feature only runs when its channel ID is set. **Death Message Templates** at the bottom of the page edits the death message texts, stored in `<data dir>/death-messages.json`.
+
+### Text commands
+
+Type the prefix and a command in the command channel, for example `;;status`. The prefix alone shows help.
+
+| Command | Who can use it | Effect |
+| --- | --- | --- |
+| `help` | anyone in the channel | Lists the commands |
+| `status` | anyone | Status embed: goal, state, agent, health, players, SimSpeed, process CPU, memory, PCU, grids, entities, uptime |
+| `chat <text>` | anyone | Sends the text to game chat |
+| `save` | Discord Administrator | Saves the world |
+| `start`, `stop`, `restart` | Discord Administrator | Same as the UI buttons. `start` and `stop` set the saved goal state, and `start` also retries a Crashed or Faulted server. |
+| `kick <steamId>`, `ban <steamId>`, `unban <steamId>`, `promote <steamId>`, `demote <steamId>` | Discord Administrator | Player actions |
+
+"Discord Administrator" means the Administrator permission in the Discord guild. Other users get "Discord Administrator permission required." Commands that need the server answer "Error: Server not connected." when its agent is not connected. Unknown commands get "Unknown command `<verb>`." plus the help.
+
+### Slash commands
+
+Quasar registers two guild slash commands when the bot connects:
+
+- `/whisper server:<unique name> user:<online player name or Steam ID> message:<text>` sends a private message to an online player. Anyone can run it, but only in a command, chat relay, admin whisper or faction channel bound to that server ("Use /whisper in a channel configured for that server's Discord bridge."). Ambiguous names fail with "Player name '<name>' is ambiguous; use the Steam ID."
+- `/faction-channel server:<unique name> faction:<tag>` (Discord Administrator only) creates an admin-only text channel for that faction in the current category, or re-secures the existing one, and saves the binding.
+
+Use the server's unique name, not its display name. Clusters are `cluster:<name>`.
+
+### Chat relay rules
+
+- Game global chat goes to the chat relay channel, whispers to the admin whisper channel, faction chat to that faction's channel from `/faction-channel`. Faction chat without a bound channel is dropped.
+- Quasar posts whispers and faction chat only into channels that deny View Channel to @everyone and allow it only to administrator roles and the bot. Otherwise it logs "Refused to relay private ... chat to Discord channel ...; channel is not admin-only." and drops the message.
+- Server and system messages are not relayed, except broadcasts sent from the Quasar UI, which appear as **Server**.
+- Any non-bot user's message in the chat relay channel goes into the game. Only Discord administrators can post into a faction channel; their messages reach every online member of the faction privately.
+- Quasar does not echo Discord messages back to Discord (2-minute suppression window) and relays each game message once.
+
+### SimSpeed alerts
+
+Under **SimSpeed Rules** (all on by default):
+
+| Rule | Settings (default) | Fires when |
+| --- | --- | --- |
+| **Sharp drop rule** | **Sharp previous minimum** 0.98, **Sharp current threshold** 0.80, **Sharp drop delta** 0.15, **Sharp cooldown (seconds)** 120 | Sim speed was at least the previous minimum, falls to the threshold or below in one sample, and drops by at least the delta |
+| **Sustained loss rule** | **Sustained threshold** 0.90, **Sustained window (seconds)** 60 (5 to 3600), **Sustained cooldown (seconds)** 300 | The average sim speed over the window is at or below the threshold |
+
+Alerts go to the SimSpeed alert channel, or the analytics channel when that is empty.
+
+### Settings file
+
+Everything on the Discord page, including the bot token, is saved in `<data dir>/discord.json` as plain JSON. Protect that file. Quasar watches it and applies edits made on disk without a restart. Bot messages are logged to `discord.log` as well as `quasar.log` (see [Troubleshooting](Troubleshooting.md#where-the-logs-are)).
+
+## Appearance
+
+**Appearance** (`/settings/appearance`, needs `CanManageAppearance`) changes branding for all users. Saved changes apply live to every open session.
+
+- **Brand identity**: **App name** and **Subtitle**.
+- **Theme palette**: presets Quasar Default, CometWorks (Quasar default), Midnight Blue, Slate and High Contrast, or custom colors for the light and dark palette, with a live preview.
+- **Logos and favicon**: light and dark logos (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`) and a favicon (`.ico`, `.png`), up to 10 MiB each. Uploads apply immediately; a cached favicon may need a browser refresh.
+- **Save changes** and **Reset to Quasar default**.
+
+Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Branding/`. The light, dark or system color theme is a per-browser choice in the header, separate from this page.
+
+## Common problems
+
+- **Charts empty: "No analytics samples match current filters yet."** No server is selected, or the selected servers have no samples in the range. Samples only exist while an agent is connected.
+- **Process CPU above 100%** is normal: 100% is one logical CPU.
+- **Profiler panels stay empty**: the server's profiler mode is Off, or Extensive panels with Simple mode. Check **Analytics Profiles**.
+- **Profiler charts empty after a Quasar restart**: profiler history is memory only.
+- **Discord bot shows NotConfigured**: set both **Bot token** and **Guild ID**, check **Enabled**, save.
+- **Bot online but ignores text commands**: Message Content Intent is off in the Developer Portal, the message is not in the bound **Command channel ID**, or the prefix is missing. Non-admins can only use `help`, `status` and `chat`.
+- **Slash commands missing**: the bot was not invited with `applications.commands`, or the **Guild ID** is wrong. Check `discord.log` for "Failed registering Discord slash commands."
+- **Whispers or faction chat never reach Discord**: the channel is not admin-only. Look for "Refused to relay private" in `discord.log`.
+- **`/faction-channel` fails**: the bot lacks Manage Channels.
+- **Push button disabled**: open the UI over HTTPS or on `localhost`, or remove an old subscription when at 16.
+- **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
+
+## Sources
+- `Docs/AnalyticsCpuLoad.md`
+- `Docs/StateMachines/ProfilerMode.md`
+- `Docs/StateMachines/AgentConnection.md`
+- `Docs/StateMachines/DedicatedServerLifecycle.md`
+- `Docs/Configuration.md`
+- `README.md`
+- `Docs/QuasarArchitecture.md`
+- `Quasar/appsettings.json`
+- `Quasar/Components/Pages/Home.razor`
+- `Quasar/Components/Dashboard/ServerCard.razor`
+- `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar/Components/Dashboard/FleetTelemetryChart.razor`
+- `Quasar/Components/Pages/Analytics.razor`
+- `Quasar/Components/Pages/Players.razor`
+- `Quasar/Components/Pages/Chat.razor`
+- `Quasar/Components/Pages/Entities.razor`
+- `Quasar/Components/Pages/Notifications.razor`
+- `Quasar/Components/Pages/Discord.razor`
+- `Quasar/Components/Pages/DiscordConsoleDialog.razor`
+- `Quasar/Components/Pages/Appearance.razor`
+- `Quasar/Services/Analytics/AnalyticsMetrics.cs`
+- `Quasar/Services/Analytics/AnalyticsStoreOptions.cs`
+- `Quasar/Services/Analytics/AnalyticsSeriesService.cs`
+- `Quasar/Services/Analytics/AnalyticsViewConfig.cs`
+- `Quasar/Services/Analytics/MetricsStoreService.cs`
+- `Quasar/Services/Analytics/ServerMetricsStore.cs`
+- `Quasar/Services/Analytics/ProfilerStoreService.cs`
+- `Quasar/Services/Analytics/PluginStatsStoreService.cs`
+- `Quasar/Services/AgentRegistry.cs`
+- `Quasar/Services/DedicatedServerSupervisor.cs`
+- `Quasar/Services/KnownPlayerCatalog.cs`
+- `Quasar/Services/BrandingPresets.cs`
+- `Quasar/Services/Updates/NotificationPreferences.cs`
+- `Quasar/Services/Updates/PushNotificationService.cs`
+- `Quasar/Services/Updates/InstanceNotificationMonitor.cs`
+- `Quasar/Services/Discord/DiscordBotService.cs`
+- `Quasar/Services/Discord/DiscordOptions.cs`
+- `Quasar/Services/Discord/DiscordOptionsCatalog.cs`
+- `Quasar/Services/Discord/DiscordCommandRouter.cs`
+- `Quasar/Services/Discord/DiscordCommandDispatcher.cs`
+- `Quasar/Services/Discord/DiscordChatRelayService.cs`
+- `Quasar/Services/Discord/DiscordSimSpeedAlertService.cs`
+- `Quasar/Services/Discord/DiscordStatusRelayService.cs`
+- `Quasar/Services/Discord/DiscordLogRelayService.cs`
+- `Quasar/Services/Discord/DiscordAnalyticsExportService.cs`
+- `Quasar/Services/QuasarLoggingConfigurator.cs`
+- `Quasar.Agent/GameBridge.cs`
+- `Quasar.Agent/StopCommand.cs`
+- `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
