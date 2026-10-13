@@ -36,8 +36,9 @@ the same path as a complete session-settings and mod/plugin change.
 A plugin selected from a dev folder is compiled from the checkout during that
 preparation and pinned to its HEAD commit, which `preparation.json` reports with
 `source: "dev-folder"`. The repository must be clean. Content update monitoring looks
-for new commits in the plugin hub only, so it can't report one for a dev folder plugin;
-a new commit reaches the cluster only when the profile is staged again. See [local development plugins](BuildingAndDevelopment.md#local-development-plugins).
+for new commits in the plugin hub only, so it lists a dev folder plugin with "Plugin
+manifest is unavailable or has no exact commit" and never reports its new commits; a
+new commit reaches the cluster only when the profile is staged again. See [local development plugins](BuildingAndDevelopment.md#local-development-plugins).
 
 The update workflow stops the cluster, captures a verified backup under its update ID,
 then migrates preserved checkpoints and node mod directories. It starts the cluster only
