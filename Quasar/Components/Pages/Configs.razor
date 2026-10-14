@@ -1123,7 +1123,7 @@
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
     private IReadOnlyList<QuasarPluginHubStatus> HubStatuses => PluginCatalog.GetHubStatuses();
     private string _newHubRepo = string.Empty;
-    private string _newHubBranch = QuasarPluginCatalogService.DefaultHubBranch;
+    private string _newHubBranch = QuasarPluginHubCatalog.DefaultBranch;
     private string _newHubName = string.Empty;
     private bool _hubSaving;
 
@@ -2804,7 +2804,7 @@
         {
             _newHubRepo = string.Empty;
             _newHubName = string.Empty;
-            _newHubBranch = QuasarPluginCatalogService.DefaultHubBranch;
+            _newHubBranch = QuasarPluginHubCatalog.DefaultBranch;
         }
     }
 

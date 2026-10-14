@@ -9,6 +9,8 @@ namespace Quasar.Services;
 /// <summary>The extra plugin hubs registered by the operator, kept in plugin-hubs.json.</summary>
 public sealed class QuasarPluginHubCatalog
 {
+    public const string DefaultBranch = "main";
+
     private static readonly Regex RepoPattern = new(
         "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$",
         RegexOptions.CultureInvariant
@@ -78,7 +80,7 @@ public sealed class QuasarPluginHubCatalog
         var repo = folder.Length == 0 ? hub.Repo?.Trim().Trim('/') ?? string.Empty : string.Empty;
         var branch = folder.Length == 0 ? hub.Branch?.Trim() ?? string.Empty : string.Empty;
         if (repo.Length != 0 && branch.Length == 0)
-            branch = "main";
+            branch = DefaultBranch;
         var name = hub.Name?.Trim() ?? string.Empty;
         if (name.Length == 0)
             name = folder.Length != 0 ? Path.GetFileName(folder) : repo;

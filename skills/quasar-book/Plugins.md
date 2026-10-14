@@ -63,7 +63,7 @@ If you saved a GitHub token on the **Updates** page, Quasar passes it to Magneta
 
 ## Plugin versions and updates
 
-For a standalone server, Quasar does not pin plugin versions. The generated files point Magnetar at the MagnetarHub manifests on the `main` branch, and Quasar has no per-plugin update button for standalone servers. A plugin update in MagnetarHub reaches a server through Magnetar when the server starts.
+For a standalone server, Quasar does not pin plugin versions. The generated files point Magnetar at the MagnetarHub manifests on the `main` branch and at each registered hub's branch or folder, and Quasar has no per-plugin update button for standalone servers. A plugin update in a hub reaches a server through Magnetar when the server starts.
 
 Clusters work differently. Staging a cluster profile freezes the exact plugin builds and source commits, Quasar watches each plugin's hub for new commits, and you queue and apply plugin updates from the cluster page. See [Clusters](Clusters.md).
 
@@ -120,7 +120,7 @@ Hubs are global to the Quasar install and stored in `{Quasar install directory}/
 
 ### Two hubs with the same plugin id
 
-Magnetar would load the plugin from whichever hub it reads first, so Quasar refuses to choose. The catalog entry shows "Listed by more than one hub: MagnetarHub, {hub}", it can't be selected, and a server whose profile already selects it fails to start with "More than one plugin hub lists {id} ({hubs}). Remove the plugin from all but one hub, or unregister a hub, then try again." The same applies to the compatibility plugins Magnetar loads by itself, such as `linux-compat`, even though no profile selects them. A dev folder with the same id is not a conflict; it overrides the hub plugin.
+Magnetar would load the plugin from whichever hub it reads first, so Quasar refuses to choose. The catalog entry shows "Listed by more than one hub: MagnetarHub, {hub}", it can't be selected, and a server whose profile already selects it fails to start with "More than one plugin hub lists {id} ({hubs}). Remove the plugin from all but one hub, or remove a hub, then try again." The same applies to the compatibility plugins Magnetar loads by itself, such as `linux-compat`, even though no profile selects them. A dev folder with the same id is not a conflict; it overrides the hub plugin.
 
 ### Removing a hub
 

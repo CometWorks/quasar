@@ -415,7 +415,7 @@ public sealed class DedicatedServerRuntimePreparer
             .ToList();
         if (conflicts.Count != 0)
             throw new InvalidOperationException(
-                $"More than one plugin hub lists {string.Join("; ", conflicts)}. Remove the plugin from all but one hub, or unregister a hub, then try again.");
+                $"More than one plugin hub lists {string.Join("; ", conflicts)}. Remove the plugin from all but one hub, or remove a hub, then try again.");
 
         var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<string>();
