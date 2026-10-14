@@ -21,6 +21,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly TimeSpan RestartCounterResetWindow = TimeSpan.FromMinutes(1);
     private static readonly TimeSpan ReconcileInterval = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan DefaultGracefulStopTimeout = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan ProcessTeardownTimeout = TimeSpan.FromSeconds(30);
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
     private const int MaxModDownloadFailures = 20;
@@ -352,13 +353,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         {
             if (forceAfter is null)
             {
-                await process.WaitForExitAsync(cancellationToken);
+                await WaitForExitAsync(process, cancellationToken);
             }
             else
             {
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 timeout.CancelAfter(forceAfter.Value);
-                await process.WaitForExitAsync(timeout.Token);
+                await WaitForExitAsync(process, timeout.Token);
             }
         }
         catch (OperationCanceledException) when (forceAfter is not null && !cancellationToken.IsCancellationRequested)
@@ -369,7 +370,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 try
                 {
                     process.Kill(entireProcessTree: true);
-                    await process.WaitForExitAsync(CancellationToken.None);
+                    await WaitForExitAsync(process, CancellationToken.None);
                 }
                 catch (InvalidOperationException)
                 {
@@ -386,7 +387,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         if (!IsProcessActive(process))
-            await HandleProcessExitedAsync(uniqueName);
+            await HandleProcessExitedAsync(uniqueName, process);
     }
 
     public async Task KillStartingServerAsync(string uniqueName, CancellationToken cancellationToken = default)
@@ -434,7 +435,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             try
             {
                 process!.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(cancellationToken);
+                await WaitForExitAsync(process, cancellationToken);
             }
             catch (InvalidOperationException)
             {
@@ -451,7 +452,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             }
 
             if (!IsProcessActive(process))
-                await HandleProcessExitedAsync(uniqueName);
+                await HandleProcessExitedAsync(uniqueName, process!);
             return;
         }
 
@@ -973,7 +974,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     maxAttempts,
                     reason);
                 process!.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(cancellationToken);
+                await WaitForExitAsync(process, cancellationToken);
             }
             catch (InvalidOperationException)
             {
@@ -982,7 +983,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         if (!IsProcessActive(process))
-            await HandleProcessExitedAsync(uniqueName);
+            await HandleProcessExitedAsync(uniqueName, process!);
 
         if (faulted)
         {
@@ -1203,7 +1204,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             ["serverId"] = definition.UniqueName, ["role"] = "dedicated-server",
             ["launchAttempt"] = Guid.NewGuid().ToString("N"),
         });
-        process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
+        process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName, process);
         LogManagedServerLaunchEnvironment(definition, process.StartInfo);
 
         var processStartedAtUtc = DateTimeOffset.UtcNow;
@@ -1276,7 +1277,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             try
             {
                 process.Kill(entireProcessTree: true);
-                await process.WaitForExitAsync(CancellationToken.None);
+                await WaitForExitAsync(process, CancellationToken.None);
             }
             catch (InvalidOperationException)
             {
@@ -1678,7 +1679,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return value.Length <= 2000 ? value : value[..2000] + "...";
     }
 
-    private async Task HandleProcessExitedAsync(string uniqueName)
+    private async Task HandleProcessExitedAsync(string uniqueName, Process process)
     {
         ManagedServerState? state;
         DedicatedServerDefinition definition;
@@ -1693,9 +1694,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         DedicatedServerRestartInfo? requestedRestart = null;
         DedicatedServerRestartInfo? failedRestart = null;
 
+        // Exited can fire before the process is gone (see IsProcessActive). Every
+        // restart path comes through here, so wait before dropping the process.
+        await WaitForTeardownAsync(uniqueName, process);
+
         lock (_sync)
         {
-            if (!_states.TryGetValue(uniqueName, out state) || state.Process is null)
+            // The Exited event and the stop paths both report the same exit; by the
+            // time the later one gets here a new process may already be running.
+            if (!_states.TryGetValue(uniqueName, out state) || !ReferenceEquals(state.Process, process))
                 return;
 
             definition = Clone(state.Definition);
@@ -1821,6 +1828,34 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         await StartServerAsync(uniqueName, _shutdown.Token);
     }
 
+    private async Task WaitForTeardownAsync(string uniqueName, Process process)
+    {
+        if (!IsProcessActive(process))
+            return;
+
+        var stopwatch = Stopwatch.StartNew();
+        using var timeout = new CancellationTokenSource(ProcessTeardownTimeout);
+        try
+        {
+            await WaitForExitAsync(process, timeout.Token);
+            _logger.LogInformation(
+                "Server {UniqueName} process ended {ElapsedMs} ms after its exit code was set.",
+                uniqueName,
+                stopwatch.ElapsedMilliseconds);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "Server {UniqueName} process is still ending {Timeout} s after its exit code was set; going on without it.",
+                uniqueName,
+                ProcessTeardownTimeout.TotalSeconds);
+        }
+        catch (InvalidOperationException)
+        {
+            // Disposed meanwhile: it's gone.
+        }
+    }
+
     private async Task TryRequestGracefulStopAsync(
         string uniqueName,
         string agentLifecycleMessage,
@@ -1920,7 +1955,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (persistedState.ProcessId is > 0 && TryAdoptProcess(persistedState.ProcessId.Value, out var process))
                 {
                     process.EnableRaisingEvents = true;
-                    process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName);
+                    process.Exited += async (_, _) => await HandleProcessExitedAsync(state.UniqueName, process);
 
                     state.Process = process;
                     state.ProcessId = process.Id;
@@ -2428,14 +2463,19 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return true;
     }
 
-    private static bool IsProcessActive(Process? process)
+    // Process.HasExited, ExitCode, Exited and WaitForExitAsync count a process as
+    // exited once its exit code is set. On Windows a dedicated server can still be
+    // tearing down for seconds after that, with Magnetar's Preloader DLLs mapped,
+    // and a server started over it crashes on them. WaitForExit(0) checks the
+    // process handle, which is signaled only once the process is gone.
+    internal static bool IsProcessActive(Process? process)
     {
         if (process is null)
             return false;
 
         try
         {
-            return !process.HasExited;
+            return !process.WaitForExit(0);
         }
         catch (InvalidOperationException)
         {
@@ -2445,6 +2485,17 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             // means it is no longer active.
             return false;
         }
+    }
+
+    /// <summary>
+    /// Process.WaitForExitAsync that also waits for the process handle, see
+    /// <see cref="IsProcessActive"/>.
+    /// </summary>
+    internal static async Task WaitForExitAsync(Process process, CancellationToken cancellationToken)
+    {
+        await process.WaitForExitAsync(cancellationToken);
+        while (IsProcessActive(process))
+            await Task.Delay(50, cancellationToken);
     }
 
     private Dictionary<string, AgentRuntimeState> BuildAgentLookup()
