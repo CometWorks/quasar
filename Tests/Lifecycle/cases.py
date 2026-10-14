@@ -12,9 +12,10 @@ Expectations, besides saved:
   cause      lastRestart.cause of the last restart (InGame 6, Manual 5, HealthPolicy 1, CrashRecovery 7)
   attempts   restartAttempts, the crash counter
   goal       goalState in server.json (Off 0, On 1)
+  replies    text each of which some reply to the probe's chat commands contains
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 READY = ("ready", 1)
 SAVING = [("probe", "slowsave 10", "worker sdk SaveWorld"), ("sleep", 2)]
@@ -42,6 +43,7 @@ class QuasarCase:
     notes: str = ""
     hold_init: int = 0  # seconds the probe holds plugin init, so Quasar shows the server starting
     windows: bool = True  # under Proton: no signals, and the UI fails there (Wine's BCrypt)
+    replies: list = field(default_factory=list)
 
 
 def _ingame():
@@ -55,6 +57,23 @@ def _ingame():
             launches=1,
             cause=INGAME,
             saved=True,
+        ),
+        QuasarCase(
+            "q-run-restart-seconds",
+            "running",
+            "Quasar.Agent `!restart 30` (30 s countdown, SE1-0187)",
+            [READY, ("probe", "chat !restart 30")],
+            launches=1,
+            cause=INGAME,
+            saved=True,
+            replies=["Server restart scheduled in 30 seconds."],
+        ),
+        QuasarCase(
+            "q-restart-help",
+            "running",
+            "Quasar.Agent `!restart help`",
+            [READY, ("probe", "chat !restart help")],
+            replies=["Usage: !restart [seconds]"],
         ),
         QuasarCase(
             "q-run-restart-ess",

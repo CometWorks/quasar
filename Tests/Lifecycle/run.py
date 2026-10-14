@@ -368,6 +368,10 @@ def run_case(case, platform, args, port, web_port, gate, server_class):
             failures.append(f"goal {result['goal']}, expected {case.goal}")
         if case.saved is not None and marked and result["saved"] != case.saved:
             failures.append(f"saved={result['saved']}, expected {case.saved}")
+        result["replies"] = [m[len("reply ") :] for _, _, m in server.events() if m.startswith("reply ")]
+        for text in case.replies:
+            if not any(text in reply for reply in result["replies"]):
+                failures.append(f"no reply with {text!r}, got {result['replies']}")
         if platform.windows:
             result["overlap_s"] = round(server.overlap_seconds(), 1)
             if result["overlap_s"] > 15:
