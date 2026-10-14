@@ -39,4 +39,7 @@ public enum ChatMessageChannel
     Whisper = 4,
     ChatBot = 5,
     BroadcastController = 6,
+
+    /// <summary>A command run from Quasar and its replies, shown only in Quasar.</summary>
+    Console = 7,
 }

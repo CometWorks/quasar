@@ -43,6 +43,11 @@ Tests/Lifecycle/run.py --magnetar-src <magnetar checkout> --install <Magnetar in
     --ds-root <DS install> --steamcmd <tools> --work <work> --jobs 4
 ```
 
+`--essentials-src <Essentials working copy>` compiles Essentials from there as a
+dev folder instead of MagnetarHub's; `q-reload` and `q-fixshipmodid` need it and
+are skipped without it. `q-chatpage-save` types a line into the Chat page, so it
+needs the browser too.
+
 Job `i` uses DS port `--port-base + i` (Quasar sets the Steam port to that
 plus 1000) and web port `--web-port-base + i`. Each Quasar runs in Production
 mode, so health monitoring is on. A case takes 1.5 to 4 minutes.

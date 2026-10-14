@@ -144,6 +144,7 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 - **Refresh** asks the agent for a new snapshot. **Save** and **Restart** act on the server (need `CanControlServers`). Cluster saves and restarts are done from the cluster details page.
 - The input box (needs `CanControlServers`) broadcasts to global chat. Messages appear from **Server**. Press Enter to send.
 - Text that starts with `!` switches the box to **Command text** and suggests matching chat commands registered on that server (Quasar.Agent and Magnetar plugin commands), up to 30 at a time.
+- **Run** (or Enter) runs the command on the server as its console, with Owner rights. The players don't see the line. It and the command's replies show only in Quasar, as **Console** rows, and are not relayed to Discord. Announcements the command makes, like a restart countdown, still reach the players. Running commands needs a Magnetar release newer than 2.4.3.4; older ones answer "This Magnetar version can't run commands from Quasar. Update Magnetar."
 
 Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get them.
 
@@ -357,5 +358,6 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar/Services/Discord/DiscordAnalyticsExportService.cs`
 - `Quasar/Services/QuasarLoggingConfigurator.cs`
 - `Quasar.Agent/GameBridge.cs`
+- `Quasar.Agent/ConsoleCommandRunner.cs`
 - `Quasar.Agent/StopCommand.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`

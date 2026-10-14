@@ -1559,6 +1559,9 @@ namespace Quasar.Agent
                 case ServerCommandType.SendFactionChat:
                     return SendFactionChat(command);
 
+                case ServerCommandType.RunChatCommand:
+                    return RunChatCommand(command);
+
                 case ServerCommandType.SaveWorld:
                     return SaveWorldIfReady()
                         ? CreateResult(command, true, "World saved.")
@@ -1654,6 +1657,44 @@ namespace Quasar.Agent
                 multiplayer.SendChatMessage(text, ChatChannel.Global, 0L);
 
             return CreateResult(command, true, "Chat message sent.");
+        }
+
+        private ServerCommandResult RunChatCommand(ServerCommandEnvelope command)
+        {
+            var text = (command.Text ?? string.Empty).Trim();
+            if (!text.StartsWith("!", StringComparison.Ordinal))
+                return CreateResult(command, false, "Commands start with !.");
+
+            RecordConsoleLine("Quasar", text);
+            if (!ConsoleCommandRunner.Run(text, RecordConsoleLine, out var replies, out var error))
+            {
+                RecordConsoleLine(ServerChatAuthorName, error);
+                return CreateResult(command, false, error);
+            }
+
+            return CreateResult(command, true, replies.Count == 0 ? "Command ran." : string.Join("\n", replies));
+        }
+
+        // A Console line in the recent chat: shown on Quasar's Chat page, never relayed to Discord
+        // (server-authored) or sent to the players.
+        private void RecordConsoleLine(string author, string text)
+        {
+            var snapshot = new ChatMessageSnapshot
+            {
+                AuthorName = author ?? string.Empty,
+                Content = text ?? string.Empty,
+                Channel = ChatMessageChannel.Console,
+                IsServerMessage = true,
+            };
+
+            lock (_chatSync)
+            {
+                snapshot.TimestampTicksUtc = Math.Max(DateTime.UtcNow.Ticks, _lastChatTimestampTicksUtc + 1);
+                _lastChatTimestampTicksUtc = snapshot.TimestampTicksUtc;
+                _recentChat.Enqueue(snapshot);
+                while (_recentChat.Count > 100)
+                    _recentChat.Dequeue();
+            }
         }
 
         private ServerCommandResult SendWhisper(ServerCommandEnvelope command)

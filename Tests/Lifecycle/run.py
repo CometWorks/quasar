@@ -84,20 +84,30 @@ def make_server_class():
             shutil.copytree(self.template, self.root, symlinks=True)
             probe = self.root / "probe"
             shutil.copytree(rig.PROBE, probe, ignore=shutil.ignore_patterns("bin", "obj"))
-            (self.root / "dev-folders.json").write_text(
-                json.dumps(
-                    [
-                        {
-                            "name": PROBE_ID,
-                            "folderPath": self.platform.path(probe),
-                            "dataFile": "LifecycleProbe.xml",
-                            "pluginId": PROBE_ID,
-                            "debugBuild": False,
-                        }
-                    ],
-                    indent=2,
+            dev_folders = [
+                {
+                    "name": PROBE_ID,
+                    "folderPath": self.platform.path(probe),
+                    "dataFile": "LifecycleProbe.xml",
+                    "pluginId": PROBE_ID,
+                    "debugBuild": False,
+                }
+            ]
+            if rig.ESSENTIALS_SRC:
+                essentials = self.root / "essentials"
+                shutil.copytree(
+                    rig.ESSENTIALS_SRC, essentials, ignore=shutil.ignore_patterns("bin", "obj", ".git*", "*.user")
                 )
-            )
+                dev_folders.append(
+                    {
+                        "name": "essentials",
+                        "folderPath": self.platform.path(essentials),
+                        "dataFile": "Essentials.xml",
+                        "pluginId": rig.ESSENTIALS_ID,
+                        "debugBuild": False,
+                    }
+                )
+            (self.root / "dev-folders.json").write_text(json.dumps(dev_folders, indent=2))
 
             server_json = self.server_dir / "server.json"
             server = json.loads(server_json.read_text())
@@ -266,6 +276,32 @@ def ui(server, label, timeout=90):
             browser.close()
 
 
+def chat_page(server, line, timeout=90):
+    """Runs a line from Quasar's Chat page, the way an admin types it there."""
+    from playwright.sync_api import sync_playwright
+
+    with sync_playwright() as p:
+        env = dict(os.environ)
+        if os.environ.get("LIFECYCLE_CHROMIUM_LIBS"):
+            env["LD_LIBRARY_PATH"] = os.environ["LIFECYCLE_CHROMIUM_LIBS"]
+        browser = p.chromium.launch(executable_path=os.environ.get("LIFECYCLE_CHROMIUM") or None, env=env)
+        try:
+            page = browser.new_page()
+            page.goto(f"http://127.0.0.1:{server.web_port}/chat", timeout=timeout * 1000)
+            page.wait_for_function("() => window.Blazor !== undefined", timeout=timeout * 1000)
+            page.wait_for_timeout(3000)
+            box = page.locator("textarea, input[type=text]").last
+            box.wait_for(timeout=timeout * 1000)
+            box.fill(line)
+            page.wait_for_timeout(500)
+            page.keyboard.press("Escape")  # close the suggestions
+            page.locator("button", has_text="Run").last.click(timeout=timeout * 1000)
+            page.wait_for_timeout(3000)
+            page.screenshot(path=str(server.root / "chat-page-after.png"))
+        finally:
+            browser.close()
+
+
 def run_steps(server, case, log, result):
     marked = None
     for step in case.steps:
@@ -304,6 +340,8 @@ def run_steps(server, case, log, result):
             server.quasar_signal(step[1])
         elif kind == "ui":
             ui(server, step[1])
+        elif kind == "chatpage":
+            chat_page(server, step[1])
     return marked
 
 
@@ -368,6 +406,10 @@ def run_case(case, platform, args, port, web_port, gate, server_class):
             failures.append(f"goal {result['goal']}, expected {case.goal}")
         if case.saved is not None and marked and result["saved"] != case.saved:
             failures.append(f"saved={result['saved']}, expected {case.saved}")
+        result["replies"] = [m[len("reply ") :] for _, _, m in server.events() if m.startswith("reply ")]
+        for text in case.replies:
+            if not any(text in reply for reply in result["replies"]):
+                failures.append(f"no reply with {text!r}, got {result['replies']}")
         if platform.windows:
             result["overlap_s"] = round(server.overlap_seconds(), 1)
             if result["overlap_s"] > 15:
@@ -437,12 +479,17 @@ def main():
         ".NET Framework 4.8 for proton-legacy",
     )
     ap.add_argument("--display", default=":1")
+    ap.add_argument(
+        "--essentials-src",
+        help="Essentials working copy to compile as a DevFolder; the cases marked essentials_src need it",
+    )
     args = ap.parse_args()
 
     suite = Path(args.magnetar_src).expanduser() / "Tests" / "Lifecycle"
     rig = load(suite / "rig.py", "magnetar_lifecycle_rig")
     magnetar_run = load(suite / "run.py", "magnetar_lifecycle_run")
     RamGate, steam_timeout = magnetar_run.RamGate, magnetar_run.steam_timeout
+    rig.ESSENTIALS_SRC = Path(args.essentials_src).expanduser() if args.essentials_src else None
     server_class = make_server_class()
     ds64 = Path(args.ds_root).expanduser() / "DedicatedServer64"
     platform = rig.Platform(
@@ -456,6 +503,11 @@ def main():
         for c in CASES
         if (c.windows or not platform.windows) and any(fnmatch.fnmatch(c.id, p) for p in args.cases.split(","))
     ]
+    if not args.essentials_src:
+        skipped = [c.id for c in cases if c.essentials_src]
+        if skipped:
+            print(f"skipped without --essentials-src: {', '.join(skipped)}", flush=True)
+        cases = [c for c in cases if not c.essentials_src]
     Path(args.work).mkdir(parents=True, exist_ok=True)
 
     slots = queue.Queue()

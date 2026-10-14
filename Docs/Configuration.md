@@ -449,7 +449,8 @@ global Discord relay as **Server**. The Agent marks accepted `SendChat` broadcas
 explicitly; ordinary server/system messages stay excluded. Discord-origin
 broadcasts use the same game-send path, but their tracked echo matches keep them
 from being posted back to Discord. The broadcast marker never enables private
-or unsupported chat channels.
+or unsupported chat channels. Commands run from the Chat page (`RunChatCommand`)
+and their replies are `Console` lines, which the relay never posts.
 After updating Quasar, restart affected game servers to load the updated Agent.
 If the Agent cannot install its receive hook, it logs the failure and disables
 chat capture instead of falling back to unscoped delivery callbacks.

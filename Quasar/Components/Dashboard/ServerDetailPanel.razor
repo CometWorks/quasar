@@ -164,7 +164,7 @@ else
         if (string.IsNullOrWhiteSpace(text))
             return;
 
-        await SendCommandAsync(ServerCommandType.SendChat, text);
+        await SendCommandAsync(text.StartsWith('!') ? ServerCommandType.RunChatCommand : ServerCommandType.SendChat, text);
         _chatText = string.Empty;
     }
 

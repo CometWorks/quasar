@@ -20,4 +20,10 @@ public enum ServerCommandType
     PluginRequest = 15,
     SendWhisper = 16,
     SendFactionChat = 17,
+
+    /// <summary>
+    /// Runs Text, a chat command with its "!", through the server's registered
+    /// commands as the console. Replies come back as Console chat lines.
+    /// </summary>
+    RunChatCommand = 18,
 }
