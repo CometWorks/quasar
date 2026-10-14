@@ -615,6 +615,9 @@ public class Program
                 webServiceOptions.Headless,
                 MagnetarPaths.GetQuasarDirectory());
 
+            foreach (var warning in Quasar.Diagnostics.SystemLimits.Check())
+                startupLogger.LogWarning("{Warning}", warning);
+
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
             app.Run();
         }
