@@ -17,19 +17,29 @@ namespace Quasar.Agent
     /// quits, like its own <c>!restart</c>, and Quasar starts the server again.
     ///
     /// <para>
+    /// A plugin's stop (the Essentials Stop step, <c>!ess stop</c>) is reported
+    /// as a requested stop, so Quasar keeps the server off instead of taking
+    /// the exit for a crash. Magnetar raises <c>Terminating(Shutdown)</c> for
+    /// it too, but older Magnetar builds don't for <c>SaveAndQuit</c>.
+    /// </para>
+    ///
+    /// <para>
     /// Registered as the PluginSdk lifecycle provider in standalone mode only;
-    /// a cluster registers its own. Shutdown requests, and restarts while
-    /// Quasar can't be told, run in Magnetar unchanged.
+    /// a cluster registers its own. Stops, and restarts while Quasar can't be
+    /// told, run in Magnetar unchanged.
     /// </para>
     /// </summary>
     internal sealed class SupervisedLifecycle : IClusterLifecycleProvider
     {
         private readonly Func<bool> _reportRestart;
+        private readonly Action _reportStop;
         private readonly Action<ServerTerminationKind, bool> _runLocally;
 
-        public SupervisedLifecycle(Func<bool> reportRestart, Action<ServerTerminationKind, bool> runLocally = null)
+        public SupervisedLifecycle(Func<bool> reportRestart, Action reportStop,
+            Action<ServerTerminationKind, bool> runLocally = null)
         {
             _reportRestart = reportRestart;
+            _reportStop = reportStop;
             _runLocally = runLocally ?? RunLocally;
         }
 
@@ -37,7 +47,11 @@ namespace Quasar.Agent
             ClusterLifecycleRequest request, CancellationToken cancellationToken)
         {
             var kind = request.Kind;
-            if (kind == ServerTerminationKind.Restart && _reportRestart())
+            if (kind == ServerTerminationKind.Shutdown)
+            {
+                _reportStop();
+            }
+            else if (_reportRestart())
             {
                 Console.WriteLine("[Quasar.Agent] Restart requested through ServerControl; quitting so Quasar starts the server again.");
                 kind = ServerTerminationKind.Shutdown;

@@ -226,7 +226,7 @@ This channel is the main runtime communication path for:
 - snapshots
 - commands
 - command results
-- standalone admin-stop notifications (the agent reports an in-game admin shutdown so Quasar flips goal state to `Off`)
+- standalone admin-stop notifications (the agent reports a stop requested in-game, by an admin, a plugin or the dedicated server, so Quasar flips goal state to `Off`)
 - heartbeats / reconnect handling
 
 This is the current control-plane transport and remains the active implementation path.
@@ -460,6 +460,8 @@ Quasar should behave like infrastructure/configuration management:
 - if goal state is `On` and the server is unhealthy, Quasar evaluates the health policy and recovers it automatically where configured
 - if goal state is `Off` and the server is running, Quasar stops it
 - if an admin stops the server from in-game with Quasar Agent `!stop` or `!quit`, the agent reports `AdminStop` and Quasar sets goal state to `Off`, so the server stays stopped instead of being treated as a crash and restarted; `!stop` saves first, while `!quit` exits immediately without saving
+- the same goes for any other stop requested inside the server: a plugin's `ServerControl.SaveAndQuit` or `QuitWithoutSaving` (the Essentials `Stop` auto command step, `!ess stop`) and the dedicated server's own exit (its `/stop`, the Remote API stop). Magnetar raises `Terminating(Shutdown)` for them, and the agent reports `AdminStop` for every one Quasar didn't ask for. A SIGTERM or SIGINT from outside raises nothing, so Quasar restarts the server as after a crash: under Quasar that signal mostly means the host is shutting down
+- the dedicated server's stop for Keen's auto-update becomes an in-game restart: Magnetar asks the agent for one, and the relaunch runs Quasar's launch update, which installs the new build (not with the launch update set to `Skip`)
 - if an admin restarts the server from in-game with Quasar Agent `!restart [seconds]`, the agent broadcasts a chat countdown (10 seconds by default, up to 3600 seconds; longer delays use periodic checkpoint announcements plus the final 10 seconds), then reports `AdminRestart`; Quasar keeps goal state `On`, records process state `Restarting`, and relaunches the server after the save-and-quit exit instead of waiting for a reconnect that will never arrive
 - if a plugin restarts the server through PluginSdk `ServerControl.SaveAndRestart` or `RestartWithoutSaving` (the Essentials `Restart` auto command step, `!ess restart`), the agent turns it into the same `AdminRestart` and quit, so Quasar relaunches the server. The agent registers as the PluginSdk lifecycle provider in standalone mode for this. Left to Magnetar, the server would restart itself: in place on Linux, where the dropped agent socket makes the health policy kill and relaunch it, and as a new detached process on Windows, which Quasar would take for a crash. When the agent can't reach Quasar, Magnetar restarts the server itself
 - operator actions should usually mutate goal state first, then let reconciliation perform the transition
