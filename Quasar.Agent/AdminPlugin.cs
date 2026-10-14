@@ -60,7 +60,7 @@ namespace Quasar.Agent
                 QuitCommand.AdminStopRequested = ReportAdminStop;
                 RestartCommand.AdminRestartRequested = () => ReportAdminRestart();
                 ServerControl.Terminating += OnServerTerminating;
-                _lifecycle = new SupervisedLifecycle(ReportAdminRestart);
+                _lifecycle = new SupervisedLifecycle(ReportAdminRestart, ReportRequestedStop);
                 if (!ClusterLifecycle.Register(_lifecycle))
                 {
                     _lifecycle = null;
@@ -104,19 +104,22 @@ namespace Quasar.Agent
         }
 
         // The Magnetar host is tearing the server down. When the intent is a
-        // shutdown (not a restart) and Quasar did not request it, an admin issued
-        // an in-game stop (e.g. !quit). Tell Quasar so it flips the goal state to
-        // Off and does not restart the server against the admin's intent. A
-        // restart is left alone: the server is meant to come back.
+        // shutdown (not a restart), someone in the server asked for it: an admin
+        // (!quit, the DS's /stop), a plugin (the Essentials Stop step) or the
+        // DS itself. A restart is left alone: the server is meant to come back.
         private void OnServerTerminating(ServerTerminationKind kind)
         {
-            if (kind == ServerTerminationKind.Shutdown &&
-                _bridge != null &&
-                !_bridge.QuasarRequestedStop &&
-                !IsAdminRestartRequested())
-            {
+            if (kind == ServerTerminationKind.Shutdown)
+                ReportRequestedStop();
+        }
+
+        // Tell Quasar about a stop it did not ask for, so it flips the goal
+        // state to Off and does not restart the server against that intent.
+        // The stop that ends an in-game restart is not one.
+        private void ReportRequestedStop()
+        {
+            if (_bridge != null && !_bridge.QuasarRequestedStop)
                 ReportAdminStop();
-            }
         }
 
         private void ReportAdminStop()

@@ -13,7 +13,7 @@ public sealed class AgentSupervisedLifecycleTests
     [Fact]
     public void PluginRestartBecomesQuitWhenQuasarIsTold()
     {
-        var (calls, reports) = Run(reported: true, ServerTerminationKind.Restart, saveFirst: true);
+        var (calls, reports, _) = Run(reported: true, ServerTerminationKind.Restart, saveFirst: true);
 
         Assert.Equal(1, reports);
         Assert.Equal([(ServerTerminationKind.Shutdown, true)], calls);
@@ -22,7 +22,7 @@ public sealed class AgentSupervisedLifecycleTests
     [Fact]
     public void RestartWithoutSavingQuitsWithoutSaving()
     {
-        var (calls, _) = Run(reported: true, ServerTerminationKind.Restart, saveFirst: false);
+        var (calls, _, _) = Run(reported: true, ServerTerminationKind.Restart, saveFirst: false);
 
         Assert.Equal([(ServerTerminationKind.Shutdown, false)], calls);
     }
@@ -30,18 +30,31 @@ public sealed class AgentSupervisedLifecycleTests
     [Fact]
     public void RestartStaysWithMagnetarWhenQuasarCannotBeTold()
     {
-        var (calls, _) = Run(reported: false, ServerTerminationKind.Restart, saveFirst: true);
+        var (calls, _, _) = Run(reported: false, ServerTerminationKind.Restart, saveFirst: true);
 
         Assert.Equal([(ServerTerminationKind.Restart, true)], calls);
     }
 
-    [Fact]
-    public void ShutdownPassesThroughWithoutReporting()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void PluginStopIsReportedAsRequestedStop(bool saveFirst)
     {
-        var (calls, reports) = Run(reported: true, ServerTerminationKind.Shutdown, saveFirst: true);
+        var (calls, reports, stops) = Run(reported: true, ServerTerminationKind.Shutdown, saveFirst);
 
+        Assert.Equal(1, stops);
         Assert.Equal(0, reports);
-        Assert.Equal([(ServerTerminationKind.Shutdown, true)], calls);
+        Assert.Equal([(ServerTerminationKind.Shutdown, saveFirst)], calls);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void RestartIsNotReportedAsStop(bool reported)
+    {
+        var (_, _, stops) = Run(reported, ServerTerminationKind.Restart, saveFirst: true);
+
+        Assert.Equal(0, stops);
     }
 
     [Fact]
@@ -64,11 +77,12 @@ public sealed class AgentSupervisedLifecycleTests
         Assert.False(DedicatedServerSupervisor.IsAwaitingRestartExit(requested.AddMinutes(-5), restart));
     }
 
-    private static (List<(ServerTerminationKind, bool)> Calls, int Reports) Run(
+    private static (List<(ServerTerminationKind, bool)> Calls, int Reports, int Stops) Run(
         bool reported, ServerTerminationKind kind, bool saveFirst)
     {
         var calls = new List<(ServerTerminationKind, bool)>();
         var reports = 0;
+        var stops = 0;
         SupervisedLifecycle? lifecycle = null;
         lifecycle = new SupervisedLifecycle(
             () =>
@@ -76,6 +90,7 @@ public sealed class AgentSupervisedLifecycleTests
                 reports++;
                 return reported;
             },
+            () => stops++,
             (localKind, localSaveFirst) =>
             {
                 // Unregistered while running locally, so the call reaches Magnetar.
@@ -93,13 +108,13 @@ public sealed class AgentSupervisedLifecycleTests
             Assert.Equal(ClusterLifecycleDisposition.Accepted, acknowledgement.Disposition);
             Assert.Equal(request.RequestId, acknowledgement.RequestId);
             // Registered again when the process did not exit.
-            Assert.False(ClusterLifecycle.Register(new SupervisedLifecycle(() => true)));
+            Assert.False(ClusterLifecycle.Register(new SupervisedLifecycle(() => true, () => { })));
         }
         finally
         {
             ClusterLifecycle.Unregister(lifecycle);
         }
 
-        return (calls, reports);
+        return (calls, reports, stops);
     }
 }
