@@ -195,26 +195,20 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         var installer = new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System);
         string installed = Path.Combine(home, ".local/share/Quasar/Hosts/one");
 
-        async Task<int> Install(string version, string origin)
+        // Returns the installer's error, or null on success. A rejected install exits before reading the
+        // whole script, so writing it directly could fail with a broken pipe; RunAsync tolerates that.
+        async Task<string?> Install(string version, string origin)
         {
             File.WriteAllText(binary, version);
-            byte[] script = installer.BuildScript(host, new Uri(origin));
-            var start = new System.Diagnostics.ProcessStartInfo("bash")
-            {
-                RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true,
-                UseShellExecute = false,
-            };
+            var start = new System.Diagnostics.ProcessStartInfo("bash");
             start.Environment["HOME"] = home;
             start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
-            using var process = System.Diagnostics.Process.Start(start)!;
-            await process.StandardInput.BaseStream.WriteAsync(script);
-            process.StandardInput.Close();
-            _ = await process.StandardError.ReadToEndAsync();
-            await process.WaitForExitAsync();
-            return process.ExitCode;
+            try { await ClusterHostInstaller.RunAsync(start, installer.BuildScript(host, new Uri(origin)), default); }
+            catch (InvalidOperationException error) { return error.Message; }
+            return null;
         }
 
-        Assert.Equal(0, await Install("old", "http://localhost:8080"));
+        Assert.Null(await Install("old", "http://localhost:8080"));
         string configPath = Path.Combine(installed, "host.json");
         string config = File.ReadAllText(configPath).Replace("\"attachments\":[]", "\"attachments\":[{\"name\":\"existing\"}]");
         File.WriteAllText(configPath, config);
@@ -225,14 +219,14 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         File.WriteAllText(credentialPath, secret);
         File.WriteAllText(Path.Combine(installed, "state/keep"), "running cluster state");
 
-        Assert.Equal(0, await Install("new", "http://127.0.0.1:8080"));
+        Assert.Null(await Install("new", "http://127.0.0.1:8080"));
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
         Assert.Equal(config, File.ReadAllText(configPath));
         Assert.Equal(secret, File.ReadAllText(credentialPath));
         Assert.Equal("running cluster state", File.ReadAllText(Path.Combine(installed, "state/keep")));
         Assert.Equal(1, File.ReadAllLines(Path.Combine(home, "systemctl.log")).Count(line => line.Contains(" restart ")));
 
-        Assert.Equal(0, await Install("new", "http://127.0.0.1:8080"));
+        Assert.Null(await Install("new", "http://127.0.0.1:8080"));
         string[] systemctlCalls = File.ReadAllLines(Path.Combine(home, "systemctl.log"));
         Assert.Equal(1, systemctlCalls.Count(line => line.Contains(" restart ")));
         // Stopping the stop unit shuts the clusters down, so updates only ever start it.
@@ -243,11 +237,12 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Contains("Quasar.Host\" stop-clusters --config", stopUnit);
 
         File.WriteAllText(Path.Combine(home, "fail-restart"), "fail once");
-        Assert.NotEqual(0, await Install("broken", "http://127.0.0.1:8080"));
+        Assert.NotNull(await Install("broken", "http://127.0.0.1:8080"));
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
 
         File.WriteAllText(credentialPath, "different enrollment");
-        Assert.NotEqual(0, await Install("foreign", "http://127.0.0.1:8080"));
+        // As large as a real Host, so the rejected installer always exits before reading its whole input.
+        Assert.Contains("enrollment credential differs", await Install("foreign" + new string('x', 1 << 20), "http://127.0.0.1:8080"));
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
     }
 
