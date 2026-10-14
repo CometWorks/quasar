@@ -5,6 +5,7 @@ Steps, besides the ones of the Magnetar suite (magnetar Tests/Lifecycle/cases.py
   ("quasar", "TERM")         send a signal to the Quasar worker
   ("state", n)               wait until Quasar reports process state n (Running = 2, ...)
   ("init",)                  wait until the probe's plugin init has started
+  ("chatpage", "!save")      run a line from Quasar's Chat page
 
 Expectations, besides saved:
   launches   Magnetar processes Quasar started after the first one
@@ -13,6 +14,7 @@ Expectations, besides saved:
   attempts   restartAttempts, the crash counter
   goal       goalState in server.json (Off 0, On 1)
   replies    text each of which some reply to the probe's chat commands contains
+  essentials_src  the case needs an Essentials newer than MagnetarHub's (run.py --essentials-src)
 """
 
 from dataclasses import dataclass, field
@@ -44,6 +46,7 @@ class QuasarCase:
     hold_init: int = 0  # seconds the probe holds plugin init, so Quasar shows the server starting
     windows: bool = True  # under Proton: no signals, and the UI fails there (Wine's BCrypt)
     replies: list = field(default_factory=list)
+    essentials_src: bool = False
 
 
 def _ingame():
@@ -74,6 +77,31 @@ def _ingame():
             "Quasar.Agent `!restart help`",
             [READY, ("probe", "chat !restart help")],
             replies=["Usage: !restart [seconds]"],
+        ),
+        QuasarCase(
+            "q-chatpage-save",
+            "running",
+            "`!save` from Quasar's Chat page (RunChatCommand, DIS-0017)",
+            [READY, ("chatpage", "!save")],
+            saved=True,
+            windows=False,
+        ),
+        QuasarCase(
+            "q-reload",
+            "running",
+            "Essentials `!reload` (saves, then reloads the DS config)",
+            [READY, ("probe", "chat !reload")],
+            saved=True,
+            replies=["Configuration reloaded."],
+            essentials_src=True,
+        ),
+        QuasarCase(
+            "q-fixshipmodid",
+            "running",
+            "Essentials `!fixshipmodid 123` (an argument to a short form)",
+            [READY, ("probe", "chat !fixshipmodid 123")],
+            replies=["Grid not found"],
+            essentials_src=True,
         ),
         QuasarCase(
             "q-run-restart-ess",
