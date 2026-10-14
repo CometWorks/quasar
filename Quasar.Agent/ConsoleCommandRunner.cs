@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using System.Runtime.CompilerServices;
+using System.Reflection;
 using PluginSdk.Commands;
 using Sandbox.Game;
 using VRage.Game;
@@ -28,14 +28,20 @@ namespace Quasar.Agent
             replies = responder.Sent;
             try
             {
-                if (Execute(commandLine, responder))
+                if (ExecuteMethod == null)
+                {
+                    error = "This Magnetar version can't run commands from Quasar. Update Magnetar.";
+                    return false;
+                }
+
+                if ((bool)ExecuteMethod.Invoke(null, new object[] { commandLine, Console, responder }))
                     return true;
                 error = "Unknown command. Type !help for the list.";
                 return false;
             }
-            catch (Exception exception) when (exception is MissingMethodException || exception is InvalidOperationException)
+            catch (TargetInvocationException exception) when (exception.InnerException is InvalidOperationException)
             {
-                // Magnetar before ServerCommands.Execute (2.4.3.4 and older)
+                // A host with the method but without a command executor
                 error = "This Magnetar version can't run commands from Quasar. Update Magnetar.";
                 return false;
             }
@@ -45,10 +51,15 @@ namespace Quasar.Agent
             }
         }
 
-        // Kept apart so a host without ServerCommands.Execute fails here, inside Run's try
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        private static bool Execute(string commandLine, ICommandResponder responder)
-            => ServerCommands.Execute(commandLine, Console, responder);
+        // ServerCommands.Execute(string, in CommandCaller, ICommandResponder), new after Magnetar
+        // 2.4.3.4. Looked up at run time, so the agent builds against and runs on Magnetar
+        // releases without it.
+        private static readonly MethodInfo ExecuteMethod = typeof(ServerCommands).GetMethod(
+            "Execute",
+            BindingFlags.Public | BindingFlags.Static,
+            null,
+            new[] { typeof(string), typeof(CommandCaller).MakeByRefType(), typeof(ICommandResponder) },
+            null);
 
         private sealed class Responder : ICommandResponder
         {
