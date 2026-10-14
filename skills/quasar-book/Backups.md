@@ -25,7 +25,7 @@ Every ZIP has a `quasar-backup.json` manifest at its root with the backup type, 
 
 ### Quasar config backup contents
 
-From the install root, when present: `known-players.json`, `known-player-settings.json`, `data-handling-consent.json`, `server-list.json`, `discord.json`, `death-messages.json`, `branding.json`, `steam-workshop.json`, `rbac.json`, `dev-folders.json`, every `Magnetars/*/server.json`, every `ConfigProfiles/*/profile.json`, every `WorldTemplates/*/template.json`, and all files in `Branding/`.
+From the install root, when present: `known-players.json`, `known-player-settings.json`, `data-handling-consent.json`, `server-list.json`, `discord.json`, `death-messages.json`, `branding.json`, `steam-workshop.json`, `rbac.json`, `dev-folders.json`, `plugin-hubs.json`, every `Magnetars/*/server.json`, every `ConfigProfiles/*/profile.json`, every `WorldTemplates/*/template.json`, and all files in `Branding/`.
 
 It does not include `appsettings.json`, `backup-settings.json`, `github-updates.json`, the `DataProtection-Keys/` folder, server history, world template world files, or logs. Without the Data Protection keys, encrypted secrets such as the Steam Workshop API key do not decrypt on another machine. Re-enter them after moving a backup to a new machine.
 

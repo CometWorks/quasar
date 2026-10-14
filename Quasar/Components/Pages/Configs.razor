@@ -8,6 +8,7 @@
 @using System.Text.RegularExpressions
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarDevFolderCatalog DevFolderCatalog
+@inject QuasarPluginHubCatalog PluginHubs
 @inject QuasarPluginCatalogService PluginCatalog
 @inject QuasarWorkshopModResolver WorkshopMods
 @inject SteamWorkshopCredentialsCatalog WorkshopCredentials
@@ -432,6 +433,18 @@
                                                     {
                                                         <span class="quasar-text quasar-type-caption config-secondary">Local dev folder</span>
                                                     }
+                                                    else
+                                                    {
+                                                        var selectedEntry = GetCatalogEntry(context.PluginId);
+                                                        @if (selectedEntry is null)
+                                                        {
+                                                            <span class="quasar-text quasar-type-caption quasar-text-warning">Not listed by any plugin hub</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @HubCaption(selectedEntry)
+                                                        }
+                                                    }
                                                 </div>
                                             </MudTd>
                                             <MudTd DataLabel="Debug build">
@@ -497,13 +510,13 @@
                                     @if (CatalogEntries.Count == 0)
                                     {
                                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                            Plugin catalog empty. Refresh to download MagnetarHub.
+                                            Plugin catalog empty. Refresh to download the plugin hubs.
                                         </MudAlert>
                                     }
                                     else if (SelectableCatalogEntryCount == 0 && HasHiddenCatalogEntries)
                                     {
                                         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                            MagnetarHub currently exposes only hidden or automatic plugins. They are not selectable manually.
+                                            The plugin hubs currently expose only hidden or automatic plugins. They are not selectable manually.
                                         </MudAlert>
                                     }
                                     else
@@ -532,6 +545,10 @@
                                                         else if (context.Hidden)
                                                         {
                                                             <span class="quasar-text quasar-type-caption config-secondary">Hidden in hub</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @HubCaption(context)
                                                         }
                                                     </div>
                                                 </MudTd>
@@ -954,6 +971,74 @@
                                 Add dev folder...
                             </MudButton>
                         </div>
+
+                        <h3 class="quasar-text quasar-type-subtitle2 mt-6 mb-2">Plugin hubs</h3>
+                        <p class="quasar-text quasar-type-body2 mb-3">
+                            MagnetarHub is always used. Register another hub, a GitHub repository and branch or a local folder of plugin manifests,
+                            to select its plugins in config profiles, on regular servers and clusters alike. A private repository needs a GitHub token
+                            with read access in Updates. Every plugin id must be listed by one hub only; Quasar won't start a server with a plugin
+                            that two hubs list. A dev folder with the same id overrides the hub's plugin.
+                        </p>
+
+                        <MudTable T="QuasarPluginHubStatus" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="HubStatuses">
+                            <HeaderContent>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Source</MudTh>
+                                <MudTh>Plugins</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Name">@context.Hub.Name</MudTd>
+                                <MudTd DataLabel="Source">
+                                    @if (context.Hub.IsLocal)
+                                    {
+                                        <CopyablePath Value="@context.Hub.Folder" TextClass="" />
+                                    }
+                                    else
+                                    {
+                                        <span class="mono">@context.Hub.Location</span>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Plugins">@context.PluginCount</MudTd>
+                                <MudTd DataLabel="Status">
+                                    @if (!string.IsNullOrEmpty(context.Error))
+                                    {
+                                        <span class="quasar-text quasar-type-caption quasar-text-error">@context.Error</span>
+                                    }
+                                    else if (context.LastRefreshUtc is { } refreshed)
+                                    {
+                                        <span class="quasar-text quasar-type-caption config-secondary">Read @refreshed.ToLocalTime().ToString("g")</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="quasar-text quasar-type-caption config-secondary">Not read yet</span>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="" Class="quasar-actions-column">
+                                    @if (!context.IsDefault)
+                                    {
+                                        <MudTooltip Text="Remove hub">
+                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePluginHubAsync(context.Hub))" />
+                                        </MudTooltip>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-1 mt-3">
+                            <MudTextField @bind-Value="_newHubRepo" Label="GitHub repository (owner/name)" Variant="Variant.Outlined" Immediate="true" />
+                            <MudTextField @bind-Value="_newHubBranch" Label="Branch" Variant="Variant.Outlined" Immediate="true" />
+                            <MudTextField @bind-Value="_newHubName" Label="Hub name (optional)" Variant="Variant.Outlined" Immediate="true" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddGitHubHubAsync" Disabled="@(string.IsNullOrWhiteSpace(_newHubRepo) || _hubSaving)">
+                                Add GitHub hub
+                            </MudButton>
+                        </div>
+                        <div class="mt-3 mb-3">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="configs-add-button" StartIcon="@Icons.Material.Filled.Folder" OnClick="AddLocalHubAsync" Disabled="@_hubSaving">
+                                Add local hub folder...
+                            </MudButton>
+                        </div>
                         </ChildContent>
                     </MudExpansionPanel>
                 </MudExpansionPanels>
@@ -1036,6 +1121,30 @@
     private IReadOnlyList<QuasarConfigProfile> Templates => ConfigProfiles.GetProfiles();
     private IReadOnlyList<QuasarDevFolderSelection> GlobalDevFolders => DevFolderCatalog.GetDevFolders();
     private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => PluginCatalog.GetEntries();
+    private IReadOnlyList<QuasarPluginHubStatus> HubStatuses => PluginCatalog.GetHubStatuses();
+    private string _newHubRepo = string.Empty;
+    private string _newHubBranch = QuasarPluginHubCatalog.DefaultBranch;
+    private string _newHubName = string.Empty;
+    private bool _hubSaving;
+
+    // Where a catalog plugin comes from, when that's not plainly MagnetarHub.
+    private RenderFragment HubCaption(QuasarPluginCatalogEntry entry) => @<text>
+        @if (entry.ConflictingHubs.Count > 1)
+        {
+            <span class="quasar-text quasar-type-caption quasar-text-error">Listed by more than one hub: @string.Join(", ", entry.ConflictingHubs)</span>
+        }
+        else if (!QuasarPluginCatalogService.IsDefaultHubEntry(entry) && !entry.IsLocalDevFolder)
+        {
+            <span class="quasar-text quasar-type-caption config-secondary">Hub: @entry.HubName</span>
+        }
+        @if (!string.IsNullOrEmpty(entry.HubError))
+        {
+            <span class="quasar-text quasar-type-caption quasar-text-warning">Hub unreachable, cached entry</span>
+        }
+    </text>;
+
+    private QuasarPluginCatalogEntry? GetCatalogEntry(string pluginId) =>
+        CatalogEntries.FirstOrDefault(entry => string.Equals(entry.PluginId, pluginId?.Trim(), StringComparison.OrdinalIgnoreCase));
 
     private List<QuasarConfigOptionDefinition> VisibleWorldOptions => QuasarConfigMetadata.Options
         .Where(option => !option.Hidden)
@@ -1129,6 +1238,7 @@
     {
         ConfigProfiles.Changed += HandleProfilesChanged;
         DevFolderCatalog.Changed += HandleDevFoldersChanged;
+        PluginHubs.Changed += HandleDevFoldersChanged;
         ServerCatalog.Changed += HandleServersChanged;
         WorkshopCredentials.Changed += HandleWorkshopCredentialsChanged;
         SelectProfile(GetInitialProfileId());
@@ -1138,6 +1248,7 @@
     {
         ConfigProfiles.Changed -= HandleProfilesChanged;
         DevFolderCatalog.Changed -= HandleDevFoldersChanged;
+        PluginHubs.Changed -= HandleDevFoldersChanged;
         ServerCatalog.Changed -= HandleServersChanged;
         WorkshopCredentials.Changed -= HandleWorkshopCredentialsChanged;
     }
@@ -1554,7 +1665,9 @@
         try
         {
             await PluginCatalog.RefreshAsync();
-            if (showSuccessMessage)
+            if (!string.IsNullOrEmpty(PluginCatalog.LastError))
+                Snackbar.Add("Some plugin hubs could not be read, their cached plugins are shown: " + PluginCatalog.LastError, Severity.Warning);
+            else if (showSuccessMessage)
                 Snackbar.Add("Plugin catalog refreshed.", Severity.Success);
         }
         catch (Exception exception)
@@ -2151,11 +2264,17 @@
             return;
         }
 
+        if (selected && entry.ConflictingHubs.Count > 1)
+        {
+            Snackbar.Add($"More than one plugin hub lists this plugin ({string.Join(", ", entry.ConflictingHubs)}). Remove it from all but one hub first.", Severity.Warning);
+            return;
+        }
+
         if (selected && entry.Hidden)
         {
             var message = entry.IsLocalDevFolder
                 ? "Enable the dev folder source before selecting it in a config profile."
-                : "This plugin is hidden in MagnetarHub and cannot be selected manually.";
+                : $"This plugin is hidden in {entry.HubName} and cannot be selected manually.";
             Snackbar.Add(message, Severity.Info);
             return;
         }
@@ -2224,15 +2343,24 @@
             return;
         }
 
+        var entry = GetCatalogEntry(pluginId);
+        if (entry?.ConflictingHubs.Count > 1)
+        {
+            Snackbar.Add($"More than one plugin hub lists this plugin ({string.Join(", ", entry.ConflictingHubs)}). Remove it from all but one hub first.", Severity.Warning);
+            return;
+        }
+
         _editor.Plugins.Add(new QuasarPluginSelection
         {
-            PluginId = pluginId,
-            DisplayName = pluginId,
+            PluginId = entry?.PluginId ?? pluginId,
+            DisplayName = string.IsNullOrWhiteSpace(entry?.FriendlyName) ? pluginId : entry.FriendlyName,
         });
         _editor.Plugins = _editor.Plugins
             .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ToList();
         _customPluginId = string.Empty;
+        if (entry is null)
+            Snackbar.Add("No plugin hub or dev folder lists this plugin yet. Magnetar won't load it, and cluster setup refuses it, until one does.", Severity.Warning);
     }
 
     private void AddMod()
@@ -2668,6 +2796,94 @@
 
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await DevFolderCatalog.DeleteAsync(devFolder.FolderPath, devFolder.DataFile);
+    }
+
+    private async Task AddGitHubHubAsync()
+    {
+        if (await AddPluginHubAsync(new QuasarPluginHub { Name = _newHubName, Repo = _newHubRepo, Branch = _newHubBranch }))
+        {
+            _newHubRepo = string.Empty;
+            _newHubName = string.Empty;
+            _newHubBranch = QuasarPluginHubCatalog.DefaultBranch;
+        }
+    }
+
+    private async Task AddLocalHubAsync()
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        var parameters = new DialogParameters
+        {
+            [nameof(FolderPickerDialog.InitialPath)] = _lastDevFolderPath,
+            [nameof(FolderPickerDialog.DialogTitle)] = "Pick plugin hub folder",
+        };
+
+        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
+            "Pick plugin hub folder",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: string folder })
+            return;
+
+        _lastDevFolderPath = folder;
+        await AddPluginHubAsync(new QuasarPluginHub { Folder = folder });
+    }
+
+    private async Task<bool> AddPluginHubAsync(QuasarPluginHub hub)
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
+        _hubSaving = true;
+        try
+        {
+            await PluginHubs.AddAsync(hub);
+            await PluginCatalog.RefreshAsync();
+            var added = QuasarPluginHubCatalog.Normalize(hub);
+            var status = PluginCatalog.GetHubStatuses().FirstOrDefault(item => string.Equals(item.Hub.Key, added.Key, StringComparison.OrdinalIgnoreCase));
+            if (status is { Error.Length: > 0 })
+                Snackbar.Add($"Hub added, but it could not be read: {status.Error}", Severity.Warning);
+            else
+                Snackbar.Add($"Hub added with {status?.PluginCount ?? 0} plugins.", Severity.Success);
+
+            var conflicts = PluginCatalog.GetHubEntries().Where(entry => entry.ConflictingHubs.Contains(added.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (conflicts.Count != 0)
+                Snackbar.Add("Other hubs also list " + string.Join(", ", conflicts.Select(entry => entry.PluginId))
+                    + ". Servers selecting these plugins won't start until only one hub lists each.", Severity.Warning);
+            return true;
+        }
+        catch (InvalidOperationException exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+            return false;
+        }
+        finally
+        {
+            _hubSaving = false;
+        }
+    }
+
+    private async Task RemovePluginHubAsync(QuasarPluginHub hub)
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        // The plugins only this hub provides; a dev folder or another hub keeps the others available.
+        var pluginIds = CatalogEntries
+            .Where(entry => string.Equals(entry.HubName, hub.Name, StringComparison.OrdinalIgnoreCase) && entry.ConflictingHubs.Count == 0)
+            .Select(entry => entry.PluginId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var users = Templates
+            .Select(profile => (profile.Name, Plugins: profile.Plugins.Where(plugin => pluginIds.Contains(plugin.PluginId)).Select(plugin => plugin.DisplayName).ToList()))
+            .Where(item => item.Plugins.Count != 0)
+            .Select(item => $"{item.Name} ({string.Join(", ", item.Plugins)})")
+            .ToList();
+        var message = users.Count == 0
+            ? $"Hub '{hub.Name}' will be removed from Quasar. No config profile uses its plugins."
+            : $"Hub '{hub.Name}' will be removed from Quasar. These config profiles use its plugins: {string.Join("; ", users)}. "
+              + "Servers will start without them, and cluster setup and profile staging will refuse them, until another hub lists them or they are removed from the profiles.";
+        if (!await ConfirmDestructiveActionAsync("Remove plugin hub?", message, "Remove"))
+            return;
+
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        await PluginHubs.RemoveAsync(hub.Key);
     }
 
     private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)

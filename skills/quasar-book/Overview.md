@@ -31,7 +31,7 @@ Magnetar comes in two builds. `MagnetarInterim` runs on .NET 10 and is the defau
 
 Two kinds of plugins exist, from two hubs:
 
-- Server plugins load into the dedicated servers through Magnetar. They come from MagnetarHub (https://github.com/CometWorks/magnetar-hub), or from local dev folders. See [Plugins](Plugins.md).
+- Server plugins load into the dedicated servers through Magnetar. They come from MagnetarHub (https://github.com/CometWorks/magnetar-hub), from plugin hubs you register, or from local dev folders. See [Plugins](Plugins.md).
 - UI plugins extend the Quasar web UI itself. They come from QuasarHub (https://github.com/CometWorks/quasar-hub). See [UI plugins](UiPlugins.md).
 
 Torch plugins do not work with Magnetar.

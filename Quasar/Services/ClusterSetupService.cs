@@ -351,6 +351,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             DedicatedServerAppDataPath = Path.Combine(work, "preparation/DedicatedServer"), MagnetarAppDataPath = Path.Combine(work, "preparation/Magnetar"),
             WorldPath = Path.Combine(work, "preparation"), WorldSaveName = "world" };
         var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile);
+        if (prepared.UnresolvedPluginIds is { Count: > 0 } unresolved)
+            throw new InvalidOperationException("No plugin hub or dev folder lists the selected plugins " + string.Join(", ", unresolved)
+                + ". Register the hub that lists them in Configs → Developer, or remove them from the profile.");
         PrepareAgentMetadata(prepared.MagnetarAppDataPath);
         PrepareCompanionMetadata(prepared.MagnetarAppDataPath, preparer.GetOwnedCompanions());
         RemoveDirectTransportDevSource(prepared.MagnetarAppDataPath);

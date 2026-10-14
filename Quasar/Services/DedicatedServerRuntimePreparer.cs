@@ -109,7 +109,7 @@ public sealed class DedicatedServerRuntimePreparer
         }
 
         await PrepareRuntimeConfigAsync(definition, configProfile, worldPath, runtimeConfigPath, cancellationToken);
-        await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, launchArgumentStyle, cancellationToken);
+        var unresolvedPluginIds = await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, launchArgumentStyle, cancellationToken);
         await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
@@ -134,7 +134,8 @@ public sealed class DedicatedServerRuntimePreparer
             runtimeConfigPath,
             lastSessionPath,
             arguments,
-            gitHubToken);
+            gitHubToken,
+            unresolvedPluginIds);
     }
 
     public AgentDeploymentComparison GetAgentDeploymentComparison(DedicatedServerDefinition definition)
@@ -245,7 +246,9 @@ public sealed class DedicatedServerRuntimePreparer
         _logger.LogInformation("Prepared LastSession.sbl for server {UniqueName} at {Path}.", definition.UniqueName, lastSessionPath);
     }
 
-    private async Task PrepareMagnetarConfigAsync(
+    // Returns the selected plugin ids that no hub or dev folder lists. A regular server starts
+    // without them; a cluster export refuses them.
+    private async Task<IReadOnlyList<string>> PrepareMagnetarConfigAsync(
         DedicatedServerDefinition definition,
         QuasarConfigProfile configProfile,
         string magnetarAppDataPath,
@@ -272,6 +275,7 @@ public sealed class DedicatedServerRuntimePreparer
             : configProfile.Name.Trim();
         var remotePluginSources = await BuildRemotePluginSourcesAsync(configProfile, launchArgumentStyle, cancellationToken);
         var devFolders = _devFolderCatalog.GetDevFolders();
+        var registeredHubs = _pluginCatalog.GetRegisteredHubs();
         var localDevFolderIds = GetDevFolderPluginIdSet(devFolders);
         var selectedPluginIds = GetSelectedPluginIdSet(configProfile);
         var selectedDevFolders = devFolders
@@ -284,12 +288,19 @@ public sealed class DedicatedServerRuntimePreparer
                 "SourcesConfig",
                 new XElement("ShowWarning", "true"),
                 new XElement("MaxSourceAge", "2"),
-                new XElement("LocalHubSources"),
+                new XElement(
+                    "LocalHubSources",
+                    registeredHubs.Where(hub => hub.IsLocal).Select(hub => new XElement(
+                        "LocalHub",
+                        new XElement("Name", hub.Name),
+                        new XElement("Folder", hub.Folder),
+                        new XElement("Enabled", "true")))),
                 new XElement(
                     "RemoteHubSources",
                     remotePluginSources.UseDefaultHub
                         ? CreateDefaultRemoteHubElement()
-                        : null),
+                        : null,
+                    registeredHubs.Where(hub => !hub.IsLocal).Select(hub => CreateRemoteHubElement(hub.Name, hub.Repo, hub.Branch))),
                 new XElement(
                     "RemotePluginSources",
                     remotePluginSources.Entries.Select(CreateRemotePluginElement)),
@@ -355,6 +366,13 @@ public sealed class DedicatedServerRuntimePreparer
             Path.Combine(profilesDirectory, "Current.xml"),
             SerializeXml(currentProfileDocument),
             cancellationToken);
+
+        if (remotePluginSources.UnresolvedPluginIds.Count != 0)
+            _logger.LogWarning(
+                "Server {UniqueName} selects plugins that no plugin hub or dev folder lists, Magnetar won't load them: {Plugins}",
+                definition.UniqueName,
+                string.Join(", ", remotePluginSources.UnresolvedPluginIds));
+        return remotePluginSources.UnresolvedPluginIds;
     }
 
     private async Task<RemotePluginSourceSet> BuildRemotePluginSourcesAsync(
@@ -373,7 +391,7 @@ public sealed class DedicatedServerRuntimePreparer
             .ToList();
         var catalogById = ToCatalogById(catalogEntries);
 
-        if (selectedPluginIds.Any(pluginId => !HasCatalogRemoteManifest(catalogById, pluginId)))
+        if (selectedPluginIds.Any(pluginId => !catalogById.ContainsKey(pluginId)))
         {
             try
             {
@@ -386,13 +404,37 @@ public sealed class DedicatedServerRuntimePreparer
             }
         }
 
+        // Magnetar loads a plugin listed by two hubs from whichever it reads first, so name
+        // the hubs instead. A dev folder overrides hub entries, so its id never conflicts.
+        var conflicts = selectedPluginIds
+            .Concat(launchArgumentStyle == MagnetarLaunchArgumentStyle.Legacy ? [] : QuasarPluginCatalogService.CorePluginIds)
+            .Where(pluginId => !localDevFolderIds.Contains(pluginId))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Where(pluginId => catalogById.TryGetValue(pluginId, out var entry) && entry.ConflictingHubs.Count > 1)
+            .Select(pluginId => $"{pluginId} ({string.Join(", ", catalogById[pluginId].ConflictingHubs)})")
+            .ToList();
+        if (conflicts.Count != 0)
+            throw new InvalidOperationException(
+                $"More than one plugin hub lists {string.Join("; ", conflicts)}. Remove the plugin from all but one hub, or remove a hub, then try again.");
+
         var entries = new Dictionary<string, QuasarPluginCatalogEntry>(StringComparer.OrdinalIgnoreCase);
+        var unresolved = new List<string>();
         var useDefaultHub = false;
 
         foreach (var pluginId in selectedPluginIds)
         {
-            if (catalogById.TryGetValue(pluginId, out var catalogEntry) &&
-                HasRemoteManifest(catalogEntry))
+            if (!catalogById.TryGetValue(pluginId, out var catalogEntry))
+            {
+                unresolved.Add(pluginId);
+                useDefaultHub = true;
+                continue;
+            }
+
+            // A registered hub is always a source, so its plugins need no source of their own.
+            if (!QuasarPluginCatalogService.IsDefaultHubEntry(catalogEntry))
+                continue;
+
+            if (HasRemoteManifest(catalogEntry))
             {
                 entries[pluginId] = catalogEntry;
                 continue;
@@ -419,7 +461,7 @@ public sealed class DedicatedServerRuntimePreparer
             useDefaultHub = true;
         }
 
-        return new RemotePluginSourceSet(useDefaultHub, entries.Values.OrderBy(entry => entry.Hidden).ThenBy(entry => entry.FriendlyName, StringComparer.OrdinalIgnoreCase).ToList());
+        return new RemotePluginSourceSet(useDefaultHub, entries.Values.OrderBy(entry => entry.Hidden).ThenBy(entry => entry.FriendlyName, StringComparer.OrdinalIgnoreCase).ToList(), unresolved);
     }
 
     private static Dictionary<string, QuasarPluginCatalogEntry> ToCatalogById(IReadOnlyList<QuasarPluginCatalogEntry> entries) =>
@@ -439,12 +481,6 @@ public sealed class DedicatedServerRuntimePreparer
             .Select(QuasarPluginCatalogService.GetDevFolderPluginId)
             .Where(pluginId => !string.IsNullOrWhiteSpace(pluginId))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-    private static bool HasCatalogRemoteManifest(
-        IReadOnlyDictionary<string, QuasarPluginCatalogEntry> catalogById,
-        string pluginId) =>
-        catalogById.TryGetValue(pluginId, out var catalogEntry) &&
-        HasRemoteManifest(catalogEntry);
 
     private static void AddCoreRemotePluginSource(
         Dictionary<string, QuasarPluginCatalogEntry> entries,
@@ -476,11 +512,17 @@ public sealed class DedicatedServerRuntimePreparer
         !string.IsNullOrWhiteSpace(entry.ManifestFile);
 
     private static XElement CreateDefaultRemoteHubElement() =>
+        CreateRemoteHubElement(
+            QuasarPluginCatalogService.DefaultHubName,
+            QuasarPluginCatalogService.DefaultHubRepo,
+            QuasarPluginCatalogService.DefaultHubBranch);
+
+    private static XElement CreateRemoteHubElement(string name, string repo, string branch) =>
         new(
             "RemoteHub",
-            new XElement("Name", QuasarPluginCatalogService.DefaultHubName),
-            new XElement("Repo", QuasarPluginCatalogService.DefaultHubRepo),
-            new XElement("Branch", QuasarPluginCatalogService.DefaultHubBranch),
+            new XElement("Name", name),
+            new XElement("Repo", repo),
+            new XElement("Branch", branch),
             new XElement("Enabled", "true"),
             new XElement("Trusted", "true"));
 
@@ -737,7 +779,7 @@ public sealed class DedicatedServerRuntimePreparer
         MagnetarProtocolFileName,
     ];
 
-    private sealed record RemotePluginSourceSet(bool UseDefaultHub, IReadOnlyList<QuasarPluginCatalogEntry> Entries);
+    private sealed record RemotePluginSourceSet(bool UseDefaultHub, IReadOnlyList<QuasarPluginCatalogEntry> Entries, IReadOnlyList<string> UnresolvedPluginIds);
 
     private QuasarConfigProfile ResolveConfigProfile(DedicatedServerDefinition definition)
     {
@@ -1102,7 +1144,8 @@ public sealed record PreparedDedicatedServerLaunch(
     string RuntimeConfigPath,
     string LastSessionPath,
     string Arguments,
-    string GitHubToken);
+    string GitHubToken,
+    IReadOnlyList<string>? UnresolvedPluginIds = null);
 
 /// <summary>A Magnetar companion built from an installed Quasar UI plugin package.</summary>
 public sealed record UiPluginCompanion(

@@ -35,7 +35,7 @@ The profile editor has three tabs plus a **Developer** panel:
 - **World**: all DS world options, grouped into Server, Automation, Moderation, General, Survival, Multipliers, Player & Progression, Blocks & Combat, NPCs & World, Trash & Cleanup, Economy & Contracts and Advanced, plus the **Access** section. **Search world options** filters them.
 - **Plugins**: Magnetar plugins to load. See [Plugins](Plugins.md).
 - **Mods**: the Steam Workshop mod list in load order. Disabled while **Cross Platform** is on ("Mods are disabled while Cross Platform is enabled. Turn off Cross Platform to add or edit mods.").
-- **Developer**: local plugin dev folders. See [Plugins](Plugins.md).
+- **Developer**: local plugin dev folders and extra plugin hubs. See [Plugins](Plugins.md).
 
 The profile does not hold the game port, listen IP, server and world names, restart or health policy. Those belong to the server definition (see [Servers](Servers.md#creating-a-server)).
 

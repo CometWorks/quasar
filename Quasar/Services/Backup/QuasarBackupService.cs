@@ -68,6 +68,7 @@ public sealed class QuasarBackupService
         "steam-workshop.json",
         "rbac.json",
         "dev-folders.json",
+        "plugin-hubs.json",
     ];
 
     // Per-entity definition files. The fixed file names mean History/ (timestamped
@@ -88,6 +89,7 @@ public sealed class QuasarBackupService
     private readonly WebServiceOptions _options;
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly QuasarDevFolderCatalog _devFolders;
+    private readonly QuasarPluginHubCatalog? _pluginHubs;
     private readonly DedicatedServerCatalog _servers;
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
@@ -104,12 +106,14 @@ public sealed class QuasarBackupService
         QuasarDevFolderCatalog devFolders,
         DedicatedServerCatalog servers,
         DedicatedServerSupervisor supervisor,
-        ServerRestoreCoordinator restoreCoordinator)
+        ServerRestoreCoordinator restoreCoordinator,
+        QuasarPluginHubCatalog? pluginHubs = null)
     {
         _logger = logger;
         _options = options;
         _knownPlayers = knownPlayers;
         _devFolders = devFolders;
+        _pluginHubs = pluginHubs;
         _servers = servers;
         _supervisor = supervisor;
         _restoreCoordinator = restoreCoordinator;
@@ -433,6 +437,7 @@ public sealed class QuasarBackupService
         // (servers, configs, templates, discord, branding, ...) reload themselves.
         _knownPlayers.ReloadFromDisk();
         _devFolders.ReloadFromDisk();
+        _pluginHubs?.ReloadFromDisk();
 
         _logger.LogInformation(
             "Restored {Count} files from a {BackupVersion} backup (running {RunningVersion}).",

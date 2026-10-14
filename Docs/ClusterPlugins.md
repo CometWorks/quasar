@@ -33,6 +33,13 @@ in a matching dependency snapshot, and keeps existing plugin values only when th
 exported configuration schema still matches. A single changed session setting uses
 the same path as a complete session-settings and mod/plugin change.
 
+A plugin from a registered [plugin hub](Configuration.md#plugin-hubs) is exported like a
+MagnetarHub plugin: Magnetar compiles it from its manifest's `RepoId` at the manifest's
+`Commit` and the snapshot pins that commit. A private repository needs the GitHub token
+from **Updates** to have read access. Setup and staging stop before running Magnetar
+when no hub or dev folder lists a selected plugin, or when two hubs list it. The content
+monitor compares the pinned commit with the hub that lists the plugin.
+
 A plugin selected from a dev folder is compiled from the checkout during that
 preparation, always as a release build, and pinned to its HEAD commit, which `preparation.json` reports with
 `source: "dev-folder"`. The repository must be clean. Content update monitoring looks

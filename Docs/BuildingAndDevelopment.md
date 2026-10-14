@@ -124,6 +124,11 @@ commit it, choose **Stage profile changes** for the cluster, then apply the pend
 update from Maintenance. This needs a Magnetar release with dev folder support in
 managed preparation; older releases refuse dev folders and fail the setup.
 
+A dev folder builds one plugin from a checkout. To serve several plugins, or to share
+unpublished plugins between Quasar installs, register a
+[plugin hub](Configuration.md#plugin-hubs) instead: a folder or repository of manifests
+that pin a `RepoId` and `Commit` each, like MagnetarHub.
+
 ## Managed runtime selection
 
 - On Windows, managed servers can run on either Magnetar build — .NET 10 (the

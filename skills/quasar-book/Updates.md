@@ -127,7 +127,7 @@ Quasar works without a token, but GitHub rate-limits unauthenticated API calls p
 2. On **Updates**, paste it into **GitHub token** and press **Save token**.
 3. Press **Check Quasar** to test it.
 
-Quasar encrypts the token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** removes it. Bootstrap, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads.
+Quasar encrypts the token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** removes it. Bootstrap, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads, and uses it to read [plugin hubs](Plugins.md#plugin-hubs) other than MagnetarHub, so a private hub repository needs a token that can read it.
 
 The token chip shows `not set`, `set`, `expires <date>`, `expires soon`, `expired` or `rejected`. Quasar warns 14 days before expiry, using the expiry date GitHub reports. The warnings are:
 

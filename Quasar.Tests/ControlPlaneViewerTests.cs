@@ -91,7 +91,9 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(profiles);
         var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
         context.Services.AddSingleton(devFolders);
-        context.Services.AddSingleton(new QuasarPluginCatalogService(NullLogger<QuasarPluginCatalogService>.Instance, null!, devFolders));
+        var pluginHubs = new QuasarPluginHubCatalog(NullLogger<QuasarPluginHubCatalog>.Instance);
+        context.Services.AddSingleton(pluginHubs);
+        context.Services.AddSingleton(new QuasarPluginCatalogService(NullLogger<QuasarPluginCatalogService>.Instance, null!, devFolders, pluginHubs));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         var credentials = new SteamWorkshopCredentialsCatalog(NullLogger<SteamWorkshopCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
         await credentials.SaveAsync(new() { WebApiKey = "secret-workshop-key", SteamPassword = "secret-steam-password" });
