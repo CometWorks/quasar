@@ -358,5 +358,6 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar/Services/Discord/DiscordAnalyticsExportService.cs`
 - `Quasar/Services/QuasarLoggingConfigurator.cs`
 - `Quasar.Agent/GameBridge.cs`
+- `Quasar.Agent/ConsoleCommandRunner.cs`
 - `Quasar.Agent/StopCommand.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
