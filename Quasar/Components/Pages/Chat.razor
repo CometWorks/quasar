@@ -94,6 +94,7 @@
         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
         <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-2">
             <MudAutocomplete T="string"
+                             @ref="_input"
                              @bind-Value="_inputText"
                              SearchFunc="SearchCommandSuggestionsAsync"
                              Label="@InputLabel"
@@ -101,7 +102,7 @@
                              FullWidth="true"
                              Immediate="true"
                              Lines="2"
-                             CoerceText="true"
+                             CoerceText="false"
                              CoerceValue="true"
                              ResetValueOnEmptyText="false"
                              MinCharacters="1"
@@ -144,6 +145,7 @@
     private readonly string _chatScrollContainerId = $"admin-chat-{Guid.NewGuid():N}";
     private string _selectedUniqueName = string.Empty;
     private string _inputText = string.Empty;
+    private MudAutocomplete<string>? _input;
     private long _lastRenderedLatestMessageTicks;
     private bool _scrollPending;
 
@@ -187,7 +189,7 @@
 
     private string InputHelperText => IsCommandInput
         ? "Select a suggestion or type the full command."
-        : "Broadcasts to selected server chat. Start with ! for commands.";
+        : "Broadcasts to selected server chat. Start with ! to run a server command.";
 
     protected override void OnInitialized()
     {
@@ -233,8 +235,14 @@
 
     private async Task HandleInputKeyDownAsync(KeyboardEventArgs args)
     {
-        if (args.Key == "Enter" && !args.ShiftKey)
-            await SendInputAsync();
+        if (args.Key != "Enter" || args.ShiftKey)
+            return;
+
+        // The autocomplete takes the highlighted suggestion on key-up, after this send,
+        // and would leave a command in the box that the user never typed.
+        if (_input is not null)
+            await _input.CloseMenuAsync();
+        await SendInputAsync();
     }
 
     private Task<IEnumerable<string>> SearchCommandSuggestionsAsync(string? value, CancellationToken cancellationToken)
@@ -266,7 +274,8 @@
         if (string.IsNullOrWhiteSpace(text))
             return;
 
-        await SendAgentCommandAsync(ServerCommandType.SendChat, text);
+        // "!" lines run as server commands; the agent sends their replies back as Console lines.
+        await SendAgentCommandAsync(IsCommandText(text) ? ServerCommandType.RunChatCommand : ServerCommandType.SendChat, text);
         _inputText = string.Empty;
     }
 
@@ -424,7 +433,8 @@
     {
         return commandType switch
         {
-            ServerCommandType.SendChat => "Chat command sent.",
+            ServerCommandType.SendChat => "Chat message sent.",
+            ServerCommandType.RunChatCommand => "Command sent.",
             ServerCommandType.Refresh => "Refresh requested.",
             ServerCommandType.SaveWorld => "Save requested.",
             _ => $"{commandType} requested.",
