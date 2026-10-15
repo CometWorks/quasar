@@ -20,7 +20,7 @@ Each server has a stable **Server ID** (internally `UniqueName`). It is also the
 
 | Path | Contents |
 | --- | --- |
-| `Magnetars/<Server ID>/server.json` | The server definition (all editor settings, goal state). |
+| `Magnetars/<Server ID>/server.json` | The server definition (all editor settings, goal state). Quasar picks up a hand edit within 2 seconds. Only this file directly in the server folder counts. |
 | `Magnetars/<Server ID>/History/` | A timestamped copy of `server.json` on every save, plus `<timestamp>-deleted.json` when the server is deleted. |
 | `Magnetars/<Server ID>/DedicatedServer/` | DS app-data (`-path`): `SpaceEngineers-Dedicated.cfg`, `SpaceEngineersDedicated*.log`, Steam Workshop content. |
 | `Magnetars/<Server ID>/DedicatedServer/Saves/` | World saves. `LastSession.sbl` is written here before every start. |
