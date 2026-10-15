@@ -103,6 +103,19 @@ public sealed class DedicatedServerLaunchArgumentsTests
             DedicatedServerRuntimePreparer.StripManagedArguments("-consentful -myconsent -github-tokens x"));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ClonedDefinitionKeepsTheImplicitModSetting(bool disable)
+    {
+        var definition = CreateDefinition();
+        definition.DisableImplicitMagnetarModLoad = disable;
+
+        var arguments = Build(definition.Clone(), dataHandlingConsent: true);
+
+        Assert.Equal(disable, arguments.Split(' ').Contains("-noimplicitmod"));
+    }
+
     private static string Build(
         DedicatedServerDefinition definition,
         bool? dataHandlingConsent,

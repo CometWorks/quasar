@@ -768,7 +768,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.State == DedicatedServerProcessState.Running &&
                     agent?.IsConnected == true)
                 {
-                    agentDeploymentChecks.Add((state.UniqueName, Clone(state.Definition)));
+                    agentDeploymentChecks.Add((state.UniqueName, state.Definition.Clone()));
                 }
 
                 if (processActive &&
@@ -932,7 +932,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.State != DedicatedServerProcessState.Starting || !IsProcessActive(process))
                 return;
 
-            definition = Clone(state.Definition);
+            definition = state.Definition.Clone();
             maxAttempts = EffectiveAgentAttachRetryAttempts(definition);
             retryDelaySeconds = Math.Max(0, definition.AgentAttachRetryDelaySeconds);
             attempt = state.AgentAttachRetryAttempts + 1;
@@ -1705,7 +1705,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (!_states.TryGetValue(uniqueName, out state) || !ReferenceEquals(state.Process, process))
                 return;
 
-            definition = Clone(state.Definition);
+            definition = state.Definition.Clone();
             exitCode = SafeGetExitCode(state.Process);
             stopRequested = state.StopRequested || _isStopping;
             restartRequested = state.IsRestartPending && state.State == DedicatedServerProcessState.Restarting;
@@ -2003,7 +2003,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 if (_states.TryGetValue(definition.UniqueName, out var state))
                 {
-                    state.Definition = Clone(definition);
+                    state.Definition = definition.Clone();
                     if (string.IsNullOrWhiteSpace(state.LastMessage))
                         state.LastMessage = "Stopped.";
                 }
@@ -2012,7 +2012,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     _states.Add(definition.UniqueName, new ManagedServerState
                     {
                         UniqueName = definition.UniqueName,
-                        Definition = Clone(definition),
+                        Definition = definition.Clone(),
                         State = DedicatedServerProcessState.Stopped,
                         LastMessage = "Stopped.",
                     });
@@ -2059,7 +2059,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (!_states.TryGetValue(uniqueName, out var state))
                 return;
 
-            definition = Clone(state.Definition);
+            definition = state.Definition.Clone();
             errorLogSinceUtc = state.StartedAtUtc;
             state.State = DedicatedServerProcessState.Faulted;
             state.Process = null;
@@ -3295,54 +3295,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static int EffectiveAgentAttachRetryAttempts(DedicatedServerDefinition definition) =>
         Math.Max(1, definition.AgentAttachRetryAttempts);
 
-    private static DedicatedServerDefinition Clone(DedicatedServerDefinition definition)
-    {
-        return new DedicatedServerDefinition
-        {
-            UniqueName = definition.UniqueName,
-            DisplayName = definition.DisplayName,
-            InGameServerName = definition.InGameServerName,
-            InGameWorldName = definition.InGameWorldName,
-            OriginalUniqueName = definition.OriginalUniqueName,
-            GoalState = definition.GoalState,
-            ExecutablePath = definition.ExecutablePath,
-            WorkingDirectory = definition.WorkingDirectory,
-            ManagedRuntime = definition.ManagedRuntime,
-            DedicatedServerAppDataPath = definition.DedicatedServerAppDataPath,
-            MagnetarAppDataPath = definition.MagnetarAppDataPath,
-            WorldPath = definition.WorldPath,
-            WorldSaveName = definition.WorldSaveName,
-            ConfigFilePath = definition.ConfigFilePath,
-            ConfigProfileId = definition.ConfigProfileId,
-            WorldTemplateId = definition.WorldTemplateId,
-            LaunchArguments = definition.LaunchArguments,
-            LogLaunchEnvironment = definition.LogLaunchEnvironment,
-            ServerPort = definition.ServerPort,
-            ServerIP = definition.ServerIP,
-            AutoStart = definition.AutoStart,
-            EnableHealthMonitoring = definition.EnableHealthMonitoring,
-            AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
-            AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
-            AgentStartupHardLimitSeconds = definition.AgentStartupHardLimitSeconds,
-            AgentAttachRetryAttempts = definition.AgentAttachRetryAttempts,
-            AgentAttachRetryDelaySeconds = definition.AgentAttachRetryDelaySeconds,
-            AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
-            SimulationProgressWindowSeconds = definition.SimulationProgressWindowSeconds,
-            MinimumSimulationProgressScore = definition.MinimumSimulationProgressScore,
-            WarnAfterUptimeHours = definition.WarnAfterUptimeHours,
-            RecycleAfterUptimeHours = definition.RecycleAfterUptimeHours,
-            RestartOnCrash = definition.RestartOnCrash,
-            RestartDelaySeconds = definition.RestartDelaySeconds,
-            MaxRestartAttempts = definition.MaxRestartAttempts,
-            DailyRestartTimeLocal = definition.DailyRestartTimeLocal,
-            MaximumUptime = definition.MaximumUptime,
-            AvoidSimultaneousScheduledRestarts = definition.AvoidSimultaneousScheduledRestarts,
-            StartupProcessPriority = definition.StartupProcessPriority,
-            ReadyProcessPriority = definition.ReadyProcessPriority,
-            CpuAffinity = definition.CpuAffinity,
-            UpdatedAtUtc = definition.UpdatedAtUtc,
-        };
-    }
 
     private static bool TryAdoptProcess(int processId, out Process process)
     {
