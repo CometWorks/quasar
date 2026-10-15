@@ -242,6 +242,7 @@ What to do:
 - `Dockerfile`
 - `.github/workflows/release.yml`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`
 - `Quasar/Services/Updates/QuasarUpdateSnapshot.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
