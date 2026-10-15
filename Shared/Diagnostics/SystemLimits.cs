@@ -17,8 +17,11 @@ public static class SystemLimits
             if (warning is not null)
                 yield return warning;
         }
-
-        // Linux limits (open files, inotify, processes) will go here
+        else if (OperatingSystem.IsLinux())
+        {
+            foreach (string warning in LinuxLimits.Check())
+                yield return warning;
+        }
     }
 
     // MagnetarLegacy runs on .NET Framework and is longPathAware, which works only if
