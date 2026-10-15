@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Emit;
 using Quasar.ClusterDeployment;
+using Quasar.Services;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -124,4 +125,118 @@ public sealed class PluginSdkContractTests : IDisposable
         Assert.Null(
             ClusterDeploymentFiles.PluginSdkMismatch(Package("""{"schemaVersion":1}"""), Sdk("9.9"))
         );
+
+    // A Magnetar install or snapshot directory holding only its PluginSdk.dll.
+    private string Magnetar(string? contract, string name)
+    {
+        string magnetar = Path.Combine(_root, name);
+        Directory.CreateDirectory(Path.Combine(magnetar, "Libraries/MagnetarInterim"));
+        File.Copy(
+            Sdk(contract, name),
+            Path.Combine(magnetar, "Libraries/MagnetarInterim/PluginSdk.dll")
+        );
+        return magnetar;
+    }
+
+    private static string SdkHash(string magnetar) =>
+        ClusterDeploymentFiles.Hash(
+            File.ReadAllBytes(Path.Combine(magnetar, "Libraries/MagnetarInterim/PluginSdk.dll"))
+        );
+
+    [Fact]
+    public void ProfileUpdateKeepsTheSnapshotMagnetarThatExportedThePlugins()
+    {
+        string snapshot = Magnetar(null, "Snapshot");
+        string installed = Magnetar(null, "Installed");
+        string package = Package(
+            $$"""{"pluginServices":1,"pluginSdkSha256":"{{SdkHash(snapshot)}}"}"""
+        );
+        Assert.Equal(
+            snapshot,
+            ClusterUpdatePreparationService.ExportingMagnetar(
+                package,
+                snapshot,
+                installed,
+                SdkHash(snapshot)
+            )
+        );
+    }
+
+    [Fact]
+    public void ProfileUpdateFreezesAnUpdatedMagnetarThatSatisfiesTheContract()
+    {
+        string snapshot = Magnetar("1.1", "Snapshot");
+        string installed = Magnetar("1.2", "Installed");
+        string package = Package(
+            $$"""{"pluginServices":1,"pluginSdkContract":"1.1","pluginSdkSha256":"{{SdkHash(snapshot)}}"}"""
+        );
+        Assert.Equal(
+            installed,
+            ClusterUpdatePreparationService.ExportingMagnetar(
+                package,
+                snapshot,
+                installed,
+                SdkHash(installed)
+            )
+        );
+    }
+
+    [Theory]
+    [InlineData(null, "1.0")]
+    [InlineData("1.0", null)]
+    public void ProfileUpdateDemandsAMatchingReleaseWhenEitherSideHasNoContract(
+        string? release,
+        string? magnetar
+    )
+    {
+        string snapshot = Magnetar("1.0", "Snapshot");
+        string installed = Magnetar(magnetar, "Installed");
+        string contract = release is null ? "" : $"\"pluginSdkContract\":\"{release}\",";
+        string package = Package(
+            $$"""{"pluginServices":1,{{contract}}"pluginSdkSha256":"{{SdkHash(snapshot)}}"}"""
+        );
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.ExportingMagnetar(
+                package,
+                snapshot,
+                installed,
+                SdkHash(installed)
+            )
+        );
+        Assert.EndsWith("Stage a matching release first.", error.Message);
+    }
+
+    [Fact]
+    public void ProfileUpdateRejectsAnUpdatedMagnetarBelowTheContract()
+    {
+        string snapshot = Magnetar("1.1", "Snapshot");
+        string installed = Magnetar("1.0", "Installed");
+        string package = Package("""{"pluginServices":1,"pluginSdkContract":"1.1"}""");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.ExportingMagnetar(
+                package,
+                snapshot,
+                installed,
+                SdkHash(installed)
+            )
+        );
+        Assert.Contains("needs PluginSdk contract 1.1, but Magnetar has 1.0", error.Message);
+    }
+
+    [Fact]
+    public void ProfileUpdateRejectsAnExporterThatIsNeitherMagnetar()
+    {
+        string snapshot = Magnetar("1.0", "Snapshot");
+        string installed = Magnetar("1.0", "Installed");
+        string package = Package("""{"pluginServices":1,"pluginSdkContract":"1.0"}""");
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            ClusterUpdatePreparationService.ExportingMagnetar(
+                package,
+                snapshot,
+                installed,
+                new string('a', 64)
+            )
+        );
+        Assert.Contains("Magnetar changed during plugin preparation", error.Message);
+    }
 }

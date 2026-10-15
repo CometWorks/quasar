@@ -103,7 +103,7 @@ CLI equivalents: `cluster gateway-recover NAME` and `cluster recover NAME REQUES
 **Administration → Cluster settings** (needs configuration editing) has:
 
 - **Server name**: the name in Quasar lists.
-- **Configuration profile** and **Stage profile changes**: prepares a new deployment on every host machine with the selected profile. Allowed changes are session settings, administrators, mods and plugin selections. Network and dedicated-server root settings cannot change this way ("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update."). The change applies only when you **Apply pending update** in Maintenance. Quasar refuses to apply if the staged profile was edited or deleted after staging; stage it again.
+- **Configuration profile** and **Stage profile changes**: prepares a new deployment on every host machine with the selected profile. Allowed changes are session settings, administrators, mods and plugin selections. Network and dedicated-server root settings cannot change this way ("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update."). If managed Magnetar was updated since the cluster's runtime snapshot was frozen, staging freezes the installed Magnetar together with the plugins it exported, as long as its PluginSdk contract satisfies the cluster release's. The change applies only when you **Apply pending update** in Maintenance. Quasar refuses to apply if the staged profile was edited or deleted after staging; stage it again.
 - **Shutdown grace period (seconds)**: used on the next managed shutdown.
 - **Save cluster settings**.
 
@@ -291,7 +291,7 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - **"Queued mod/plugin updates must be staged before applying."** Stage the queued content or remove the queue.
 - **"This stopped cluster has no clean shutdown proof."** Use **Recover stopped cluster after an unclean shutdown** before updating.
 - **"Resolve Workshop dependencies before staging: …"** A mod dependency could not be resolved; fix the profile's mod list.
-- **"Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds."** Stage a matching cluster release first.
+- **"Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds."** Managed Magnetar was updated after the snapshot was frozen, and the cluster release or the new Magnetar declares no PluginSdk contract, or the new Magnetar's contract doesn't fit the release. In the last case the error names both contracts and says whether a newer Magnetar or another cluster release is needed. Otherwise stage a matching cluster release.
 - **"Select the release and dependencies used by the active deployment before conversion."** Reselect the active package and dependencies before converting a cluster back.
 - **`cluster-credentials.json` damaged.** Quasar moves an unreadable `cluster-credentials.json` to `cluster-credentials.json.corrupt-<timestamp>` and starts without it. Restore it from a backup together with the Data Protection keys, or re-create the clusters and Host enrollments.
 
