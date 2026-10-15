@@ -202,7 +202,11 @@ sudo ./uninstall.sh --system --install-dir /path/to/quasar --purge   # system se
 | `--install-dir <dir>` | the script's folder; `/opt/quasar` when `--system` is given without `--install-dir` | Folder `--purge` deletes |
 | `--user-service` | on | Remove the user unit from `~/.config/systemd/user/` |
 | `--system` | off | Remove `/etc/systemd/system/<name>.service`. Needs root. |
-| `--purge` | off | Delete the install directory, including all servers, saves, backups and logs inside it |
+| `--purge` | off | Delete the install directory, including all servers, saves, backups and logs inside it, and the folders of the local Host executors it removes |
+
+After stopping Quasar, `uninstall.sh` also removes the local Host executors of this install (see [Cluster hosts](ClusterHosts.md)): every `HostExecutors/<id>` folder in the install directory whose `quasar-host-<id>.service`, a user unit of the account Quasar runs as, runs the Host from that folder. It stops `quasar-host-<id>-stop.service` first, which saves and stops the running clusters (up to 110 seconds), then disables and deletes the four `quasar-host-<id>*` units. Without `--purge` it prints "Host files left in place: <folder>". Hosts of other Quasar installs and Hosts on other machines are left alone, and so is user lingering.
+
+A local Host that an older Quasar version put in `~/.local/share/Quasar/Hosts/<id>` can belong to any install of that user, so `uninstall.sh` only prints the commands that remove it.
 
 The script stops the service, disables it, deletes the unit file, runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays. Managed game servers are detached and can keep running after the service stops, so use **Save and stop all servers** first if you want them stopped. With `--system`, always pass `--install-dir` together with `--purge`, otherwise the script targets `/opt/quasar`.
 

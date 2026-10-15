@@ -56,7 +56,9 @@ systemctl --user restart quasar.service
 ~/.local/share/Quasar/uninstall.sh --purge  # also delete the install folder
 ```
 
-The uninstall script stops `quasar.service` before removing it.
+The uninstall script stops `quasar.service` before removing it. It also saves and
+stops the clusters of a local Host executor this Quasar installed, removes its
+`quasar-host-<id>` units and, with `--purge`, its folder.
 
 For release assets, the auto-updater flow, and advanced configuration see the
 [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) guide.

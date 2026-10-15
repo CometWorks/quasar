@@ -287,6 +287,13 @@ the service. With `--service-name <name>`, it stops the matching `<name>.service
 unit instead. Use `sudo ./uninstall.sh --system --purge` from a system install
 to remove a machine-wide service.
 
+It then removes the local Host executors of this install: the
+`quasar-host-<id>` user units that run a Host from the install's
+`HostExecutors/<id>` folder. The stop unit goes first, so the Host saves and stops
+its clusters. `--purge` deletes those folders with the install root. Hosts of other
+installs are not touched. For a local Host that an older version installed in
+`~/.local/share/Quasar/Hosts/<id>`, it only prints the commands to remove it.
+
 ## Relocating the install root
 
 Stop Quasar and its managed servers, then copy the complete install root to the

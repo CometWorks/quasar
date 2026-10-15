@@ -93,6 +93,65 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public async Task UninstallRemovesOnlyTheLocalHostsOfThatInstall()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string home = Path.Combine(root, "home"), fakeBin = Path.Combine(root, "fake-bin");
+        Directory.CreateDirectory(home);
+        Directory.CreateDirectory(fakeBin);
+        File.WriteAllText(Path.Combine(fakeBin, "systemctl"), "#!/bin/sh\necho \"$*\" >> \"$HOME/systemctl.log\"\n");
+        foreach (string tool in new[] { "loginctl", "sudo" })
+            File.WriteAllText(Path.Combine(fakeBin, tool), "#!/bin/sh\nexit 0\n");
+        foreach (string tool in Directory.GetFiles(fakeBin))
+            File.SetUnixFileMode(tool, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        string binary = Path.Combine(root, "Quasar.Host");
+        File.WriteAllText(binary, "host binary");
+        async Task Run(byte[] input, params string[] args)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("bash");
+            foreach (string arg in args) start.ArgumentList.Add(arg);
+            start.Environment["HOME"] = home;
+            start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            await ClusterHostInstaller.RunAsync(start, input, default);
+        }
+        // Installs a local Host of the Quasar install in folder `install`.
+        async Task<string> Install(string install, string id)
+        {
+            var catalog = new ClusterHostCatalog(credentials, Path.Combine(root, install, "Hosts"));
+            var host = await catalog.RegisterAsync(id, id, "127.0.0.1", 18400 + id.Length, default);
+            var installer = new ClusterHostInstaller(catalog, credentials, binary, TimeProvider.System, Path.Combine(root, install, "HostExecutors"));
+            string target = installer.LocalRoot(id);
+            await Run(installer.BuildScript(host, new Uri("http://127.0.0.1:8080"), target));
+            return target;
+        }
+        string mine = await Install("q1", "one");
+        string theirs = await Install("q2", "two");
+        // q1 also lists "two", as if enrolled there once, but q2's Host runs under that unit name.
+        await new ClusterHostCatalog(credentials, Path.Combine(root, "q1", "Hosts")).RegisterAsync("two", "two", "127.0.0.2", 18400, default);
+        File.Delete(Path.Combine(home, "systemctl.log"));
+
+        string uninstall = Path.Combine(Path.GetDirectoryName(SourcePath())!, "..", "uninstall.sh");
+        await Run([], uninstall, "--install-dir", Path.Combine(root, "q1"));
+        string units = Path.Combine(home, ".config/systemd/user");
+        Assert.Empty(Directory.GetFiles(units, "quasar-host-one*", SearchOption.AllDirectories));
+        Assert.Equal(4, Directory.GetFiles(units, "quasar-host-two*").Length);
+        Assert.True(File.Exists(Path.Combine(mine, "Quasar.Host")));
+        string[] calls = File.ReadAllLines(Path.Combine(home, "systemctl.log"));
+        Assert.DoesNotContain(calls, line => line.Contains("quasar-host-two"));
+        // The stop unit saves the clusters through the running Host, so it has to go before the Host.
+        Assert.True(Array.FindIndex(calls, line => line == "--user disable --now quasar-host-one-stop.service")
+            < Array.FindIndex(calls, line => line == "--user disable --now quasar-host-one.service"));
+
+        await Install("q1", "three");
+        await Run([], uninstall, "--install-dir", Path.Combine(root, "q1"), "--purge");
+        Assert.False(Directory.Exists(Path.Combine(root, "q1")));
+        Assert.True(File.Exists(Path.Combine(theirs, "Quasar.Host")));
+        Assert.Equal(4, Directory.GetFiles(units, "quasar-host-two*").Length);
+    }
+
+    private static string SourcePath([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
+    [Fact]
     public async Task ManualEnrollmentPackageContainsTheMatchingPrivateHostIdentityWithoutSystemd()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
