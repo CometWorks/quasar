@@ -6,6 +6,7 @@ using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
 using Quasar.Diagnostics;
+using Quasar.Host.Contract.V1;
 using Quasar.Services.Backup;
 using Quasar.Services.PluginSdk;
 
@@ -37,6 +38,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly ManagedRuntimeWarmupService _runtimeWarmup;
     private readonly WebServiceOptions _options;
     private readonly DiagnosticCollector? _diagnostics;
+    private readonly AgentSocketAuthenticator? _agentTokens;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
@@ -54,7 +56,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         WebServiceOptions options,
         ServerRestoreCoordinator restoreCoordinator,
         ILogger<DedicatedServerSupervisor> logger,
-        DiagnosticCollector? diagnostics = null)
+        DiagnosticCollector? diagnostics = null,
+        AgentSocketAuthenticator? agentTokens = null)
     {
         _catalog = catalog;
         _registry = registry;
@@ -65,6 +68,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _restoreCoordinator = restoreCoordinator;
         _logger = logger;
         _diagnostics = diagnostics;
+        _agentTokens = agentTokens;
 
         // When set (the default), Quasar leaves managed servers running on its own
         // shutdown instead of stopping them — they are detached (Magnetar -daemon /
@@ -1165,6 +1169,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         process.StartInfo.Environment["QUASAR_UNIQUE_NAME"] = definition.UniqueName;
         process.StartInfo.Environment["QUASAR_BASE_URL"] = _options.BaseUrl;
+        if (_agentTokens is not null)
+            process.StartInfo.Environment[AgentSocketToken.EnvironmentVariable] = _agentTokens.ForServer(definition.UniqueName);
         process.StartInfo.Environment["MAGNETAR_HOST_ID"] = _options.HostId;
         process.StartInfo.Environment["QUASAR_DS_APPDATA_PATH"] = launch.DedicatedServerAppDataPath;
         process.StartInfo.Environment["QUASAR_MAGNETAR_APPDATA_PATH"] = launch.MagnetarAppDataPath;
@@ -1333,6 +1339,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly HashSet<string> SecretEnvironmentVariableNames = new(StringComparer.OrdinalIgnoreCase)
     {
         PulsarGitHubTokenVariableName,
+        AgentSocketToken.EnvironmentVariable,
     };
 
     private void LogManagedServerLaunchEnvironment(DedicatedServerDefinition definition, ProcessStartInfo startInfo)
