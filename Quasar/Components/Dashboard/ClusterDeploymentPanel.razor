@@ -317,15 +317,13 @@
         if (Current.PackageSelection is { } selected && selected.Version == release.Version && selected.Sha256 == release.Sha256)
             return reusable is not null;
         var package = await Packages.StageAsync(new(release.Version, release.Sha256), default);
-        string? pinnedSdk = Quasar.ClusterDeployment.ClusterDeploymentFiles.GetPinnedPluginSdkSha256(package.PackagePath);
-        bool reuse = reusable is not null && pinnedSdk == Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(
-            await System.IO.File.ReadAllBytesAsync(System.IO.Path.Combine(reusable["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll")));
+        bool reuse = reusable is not null && Quasar.ClusterDeployment.ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath,
+            System.IO.Path.Combine(reusable["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll")) is null;
         if (!reuse)
         {
             string installedSdk = System.IO.Path.Combine(Runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
-            string actualSdk = Quasar.ClusterDeployment.ClusterDeploymentFiles.Hash(await System.IO.File.ReadAllBytesAsync(installedSdk));
-            if (pinnedSdk != actualSdk)
-                throw new InvalidOperationException($"Cluster release {release.Version} pins PluginSdk {pinnedSdk ?? "none"}, but installed Magnetar has {actualSdk}. A matching Magnetar installation or existing dependency snapshot is required.");
+            if (Quasar.ClusterDeployment.ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath, installedSdk) is { } mismatch)
+                throw new InvalidOperationException($"Cluster release {release.Version} cannot run on the installed Magnetar: {mismatch} A compatible Magnetar installation or existing dependency snapshot is required.");
         }
         await Catalog.SelectPackageAsync(Cluster.UniqueName, Current.PackageSelection?.Revision ?? 0, package,
             "web-ui-" + Guid.NewGuid().ToString("N"), default);
