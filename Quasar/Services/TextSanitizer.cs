@@ -9,7 +9,8 @@ public static class TextSanitizer
     private const int SpaceEngineersPlayStationPlatformIcon = 0xE031;
     private const int SpaceEngineersXboxPlatformIcon = 0xE032;
 
-    public static string CleanGameText(string? value)
+    // Chat rows pass keepLineBreaks to show multi-line replies; '\r' is still dropped, so CRLF becomes LF.
+    public static string CleanGameText(string? value, bool keepLineBreaks = false)
     {
         if (string.IsNullOrEmpty(value))
             return string.Empty;
@@ -18,7 +19,7 @@ public static class TextSanitizer
         var hasVisibleText = false;
         foreach (var rune in value.EnumerateRunes())
         {
-            if (ShouldDrop(rune))
+            if (ShouldDrop(rune) && !(keepLineBreaks && rune.Value == '\n'))
                 continue;
 
             if (!hasVisibleText && ShouldDropLeadingPrefix(rune))
