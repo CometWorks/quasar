@@ -770,12 +770,17 @@ internal sealed class BootstrapOptions
         yield return AppContext.BaseDirectory;
         yield return Path.Combine(AppContext.BaseDirectory, "WebService");
 
+        // A development run inside the source tree also reads the Quasar project's settings. Another
+        // install above this one, such as ~/Quasar, must not leak in.
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
         for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
         {
             var sourceQuasar = Path.Combine(directory.FullName, "Quasar");
-            if (File.Exists(Path.Combine(sourceQuasar, "appsettings.json")))
+            if (File.Exists(Path.Combine(sourceQuasar, "Quasar.csproj")))
+            {
                 yield return sourceQuasar;
+                break;
+            }
         }
 
         yield return MagnetarPaths.GetQuasarDirectory();
