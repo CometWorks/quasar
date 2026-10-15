@@ -1,6 +1,8 @@
 stateDiagram-v2
     [*] --> Untracked
-    Untracked --> Attached: Hello received (UpsertHello)
+    Untracked --> Attached: first message is a Hello, token valid, no live holder (TryUpsertHello)
+    Untracked --> Refused: no token (401), token rejected, not a Hello within 30s, or server already connected
+    Refused --> [*]
     Attached --> Active: Snapshot received (UpdateSnapshot)
     Active --> Active: Snapshot every 2s (LastSeenUtc refreshed)
     Active --> Stale: LastSeenUtc older than AgentHeartbeatTimeoutSeconds

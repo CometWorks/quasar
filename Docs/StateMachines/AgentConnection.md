@@ -37,7 +37,7 @@ stateDiagram-v2
 | State | Behavior |
 | --- | --- |
 | `Locating` | `WebServiceLocator` probes the explicit supervisor URL from `QUASAR_BASE_URL` (plus compatible public-base-url variables) and the discovery manifest, accepting the first `/api/health` response that succeeds. If no healthy instance is found, the agent does not start Quasar or Bootstrap; it waits for the reconnect loop. |
-| `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s). |
+| `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s) with the `QUASAR_AGENT_TOKEN` value in the `X-Quasar-Agent-Token` header. Quasar answers 401 without the header. |
 | `Handshaking` | Sends the `Hello` identity message and forces an initial `PluginConfigSnapshot`. Cluster hello/snapshot payloads include cluster, node, and role tags from the executor environment. |
 | `Streaming` | Sends a `Snapshot` every ~2s, flushes buffered plugin-log batches, and dispatches inbound `Command` (including `PluginRequest` companion dispatch) / `Ping` / `PluginConfigUpdate` messages. |
 | `Reconnecting` | On socket error/close, waits `ReconnectIntervalSeconds` (~10s) ± jitter (~3s) then re-locates. |
@@ -60,7 +60,9 @@ On standalone servers, an admin-initiated in-game shutdown (not a Quasar-request
 ```mermaid
 stateDiagram-v2
     [*] --> Untracked
-    Untracked --> Attached: Hello received (UpsertHello)
+    Untracked --> Attached: first message is a Hello, token valid, no live holder (TryUpsertHello)
+    Untracked --> Refused: no token (401), token rejected, not a Hello within 30s, or server already connected
+    Refused --> [*]
     Attached --> Active: Snapshot received (UpdateSnapshot)
     Active --> Active: Snapshot every 2s (LastSeenUtc refreshed)
     Active --> Stale: LastSeenUtc older than AgentHeartbeatTimeoutSeconds
@@ -78,6 +80,7 @@ stateDiagram-v2
 | State | Meaning |
 | --- | --- |
 | `Untracked` | No connection registered yet. |
+| `Refused` | Closed with policy violation and never registered. `AgentSocketAuthenticator` checks the token against the Hello: a standalone token is an HMAC of the unique name under Quasar's key, a cluster token an HMAC under the enrollment credential of the Host named by `HostId`. A connection is also refused while another connection for the same `AgentId`, or the same standalone unique name, was seen in the last 30 s; a quieter holder is dropped as a dead socket. |
 | `Attached` | `Hello` registered the agent (`IsConnected = true`, sender callback cached). |
 | `Active` | Snapshots are flowing; `LastSeenUtc` is fresh. |
 | `Stale` | `LastSeenUtc` older than `AgentHeartbeatTimeoutSeconds` — health monitoring marks the server `Unhealthy`, but the socket may still be open. |

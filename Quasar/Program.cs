@@ -269,6 +269,7 @@ public class Program
             builder.Services.AddSingleton<PluginLogStream>();
             builder.Services.AddSingleton<PluginConfigService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginConfigService>());
+            builder.Services.AddSingleton<AgentSocketAuthenticator>();
             builder.Services.AddSingleton<AgentSocketHandler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DedicatedServerSupervisor>());
             builder.Services.AddHostedService<WebServiceManifestHostedService>();

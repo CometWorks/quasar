@@ -42,6 +42,8 @@ Managed servers keep running. Quasar starts them detached, so the web worker can
 
 A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new release bundles a different agent DLL, the server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent." Quasar does not schedule that restart. Use the server's **Restart** action when convenient. Quasar then does a full stop and start and deploys the new agent.
 
+Agents older than the release that added agent tokens send no token, and Quasar refuses them (see [Plugins](Plugins.md)). After updating from such a release, servers keep running but show as disconnected until restarted, and Quasar logs "Refused an agent connection from … without an agent token." A Quasar restart can't save the world through a disconnected agent, so save the world in game before you restart, or stop the servers before the update. If you do nothing, each old agent saves the world and stops its server after the offline window (`QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS`, one hour by default). Quasar then restarts it if **Restart on crash** is on, and the server comes back with the new agent. Cluster nodes run the agent pinned at cluster setup and get the token from the Host executor, so they reconnect only after the Host has updated and the nodes run an agent from this release.
+
 ### Rolling back the UI
 
 Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. Automatic staging never picks an older version. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.

@@ -67,6 +67,8 @@ The Host connects out; Quasar never connects in to the Host machine.
 2. When Quasar needs to call the Host, it sends a tunnel ID over that socket. The Host opens a second WebSocket to `/api/v1/hosts/<id>/tunnels/<id>` and bridges it to its loopback control port. At most 16 tunnels per Host are open at once.
 3. If the connection drops, the Host logs "Quasar connection interrupted (<error>); retrying." and reconnects every 5 seconds. Supervision of the Gateway and nodes continues while disconnected.
 
+The Host also sets `QUASAR_AGENT_TOKEN` for the processes it starts, derived from its enrollment credential (the nodes never see the credential itself). The Quasar Agent in each cluster node presents it on `/ws/agent`, and Quasar checks it against the Host ID the node reports. A Host configuration without a `connection` section sets no token, so its nodes' agents can't connect.
+
 The Hosts page and the setup wizard show **Connected** while that WebSocket is open. A reverse proxy in front of Quasar must pass WebSocket upgrades for `/api/v1/hosts/`.
 
 Quasar talks to the Cluster Registry directly over the LAN/VPN, not through the tunnel: a guided cluster's Registry admin URL is `http://<Gateway host address>:<public port + 16>`. Quasar must be able to reach that port.
