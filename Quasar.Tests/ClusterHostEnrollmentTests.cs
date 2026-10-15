@@ -200,10 +200,11 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         async Task<string?> Install(string version, string origin)
         {
             File.WriteAllText(binary, version);
+            byte[] script = installer.BuildScript(host, new Uri(origin));
             var start = new System.Diagnostics.ProcessStartInfo("bash");
             start.Environment["HOME"] = home;
             start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
-            try { await ClusterHostInstaller.RunAsync(start, installer.BuildScript(host, new Uri(origin)), default); }
+            try { await ClusterHostInstaller.RunAsync(start, script, default); }
             catch (InvalidOperationException error) { return error.Message; }
             return null;
         }
