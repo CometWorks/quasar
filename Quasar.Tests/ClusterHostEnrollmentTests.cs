@@ -242,7 +242,8 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
 
         File.WriteAllText(credentialPath, "different enrollment");
-        // As large as a real Host, so the rejected installer always exits before reading its whole input.
+        // Larger than any pipe buffer, like a real Host, so the rejected installer always exits before
+        // reading its whole input.
         Assert.Contains("enrollment credential differs", await Install("foreign" + new string('x', 1 << 20), "http://127.0.0.1:8080"));
         Assert.Equal("new", File.ReadAllText(Path.Combine(installed, "Quasar.Host")));
     }
