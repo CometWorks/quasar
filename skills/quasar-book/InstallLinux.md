@@ -153,6 +153,8 @@ Quasar applies the per-server process priority with `renice`. Without root, norm
 
 The helper accepts only nice values -10, -5, 0, 5 and 10, only for processes owned by the caller, and only for Magnetar executables (`MagnetarInterim.bin`, `MagnetarInterim`, `MagnetarInterim.exe`, `MagnetarLegacy.exe`).
 
+Quasar updates don't rebuild the helper. Helpers installed before Magnetar shipped `MagnetarInterim.bin` reject it, and the server shows that `/usr/local/bin/quasar-renice` may be outdated. Run the same command again to rebuild it.
+
 ## Where Quasar keeps its files
 
 Everything lives under the install root, `QUASAR_INSTALL_DIR`. The service unit sets it; a foreground run uses the launcher's folder. The default user-service install root is `~/.local/share/Quasar`.

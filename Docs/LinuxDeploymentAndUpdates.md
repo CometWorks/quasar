@@ -275,7 +275,9 @@ root helper when the feature is needed:
 The helper is installed as `/usr/local/bin/quasar-renice`, accepts only Quasar's
 known nice values, requires the target process to be owned by the caller, and
 checks that the target executable basename is one of Quasar's Magnetar launcher
-names before calling `setpriority`.
+names before calling `setpriority`. Quasar updates don't rebuild it; when it
+rejects the running Magnetar launcher, Quasar logs and shows that it may be
+outdated, and rerunning the command above replaces it.
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh           # remove the user systemd service

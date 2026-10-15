@@ -1474,6 +1474,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         try
         {
+            // Nothing to do when the server already runs at that nice, as a
+            // plain start does for Normal.
+            if (OperatingSystem.IsLinux() && ReadLinuxNice(processId) == nice)
+                return true;
+
             var useHelper = File.Exists(ReniceHelperPath);
             using var renice = new Process
             {
@@ -1519,6 +1524,16 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
             if (!useHelper && nice < 0)
                 SetRuntimeMessage(uniqueName, $"Install {ReniceHelperPath} to use {priority} process priority on Linux.");
+
+            // Quasar updates never rebuild the helper, and older ones don't
+            // know the current Magnetar launcher names.
+            if (useHelper && stderr.Contains("not a supported Magnetar launcher"))
+            {
+                var message = $"{ReniceHelperPath} does not accept this Magnetar launcher and may be outdated. " +
+                    "Reinstall it with install.sh --install-renice-helper --no-build --no-enable from the Quasar install folder.";
+                _logger.LogWarning("{Message}", message);
+                SetRuntimeMessage(uniqueName, message);
+            }
         }
         catch (Exception exception)
         {
@@ -1526,6 +1541,14 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         return false;
+    }
+
+    // Field 19 of /proc/<pid>/stat, counted after the command name, which
+    // ends with the last ')' and may itself contain spaces.
+    private static int ReadLinuxNice(int processId)
+    {
+        var stat = File.ReadAllText($"/proc/{processId}/stat");
+        return int.Parse(stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[16]);
     }
 
     private void TryApplyCpuAffinity(string uniqueName, string affinity, string phase)
