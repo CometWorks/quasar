@@ -92,6 +92,8 @@ stateDiagram-v2
     Starting --> Restarting: startup inactivity/hard limit, retry budget remains
     Starting --> Stopping: operator Kill (cancel launch)
     Starting --> Faulted: launch preflight/prep failure / attach retries exhausted
+    Starting --> Restarting: failed start, RestartOnCrash within budget
+    Starting --> Crashed: failed start, RestartOnCrash off
     Running --> Stopping: goal Off
     Running --> Restarting: unhealthy, uptime or scheduled
     Running --> Crashed: unexpected exit (code != 0)
@@ -129,6 +131,16 @@ stateDiagram-v2
   `RestartDelaySeconds`. When the budget is exhausted the server becomes
   `Faulted` and reconciliation does not keep trying. The attempt counter resets
   after a server runs past the reset window.
+- Failed start: a process that exits before it reaches `Running`, without a
+  stop Quasar asked for, failed to start, even with exit code 0 (the DS gives up
+  a world it can't load and exits on its own). It takes the crash path above
+  with "Start failed: process exited with code N before the world was ready",
+  so it ends `Crashed` or, after the restart budget, `Faulted`. The error line
+  shown for it comes from the DS log first, which holds the reason. Quasar.Agent
+  reports no `AdminStop` for a stop before the session is ready
+  (`AdminPlugin.ReportRequestedStop`), so the goal stays `On`.
+  The replacement process of a restart counts as starting too, so a start that
+  keeps failing uses up the restart budget.
 - `Faulted` is reached from `SetFaulted` on launch-prep failures (missing world
   save selection, missing save files, runtime not ready, executable/working-dir
   missing, world preflight failure, runtime prep failure, process start failure)
