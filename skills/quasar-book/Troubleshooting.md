@@ -206,6 +206,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
 - `Quasar.Bootstrap/Program.cs`
 - `Quasar.Agent/AgentConnection.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`

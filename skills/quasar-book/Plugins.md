@@ -243,6 +243,7 @@ Quasar's shared catalog is MagnetarHub. To make a plugin selectable for everyone
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
+- `Quasar/Services/AgentSocketAuthenticator.cs`
 - `Quasar/Services/ClusterSetupService.cs`
 - `Quasar/Services/PluginSdk/PluginConfigService.cs`
 - `Quasar/Services/PluginSdk/PluginConfigDtos.cs`
