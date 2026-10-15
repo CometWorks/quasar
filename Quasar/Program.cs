@@ -670,7 +670,8 @@ public class Program
 
     private static void AddDeploymentConfigurationSources(ConfigurationManager configuration, string environmentName, string[] args)
     {
-        foreach (var directory in EnumerateConfigurationDirectories())
+        foreach (var directory in GetConfigurationDirectories(AppContext.BaseDirectory, Directory.GetCurrentDirectory(),
+                     MagnetarPaths.GetQuasarDirectory()))
         {
             configuration.AddJsonFile(Path.Combine(directory, "appsettings.json"), optional: true, reloadOnChange: true);
             configuration.AddJsonFile(Path.Combine(directory, $"appsettings.{environmentName}.json"), optional: true, reloadOnChange: true);
@@ -681,39 +682,33 @@ public class Program
             configuration.AddCommandLine(args);
     }
 
-    private static IEnumerable<string> EnumerateConfigurationDirectories()
+    // Folders whose appsettings files the worker reads, lowest priority first. The data directory always
+    // comes last, so its appsettings.json wins: Bootstrap reads only that file and health-checks its port.
+    internal static IReadOnlyList<string> GetConfigurationDirectories(string baseDirectory, string currentDirectory, string dataDirectory)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var directory in EnumerateCandidateConfigurationDirectories())
-        {
-            if (string.IsNullOrWhiteSpace(directory))
-                continue;
-
-            var fullPath = Path.GetFullPath(directory);
-            if (seen.Add(fullPath))
-                yield return fullPath;
-        }
+        var directories = new List<string> { baseDirectory, currentDirectory, Path.Combine(baseDirectory, "WebService") };
+        if (FindSourceProjectDirectory(baseDirectory) is { } project)
+            directories.Add(project);
+        directories.Add(dataDirectory);
+        return directories
+            .Select(directory => Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)))
+            .Reverse().Distinct(StringComparer.OrdinalIgnoreCase).Reverse().ToArray();
     }
 
-    private static IEnumerable<string> EnumerateCandidateConfigurationDirectories()
+    // A development run from bin/ or a publish folder inside the source tree also reads the project's
+    // appsettings.json. Nothing above an installed worker is read.
+    private static string? FindSourceProjectDirectory(string baseDirectory)
     {
-        yield return AppContext.BaseDirectory;
-        yield return Directory.GetCurrentDirectory();
-        yield return Path.Combine(AppContext.BaseDirectory, "WebService");
-
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var directory = new DirectoryInfo(baseDirectory);
         for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "appsettings.json")))
-                yield return directory.FullName;
-
-            var sourceQuasar = Path.Combine(directory.FullName, "Quasar");
-            if (File.Exists(Path.Combine(sourceQuasar, "appsettings.json")))
-                yield return sourceQuasar;
+            if (File.Exists(Path.Combine(directory.FullName, "Quasar.csproj")))
+                return directory.FullName;
+            if (File.Exists(Path.Combine(directory.FullName, "Quasar", "Quasar.csproj")))
+                return Path.Combine(directory.FullName, "Quasar");
         }
 
-        yield return MagnetarPaths.GetQuasarDirectory();
+        return null;
     }
 
     private static IDisposable RegisterGracefulShutdownSignals(IServiceProvider services)
