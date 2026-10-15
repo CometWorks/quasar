@@ -194,6 +194,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Models/QuasarWorldTemplate.cs`
 - `Quasar/Models/DedicatedServerPathResolver.cs`
 - `Quasar/Services/QuasarConfigProfileCatalog.cs`
+- `Quasar/Services/ChildFileWatcher.cs`
 - `Quasar/Services/QuasarConfigMetadata.cs`
 - `Quasar/Services/QuasarWorldTemplateCatalog.cs`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`

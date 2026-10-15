@@ -64,7 +64,7 @@ Quasar updates keep your `appsettings.json`. When a new release changes defaults
 
 ## When changes apply
 
-Most settings are read once at startup. After editing `appsettings.json` or an environment variable, restart Quasar:
+Quasar reads `appsettings.json` and environment variables once at startup and doesn't watch the file. After editing either, restart Quasar:
 
 - Linux user service: `systemctl --user restart quasar.service` (system service: `sudo systemctl restart quasar.service`)
 - Windows: `Stop-ScheduledTask -TaskName Quasar; Start-ScheduledTask -TaskName Quasar`
