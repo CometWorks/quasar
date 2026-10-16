@@ -224,7 +224,8 @@ To remove:
 ~/.local/share/Quasar/uninstall.sh --purge  # also delete the install folder
 ```
 
-The uninstall script stops `quasar.service` before removing it.
+The uninstall script saves and stops the clusters on this PC, then stops
+`quasar.service` and the local Host executor before removing them.
 
 For release assets, auto-update behaviour, and advanced configuration see
 [Linux Deployment & Updates](LinuxDeploymentAndUpdates.md).

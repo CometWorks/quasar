@@ -210,20 +210,22 @@ Neither `install.sh` nor Quasar changes firewall rules. Keep the web port behind
 ## Uninstall
 
 ```bash
-~/.local/share/Quasar/uninstall.sh            # stop, disable and remove the user service
+~/.local/share/Quasar/uninstall.sh            # save the clusters on this PC, stop and remove the user service
 ~/.local/share/Quasar/uninstall.sh --purge    # also delete the install directory
 sudo ./uninstall.sh --system --install-dir /path/to/quasar --purge   # system service
 ```
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--service-name <name>` | `quasar` | Unit to remove |
+| `--service-name <name>` | `quasar` | Unit to remove, together with `<name>-clusters.service` |
 | `--install-dir <dir>` | the script's folder; `/opt/quasar` when `--system` is given without `--install-dir` | Folder `--purge` deletes |
 | `--user-service` | on | Remove the user unit from `~/.config/systemd/user/` |
 | `--system` | off | Remove `/etc/systemd/system/<name>.service`. Needs root. |
 | `--purge` | off | Delete the install directory, including all servers, saves, backups and logs inside it |
 
-The script stops the service, disables it, deletes the unit file, runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays. Managed game servers are detached and can keep running after the service stops, so use **Save and stop all servers** first if you want them stopped. With `--system`, always pass `--install-dir` together with `--purge`, otherwise the script targets `/opt/quasar`.
+The script first stops `<service-name>-clusters.service`, which saves and stops the clusters on this PC while the local Host still runs. Without that unit (an older install) it runs `LocalHost/stop-clusters` itself when the Host runs. Then it stops the service, disables it, stops the local Host process recorded in `LocalHost/host.pid`, deletes both unit files, runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays, `LocalHost/` included.
+
+A local Host that an older Quasar version installed in `~/.local/share/Quasar/Hosts/<id>` is left alone, because another install may use it. The script prints the commands to remove it. Managed game servers are detached and can keep running after the service stops, so use **Save and stop all servers** first if you want them stopped. With `--system`, always pass `--install-dir` together with `--purge`, otherwise the script targets `/opt/quasar`.
 
 ## Upgrading
 
