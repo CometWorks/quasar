@@ -1686,6 +1686,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         int exitCode;
         bool stopRequested;
         bool restartRequested;
+        bool startFailed;
         bool shouldRestart = false;
         bool shouldCaptureErrorTail = false;
         DateTimeOffset? errorLogSinceUtc = null;
@@ -1708,7 +1709,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             definition = state.Definition.Clone();
             exitCode = SafeGetExitCode(state.Process);
             stopRequested = state.StopRequested || _isStopping;
-            restartRequested = state.IsRestartPending && state.State == DedicatedServerProcessState.Restarting;
+            restartRequested = state.IsRestartPending && IsRestartExit(state.State, state.StartedAtUtc, state.LastRestart);
+            // The DS gives up a world it can't load by exiting on its own. Quasar.Agent doesn't
+            // report that as a stop, so the goal is still On.
+            startFailed = !stopRequested && !restartRequested &&
+                definition.GoalState == DedicatedServerGoalState.On &&
+                IsStartingUp(state.State, state.StartedAtUtc, state.LastRestart);
+            var exitText = startFailed
+                ? $"Start failed: process exited with code {exitCode} before the world was ready"
+                : $"Process exited with code {exitCode}";
 
             if (state.StartedAtUtc.HasValue && (now - state.StartedAtUtc.Value) >= RestartCounterResetWindow)
                 state.RestartAttempts = 0;
@@ -1747,11 +1756,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.RestartAttempts = nextAttempt;
                     state.IsRestartPending = true;
                     state.State = DedicatedServerProcessState.Restarting;
-                    state.LastMessage = $"Process exited with code {exitCode}. Restarting.";
+                    state.LastMessage = $"{exitText}. Restarting.";
                     requestedRestart = SetRestartRequested(
                         state,
                         DedicatedServerRestartCause.CrashRecovery,
-                        $"Process exited with code {exitCode}; restart attempt {nextAttempt}/{maxAttempts}.",
+                        $"{exitText}; restart attempt {nextAttempt}/{maxAttempts}.",
                         now);
                     shouldRestart = true;
                     restartDelaySeconds = Math.Max(0, definition.RestartDelaySeconds);
@@ -1761,7 +1770,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.RestartAttempts = maxAttempts;
                     state.IsRestartPending = false;
                     state.State = DedicatedServerProcessState.Faulted;
-                    state.LastMessage = $"Process exited with code {exitCode}. Restart attempt limit ({maxAttempts}) reached.";
+                    state.LastMessage = $"{exitText}. Restart attempt limit ({maxAttempts}) reached.";
                     if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, now))
                         failedRestart = Clone(state.LastRestart!);
                 }
@@ -1772,16 +1781,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (state.State != DedicatedServerProcessState.Faulted)
                 {
                     state.IsRestartPending = false;
-                    state.State = stopRequested
+                    var exitedNormally = exitCode == 0 && !startFailed;
+                    state.State = stopRequested || exitedNormally
                         ? DedicatedServerProcessState.Stopped
-                        : exitCode == 0
-                            ? DedicatedServerProcessState.Stopped
-                            : DedicatedServerProcessState.Crashed;
+                        : DedicatedServerProcessState.Crashed;
                     state.LastMessage = stopRequested
                         ? "Stopped by supervisor."
-                        : exitCode == 0
+                        : exitedNormally
                             ? "Process exited normally."
-                            : $"Process exited with code {exitCode}.";
+                            : $"{exitText}.";
                 }
             }
 
@@ -1790,7 +1798,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         if (shouldCaptureErrorTail)
-            CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc);
+            CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc, preferServerLog: startFailed);
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
@@ -2090,9 +2098,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
     }
 
-    private void CaptureLatestErrorLogTail(string uniqueName, DedicatedServerDefinition definition, DateTimeOffset? sinceUtc)
+    private void CaptureLatestErrorLogTail(
+        string uniqueName,
+        DedicatedServerDefinition definition,
+        DateTimeOffset? sinceUtc,
+        bool preferServerLog = false)
     {
-        var latest = FindLatestErrorLogLine(definition, sinceUtc);
+        var latest = FindLatestErrorLogLine(definition, sinceUtc, preferServerLog);
         if (latest is null)
             return;
 
@@ -2106,13 +2118,21 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
-    private static ErrorLogLine? FindLatestErrorLogLine(DedicatedServerDefinition definition, DateTimeOffset? sinceUtc)
+    // A failed start ends with Magnetar's own teardown lines, so its log is written last; the
+    // reason the world didn't load is in the dedicated server's log.
+    private static ErrorLogLine? FindLatestErrorLogLine(
+        DedicatedServerDefinition definition,
+        DateTimeOffset? sinceUtc,
+        bool preferServerLog)
     {
         var serverLog = FindLatestErrorLine(
             ResolveDedicatedServerAppDataPath(definition),
             "SpaceEngineersDedicated*.log",
             "server",
             sinceUtc);
+        if (preferServerLog && serverLog is not null)
+            return serverLog;
+
         var magnetarLog = FindLatestErrorLine(
             ResolveMagnetarAppDataPath(definition),
             "info*.log",
@@ -2826,6 +2846,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 DedicatedServerHealthState.Unhealthy,
                 $"Quasar.Agent did not {expectedAction}; startup logs were inactive for {state.Definition.AgentStartupGraceSeconds}s.");
     }
+
+    // The exiting process is the one an in-game restart asked to quit, not its replacement.
+    internal static bool IsRestartExit(
+        DedicatedServerProcessState state,
+        DateTimeOffset? processStartedAtUtc,
+        DedicatedServerRestartInfo? restart) =>
+        state == DedicatedServerProcessState.Restarting && IsAwaitingRestartExit(processStartedAtUtc, restart);
+
+    // The process has not reached Running yet: a first start, or the replacement process of
+    // a restart.
+    internal static bool IsStartingUp(
+        DedicatedServerProcessState state,
+        DateTimeOffset? processStartedAtUtc,
+        DedicatedServerRestartInfo? restart) =>
+        state == DedicatedServerProcessState.Starting ||
+        state == DedicatedServerProcessState.Restarting && !IsAwaitingRestartExit(processStartedAtUtc, restart);
 
     // An in-game restart is reported just before the old process saves and
     // quits, and that process still looks online until it exits. Taking it for

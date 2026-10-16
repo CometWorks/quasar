@@ -135,8 +135,9 @@ How it works:
 - An unexpected exit with `RestartOnCrash` on and attempts left moves the server to `Restarting` with the message "Process exited with code N. Restarting." and relaunches after the delay. The restart record says "Crash recovery".
 - The attempt counter resets when the server ran at least 1 minute before exiting. So the limit catches a server that crashes again within a minute of each start.
 - When attempts run out, the server becomes `Faulted` with "Process exited with code N. Restart attempt limit (3) reached." Quasar does not retry on its own after that.
-- With `RestartOnCrash` off, a non-zero exit leaves the server `Crashed`.
-- After a crash or fault, Quasar captures the newest error line from the DS and Magnetar logs and shows it on the Dashboard.
+- With `RestartOnCrash` off, a non-zero exit or a failed start (below) leaves the server `Crashed`.
+- A server that exits before it gets to `Running` failed to start, whatever its exit code. That's how the DS ends a world it can't load ("Session can not start" in its log, for example after a Workshop mod download failed). The message is "Start failed: process exited with code N before the world was ready", and it's retried and faulted like a crash, so the Dashboard counts it as an error. The goal stays On: Quasar.Agent doesn't report a stop before the world is ready as an admin stop.
+- After a crash or fault, Quasar captures the newest error line from the DS and Magnetar logs and shows it on the Dashboard. After a failed start it takes the line from the DS log when it has one, since that's where the DS writes why the world didn't load.
 - A scheduled restart fires within 5 minutes after the scheduled time, and only if the process has been up for at least 5 minutes.
 - When **Avoid simultaneous scheduled restarts** is on (global, default on, `Quasar:AvoidSimultaneousScheduledRestarts` or `QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS`), scheduled and maximum-uptime restarts wait while another server is starting, stopping or restarting. The card then says "Scheduled restart delayed; another server is stopping or restarting."
 

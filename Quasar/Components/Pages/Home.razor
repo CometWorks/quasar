@@ -584,7 +584,9 @@ else
             foreach (var runtime in RuntimeSnapshotList)
             {
                 if (runtime.StartedAtUtc is { } started) events.Add(new(started, runtime.UniqueName, "Server started", "quasar-text-success"));
-                if (runtime.StoppedAtUtc is { } stopped) events.Add(new(stopped, runtime.UniqueName, "Server stopped", ""));
+                if (runtime.StoppedAtUtc is { } stopped) events.Add(runtime.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted
+                    ? new(stopped, runtime.UniqueName, runtime.LastMessage, "quasar-text-error")
+                    : new(stopped, runtime.UniqueName, "Server stopped", ""));
                 if (runtime.LastRestart is { } restart) events.Add(new(restart.CompletedAtUtc ?? restart.RequestedAtUtc, runtime.UniqueName,
                     string.IsNullOrWhiteSpace(restart.Reason) ? "Restart " + restart.Outcome.ToString().ToLowerInvariant() : restart.Reason,
                     restart.Outcome == DedicatedServerRestartOutcome.Failed ? "quasar-text-error" : "quasar-text-warning"));
@@ -619,7 +621,7 @@ else
             var stateError = RuntimeSnapshotList.FirstOrDefault(snapshot =>
                 snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
             if (stateError is not null)
-                return (Severity.Error, $"{stateError.UniqueName}: {FirstNonEmpty(stateError.HealthSummary, stateError.LastMessage, "Server needs attention.")}", stateError.UniqueName);
+                return (Severity.Error, $"{stateError.UniqueName}: {FirstNonEmpty(stateError.LastMessage, stateError.HealthSummary, "Server needs attention.")}", stateError.UniqueName);
 
             var healthError = RuntimeSnapshotList.FirstOrDefault(snapshot =>
                 snapshot.HealthState == DedicatedServerHealthState.Unhealthy);

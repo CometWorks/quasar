@@ -51,7 +51,7 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 
 - **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
 - **Simulation speed** charts the last 30 minutes for standalone servers (1.00x is real time) and links to Analytics.
-- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results.
+- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped".
 - **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
 
 ## Analytics
