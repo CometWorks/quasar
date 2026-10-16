@@ -40,7 +40,8 @@ inputs; removed cluster IDs remain reserved.
    form: choose a one-time command, SSH, or a manual package.
    At least one enrolled host must connect before **Continue to cluster configuration**
    is enabled. Existing connected hosts can be reused without another installation.
-   The same matching Quasar.Host executable is used in all four cases. Enrollment
+   The same matching Quasar.Host executable is used by all three methods and by the
+   local Host. Enrollment
    requires security-administration permission; SSH uses keys/agent and strict
    `known_hosts` verification. Password login and host-key bypass are not supported.
    Installation also enables a per-machine update timer. It checks the active Quasar

@@ -25,7 +25,8 @@ Usage: ./install.sh [options]
 
 Publishes Quasar and installs a systemd user service by default. Extracted
 release installers install in place by default and keep Quasar state beside the
-launcher.
+launcher. Next to the service it installs <service-name>-clusters.service, which
+saves and stops the clusters on this PC at logout or shutdown.
 
 For machine-wide service installation, pass --system and run with sudo.
 
