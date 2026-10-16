@@ -155,6 +155,19 @@ The helper accepts only nice values -10, -5, 0, 5 and 10, only for processes own
 
 Quasar updates don't rebuild the helper. Helpers installed before Magnetar shipped `MagnetarInterim.bin` reject it, and the server shows that `/usr/local/bin/quasar-renice` may be outdated. Older helpers also change only the server's main thread; Quasar then runs them once per thread and logs that the helper should be reinstalled. Run the same command again to rebuild it.
 
+### System limit warnings
+
+At startup the web worker checks four Linux limits and logs a warning to `quasar.log` for each one below its minimum. The open file limit applies to each process. The other three are shared by every process of the user, so a host running many servers under one user runs out of them first:
+
+| Limit | Minimum |
+| --- | --- |
+| Open files (`ulimit -n`) | 65536 |
+| Processes and threads (`ulimit -u`) | 16384 |
+| `fs.inotify.max_user_instances` | 1024 |
+| `fs.inotify.max_user_watches` | 524288 |
+
+The warning includes the fix: a `limits.conf` line or a `Limit*=` setting in the unit for the first two, a `sysctl` command for the inotify ones. The generated unit sets no limits. Quasar starts anyway; a small setup may never reach them.
+
 ## Where Quasar keeps its files
 
 Everything lives under the install root, `QUASAR_INSTALL_DIR`. The service unit sets it; a foreground run uses the launcher's folder. The default user-service install root is `~/.local/share/Quasar`.
@@ -247,6 +260,7 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `scripts/readme-install-linux.md`
 - `scripts/package-linux-release.sh`
 - `tools/quasar-renice.c`
+- `Shared/Diagnostics/LinuxLimits.cs`
 - `.github/workflows/release.yml`
 - `Quasar/appsettings.json`
 - `Quasar.Bootstrap/Program.cs`
