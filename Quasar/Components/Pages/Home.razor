@@ -1445,7 +1445,10 @@ else
     {
         var snapshot = RuntimeWarmupSnapshot;
         return snapshot.State != ManagedRuntimeWarmupState.Complete ||
-               snapshot.Components.Any(IsRuntimeComponentActive);
+               snapshot.Components.Any(IsRuntimeComponentActive) ||
+               snapshot.Components.Any(component =>
+                   component.Component == ManagedRuntimeInstallComponent.SteamCmd &&
+                   component.State == ManagedRuntimeComponentState.Failed);
     }
 
     private static bool IsRuntimeComponentActive(ManagedRuntimeComponentSnapshot component) =>
@@ -1481,7 +1484,8 @@ else
 
     private static bool CanRetryRuntimeComponent(ManagedRuntimeComponentSnapshot component) =>
         component.Component is (ManagedRuntimeInstallComponent.DedicatedServer
-            or ManagedRuntimeInstallComponent.Magnetar) &&
+            or ManagedRuntimeInstallComponent.Magnetar
+            or ManagedRuntimeInstallComponent.SteamCmd) &&
         component.State == ManagedRuntimeComponentState.Failed;
 
 }

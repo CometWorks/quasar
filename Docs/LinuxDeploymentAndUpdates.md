@@ -218,6 +218,20 @@ stay running; the web UI reconnects after the launcher restarts.
 
 ## Install
 
+SteamCMD, which Quasar uses to download and update the Dedicated Server, is a
+32-bit program. Its `linux32/steamcmd` needs the 32-bit C library and loader
+(`/lib/ld-linux.so.2`). `install.sh` does not install them. On Debian and Ubuntu:
+
+```bash
+sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install libc6:i386 lib32gcc-s1
+```
+
+Without them SteamCMD exits 127 (`cannot execute: required file not found`).
+Quasar then marks only SteamCMD failed when a valid Dedicated Server is already
+in place (for example from `QUASAR_DS_INSTALL_DIR`); otherwise the Dedicated
+Server download fails and its error names these packages. The Docker image
+installs `lib32gcc-s1`, which brings the 32-bit C library.
+
 The first install uses the Linux installer flow from an extracted
 `quasar-installer-linux.tar.gz`:
 

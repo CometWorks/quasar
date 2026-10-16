@@ -164,7 +164,10 @@ that pin a `RepoId` and `Commit` each, like MagnetarHub.
   `LD_LIBRARY_PATH` when that directory contains `steamclient.so`,
   `libtier0_s.so`, and `libvstdlib_s.so`. This lets Steam GameServer
   initialization work on fresh headless hosts that do not have a desktop Steam
-  install under `~/.local/share/Steam`.
+  install under `~/.local/share/Steam`. If SteamCMD can't be downloaded or run
+  (exit 127 without the 32-bit libraries) while a valid Dedicated Server is
+  already in place, only the SteamCMD component fails; warmup completes and
+  servers launch without this path.
 - On Linux, Quasar runs its managed SteamCMD with a private `HOME` (and XDG base
   directories) under `{Quasar data}/ManagedRuntime/Tools/SteamCmdHome`, overridable
   with `QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`.
