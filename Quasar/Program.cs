@@ -185,8 +185,8 @@ public class Program
             builder.Services.AddSingleton<ClusterHostCatalog>();
             builder.Services.AddSingleton<ClusterHostTunnels>();
             builder.Services.AddSingleton<ClusterHostInstaller>();
-            builder.Services.AddSingleton<ClusterLocalHostUpdater>();
-            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHostUpdater>());
+            builder.Services.AddSingleton<ClusterLocalHost>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHost>());
             builder.Services.AddSingleton<ClusterSetupService>();
             builder.Services.AddSingleton<ClusterUpdatePreparationService>();
             builder.Services.AddSingleton(webServiceOptions);

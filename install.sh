@@ -498,6 +498,8 @@ esac
 
 require_dotnet_installation
 
+CLUSTERS_UNIT="${SERVICE_NAME}-clusters.service"
+
 write_service_unit() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
         SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -524,10 +526,13 @@ Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
 Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
+Environment=QUASAR_HOST_STOP_UNIT=/etc/systemd/system/$CLUSTERS_UNIT
 
 [Install]
 WantedBy=multi-user.target
 EOF
+        write_clusters_unit "/etc/systemd/system/$CLUSTERS_UNIT" multi-user.target "User=$RUN_USER
+Group=$RUN_GROUP"
         systemctl daemon-reload
         return
     fi
@@ -556,18 +561,47 @@ Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
 Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
+Environment=QUASAR_HOST_STOP_UNIT=$USER_SERVICE_DIR/$CLUSTERS_UNIT
 
 [Install]
 WantedBy=default.target
 EOF
+    write_clusters_unit "$USER_SERVICE_DIR/$CLUSTERS_UNIT" default.target ""
     systemctl --user daemon-reload
+}
+
+# Quasar runs the local Host executor itself, and a Quasar stop or restart leaves its running
+# clusters alone. This unit saves and stops them at logout or shutdown instead: systemd stops
+# it before Quasar's service, while the Host still runs. Keep TimeoutStopSec in sync with
+# HostShutdown.StopTimeoutSeconds in Quasar.Host.
+write_clusters_unit() {
+    local path="$1" wanted_by="$2" account="$3"
+    echo "Writing $path..."
+    cat > "$path" <<EOF
+[Unit]
+Description=Save and stop the clusters on this PC at logout or shutdown ($SERVICE_NAME)
+After=$SERVICE_NAME.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+${account:+$account
+}ExecStart=/bin/true
+ExecStop=/bin/sh -c 'test ! -x "$INSTALL_DIR/LocalHost/stop-clusters" || exec "$INSTALL_DIR/LocalHost/stop-clusters"'
+TimeoutStopSec=110
+
+[Install]
+WantedBy=$wanted_by
+EOF
 }
 
 enable_service() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
         systemctl enable "$SERVICE_NAME.service"
+        systemctl enable --now "$CLUSTERS_UNIT"
     else
         systemctl --user enable "$SERVICE_NAME.service"
+        systemctl --user enable --now "$CLUSTERS_UNIT"
     fi
 }
 
@@ -724,6 +758,7 @@ cat <<EOF
 Installed Quasar.
 
 Service:     $SERVICE_NAME.service ($INSTALL_MODE)
+Clusters:    $CLUSTERS_UNIT saves the clusters on this PC at logout or shutdown
 Install dir: $INSTALL_DIR
 Run user:    $RUN_USER
 

@@ -5,7 +5,7 @@
 @inject ClusterSetupService Setup
 @inject ClusterHostCatalog Hosts
 @inject ClusterHostTunnels Tunnels
-@inject ClusterLocalHostUpdater LocalHost
+@inject ClusterLocalHost LocalHost
 @inject QuasarWorldTemplateCatalog Worlds
 @inject QuasarConfigProfileCatalog Profiles
 @inject QuasarPermissionService Permissions
@@ -26,7 +26,7 @@
                 <ChildContent>
                     <MudStep Title="Host enrollment" Disabled="_busy" Completed="HasConnectedHosts">
                         <div class="quasar-layout quasar-gap-3">
-                            <p class="quasar-text quasar-type-body1">Use an enrolled host machine or add one here before configuring the cluster. Quasar automatically prepares its local Host executor on supported Linux x64 installations.</p>
+                            <p class="quasar-text quasar-type-body1">Use this PC, an enrolled host machine, or add one here before configuring the cluster. On Linux x64 every Quasar install has a local Host executor without enrollment; Quasar starts it when you open this page.</p>
                             <span class="quasar-text quasar-type-caption">@LocalHost.Status</span>
                             @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning">@LocalHost.Error</MudAlert> }
                             @foreach (var machine in _machines)
@@ -148,6 +148,7 @@
         && _machines.Where(m => m.Selected).Sum(m => (long)m.Nodes) is >= 2 and <= 254;
     protected override void OnInitialized()
     {
+        LocalHost.Request();
         EnsureNames();
         RefreshMachines();
         _showEnrollment = _machines.Count == 0;
