@@ -55,6 +55,8 @@ How the wait works, per server (editor **Health Policy**, see [Servers](Servers.
 
 The agent finds Quasar through `QUASAR_BASE_URL`, which Quasar sets for each server it launches. It is `QUASAR_PUBLIC_BASE_URL` when set, otherwise `http://<Quasar:Host>:<Quasar:Port>`, with a wildcard host (`0.0.0.0`) advertised as `127.0.0.1`. The agent checks `/api/health` there, then opens the WebSocket `/ws/agent`. If it cannot connect it retries every 10 seconds plus up to 3 seconds of jitter (`QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS`, `QUASAR_AGENT_RECONNECT_JITTER_SECONDS`).
 
+Quasar refuses an agent that has no valid agent token, or whose server already has a connected agent; see [Plugins](Plugins.md). The Quasar log then has "Refused an agent connection from … without an agent token.", "Refused agent connection …: the agent token does not match server …" or "… already has a connected agent.", and the agent logs "Quasar refused the connection: …" or a 401 connection error. A server started by an older Quasar needs a restart to load the current agent (see [Updates](Updates.md)).
+
 What to check:
 
 1. The Magnetar info log: did Magnetar load its plugins and reach world load? A plugin or mod error, or a long Workshop download, keeps the world from loading. Big modded worlds may need a larger hard limit.
@@ -205,6 +207,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
 - `Quasar.Bootstrap/Program.cs`
 - `Quasar.Agent/AgentConnection.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`

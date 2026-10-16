@@ -164,6 +164,8 @@ If the `Agent` folder is missing, Quasar logs "Quasar.Agent.dll could not be loc
 
 The agent connects to Quasar's `/ws/agent` WebSocket. It finds Quasar through `QUASAR_BASE_URL` (Quasar sets it when launching the server), `QUASAR_PUBLIC_BASE_URL`, `MAGNETAR_WEB_BASE_URL`, or the `service-manifest.json` in the Quasar install directory, and checks `/api/health` before connecting.
 
+Quasar accepts the connection only with an agent token in the `X-Quasar-Agent-Token` header. The agent reads it from `QUASAR_AGENT_TOKEN`. For a standalone server, Quasar derives the token from the server's unique name and a key it keeps in `cluster-credentials.json` in the Quasar install directory, and sets it when it launches the server. For a cluster node, the Host executor derives the token from its enrollment credential (see [Cluster hosts](ClusterHosts.md)). The first message on the socket has to be the agent's Hello, and its server name, or its Host for a cluster node, has to match the token. Quasar also refuses a second connection for a server whose agent is still connected and sent data in the last 30 seconds. A server that Quasar did not launch has no token, so its agent can't connect.
+
 Every 2 seconds it sends:
 
 - a server snapshot: metrics, players, recent chat, deaths, chat commands, loaded and declared plugins, profiler samples and plugin statistics
@@ -241,6 +243,7 @@ Quasar's shared catalog is MagnetarHub. To make a plugin selectable for everyone
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
+- `Quasar/Services/AgentSocketAuthenticator.cs`
 - `Quasar/Services/ClusterSetupService.cs`
 - `Quasar/Services/PluginSdk/PluginConfigService.cs`
 - `Quasar/Services/PluginSdk/PluginConfigDtos.cs`

@@ -66,27 +66,68 @@ public sealed class AgentRegistry
         Func<AgentWireMessage, CancellationToken, Task> sender)
     {
         lock (_sync)
+            UpsertHelloLocked(hello, connectionId, sender);
+
+        NotifyChanged();
+    }
+
+    /// <summary>
+    /// Registers an authenticated agent unless another connection already speaks for the same agent
+    /// process, or for the same standalone server, and was heard from after <paramref name="staleBefore"/>.
+    /// Agents send a snapshot every two seconds, so a silent holder is a dead socket Quasar hasn't noticed
+    /// yet; it is dropped so the reconnecting agent gets in.
+    /// </summary>
+    public bool TryUpsertHello(
+        AgentHello hello,
+        string connectionId,
+        Func<AgentWireMessage, CancellationToken, Task> sender,
+        DateTimeOffset staleBefore)
+    {
+        lock (_sync)
         {
-            var state = GetOrCreateState(hello.AgentId);
-            if (state.ConnectionId != connectionId)
+            var holders = _agents.Values.Where(state => state.IsConnected && state.ConnectionId != connectionId &&
+                    (string.Equals(state.AgentId, hello.AgentId, StringComparison.OrdinalIgnoreCase) ||
+                     !hello.ClusterMode && !state.IsCluster &&
+                     string.Equals(state.UniqueNameKey, hello.UniqueName, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+            if (holders.Any(state => state.LastSeenUtc >= staleBefore))
+                return false;
+
+            foreach (var stale in holders)
             {
-                state.Snapshot = null;
-                state.CommandResults.Clear();
-                foreach (var id in _pendingCommands.Where(p => p.Value.AgentId == hello.AgentId).Select(p => p.Key).ToArray())
-                {
-                    _pendingCommands.Remove(id);
-                    if (_pendingResults.Remove(id, out var pending))
-                        pending.TrySetException(new InvalidOperationException("Agent connection was replaced."));
-                }
+                stale.IsConnected = false;
+                stale.Sender = null;
             }
-            state.ConnectionId = connectionId;
-            state.IsConnected = true;
-            state.LastSeenUtc = DateTimeOffset.UtcNow;
-            state.Hello = hello;
-            state.Sender = sender;
+
+            UpsertHelloLocked(hello, connectionId, sender);
         }
 
         NotifyChanged();
+        return true;
+    }
+
+    private void UpsertHelloLocked(
+        AgentHello hello,
+        string connectionId,
+        Func<AgentWireMessage, CancellationToken, Task> sender)
+    {
+        var state = GetOrCreateState(hello.AgentId);
+        if (state.ConnectionId != connectionId)
+        {
+            state.Snapshot = null;
+            state.CommandResults.Clear();
+            foreach (var id in _pendingCommands.Where(p => p.Value.AgentId == hello.AgentId).Select(p => p.Key).ToArray())
+            {
+                _pendingCommands.Remove(id);
+                if (_pendingResults.Remove(id, out var pending))
+                    pending.TrySetException(new InvalidOperationException("Agent connection was replaced."));
+            }
+        }
+        state.ConnectionId = connectionId;
+        state.IsConnected = true;
+        state.LastSeenUtc = DateTimeOffset.UtcNow;
+        state.Hello = hello;
+        state.Sender = sender;
     }
 
     public void UpdateSnapshot(AgentSnapshot snapshot, string connectionId)

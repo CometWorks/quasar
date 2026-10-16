@@ -11,6 +11,23 @@ public static class ManagedCredentialReference
         System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("cluster:" + cluster + ":" + purpose)));
 }
 
+/// <summary>
+/// The credential a Quasar.Agent presents on Quasar's /ws/agent socket. Quasar derives one per standalone
+/// server from its own key. A Host derives one from its enrollment credential for the cluster nodes it
+/// starts, so the nodes never see that credential.
+/// </summary>
+public static class AgentSocketToken
+{
+    public const string HeaderName = "X-Quasar-Agent-Token";
+    public const string EnvironmentVariable = "QUASAR_AGENT_TOKEN";
+
+    public static string Derive(string secret, string scope) => Convert.ToHexString(
+        System.Security.Cryptography.HMACSHA256.HashData(System.Text.Encoding.UTF8.GetBytes(secret),
+            System.Text.Encoding.UTF8.GetBytes("quasar-agent:" + scope))).ToLowerInvariant();
+
+    public static string ForHost(string hostCredential) => Derive(hostCredential, "host");
+}
+
 public static class HostProtocol
 {
     public const int Version = 1;

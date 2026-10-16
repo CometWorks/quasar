@@ -66,6 +66,10 @@ internal static class Program
                 // Agent discovery uses the same reachable origin as the enrolled Host.
                 Environment.SetEnvironmentVariable("QUASAR_BASE_URL", config.Connection.QuasarUrl);
                 Environment.SetEnvironmentVariable("MAGNETAR_HOST_ID", config.HostId);
+                // Cluster nodes inherit it; their agents present it on Quasar's /ws/agent.
+                if (Environment.GetEnvironmentVariable(config.Connection.TokenEnvironmentVariable) is { Length: > 0 } credential)
+                    Environment.SetEnvironmentVariable(global::Quasar.Host.Contract.V1.AgentSocketToken.EnvironmentVariable,
+                        global::Quasar.Host.Contract.V1.AgentSocketToken.ForHost(credential));
             }
         }
         catch (Exception exception) when (exception is IOException or JsonException or ArgumentException)

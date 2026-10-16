@@ -391,6 +391,7 @@ manifest, and health probes.
 Expected local mechanism:
 
 - `QUASAR_BASE_URL` from managed-server launch environment
+- `QUASAR_AGENT_TOKEN` from the launch environment (Quasar for standalone servers, Quasar.Host for cluster nodes), sent on the `/ws/agent` upgrade
 - runtime manifest file
 - `/api/health` check for every candidate URL
 - process identity / server metadata
