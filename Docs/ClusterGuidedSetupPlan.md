@@ -4,7 +4,7 @@ The branch implements machine enrollment and guided creation on top of the
 seven-stage deployment work. This is a separate acceptance gate from the historical
 live cluster tests. The original package pair was Magnetar 2.4.2.3 and cluster 1.1.7;
 the published cluster release is now v0.1.0 (beta). Quasar verifies the cluster
-release's exact PluginSdk binary pin. If either installed release lacks
+release's PluginSdk pin (contract version, or the exact binary hash as a fallback). If either installed release lacks
 the required capability or pin, setup stops and can be resumed. It never starts an older
 Magnetar with an unrecognized preparation flag.
 
@@ -54,7 +54,7 @@ inputs; removed cluster IDs remain reserved.
    required capabilities before creating a cluster registration; an offline or
    incompatible Host executor leaves no new cluster registration.
 4. Quasar provisions DS/Magnetar, stages the verified latest cluster release whose
-   PluginSdk pin matches the installed Magnetar, prepares common plugins and Direct
+   PluginSdk pin the installed Magnetar satisfies, prepares common plugins and Direct
    Transport, and freezes the runtime snapshot.
    Magnetar exports default SDK configuration without starting a game server.
 5. Quasar converts a copy of the world, generates credentials, transfers verified
@@ -132,12 +132,20 @@ offline. The enrollment step remains available to repair connections; placement
 stays bound to the original request.
 Removed IDs remain reserved while their Host state and operation history exist.
 
-Before each attempt, guided setup updates managed Magnetar and checks its actual
-PluginSdk bytes against the selected cluster release. When the pins differ, it
-downloads the latest cluster release and selects it if its SDK pin matches.
+Before each attempt, guided setup updates managed Magnetar and checks its
+PluginSdk against the selected cluster release. A cluster release records the
+`pluginSdkContract` (`major.minor`) of the SDK it was built against, and Magnetar's
+`PluginSdk.dll` declares its own in the `PluginSdkContract` assembly metadata. The
+release runs on a Magnetar with the same major and an equal or higher minor, so a
+Magnetar release without a public SDK API change needs no new cluster release. When
+either side declares no contract, the exact `pluginSdkSha256` pin has to match
+instead. `ClusterDeploymentFiles.PluginSdkMismatch` makes this decision for guided
+setup, the update panel and deployment verification on every Host. When the selected
+release doesn't fit, setup downloads the latest cluster release and selects it if
+the installed Magnetar satisfies its pin.
 Selection clears the previous dependency snapshot; a plugin export made with an older
 SDK is prepared again. If no compatible release is published, setup stops with both
-hashes in the error and can be resumed after publication. Activated deployments keep
+contracts or hashes in the error and can be resumed after publication. Activated deployments keep
 their frozen runtime and use the separate cluster update workflow.
 
 Preparation reuses Magnetar's existing loader profile: Quasar writes
