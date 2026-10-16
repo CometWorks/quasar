@@ -44,7 +44,7 @@ public sealed class DedicatedServerCatalog : IDisposable
         lock (_sync)
         {
             return _servers
-                .Select(Clone)
+                .Select(server => server.Clone())
                 .OrderBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
                 .ToList();
         }
@@ -59,7 +59,7 @@ public sealed class DedicatedServerCatalog : IDisposable
         {
             return _servers
                 .Where(server => string.Equals(server.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))
-                .Select(Clone)
+                .Select(server => server.Clone())
                 .FirstOrDefault();
         }
     }
@@ -75,7 +75,7 @@ public sealed class DedicatedServerCatalog : IDisposable
     {
         ArgumentNullException.ThrowIfNull(definition);
 
-        var normalized = Normalize(Clone(definition));
+        var normalized = Normalize(definition.Clone());
         if (string.IsNullOrWhiteSpace(normalized.WorldSaveName))
             throw new InvalidOperationException("World save required.");
 
@@ -163,7 +163,7 @@ public sealed class DedicatedServerCatalog : IDisposable
     {
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentNullException.ThrowIfNull(prepare);
-        var normalized = Normalize(Clone(definition));
+        var normalized = Normalize(definition.Clone());
         normalized.GoalState = DedicatedServerGoalState.Off;
         normalized.AutoStart = false;
         normalized.OriginalUniqueName = normalized.UniqueName;
@@ -189,7 +189,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             // Move claims the exact destination without accepting an existing directory.
             Directory.Move(reservation, paths.ServerRoot);
             ownsDirectory = true;
-            await prepare(Clone(normalized), cancellationToken);
+            await prepare(normalized.Clone(), cancellationToken);
             cancellationToken.ThrowIfCancellationRequested();
             normalized.UpdatedAtUtc = DateTimeOffset.UtcNow;
             string json = JsonSerializer.Serialize(normalized, JsonOptions);
@@ -199,7 +199,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             await AtomicFileWriter.WriteTextAsync(MagnetarPaths.GetQuasarServerDefinitionPath(normalized.UniqueName), json, cancellationToken);
             published = true;
             ReloadFromDisk();
-            return Clone(normalized);
+            return normalized.Clone();
         }
         finally
         {
@@ -372,57 +372,6 @@ public sealed class DedicatedServerCatalog : IDisposable
         return server;
     }
 
-    private static DedicatedServerDefinition Clone(DedicatedServerDefinition server)
-    {
-        return new DedicatedServerDefinition
-        {
-            UniqueName = server.UniqueName,
-            DisplayName = server.DisplayName,
-            InGameServerName = server.InGameServerName,
-            InGameWorldName = server.InGameWorldName,
-            OriginalUniqueName = server.OriginalUniqueName,
-            GoalState = server.GoalState,
-            ExecutablePath = server.ExecutablePath,
-            WorkingDirectory = server.WorkingDirectory,
-            ManagedRuntime = server.ManagedRuntime,
-            DedicatedServerAppDataPath = server.DedicatedServerAppDataPath,
-            MagnetarAppDataPath = server.MagnetarAppDataPath,
-            WorldPath = server.WorldPath,
-            WorldSaveName = server.WorldSaveName,
-            ConfigFilePath = server.ConfigFilePath,
-            ConfigProfileId = server.ConfigProfileId,
-            WorldTemplateId = server.WorldTemplateId,
-            LaunchArguments = server.LaunchArguments,
-            DisableImplicitMagnetarModLoad = server.DisableImplicitMagnetarModLoad,
-            LogLaunchEnvironment = server.LogLaunchEnvironment,
-            AgentProfilerMode = server.AgentProfilerMode,
-            DsLogFilesToKeep = server.DsLogFilesToKeep,
-            ServerPort = server.ServerPort,
-            ServerIP = server.ServerIP,
-            AutoStart = server.AutoStart,
-            EnableHealthMonitoring = server.EnableHealthMonitoring,
-            AutoRestartOnUnhealthy = server.AutoRestartOnUnhealthy,
-            AgentStartupGraceSeconds = server.AgentStartupGraceSeconds,
-            AgentStartupHardLimitSeconds = server.AgentStartupHardLimitSeconds,
-            AgentAttachRetryAttempts = server.AgentAttachRetryAttempts,
-            AgentAttachRetryDelaySeconds = server.AgentAttachRetryDelaySeconds,
-            AgentHeartbeatTimeoutSeconds = server.AgentHeartbeatTimeoutSeconds,
-            SimulationProgressWindowSeconds = server.SimulationProgressWindowSeconds,
-            MinimumSimulationProgressScore = server.MinimumSimulationProgressScore,
-            WarnAfterUptimeHours = server.WarnAfterUptimeHours,
-            RecycleAfterUptimeHours = server.RecycleAfterUptimeHours,
-            RestartOnCrash = server.RestartOnCrash,
-            RestartDelaySeconds = server.RestartDelaySeconds,
-            MaxRestartAttempts = server.MaxRestartAttempts,
-            DailyRestartTimeLocal = server.DailyRestartTimeLocal,
-            MaximumUptime = server.MaximumUptime,
-            AvoidSimultaneousScheduledRestarts = server.AvoidSimultaneousScheduledRestarts,
-            StartupProcessPriority = server.StartupProcessPriority,
-            ReadyProcessPriority = server.ReadyProcessPriority,
-            CpuAffinity = server.CpuAffinity,
-            UpdatedAtUtc = server.UpdatedAtUtc,
-        };
-    }
 
     public static string NormalizeProfilerMode(string? value)
     {
@@ -590,7 +539,7 @@ public sealed class DedicatedServerCatalog : IDisposable
     private static string CreateSnapshot(IEnumerable<DedicatedServerDefinition> servers)
     {
         var normalized = servers
-            .Select(server => Normalize(Clone(server)))
+            .Select(server => Normalize(server.Clone()))
             .OrderBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
