@@ -28,7 +28,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     public void Dispose() => Directory.Delete(root, true);
 
     [Fact]
-    public async Task LocalHostUpdaterNeverEnrollsAHostByItself()
+    public async Task AutomaticLocalEnrollmentReportsMissingBinaryWithoutCreatingAnUnusableHost()
     {
         if (!OperatingSystem.IsLinux()) return;
         var installer = new ClusterHostInstaller(hosts, credentials, Path.Combine(root, "missing-host"), TimeProvider.System);
@@ -36,60 +36,17 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ClusterLocalHostUpdater>.Instance);
         await preparation.EnsureLocalHostAsync(default);
         Assert.Empty(hosts.GetAll());
-        Assert.Null(preparation.Error);
-        Assert.Contains("Install on this PC", preparation.Status);
-
-        await hosts.RegisterAsync("one", "One", "127.0.0.1", 18400, default);
-        await preparation.EnsureLocalHostAsync(default);
         Assert.NotNull(preparation.Error);
         Assert.Equal("Local Host executor is not ready.", preparation.Status);
     }
 
     [Fact]
-    public async Task LocalInstallUsesItsOwnFolderAndLeavesAnotherInstallsUnitsAlone()
+    public void AutomaticLocalHostPrefersAPrivateAddressForMultiHostClusters()
     {
-        if (!OperatingSystem.IsLinux()) return;
-        var host = await hosts.RegisterAsync("one", "One", "127.0.0.1", 18400, default);
-        string binary = Path.Combine(root, "Quasar.Host");
-        File.WriteAllText(binary, "host binary");
-        string home = Path.Combine(root, "home"), fakeBin = Path.Combine(root, "fake-bin");
-        Directory.CreateDirectory(home);
-        Directory.CreateDirectory(fakeBin);
-        foreach (string tool in new[] { "systemctl", "loginctl", "sudo" })
-        {
-            File.WriteAllText(Path.Combine(fakeBin, tool), "#!/bin/sh\nexit 0\n");
-            File.SetUnixFileMode(Path.Combine(fakeBin, tool), UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
-        }
-        var installer = new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System, Path.Combine(root, "install", "HostExecutors"));
-        async Task<string?> Install(string target)
-        {
-            var start = new System.Diagnostics.ProcessStartInfo("bash");
-            start.Environment["HOME"] = home;
-            start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
-            try { await ClusterHostInstaller.RunAsync(start, installer.BuildScript(host, new Uri("http://127.0.0.1:8080"), target), default); }
-            catch (InvalidOperationException error) { return error.Message; }
-            return null;
-        }
-
-        string mine = installer.LocalRoot("one");
-        Assert.Equal(Path.Combine(root, "install", "HostExecutors", "one"), mine);
-        Assert.Null(await Install(mine));
-        Assert.Equal("host binary", File.ReadAllText(Path.Combine(mine, "Quasar.Host")));
-        Assert.False(Directory.Exists(Path.Combine(home, ".local")));
-        string units = Path.Combine(home, ".config/systemd/user");
-        Assert.Contains($"ExecStart=\"{mine}/Quasar.Host\" run --config \"{mine}/host.json\"",
-            File.ReadAllText(Path.Combine(units, "quasar-host-one.service")));
-        Assert.Contains($"ExecStop=\"{mine}/Quasar.Host\" stop-clusters",
-            File.ReadAllText(Path.Combine(units, "quasar-host-one-stop.service")));
-        Assert.Contains($"\"{mine}/bin/host-update.py\" \"{mine}\"",
-            File.ReadAllText(Path.Combine(units, "quasar-host-one-update.service")));
-        Assert.Null(await Install(mine));
-
-        string other = Path.Combine(root, "other", "HostExecutors", "one");
-        Assert.Contains("already runs a Host from another folder", await Install(other));
-        Assert.False(Directory.Exists(other));
-        Assert.Contains(mine, File.ReadAllText(Path.Combine(units, "quasar-host-one.service")));
-        Assert.Throws<ArgumentException>(() => installer.BuildScript(host, new Uri("http://127.0.0.1:8080"), "/tmp/a$b"));
+        Assert.Equal("192.168.1.10", ClusterLocalHostUpdater.SelectLocalAddress(
+            [IPAddress.Loopback, IPAddress.Parse("8.8.8.8"), IPAddress.Parse("fd00::10"), IPAddress.Parse("192.168.1.10")]));
+        Assert.Equal("fd00::10", ClusterLocalHostUpdater.SelectLocalAddress([IPAddress.Parse("fd00::10")]));
+        Assert.Equal("127.0.0.1", ClusterLocalHostUpdater.SelectLocalAddress([IPAddress.Loopback, IPAddress.Parse("8.8.8.8")]));
     }
 
     [Fact]

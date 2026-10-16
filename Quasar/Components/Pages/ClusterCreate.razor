@@ -26,7 +26,7 @@
                 <ChildContent>
                     <MudStep Title="Host enrollment" Disabled="_busy" Completed="HasConnectedHosts">
                         <div class="quasar-layout quasar-gap-3">
-                            <p class="quasar-text quasar-type-body1">Use an enrolled host machine or add one here before configuring the cluster. To run the cluster on this PC, add a host machine and choose Install on this PC.</p>
+                            <p class="quasar-text quasar-type-body1">Use an enrolled host machine or add one here before configuring the cluster. Quasar automatically prepares its local Host executor on supported Linux x64 installations.</p>
                             <span class="quasar-text quasar-type-caption">@LocalHost.Status</span>
                             @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning">@LocalHost.Error</MudAlert> }
                             @foreach (var machine in _machines)

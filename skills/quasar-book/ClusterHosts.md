@@ -11,7 +11,7 @@ The Host executor (`Quasar.Host`) is the service that runs on every cluster host
 
 ## Files on a host machine
 
-The automatic installer puts everything under the account that ran it. The command and SSH methods use `~/.local/share/Quasar/Hosts/<id>/`. Install on this PC uses `<install root>/HostExecutors/<id>/` instead, except for a Host that an older Quasar version already put in the home folder.
+The automatic installer puts everything under the account that ran it:
 
 | Path | Content |
 | --- | --- |
