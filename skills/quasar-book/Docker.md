@@ -9,6 +9,7 @@ How to run Quasar from the official container image with Docker Compose: the ima
 - Contents: the checksummed `quasar-web-linux-x64.tar.gz` worker from the matching GitHub release, on top of `mcr.microsoft.com/dotnet/sdk:10.0`, plus `curl`, `procps` and the 32-bit libraries `lib32gcc-s1` and `lib32stdc++6`.
 - The base is the .NET 10 SDK, so QuasarHub UI plugin builds use that SDK and never ask to download Quasar's private SDK.
 - The image runs the web worker (`/opt/quasar/Quasar`) directly. It has no Bootstrap launcher.
+- It has no local Host executor, so clusters need an enrolled Linux host machine. See [Cluster hosts](ClusterHosts.md#the-local-host).
 - The Dockerfile has no `USER` line, so Quasar runs as root inside the container.
 - Built-in health check: `curl http://127.0.0.1:8080/api/health` every 30 seconds.
 
