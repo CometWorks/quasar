@@ -38,6 +38,37 @@ public sealed class ClusterCliTests
     }
 
     [Theory]
+    [InlineData("help")]
+    [InlineData("--help")]
+    [InlineData("-h")]
+    [InlineData("serve", "--help")]
+    [InlineData("--quiet", "-h")]
+    public void LauncherTreatsHelpAsHelp(params string[] args)
+    {
+        string command = args.FirstOrDefault(arg => !arg.StartsWith('-')) ?? "ensure-running";
+        Assert.True(Bootstrap::Quasar.Bootstrap.Program.IsHelpRequest(command, args));
+    }
+
+    [Theory]
+    [InlineData("--version", "--version")]
+    [InlineData("serve --quiet --bogus", "--bogus")]
+    [InlineData("serve extra", "extra")]
+    [InlineData("ensure-running --force --open-browser", null)]
+    [InlineData("serve --quiet --service --headless", null)]
+    [InlineData("--console", null)]
+    public void LauncherRejectsUnknownArguments(string commandLine, string? expected) =>
+        Assert.Equal(expected, Bootstrap::Quasar.Bootstrap.Program.FindInvalidLauncherArgument(
+            commandLine.Split(' ')));
+
+    [Fact]
+    public async Task ClusterHelpPrintsUsage()
+    {
+        var stdout = new StringWriter();
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "--help"], null, stdout, new StringWriter()));
+        Assert.StartsWith("Usage: Quasar cluster", stdout.ToString());
+    }
+
+    [Theory]
     [InlineData("conversion-plugins", "/api/v1/clusters/demo/convert/plugins")]
     [InlineData("fleet", "/api/v1/clusters/demo/fleet")]
     [InlineData("package-release", "/api/v1/clusters/demo/package-release")]
