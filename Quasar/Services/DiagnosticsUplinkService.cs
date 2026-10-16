@@ -28,6 +28,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     private BackofficeKey? _key;
     private CancellationTokenSource _transfers = new();
     private long _generation;
+    private bool _disposed;
     private HostContract.HostDiagnosticPolicy? _policy;
     public string StateDirectory { get; }
     private readonly string _storageDirectory;
@@ -495,10 +496,17 @@ public sealed class DiagnosticsUplinkService : BackgroundService
         catch { TryDelete(path); throw; }
     }
 
+    // Program registers this service as a singleton and again, through a factory, as a hosted service,
+    // so the container disposes the same instance twice on shutdown.
     public override void Dispose()
     {
         _consent.Changed -= ConsentChanged;
-        lock (_sync) { _transfers.Cancel(); _transfers.Dispose(); }
+        lock (_sync)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _transfers.Cancel(); _transfers.Dispose();
+        }
         base.Dispose();
     }
 }
