@@ -51,7 +51,7 @@ Quasar has two programs: the launcher (`Quasar` on Linux, `Quasar.exe` on Window
 
 The worker loads, from lowest to highest priority:
 
-1. `appsettings.json` and `appsettings.<Environment>.json` next to the worker program and in a few parent folders.
+1. `appsettings.json` and `appsettings.<Environment>.json` next to the worker program, in the current folder and in the `WebService` folder next to the worker. A development run inside the source tree also reads the files of the `Quasar` project folder. Folders above the worker are not read, so another Quasar install further up, such as `~/Quasar`, does not change this one.
 2. `appsettings.json` and `appsettings.<Environment>.json` in the data directory. This is the file you edit.
 3. Environment variables in .NET form, with `__` as the section separator: `QUASAR__AUTH__ENABLED=false` sets `Quasar:Auth:Enabled`.
 4. Command-line arguments to the worker in .NET form, for example `--Quasar:Port=9000`.
