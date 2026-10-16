@@ -215,7 +215,7 @@ The installed Linux service sets `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_
 The launcher is `./Quasar` on Linux and `Quasar.exe` on Windows, in the data directory.
 
 ```
-Quasar [ensure-running|serve|activate-release|cluster] [options] [--headless]
+Quasar [ensure-running|serve|activate-release|cluster|help] [options]
 ```
 
 | Command | What it does |
@@ -224,6 +224,7 @@ Quasar [ensure-running|serve|activate-release|cluster] [options] [--headless]
 | `serve` | Runs the launcher and worker until stopped. Used by the services (`serve --quiet` on Linux, `serve --quiet --service` on Windows). Exits at once with 0 if a healthy Quasar is already running, unless in service mode, where it replaces that worker. |
 | `activate-release` | Internal, used during updates |
 | `cluster <verb> ...` | Cluster API client, see below |
+| `help` | Prints the commands and options and exits with 0 |
 
 | Flag | Effect |
 | --- | --- |
@@ -233,8 +234,11 @@ Quasar [ensure-running|serve|activate-release|cluster] [options] [--headless]
 | `--quiet` | No console output, never foreground |
 | `--foreground`, `--console` | Stay in the foreground even when not attached to a terminal |
 | `--service` | Service mode |
+| `-h`, `--help` | Same as `help` (`cluster --help` prints the cluster usage) |
 
-Exit codes of `ensure-running`: `0` running, `2` unknown command, `3` launcher entry point not found, `4` "Quasar launcher did not become healthy before timeout.", `5` port in use by something that is not Quasar. `serve` exits with `1` when the port is taken.
+`ensure-running` and `serve` reject any other option or extra argument with exit code `2` instead of starting Quasar.
+
+Exit codes of `ensure-running`: `0` running, `2` unknown command, option or argument, `3` launcher entry point not found, `4` "Quasar launcher did not become healthy before timeout.", `5` port in use by something that is not Quasar. `serve` exits with `1` when the port is taken.
 
 In the foreground, Ctrl+C stops the launcher and the worker. Managed servers keep running if `PreserveManagedServersOnShutdown` is on.
 

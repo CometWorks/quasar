@@ -47,6 +47,11 @@ internal static class Program
             string.Equals(arg, "--foreground", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(arg, "--console", StringComparison.OrdinalIgnoreCase));
         var command = args.FirstOrDefault(arg => !arg.StartsWith("-", StringComparison.Ordinal)) ?? EnsureRunningCommand;
+        if (IsHelpRequest(command, args))
+        {
+            WriteUsage(Console.Out);
+            return 0;
+        }
 
         // When started from a real terminal we keep the bootstrap and worker in the
         // foreground so the user sees live logs in the console they invoked us from.
@@ -55,6 +60,8 @@ internal static class Program
 
         return command.ToLowerInvariant() switch
         {
+            EnsureRunningCommand or ServeCommand when FindInvalidLauncherArgument(args) is { } invalid =>
+                InvalidUsage(quiet, invalid),
             EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground, headless),
             ServeCommand => await ServeAsync(quiet, foreground, service, headless),
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet, headless),
@@ -423,10 +430,67 @@ internal static class Program
         }
     }
 
-    private static int InvalidUsage(bool quiet)
+    private static readonly string[] LauncherFlags =
+        ["--quiet", "--open-browser", "--force", "--service", "--headless", "--foreground", "--console"];
+
+    internal static bool IsHelpRequest(string command, string[] args) =>
+        command.Equals("help", StringComparison.OrdinalIgnoreCase)
+        || command is EnsureRunningCommand or ServeCommand
+        && args.Any(static arg => arg is "--help" or "-h");
+
+    // Returns the first argument that ensure-running and serve don't accept, or null.
+    internal static string? FindInvalidLauncherArgument(string[] args)
+    {
+        var commandSeen = false;
+        foreach (var arg in args)
+        {
+            if (arg.StartsWith("-", StringComparison.Ordinal))
+            {
+                if (!LauncherFlags.Contains(arg, StringComparer.OrdinalIgnoreCase))
+                    return arg;
+            }
+            else if (commandSeen)
+            {
+                return arg;
+            }
+            else
+            {
+                commandSeen = true;
+            }
+        }
+
+        return null;
+    }
+
+    internal static void WriteUsage(TextWriter writer) => writer.WriteLine("""
+        Usage: Quasar [command] [options]
+
+        Commands:
+          ensure-running    Reuse a healthy Quasar or start one (default). Runs in the
+                            foreground from a terminal, detached from a script.
+          serve             Run the launcher and supervise the web worker in this process.
+          cluster ...       Cluster command line tools. See "Quasar cluster --help".
+          activate-release  Internal, used during updates.
+          help              Print this help.
+
+        Options for ensure-running and serve:
+          --quiet           No console output; never run in the foreground.
+          --foreground      Stay in the foreground even without a terminal (alias --console).
+          --headless        API-only mode without the web UI.
+          --force           ensure-running: stop the running Quasar worker first.
+          --open-browser    ensure-running: open the UI in a browser.
+          --service         serve: running as the Windows Scheduled Task.
+          -h, --help        Print this help.
+        """);
+
+    private static int InvalidUsage(bool quiet, string? invalidArgument = null)
     {
         if (!quiet)
-            Console.Error.WriteLine("Usage: Quasar.Bootstrap [ensure-running|serve|activate-release|cluster] [options] [--headless]");
+        {
+            if (invalidArgument is not null)
+                Console.Error.WriteLine($"Unknown argument: {invalidArgument}");
+            Console.Error.WriteLine("Usage: Quasar [ensure-running|serve|activate-release|cluster|help] [options]. Run \"Quasar --help\" for details.");
+        }
 
         return 2;
     }

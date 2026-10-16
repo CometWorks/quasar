@@ -84,7 +84,7 @@
                         <span class="quasar-text quasar-type-caption mono">@FormatTimestamp(message.TimestampTicksUtc)</span>
                         <p class="quasar-text quasar-type-body2">
                             <span class="mono">[@FormatChannel(message)]</span>
-                            <strong>@FormatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)
+                            <strong>@FormatAuthor(message)</strong>: <span class="chat-text">@TextSanitizer.CleanGameText(message.Content, keepLineBreaks: true)</span>
                         </p>
                     </div>
                 }

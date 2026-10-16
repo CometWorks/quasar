@@ -96,7 +96,7 @@ Stopping the task terminates the Bootstrap process. To restart Quasar after edit
 
 The power button in the top bar opens **Quasar power** (admin role):
 
-- **Shutdown Quasar** saves the managed server state, then stops the web worker and Bootstrap with exit code 0. The task counts this as success and does not restart it. Servers keep running without supervision. Run `Start-ScheduledTask -TaskName Quasar` to bring the UI back. In a foreground run the launcher exits to the terminal.
+- **Shutdown Quasar** saves the managed server state, then stops the web worker and Bootstrap with exit code 0. The task counts this as success and does not restart it. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Run `Start-ScheduledTask -TaskName Quasar` to bring the UI back. In a foreground run the launcher exits to the terminal.
 - **Restart Quasar** restarts only the web worker under Bootstrap. Servers keep running.
 - **Save and stop all servers** stops every server and leaves Quasar running.
 
