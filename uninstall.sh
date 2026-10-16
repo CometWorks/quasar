@@ -103,7 +103,7 @@ else
 fi
 
 # Prints the PID of Quasar's local Host executor while the process recorded in host.pid runs.
-# The record holds the boot ID and start time, so a reused PID doesn't match.
+# ClusterLocalHost writes the record with the boot ID and start time, so a reused PID doesn't match.
 local_host_pid() {
     local record pid identity stat fields
     record="$(cat "$LOCAL_HOST_DIR/host.pid" 2>/dev/null)" || return 1
