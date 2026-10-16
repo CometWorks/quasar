@@ -30,16 +30,18 @@ inputs; removed cluster IDs remain reserved.
 1. Choose **Create Cluster** beside **Create Server** on the Dashboard (cards or list),
    then open **Create and deploy** at `/clusters/new`. **Register existing cluster** is a
    separate advanced tab for independently installed clusters.
-2. The wizard opens on **Host enrollment**. Quasar automatically enrolls and prepares
-   its Linux x64 localhost using the bundled Host. It prefers a private LAN/VPN
-   address for multi-host support, falling back to loopback for a single-host
-   cluster. Existing enrollments on this machine are reused.
+2. The wizard opens on **Host enrollment**. On Linux x64 the Quasar machine has a
+   built-in local Host (`local`) that Quasar runs from its own release, with its
+   files in `<install root>/LocalHost`, and starts when it is needed. It prefers
+   a private LAN/VPN address for multi-host support, falling back to loopback for
+   a single-host cluster.
    Add other Linux x64 host machines inline with **Add host machine**, or use
    **Hosts → Add host machine** outside the wizard. Both use the same enrollment
-   form: choose local installation, a one-time command, SSH, or a manual package.
+   form: choose a one-time command, SSH, or a manual package.
    At least one enrolled host must connect before **Continue to cluster configuration**
    is enabled. Existing connected hosts can be reused without another installation.
-   The same matching Quasar.Host executable is used in all four cases. Enrollment
+   The same matching Quasar.Host executable is used by all three methods and by the
+   local Host. Enrollment
    requires security-administration permission; SSH uses keys/agent and strict
    `known_hosts` verification. Password login and host-key bypass are not supported.
    Installation also enables a per-machine update timer. It checks the active Quasar
@@ -243,7 +245,6 @@ Machine enrollment requires security-administration permission:
 - `POST /api/v1/host-enrollment` registers ID, display name, private address and
   optional loopback command port (default 18400).
 - `POST /api/v1/host-enrollment/{host}/ticket` with `quasarUrl` returns an enrollment command.
-- `POST /api/v1/host-enrollment/{host}/local` installs on the Quasar machine.
 - `POST /api/v1/host-enrollment/{host}/ssh` accepts `quasarUrl` and
   `ssh: { address, user, port, identityFile }`. The optional key path is on Quasar.
 

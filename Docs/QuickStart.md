@@ -201,7 +201,9 @@ tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-componen
 The Linux installer defaults to a user systemd service, uses the extracted
 folder as the install root, and writes that path to the unit as
 `QUASAR_INSTALL_DIR`. Pass `--system` with `sudo` for a machine-wide service or
-`--install-dir <dir>` to install Quasar elsewhere.
+`--install-dir <dir>` to install Quasar elsewhere. It also enables
+`quasar-clusters.service`, which saves the clusters on this PC at logout or
+shutdown.
 When Quasar is running from the installed user service, the UI **Shutdown
 Quasar** action drains the web worker and stops Bootstrap with exit code `0`.
 The installed `Restart=on-failure` policy leaves the service inactive. Managed

@@ -1,6 +1,6 @@
 # Guided cluster setup
 
-How to create a managed cluster with the **Set up cluster** wizard: enrolling host machines, installing the Host executor (local, enrollment command, SSH or manual package), the prerequisites, what the wizard checks and what its error messages mean. For cluster operation after setup see [Clusters](Clusters.md); for the Host executor itself see [Cluster hosts](ClusterHosts.md).
+How to create a managed cluster with the **Set up cluster** wizard: the local Host on the Quasar machine, enrolling other host machines and installing the Host executor there (enrollment command, SSH or manual package), the prerequisites, what the wizard checks and what its error messages mean. For cluster operation after setup see [Clusters](Clusters.md); for the Host executor itself see [Cluster hosts](ClusterHosts.md).
 
 ## Before you start
 
@@ -34,7 +34,7 @@ Open **Hosts** (nav group "Infrastructure & tools") and choose **Add host machin
 | Host machine name | Display name. A blank name gets a generated suggestion. |
 | Cluster network IP address | A private IP: `10.x`, `172.16.x` to `172.31.x`, `192.168.x`, an IPv6 ULA (`fc00::/7`), or loopback. Use `127.0.0.1` only for a cluster entirely on the Quasar machine. |
 | Quasar address reachable by this host machine | The Quasar origin, for example `https://quasar.example.com`, with no path or query. HTTP is allowed only on loopback. |
-| Installation method | **Install on this PC**, **Run an enrollment command on the host machine**, **Install over SSH**, **Download package for manual installation**. |
+| Installation method | **Run an enrollment command on the host machine** (default), **Install over SSH**, **Download package for manual installation**. |
 
 Registration validation errors:
 
@@ -45,9 +45,13 @@ Registration validation errors:
 
 Each enrollment gets a Host executor control port (default 18400, loopback only on the host machine) and a generated credential. The Host executor connects out to Quasar; you do not open any inbound port for it.
 
-### Install on this PC
+### The local Host on this PC
 
-Quasar runs the installer script as its own user account on the Quasar machine. Quasar also does this by itself: on Linux x64 it registers a host machine with ID `localhost` and name "<host name> (local)", picks a private LAN/VPN address of the machine (or `127.0.0.1` if it has none) and installs the Host executor. It re-checks every 15 minutes. The Hosts page shows its status, for example "Local Host executor connected." or "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes."
+The Quasar machine needs no enrollment. On Linux x64 every Quasar install has a local Host executor with ID `local` and the name "<host name> (this PC)". Quasar registers it at its first start, with a private LAN/VPN address of the machine (or `127.0.0.1` if it has none) and a free loopback control port from 18401 up. The registration doesn't appear in the **Registration** list of the enrollment form.
+
+Quasar runs `Quasar.Host` from its own release and keeps the Host's files in `<install root>/LocalHost/`. Nothing goes into the home folder and no systemd unit is installed for it. Quasar starts the Host when the Hosts page or cluster setup is opened, when Quasar needs it for a cluster, and at Quasar start when a cluster is deployed on this PC. Details are in [Cluster hosts](ClusterHosts.md#the-local-host).
+
+The Hosts page and the wizard show its status, for example "Local Host executor ready. Quasar starts it when a cluster needs it.", "Local Host executor connected.", "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes." or, in the Docker image, "Quasar has no local Host executor in a container. Enroll a Linux host machine to run cluster processes."
 
 ### Run an enrollment command
 
@@ -76,7 +80,7 @@ Keep it running with your own service manager. Before shutdown, have the service
 
 ### What the automatic installer does
 
-The local, command and SSH methods run the same script. It:
+The command and SSH methods run the same script. It:
 
 1. Checks Linux x64, a working systemd user session, Python 3, `flock` and the .NET 10 runtime.
 2. Installs into `~/.local/share/Quasar/Hosts/<id>/` with `Quasar.Host`, `host.json`, `state/credentials.json` and `bin/host-update.py`.
@@ -187,7 +191,7 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup s
 - `POST /api/v1/clusters/setup` with an `Idempotency-Key` header and `{ "uniqueName", "displayName", "worldTemplateId", "configProfileId", "gatewayHost", "playerPort", "machines": [ { "hostId", "regularNodes" } ] }`. Needs cluster manage and configuration editing. After a failure, retry with a new key; reusing a key returns the earlier result.
 - `GET /api/v1/clusters/{id}/setup` returns the stored request and status.
 - `GET /api/v1/host-enrollment` lists enrollments with `connected`. `POST /api/v1/host-enrollment` registers `{ "id", "name", "address", "commandPort" }` (default 18400).
-- `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/local` installs on the Quasar machine; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
+- `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
 
 ## Sources
 - `Docs/ClusterGuidedSetupPlan.md`
@@ -208,7 +212,7 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup s
 - `Quasar/Services/ClusterHostClient.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
-- `Quasar/Services/ClusterLocalHostUpdater.cs`
+- `Quasar/Services/ClusterLocalHost.cs`
 - `Quasar/Services/ClusterPackageService.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`
 - `Quasar/Services/ClusterSteamClientLibrary.cs`

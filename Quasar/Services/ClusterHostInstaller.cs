@@ -58,10 +58,7 @@ public sealed class ClusterHostInstaller
         var script = BuildScript(hosts.Get(ticket.Host) ?? throw new KeyNotFoundException(), ticket.Origin);
         return _tickets.TryRemove(new KeyValuePair<Guid, Ticket>(id, ticket)) ? script : null;
     }
-    public Task InstallLocalAsync(string hostId, string quasarUrl, CancellationToken token) =>
-        RunAsync(new ProcessStartInfo("bash"), BuildScript(hosts.Get(hostId) ?? throw new KeyNotFoundException(), ValidateOrigin(quasarUrl)), token);
-
-    private static object HostConfiguration(EnrolledClusterHost host, Uri origin) => new
+    internal static object HostConfiguration(EnrolledClusterHost host, Uri origin) => new
     {
         executorId = "quasar-" + host.Id, hostId = host.Id, pollIntervalSeconds = 2,
         attachments = Array.Empty<object>(), stateDirectory = "state",
