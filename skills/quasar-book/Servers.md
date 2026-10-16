@@ -135,8 +135,9 @@ How it works:
 - An unexpected exit with `RestartOnCrash` on and attempts left moves the server to `Restarting` with the message "Process exited with code N. Restarting." and relaunches after the delay. The restart record says "Crash recovery".
 - The attempt counter resets when the server ran at least 1 minute before exiting. So the limit catches a server that crashes again within a minute of each start.
 - When attempts run out, the server becomes `Faulted` with "Process exited with code N. Restart attempt limit (3) reached." Quasar does not retry on its own after that.
-- With `RestartOnCrash` off, a non-zero exit leaves the server `Crashed`.
-- After a crash or fault, Quasar captures the newest error line from the DS and Magnetar logs and shows it on the Dashboard.
+- With `RestartOnCrash` off, a non-zero exit or a failed start (below) leaves the server `Crashed`.
+- A server that exits before it gets to `Running` failed to start, whatever its exit code. That's how the DS ends a world it can't load ("Session can not start" in its log, for example after a Workshop mod download failed). The message is "Start failed: process exited with code N before the world was ready", and it's retried and faulted like a crash, so the Dashboard counts it as an error. The goal stays On: Quasar.Agent doesn't report a stop before the world is ready as an admin stop.
+- After a crash or fault, Quasar captures the newest error line from the DS and Magnetar logs and shows it on the Dashboard. After a failed start it takes the line from the DS log when it has one, since that's where the DS writes why the world didn't load.
 - A scheduled restart fires within 5 minutes after the scheduled time, and only if the process has been up for at least 5 minutes.
 - When **Avoid simultaneous scheduled restarts** is on (global, default on, `Quasar:AvoidSimultaneousScheduledRestarts` or `QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS`), scheduled and maximum-uptime restarts wait while another server is starting, stopping or restarting. The card then says "Scheduled restart delayed; another server is stopping or restarting."
 
@@ -297,7 +298,7 @@ In the editor's **Runtime** section:
 - **Startup process priority** applies right after the process starts. **Ready process priority** applies once the agent reports the server is open. Values: Low, Below normal, Normal, Above normal, High. Default Normal for both.
 - **CPU affinity** pins the server to logical cores, for example `0-7` or `0-7,16-23`. Empty means all cores. At least 2 cores. Quasar applies it at start and again when the server is ready, and picks up changes without a restart.
 
-On Windows Quasar sets the process priority class (Low is Idle) and the processor affinity mask. On Linux it uses nice levels (Low 10, Below normal 5, Normal 0, Above normal -5, High -10) and `taskset` for affinity.
+On Windows Quasar sets the process priority class (Low is Idle) and the processor affinity mask. On Linux it uses nice levels (Low 10, Below normal 5, Normal 0, Above normal -5, High -10) on every thread of the server, and `taskset` for affinity.
 
 Raising priority above Normal on Linux needs privileges. Install the setuid helper `/usr/local/bin/quasar-renice`:
 
@@ -306,6 +307,8 @@ Raising priority above Normal on Linux needs privileges. Install the setuid help
 ```
 
 Without it, Quasar calls `renice`, which fails for negative values as a normal user, and the card says "Install /usr/local/bin/quasar-renice to use High process priority on Linux." The helper only accepts Quasar's nice values and only renices Magnetar launcher processes owned by the caller.
+
+Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the card then says the helper may be outdated. An old one also renices only the main thread, so Quasar calls it once per thread and logs that it should be reinstalled. Run the install command again. A server that stays at Normal priority never calls it.
 
 ## Servers survive Quasar restarts
 
@@ -330,7 +333,7 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 - **Server keeps restarting with "Health policy"**: look at the health message. A low simulation rate or a stale heartbeat triggers it. Lower **Minimum average simulation rate**, or turn off **Auto-restart when unhealthy** while investigating.
 - **Second server not reachable**: check that no server's game port equals another server's game port + 1000 or + 2000. Each server also uses those two derived ports.
 - **Mods missing after start**: the world's mod list comes from the config profile on every start. Add the mods to the profile, or use **Merge Into <profile>** in the server editor.
-- **High priority does nothing on Linux**: install `quasar-renice` (see above).
+- **High priority does nothing on Linux**: install `quasar-renice` (see above). If the card says the helper may be outdated, install it again.
 - **Server deleted but disk still full**: delete `<quasar-root>/Magnetars/<Server ID>/` yourself.
 
 ## Sources

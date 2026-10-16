@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 
 #include <ctype.h>
+#include <dirent.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdio.h>
@@ -95,6 +96,42 @@ static int validate_target(pid_t pid)
     return 1;
 }
 
+/* Nice is per thread on Linux, and setpriority(PRIO_PROCESS) changes only the
+   thread it names, so renice every thread of the target process. */
+static int renice_threads(pid_t pid, int nice)
+{
+    char path[64];
+    DIR *tasks;
+    struct dirent *entry;
+    int ok = 1;
+
+    snprintf(path, sizeof(path), "/proc/%d/task", pid);
+    tasks = opendir(path);
+    if (tasks == NULL)
+    {
+        perror("open target threads");
+        return 0;
+    }
+
+    while ((entry = readdir(tasks)) != NULL)
+    {
+        int tid;
+
+        if (!parse_int(entry->d_name, 1, INT_MAX, &tid))
+            continue;
+
+        /* A thread that exits meanwhile is fine. */
+        if (setpriority(PRIO_PROCESS, (id_t)tid, nice) != 0 && errno != ESRCH)
+        {
+            perror("setpriority");
+            ok = 0;
+        }
+    }
+
+    closedir(tasks);
+    return ok;
+}
+
 int main(int argc, char **argv)
 {
     int nice;
@@ -129,11 +166,8 @@ int main(int argc, char **argv)
     if (!validate_target(pid))
         return 1;
 
-    if (setpriority(PRIO_PROCESS, pid, nice) != 0)
-    {
-        perror("setpriority");
+    if (!renice_threads(pid, nice))
         return 1;
-    }
 
     return 0;
 }

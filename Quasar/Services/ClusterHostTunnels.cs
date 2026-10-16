@@ -8,7 +8,7 @@ namespace Quasar.Services;
 
 public sealed class ClusterHostTunnels
 {
-    // A WebSocket keeps Kestrel's graceful shutdown waiting (up to the 30 minute ShutdownTimeout) and
+    // A WebSocket keeps Kestrel's graceful shutdown waiting until Program.WebServerDrainTimeout aborts it, and
     // RequestAborted does not fire for it, so every Host channel also ends when the application stops.
     private readonly CancellationToken _stopping;
     public ClusterHostTunnels(IHostApplicationLifetime lifetime) => _stopping = lifetime.ApplicationStopping;

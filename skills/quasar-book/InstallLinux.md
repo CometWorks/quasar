@@ -138,7 +138,7 @@ The unit waits for `network-online.target`. Use `Restart=on-failure` in any cust
 ### Stopping and the Shutdown Quasar action
 
 - `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start.
-- The power button in the top bar opens **Quasar power** (admin role). **Shutdown Quasar** saves the managed server state, stops the web worker and Bootstrap with exit code 0. systemd leaves the service inactive. Servers keep running without supervision. Start the service again to bring the UI back: `systemctl --user start quasar.service` or `sudo systemctl start quasar.service`.
+- The power button in the top bar opens **Quasar power** (admin role). **Shutdown Quasar** saves the managed server state, stops the web worker and Bootstrap with exit code 0. systemd leaves the service inactive. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Start the service again to bring the UI back: `systemctl --user start quasar.service` or `sudo systemctl start quasar.service`.
 - **Restart Quasar** in the same dialog restarts only the web worker under Bootstrap. Servers keep running.
 - **Save and stop all servers** stops every server and leaves Quasar running.
 - If Bootstrap exits unexpectedly, systemd restarts it after 5 seconds. If the web worker crashes, Bootstrap restarts it.
@@ -151,7 +151,22 @@ Quasar applies the per-server process priority with `renice`. Without root, norm
 ~/.local/share/Quasar/install.sh --install-renice-helper --no-build --no-enable
 ```
 
-The helper accepts only nice values -10, -5, 0, 5 and 10, only for processes owned by the caller, and only for Magnetar executables (`MagnetarInterim.bin`, `MagnetarInterim`, `MagnetarInterim.exe`, `MagnetarLegacy.exe`).
+The helper accepts only nice values -10, -5, 0, 5 and 10, only for processes owned by the caller, and only for Magnetar executables (`MagnetarInterim.bin`, `MagnetarInterim`, `MagnetarInterim.exe`, `MagnetarLegacy.exe`). Nice is per thread on Linux, so it renices every thread of the server.
+
+Quasar updates don't rebuild the helper. Helpers installed before Magnetar shipped `MagnetarInterim.bin` reject it, and the server shows that `/usr/local/bin/quasar-renice` may be outdated. Older helpers also change only the server's main thread; Quasar then runs them once per thread and logs that the helper should be reinstalled. Run the same command again to rebuild it.
+
+### System limit warnings
+
+At startup the web worker checks four Linux limits and logs a warning to `quasar.log` for each one below its minimum. The open file limit applies to each process. The other three are shared by every process of the user, so a host running many servers under one user runs out of them first:
+
+| Limit | Minimum |
+| --- | --- |
+| Open files (`ulimit -n`) | 65536 |
+| Processes and threads (`ulimit -u`) | 16384 |
+| `fs.inotify.max_user_instances` | 1024 |
+| `fs.inotify.max_user_watches` | 524288 |
+
+The warning includes the fix: a `limits.conf` line or a `Limit*=` setting in the unit for the first two, a `sysctl` command for the inotify ones. The generated unit sets no limits. Quasar starts anyway; a small setup may never reach them.
 
 ## Where Quasar keeps its files
 
@@ -245,6 +260,7 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `scripts/readme-install-linux.md`
 - `scripts/package-linux-release.sh`
 - `tools/quasar-renice.c`
+- `Shared/Diagnostics/LinuxLimits.cs`
 - `.github/workflows/release.yml`
 - `Quasar/appsettings.json`
 - `Quasar.Bootstrap/Program.cs`

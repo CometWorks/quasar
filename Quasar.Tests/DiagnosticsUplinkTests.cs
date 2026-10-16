@@ -5,6 +5,8 @@ using System.Text.Json;
 using CometWorks.Diagnostics;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Host.Contract.V1;
 using Quasar.Services;
@@ -358,6 +360,21 @@ public sealed class DiagnosticsUplinkTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => DiagnosticsUplinkService.CopyVerifiedAsync(
             new MemoryStream([1, 2, 4]), path, envelope, default));
         Assert.False(File.Exists(path));
+    }
+
+    [Fact]
+    public async Task ContainerDisposesTheHostedSingletonTwiceWithoutThrowing()
+    {
+        using var consent = Catalog(Path.Combine(_root, "consent.json"));
+        var hosts = Hosts(out var credentials);
+        using var backend = new HttpClient(new Handler((_, _) => throw new Exception("No backoffice expected")));
+        // Registered the way Program does it: the container disposes the instance once per registration.
+        var services = new ServiceCollection();
+        services.AddSingleton(_ => Service(consent, hosts, credentials, new Handler((_, _) => throw new Exception("No Hosts expected")), backend));
+        services.AddHostedService(provider => provider.GetRequiredService<DiagnosticsUplinkService>());
+        var provider = services.BuildServiceProvider();
+        Assert.Single(provider.GetServices<IHostedService>());
+        await provider.DisposeAsync();
     }
 
     private DataHandlingConsentCatalog Catalog(string path) => new(NullLogger<DataHandlingConsentCatalog>.Instance, path);
