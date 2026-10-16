@@ -130,14 +130,16 @@ Both modes write the same `[Service]` section (the system unit adds `User=` and 
 | `KillMode` | `process` | `systemctl stop` signals only Bootstrap, so detached game servers keep running. |
 | `TimeoutStopSec` | `1800` | Up to 30 minutes for a clean stop. |
 | `SuccessExitStatus` | `130 143` | Exit after SIGINT or SIGTERM counts as success. |
-| `Environment` | `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_START=false`, `HOME=<run-user-home>`, `QUASAR_INSTALL_DIR=<install-dir>` | Service mode, no browser, fixed state root. |
+| `Environment` | `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_START=false`, `HOME=<run-user-home>`, `QUASAR_INSTALL_DIR=<install-dir>`, `QUASAR_HOST_STOP_UNIT=<path of the clusters unit>` | Service mode, no browser, fixed state root. The last one is for the local Host's warnings. |
 | `WantedBy` | `default.target` (user) or `multi-user.target` (system) | |
 
 The unit waits for `network-online.target`. Use `Restart=on-failure` in any custom unit too: `Restart=always` would bring Quasar back after the UI **Shutdown Quasar** action.
 
+`install.sh` also writes and enables `<service-name>-clusters.service` in the same folder (a system unit with the same `User=`). It saves and stops the clusters on this PC at logout or shutdown, before Quasar's service stops. See [Cluster hosts](ClusterHosts.md#systemd-units). Installs made before it existed get it when you rerun `install.sh`.
+
 ### Stopping and the Shutdown Quasar action
 
-- `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start.
+- `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start. The same goes for the local Host executor while it has running clusters; otherwise it stops with Quasar.
 - The power button in the top bar opens **Quasar power** (admin role). **Shutdown Quasar** saves the managed server state, stops the web worker and Bootstrap with exit code 0. systemd leaves the service inactive. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Start the service again to bring the UI back: `systemctl --user start quasar.service` or `sudo systemctl start quasar.service`.
 - **Restart Quasar** in the same dialog restarts only the web worker under Bootstrap. Servers keep running.
 - **Save and stop all servers** stops every server and leaves Quasar running.
@@ -181,6 +183,7 @@ Everything lives under the install root, `QUASAR_INSTALL_DIR`. The service unit 
 | `Magnetars/<server>/` | Per server: `server.json`, `DedicatedServer/` (DS app data, saves), `Magnetar/` (Magnetar profiles and config), `History/`, `analytics.jsonl` |
 | `WorldTemplates/<id>/` | World templates |
 | `Clusters/<name>/` | Cluster definitions |
+| `LocalHost/` | The local Host executor's configuration, state (cluster deployments and saves) and log. See [Cluster hosts](ClusterHosts.md#the-local-host). |
 | `Backups/` | Configuration backup ZIPs. Override with `QUASAR_BACKUP_DIR` or the Backups page. |
 | `ManagedRuntime/Tools/` | Downloaded `Magnetar/`, `SteamCMD/`, `SteamCmdHome/` (private HOME for SteamCMD), `SpaceEngineersDedicatedServer/`, `DotNetSdk/` |
 | `ManagedRuntime/WebService/<version>/` | Installed web UI worker releases |
