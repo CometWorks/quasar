@@ -19,7 +19,7 @@ namespace Quasar.Services;
 public sealed class ClusterLocalHost : IHostedService, IDisposable
 {
     internal const string HostId = "local";
-    internal const string StopUnitVariable = "QUASAR_HOST_STOP_UNIT";
+    internal const string StopUnitVariable = "QUASAR_HOST_STOP_UNIT"; // Quasar.Host's HostShutdown.StopUnitVariable
     private const int FirstCommandPort = 18401;
     private readonly ClusterHostCatalog hosts;
     private readonly ClusterCredentialStore credentials;
@@ -241,6 +241,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         logger.LogInformation("Started the local Host executor (PID {Pid}).", process.Id);
     }
 
+    // uninstall.sh reads "Pid" and "Identity" from this file to stop the Host.
     internal sealed record HostPid(int Pid, string Identity, string Binary, string Sha256);
 
     /// <summary>The recorded Host process, or null when it no longer runs.</summary>
@@ -346,15 +347,16 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         File.Delete(PidPath);
     }
 
+    // The local Host runs on Linux only; the guards keep the analyzer satisfied.
     private static void CreatePrivateDirectory(string path)
     {
-        if (!System.IO.Directory.Exists(path))
-            System.IO.Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        if (System.IO.Directory.Exists(path) || OperatingSystem.IsWindows()) return;
+        System.IO.Directory.CreateDirectory(path, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
     }
 
     private static void WritePrivate(string path, string content, bool executable = false)
     {
-        if (File.Exists(path) && File.ReadAllText(path) == content) return;
+        if (OperatingSystem.IsWindows() || File.Exists(path) && File.ReadAllText(path) == content) return;
         string temporary = path + ".new";
         var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | (executable ? UnixFileMode.UserExecute : 0);
         using (var file = new FileStream(temporary, new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, UnixCreateMode = mode }))

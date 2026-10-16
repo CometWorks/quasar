@@ -16,7 +16,8 @@ internal static class HostShutdown
 {
     // The Gateway spends up to 25 s returning players to the menu, drains for GraceSeconds, then
     // gives up 30 s later. That fits StopTimeoutSeconds, which stays under the 120 s that systemd
-    // gives user@.service to stop by default. Keep in sync with the stop unit in ClusterHostInstaller.
+    // gives user@.service to stop by default. Keep in sync with the stop unit in ClusterHostInstaller
+    // and the clusters unit in install.sh.
     internal const int GraceSeconds = 30;
     internal const int StopTimeoutSeconds = 110;
 

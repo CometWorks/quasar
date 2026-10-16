@@ -95,7 +95,7 @@ With an extracted release archive, `install.sh` installs in place: the folder th
 | `--user <user>` | the `sudo` caller, or `root` | Account the system service runs as. Only valid with `--system`. |
 | `--user-service` | on | Explicitly select the user service. |
 | `--install-dir <dir>` | the script's folder for release archives; `<run-user-home>/.local/share/Quasar` for source checkouts | Copies Quasar to `<dir>` and points the service there. |
-| `--service-name <name>` | `quasar` | systemd unit name, `<name>.service`. |
+| `--service-name <name>` | `quasar` | systemd unit name, `<name>.service`, and the clusters unit `<name>-clusters.service`. |
 | `--no-enable` | off | Do not enable the unit at boot. |
 | `--install-renice-helper` | off | Builds `quasar-renice.c` with `cc` and installs `/usr/local/bin/quasar-renice` as setuid root. |
 | `--yes`, `-y` | off | Run .NET package install commands without asking. |

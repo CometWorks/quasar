@@ -1727,9 +1727,9 @@ atomic rename. If Quasar has no copy, setup continues and logs that the Gateway 
 the Host account already has the file. An older Host without this capability is refused
 until its per-machine update timer installs the Host binary bundled with the active
 Quasar web release. The timer checks every 15 minutes. Existing remote enrollments
-without a timer need one final reinstall through **Hosts → Add cluster machine**;
-older local enrollments gain the timer automatically when Quasar starts. The cluster
-package pin does not select the Host binary.
+without a timer need one final reinstall through **Hosts → Add cluster machine**.
+The local Host on the Quasar machine has no timer: Quasar restarts it from the
+active web release. The cluster package pin does not select the Host binary.
 
 The Host reads the Gateway's stdout and stderr, prefixes each line with `[gateway CLUSTER]`
 and writes it to its own output. It keeps the last 20 lines, each cut to 300 characters.
