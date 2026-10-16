@@ -7,7 +7,7 @@
 @inject NavigationManager Navigation
 
 <div class="quasar-layout quasar-gap-3">
-    <p class="quasar-text quasar-type-body1">Install a Host executor (Quasar.Host) on another Linux x64 machine. This PC already has its own local Host executor. It connects back to Quasar securely; its control port stays on loopback. Cluster Registry, Cluster Gateway and game nodes continue running if Quasar disconnects.</p>
+    <p class="quasar-text quasar-type-body1">Install a Host executor (Quasar.Host) on another Linux x64 machine. It connects back to Quasar securely; its control port stays on loopback. Cluster Registry, Cluster Gateway and game nodes continue running if Quasar disconnects. A Quasar machine on Linux x64 has its own local Host executor and needs no enrollment.</p>
     <MudSelect T="string" Label="Registration" Value="_existing" ValueChanged="SelectExisting">
         <MudSelectItem Value="@(string.Empty)">New host machine</MudSelectItem>
         @foreach (var host in Hosts.GetAll().Where(h => h.Id != ClusterLocalHost.HostId)) { <MudSelectItem Value="host.Id">@host.Name — resume or update Host executor</MudSelectItem> }
