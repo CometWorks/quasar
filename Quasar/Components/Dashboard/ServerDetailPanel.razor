@@ -120,7 +120,7 @@ else
     <div class="quasar-chat-list">
         @foreach (var message in Agent.Snapshot.RecentChat.OrderByDescending(item => item.TimestampTicksUtc).Take(12))
         {
-            <div class="quasar-chat-row"><time class="mono quasar-muted">@FormatTimestamp(message.TimestampTicksUtc)</time><p><span class="mono">[@FormatChatChannel(message)]</span> <strong>@FormatChatAuthor(message)</strong>: @TextSanitizer.CleanGameText(message.Content)</p></div>
+            <div class="quasar-chat-row"><time class="mono quasar-muted">@FormatTimestamp(message.TimestampTicksUtc)</time><p><span class="mono">[@FormatChatChannel(message)]</span> <strong>@FormatChatAuthor(message)</strong>: <span class="chat-text">@TextSanitizer.CleanGameText(message.Content, keepLineBreaks: true)</span></p></div>
         }
     </div>
     @if (Agent.CommandResults.Count > 0)

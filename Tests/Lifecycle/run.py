@@ -420,6 +420,11 @@ def run_case(case, platform, args, port, web_port, gate, server_class):
         abrupt = case.cause in (CRASH, HEALTH) or any(s[-1] in ("KILL", "Kill starting server") for s in case.steps)
         if result["transport_errors"] and not abrupt:
             failures.append(f"{result['transport_errors']} agent socket transport errors")
+        if "Error disposing plugins" in server.info_logs():
+            failures.append("Error disposing plugins in the info log")
+        racing = [m for _, _, m in server.events() if m.startswith("dispose updates=") and m != "dispose updates=0"]
+        if racing:
+            failures.append(f"plugins updated during disposal: {racing}")
     except Exception as e:
         failures.append(f"{type(e).__name__}: {e}")
         log.append(traceback.format_exc())
