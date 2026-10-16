@@ -26,6 +26,7 @@ Both the launcher and the web worker are self-contained single-file x64 executab
   - Installing from a source checkout needs the .NET 10 SDK, because the script runs `dotnet publish`.
 - A .NET 10 SDK is only needed later if an administrator installs a source-built QuasarHub UI plugin. Quasar then uses a .NET 10 SDK on `PATH`, or asks whether to download a pinned private SDK into `<install-dir>/ManagedRuntime/Tools/DotNetSdk/`. The private SDK needs no `sudo` and does not change `PATH`. See [UI plugins](UiPlugins.md).
 - Git is not required.
+- 32-bit libraries for SteamCMD, which Quasar uses to download and update the Dedicated Server. `linux32/steamcmd` is a 32-bit program and needs the 32-bit C library and loader (`/lib/ld-linux.so.2`). On Debian and Ubuntu: `sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install libc6:i386 lib32gcc-s1`. Without them only SteamCMD fails: a Dedicated Server supplied with `QUASAR_DS_INSTALL_DIR` still works, but Quasar can't download or update one. See [Servers](Servers.md#managed-downloads-steamcmd-dedicated-server-magnetar).
 
 ### What install.sh does when .NET is missing
 
@@ -245,6 +246,7 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `systemctl not found; systemd install cannot continue.`: the machine has no systemd. Run `./Quasar serve` in the foreground instead, or use [Docker](Docker.md).
 - `.NET 10 ASP.NET Core runtime is still missing after installation attempt.`: the package install did not provide .NET 10. The script lists the SDKs and runtimes it found. Install .NET 10 manually and rerun.
 - `Refusing unsafe install directory: <dir>`: pick a dedicated folder.
+- The SteamCMD row of the Managed Runtime panel fails with `ExitCode=127` and `linux32/steamcmd: cannot execute: required file not found`: the host lacks SteamCMD's 32-bit libraries. Install them (see [Prerequisites](#prerequisites)) and click **Retry** on the SteamCMD row.
 - The service does not start at boot: enable lingering for the user service (`sudo loginctl enable-linger <user>`), or check that `--no-enable` was not used.
 - `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
 - The UI never comes up after a fresh install: Bootstrap could not download the web worker from GitHub, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. The service logs nothing about it, because Bootstrap runs with `--quiet`. Stop the service and run `./Quasar serve` in a terminal to see `Failed downloading initial Quasar web release.` or `No Quasar web release asset named quasar-web-linux-x64.tar.gz was found.`. Fix network access and start the service again.
