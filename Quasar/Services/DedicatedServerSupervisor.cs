@@ -1474,51 +1474,59 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         try
         {
-            // Nothing to do when the server already runs at that nice, as a
+            // Nice is per thread on Linux, and renicing the pid only changes
+            // the main thread. Null where /proc can't be read.
+            var pending = LinuxThreadsNotAtNice(processId, nice);
+
+            // Nothing to do when every thread already runs at that nice, as a
             // plain start does for Normal.
-            if (OperatingSystem.IsLinux() && ReadLinuxNice(processId) == nice)
+            if (pending is { Count: 0 })
                 return true;
 
             var useHelper = File.Exists(ReniceHelperPath);
-            using var renice = new Process
+            var tool = useHelper ? ReniceHelperPath : "renice";
+
+            // The helper renices every thread of the process it gets, renice
+            // takes all the thread ids.
+            var (exitCode, stdout, stderr) = RunNiceTool(
+                tool,
+                useHelper ? $"{nice} {processId}" : $"-n {nice} -p {string.Join(' ', pending ?? [processId])}");
+            pending = LinuxThreadsNotAtNice(processId, nice);
+
+            // Helpers built before SE1-0260 only change the thread they get.
+            if (useHelper && exitCode == 0 && pending is { Count: > 0 })
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = useHelper ? ReniceHelperPath : "renice",
-                    Arguments = useHelper
-                        ? $"{nice} {processId}"
-                        : $"-n {nice} -p {processId}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                },
-            };
+                _logger.LogInformation(
+                    "{Tool} only reniced the main thread of server {UniqueName}; renicing {Count} threads one by one. Reinstall it to do this in one call.",
+                    tool,
+                    uniqueName,
+                    pending.Count);
+                foreach (var threadId in pending)
+                    RunNiceTool(tool, $"{nice} {threadId}");
+                pending = LinuxThreadsNotAtNice(processId, nice);
+            }
 
-            if (!renice.Start())
-                return false;
-
-            var stdout = renice.StandardOutput.ReadToEnd();
-            var stderr = renice.StandardError.ReadToEnd();
-            renice.WaitForExit(3000);
-            if (renice.ExitCode == 0)
+            // Where /proc is readable, every live thread has to have the nice.
+            // Threads that exit meanwhile make renice fail for their ids.
+            if (pending == null ? exitCode == 0 : pending.Count == 0)
             {
                 _logger.LogInformation(
                     "Applied {Phase} nice {Nice} to server {UniqueName} using {Tool}.",
                     phase,
                     nice,
                     uniqueName,
-                    useHelper ? ReniceHelperPath : "renice");
+                    tool);
                 return true;
             }
 
             _logger.LogWarning(
-                "{Tool} failed applying {Phase} nice {Nice} to server {UniqueName}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
-                useHelper ? ReniceHelperPath : "renice",
+                "{Tool} failed applying {Phase} nice {Nice} to server {UniqueName}. ExitCode={ExitCode}. ThreadsLeft={ThreadsLeft}. Stdout={Stdout}. Stderr={Stderr}",
+                tool,
                 phase,
                 nice,
                 uniqueName,
-                renice.ExitCode,
+                exitCode,
+                pending?.Count,
                 TrimForLog(stdout),
                 TrimForLog(stderr));
 
@@ -1543,12 +1551,76 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return false;
     }
 
-    // Field 19 of /proc/<pid>/stat, counted after the command name, which
-    // ends with the last ')' and may itself contain spaces.
-    private static int ReadLinuxNice(int processId)
+    private static (int ExitCode, string Stdout, string Stderr) RunNiceTool(string fileName, string arguments)
     {
-        var stat = File.ReadAllText($"/proc/{processId}/stat");
-        return int.Parse(stat[(stat.LastIndexOf(')') + 2)..].Split(' ')[16]);
+        using var tool = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+
+        if (!tool.Start())
+            return (-1, string.Empty, string.Empty);
+
+        var stdout = tool.StandardOutput.ReadToEnd();
+        var stderr = tool.StandardError.ReadToEnd();
+        tool.WaitForExit(3000);
+        return (tool.ExitCode, stdout, stderr);
+    }
+
+    private static List<int>? LinuxThreadsNotAtNice(int processId, int nice) =>
+        ReadLinuxThreadNices(processId)?.Where(thread => thread.Value != nice).Select(thread => thread.Key).ToList();
+
+    // Nice of each thread of a process by thread id, from /proc/<pid>/task.
+    // Null when it can't be read, for example on macOS or after an exit.
+    internal static Dictionary<int, int>? ReadLinuxThreadNices(int processId)
+    {
+        try
+        {
+            var nices = new Dictionary<int, int>();
+            foreach (var task in Directory.EnumerateDirectories($"/proc/{processId}/task"))
+            {
+                string stat;
+                try
+                {
+                    stat = File.ReadAllText(Path.Combine(task, "stat"));
+                }
+                catch (IOException)
+                {
+                    continue; // The thread exited.
+                }
+
+                if (!int.TryParse(Path.GetFileName(task), out var threadId) || ParseLinuxNice(stat) is not { } nice)
+                    return null;
+
+                nices[threadId] = nice;
+            }
+
+            return nices.Count > 0 ? nices : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    // Field 19 of a /proc stat line, counted after the command name, which
+    // ends with the last ')' and may itself contain spaces.
+    internal static int? ParseLinuxNice(string stat)
+    {
+        var end = stat.LastIndexOf(')');
+        if (end < 0)
+            return null;
+
+        var fields = stat[(end + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return fields.Length > 16 && int.TryParse(fields[16], out var nice) ? nice : null;
     }
 
     private void TryApplyCpuAffinity(string uniqueName, string affinity, string phase)

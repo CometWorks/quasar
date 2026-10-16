@@ -298,7 +298,7 @@ In the editor's **Runtime** section:
 - **Startup process priority** applies right after the process starts. **Ready process priority** applies once the agent reports the server is open. Values: Low, Below normal, Normal, Above normal, High. Default Normal for both.
 - **CPU affinity** pins the server to logical cores, for example `0-7` or `0-7,16-23`. Empty means all cores. At least 2 cores. Quasar applies it at start and again when the server is ready, and picks up changes without a restart.
 
-On Windows Quasar sets the process priority class (Low is Idle) and the processor affinity mask. On Linux it uses nice levels (Low 10, Below normal 5, Normal 0, Above normal -5, High -10) and `taskset` for affinity.
+On Windows Quasar sets the process priority class (Low is Idle) and the processor affinity mask. On Linux it uses nice levels (Low 10, Below normal 5, Normal 0, Above normal -5, High -10) on every thread of the server, and `taskset` for affinity.
 
 Raising priority above Normal on Linux needs privileges. Install the setuid helper `/usr/local/bin/quasar-renice`:
 
@@ -308,7 +308,7 @@ Raising priority above Normal on Linux needs privileges. Install the setuid help
 
 Without it, Quasar calls `renice`, which fails for negative values as a normal user, and the card says "Install /usr/local/bin/quasar-renice to use High process priority on Linux." The helper only accepts Quasar's nice values and only renices Magnetar launcher processes owned by the caller.
 
-Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the card then says the helper may be outdated. Run the install command again. A server that stays at Normal priority never calls it.
+Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the card then says the helper may be outdated. An old one also renices only the main thread, so Quasar calls it once per thread and logs that it should be reinstalled. Run the install command again. A server that stays at Normal priority never calls it.
 
 ## Servers survive Quasar restarts
 
