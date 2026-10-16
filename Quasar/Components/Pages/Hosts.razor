@@ -18,7 +18,7 @@
 </QuasarPageHeading>
 @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-3">@LocalHost.Error</MudAlert> }
 @foreach (var warning in _localWarnings) { <MudAlert Severity="Severity.Warning" Class="mb-3">@warning</MudAlert> }
-<p class="quasar-text quasar-type-body2 mb-2">This PC's local Host executor runs from this Quasar install, with its configuration, state and log in <span class="mono">@LocalHost.Directory</span>. Quasar starts it when it is needed; it doesn't need enrollment.</p>
+@if (LocalHost.Supported) { <p class="quasar-text quasar-type-body2 mb-2">This PC's local Host executor runs from this Quasar install, with its configuration, state and log in <span class="mono">@LocalHost.Directory</span>. Quasar starts it when it is needed; it doesn't need enrollment.</p> }
 <p class="quasar-text quasar-type-body2 mb-4">Process agents report standalone-server health. Enrolled Host executors independently keep Cluster Registry, Cluster Gateway and node slots reconciled while the central Quasar worker restarts.</p>
 
 <section class="quasar-panel server-card mb-4">

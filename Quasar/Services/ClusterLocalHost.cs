@@ -33,6 +33,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private readonly CancellationTokenSource stopping = new();
     private Process? process;
     private bool wanted;
+    private (string Path, DateTime Written, long Length, string Sha256)? binaryHash;
     private string status = "Preparing the local Host executor.";
     private string? error;
 
@@ -55,6 +56,8 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     }
 
     private bool Connected => tunnels.IsConnected(HostId);
+    /// <summary>False on Windows, other architectures and in a container.</summary>
+    public bool Supported => supported;
     public string Status => Connected ? "Local Host executor connected." : status;
     public string? Error => Connected ? null : error;
     /// <summary>The folder with the local Host's configuration, state and log.</summary>
@@ -106,7 +109,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         {
             if (token.IsCancellationRequested || !await PrepareCoreAsync(token)) return;
             wanted = true;
-            string hash = installer.GetBinaryInfo().Sha256;
+            string hash = BinarySha256();
             if (ReadPid() is { } running)
             {
                 if (running.Sha256 == hash) return;
@@ -128,6 +131,15 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         }
         catch (OperationCanceledException) { }
         finally { gate.Release(); }
+    }
+
+    // Requests arrive every few seconds while the Host is offline; hash the binary only when it changed.
+    private string BinarySha256()
+    {
+        var file = new FileInfo(installer.BinaryPath);
+        if (binaryHash is not { } cached || cached.Path != file.FullName || cached.Written != file.LastWriteTimeUtc || cached.Length != file.Length)
+            binaryHash = cached = (file.FullName, file.LastWriteTimeUtc, file.Length, installer.GetBinaryInfo().Sha256);
+        return cached.Sha256;
     }
 
     private async Task PrepareAsync(CancellationToken token)
@@ -293,7 +305,10 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         stopping.Cancel();
-        if (!supported || ReadPid() is not { } running) return;
+        if (!supported) return;
+        // Let a start that is already under way finish, so its Host is seen below.
+        if (await gate.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None)) gate.Release();
+        if (ReadPid() is not { } running) return;
         bool busy = HasRunningClusters();
         if (busy && options.PreserveManagedServersOnShutdown)
         {
@@ -339,6 +354,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
 
     private static void WritePrivate(string path, string content, bool executable = false)
     {
+        if (File.Exists(path) && File.ReadAllText(path) == content) return;
         string temporary = path + ".new";
         var mode = UnixFileMode.UserRead | UnixFileMode.UserWrite | (executable ? UnixFileMode.UserExecute : 0);
         using (var file = new FileStream(temporary, new FileStreamOptions { Mode = FileMode.Create, Access = FileAccess.Write, UnixCreateMode = mode }))
