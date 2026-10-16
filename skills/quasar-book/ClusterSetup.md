@@ -47,11 +47,7 @@ Each enrollment gets a Host executor control port (default 18400, loopback only 
 
 ### Install on this PC
 
-Quasar runs the installer script as its own user account on the Quasar machine. The Host executor goes into `<install root>/HostExecutors/<id>/`, so it belongs to this Quasar install. Quasar never enrolls a local Host by itself; until you do, the Hosts page says "No Host executor is enrolled on this machine. To run clusters here, use Add host machine and choose Install on this PC."
-
-Once a host machine with a loopback or local address is enrolled, Quasar checks it at start and every 15 minutes, and runs the installer again while the Host is not connected. The Hosts page shows its status with the folder and the systemd units, for example "Local Host executor connected. Files: <folder>. systemd user units: quasar-host-<id>.service, -stop.service, -update.service and -update.timer." On other systems it says "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes."
-
-A local Host that an older Quasar version installed stays in `~/.local/share/Quasar/Hosts/<id>/`.
+Quasar runs the installer script as its own user account on the Quasar machine. Quasar also does this by itself: on Linux x64 it registers a host machine with ID `localhost` and name "<host name> (local)", picks a private LAN/VPN address of the machine (or `127.0.0.1` if it has none) and installs the Host executor. It re-checks every 15 minutes. The Hosts page shows its status, for example "Local Host executor connected." or "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes."
 
 ### Run an enrollment command
 
@@ -83,11 +79,10 @@ Keep it running with your own service manager. Before shutdown, have the service
 The local, command and SSH methods run the same script. It:
 
 1. Checks Linux x64, a working systemd user session, Python 3, `flock` and the .NET 10 runtime.
-2. Installs into `~/.local/share/Quasar/Hosts/<id>/` (Install on this PC: `<install root>/HostExecutors/<id>/`) with `Quasar.Host`, `host.json`, `state/credentials.json` and `bin/host-update.py`.
-3. Stops with "quasar-host-<id>.service already runs a Host from another folder, probably for another Quasar install. Enroll this machine with a different Host machine ID." when a unit of that name exists for a Host in another folder. Unit names carry only the Host machine ID, so two Quasar installs of the same user need different IDs.
-4. Writes systemd user units `quasar-host-<id>.service`, `quasar-host-<id>-update.service`, `quasar-host-<id>-update.timer` and `quasar-host-<id>-stop.service`, and enables them.
-5. Enables user lingering (`loginctl enable-linger`) when allowed, so the Host keeps running after logout. Otherwise it prints "Could not enable user lingering; run: sudo loginctl enable-linger <user>".
-6. Prints "Quasar Host installed or updated."
+2. Installs into `~/.local/share/Quasar/Hosts/<id>/` with `Quasar.Host`, `host.json`, `state/credentials.json` and `bin/host-update.py`.
+3. Writes systemd user units `quasar-host-<id>.service`, `quasar-host-<id>-update.service`, `quasar-host-<id>-update.timer` and `quasar-host-<id>-stop.service`, and enables them.
+4. Enables user lingering (`loginctl enable-linger`) when allowed, so the Host keeps running after logout. Otherwise it prints "Could not enable user lingering; run: sudo loginctl enable-linger <user>".
+5. Prints "Quasar Host installed or updated."
 
 Running it again for the same enrollment keeps `host.json`, credentials and state, replaces the binary only if it differs, and restarts only the Host unit (cluster processes keep running). A failed restart restores the previous binary. Details in [Cluster hosts](ClusterHosts.md).
 

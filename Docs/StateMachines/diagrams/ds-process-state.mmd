@@ -7,6 +7,8 @@ stateDiagram-v2
     Starting --> Restarting: startup inactivity/hard limit, retry budget remains
     Starting --> Stopping: operator Stop/Kill (cancel launch)
     Starting --> Faulted: launch prep failure / attach retries exhausted
+    Starting --> Restarting: failed start, RestartOnCrash within budget
+    Starting --> Crashed: failed start, RestartOnCrash off
     Running --> Stopping: goal Off
     Running --> Restarting: unhealthy, uptime or scheduled
     Running --> Crashed: unexpected exit (code != 0)

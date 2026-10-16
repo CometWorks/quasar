@@ -115,10 +115,12 @@ namespace Quasar.Agent
 
         // Tell Quasar about a stop it did not ask for, so it flips the goal
         // state to Off and does not restart the server against that intent.
-        // The stop that ends an in-game restart is not one.
+        // The stop that ends an in-game restart is not one, and neither is the
+        // stop before the world is ready: that is the DS giving up a world it
+        // can't load, which Quasar has to see as a failed start.
         private void ReportRequestedStop()
         {
-            if (_bridge != null && !_bridge.QuasarRequestedStop)
+            if (_bridge != null && !_bridge.QuasarRequestedStop && MySession.Static?.Ready == true)
                 ReportAdminStop();
         }
 

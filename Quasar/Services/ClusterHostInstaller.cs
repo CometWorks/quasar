@@ -1,4 +1,3 @@
-using Magnetar.Protocol.Runtime;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Compression;
@@ -19,7 +18,6 @@ public sealed class ClusterHostInstaller
     private readonly ClusterCredentialStore credentials;
     private readonly string binary;
     private readonly TimeProvider clock;
-    private readonly string localRoot;
     public ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials)
         : this(hosts, credentials, ResolveBinary(Environment.GetEnvironmentVariable(BinaryVariable), AppContext.BaseDirectory), TimeProvider.System) { }
     // Releases ship the single-file Host next to the web worker. Plain build output (dotnet run)
@@ -27,10 +25,8 @@ public sealed class ClusterHostInstaller
     internal const string BinaryVariable = "QUASAR_HOST_BINARY";
     internal static string ResolveBinary(string? configured, string baseDirectory) => string.IsNullOrWhiteSpace(configured)
         ? Path.Combine(baseDirectory, "Host", "Quasar.Host") : Path.GetFullPath(configured);
-    internal ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials, string binary, TimeProvider clock,
-        string? localRoot = null)
-        => (this.hosts, this.credentials, this.binary, this.clock, this.localRoot)
-            = (hosts, credentials, binary, clock, localRoot ?? Path.Combine(MagnetarPaths.GetQuasarDirectory(), "HostExecutors"));
+    internal ClusterHostInstaller(ClusterHostCatalog hosts, ClusterCredentialStore credentials, string binary, TimeProvider clock)
+        => (this.hosts, this.credentials, this.binary, this.clock) = (hosts, credentials, binary, clock);
     internal string BinaryPath => binary;
     public HostBinaryInfo GetBinaryInfo()
     {
@@ -62,23 +58,7 @@ public sealed class ClusterHostInstaller
         var script = BuildScript(hosts.Get(ticket.Host) ?? throw new KeyNotFoundException(), ticket.Origin);
         return _tickets.TryRemove(new KeyValuePair<Guid, Ticket>(id, ticket)) ? script : null;
     }
-    public Task InstallLocalAsync(string hostId, string quasarUrl, CancellationToken token)
-    {
-        string root = LocalRoot(hostId);
-        return RunAsync(new ProcessStartInfo("bash"), BuildScript(hosts.Get(hostId) ?? throw new KeyNotFoundException(), ValidateOrigin(quasarUrl),
-            root == LegacyRoot(hostId) ? null : root), token);
-    }
-
-    // Older Quasar versions installed every local Host in the home folder. Such a Host stays where it is.
-    private static string LegacyRoot(string hostId) => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share", "Quasar", "Hosts", hostId);
-
-    /// <summary>The folder of the Host executor this Quasar installs on its own machine: inside the Quasar
-    /// install, so uninstalling Quasar can find it, unless an older Quasar already put it in the home folder.</summary>
-    public string LocalRoot(string hostId) => File.Exists(Path.Combine(LegacyRoot(hostId), "Quasar.Host"))
-        ? LegacyRoot(hostId) : Path.Combine(localRoot, hostId);
-
-    private static object HostConfiguration(EnrolledClusterHost host, Uri origin) => new
+    internal static object HostConfiguration(EnrolledClusterHost host, Uri origin) => new
     {
         executorId = "quasar-" + host.Id, hostId = host.Id, pollIntervalSeconds = 2,
         attachments = Array.Empty<object>(), stateDirectory = "state",
@@ -152,14 +132,8 @@ public sealed class ClusterHostInstaller
     }
 
     private const int HostStopTimeoutSeconds = 110; // Quasar.Host's HostShutdown.StopTimeoutSeconds
-    // root: where to install, or null for ~/.local/share/Quasar/Hosts/<id> on the target machine.
-    internal byte[] BuildScript(EnrolledClusterHost host, Uri origin, string? root = null)
+    internal byte[] BuildScript(EnrolledClusterHost host, Uri origin)
     {
-        // Paths go into systemd units verbatim, where quotes, backslashes, $ and % have meanings.
-        if (root is not null && (!Path.IsPathFullyQualified(root) || root.IndexOfAny(['"', '\\', '$', '%', '\'', '`', '\n', '\r']) >= 0))
-            throw new ArgumentException($"The Host executor cannot be installed in {root}: the path must be absolute and free of quotes, backticks, backslashes, $ and %.");
-        string shellRoot = root ?? $"$HOME/.local/share/Quasar/Hosts/{host.Id}";
-        string unitRoot = root ?? $"%h/.local/share/Quasar/Hosts/{host.Id}";
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Guided cluster setup currently requires Linux x64.");
         if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
         var config = HostConfiguration(host, origin);
@@ -199,15 +173,11 @@ public sealed class ClusterHostInstaller
             fi
             command -v python3 >/dev/null && command -v flock >/dev/null || { echo 'Python 3 and util-linux are required.' >&2; exit 1; }
             command -v dotnet >/dev/null && dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App 10\.' || { echo 'Install the .NET 10 runtime before enrolling this machine. Gateway and world tools require it.' >&2; exit 1; }
-            qsr_root="{{shellRoot}}"
+            qsr_root="$HOME/.local/share/Quasar/Hosts/{{host.Id}}"
             qsr_unit=quasar-host-{{host.Id}}.service
             mkdir -p "$(dirname "$qsr_root")" "$HOME/.config/systemd/user"
             exec 9>"$(dirname "$qsr_root")/.{{host.Id}}.install.lock"
             flock -x 9
-            # Unit names only carry the Host ID, which another Quasar install of this user may use as well.
-            if test -e "$HOME/.config/systemd/user/$qsr_unit" && ! grep -qF -- '"{{unitRoot}}/Quasar.Host"' "$HOME/.config/systemd/user/$qsr_unit"; then
-                echo "$qsr_unit already runs a Host from another folder, probably for another Quasar install. Enroll this machine with a different Host machine ID." >&2; exit 1
-            fi
             test ! -L "$qsr_root" || { echo 'The Host directory must not be a symbolic link.' >&2; exit 1; }
             qsr_stage=''
             qsr_backup=''
@@ -276,8 +246,8 @@ public sealed class ClusterHostInstaller
             Description=Quasar Host {{host.Id}}
             After=network-online.target
             [Service]
-            Environment="PATH={{unitRoot}}/bin:/usr/local/bin:/usr/bin:/bin"
-            ExecStart="{{unitRoot}}/Quasar.Host" run --config "{{unitRoot}}/host.json"
+            Environment="PATH=%h/.local/share/Quasar/Hosts/{{host.Id}}/bin:/usr/local/bin:/usr/bin:/bin"
+            ExecStart="%h/.local/share/Quasar/Hosts/{{host.Id}}/Quasar.Host" run --config "%h/.local/share/Quasar/Hosts/{{host.Id}}/host.json"
             Restart=on-failure
             RestartSec=5
             KillMode=process
@@ -290,7 +260,7 @@ public sealed class ClusterHostInstaller
             After=network-online.target
             [Service]
             Type=oneshot
-            ExecStart=/usr/bin/env python3 "{{unitRoot}}/bin/host-update.py" "{{unitRoot}}"
+            ExecStart=/usr/bin/env python3 %h/.local/share/Quasar/Hosts/{{host.Id}}/bin/host-update.py %h/.local/share/Quasar/Hosts/{{host.Id}}
             QSR_UPDATE_UNIT
             cat > "$HOME/.config/systemd/user/quasar-host-{{host.Id}}-update.timer" <<'QSR_UPDATE_TIMER'
             [Unit]
@@ -311,7 +281,7 @@ public sealed class ClusterHostInstaller
             Type=oneshot
             RemainAfterExit=yes
             ExecStart=/bin/true
-            ExecStop="{{unitRoot}}/Quasar.Host" stop-clusters --config "{{unitRoot}}/host.json"
+            ExecStop="%h/.local/share/Quasar/Hosts/{{host.Id}}/Quasar.Host" stop-clusters --config "%h/.local/share/Quasar/Hosts/{{host.Id}}/host.json"
             TimeoutStopSec={{HostStopTimeoutSeconds}}
             [Install]
             WantedBy=default.target

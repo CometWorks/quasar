@@ -226,7 +226,7 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.AddSingleton(installer);
         context.Services.AddSingleton(tunnels);
         context.Services.AddSingleton(new ClusterHostClient(new HttpClient(), credentials));
-        context.Services.AddSingleton(new ClusterLocalHostUpdater(hosts, installer, tunnels, new WebServiceOptions(), NullLogger<ClusterLocalHostUpdater>.Instance));
+        context.Services.AddSingleton(new ClusterLocalHost(hosts, credentials, installer, tunnels, new WebServiceOptions(), NullLogger<ClusterLocalHost>.Instance, Path.Combine(_root, "LocalHost"), supported: false));
         context.Services.AddSingleton(new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build()));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));

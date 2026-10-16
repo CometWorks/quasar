@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.FileProviders;
 using MudBlazor;
 using MudBlazor.Services;
@@ -184,8 +185,8 @@ public class Program
             builder.Services.AddSingleton<ClusterHostCatalog>();
             builder.Services.AddSingleton<ClusterHostTunnels>();
             builder.Services.AddSingleton<ClusterHostInstaller>();
-            builder.Services.AddSingleton<ClusterLocalHostUpdater>();
-            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHostUpdater>());
+            builder.Services.AddSingleton<ClusterLocalHost>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHost>());
             builder.Services.AddSingleton<ClusterSetupService>();
             builder.Services.AddSingleton<ClusterUpdatePreparationService>();
             builder.Services.AddSingleton(webServiceOptions);
@@ -317,6 +318,7 @@ public class Program
 
             var app = builder.Build();
             app.Lifetime.ApplicationStopping.Register(app.Services.GetRequiredService<QuasarDiagnosticLoggerProvider>().MarkExpectedStop);
+            StopWebServerOnStopping(app);
             _ = app.Services.GetRequiredService<RbacConfigCatalog>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
@@ -613,6 +615,9 @@ public class Program
                 webServiceOptions.Headless,
                 MagnetarPaths.GetQuasarDirectory());
 
+            foreach (var warning in Quasar.Diagnostics.SystemLimits.Check())
+                startupLogger.LogWarning("{Warning}", warning);
+
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
             app.Run();
         }
@@ -635,6 +640,17 @@ public class Program
             LogManager.Shutdown();
         }
     }
+
+    internal static readonly TimeSpan WebServerDrainTimeout = TimeSpan.FromSeconds(5);
+
+    // SignalR closes the Blazor circuits when the application stops, but an open browser tab reconnects at
+    // once. Kestrel would wait for that new connection up to the 30 minute ShutdownTimeout meant for stopping
+    // servers, so Quasar would not exit while its UI is open. Stop the web server here instead: it stops
+    // listening and aborts the connections still open after a short drain. The host's own stop of the
+    // server later waits for this one.
+    internal static void StopWebServerOnStopping(WebApplication app) =>
+        app.Lifetime.ApplicationStopping.Register(() => _ = app.Services.GetRequiredService<IServer>()
+            .StopAsync(new CancellationTokenSource(WebServerDrainTimeout).Token));
 
     internal static string[] NormalizeWorkerArguments(IEnumerable<string> args) => args.Select(argument =>
     {

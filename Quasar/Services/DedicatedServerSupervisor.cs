@@ -768,7 +768,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.State == DedicatedServerProcessState.Running &&
                     agent?.IsConnected == true)
                 {
-                    agentDeploymentChecks.Add((state.UniqueName, Clone(state.Definition)));
+                    agentDeploymentChecks.Add((state.UniqueName, state.Definition.Clone()));
                 }
 
                 if (processActive &&
@@ -932,7 +932,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.State != DedicatedServerProcessState.Starting || !IsProcessActive(process))
                 return;
 
-            definition = Clone(state.Definition);
+            definition = state.Definition.Clone();
             maxAttempts = EffectiveAgentAttachRetryAttempts(definition);
             retryDelaySeconds = Math.Max(0, definition.AgentAttachRetryDelaySeconds);
             attempt = state.AgentAttachRetryAttempts + 1;
@@ -1474,51 +1474,74 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         try
         {
+            // Nice is per thread on Linux, and renicing the pid only changes
+            // the main thread. Null where /proc can't be read.
+            var pending = LinuxThreadsNotAtNice(processId, nice);
+
+            // Nothing to do when every thread already runs at that nice, as a
+            // plain start does for Normal.
+            if (pending is { Count: 0 })
+                return true;
+
             var useHelper = File.Exists(ReniceHelperPath);
-            using var renice = new Process
+            var tool = useHelper ? ReniceHelperPath : "renice";
+
+            // The helper renices every thread of the process it gets, renice
+            // takes all the thread ids.
+            var (exitCode, stdout, stderr) = RunNiceTool(
+                tool,
+                useHelper ? $"{nice} {processId}" : $"-n {nice} -p {string.Join(' ', pending ?? [processId])}");
+            pending = LinuxThreadsNotAtNice(processId, nice);
+
+            // Helpers built before SE1-0260 only change the thread they get.
+            if (useHelper && exitCode == 0 && pending is { Count: > 0 })
             {
-                StartInfo = new ProcessStartInfo
-                {
-                    FileName = useHelper ? ReniceHelperPath : "renice",
-                    Arguments = useHelper
-                        ? $"{nice} {processId}"
-                        : $"-n {nice} -p {processId}",
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                },
-            };
+                _logger.LogInformation(
+                    "{Tool} only reniced the main thread of server {UniqueName}; renicing {Count} threads one by one. Reinstall it to do this in one call.",
+                    tool,
+                    uniqueName,
+                    pending.Count);
+                foreach (var threadId in pending)
+                    RunNiceTool(tool, $"{nice} {threadId}");
+                pending = LinuxThreadsNotAtNice(processId, nice);
+            }
 
-            if (!renice.Start())
-                return false;
-
-            var stdout = renice.StandardOutput.ReadToEnd();
-            var stderr = renice.StandardError.ReadToEnd();
-            renice.WaitForExit(3000);
-            if (renice.ExitCode == 0)
+            // Where /proc is readable, every live thread has to have the nice.
+            // Threads that exit meanwhile make renice fail for their ids.
+            if (pending == null ? exitCode == 0 : pending.Count == 0)
             {
                 _logger.LogInformation(
                     "Applied {Phase} nice {Nice} to server {UniqueName} using {Tool}.",
                     phase,
                     nice,
                     uniqueName,
-                    useHelper ? ReniceHelperPath : "renice");
+                    tool);
                 return true;
             }
 
             _logger.LogWarning(
-                "{Tool} failed applying {Phase} nice {Nice} to server {UniqueName}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
-                useHelper ? ReniceHelperPath : "renice",
+                "{Tool} failed applying {Phase} nice {Nice} to server {UniqueName}. ExitCode={ExitCode}. ThreadsLeft={ThreadsLeft}. Stdout={Stdout}. Stderr={Stderr}",
+                tool,
                 phase,
                 nice,
                 uniqueName,
-                renice.ExitCode,
+                exitCode,
+                pending?.Count,
                 TrimForLog(stdout),
                 TrimForLog(stderr));
 
             if (!useHelper && nice < 0)
                 SetRuntimeMessage(uniqueName, $"Install {ReniceHelperPath} to use {priority} process priority on Linux.");
+
+            // Quasar updates never rebuild the helper, and older ones don't
+            // know the current Magnetar launcher names.
+            if (useHelper && stderr.Contains("not a supported Magnetar launcher"))
+            {
+                var message = $"{ReniceHelperPath} does not accept this Magnetar launcher and may be outdated. " +
+                    "Reinstall it with install.sh --install-renice-helper --no-build --no-enable from the Quasar install folder.";
+                _logger.LogWarning("{Message}", message);
+                SetRuntimeMessage(uniqueName, message);
+            }
         }
         catch (Exception exception)
         {
@@ -1526,6 +1549,78 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         return false;
+    }
+
+    private static (int ExitCode, string Stdout, string Stderr) RunNiceTool(string fileName, string arguments)
+    {
+        using var tool = new Process
+        {
+            StartInfo = new ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            },
+        };
+
+        if (!tool.Start())
+            return (-1, string.Empty, string.Empty);
+
+        var stdout = tool.StandardOutput.ReadToEnd();
+        var stderr = tool.StandardError.ReadToEnd();
+        tool.WaitForExit(3000);
+        return (tool.ExitCode, stdout, stderr);
+    }
+
+    private static List<int>? LinuxThreadsNotAtNice(int processId, int nice) =>
+        ReadLinuxThreadNices(processId)?.Where(thread => thread.Value != nice).Select(thread => thread.Key).ToList();
+
+    // Nice of each thread of a process by thread id, from /proc/<pid>/task.
+    // Null when it can't be read, for example on macOS or after an exit.
+    internal static Dictionary<int, int>? ReadLinuxThreadNices(int processId)
+    {
+        try
+        {
+            var nices = new Dictionary<int, int>();
+            foreach (var task in Directory.EnumerateDirectories($"/proc/{processId}/task"))
+            {
+                string stat;
+                try
+                {
+                    stat = File.ReadAllText(Path.Combine(task, "stat"));
+                }
+                catch (IOException)
+                {
+                    continue; // The thread exited.
+                }
+
+                if (!int.TryParse(Path.GetFileName(task), out var threadId) || ParseLinuxNice(stat) is not { } nice)
+                    return null;
+
+                nices[threadId] = nice;
+            }
+
+            return nices.Count > 0 ? nices : null;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    // Field 19 of a /proc stat line, counted after the command name, which
+    // ends with the last ')' and may itself contain spaces.
+    internal static int? ParseLinuxNice(string stat)
+    {
+        var end = stat.LastIndexOf(')');
+        if (end < 0)
+            return null;
+
+        var fields = stat[(end + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return fields.Length > 16 && int.TryParse(fields[16], out var nice) ? nice : null;
     }
 
     private void TryApplyCpuAffinity(string uniqueName, string affinity, string phase)
@@ -1686,6 +1781,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         int exitCode;
         bool stopRequested;
         bool restartRequested;
+        bool startFailed;
         bool shouldRestart = false;
         bool shouldCaptureErrorTail = false;
         DateTimeOffset? errorLogSinceUtc = null;
@@ -1705,10 +1801,18 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (!_states.TryGetValue(uniqueName, out state) || !ReferenceEquals(state.Process, process))
                 return;
 
-            definition = Clone(state.Definition);
+            definition = state.Definition.Clone();
             exitCode = SafeGetExitCode(state.Process);
             stopRequested = state.StopRequested || _isStopping;
-            restartRequested = state.IsRestartPending && state.State == DedicatedServerProcessState.Restarting;
+            restartRequested = state.IsRestartPending && IsRestartExit(state.State, state.StartedAtUtc, state.LastRestart);
+            // The DS gives up a world it can't load by exiting on its own. Quasar.Agent doesn't
+            // report that as a stop, so the goal is still On.
+            startFailed = !stopRequested && !restartRequested &&
+                definition.GoalState == DedicatedServerGoalState.On &&
+                IsStartingUp(state.State, state.StartedAtUtc, state.LastRestart);
+            var exitText = startFailed
+                ? $"Start failed: process exited with code {exitCode} before the world was ready"
+                : $"Process exited with code {exitCode}";
 
             if (state.StartedAtUtc.HasValue && (now - state.StartedAtUtc.Value) >= RestartCounterResetWindow)
                 state.RestartAttempts = 0;
@@ -1747,11 +1851,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.RestartAttempts = nextAttempt;
                     state.IsRestartPending = true;
                     state.State = DedicatedServerProcessState.Restarting;
-                    state.LastMessage = $"Process exited with code {exitCode}. Restarting.";
+                    state.LastMessage = $"{exitText}. Restarting.";
                     requestedRestart = SetRestartRequested(
                         state,
                         DedicatedServerRestartCause.CrashRecovery,
-                        $"Process exited with code {exitCode}; restart attempt {nextAttempt}/{maxAttempts}.",
+                        $"{exitText}; restart attempt {nextAttempt}/{maxAttempts}.",
                         now);
                     shouldRestart = true;
                     restartDelaySeconds = Math.Max(0, definition.RestartDelaySeconds);
@@ -1761,7 +1865,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     state.RestartAttempts = maxAttempts;
                     state.IsRestartPending = false;
                     state.State = DedicatedServerProcessState.Faulted;
-                    state.LastMessage = $"Process exited with code {exitCode}. Restart attempt limit ({maxAttempts}) reached.";
+                    state.LastMessage = $"{exitText}. Restart attempt limit ({maxAttempts}) reached.";
                     if (CompletePendingRestart(state, DedicatedServerRestartOutcome.Failed, now))
                         failedRestart = Clone(state.LastRestart!);
                 }
@@ -1772,16 +1876,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 if (state.State != DedicatedServerProcessState.Faulted)
                 {
                     state.IsRestartPending = false;
-                    state.State = stopRequested
+                    var exitedNormally = exitCode == 0 && !startFailed;
+                    state.State = stopRequested || exitedNormally
                         ? DedicatedServerProcessState.Stopped
-                        : exitCode == 0
-                            ? DedicatedServerProcessState.Stopped
-                            : DedicatedServerProcessState.Crashed;
+                        : DedicatedServerProcessState.Crashed;
                     state.LastMessage = stopRequested
                         ? "Stopped by supervisor."
-                        : exitCode == 0
+                        : exitedNormally
                             ? "Process exited normally."
-                            : $"Process exited with code {exitCode}.";
+                            : $"{exitText}.";
                 }
             }
 
@@ -1790,7 +1893,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         if (shouldCaptureErrorTail)
-            CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc);
+            CaptureLatestErrorLogTail(uniqueName, definition, errorLogSinceUtc, preferServerLog: startFailed);
 
         NotifyChanged();
         _logger.LogInformation("Server {UniqueName} exited with code {ExitCode}.", uniqueName, exitCode);
@@ -2003,7 +2106,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             {
                 if (_states.TryGetValue(definition.UniqueName, out var state))
                 {
-                    state.Definition = Clone(definition);
+                    state.Definition = definition.Clone();
                     if (string.IsNullOrWhiteSpace(state.LastMessage))
                         state.LastMessage = "Stopped.";
                 }
@@ -2012,7 +2115,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     _states.Add(definition.UniqueName, new ManagedServerState
                     {
                         UniqueName = definition.UniqueName,
-                        Definition = Clone(definition),
+                        Definition = definition.Clone(),
                         State = DedicatedServerProcessState.Stopped,
                         LastMessage = "Stopped.",
                     });
@@ -2059,7 +2162,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (!_states.TryGetValue(uniqueName, out var state))
                 return;
 
-            definition = Clone(state.Definition);
+            definition = state.Definition.Clone();
             errorLogSinceUtc = state.StartedAtUtc;
             state.State = DedicatedServerProcessState.Faulted;
             state.Process = null;
@@ -2090,9 +2193,13 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         NotifyChanged();
     }
 
-    private void CaptureLatestErrorLogTail(string uniqueName, DedicatedServerDefinition definition, DateTimeOffset? sinceUtc)
+    private void CaptureLatestErrorLogTail(
+        string uniqueName,
+        DedicatedServerDefinition definition,
+        DateTimeOffset? sinceUtc,
+        bool preferServerLog = false)
     {
-        var latest = FindLatestErrorLogLine(definition, sinceUtc);
+        var latest = FindLatestErrorLogLine(definition, sinceUtc, preferServerLog);
         if (latest is null)
             return;
 
@@ -2106,13 +2213,21 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
     }
 
-    private static ErrorLogLine? FindLatestErrorLogLine(DedicatedServerDefinition definition, DateTimeOffset? sinceUtc)
+    // A failed start ends with Magnetar's own teardown lines, so its log is written last; the
+    // reason the world didn't load is in the dedicated server's log.
+    private static ErrorLogLine? FindLatestErrorLogLine(
+        DedicatedServerDefinition definition,
+        DateTimeOffset? sinceUtc,
+        bool preferServerLog)
     {
         var serverLog = FindLatestErrorLine(
             ResolveDedicatedServerAppDataPath(definition),
             "SpaceEngineersDedicated*.log",
             "server",
             sinceUtc);
+        if (preferServerLog && serverLog is not null)
+            return serverLog;
+
         var magnetarLog = FindLatestErrorLine(
             ResolveMagnetarAppDataPath(definition),
             "info*.log",
@@ -2827,6 +2942,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 $"Quasar.Agent did not {expectedAction}; startup logs were inactive for {state.Definition.AgentStartupGraceSeconds}s.");
     }
 
+    // The exiting process is the one an in-game restart asked to quit, not its replacement.
+    internal static bool IsRestartExit(
+        DedicatedServerProcessState state,
+        DateTimeOffset? processStartedAtUtc,
+        DedicatedServerRestartInfo? restart) =>
+        state == DedicatedServerProcessState.Restarting && IsAwaitingRestartExit(processStartedAtUtc, restart);
+
+    // The process has not reached Running yet: a first start, or the replacement process of
+    // a restart.
+    internal static bool IsStartingUp(
+        DedicatedServerProcessState state,
+        DateTimeOffset? processStartedAtUtc,
+        DedicatedServerRestartInfo? restart) =>
+        state == DedicatedServerProcessState.Starting ||
+        state == DedicatedServerProcessState.Restarting && !IsAwaitingRestartExit(processStartedAtUtc, restart);
+
     // An in-game restart is reported just before the old process saves and
     // quits, and that process still looks online until it exits. Taking it for
     // the restarted server would complete the restart early and turn the exit
@@ -3295,54 +3426,6 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static int EffectiveAgentAttachRetryAttempts(DedicatedServerDefinition definition) =>
         Math.Max(1, definition.AgentAttachRetryAttempts);
 
-    private static DedicatedServerDefinition Clone(DedicatedServerDefinition definition)
-    {
-        return new DedicatedServerDefinition
-        {
-            UniqueName = definition.UniqueName,
-            DisplayName = definition.DisplayName,
-            InGameServerName = definition.InGameServerName,
-            InGameWorldName = definition.InGameWorldName,
-            OriginalUniqueName = definition.OriginalUniqueName,
-            GoalState = definition.GoalState,
-            ExecutablePath = definition.ExecutablePath,
-            WorkingDirectory = definition.WorkingDirectory,
-            ManagedRuntime = definition.ManagedRuntime,
-            DedicatedServerAppDataPath = definition.DedicatedServerAppDataPath,
-            MagnetarAppDataPath = definition.MagnetarAppDataPath,
-            WorldPath = definition.WorldPath,
-            WorldSaveName = definition.WorldSaveName,
-            ConfigFilePath = definition.ConfigFilePath,
-            ConfigProfileId = definition.ConfigProfileId,
-            WorldTemplateId = definition.WorldTemplateId,
-            LaunchArguments = definition.LaunchArguments,
-            LogLaunchEnvironment = definition.LogLaunchEnvironment,
-            ServerPort = definition.ServerPort,
-            ServerIP = definition.ServerIP,
-            AutoStart = definition.AutoStart,
-            EnableHealthMonitoring = definition.EnableHealthMonitoring,
-            AutoRestartOnUnhealthy = definition.AutoRestartOnUnhealthy,
-            AgentStartupGraceSeconds = definition.AgentStartupGraceSeconds,
-            AgentStartupHardLimitSeconds = definition.AgentStartupHardLimitSeconds,
-            AgentAttachRetryAttempts = definition.AgentAttachRetryAttempts,
-            AgentAttachRetryDelaySeconds = definition.AgentAttachRetryDelaySeconds,
-            AgentHeartbeatTimeoutSeconds = definition.AgentHeartbeatTimeoutSeconds,
-            SimulationProgressWindowSeconds = definition.SimulationProgressWindowSeconds,
-            MinimumSimulationProgressScore = definition.MinimumSimulationProgressScore,
-            WarnAfterUptimeHours = definition.WarnAfterUptimeHours,
-            RecycleAfterUptimeHours = definition.RecycleAfterUptimeHours,
-            RestartOnCrash = definition.RestartOnCrash,
-            RestartDelaySeconds = definition.RestartDelaySeconds,
-            MaxRestartAttempts = definition.MaxRestartAttempts,
-            DailyRestartTimeLocal = definition.DailyRestartTimeLocal,
-            MaximumUptime = definition.MaximumUptime,
-            AvoidSimultaneousScheduledRestarts = definition.AvoidSimultaneousScheduledRestarts,
-            StartupProcessPriority = definition.StartupProcessPriority,
-            ReadyProcessPriority = definition.ReadyProcessPriority,
-            CpuAffinity = definition.CpuAffinity,
-            UpdatedAtUtc = definition.UpdatedAtUtc,
-        };
-    }
 
     private static bool TryAdoptProcess(int processId, out Process process)
     {
