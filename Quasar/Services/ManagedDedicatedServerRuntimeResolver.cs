@@ -202,8 +202,18 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
         if (!dedicatedServerReady)
         {
+            var missingLibraries = DescribeMissingSteamCmdLibraries();
+            if (missingLibraries.Length > 0)
+            {
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.SteamCmd,
+                    ManagedRuntimeInstallPhase.Failed,
+                    SteamCmdLinuxLibrariesHint,
+                    Path: steamCmdPath));
+            }
+
             return ManagedRuntimeReadiness.Failed(
-                "Space Engineers Dedicated Server is not installed and could not be downloaded." + DescribeMissingSteamCmdLibraries(),
+                "Space Engineers Dedicated Server is not installed and could not be downloaded." + missingLibraries,
                 steamCmdPath,
                 steamCmdRuntimePath,
                 dedicatedServer64Path);
