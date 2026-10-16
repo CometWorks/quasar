@@ -67,12 +67,13 @@ curl http://127.0.0.1:8080/api/ready
 | `serve` | Run Bootstrap and supervise the web worker in this process. Used by the service. |
 | (no command) | Same as `ensure-running`: reuse a healthy Quasar, otherwise start one. From a terminal it runs in the foreground; from a script it starts a detached launcher and waits up to 60 seconds for it to become healthy. |
 | `cluster ...` | Cluster command line tools. See [Clusters](Clusters.md). |
+| `help`, `--help`, `-h` | Print the commands and options and exit. |
 | `--headless` | API-only mode. |
 | `--quiet` | No console output from Bootstrap. The service unit uses it. |
 | `--force` | With `ensure-running`: stop an already running Quasar worker first. |
 | `--open-browser` | With `ensure-running`: open the UI in a browser when a graphical session exists. |
 
-`ensure-running` exit codes: `2` invalid usage, `3` launcher entry point not found, `4` Quasar did not become healthy in time, `5` the port is taken by another program.
+`ensure-running` exit codes: `2` unknown command, option or argument (nothing is started), `3` launcher entry point not found, `4` Quasar did not become healthy in time, `5` the port is taken by another program.
 
 ## Install as a systemd service
 
