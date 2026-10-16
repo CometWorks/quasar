@@ -151,7 +151,9 @@ Quasar applies the per-server process priority with `renice`. Without root, norm
 ~/.local/share/Quasar/install.sh --install-renice-helper --no-build --no-enable
 ```
 
-The helper accepts only nice values -10, -5, 0, 5 and 10, only for processes owned by the caller, and only for Magnetar executables (`MagnetarInterim.bin`, `MagnetarInterim`, `MagnetarInterim.exe`, `MagnetarLegacy.exe`).
+The helper accepts only nice values -10, -5, 0, 5 and 10, only for processes owned by the caller, and only for Magnetar executables (`MagnetarInterim.bin`, `MagnetarInterim`, `MagnetarInterim.exe`, `MagnetarLegacy.exe`). Nice is per thread on Linux, so it renices every thread of the server.
+
+Quasar updates don't rebuild the helper. Helpers installed before Magnetar shipped `MagnetarInterim.bin` reject it, and the server shows that `/usr/local/bin/quasar-renice` may be outdated. Older helpers also change only the server's main thread; Quasar then runs them once per thread and logs that the helper should be reinstalled. Run the same command again to rebuild it.
 
 ## Where Quasar keeps its files
 
