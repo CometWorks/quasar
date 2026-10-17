@@ -61,7 +61,7 @@ cd Quasar
 
 - Bootstrap starts the web worker and prints `Quasar worker launching on http://127.0.0.1:8080`. Open that URL in a browser. A `serve` run does not open a browser by itself.
 - Logs go to the console and to `Logs/quasar.log` inside the extracted folder.
-- `Ctrl+C` stops the launcher.
+- `Ctrl+C` stops the launcher. So does `kill <pid>` (SIGTERM) on the launcher: either way Bootstrap stops the web worker first and exits with code 0.
 - State lives in the extracted folder, because Bootstrap sets `QUASAR_INSTALL_DIR` to its own folder when the variable is not set.
 - If another Quasar is already healthy on the same install folder, `./Quasar serve` exits immediately with code 0 and no output.
 
@@ -151,7 +151,7 @@ The unit waits for `network-online.target`. Use `Restart=on-failure` in any cust
 
 ### Stopping and the Shutdown Quasar action
 
-- `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start.
+- `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. A SIGTERM to Bootstrap, from `kill` or a process manager, does the same. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start.
 - The power button in the top bar opens **Quasar power** (admin role). **Shutdown Quasar** saves the managed server state, stops the web worker and Bootstrap with exit code 0. systemd leaves the service inactive. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Start the service again to bring the UI back: `systemctl --user start quasar.service` or `sudo systemctl start quasar.service`.
 - **Restart Quasar** in the same dialog restarts only the web worker under Bootstrap. Servers keep running.
 - **Save and stop all servers** stops every server and leaves Quasar running.
