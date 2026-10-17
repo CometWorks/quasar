@@ -220,8 +220,8 @@ python3 scripts/test-bootstrap-shutdown.py
 
 This dependency-free Python check runs an isolated Bootstrap build with a fake
 HTTP worker in foreground and service modes. It verifies stale-request cleanup,
-worker crash recovery, and intentional shutdown of both processes with Bootstrap
-exit code `0`. Windows Task Scheduler and Linux systemd policy still need native
+worker crash recovery, and that a shutdown request, SIGINT and SIGTERM each stop
+both processes with Bootstrap exit code `0`. Windows Task Scheduler and Linux systemd policy still need native
 deployment validation; the installed restart-on-failure policies must remain in
 place for intentional shutdown to stay stopped.
 
