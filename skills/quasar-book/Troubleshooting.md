@@ -146,6 +146,7 @@ Read the status line at the top of **Updates**. Bootstrap rolls back a UI releas
 | **Restart Quasar** in the same dialog | Restarts only the worker. Not available in Docker. |
 | **Save and stop all servers** | Stops every server; Quasar keeps running. |
 | Ctrl+C in a foreground run | Stops the launcher and worker. |
+| `kill <launcher pid>` (SIGTERM, Linux) | Same as Ctrl+C. |
 | `systemctl --user stop quasar.service` (or `sudo systemctl stop quasar.service`) | Same as Ctrl+C. |
 | `Stop-ScheduledTask -TaskName Quasar` | Ends the launcher process. |
 | `docker compose down` or `stop` | Stops the container. The image stops the managed servers too. |

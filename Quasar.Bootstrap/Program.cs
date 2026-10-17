@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -272,6 +273,7 @@ internal static class Program
             eventArgs.Cancel = true;
             shutdown.Cancel();
         };
+        using var terminateSignal = RegisterTerminateSignal(shutdown);
 
         try
         {
@@ -296,6 +298,26 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    // kill, process managers and supervisors send SIGTERM. Without a handler the runtime ends the launcher at
+    // once and leaves the worker running unsupervised, so SIGTERM stops the worker like Ctrl+C does. Signal
+    // handling is Linux and macOS only, the same as in the worker.
+    internal static IDisposable? RegisterTerminateSignal(CancellationTokenSource shutdown) =>
+        OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
+            ? PosixSignalRegistration.Create(
+                PosixSignal.SIGTERM,
+                context => CancelOnSignal(context, shutdown)
+            )
+            : null;
+
+    internal static void CancelOnSignal(
+        PosixSignalContext context,
+        CancellationTokenSource shutdown
+    )
+    {
+        context.Cancel = true;
+        shutdown.Cancel();
     }
 
     private static bool IsPortInUse(int port, string host)
