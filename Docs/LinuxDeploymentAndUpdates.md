@@ -94,6 +94,18 @@ Then it writes `Updates/active-release.json` pointing at the managed active
 worker. `Updates/Staged/` is reserved for not-yet-activated update payloads.
 The downloaded archive must match the release's `SHA256SUMS` entry before it is
 extracted.
+
+If the download fails, Bootstrap retries it until it works: 30 seconds after the
+first failure, then doubling up to 10 minutes between attempts. When GitHub
+answers 403 or 429 with `X-RateLimit-Remaining: 0` or `Retry-After`, Bootstrap
+waits until the reset time from `X-RateLimit-Reset` (or `Retry-After`) plus a few
+seconds instead, at most an hour, and says so. The launcher doesn't read
+`GITHUB_TOKEN`; the token from `github-updates.json` is used when one is saved.
+Each wait is logged; a run without a console (the service, `--quiet`) also writes
+it to stderr, so it reaches the journal. An explicitly configured
+`QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` worker or a source-tree build is used right
+away instead of waiting. The launcher prints `Quasar worker launching on <url>`
+only when a worker runs; otherwise it prints that the web UI is not available.
 When running as a systemd service, Bootstrap ignores a stale active-release
 pointer that targets a random external build directory. Only packaged
 `WebService/` workers, managed web releases, or explicitly configured

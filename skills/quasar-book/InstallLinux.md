@@ -14,7 +14,7 @@ Every Quasar GitHub release (`https://github.com/CometWorks/quasar/releases`) ca
 | `quasar-symbols-linux-x64.zip` | Debug symbols matching the release | Developers analyzing crashes. |
 | `SHA256SUMS` | SHA-256 of every archive | Quasar verifies every download against it. |
 
-The installer archive does not contain the web UI. On first start Bootstrap downloads the latest `quasar-web-linux-x64.tar.gz` from GitHub, checks it against `SHA256SUMS`, extracts it to `<install-dir>/ManagedRuntime/WebService/<version>/` and writes `<install-dir>/Updates/active-release.json` pointing at it. The first start therefore needs outbound HTTPS access to GitHub.
+The installer archive does not contain the web UI. On first start Bootstrap downloads the latest `quasar-web-linux-x64.tar.gz` from GitHub, checks it against `SHA256SUMS`, extracts it to `<install-dir>/ManagedRuntime/WebService/<version>/` and writes `<install-dir>/Updates/active-release.json` pointing at it. The first start therefore needs outbound HTTPS access to GitHub. If the download fails, Bootstrap keeps retrying until it works; see [Common problems](#common-problems).
 
 Both the launcher and the web worker are self-contained single-file x64 executables (`linux-x64`).
 
@@ -247,7 +247,12 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `Refusing unsafe install directory: <dir>`: pick a dedicated folder.
 - The service does not start at boot: enable lingering for the user service (`sudo loginctl enable-linger <user>`), or check that `--no-enable` was not used.
 - `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
-- The UI never comes up after a fresh install: Bootstrap could not download the web worker from GitHub, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. The service logs nothing about it, because Bootstrap runs with `--quiet`. Stop the service and run `./Quasar serve` in a terminal to see `Failed downloading initial Quasar web release.` or `No Quasar web release asset named quasar-web-linux-x64.tar.gz was found.`. Fix network access and start the service again.
+- The UI doesn't come up after a fresh install: Bootstrap hasn't been able to download the web worker from GitHub yet, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. Bootstrap retries a failed download on its own, 30 seconds after the first failure, then doubling up to every 10 minutes, and writes each wait to the journal (`journalctl --user -u quasar.service`):
+  - `Failed downloading the Quasar web UI; retrying at <time> (in <n> s). <error>`: GitHub can't be reached. Fix network access; there is no need to restart Quasar.
+  - `GitHub's API rate limit is used up, so Quasar can't download its web UI yet. Waiting for GitHub to reset the limit; retrying at <time> ...`: GitHub allows 60 anonymous API requests an hour per public IP address, and every machine behind the same NAT, CGNAT or hosting provider shares them. Quasar waits until the reset time GitHub sends (at most an hour) and then continues on its own. Bootstrap doesn't read `GITHUB_TOKEN`, and the token on the [Updates](Updates.md) page can only be saved once the UI is up; after that, it keeps later update checks out of the anonymous limit.
+  - Older launchers (1.3.1.27 and earlier) gave up after the first failure, printed `Failed downloading initial Quasar web release.` and `Quasar worker launching on ...` with no worker behind it, and needed a restart once GitHub could be reached again.
+
+  With updates disabled and no worker, or when no `quasar-web-linux-x64.tar.gz` asset is found, a foreground run (`./Quasar serve`) prints `Quasar has no running worker, so the web UI is not available.` after the reason.
 - `Could not request Bootstrap shutdown. Check write access to the Quasar install directory.`: the service user cannot write to the install root. Fix ownership (`chown -R <user> <install-dir>`).
 
 ## Sources
