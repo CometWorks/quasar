@@ -1569,9 +1569,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
     // linux32/steamcmd is a 32-bit program. Without the 32-bit loader bash reports "cannot
     // execute: required file not found", and a missing 32-bit library makes the loader fail;
-    // both exit 127.
+    // both exit 127. lib32gcc-s1 brings libc6-i386 with the loader, and neither needs the i386
+    // architecture enabled (SE1-0285).
     internal const string SteamCmdLinuxLibrariesHint =
-        "SteamCMD is a 32-bit program and this host can't run it. Install its 32-bit libraries, on Debian and Ubuntu: sudo dpkg --add-architecture i386 && sudo apt update && sudo apt install libc6:i386 lib32gcc-s1";
+        "SteamCMD is a 32-bit program and this host can't run it. Install its 32-bit libraries, on Debian and Ubuntu: sudo apt install lib32gcc-s1";
 
     private const string Linux32BitLoaderPath = "/lib/ld-linux.so.2";
 

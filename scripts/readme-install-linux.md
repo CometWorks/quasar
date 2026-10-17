@@ -4,6 +4,20 @@ You downloaded **`quasar-installer-linux.tar.gz`**. It contains one
 `Quasar/` folder with the Quasar launcher (`Quasar`), the
 `install.sh` / `uninstall.sh` scripts, and a default `appsettings.json`.
 
+### Before you start
+
+Quasar runs on Linux x64 with glibc 2.38 or newer, such as Debian 13 or Ubuntu
+24.04. It needs the .NET 10 runtime (`install.sh` offers to install it), the CA
+certificates for its HTTPS downloads, and the 32-bit libraries of SteamCMD,
+which downloads the Dedicated Server. On Debian and Ubuntu:
+
+```bash
+sudo apt update && sudo apt install ca-certificates lib32gcc-s1
+```
+
+See the prerequisites in
+[Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md#prerequisites).
+
 ### Run in the foreground
 
 ```bash

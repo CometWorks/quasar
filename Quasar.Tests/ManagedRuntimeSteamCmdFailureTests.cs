@@ -51,7 +51,7 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
 
         Assert.True(readiness.IsReady, readiness.FailureMessage);
         Assert.Contains("ExitCode=127", readiness.SteamCmdFailure);
-        Assert.Contains("libc6:i386 lib32gcc-s1", readiness.SteamCmdFailure);
+        Assert.Contains("sudo apt install lib32gcc-s1", readiness.SteamCmdFailure);
         Assert.Equal(
             ManagedRuntimeInstallPhase.Failed,
             LastPhase(reports, ManagedRuntimeInstallComponent.SteamCmd)
@@ -150,7 +150,7 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
             return;
 
         Assert.Contains(
-            "libc6:i386",
+            "lib32gcc-s1",
             ManagedDedicatedServerRuntimeResolver.DescribeMissingSteamCmdLibraries(127)
         );
         Assert.Empty(ManagedDedicatedServerRuntimeResolver.DescribeMissingSteamCmdLibraries(1));
