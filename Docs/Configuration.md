@@ -31,7 +31,7 @@ SteamCMD can't be downloaded or run, warmup still completes: the SteamCMD row is
 marked failed with its error and a retry button, Magnetar and the Dedicated
 Server become ready, and servers launch without the `linux64` runtime path. On
 Linux an exit code of 127 usually means the 32-bit libraries are missing
-(`libc6:i386` and `lib32gcc-s1` on Debian and Ubuntu); the error then says so.
+(`lib32gcc-s1` on Debian and Ubuntu); the error then says so.
 
 On Linux the managed SteamCMD runs with its own `HOME` under
 `{Quasar data}/ManagedRuntime/Tools/SteamCmdHome` (override with
