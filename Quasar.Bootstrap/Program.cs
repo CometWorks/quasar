@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -272,13 +273,18 @@ internal static class Program
             eventArgs.Cancel = true;
             shutdown.Cancel();
         };
+        using var terminateSignal = RegisterTerminateSignal(shutdown);
 
         try
         {
             await coordinator.StartAsync(shutdown.Token).ConfigureAwait(false);
 
             if (!quiet)
-                Console.WriteLine($"{BootstrapOptions.SupervisorName} worker launching on {options.BaseUrl}");
+            {
+                Console.WriteLine(coordinator.IsReady
+                    ? $"{BootstrapOptions.SupervisorName} worker launching on {options.BaseUrl}"
+                    : $"{BootstrapOptions.SupervisorName} has no running worker, so the web UI is not available. See the log above for the reason.");
+            }
 
             await coordinator.ShutdownRequested.WaitAsync(shutdown.Token).ConfigureAwait(false);
         }
@@ -292,6 +298,26 @@ internal static class Program
         }
 
         return 0;
+    }
+
+    // kill, process managers and supervisors send SIGTERM. Without a handler the runtime ends the launcher at
+    // once and leaves the worker running unsupervised, so SIGTERM stops the worker like Ctrl+C does. Signal
+    // handling is Linux and macOS only, the same as in the worker.
+    internal static IDisposable? RegisterTerminateSignal(CancellationTokenSource shutdown) =>
+        OperatingSystem.IsLinux() || OperatingSystem.IsMacOS()
+            ? PosixSignalRegistration.Create(
+                PosixSignal.SIGTERM,
+                context => CancelOnSignal(context, shutdown)
+            )
+            : null;
+
+    internal static void CancelOnSignal(
+        PosixSignalContext context,
+        CancellationTokenSource shutdown
+    )
+    {
+        context.Cancel = true;
+        shutdown.Cancel();
     }
 
     private static bool IsPortInUse(int port, string host)
@@ -924,8 +950,18 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     // successfully, so systemd/Task Scheduler restart-on-failure stays inactive.
     public Task ShutdownRequested => _shutdownRequested.Task;
 
-    public LauncherCoordinator(BootstrapOptions options, LauncherForegroundOptions foregroundOptions, ILogger<LauncherCoordinator> logger)
+    // Tests replace these to fake GitHub and skip the real retry waits.
+    internal Func<TimeSpan, CancellationToken, Task> Delay { get; init; } = Task.Delay;
+
+    internal Func<bool> HasFallbackWorker { get; init; }
+
+    public LauncherCoordinator(
+        BootstrapOptions options,
+        LauncherForegroundOptions foregroundOptions,
+        ILogger<LauncherCoordinator> logger,
+        HttpMessageHandler? gitHubHandler = null)
     {
+        HasFallbackWorker = () => TryBuildInitialReleasePointer(out _);
         _options = options;
         _foregroundOptions = foregroundOptions;
         _logger = logger;
@@ -937,7 +973,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         var githubRetryHandler = new GitHubRetryHandler((message, exception) =>
             _logger.LogWarning(exception, "{Message}", message))
         {
-            InnerHandler = new HttpClientHandler(),
+            InnerHandler = gitHubHandler ?? new HttpClientHandler(),
         };
         _downloadClient = new HttpClient(githubRetryHandler)
         {
@@ -1010,7 +1046,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (TryConsumeWorkerRestartRequest())
             _logger.LogInformation("Cleared stale Quasar worker restart request on startup.");
 
-        await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
+        await WaitForInitialWebReleaseAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
         var previousPath = MagnetarPaths.GetQuasarActiveReleasePath() + ".previous";
@@ -1435,22 +1471,71 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
     }
 
-    private async Task EnsureInitialWebReleaseAvailableAsync(CancellationToken cancellationToken)
+    // Without a worker there is no web UI, so a failed first download is retried until
+    // it works, unless another worker (QUASAR_WEB_EXE, a source build) can take over.
+    internal async Task WaitForInitialWebReleaseAsync(CancellationToken cancellationToken)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            var failure = await EnsureInitialWebReleaseAvailableAsync(cancellationToken).ConfigureAwait(false);
+            if (failure is null)
+                return;
+
+            if (HasFallbackWorker())
+            {
+                _logger.LogWarning(failure, "Failed downloading initial Quasar web release; using a local worker instead.");
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            var delay = InitialWebReleaseRetry.GetDelay(failure, attempt, now);
+            var retryAt = (now + delay).ToLocalTime();
+            if (failure is GitHubRateLimitException)
+            {
+                ReportInitialDownloadWait(null,
+                    "GitHub's API rate limit is used up, so Quasar can't download its web UI yet. " +
+                    $"Waiting for GitHub to reset the limit; retrying at {retryAt:HH:mm:ss} " +
+                    $"(in {Math.Ceiling(delay.TotalMinutes):0} min). GitHub allows 60 anonymous requests an hour " +
+                    "per public IP address, shared by every machine behind it. Quasar doesn't read GITHUB_TOKEN; " +
+                    "once the web UI is up, a GitHub token saved on its Updates page avoids this.");
+            }
+            else
+            {
+                ReportInitialDownloadWait(failure,
+                    $"Failed downloading the Quasar web UI; retrying at {retryAt:HH:mm:ss} " +
+                    $"(in {delay.TotalSeconds:0} s). {failure.Message}");
+            }
+
+            await Delay(delay, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    // The launcher logs to the console only in the foreground; a service writes the
+    // wait to stderr so it reaches the journal.
+    private void ReportInitialDownloadWait(Exception? exception, string message)
+    {
+        _logger.LogWarning(exception, "{Message}", message);
+        if (!_foregroundOptions.IsForeground)
+            Console.Error.WriteLine(message);
+    }
+
+    // Returns the failure when the download was tried and failed, null otherwise.
+    private async Task<Exception?> EnsureInitialWebReleaseAvailableAsync(CancellationToken cancellationToken)
     {
         var existing = ReadActiveReleasePointer();
         if (existing is not null && IsReleasePointerUsable(existing, allowExternalPointer: !IsServiceMode()))
-            return;
+            return null;
 
         if (FindPackagedWorkerCandidate() is not null)
-            return;
+            return null;
 
         if (!_options.UpdatesEnabled)
-            return;
+            return null;
 
         if (!OperatingSystem.IsLinux() && !OperatingSystem.IsWindows())
         {
             _logger.LogWarning("Quasar web auto-download is not supported on this platform.");
-            return;
+            return null;
         }
 
         try
@@ -1464,7 +1549,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             if (release is null || asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
             {
                 _logger.LogWarning("No Quasar web release asset named {AssetName} was found.", _options.WebAssetName);
-                return;
+                return null;
             }
 
             var version = QuasarReleaseVersion.Normalize(release.TagName);
@@ -1505,10 +1590,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             });
             CleanupStagedUpdates(releaseDirectory);
             _logger.LogInformation("Downloaded initial Quasar web release {Version}.", version);
+            return null;
         }
-        catch (Exception exception)
+        catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
         {
-            _logger.LogWarning(exception, "Failed downloading initial Quasar web release.");
+            return exception;
         }
     }
 
@@ -1528,7 +1614,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         var url = $"https://api.github.com/repos/{_options.UpdatesOwner}/{_options.UpdatesRepository}/releases?per_page=100";
         ApplyGitHubAuthorization();
         using var response = await _downloadClient.GetAsync(url, cancellationToken).ConfigureAwait(false);
-        response.EnsureSuccessStatusCode();
+        InitialWebReleaseRetry.EnsureSuccess(response, DateTimeOffset.UtcNow);
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
 
         var releases = await JsonSerializer.DeserializeAsync<List<GitHubRelease>>(stream, JsonOptions, cancellationToken).ConfigureAwait(false);
