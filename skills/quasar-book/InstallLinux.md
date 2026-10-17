@@ -21,11 +21,25 @@ Both the launcher and the web worker are self-contained single-file x64 executab
 ## Prerequisites
 
 - Linux x64 with systemd (`systemctl`) for the service install. A foreground run does not need systemd.
+- glibc 2.38 or newer, for example Debian 13 or Ubuntu 24.04. The native libraries LinuxCompat loads into the Dedicated Server need it. On Ubuntu 22.04 (glibc 2.35, .NET 10 from the `ppa:dotnet/backports` PPA) Quasar installs and downloads everything, but every server start aborts at `Havok: Physics.Init` with exit code 134, and Magnetar's crash report says `GLIBC_2.38' not found (required by .../LinuxCompat-*/Bin/libHavok.so)`. Debian 12 has glibc 2.36.
 - .NET 10. `install.sh` checks it before it copies any file:
   - Installing from an extracted release archive needs the .NET 10 ASP.NET Core runtime. The script looks for both `Microsoft.NETCore.App 10.x` and `Microsoft.AspNetCore.App 10.x` in `dotnet --list-runtimes`.
   - Installing from a source checkout needs the .NET 10 SDK, because the script runs `dotnet publish`.
 - A .NET 10 SDK is only needed later if an administrator installs a source-built QuasarHub UI plugin. Quasar then uses a .NET 10 SDK on `PATH`, or asks whether to download a pinned private SDK into `<install-dir>/ManagedRuntime/Tools/DotNetSdk/`. The private SDK needs no `sudo` and does not change `PATH`. See [UI plugins](UiPlugins.md).
 - Git is not required.
+- `ca-certificates`. Quasar downloads SteamCMD, Magnetar and plugins over HTTPS, and SteamCMD needs them to log in to Steam. Minimal Ubuntu installs lack them and `install.sh` doesn't add them there; on Debian 13 its .NET install commands do.
+- 32-bit libraries for SteamCMD, which Quasar uses to download and update the Dedicated Server. `linux32/steamcmd` is a 32-bit program and needs the 32-bit loader `/lib/ld-linux.so.2`. On Debian and Ubuntu install `lib32gcc-s1`. It brings `libc6-i386` with the loader, so the i386 architecture doesn't have to be enabled. On a host with i386 enabled, `libc6:i386` works too. Without them only SteamCMD fails: a Dedicated Server supplied with `QUASAR_DS_INSTALL_DIR` still works, but Quasar can't download or update one. See [Servers](Servers.md#managed-downloads-steamcmd-dedicated-server-magnetar).
+- Magnetar and the Dedicated Server need nothing else on Debian 13 and Ubuntu 24.04: Magnetar runs on the .NET 10 runtime, and the LinuxCompat native libraries load with the base system.
+
+On Debian and Ubuntu, before the first start:
+
+```bash
+sudo apt update && sudo apt install ca-certificates lib32gcc-s1
+```
+
+Checked on minimal Debian 13 and Ubuntu 24.04 installs, up to a server that reaches `Game ready`. The self-contained launcher needs ICU, which the .NET runtime packages bring: on a host without it `./Quasar serve` stops with `Couldn't find a valid ICU package installed on the system`.
+
+`install.sh` warns when `/etc/ssl/certs` is empty or `/lib/ld-linux.so.2` is missing and prints the `apt install` command, then installs as usual.
 
 ### What install.sh does when .NET is missing
 
@@ -245,6 +259,9 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `systemctl not found; systemd install cannot continue.`: the machine has no systemd. Run `./Quasar serve` in the foreground instead, or use [Docker](Docker.md).
 - `.NET 10 ASP.NET Core runtime is still missing after installation attempt.`: the package install did not provide .NET 10. The script lists the SDKs and runtimes it found. Install .NET 10 manually and rerun.
 - `Refusing unsafe install directory: <dir>`: pick a dedicated folder.
+- The SteamCMD row of the Managed Runtime panel fails with `ExitCode=127` and `linux32/steamcmd: cannot execute: required file not found`: the host lacks SteamCMD's 32-bit libraries. Install them (see [Prerequisites](#prerequisites)) and click **Retry** on the SteamCMD row.
+- Quasar logs `The remote certificate is invalid because of errors in the certificate chain: PartialChain` for every download, or SteamCMD fails with `unable to load trusted SSL root certificates` and exit code 254: the host lacks `ca-certificates`. Install it (see [Prerequisites](#prerequisites)) and restart Quasar.
+- `./Quasar serve` stops with `Couldn't find a valid ICU package installed on the system`: install the .NET 10 runtime (see [Prerequisites](#prerequisites)), whose packages bring ICU.
 - The service does not start at boot: enable lingering for the user service (`sudo loginctl enable-linger <user>`), or check that `--no-enable` was not used.
 - `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
 - The UI never comes up after a fresh install: Bootstrap could not download the web worker from GitHub, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. The service logs nothing about it, because Bootstrap runs with `--quiet`. Stop the service and run `./Quasar serve` in a terminal to see `Failed downloading initial Quasar web release.` or `No Quasar web release asset named quasar-web-linux-x64.tar.gz was found.`. Fix network access and start the service again.

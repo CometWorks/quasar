@@ -3,6 +3,55 @@
 Quasar Linux deployment is split into a stable Bootstrap layer and a replaceable
 web UI worker.
 
+## Prerequisites
+
+Quasar runs on Linux x64 with glibc 2.38 or newer, for example Debian 13 or
+Ubuntu 24.04. The native libraries that LinuxCompat loads into the Dedicated
+Server need it: on Ubuntu 22.04 (glibc 2.35, .NET 10 from the
+`ppa:dotnet/backports` PPA) Quasar installs and downloads everything, but the
+server aborts at `Havok: Physics.Init` (exit code 134) with
+`GLIBC_2.38' not found (required by .../LinuxCompat-*/Bin/libHavok.so)` in
+the Magnetar crash report. Debian 12 has glibc 2.36.
+
+Checked on minimal Debian 13 and Ubuntu 24.04 installs, up to a server that
+reaches `Game ready`. Before the first start such a host needs:
+
+- The .NET 10 ASP.NET Core runtime (`aspnetcore-runtime-10.0`). `install.sh`
+  offers to install it, see [Install](#install). Magnetar runs on it, and its
+  packages bring ICU (`libicu*`). The self-contained launcher needs ICU too: on
+  a host without it `./Quasar serve` stops with `Couldn't find a valid ICU
+  package installed on the system`.
+- `ca-certificates`. Quasar downloads SteamCMD, Magnetar and plugins over
+  HTTPS, and SteamCMD needs them to log in to Steam. Without them Quasar's
+  downloads fail with `The remote certificate is invalid because of errors in
+  the certificate chain: PartialChain`, and SteamCMD with `unable to load
+  trusted SSL root certificates` (exit 254). On Debian 13 the .NET install
+  commands of `install.sh` add them; on Ubuntu nothing does.
+- `lib32gcc-s1`, for SteamCMD, which Quasar uses to download and update the
+  Dedicated Server. Its `linux32/steamcmd` is a 32-bit program and needs the
+  32-bit loader `/lib/ld-linux.so.2`. Without it SteamCMD exits 127
+  (`cannot execute: required file not found`).
+
+```bash
+sudo apt update && sudo apt install ca-certificates lib32gcc-s1
+```
+
+`lib32gcc-s1` brings `libc6-i386`, which has the loader, so the i386
+architecture doesn't have to be enabled. Hosts that already have it enabled can
+use `libc6:i386` instead: `sudo dpkg --add-architecture i386 && sudo apt update
+&& sudo apt install libc6:i386`. Either one is enough for SteamCMD to update
+itself, log in anonymously and download the Dedicated Server. On Debian 13 and
+Ubuntu 24.04, Magnetar, its LinuxCompat native libraries and the Dedicated
+Server need nothing beyond the .NET runtime.
+
+`install.sh` doesn't install `ca-certificates` or `lib32gcc-s1`. It warns when
+`/etc/ssl/certs` is empty or `/lib/ld-linux.so.2` is missing and prints the
+`apt install` command, then installs as usual. Without the 32-bit libraries
+Quasar marks only SteamCMD failed when a valid Dedicated Server is already in
+place (for example from `QUASAR_DS_INSTALL_DIR`); otherwise the Dedicated
+Server download fails and its error names `lib32gcc-s1`. The Docker image
+installs the 32-bit libraries.
+
 ## Release Assets
 
 `scripts/package-linux-release.sh` produces:

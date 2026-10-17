@@ -11,6 +11,16 @@ For cluster machines, also download `quasar-host-linux-x64.tar.gz` or
 `quasar-host-win-x64.zip`. Extract the Host into a dedicated directory; it has its own
 configuration and lifecycle. See [Host packaging](BuildingAndDevelopment.md#cluster-host-release-package).
 
+Quasar on Linux needs glibc 2.38 or newer (Debian 13, Ubuntu 24.04), the .NET 10
+runtime (`install.sh` offers to install it), the CA certificates and the 32-bit
+libraries of SteamCMD. On Debian and Ubuntu:
+
+```bash
+sudo apt update && sudo apt install ca-certificates lib32gcc-s1
+```
+
+See [Prerequisites](LinuxDeploymentAndUpdates.md#prerequisites).
+
 ## Run from the terminal (foreground)
 
 **Linux**
