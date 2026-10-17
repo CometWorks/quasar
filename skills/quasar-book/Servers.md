@@ -306,9 +306,11 @@ Raising priority above Normal on Linux needs privileges. Install the setuid help
 ./install.sh --install-renice-helper --no-build --no-enable
 ```
 
-Without it, Quasar calls `renice`, which fails for negative values as a normal user, and the card says "Install /usr/local/bin/quasar-renice to use High process priority on Linux." The helper only accepts Quasar's nice values and only renices Magnetar launcher processes owned by the caller.
+Without it, Quasar calls `renice`, which fails for negative values as a normal user, and the server shows "Install /usr/local/bin/quasar-renice to use High process priority on Linux." The helper only accepts Quasar's nice values and only renices Magnetar launcher processes owned by the caller.
 
-Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the card then says the helper may be outdated. An old one also renices only the main thread, so Quasar calls it once per thread and logs that it should be reinstalled. Run the install command again. A server that stays at Normal priority never calls it.
+Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the server then shows that the helper may be outdated, with the command to reinstall it. An old one also renices only the main thread, so Quasar calls it once per thread and logs that it should be reinstalled. Run the install command again. A server that stays at Normal priority never calls it.
+
+Both warnings stay on the server while it runs, until a priority applies: on the card, in the expanded row of the List view, and as "Process priority not applied" under the row's status. Changing the ready priority to one that applies, such as Normal, clears the warning. After reinstalling the helper, restart the server so Quasar tries the priority again.
 
 ## Servers survive Quasar restarts
 
@@ -333,7 +335,7 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 - **Server keeps restarting with "Health policy"**: look at the health message. A low simulation rate or a stale heartbeat triggers it. Lower **Minimum average simulation rate**, or turn off **Auto-restart when unhealthy** while investigating.
 - **Second server not reachable**: check that no server's game port equals another server's game port + 1000 or + 2000. Each server also uses those two derived ports.
 - **Mods missing after start**: the world's mod list comes from the config profile on every start. Add the mods to the profile, or use **Merge Into <profile>** in the server editor.
-- **High priority does nothing on Linux**: install `quasar-renice` (see above). If the card says the helper may be outdated, install it again.
+- **High priority does nothing on Linux**: install `quasar-renice` (see above). If the server says the helper may be outdated, install it again and restart the server.
 - **Server deleted but disk still full**: delete `<quasar-root>/Magnetars/<Server ID>/` yourself.
 
 ## Sources
