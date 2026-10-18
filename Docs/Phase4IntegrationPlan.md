@@ -78,7 +78,8 @@ shared installation. Common plugin compilation/cache export is an explicit input
 Host preparation verifies the complete input inventory before promotion. Portable
 installation archives support remote Hosts and regenerate local launch paths. The
 package's nonlaunching generator produces execution bundles and canonical config.
-Capability `pluginServices: 1` requires the exact build PluginSdk SHA-256. Immutable
+Capability `pluginServices: 1` requires a PluginSdk pin: a contract version, or the
+exact build PluginSdk SHA-256 when either side declares no contract. Immutable
 candidate inputs remain separate from mutable runtime trees and the active revision.
 
 ## 3. Durable packaged lifecycle
