@@ -8,7 +8,7 @@ namespace Quasar.Services;
 
 public sealed class ClusterHostTunnels
 {
-    // A WebSocket keeps Kestrel's graceful shutdown waiting (up to the 30 minute ShutdownTimeout) and
+    // A WebSocket keeps Kestrel's graceful shutdown waiting until Program.WebServerDrainTimeout aborts it, and
     // RequestAborted does not fire for it, so every Host channel also ends when the application stops.
     private readonly CancellationToken _stopping;
     public ClusterHostTunnels(IHostApplicationLifetime lifetime) => _stopping = lifetime.ApplicationStopping;
@@ -17,6 +17,8 @@ public sealed class ClusterHostTunnels
     private sealed record Pending(string Host, Connection Connection, TaskCompletionSource<WebSocket> Socket, TaskCompletionSource Closed);
     private readonly ConcurrentDictionary<string, Connection> _hosts = new();
     private readonly ConcurrentDictionary<Guid, Pending> _pending = new();
+    /// <summary>Raised when Quasar needs a Host that isn't connected, so the local Host can be started.</summary>
+    public event Action<string>? OfflineHostRequested;
     public bool IsConnected(string host) => _hosts.TryGetValue(host, out var connection) && connection.Socket.State == WebSocketState.Open;
 
     internal async Task ConnectAsync(string host, HttpContext context)
@@ -71,7 +73,11 @@ public sealed class ClusterHostTunnels
             catch { tcp.Dispose(); throw; }
         }
         string host = context.DnsEndPoint.Host[..^suffix.Length];
-        if (!_hosts.TryGetValue(host, out var connection)) throw new IOException("Enrolled Host is offline.");
+        if (!_hosts.TryGetValue(host, out var connection))
+        {
+            OfflineHostRequested?.Invoke(host);
+            throw new IOException("Enrolled Host is offline.");
+        }
         var id = Guid.NewGuid();
         var pending = new Pending(host, connection, new(TaskCreationOptions.RunContinuationsAsynchronously), new(TaskCreationOptions.RunContinuationsAsynchronously));
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);

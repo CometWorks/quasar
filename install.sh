@@ -25,7 +25,8 @@ Usage: ./install.sh [options]
 
 Publishes Quasar and installs a systemd user service by default. Extracted
 release installers install in place by default and keep Quasar state beside the
-launcher.
+launcher. Next to the service it installs <service-name>-clusters.service, which
+saves and stops the clusters on this PC at logout or shutdown.
 
 For machine-wide service installation, pass --system and run with sudo.
 
@@ -360,6 +361,25 @@ require_dotnet_installation() {
     exit 1
 }
 
+warn_missing_download_packages() {
+    # Quasar, Magnetar and SteamCMD download over HTTPS. SteamCMD's linux32/steamcmd is 32-bit
+    # and exits 127 without the 32-bit loader. Without them Quasar can't download the Dedicated Server.
+    local missing=() packages=()
+    if ! compgen -G '/etc/ssl/certs/*' >/dev/null; then
+        missing+=("CA certificates for HTTPS downloads (nothing in /etc/ssl/certs)")
+        packages+=(ca-certificates)
+    fi
+    if [[ ! -e /lib/ld-linux.so.2 ]]; then
+        missing+=("the 32-bit loader for SteamCMD (/lib/ld-linux.so.2 is missing)")
+        packages+=(lib32gcc-s1)
+    fi
+    (( ${#packages[@]} )) || return 0
+
+    echo "Warning: Quasar can't download or update the Dedicated Server on this host. It lacks:" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    echo "Install them before the first start, on Debian and Ubuntu: sudo apt install ${packages[*]}" >&2
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-dir)
@@ -497,6 +517,9 @@ case "$INSTALL_DIR" in
 esac
 
 require_dotnet_installation
+warn_missing_download_packages
+
+CLUSTERS_UNIT="${SERVICE_NAME}-clusters.service"
 
 write_service_unit() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
@@ -524,10 +547,13 @@ Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
 Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
+Environment=QUASAR_HOST_STOP_UNIT=/etc/systemd/system/$CLUSTERS_UNIT
 
 [Install]
 WantedBy=multi-user.target
 EOF
+        write_clusters_unit "/etc/systemd/system/$CLUSTERS_UNIT" multi-user.target "User=$RUN_USER
+Group=$RUN_GROUP"
         systemctl daemon-reload
         return
     fi
@@ -556,18 +582,47 @@ Environment=QUASAR_MODE=Service
 Environment=QUASAR_OPEN_BROWSER_ON_START=false
 Environment=HOME=$RUN_HOME
 Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
+Environment=QUASAR_HOST_STOP_UNIT=$USER_SERVICE_DIR/$CLUSTERS_UNIT
 
 [Install]
 WantedBy=default.target
 EOF
+    write_clusters_unit "$USER_SERVICE_DIR/$CLUSTERS_UNIT" default.target ""
     systemctl --user daemon-reload
+}
+
+# Quasar runs the local Host executor itself, and a Quasar stop or restart leaves its running
+# clusters alone. This unit saves and stops them at logout or shutdown instead: systemd stops
+# it before Quasar's service, while the Host still runs. Keep TimeoutStopSec in sync with
+# HostShutdown.StopTimeoutSeconds in Quasar.Host.
+write_clusters_unit() {
+    local path="$1" wanted_by="$2" account="$3"
+    echo "Writing $path..."
+    cat > "$path" <<EOF
+[Unit]
+Description=Save and stop the clusters on this PC at logout or shutdown ($SERVICE_NAME)
+After=$SERVICE_NAME.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+${account:+$account
+}ExecStart=/bin/true
+ExecStop=/bin/sh -c 'test ! -x "$INSTALL_DIR/LocalHost/stop-clusters" || exec "$INSTALL_DIR/LocalHost/stop-clusters"'
+TimeoutStopSec=110
+
+[Install]
+WantedBy=$wanted_by
+EOF
 }
 
 enable_service() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
         systemctl enable "$SERVICE_NAME.service"
+        systemctl enable --now "$CLUSTERS_UNIT"
     else
         systemctl --user enable "$SERVICE_NAME.service"
+        systemctl --user enable --now "$CLUSTERS_UNIT"
     fi
 }
 
@@ -724,6 +779,7 @@ cat <<EOF
 Installed Quasar.
 
 Service:     $SERVICE_NAME.service ($INSTALL_MODE)
+Clusters:    $CLUSTERS_UNIT saves the clusters on this PC at logout or shutdown
 Install dir: $INSTALL_DIR
 Run user:    $RUN_USER
 

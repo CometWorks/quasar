@@ -152,25 +152,39 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             "Checking SteamCMD install."));
 
         var steamCmdPath = await EnsureManagedSteamCmdInstallAsync(progress, cancellationToken);
+        var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
+        var dedicatedServerReady = IsValidDedicatedServer64Directory(dedicatedServer64Path);
+
+        // SteamCMD only downloads and updates the DS (and on Linux provides its linux64
+        // runtime). With a usable DS already in place a SteamCMD failure fails SteamCMD
+        // alone, so Magnetar and the DS still become ready.
+        var steamCmdFailure = string.Empty;
         if (string.IsNullOrWhiteSpace(steamCmdPath))
         {
-            return ManagedRuntimeReadiness.Failed(
-                "SteamCMD is not installed and could not be downloaded.",
-                steamCmdPath,
-                string.Empty,
-                string.Empty);
+            const string notInstalled = "SteamCMD is not installed and could not be downloaded.";
+            if (!dedicatedServerReady)
+            {
+                return ManagedRuntimeReadiness.Failed(
+                    notInstalled,
+                    steamCmdPath,
+                    string.Empty,
+                    string.Empty);
+            }
+
+            steamCmdFailure = notInstalled;
         }
 
         var steamCmdRuntimePath = TryGetSteamCmdRuntimeDirectory(steamCmdPath);
-        progress?.Report(new ManagedRuntimeInstallProgress(
-            ManagedRuntimeInstallComponent.SteamCmd,
-            ManagedRuntimeInstallPhase.Ready,
-            "SteamCMD installed.",
-            Path: steamCmdPath,
-            Version: GetFileVersion(steamCmdPath)));
+        if (steamCmdFailure.Length == 0)
+        {
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.SteamCmd,
+                ManagedRuntimeInstallPhase.Ready,
+                "SteamCMD installed.",
+                Path: steamCmdPath,
+                Version: GetFileVersion(steamCmdPath)));
+        }
 
-        var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
-        var dedicatedServerReady = IsValidDedicatedServer64Directory(dedicatedServer64Path);
         progress?.Report(new ManagedRuntimeInstallProgress(
             ManagedRuntimeInstallComponent.DedicatedServer,
             ManagedRuntimeInstallPhase.Checking,
@@ -188,45 +202,76 @@ public sealed class ManagedDedicatedServerRuntimeResolver
 
         if (!dedicatedServerReady)
         {
+            var missingLibraries = DescribeMissingSteamCmdLibraries();
+            if (missingLibraries.Length > 0)
+            {
+                progress?.Report(new ManagedRuntimeInstallProgress(
+                    ManagedRuntimeInstallComponent.SteamCmd,
+                    ManagedRuntimeInstallPhase.Failed,
+                    SteamCmdLinuxLibrariesHint,
+                    Path: steamCmdPath));
+            }
+
             return ManagedRuntimeReadiness.Failed(
-                "Space Engineers Dedicated Server is not installed and could not be downloaded.",
+                "Space Engineers Dedicated Server is not installed and could not be downloaded." + missingLibraries,
                 steamCmdPath,
                 steamCmdRuntimePath,
                 dedicatedServer64Path);
         }
 
-        if (OperatingSystem.IsLinux() && !IsValidSteamGameServerRuntimeDirectory(steamCmdRuntimePath))
+        if (steamCmdFailure.Length == 0 && OperatingSystem.IsLinux() && !IsValidSteamGameServerRuntimeDirectory(steamCmdRuntimePath))
         {
             progress?.Report(new ManagedRuntimeInstallProgress(
                 ManagedRuntimeInstallComponent.SteamCmd,
                 ManagedRuntimeInstallPhase.Installing,
                 "Preparing SteamCMD native runtime."));
 
-            await RunSteamCmdAsync(
-                steamCmdPath,
-                "+quit",
-                "preparing SteamCMD native runtime",
-                cancellationToken);
+            try
+            {
+                await RunSteamCmdAsync(
+                    steamCmdPath,
+                    "+quit",
+                    "preparing SteamCMD native runtime",
+                    cancellationToken);
+            }
+            catch (InvalidOperationException exception)
+            {
+                _logger.LogWarning(exception, "SteamCMD can't run; continuing with the existing Dedicated Server.");
+                steamCmdFailure = exception.Message;
+            }
         }
 
-        steamCmdRuntimePath = TryGetSteamCmdRuntimeDirectory(steamCmdPath);
-        if (OperatingSystem.IsLinux() && !IsValidSteamGameServerRuntimeDirectory(steamCmdRuntimePath))
+        if (steamCmdFailure.Length > 0)
         {
-            return ManagedRuntimeReadiness.Failed(
-                $"SteamCMD native runtime not found under {steamCmdRuntimePath}.",
-                steamCmdPath,
-                steamCmdRuntimePath,
-                dedicatedServer64Path);
+            steamCmdRuntimePath = string.Empty;
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.SteamCmd,
+                ManagedRuntimeInstallPhase.Failed,
+                steamCmdFailure,
+                Path: steamCmdPath));
+        }
+        else
+        {
+            steamCmdRuntimePath = TryGetSteamCmdRuntimeDirectory(steamCmdPath);
+            if (OperatingSystem.IsLinux() && !IsValidSteamGameServerRuntimeDirectory(steamCmdRuntimePath))
+            {
+                return ManagedRuntimeReadiness.Failed(
+                    $"SteamCMD native runtime not found under {steamCmdRuntimePath}.",
+                    steamCmdPath,
+                    steamCmdRuntimePath,
+                    dedicatedServer64Path);
+            }
+
+            progress?.Report(new ManagedRuntimeInstallProgress(
+                ManagedRuntimeInstallComponent.SteamCmd,
+                ManagedRuntimeInstallPhase.Ready,
+                OperatingSystem.IsLinux()
+                    ? "SteamCMD and linux64 native runtime ready."
+                    : "SteamCMD ready.",
+                Path: OperatingSystem.IsLinux() ? steamCmdRuntimePath : steamCmdPath,
+                Version: GetFileVersion(steamCmdPath)));
         }
 
-        progress?.Report(new ManagedRuntimeInstallProgress(
-            ManagedRuntimeInstallComponent.SteamCmd,
-            ManagedRuntimeInstallPhase.Ready,
-            OperatingSystem.IsLinux()
-                ? "SteamCMD and linux64 native runtime ready."
-                : "SteamCMD ready.",
-            Path: OperatingSystem.IsLinux() ? steamCmdRuntimePath : steamCmdPath,
-            Version: GetFileVersion(steamCmdPath)));
         var dedicatedServerVersion = GetDedicatedServerVersion(dedicatedServer64Path);
         progress?.Report(new ManagedRuntimeInstallProgress(
             ManagedRuntimeInstallComponent.DedicatedServer,
@@ -242,7 +287,8 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             steamCmdPath,
             steamCmdRuntimePath,
             dedicatedServer64Path,
-            string.Empty);
+            string.Empty,
+            steamCmdFailure);
     }
 
     public Task EnsureManagedMagnetarCurrentAsync(
@@ -275,7 +321,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             steamCmdPath,
             progress);
         if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
-            throw new InvalidOperationException("Space Engineers Dedicated Server is not installed and could not be updated.");
+            throw new InvalidOperationException("Space Engineers Dedicated Server is not installed and could not be updated." + DescribeMissingSteamCmdLibraries());
 
         var version = GetDedicatedServerVersion(dedicatedServer64Path);
         progress?.Report(new ManagedRuntimeInstallProgress(
@@ -1295,12 +1341,13 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 if (result.ExitCode != 0)
                 {
                     _logger.LogWarning(
-                        "steamcmd failed installing/updating managed DS on attempt {Attempt}/{MaxAttempts}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}",
+                        "steamcmd failed installing/updating managed DS on attempt {Attempt}/{MaxAttempts}. ExitCode={ExitCode}. Stdout={Stdout}. Stderr={Stderr}.{Hint}",
                         attempt,
                         DedicatedServerInstallMaxAttempts,
                         result.ExitCode,
                         TrimForLog(result.Stdout),
-                        TrimForLog(result.Stderr));
+                        TrimForLog(result.Stderr),
+                        DescribeMissingSteamCmdLibraries(result.ExitCode));
                     if (attempt < DedicatedServerInstallMaxAttempts)
                         continue;
 
@@ -1515,9 +1562,24 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         if (result.ExitCode != 0)
         {
             throw new InvalidOperationException(
-                $"steamcmd failed while {action}. ExitCode={result.ExitCode}. Stdout={TrimForLog(result.Stdout)}. Stderr={TrimForLog(result.Stderr)}");
+                $"steamcmd failed while {action}. ExitCode={result.ExitCode}. Stdout={TrimForLog(result.Stdout)}. Stderr={TrimForLog(result.Stderr)}"
+                    + DescribeMissingSteamCmdLibraries(result.ExitCode));
         }
     }
+
+    // linux32/steamcmd is a 32-bit program. Without the 32-bit loader bash reports "cannot
+    // execute: required file not found", and a missing 32-bit library makes the loader fail;
+    // both exit 127. lib32gcc-s1 brings libc6-i386 with the loader, and neither needs the i386
+    // architecture enabled (SE1-0285).
+    internal const string SteamCmdLinuxLibrariesHint =
+        "SteamCMD is a 32-bit program and this host can't run it. Install its 32-bit libraries, on Debian and Ubuntu: sudo apt install lib32gcc-s1";
+
+    private const string Linux32BitLoaderPath = "/lib/ld-linux.so.2";
+
+    internal static string DescribeMissingSteamCmdLibraries(int? exitCode = null) =>
+        OperatingSystem.IsLinux() && (exitCode == 127 || !File.Exists(Linux32BitLoaderPath))
+            ? " " + SteamCmdLinuxLibrariesHint
+            : string.Empty;
 
     private async Task<SteamCmdProcessResult> WaitForSteamCmdProcessAsync(
         Process process,
@@ -2266,7 +2328,8 @@ public sealed record ManagedRuntimeReadiness(
     string SteamCmdPath,
     string SteamCmdRuntimePath,
     string DedicatedServer64Path,
-    string FailureMessage)
+    string FailureMessage,
+    string SteamCmdFailure = "")
 {
     public static ManagedRuntimeReadiness Failed(
         string failureMessage,

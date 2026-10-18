@@ -3,6 +3,55 @@
 Quasar Linux deployment is split into a stable Bootstrap layer and a replaceable
 web UI worker.
 
+## Prerequisites
+
+Quasar runs on Linux x64 with glibc 2.38 or newer, for example Debian 13 or
+Ubuntu 24.04. The native libraries that LinuxCompat loads into the Dedicated
+Server need it: on Ubuntu 22.04 (glibc 2.35, .NET 10 from the
+`ppa:dotnet/backports` PPA) Quasar installs and downloads everything, but the
+server aborts at `Havok: Physics.Init` (exit code 134) with
+`GLIBC_2.38' not found (required by .../LinuxCompat-*/Bin/libHavok.so)` in
+the Magnetar crash report. Debian 12 has glibc 2.36.
+
+Checked on minimal Debian 13 and Ubuntu 24.04 installs, up to a server that
+reaches `Game ready`. Before the first start such a host needs:
+
+- The .NET 10 ASP.NET Core runtime (`aspnetcore-runtime-10.0`). `install.sh`
+  offers to install it, see [Install](#install). Magnetar runs on it, and its
+  packages bring ICU (`libicu*`). The self-contained launcher needs ICU too: on
+  a host without it `./Quasar serve` stops with `Couldn't find a valid ICU
+  package installed on the system`.
+- `ca-certificates`. Quasar downloads SteamCMD, Magnetar and plugins over
+  HTTPS, and SteamCMD needs them to log in to Steam. Without them Quasar's
+  downloads fail with `The remote certificate is invalid because of errors in
+  the certificate chain: PartialChain`, and SteamCMD with `unable to load
+  trusted SSL root certificates` (exit 254). On Debian 13 the .NET install
+  commands of `install.sh` add them; on Ubuntu nothing does.
+- `lib32gcc-s1`, for SteamCMD, which Quasar uses to download and update the
+  Dedicated Server. Its `linux32/steamcmd` is a 32-bit program and needs the
+  32-bit loader `/lib/ld-linux.so.2`. Without it SteamCMD exits 127
+  (`cannot execute: required file not found`).
+
+```bash
+sudo apt update && sudo apt install ca-certificates lib32gcc-s1
+```
+
+`lib32gcc-s1` brings `libc6-i386`, which has the loader, so the i386
+architecture doesn't have to be enabled. Hosts that already have it enabled can
+use `libc6:i386` instead: `sudo dpkg --add-architecture i386 && sudo apt update
+&& sudo apt install libc6:i386`. Either one is enough for SteamCMD to update
+itself, log in anonymously and download the Dedicated Server. On Debian 13 and
+Ubuntu 24.04, Magnetar, its LinuxCompat native libraries and the Dedicated
+Server need nothing beyond the .NET runtime.
+
+`install.sh` doesn't install `ca-certificates` or `lib32gcc-s1`. It warns when
+`/etc/ssl/certs` is empty or `/lib/ld-linux.so.2` is missing and prints the
+`apt install` command, then installs as usual. Without the 32-bit libraries
+Quasar marks only SteamCMD failed when a valid Dedicated Server is already in
+place (for example from `QUASAR_DS_INSTALL_DIR`); otherwise the Dedicated
+Server download fails and its error names `lib32gcc-s1`. The Docker image
+installs the 32-bit libraries.
+
 ## Release Assets
 
 `scripts/package-linux-release.sh` produces:
@@ -94,6 +143,18 @@ Then it writes `Updates/active-release.json` pointing at the managed active
 worker. `Updates/Staged/` is reserved for not-yet-activated update payloads.
 The downloaded archive must match the release's `SHA256SUMS` entry before it is
 extracted.
+
+If the download fails, Bootstrap retries it until it works: 30 seconds after the
+first failure, then doubling up to 10 minutes between attempts. When GitHub
+answers 403 or 429 with `X-RateLimit-Remaining: 0` or `Retry-After`, Bootstrap
+waits until the reset time from `X-RateLimit-Reset` (or `Retry-After`) plus a few
+seconds instead, at most an hour, and says so. The launcher doesn't read
+`GITHUB_TOKEN`; the token from `github-updates.json` is used when one is saved.
+Each wait is logged; a run without a console (the service, `--quiet`) also writes
+it to stderr, so it reaches the journal. An explicitly configured
+`QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` worker or a source-tree build is used right
+away instead of waiting. The launcher prints `Quasar worker launching on <url>`
+only when a worker runs; otherwise it prints that the web UI is not available.
 When running as a systemd service, Bootstrap ignores a stale active-release
 pointer that targets a random external build directory. Only packaged
 `WebService/` workers, managed web releases, or explicitly configured
@@ -275,7 +336,12 @@ root helper when the feature is needed:
 The helper is installed as `/usr/local/bin/quasar-renice`, accepts only Quasar's
 known nice values, requires the target process to be owned by the caller, and
 checks that the target executable basename is one of Quasar's Magnetar launcher
-names before calling `setpriority`.
+names before calling `setpriority` on every thread of the process (nice is per
+thread on Linux). Helpers built before that change only the main thread; Quasar
+then calls them once per remaining thread. Quasar updates don't rebuild it; when it
+rejects the running Magnetar launcher, Quasar logs that it may be outdated and
+shows that on the server until a priority applies. Rerunning the command above
+replaces it; the server's next start applies the priority.
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh           # remove the user systemd service

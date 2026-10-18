@@ -14,6 +14,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     private const long MaxSpoolBytes = 8L * 1024 * 1024 * 1024;
     private readonly DataHandlingConsentCatalog _consent;
     private readonly ClusterHostCatalog _hosts;
+    private readonly Func<string, bool> _connected;
     private readonly ClusterHostClient _client;
     private readonly HttpClient _backoffice;
     private readonly ILogger<DiagnosticsUplinkService> _logger;
@@ -28,6 +29,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     private BackofficeKey? _key;
     private CancellationTokenSource _transfers = new();
     private long _generation;
+    private bool _disposed;
     private HostContract.HostDiagnosticPolicy? _policy;
     public string StateDirectory { get; }
     private readonly string _storageDirectory;
@@ -44,14 +46,17 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     }
 
     public DiagnosticsUplinkService(DataHandlingConsentCatalog consent, ClusterHostCatalog hosts, ClusterHostClient client,
-        IHttpClientFactory factory, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, Quasar.Diagnostics.DiagnosticCollector collector)
+        IHttpClientFactory factory, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, Quasar.Diagnostics.DiagnosticCollector collector,
+        ClusterHostTunnels tunnels)
         : this(consent, hosts, client, factory.CreateClient("DiagnosticsBackoffice"), configuration, logger,
-            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Diagnostics"), collector) { }
+            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Diagnostics"), collector, tunnels.IsConnected) { }
 
     internal DiagnosticsUplinkService(DataHandlingConsentCatalog consent, ClusterHostCatalog hosts, ClusterHostClient client,
-        HttpClient backoffice, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, string stateDirectory, Quasar.Diagnostics.DiagnosticCollector? collector = null)
+        HttpClient backoffice, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, string stateDirectory, Quasar.Diagnostics.DiagnosticCollector? collector = null,
+        Func<string, bool>? connected = null)
     {
         (_consent, _hosts, _client, _backoffice, _logger, StateDirectory) = (consent, hosts, client, backoffice, logger, stateDirectory);
+        _connected = connected ?? (_ => true);
         _collector = collector;
         _storageDirectory = collector?.RootDirectory ?? Quasar.Diagnostics.DiagnosticStorage.Resolve(
             Environment.GetEnvironmentVariable("QUASAR_DIAGNOSTICS_DIRECTORY")
@@ -239,8 +244,9 @@ public sealed class DiagnosticsUplinkService : BackgroundService
                 consent.GrantedSinceUtc, DateTimeOffset.UtcNow.AddMinutes(2), key?.KeyId ?? "", key?.PublicKeyPem ?? "",
                 key?.ExpiresAtUtc ?? DateTimeOffset.MinValue);
             lock (_sync) { token.ThrowIfCancellationRequested(); _policy = policy; }
-            // Lease refresh is independent of transfers, including slow or unreachable hosts.
-            await Task.WhenAll(_hosts.GetAll().Select(async host =>
+            // Lease refresh is independent of transfers, including slow or unreachable hosts. An offline Host
+            // gets the policy at the next refresh after it connects; asking for it would start the local Host.
+            await Task.WhenAll(_hosts.GetAll().Where(host => _connected(host.Id)).Select(async host =>
             {
                 try { await _client.SetDiagnosticsPolicyAsync(host, policy, token); }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
@@ -301,7 +307,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
                     { _logger.LogWarning("Local diagnostic report will retry ({FailureType}).", exception.GetType().Name); }
                 }
             }
-            foreach (var host in _hosts.GetAll())
+            foreach (var host in _hosts.GetAll().Where(host => _connected(host.Id)))
             {
                 token.ThrowIfCancellationRequested();
                 try
@@ -495,10 +501,17 @@ public sealed class DiagnosticsUplinkService : BackgroundService
         catch { TryDelete(path); throw; }
     }
 
+    // Program registers this service as a singleton and again, through a factory, as a hosted service,
+    // so the container disposes the same instance twice on shutdown.
     public override void Dispose()
     {
         _consent.Changed -= ConsentChanged;
-        lock (_sync) { _transfers.Cancel(); _transfers.Dispose(); }
+        lock (_sync)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _transfers.Cancel(); _transfers.Dispose();
+        }
         base.Dispose();
     }
 }

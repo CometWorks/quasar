@@ -4,7 +4,7 @@
 @inject ClusterCatalog ClusterCatalog
 @inject ClusterHostClient ClusterHostClient
 @inject ClusterHostCatalog EnrolledHosts
-@inject ClusterLocalHostUpdater LocalHost
+@inject ClusterLocalHost LocalHost
 
 <PageTitle>Host machines</PageTitle>
 
@@ -17,6 +17,8 @@
     <Description>@LocalHost.Status</Description>
 </QuasarPageHeading>
 @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning" Class="mb-3">@LocalHost.Error</MudAlert> }
+@foreach (var warning in _localWarnings) { <MudAlert Severity="Severity.Warning" Class="mb-3">@warning</MudAlert> }
+@if (LocalHost.Supported) { <p class="quasar-text quasar-type-body2 mb-2">This PC's local Host executor runs from this Quasar install, with its configuration, state and log in <span class="mono">@LocalHost.Directory</span>. Quasar starts it when it is needed; it doesn't need enrollment.</p> }
 <p class="quasar-text quasar-type-body2 mb-4">Process agents report standalone-server health. Enrolled Host executors independently keep Cluster Registry, Cluster Gateway and node slots reconciled while the central Quasar worker restarts.</p>
 
 <section class="quasar-panel server-card mb-4">
@@ -86,6 +88,7 @@
 {
     private readonly CancellationTokenSource _shutdown = new();
     private IReadOnlyList<ExecutorHostRow> ExecutorRows { get; set; } = [];
+    private string[] _localWarnings = [];
     private Task? _refreshLoop;
 
     private IReadOnlyList<HostRow> HostRows => Registry
@@ -103,6 +106,7 @@
 
     protected override async Task OnInitializedAsync()
     {
+        LocalHost.Request();
         Registry.Changed += HandleRegistryChanged;
         ClusterCatalog.Changed += HandleClusterCatalogChanged;
         await RefreshExecutorsAsync(_shutdown.Token, render: false);
@@ -160,6 +164,7 @@
         {
             Quasar.Host.Contract.V1.HostStatus status =
                 (await ClusterHostClient.GetStatusAsync(cluster, cancellationToken)).Data;
+            if (status.HostId == ClusterLocalHost.HostId) _localWarnings = status.Warnings ?? [];
             return new ExecutorHostRow(status.HostId, status.ExecutorId, true,
                 status.Attachments.Select(attachment => attachment.ClusterId).ToArray(),
                 status.Attachments.Count(attachment => attachment.ActualizationConfigured),

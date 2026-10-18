@@ -16,7 +16,8 @@ internal static class HostShutdown
 {
     // The Gateway spends up to 25 s returning players to the menu, drains for GraceSeconds, then
     // gives up 30 s later. That fits StopTimeoutSeconds, which stays under the 120 s that systemd
-    // gives user@.service to stop by default. Keep in sync with the stop unit in ClusterHostInstaller.
+    // gives user@.service to stop by default. Keep in sync with the stop unit in ClusterHostInstaller
+    // and the clusters unit in install.sh.
     internal const int GraceSeconds = 30;
     internal const int StopTimeoutSeconds = 110;
 
@@ -101,19 +102,32 @@ internal static class HostShutdown
     private static readonly object TimeoutLock = new();
     private static (double? Seconds, long ReadAt)? _userManagerStopTimeout;
 
-    /// <summary>What keeps clean stops from working on this machine. Only the guided install runs
-    /// the Host as a systemd user service; another service manager gets no checks.</summary>
+    /// <summary>Set for the local Host that Quasar runs itself: the path of the cluster stop unit that
+    /// Quasar's install.sh wrote, or empty when there is none.</summary>
+    internal const string StopUnitVariable = "QUASAR_HOST_STOP_UNIT";
+
+    /// <summary>What keeps clean stops from working on this machine. Only the guided install and
+    /// Quasar's own local Host get checks; another service manager gets none.</summary>
     internal static string[] Warnings(string hostId)
     {
-        if (!OperatingSystem.IsLinux() || Environment.GetEnvironmentVariable("INVOCATION_ID") is null)
+        if (!OperatingSystem.IsLinux())
+            return [];
+        string? localUnit = Environment.GetEnvironmentVariable(StopUnitVariable);
+        bool service = Environment.GetEnvironmentVariable("INVOCATION_ID") is not null;
+        if (localUnit is not null && (!service || localUnit.Length == 0 || !File.Exists(localUnit)))
+            return [service
+                ? "Quasar's service has no cluster stop unit, so a reboot kills the clusters on this PC without a save."
+                    + " Run Quasar's install.sh again to add it."
+                : "Quasar doesn't run as an installed service, so a reboot kills the clusters on this PC without a save."
+                    + " Install it with Quasar's install.sh."];
+        if (!service || localUnit is not null && !localUnit.StartsWith(UserUnitDirectory(), StringComparison.Ordinal))
             return [];
         var warnings = new List<string>();
         string user = Environment.UserName;
         if (!File.Exists("/var/lib/systemd/linger/" + user))
             warnings.Add($"User lingering is off for '{user}', so this Host and its clusters stop when that user logs out."
                 + $" Enable it with: sudo loginctl enable-linger {user}");
-        string unit = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".config", "systemd", "user", $"quasar-host-{hostId}-stop.service");
+        string unit = localUnit ?? Path.Combine(UserUnitDirectory(), $"quasar-host-{hostId}-stop.service");
         if (!File.Exists(unit))
             warnings.Add("The cluster stop unit is missing, so a reboot kills the clusters without a save."
                 + " Run the Host enrollment again to install it.");
@@ -124,6 +138,9 @@ internal static class HostShutdown
                 + " \"TimeoutStopSec=150\" to /etc/systemd/system/user@.service.d/timeout.conf and run systemctl daemon-reload.");
         return warnings.ToArray();
     }
+
+    private static string UserUnitDirectory() => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config", "systemd", "user") + "/";
 
     // Quasar polls the status often; a fixed timeout shows up within a minute.
     private static double? UserManagerStopTimeout()
