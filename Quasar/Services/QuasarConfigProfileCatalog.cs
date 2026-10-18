@@ -18,7 +18,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
     private readonly QuasarDevFolderCatalog? _devFolders;
     private List<QuasarConfigProfile> _profiles;
     private string _snapshot;
-    private DebouncedFileWatcher? _watcher;
+    private ChildFileWatcher? _watcher;
 
     public QuasarConfigProfileCatalog(ILogger<QuasarConfigProfileCatalog> logger, QuasarDevFolderCatalog? devFolders = null)
     {
@@ -127,9 +127,8 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             if (!Directory.Exists(directory))
                 return [];
 
-            var profiles = Directory
-                .GetFiles(directory, "profile.json", SearchOption.AllDirectories)
-                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+            var profiles = ChildFileWatcher
+                .FindFiles(directory, "profile.json")
                 .Select(LoadProfile)
                 .Where(profile => profile is not null)
                 .Select(profile => Normalize(profile!))
@@ -267,21 +266,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
 
     private void StartWatching()
     {
-        var directory = GetProfilesDirectory();
-        _watcher = DebouncedFileWatcher.WatchDirectory(
-            directory,
-            "*.json",
-            includeSubdirectories: true,
-            IsTrackedProfilePath,
-            ReloadFromDisk);
-    }
-
-    private static bool IsTrackedProfilePath(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return false;
-
-        return string.Equals(Path.GetFileName(path), "profile.json", StringComparison.OrdinalIgnoreCase);
+        _watcher = new ChildFileWatcher(GetProfilesDirectory(), "profile.json", ReloadFromDisk);
     }
 
     private void ReloadFromDisk()

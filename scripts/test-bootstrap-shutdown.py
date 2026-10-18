@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import socket
 import subprocess
 import sys
@@ -46,16 +47,13 @@ def run_worker(port):
         return server.exit_code or 0
 
 
-def check_shutdown(bootstrap, service):
+def check_shutdown(bootstrap, service, stop):
     with tempfile.TemporaryDirectory(prefix="quasar-shutdown-") as directory:
         root = Path(directory)
         # Keep Bootstrap outside the source tree so worker discovery cannot fall
         # back to a real Quasar build if this fixture's release pointer is invalid.
         bootstrap_root = root / "Bootstrap"
-        bootstrap_root.mkdir()
-        for name in (bootstrap.name, bootstrap.stem + ".deps.json",
-                     bootstrap.stem + ".runtimeconfig.json", "Magnetar.Protocol.dll"):
-            shutil.copy2(bootstrap.parent / name, bootstrap_root / name)
+        shutil.copytree(bootstrap.parent, bootstrap_root)
         worker_root = root / "WebService" / "FakeWorker"
         worker_root.mkdir(parents=True)
         updates = root / "Updates"
@@ -105,7 +103,10 @@ def check_shutdown(bootstrap, service):
                 request("/crash", "POST")
                 second_pid = wait_for_worker(2)
                 assert first_pid != second_pid, "Unexpected worker exit must still restart"
-                request("/shutdown", "POST")
+                if stop == "ui":
+                    request("/shutdown", "POST")
+                else:
+                    process.send_signal(getattr(signal, stop))
                 assert process.wait(timeout=10) == 0, log_path.read_text()
                 assert not marker.exists(), "Shutdown request was not consumed"
                 assert log_path.read_text().count("Activated Quasar worker version") == 2
@@ -123,7 +124,8 @@ def check_shutdown(bootstrap, service):
                         pass
                     process.kill()
                     process.wait(timeout=5)
-        print(f"PASS {'service' if service else 'foreground'}: stale request, crash restart, full shutdown (exit 0)")
+        print(f"PASS {'service' if service else 'foreground'}, {stop} stop: "
+              "stale request, crash restart, full shutdown (exit 0)")
 
 
 if __name__ == "__main__":
@@ -133,4 +135,5 @@ if __name__ == "__main__":
     bootstrap = Path(sys.argv[1]).resolve() if len(sys.argv) > 1 else default
     assert bootstrap.is_file(), f"Build Quasar.Bootstrap first: {bootstrap}"
     for service in (False, True):
-        check_shutdown(bootstrap, service)
+        for stop in ("ui", "SIGINT", "SIGTERM"):
+            check_shutdown(bootstrap, service, stop)

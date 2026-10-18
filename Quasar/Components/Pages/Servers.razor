@@ -87,6 +87,10 @@
                         {
                             <span class="quasar-server-secondary" title="@GetRestartTooltip(lastRestart)">@GetRestartSummary(lastRestart)</span>
                         }
+                        @if (context.Server is not null && GetRuntime(context.UniqueName)?.ProcessPriorityWarning is { Length: > 0 } priorityWarning)
+                        {
+                            <span class="quasar-server-secondary quasar-text-warning" title="@priorityWarning">Process priority not applied</span>
+                        }
                         @if (context.Server is not null && ShouldShowLatestErrorLine(context.UniqueName))
                         {
                             <button type="button" class="quasar-table-link quasar-server-secondary quasar-text-error" title="Open console at latest error lines" @onclick="@(() => OpenErrorConsoleDialogAsync(context.UniqueName))">@GetRuntime(context.UniqueName)!.LatestErrorLogLine</button>

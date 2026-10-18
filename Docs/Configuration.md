@@ -25,6 +25,14 @@ SteamCMD's `linux64` native runtime directory so Quasar can pass it through
 before it is marked failed; the Dashboard then shows a retry button on the
 Dedicated Server row.
 
+SteamCMD is needed only to download or update the Dedicated Server (and on Linux
+for its `linux64` runtime). When a valid Dedicated Server is already in place and
+SteamCMD can't be downloaded or run, warmup still completes: the SteamCMD row is
+marked failed with its error and a retry button, Magnetar and the Dedicated
+Server become ready, and servers launch without the `linux64` runtime path. On
+Linux an exit code of 127 usually means the 32-bit libraries are missing
+(`lib32gcc-s1` on Debian and Ubuntu); the error then says so.
+
 On Linux the managed SteamCMD runs with its own `HOME` under
 `{Quasar data}/ManagedRuntime/Tools/SteamCmdHome` (override with
 `QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`), so it
