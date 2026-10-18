@@ -40,7 +40,8 @@ Quasar.exe serve
 ```
 
 Quasar starts, opens `http://localhost:8080` in your browser, and prints log
-output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
+output to the console. Press `Ctrl+C` to stop the launcher; on Linux a SIGTERM
+(`kill <pid>`) stops it the same way. The UI **Shutdown
 Quasar** action drains the web worker and fully stops Bootstrap, returning to
 the terminal. Run `./Quasar serve` or `Quasar.exe serve` again when you want
 the UI back. The web UI port is configurable — see
