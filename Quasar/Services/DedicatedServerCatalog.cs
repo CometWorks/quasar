@@ -22,7 +22,7 @@ public sealed class DedicatedServerCatalog : IDisposable
     private readonly ILogger<DedicatedServerCatalog> _logger;
     private List<DedicatedServerDefinition> _servers;
     private string _snapshot;
-    private ChildFileWatcher? _watcher;
+    private DebouncedFileWatcher? _watcher;
 
     public DedicatedServerCatalog(ILogger<DedicatedServerCatalog> logger)
     {
@@ -219,7 +219,9 @@ public sealed class DedicatedServerCatalog : IDisposable
             var serversDirectory = MagnetarPaths.GetQuasarServersDirectory();
             if (Directory.Exists(serversDirectory))
             {
-                var serverPaths = ChildFileWatcher.FindFiles(serversDirectory, "server.json");
+                var serverPaths = Directory.GetFiles(serversDirectory, "server.json", SearchOption.AllDirectories)
+                    .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
 
                 if (serverPaths.Count > 0)
                 {
@@ -483,7 +485,21 @@ public sealed class DedicatedServerCatalog : IDisposable
 
     private void StartWatching()
     {
-        _watcher = new ChildFileWatcher(MagnetarPaths.GetQuasarServersDirectory(), "server.json", ReloadFromDisk);
+        var directory = MagnetarPaths.GetQuasarServersDirectory();
+        _watcher = DebouncedFileWatcher.WatchDirectory(
+            directory,
+            "*.json",
+            includeSubdirectories: true,
+            IsTrackedServerPath,
+            ReloadFromDisk);
+    }
+
+    private static bool IsTrackedServerPath(string path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return false;
+
+        return string.Equals(Path.GetFileName(path), "server.json", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ReloadFromDisk()
