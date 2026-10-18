@@ -25,6 +25,14 @@ SteamCMD's `linux64` native runtime directory so Quasar can pass it through
 before it is marked failed; the Dashboard then shows a retry button on the
 Dedicated Server row.
 
+SteamCMD is needed only to download or update the Dedicated Server (and on Linux
+for its `linux64` runtime). When a valid Dedicated Server is already in place and
+SteamCMD can't be downloaded or run, warmup still completes: the SteamCMD row is
+marked failed with its error and a retry button, Magnetar and the Dedicated
+Server become ready, and servers launch without the `linux64` runtime path. On
+Linux an exit code of 127 usually means the 32-bit libraries are missing
+(`lib32gcc-s1` on Debian and Ubuntu); the error then says so.
+
 On Linux the managed SteamCMD runs with its own `HOME` under
 `{Quasar data}/ManagedRuntime/Tools/SteamCmdHome` (override with
 `QUASAR_STEAMCMD_HOME_DIR` or `Quasar:ManagedRuntime:SteamCmdHomeDirectory`), so it
@@ -1727,9 +1735,9 @@ atomic rename. If Quasar has no copy, setup continues and logs that the Gateway 
 the Host account already has the file. An older Host without this capability is refused
 until its per-machine update timer installs the Host binary bundled with the active
 Quasar web release. The timer checks every 15 minutes. Existing remote enrollments
-without a timer need one final reinstall through **Hosts → Add cluster machine**;
-older local enrollments gain the timer automatically when Quasar starts. The cluster
-package pin does not select the Host binary.
+without a timer need one final reinstall through **Hosts → Add cluster machine**.
+The local Host on the Quasar machine has no timer: Quasar restarts it from the
+active web release. The cluster package pin does not select the Host binary.
 
 The Host reads the Gateway's stdout and stderr, prefixes each line with `[gateway CLUSTER]`
 and writes it to its own output. It keeps the last 20 lines, each cut to 300 characters.

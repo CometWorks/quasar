@@ -11,7 +11,7 @@ The Host executor (`Quasar.Host`) is the service that runs on every cluster host
 
 ## Files on a host machine
 
-The automatic installer puts everything under the account that ran it:
+This section is about enrolled machines. The Quasar machine's own Host is described in [The local Host](#the-local-host). The automatic installer puts everything under the account that ran it:
 
 | Path | Content |
 | --- | --- |
@@ -32,6 +32,25 @@ The automatic installer puts everything under the account that ran it:
 | `~/.steam/sdk64/steamclient.so` | Valve's Steam client library for the Gateway, sent by Quasar during setup. |
 
 On the Quasar machine, enrollments are stored separately in `<install root>/Hosts/<id>/host.json` and the credentials in `<install root>/cluster-credentials.json`.
+
+## The local Host
+
+On Linux x64 every Quasar install runs its own Host executor, ID `local`, without enrollment. It uses the same binary, `host.json` format, credentials and connection as an enrolled Host, but Quasar runs it as a process of its own:
+
+| Path under the install root | Content |
+| --- | --- |
+| `LocalHost/host.json` | Host configuration. Quasar rewrites it before each start, so a changed Quasar port reaches the Host. |
+| `LocalHost/state/` | State directory, laid out as on any host machine (credentials, deployments, cluster saves). |
+| `LocalHost/host.log` | The Host's output, moved to `host.log.1` at a start once it passes 10 MB. |
+| `LocalHost/host.pid` | PID, process identity and binary hash of the running Host. |
+| `LocalHost/stop-clusters` | Runs `Quasar.Host stop-clusters` for this Host. The clusters unit calls it. |
+
+- The binary is the running web worker's `Host/Quasar.Host` (`QUASAR_HOST_BINARY` overrides it). It is not copied.
+- Quasar starts the Host when the Hosts page or cluster setup is opened, when Quasar needs it for a cluster, and at Quasar start when a cluster is deployed on this PC. It runs in its own session (`setsid`), so `Ctrl+C` on a foreground Quasar doesn't reach it. If it exits, Quasar starts it again within 15 seconds.
+- A restarted or updated web worker adopts the running Host by its PID and process identity. When the binary of the new release differs, Quasar restarts the Host from it. The Gateway and nodes keep running, as with any Host restart.
+- When Quasar stops, it stops the Host unless a Gateway with goal On runs on it, or this PC takes part in a cluster whose Gateway runs elsewhere. Then the Host keeps running, like managed servers do, and the next Quasar start adopts it. With `Quasar:PreserveManagedServersOnShutdown` set to `false`, Quasar saves and stops those clusters with `stop-clusters` first, then stops the Host.
+- The Docker image has no local Host.
+- A local Host that an older Quasar installed in `~/.local/share/Quasar/Hosts/<id>` with its own `quasar-host-<id>*` units stays an ordinary enrolled host machine next to the new one. Quasar doesn't touch it. [Install on Linux](InstallLinux.md#uninstall) shows how `uninstall.sh` reports it.
 
 ## host.json
 
@@ -79,6 +98,8 @@ Quasar talks to the Cluster Registry directly over the LAN/VPN, not through the 
 | `quasar-host-<id>-update.timer` / `-update.service` | Automatic updates, see below. |
 | `quasar-host-<id>-stop.service` | Saves and stops the clusters at logout or machine shutdown. Never restart or stop this unit by hand: stopping it shuts the clusters down. |
 
+The local Host has no unit of its own. `install.sh` writes `<service name>-clusters.service` (default `quasar-clusters.service`) next to Quasar's unit instead. It does for the local Host what the stop unit does for an enrolled one: it is ordered after Quasar's service, so systemd stops it first at logout or shutdown, and its `ExecStop` runs `LocalHost/stop-clusters` with `TimeoutStopSec=110`. Restarting or stopping Quasar's service doesn't touch it, so clusters keep running. Quasar's unit sets `QUASAR_HOST_STOP_UNIT` to its path, which the Host uses for its warnings.
+
 Useful commands, run as the Host account:
 
 ```bash
@@ -98,7 +119,7 @@ The update timer runs 2 minutes after boot and then 15 minutes after each run. I
 
 Updates need HTTPS, or HTTP on loopback ("Host updates require HTTPS or loopback HTTP."). Run an update check now with `systemctl --user start quasar-host-<id>-update.service`.
 
-Quasar installs the timer by itself for older local (loopback) enrollments that lack it. Older remote enrollments need one reinstall: choose the existing registration under **Hosts → Add host machine** and install again by command or SSH. Manual installations have no updater; replace `Quasar.Host` yourself.
+The local Host has no updater; Quasar restarts it from the new release, see [The local Host](#the-local-host). Older enrollments without the timer need one reinstall: choose the existing registration under **Hosts → Add host machine** and install again by command or SSH. Manual installations have no updater; replace `Quasar.Host` yourself.
 
 ## Shutdown and logout
 
@@ -119,6 +140,11 @@ sudo mkdir -p /etc/systemd/system/user@.service.d
 printf '[Service]\nTimeoutStopSec=150\n' | sudo tee /etc/systemd/system/user@.service.d/timeout.conf
 sudo systemctl daemon-reload
 ```
+
+The local Host gets the same checks against `<service name>-clusters.service`, without the lingering and timeout checks for a system service. Two more warnings are only for the local Host:
+
+- "Quasar doesn't run as an installed service, so a reboot kills the clusters on this PC without a save. Install it with Quasar's install.sh." (a foreground `./Quasar serve`)
+- "Quasar's service has no cluster stop unit, so a reboot kills the clusters on this PC without a save. Run Quasar's install.sh again to add it." (a service installed by an older `install.sh`)
 
 With the manual package, have your service manager run `./Quasar.Host stop-clusters --config host.json` before stopping the Host and allow 110 seconds.
 
@@ -169,7 +195,7 @@ Exit codes of `status` and the `apply` commands: `0` success, `2` usage or unset
 
 ## Logs
 
-The Host writes to stdout/stderr, which systemd stores in the user journal (`journalctl --user -u quasar-host-<id>.service`). Typical lines:
+The Host writes to stdout/stderr, which systemd stores in the user journal (`journalctl --user -u quasar-host-<id>.service`). The local Host writes to `<install root>/LocalHost/host.log` instead. Typical lines:
 
 - `cluster=<id> executor=<executor> heartbeat=accepted`: the Host reached that cluster's Gateway.
 - `cluster=<id> error=Gateway request timed out` or `cluster=<id> error=<message>`: the Gateway did not answer; the Host retries.
@@ -230,7 +256,8 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
 - `Quasar/Services/ClusterHostCatalog.cs`
 - `Quasar/Services/ClusterHostClient.cs`
-- `Quasar/Services/ClusterLocalHostUpdater.cs`
+- `Quasar/Services/ClusterLocalHost.cs`
+- `install.sh`
 - `Quasar/Services/ClusterCredentialStore.cs`
 - `Quasar/Services/ClusterGatewayClient.cs`
 - `Quasar/Services/ClusterSetupService.cs`

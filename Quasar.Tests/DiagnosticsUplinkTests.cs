@@ -5,6 +5,8 @@ using System.Text.Json;
 using CometWorks.Diagnostics;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Host.Contract.V1;
 using Quasar.Services;
@@ -360,6 +362,39 @@ public sealed class DiagnosticsUplinkTests : IDisposable
         Assert.False(File.Exists(path));
     }
 
+    [Fact]
+    public async Task OnlyConnectedHostsAreAskedSoTheLocalHostIsNotStartedForDiagnostics()
+    {
+        using var consent = Catalog(Path.Combine(_root, "consent.json"));
+        var hosts = Hosts(out var credentials);
+        await hosts.RegisterAsync("online", "Online", "10.0.0.1", 18400, default);
+        await hosts.RegisterAsync("local", "This PC", "10.0.0.2", 18401, default);
+        var asked = new System.Collections.Concurrent.ConcurrentBag<string>();
+        using var backend = new HttpClient(new Handler((_, _) => throw new Exception("No backoffice expected")));
+        using var service = Service(consent, hosts, credentials, new Handler((request, _) =>
+        {
+            asked.Add(request.RequestUri!.Host);
+            throw new HttpRequestException("Host is offline.");
+        }), backend, uploadToken: null, connected: id => id == "online");
+        await service.PollOnceAsync(default);
+        Assert.Equal(["online.quasar-host.invalid"], asked.Distinct());
+    }
+
+    [Fact]
+    public async Task ContainerDisposesTheHostedSingletonTwiceWithoutThrowing()
+    {
+        using var consent = Catalog(Path.Combine(_root, "consent.json"));
+        var hosts = Hosts(out var credentials);
+        using var backend = new HttpClient(new Handler((_, _) => throw new Exception("No backoffice expected")));
+        // Registered the way Program does it: the container disposes the instance once per registration.
+        var services = new ServiceCollection();
+        services.AddSingleton(_ => Service(consent, hosts, credentials, new Handler((_, _) => throw new Exception("No Hosts expected")), backend));
+        services.AddHostedService(provider => provider.GetRequiredService<DiagnosticsUplinkService>());
+        var provider = services.BuildServiceProvider();
+        Assert.Single(provider.GetServices<IHostedService>());
+        await provider.DisposeAsync();
+    }
+
     private DataHandlingConsentCatalog Catalog(string path) => new(NullLogger<DataHandlingConsentCatalog>.Instance, path);
     private ClusterHostCatalog Hosts(out ClusterCredentialStore credentials)
     {
@@ -367,12 +402,13 @@ public sealed class DiagnosticsUplinkTests : IDisposable
         return new(credentials, Path.Combine(_root, "hosts"));
     }
     private DiagnosticsUplinkService Service(DataHandlingConsentCatalog consent, ClusterHostCatalog hosts,
-        ClusterCredentialStore credentials, Handler hostHandler, HttpClient backend, string? storageDirectory = null, string? uploadToken = "upload-secret") => new(consent, hosts,
+        ClusterCredentialStore credentials, Handler hostHandler, HttpClient backend, string? storageDirectory = null, string? uploadToken = "upload-secret",
+        Func<string, bool>? connected = null) => new(consent, hosts,
             new ClusterHostClient(new HttpClient(hostHandler), credentials), backend,
             new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
             { ["Quasar:Diagnostics:BackofficeUrl"] = "https://backoffice.example/", ["Quasar:Diagnostics:UploadToken"] = uploadToken,
                 ["Quasar:Diagnostics:StorageDirectory"] = storageDirectory }).Build(),
-            NullLogger<DiagnosticsUplinkService>.Instance, Path.Combine(_root, "state"));
+            NullLogger<DiagnosticsUplinkService>.Instance, Path.Combine(_root, "state"), connected: connected);
     private static ReportEnvelope Envelope(byte[] bytes, string key, long generation) => new(1, Guid.NewGuid().ToString("N"), key,
         "wrapped-password", Convert.ToHexStringLower(SHA256.HashData(bytes)), bytes.Length, false, generation);
     private static HttpResponseMessage HostResponse<T>(T value)

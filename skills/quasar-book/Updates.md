@@ -121,7 +121,7 @@ Prerelease builds are for testing. The page shows a red warning while they are e
 
 ## GitHub token for update checks
 
-Quasar works without a token, but GitHub rate-limits unauthenticated API calls per IP address, which shared hosts and cloud IPs can hit. To add one:
+Quasar works without a token, but GitHub rate-limits unauthenticated API calls per IP address, which shared hosts and cloud IPs can hit. On a fresh install the limit can block the first UI download before there is a page to save a token on; Bootstrap then waits for GitHub's reset and continues, see [Install on Linux](InstallLinux.md#common-problems). To add one:
 
 1. Open <https://github.com/settings/tokens/new> and create a classic personal access token. Give it a note such as `Quasar update checks`, pick an expiration you will renew, and select no scopes at all.
 2. On **Updates**, paste it into **GitHub token** and press **Save token**.
@@ -199,7 +199,7 @@ The launch mode applies only to the managed DS install. A server whose executabl
 
 ## Cluster Hosts and Docker
 
-- Enrolled cluster Hosts update their `Quasar.Host` binary from Quasar through a `quasar-host-<id>-update.timer` systemd user timer (2 minutes after boot, then 15 minutes after each run). Cluster processes keep running. See [Cluster hosts](ClusterHosts.md).
+- Enrolled cluster Hosts update their `Quasar.Host` binary from Quasar through a `quasar-host-<id>-update.timer` systemd user timer (2 minutes after boot, then 15 minutes after each run). The local Host on the Quasar machine has no timer: after an update Quasar restarts it from the new release. Cluster processes keep running in both cases. See [Cluster hosts](ClusterHosts.md).
 - The Docker image sets `QUASAR_UPDATES_ENABLED=false`, so the in-app Quasar updater is off. Upgrade by pulling a new image (`docker compose pull` then `docker compose up -d`) or pin `QUASAR_VERSION`. Magnetar and DS updates inside the container work as described above. See [Docker](Docker.md).
 
 ## When an update fails
@@ -253,6 +253,7 @@ What to do:
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
+- `Quasar/Services/ClusterLocalHost.cs`
 - `Quasar/Services/Plugins/QuasarUiPluginHubCatalogService.cs`
 - `Quasar/Services/Plugins/QuasarUiPluginHubRefreshService.cs`
 - `Quasar/Program.cs`

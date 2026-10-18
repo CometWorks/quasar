@@ -361,6 +361,10 @@ h1:focus {
     border-bottom: 0;
 }
 
+.chat-text {
+    white-space: pre-line;
+}
+
 .mono {
     font-family: "JetBrains Mono", "Cascadia Code", monospace;
 }

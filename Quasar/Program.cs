@@ -17,6 +17,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
+using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.FileProviders;
 using MudBlazor;
 using MudBlazor.Services;
@@ -184,8 +185,8 @@ public class Program
             builder.Services.AddSingleton<ClusterHostCatalog>();
             builder.Services.AddSingleton<ClusterHostTunnels>();
             builder.Services.AddSingleton<ClusterHostInstaller>();
-            builder.Services.AddSingleton<ClusterLocalHostUpdater>();
-            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHostUpdater>());
+            builder.Services.AddSingleton<ClusterLocalHost>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHost>());
             builder.Services.AddSingleton<ClusterSetupService>();
             builder.Services.AddSingleton<ClusterUpdatePreparationService>();
             builder.Services.AddSingleton(webServiceOptions);
@@ -317,6 +318,7 @@ public class Program
 
             var app = builder.Build();
             app.Lifetime.ApplicationStopping.Register(app.Services.GetRequiredService<QuasarDiagnosticLoggerProvider>().MarkExpectedStop);
+            StopWebServerOnStopping(app);
             _ = app.Services.GetRequiredService<RbacConfigCatalog>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
@@ -613,6 +615,9 @@ public class Program
                 webServiceOptions.Headless,
                 MagnetarPaths.GetQuasarDirectory());
 
+            foreach (var warning in Quasar.Diagnostics.SystemLimits.Check())
+                startupLogger.LogWarning("{Warning}", warning);
+
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
             app.Run();
         }
@@ -635,6 +640,17 @@ public class Program
             LogManager.Shutdown();
         }
     }
+
+    internal static readonly TimeSpan WebServerDrainTimeout = TimeSpan.FromSeconds(5);
+
+    // SignalR closes the Blazor circuits when the application stops, but an open browser tab reconnects at
+    // once. Kestrel would wait for that new connection up to the 30 minute ShutdownTimeout meant for stopping
+    // servers, so Quasar would not exit while its UI is open. Stop the web server here instead: it stops
+    // listening and aborts the connections still open after a short drain. The host's own stop of the
+    // server later waits for this one.
+    internal static void StopWebServerOnStopping(WebApplication app) =>
+        app.Lifetime.ApplicationStopping.Register(() => _ = app.Services.GetRequiredService<IServer>()
+            .StopAsync(new CancellationTokenSource(WebServerDrainTimeout).Token));
 
     internal static string[] NormalizeWorkerArguments(IEnumerable<string> args) => args.Select(argument =>
     {
@@ -670,7 +686,8 @@ public class Program
 
     private static void AddDeploymentConfigurationSources(ConfigurationManager configuration, string environmentName, string[] args)
     {
-        foreach (var directory in EnumerateConfigurationDirectories())
+        foreach (var directory in GetConfigurationDirectories(AppContext.BaseDirectory, Directory.GetCurrentDirectory(),
+                     MagnetarPaths.GetQuasarDirectory()))
         {
             configuration.AddJsonFile(Path.Combine(directory, "appsettings.json"), optional: true, reloadOnChange: true);
             configuration.AddJsonFile(Path.Combine(directory, $"appsettings.{environmentName}.json"), optional: true, reloadOnChange: true);
@@ -681,39 +698,33 @@ public class Program
             configuration.AddCommandLine(args);
     }
 
-    private static IEnumerable<string> EnumerateConfigurationDirectories()
+    // Folders whose appsettings files the worker reads, lowest priority first. The data directory always
+    // comes last, so its appsettings.json wins: Bootstrap reads only that file and health-checks its port.
+    internal static IReadOnlyList<string> GetConfigurationDirectories(string baseDirectory, string currentDirectory, string dataDirectory)
     {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        foreach (var directory in EnumerateCandidateConfigurationDirectories())
-        {
-            if (string.IsNullOrWhiteSpace(directory))
-                continue;
-
-            var fullPath = Path.GetFullPath(directory);
-            if (seen.Add(fullPath))
-                yield return fullPath;
-        }
+        var directories = new List<string> { baseDirectory, currentDirectory, Path.Combine(baseDirectory, "WebService") };
+        if (FindSourceProjectDirectory(baseDirectory) is { } project)
+            directories.Add(project);
+        directories.Add(dataDirectory);
+        return directories
+            .Select(directory => Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)))
+            .Reverse().Distinct(StringComparer.OrdinalIgnoreCase).Reverse().ToArray();
     }
 
-    private static IEnumerable<string> EnumerateCandidateConfigurationDirectories()
+    // A development run from bin/ or a publish folder inside the source tree also reads the project's
+    // appsettings.json. Nothing above an installed worker is read.
+    private static string? FindSourceProjectDirectory(string baseDirectory)
     {
-        yield return AppContext.BaseDirectory;
-        yield return Directory.GetCurrentDirectory();
-        yield return Path.Combine(AppContext.BaseDirectory, "WebService");
-
-        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        var directory = new DirectoryInfo(baseDirectory);
         for (var depth = 0; directory is not null && depth < 8; depth++, directory = directory.Parent)
         {
-            if (File.Exists(Path.Combine(directory.FullName, "appsettings.json")))
-                yield return directory.FullName;
-
-            var sourceQuasar = Path.Combine(directory.FullName, "Quasar");
-            if (File.Exists(Path.Combine(sourceQuasar, "appsettings.json")))
-                yield return sourceQuasar;
+            if (File.Exists(Path.Combine(directory.FullName, "Quasar.csproj")))
+                return directory.FullName;
+            if (File.Exists(Path.Combine(directory.FullName, "Quasar", "Quasar.csproj")))
+                return Path.Combine(directory.FullName, "Quasar");
         }
 
-        yield return MagnetarPaths.GetQuasarDirectory();
+        return null;
     }
 
     private static IDisposable RegisterGracefulShutdownSignals(IServiceProvider services)

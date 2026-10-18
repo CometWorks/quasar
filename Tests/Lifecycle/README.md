@@ -8,6 +8,8 @@ Restart and Kill from its UI. Then it checks what Quasar made of it: its
 process state and goal, the restart cause and crash counter in
 `supervisor-state.json`, how many Magnetar processes it started and whether
 two ran at once, the world save, and agent socket transport errors in its log.
+Like the magnetar suite, it also checks that Magnetar disposed the plugins
+without an error and while the game thread didn't update them.
 
 The Magnetar side, the probe plugin and the rig come from the magnetar
 repository's `Tests/Lifecycle` (`--magnetar-src`); its README explains the

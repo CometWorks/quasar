@@ -19,6 +19,12 @@ internal static class ClusterCli
     {
         stdout ??= Console.Out;
         stderr ??= Console.Error;
+        if (args.Skip(1).Any(static arg => arg is "--help" or "-h"))
+        {
+            WriteUsage(stdout);
+            return 0;
+        }
+
         if (!TryParse(args, stderr, out Options? options))
             return 2;
 
