@@ -10,25 +10,26 @@ public sealed class DebouncedFileWatcher : IDisposable
     private readonly Action _changed;
     private CancellationTokenSource? _debounce;
 
-    private DebouncedFileWatcher(string directory, string filter, Func<string, bool> isTrackedPath, Action changed)
+    private DebouncedFileWatcher(
+        string directory,
+        string filter,
+        bool includeSubdirectories,
+        Func<string, bool> isTrackedPath,
+        Action changed)
     {
         _isTrackedPath = isTrackedPath;
         _changed = changed;
         _watcher = new FileSystemWatcher(directory)
         {
+            IncludeSubdirectories = includeSubdirectories,
             NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.CreationTime | NotifyFilters.Size,
             Filter = filter,
-            // On Windows the filter is applied after the kernel reports a change, so every
-            // write in the folder lands in this buffer. 64 KB is the most it can usefully take.
-            InternalBufferSize = 64 * 1024,
         };
 
         _watcher.Changed += HandleChanged;
         _watcher.Created += HandleChanged;
         _watcher.Deleted += HandleChanged;
         _watcher.Renamed += HandleChanged;
-        // The events of an overflowed buffer are lost, so reload the file anyway.
-        _watcher.Error += (_, _) => Schedule();
         _watcher.EnableRaisingEvents = true;
     }
 
@@ -43,8 +44,20 @@ public sealed class DebouncedFileWatcher : IDisposable
         return new DebouncedFileWatcher(
             directory,
             Path.GetFileName(fullPath),
+            includeSubdirectories: false,
             candidate => PathsEqual(candidate, fullPath),
             changed);
+    }
+
+    public static DebouncedFileWatcher WatchDirectory(
+        string directory,
+        string filter,
+        bool includeSubdirectories,
+        Func<string, bool> isTrackedPath,
+        Action changed)
+    {
+        Directory.CreateDirectory(directory);
+        return new DebouncedFileWatcher(directory, filter, includeSubdirectories, isTrackedPath, changed);
     }
 
     public void Dispose()

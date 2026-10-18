@@ -21,7 +21,7 @@ public sealed class ClusterCatalog : IDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _lifecycleGates = new(StringComparer.OrdinalIgnoreCase);
     private List<ClusterDefinition> _clusters;
-    private ChildFileWatcher? _watcher;
+    private DebouncedFileWatcher? _watcher;
 
     public ClusterCatalog(ILogger<ClusterCatalog> logger, IConfiguration configuration)
     {
@@ -559,7 +559,7 @@ public sealed class ClusterCatalog : IDisposable
     {
         string conventional = Path.Combine(_directory, uniqueName, "cluster.json");
         if (File.Exists(conventional)) return conventional;
-        foreach (string path in ChildFileWatcher.FindFiles(_directory, "cluster.json"))
+        foreach (string path in Directory.EnumerateFiles(_directory, "cluster.json", SearchOption.AllDirectories))
         {
             try
             {
@@ -578,7 +578,8 @@ public sealed class ClusterCatalog : IDisposable
         if (!Directory.Exists(_directory))
             return [];
         var clusters = new List<ClusterDefinition>();
-        foreach (string path in ChildFileWatcher.FindFiles(_directory, "cluster.json"))
+        foreach (string path in Directory.GetFiles(_directory, "cluster.json", SearchOption.AllDirectories)
+                     .OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
         {
             try
             {
@@ -676,7 +677,8 @@ public sealed class ClusterCatalog : IDisposable
 
     private void StartWatching()
     {
-        _watcher = new ChildFileWatcher(_directory, "cluster.json", Reload);
+        _watcher = DebouncedFileWatcher.WatchDirectory(_directory, "cluster.json", includeSubdirectories: true,
+            path => string.Equals(Path.GetFileName(path), "cluster.json", StringComparison.OrdinalIgnoreCase), Reload);
     }
 
     private void Reload()

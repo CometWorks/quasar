@@ -17,7 +17,7 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
     private readonly ILogger<QuasarWorldTemplateCatalog> _logger;
     private List<QuasarWorldTemplate> _templates;
     private string _snapshot;
-    private ChildFileWatcher? _watcher;
+    private DebouncedFileWatcher? _watcher;
 
     public QuasarWorldTemplateCatalog(ILogger<QuasarWorldTemplateCatalog> logger)
     {
@@ -157,8 +157,10 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
             if (!Directory.Exists(directory))
                 return [];
 
-            return ChildFileWatcher
-                .FindFiles(directory, "template.json")
+            return Directory
+                .GetFiles(directory, "template.json", SearchOption.AllDirectories)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(path => path, StringComparer.OrdinalIgnoreCase)
                 .Select(LoadTemplate)
                 .Where(p => p is not null)
                 .Select(p => Normalize(p!))
@@ -274,7 +276,13 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
 
     private void StartWatching()
     {
-        _watcher = new ChildFileWatcher(MagnetarPaths.GetQuasarWorldTemplatesDirectory(), "template.json", ReloadFromDisk);
+        var directory = MagnetarPaths.GetQuasarWorldTemplatesDirectory();
+        _watcher = DebouncedFileWatcher.WatchDirectory(
+            directory,
+            "template.json",
+            includeSubdirectories: true,
+            path => true,
+            ReloadFromDisk);
     }
 
     private void ReloadFromDisk()

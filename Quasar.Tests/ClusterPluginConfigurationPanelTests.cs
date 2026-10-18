@@ -49,8 +49,6 @@ public sealed class ClusterPluginConfigurationPanelTests
             Assert.Empty(panel.FindComponents<Stub<PluginConfigEditor>>());
             Assert.DoesNotContain("limit", panel.Markup);
             auth.SetPolicies(QuasarPolicyNames.ClusterManage);
-            // A policy change alone doesn't render the panel again.
-            panel.Render();
             await panel.WaitForAssertionAsync(() => Assert.Single(panel.FindComponents<Stub<PluginConfigEditor>>()));
             var editor = panel.FindComponent<Stub<PluginConfigEditor>>();
             Assert.Contains("\"limit\":1", editor.Instance.Parameters.Get(p => p.Plugin).ConfigJson);
@@ -63,7 +61,6 @@ public sealed class ClusterPluginConfigurationPanelTests
                 { SpecificationJson = preparation.SpecificationJson.Replace("\"limit\":1", "\"limit\":2") },
                 new(null, "next", []), default);
             auth.SetPolicies(QuasarPolicyNames.ClusterManage);
-            panel.Render();
             await panel.WaitForAssertionAsync(() => Assert.Contains("\"limit\":2",
                 panel.FindComponent<Stub<PluginConfigEditor>>().Instance.Parameters.Get(p => p.Plugin).ConfigJson));
         }
