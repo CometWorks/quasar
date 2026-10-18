@@ -225,6 +225,74 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public async Task UninstallSavesTheClustersThenStopsOnlyThisInstallsLocalHost()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string home = Path.Combine(root, "home"), fakeBin = Path.Combine(root, "fake-bin"), units = Path.Combine(home, ".config/systemd/user");
+        Directory.CreateDirectory(units);
+        Directory.CreateDirectory(fakeBin);
+        File.WriteAllText(Path.Combine(fakeBin, "systemctl"), "#!/bin/sh\necho \"$*\" >> \"$HOME/systemctl.log\"\n");
+        File.SetUnixFileMode(Path.Combine(fakeBin, "systemctl"), (UnixFileMode)0x1c0);
+        async Task<string> Uninstall(params string[] args)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo("bash") { RedirectStandardOutput = true, UseShellExecute = false };
+            start.ArgumentList.Add(Path.Combine(Path.GetDirectoryName(SourcePath())!, "..", "uninstall.sh"));
+            foreach (string arg in args) start.ArgumentList.Add(arg);
+            start.Environment["HOME"] = home;
+            start.Environment["PATH"] = fakeBin + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH");
+            using var process = System.Diagnostics.Process.Start(start)!;
+            string output = await process.StandardOutput.ReadToEndAsync();
+            await process.WaitForExitAsync();
+            Assert.Equal(0, process.ExitCode);
+            return output;
+        }
+        string binary = FakeHost(Path.Combine(root, "release"));
+        string q1 = Path.Combine(root, "q1"), q2 = Path.Combine(root, "q2");
+        var first = LocalHost(binary, q1);
+        var secondCredentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(q2, "cluster-credentials.json"));
+        var second = LocalHost(binary, q2, new ClusterHostCatalog(secondCredentials, Path.Combine(q2, "Hosts")), secondCredentials);
+        try
+        {
+            await first.EnsureRunningAsync(default);
+            await second.EnsureRunningAsync(default);
+            var firstPid = first.ReadPid()!;
+            File.WriteAllText(Path.Combine(units, "quasar.service"), "");
+            File.WriteAllText(Path.Combine(units, "quasar-clusters.service"), "");
+            // An older version's home-folder Host that q1 enrolled.
+            await new ClusterHostCatalog(credentials, Path.Combine(q1, "Hosts")).RegisterAsync("old", "old", "127.0.0.1", 18400, default);
+            File.WriteAllText(Path.Combine(units, "quasar-host-old.service"), "");
+            Directory.CreateDirectory(Path.Combine(home, ".local/share/Quasar/Hosts/old"));
+
+            string output = await Uninstall("--install-dir", q1);
+            string[] calls = File.ReadAllLines(Path.Combine(home, "systemctl.log"));
+            // The clusters unit's ExecStop saves the clusters through the running Host, so it goes first.
+            Assert.True(Array.IndexOf(calls, "--user disable --now quasar-clusters.service") is >= 0 and var saved
+                && saved < Array.IndexOf(calls, "--user stop quasar.service"));
+            Assert.Null(ClusterLocalHost.ProcessIdentity(firstPid.Pid));
+            Assert.False(File.Exists(Path.Combine(q1, "LocalHost", "host.pid")));
+            Assert.True(File.Exists(Path.Combine(q1, "LocalHost", "host.json")));
+            Assert.False(File.Exists(Path.Combine(units, "quasar-clusters.service")));
+            Assert.Contains("quasar-host-old.service was left alone", output);
+            Assert.True(File.Exists(Path.Combine(units, "quasar-host-old.service")));
+            Assert.NotNull(second.ReadPid());
+
+            // Without a clusters unit (an install from before it existed) the clusters are saved directly.
+            var secondPid = second.ReadPid()!;
+            await Uninstall("--install-dir", q2, "--service-name", "quasar-two", "--purge");
+            Assert.Contains((await WaitForCallsAsync(binary, 3)).Skip(2), line => line.Contains(" stop-clusters --config " + Path.Combine(q2, "LocalHost", "host.json")));
+            Assert.Null(ClusterLocalHost.ProcessIdentity(secondPid.Pid));
+            Assert.False(Directory.Exists(q2));
+        }
+        finally
+        {
+            await first.StopAsync(default);
+            await second.StopAsync(default);
+        }
+    }
+
+    private static string SourcePath([System.Runtime.CompilerServices.CallerFilePath] string path = "") => path;
+
+    [Fact]
     public async Task ManualEnrollmentPackageContainsTheMatchingPrivateHostIdentityWithoutSystemd()
     {
         var host = await hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);

@@ -50,7 +50,7 @@ On Linux x64 every Quasar install runs its own Host executor, ID `local`, withou
 - A restarted or updated web worker adopts the running Host by its PID and process identity. When the binary of the new release differs, Quasar restarts the Host from it. The Gateway and nodes keep running, as with any Host restart.
 - When Quasar stops, it stops the Host unless a Gateway with goal On runs on it, or this PC takes part in a cluster whose Gateway runs elsewhere. Then the Host keeps running, like managed servers do, and the next Quasar start adopts it. With `Quasar:PreserveManagedServersOnShutdown` set to `false`, Quasar saves and stops those clusters with `stop-clusters` first, then stops the Host.
 - The Docker image has no local Host.
-- A local Host that an older Quasar installed in `~/.local/share/Quasar/Hosts/<id>` with its own `quasar-host-<id>*` units stays an ordinary enrolled host machine next to the new one. Quasar doesn't touch it.
+- A local Host that an older Quasar installed in `~/.local/share/Quasar/Hosts/<id>` with its own `quasar-host-<id>*` units stays an ordinary enrolled host machine next to the new one. Quasar doesn't touch it. [Install on Linux](InstallLinux.md#uninstall) shows how `uninstall.sh` reports it.
 
 ## host.json
 
