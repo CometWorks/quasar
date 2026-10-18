@@ -100,6 +100,9 @@ extracts it under:
 Then it writes `Updates/active-release.json` pointing at the managed active
 worker. `Updates\Staged\` is reserved for not-yet-activated update payloads. The
 downloaded archive must match the release's `SHA256SUMS` entry before extraction.
+A failed or rate-limited download is retried as described in
+[First Start](LinuxDeploymentAndUpdates.md#first-start); the Scheduled Task has
+no visible console, so run `Quasar.exe serve` in a terminal to see the waits.
 
 ## UI Worker Updates
 

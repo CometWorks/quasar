@@ -96,7 +96,11 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
                 return;
             }
 
-            SetState(ManagedRuntimeWarmupState.Complete, "Managed SteamCMD, Magnetar, and Dedicated Server runtime ready.");
+            SetState(
+                ManagedRuntimeWarmupState.Complete,
+                readiness.SteamCmdFailure.Length > 0
+                    ? "Magnetar and Dedicated Server ready. SteamCMD failed, so Quasar can't download or update the Dedicated Server."
+                    : "Managed SteamCMD, Magnetar, and Dedicated Server runtime ready.");
         }
         catch (OperationCanceledException)
         {
@@ -183,7 +187,9 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
 
             if (state == ManagedRuntimeWarmupState.Failed)
             {
+                // A component that already failed keeps its own error.
                 _snapshot = _snapshot.WithComponents(component => component.State is ManagedRuntimeComponentState.Ready
+                    or ManagedRuntimeComponentState.Failed
                     ? component
                     : component with
                     {

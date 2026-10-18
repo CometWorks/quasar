@@ -240,7 +240,7 @@ On Linux the field is disabled (".NET 10 is the only runtime available on this h
 
 When Quasar starts, it checks and downloads the managed runtime in the background. The Dashboard shows a **Managed Runtime** panel with progress until everything is ready. Server launches are blocked until then.
 
-- **SteamCMD** comes from Valve's CDN (`steamcmd_linux.tar.gz` or `steamcmd.zip`). On Linux Quasar runs it with its own `HOME` (`ManagedRuntime/Tools/SteamCmdHome`) so it never touches a desktop Steam client's `~/.steam`, and prepares SteamCMD's `linux64` runtime, which it passes to servers through `LD_LIBRARY_PATH`.
+- **SteamCMD** comes from Valve's CDN (`steamcmd_linux.tar.gz` or `steamcmd.zip`). On Linux Quasar runs it with its own `HOME` (`ManagedRuntime/Tools/SteamCmdHome`) so it never touches a desktop Steam client's `~/.steam`, and prepares SteamCMD's `linux64` runtime, which it passes to servers through `LD_LIBRARY_PATH`. SteamCMD is a 32-bit program, so on Linux it needs the 32-bit loader (`lib32gcc-s1` on Debian and Ubuntu, see [Install on Linux](InstallLinux.md#prerequisites)). If SteamCMD can't be downloaded or can't run while a valid Dedicated Server is already in place (for example one set with `QUASAR_DS_INSTALL_DIR`), only the SteamCMD row fails, with **Retry**. Magnetar and the Dedicated Server still become ready and servers can start; servers then get no `linux64` runtime, and Quasar can't download or update the Dedicated Server until SteamCMD works. With exit code 127 the error ends with the packages to install.
 - **Dedicated Server** is installed with SteamCMD (`+login anonymous +app_update 298740`). Quasar tries up to 3 times. If it still fails, the Managed Runtime panel shows **Retry** on the Dedicated Server row. A valid install has `DedicatedServer64` with the `SpaceEngineersDedicated` executable, `VRage.dll`, `Sandbox.Game.dll` and `SpaceEngineers.Game.dll`.
 - **Magnetar** comes from the latest full GitHub release of `CometWorks/magnetar` (`MagnetarForLinux-*.7z` or `MagnetarForWindows-*.7z`). On each server start Quasar checks the latest release (at most once per 5 minutes) and installs it if it is newer. If GitHub cannot be reached, Quasar logs a warning and launches with the installed Magnetar.
 
@@ -306,9 +306,11 @@ Raising priority above Normal on Linux needs privileges. Install the setuid help
 ./install.sh --install-renice-helper --no-build --no-enable
 ```
 
-Without it, Quasar calls `renice`, which fails for negative values as a normal user, and the card says "Install /usr/local/bin/quasar-renice to use High process priority on Linux." The helper only accepts Quasar's nice values and only renices Magnetar launcher processes owned by the caller.
+Without it, Quasar calls `renice`, which fails for negative values as a normal user, and the server shows "Install /usr/local/bin/quasar-renice to use High process priority on Linux." The helper only accepts Quasar's nice values and only renices Magnetar launcher processes owned by the caller.
 
-Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the card then says the helper may be outdated. An old one also renices only the main thread, so Quasar calls it once per thread and logs that it should be reinstalled. Run the install command again. A server that stays at Normal priority never calls it.
+Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't know, such as `MagnetarInterim.bin`, and the server then shows that the helper may be outdated, with the command to reinstall it. An old one also renices only the main thread, so Quasar calls it once per thread and logs that it should be reinstalled. Run the install command again. A server that stays at Normal priority never calls it.
+
+Both warnings stay on the server while it runs, until a priority applies: on the card, in the expanded row of the List view, and as "Process priority not applied" under the row's status. Changing the ready priority to one that applies, such as Normal, clears the warning. After reinstalling the helper, restart the server so Quasar tries the priority again.
 
 ## Servers survive Quasar restarts
 
@@ -326,14 +328,14 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 
 ## Common problems
 
-- **Start button disabled or "still preparing"**: the managed runtime (SteamCMD, DS, Magnetar) is still downloading or failed. Check the Managed Runtime panel on the Dashboard and click **Retry** on a failed Dedicated Server row.
+- **Start button disabled or "still preparing"**: the managed runtime (SteamCMD, DS, Magnetar) is still downloading or failed. Check the Managed Runtime panel on the Dashboard and click **Retry** on a failed Dedicated Server row. A Dedicated Server row that fails with "... could not be downloaded." on Linux, followed by "SteamCMD is a 32-bit program and this host can't run it.", needs the 32-bit libraries from [Install on Linux](InstallLinux.md#prerequisites).
 - **Server stuck in Starting, then restarts**: the agent did not connect in time. Check the Server log and Magnetar info log tabs. Big modded worlds may need a larger **Agent startup hard limit**. Check that the server can reach Quasar's web port at `QUASAR_BASE_URL`.
 - **Server Faulted right after Start**: read the message on the card and match it to the table in [Launch failures](#launch-failures-that-fault-a-server).
 - **Server restarts every 8 hours**: **Maximum uptime** defaults to `08:00`. Clear it in Restart Policy to disable.
 - **Server keeps restarting with "Health policy"**: look at the health message. A low simulation rate or a stale heartbeat triggers it. Lower **Minimum average simulation rate**, or turn off **Auto-restart when unhealthy** while investigating.
 - **Second server not reachable**: check that no server's game port equals another server's game port + 1000 or + 2000. Each server also uses those two derived ports.
 - **Mods missing after start**: the world's mod list comes from the config profile on every start. Add the mods to the profile, or use **Merge Into <profile>** in the server editor.
-- **High priority does nothing on Linux**: install `quasar-renice` (see above). If the card says the helper may be outdated, install it again.
+- **High priority does nothing on Linux**: install `quasar-renice` (see above). If the server says the helper may be outdated, install it again and restart the server.
 - **Server deleted but disk still full**: delete `<quasar-root>/Magnetars/<Server ID>/` yourself.
 
 ## Sources
