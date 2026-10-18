@@ -34,7 +34,7 @@ Quasar does not rotate `quasar.log` or `discord.log`. Delete or truncate them yo
 
 A fatal startup error is logged as "Quasar terminated unexpectedly." and printed to the console as `[Quasar:FATAL] <type>: <message>`.
 
-The launcher (Bootstrap) has no log file of its own. Installed services run it with `--quiet`, so only its error lines and the forwarded worker output reach the journal. On Windows the Scheduled Task `Quasar` has no visible console, so read `Logs\quasar.log`.
+The launcher (Bootstrap) has no log file of its own. Installed services run it with `--quiet`, so only its error lines, its first-start download retries and the forwarded worker output reach the journal. On Windows the Scheduled Task `Quasar` has no visible console, so read `Logs\quasar.log`.
 
 ### Server logs in the UI
 
@@ -118,7 +118,7 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 - Check the service runs: `systemctl --user status quasar.service`, `Get-ScheduledTask -TaskName Quasar`, or `docker compose ps`.
 - On the Quasar machine, open `http://127.0.0.1:8080/api/health`. A JSON answer means the worker runs.
 - The shipped `Quasar:Host` is `0.0.0.0` (all interfaces) on port `8080`. If it is `127.0.0.1`, only local browsers can connect. Remote access also needs a firewall rule for the TCP port.
-- A fresh install with no internet access never starts the UI, because Bootstrap downloads the first UI release from GitHub. A foreground run prints "Failed downloading initial Quasar web release." `QUASAR_UPDATES_ENABLED=false` also blocks this first download. See [Install on Linux](InstallLinux.md#common-problems).
+- A fresh install starts the UI only after Bootstrap has downloaded the first UI release from GitHub. Until then it retries and logs "Failed downloading the Quasar web UI; retrying at <time> ...", or "GitHub's API rate limit is used up, ..." when the anonymous limit of the public IP address is spent, in which case it waits for GitHub's reset time. `QUASAR_UPDATES_ENABLED=false` blocks this first download; a foreground run then prints "Quasar has no running worker, so the web UI is not available." See [Install on Linux](InstallLinux.md#common-problems).
 - After 3 worker start failures within 5 minutes, Bootstrap starts the UI once more with UI plugins disabled. See [UI plugins](UiPlugins.md#safe-boot).
 - `Quasar:Auth:RequireHttpsForPublicAccess` is in `appsettings.json` but the current code does not act on it. Put an HTTPS reverse proxy in front of Quasar yourself for access from untrusted networks; see [Access control](AccessControl.md#behind-a-reverse-proxy).
 
