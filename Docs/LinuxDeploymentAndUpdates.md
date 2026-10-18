@@ -339,8 +339,9 @@ checks that the target executable basename is one of Quasar's Magnetar launcher
 names before calling `setpriority` on every thread of the process (nice is per
 thread on Linux). Helpers built before that change only the main thread; Quasar
 then calls them once per remaining thread. Quasar updates don't rebuild it; when it
-rejects the running Magnetar launcher, Quasar logs and shows that it may be
-outdated, and rerunning the command above replaces it.
+rejects the running Magnetar launcher, Quasar logs that it may be outdated and
+shows that on the server until a priority applies. Rerunning the command above
+replaces it; the server's next start applies the priority.
 
 ```bash
 ~/.local/share/Quasar/uninstall.sh           # remove the user systemd service

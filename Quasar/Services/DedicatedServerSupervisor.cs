@@ -1265,6 +1265,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.ModDownloadFailures.Clear();
                 current.LastAppliedProcessPriority = null;
                 current.LastFailedProcessPriority = null;
+                current.ProcessPriorityWarning = string.Empty;
                 current.LastAppliedCpuAffinity = null;
                 current.LastFailedCpuAffinity = null;
                 ResetHealthTracking(current);
@@ -1426,6 +1427,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 state.LastFailedProcessPriority = null;
             }
         }
+
+        SetProcessPriorityWarning(uniqueName, string.Empty);
     }
 
     private bool TryApplyProcessPriority(string uniqueName, Process process, DedicatedServerProcessPriority priority, string phase)
@@ -1530,17 +1533,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 TrimForLog(stdout),
                 TrimForLog(stderr));
 
-            if (!useHelper && nice < 0)
-                SetRuntimeMessage(uniqueName, $"Install {ReniceHelperPath} to use {priority} process priority on Linux.");
-
-            // Quasar updates never rebuild the helper, and older ones don't
-            // know the current Magnetar launcher names.
-            if (useHelper && stderr.Contains("not a supported Magnetar launcher"))
+            if (DescribeNiceFailure(useHelper, nice, priority, stderr) is { } warning)
             {
-                var message = $"{ReniceHelperPath} does not accept this Magnetar launcher and may be outdated. " +
-                    "Reinstall it with install.sh --install-renice-helper --no-build --no-enable from the Quasar install folder.";
-                _logger.LogWarning("{Message}", message);
-                SetRuntimeMessage(uniqueName, message);
+                _logger.LogWarning("{Message}", warning);
+                SetProcessPriorityWarning(uniqueName, warning);
             }
         }
         catch (Exception exception)
@@ -1549,6 +1545,36 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         }
 
         return false;
+    }
+
+    // What the admin has to do when the nice couldn't be applied, or null
+    // when there is no fix to suggest.
+    internal static string? DescribeNiceFailure(bool useHelper, int nice, DedicatedServerProcessPriority priority, string stderr)
+    {
+        if (!useHelper)
+            return nice < 0 ? $"Install {ReniceHelperPath} to use {priority} process priority on Linux." : null;
+
+        // Quasar updates never rebuild the helper, and older ones don't know
+        // the current Magnetar launcher names.
+        return stderr.Contains("not a supported Magnetar launcher")
+            ? $"{ReniceHelperPath} does not accept this Magnetar launcher and may be outdated. " +
+              "Reinstall it with install.sh --install-renice-helper --no-build --no-enable from the Quasar install folder."
+            : null;
+    }
+
+    // Kept apart from LastMessage, which status updates overwrite, so the
+    // warning stays on the server until a priority applies.
+    private void SetProcessPriorityWarning(string uniqueName, string warning)
+    {
+        lock (_sync)
+        {
+            if (!_states.TryGetValue(uniqueName, out var state) || state.ProcessPriorityWarning == warning)
+                return;
+
+            state.ProcessPriorityWarning = warning;
+        }
+
+        NotifyChanged();
     }
 
     private static (int ExitCode, string Stdout, string Stderr) RunNiceTool(string fileName, string arguments)
@@ -3478,6 +3504,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             StandardOutputLogPath = state.StandardOutputLogPath,
             StandardErrorLogPath = state.StandardErrorLogPath,
             ModDownloadFailures = state.ModDownloadFailures.ToList(),
+            ProcessPriorityWarning = IsProcessActive(state.Process) ? state.ProcessPriorityWarning : string.Empty,
         };
     }
 
@@ -3557,6 +3584,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DedicatedServerProcessPriority? LastAppliedProcessPriority { get; set; }
 
         public DedicatedServerProcessPriority? LastFailedProcessPriority { get; set; }
+
+        // Why the configured priority isn't applied, with the fix. Cleared once
+        // a priority applies or the process restarts.
+        public string ProcessPriorityWarning { get; set; } = string.Empty;
 
         // Canonical affinity string last successfully applied to the running process, and the
         // last one that failed to apply (so we don't retry it every reconcile). Null means
