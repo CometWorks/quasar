@@ -45,4 +45,6 @@ public sealed class DedicatedServerRuntimeSnapshot
     public string StandardErrorLogPath { get; set; } = string.Empty;
 
     public List<string> ModDownloadFailures { get; set; } = [];
+
+    public string ProcessPriorityWarning { get; set; } = string.Empty;
 }

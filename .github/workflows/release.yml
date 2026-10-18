@@ -651,6 +651,8 @@ jobs:
 
             Download the archive with **installer** in its name. It contains one top-level `Quasar` folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
+            Linux hosts need glibc 2.38 or newer (Debian 13, Ubuntu 24.04). On Debian and Ubuntu, install SteamCMD's 32-bit libraries and the CA certificates first: `sudo apt install ca-certificates lib32gcc-s1`. Quasar also needs the .NET 10 runtime, which `install.sh` offers to install. See the [prerequisites](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md#prerequisites).
+
             Cluster machines use the separate `quasar-host-linux-x64.tar.gz` or `quasar-host-win-x64.zip` archive. Extract it into a dedicated directory and configure Quasar.Host for that machine. These archives are not installed or started by the web launcher.
 
             The two web archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
