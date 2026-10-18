@@ -17,6 +17,7 @@ This page lists where Quasar and its servers write logs, and the common failures
 | Magnetar info log | `<data dir>/Magnetars/<server>/Magnetar/info*.log` | Magnetar and plugin startup, plugin exceptions, Quasar.Agent lines logged through PluginSdk |
 | DS console output | `<data dir>/Diagnostics/runs/<run id>/process.log` | Standard output of each launched process, including `[Quasar.Agent] ...` connection messages. Rotated at 8 MiB, run folders kept 7 days. See [Diagnostics](Diagnostics.md). |
 | Quasar.Host (cluster machines) | `journalctl --user -u quasar-host-<id>.service` | See [Cluster hosts](ClusterHosts.md#logs) |
+| Quasar.Host (local Host on the Quasar machine) | `<install root>/LocalHost/host.log` | See [Cluster hosts](ClusterHosts.md#the-local-host) |
 
 The DS and Magnetar paths are the defaults. A server with **Paths** overrides writes where those point.
 
