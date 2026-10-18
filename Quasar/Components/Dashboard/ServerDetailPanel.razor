@@ -15,6 +15,10 @@
         @if (modDownloadFailures.Count > 5) { <p>+@(modDownloadFailures.Count - 5) more in server logs.</p> }
     </div>
 }
+@if (!string.IsNullOrWhiteSpace(Runtime?.ProcessPriorityWarning))
+{
+    <p class="quasar-notice quasar-notice-warning" role="status">@Runtime.ProcessPriorityWarning</p>
+}
 @if (Agent?.Snapshot is null)
 {
     <p class="quasar-notice" role="status">@GetWaitingText()</p>

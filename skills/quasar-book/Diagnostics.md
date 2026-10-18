@@ -34,7 +34,7 @@ Running servers keep their current statistics setting until they restart. The UI
 - Turning diagnostic reports or crash dumps on or off starts a new consent generation. Reports captured before the change can never be uploaded under the new choice, including queued ones. Only incidents captured after enabling are eligible.
 - Turning diagnostic reports or crash dumps off cancels active transfers and deletes queued reports.
 - Already delivered reports cannot be recalled.
-- Hosts get a two-minute consent lease, renewed every 30 seconds. An offline host stops sharing when its lease expires.
+- Hosts get a two-minute consent lease, renewed every 30 seconds for the connected ones. An offline host stops sharing when its lease expires and gets a new one at the first renewal after it connects.
 - A crash dump setting applies to a process from its next start. Consent still gates packaging and upload of any dump already on disk.
 
 ### Where consent is stored
@@ -62,7 +62,7 @@ Details:
 
 ## Upload and queues
 
-- Quasar polls its own collector and every enrolled host every 30 seconds, and immediately after a consent change.
+- Quasar polls its own collector and every connected host every 30 seconds, and immediately after a consent change.
 - Each report is copied into Quasar's outbound queue, checked against its declared length and SHA-256, and only then acknowledged to the source. The source deletes it after the acknowledgment.
 - Uploads use `PUT /v1/reports/{reportId}` on the backoffice. A failed upload stays queued and retries with the same report ID.
 - If the backoffice rejects one report (HTTP 400, 409, 413, 415, 422 or 507), Quasar keeps it and moves on to the next one.

@@ -21,7 +21,7 @@ is the aggregate state of the whole runtime.
 stateDiagram-v2
     [*] --> Pending
     Pending --> Running: ExecuteAsync starts warmup
-    Running --> Complete: all components reach Ready
+    Running --> Complete: Magnetar and DS reach Ready
     Running --> Failed: any component Failed
     Failed --> Running: RetryAsync
     Complete --> [*]
@@ -33,8 +33,8 @@ stateDiagram-v2
 | --- | --- |
 | `Pending` | Initial; components listed as waiting to be checked. |
 | `Running` | `EnsureManagedRuntimeReadyAsync` is checking/downloading/installing components. |
-| `Complete` | All components `Ready`; `IsReady` is true and server launches are unblocked. |
-| `Failed` | A component failed; all incomplete components are marked `Failed` with the error. `RetryAsync` re-runs warmup. |
+| `Complete` | Magnetar and Dedicated Server `Ready`; `IsReady` is true and server launches are unblocked. SteamCMD is normally `Ready` too, but stays `Failed` when it can't be downloaded or run while a valid Dedicated Server is already in place. |
+| `Failed` | A component failed; all incomplete components are marked `Failed` with the error, and a component that already failed keeps its own. `RetryAsync` re-runs warmup. |
 
 ---
 

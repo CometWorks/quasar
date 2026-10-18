@@ -14,7 +14,7 @@ Every Quasar GitHub release (`https://github.com/CometWorks/quasar/releases`) ca
 | `quasar-symbols-win-x64.zip` | Debug symbols matching the release | Developers analyzing crashes. |
 | `SHA256SUMS` | SHA-256 of every archive | Quasar verifies every download against it. |
 
-The installer zip does not contain the web UI. On first start Bootstrap downloads the latest `quasar-web-win-x64.zip` from GitHub, checks it against `SHA256SUMS`, extracts it to `<install-dir>\ManagedRuntime\WebService\<version>\` and writes `<install-dir>\Updates\active-release.json`. The first start therefore needs outbound HTTPS access to GitHub.
+The installer zip does not contain the web UI. On first start Bootstrap downloads the latest `quasar-web-win-x64.zip` from GitHub, checks it against `SHA256SUMS`, extracts it to `<install-dir>\ManagedRuntime\WebService\<version>\` and writes `<install-dir>\Updates\active-release.json`. The first start therefore needs outbound HTTPS access to GitHub. If the download fails, Bootstrap keeps retrying until it works; see [Common problems](#common-problems).
 
 Both `Quasar.exe` files are self-contained single-file x64 executables (`win-x64`).
 
@@ -164,7 +164,7 @@ Cluster nodes run Quasar.Host from `quasar-host-win-x64.zip` in its own folder w
 - `Existing publish output not found: <dir>`: `-NoBuild` was used in a source checkout without a publish output.
 - Rerunning `install.ps1` in place inside a populated install root copies the whole folder, including downloaded runtimes and saves, through a temporary folder under `%TEMP%` and back. Make sure the temp drive has enough free space, or stop the task and run the script from a freshly extracted zip with `-InstallDir`.
 - `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
-- The UI never comes up after a fresh install: Bootstrap could not download the web worker from GitHub, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. The Scheduled Task logs nothing about it, because Bootstrap runs with `--quiet`. Stop the task and run `Quasar.exe serve` in a terminal to see `Failed downloading initial Quasar web release.`.
+- The UI doesn't come up after a fresh install: Bootstrap hasn't been able to download the web worker from GitHub yet, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. Bootstrap retries a failed download on its own, 30 seconds after the first failure, then doubling up to every 10 minutes. When GitHub's anonymous API rate limit (60 requests an hour per public IP address) is used up, it waits until GitHub resets it, at most an hour, and then continues; Bootstrap doesn't read `GITHUB_TOKEN`. The Scheduled Task has no visible console, so stop the task and run `Quasar.exe serve` in a terminal to see the waits (`Failed downloading the Quasar web UI; retrying at <time> ...` or `GitHub's API rate limit is used up, ...`). Older launchers (1.3.1.27 and earlier) gave up after the first failure and needed a restart. See [Install on Linux](InstallLinux.md#common-problems) for the messages.
 - `Could not request Bootstrap shutdown. Check write access to the Quasar install directory.`: the task account cannot write to the install root. Give it write access.
 
 ## Sources

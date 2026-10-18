@@ -29,11 +29,6 @@ internal static class ClusterHostEnrollmentApi
             context.Response.Headers.CacheControl = "no-store";
             return Results.File(installer.CreateManualPackage(host, quasarUrl), "application/zip", "quasar-host-" + host + ".zip");
         });
-        management.MapPost("/{host}/local", async (string host, HostEnrollmentOrigin request, ClusterHostInstaller installer, CancellationToken token) =>
-        {
-            await installer.InstallLocalAsync(host, request.QuasarUrl, token);
-            return Results.Ok();
-        });
         management.MapPost("/{host}/ssh", async (string host, HostEnrollmentSsh request, ClusterHostInstaller installer, CancellationToken token) =>
         {
             await installer.InstallSshAsync(host, request.QuasarUrl, request.Ssh, token);
