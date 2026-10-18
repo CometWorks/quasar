@@ -360,6 +360,25 @@ require_dotnet_installation() {
     exit 1
 }
 
+warn_missing_download_packages() {
+    # Quasar, Magnetar and SteamCMD download over HTTPS. SteamCMD's linux32/steamcmd is 32-bit
+    # and exits 127 without the 32-bit loader. Without them Quasar can't download the Dedicated Server.
+    local missing=() packages=()
+    if ! compgen -G '/etc/ssl/certs/*' >/dev/null; then
+        missing+=("CA certificates for HTTPS downloads (nothing in /etc/ssl/certs)")
+        packages+=(ca-certificates)
+    fi
+    if [[ ! -e /lib/ld-linux.so.2 ]]; then
+        missing+=("the 32-bit loader for SteamCMD (/lib/ld-linux.so.2 is missing)")
+        packages+=(lib32gcc-s1)
+    fi
+    (( ${#packages[@]} )) || return 0
+
+    echo "Warning: Quasar can't download or update the Dedicated Server on this host. It lacks:" >&2
+    printf '  %s\n' "${missing[@]}" >&2
+    echo "Install them before the first start, on Debian and Ubuntu: sudo apt install ${packages[*]}" >&2
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --install-dir)
@@ -497,6 +516,7 @@ case "$INSTALL_DIR" in
 esac
 
 require_dotnet_installation
+warn_missing_download_packages
 
 write_service_unit() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
