@@ -1849,10 +1849,12 @@ or deployment change, including changes on the current package version. **Apply 
 update** starts the durable full-downtime workflow without requiring JSON input.
 Fine-grained package, dependency, import and activation overrides share one flat
 **Advanced deployment tools** expansion panel.
-Staging checks the release's pinned PluginSdk against a verified existing dependency
-snapshot or installed Magnetar before changing the package selection. The normal action
-can reuse the existing frozen DS, Magnetar, Direct Transport and common plugins when
-their SDK matches the new release. Otherwise freezing uses the configured dependency
+Staging checks the release's PluginSdk pin against a verified existing dependency
+snapshot or installed Magnetar before changing the package selection: the Magnetar
+`PluginSdkContract` must have the release's `pluginSdkContract` major and at least its
+minor, or, when either side declares no contract, the `PluginSdk.dll` SHA-256 must equal
+the release's `pluginSdkSha256`. The normal action can reuse the existing frozen DS,
+Magnetar, Direct Transport and common plugins when their SDK satisfies the new release. Otherwise freezing uses the configured dependency
 sources described above; missing Direct Transport or common plugin inputs must be
 configured before that step.
 Preparation copies the selected verified installation to each enrolled Host, reuses the
@@ -1924,13 +1926,14 @@ explicit recovery operations to preserve the recorded revision.
 
 Host activation and restore compare the complete nonempty `storageFormats` map
 (`world`, `registry`, `plugins`). Different formats require explicit migration. The
-prepared package's exact PluginSdk hash must match the frozen Magnetar dependency.
+frozen Magnetar dependency must satisfy the prepared package's PluginSdk pin, the same
+check as staging.
 Guided setup provisions current managed Magnetar before choosing a cluster package.
-If a stopped, incomplete setup has an older package whose PluginSdk pin no longer
-matches, **Resume guided setup** downloads and selects the latest package only
-when its pin matches the installed SDK. It clears the prior dependency selection and
-rebuilds an export made with an older SDK. Until a matching release exists, setup
-remains interrupted with the expected and installed hashes in its error.
+If a stopped, incomplete setup has an older package whose PluginSdk pin the installed
+Magnetar no longer satisfies, **Resume guided setup** downloads and selects the latest
+package only when the installed SDK satisfies its pin. It clears the prior dependency
+selection and rebuilds an export made with an older SDK. Until a compatible release
+exists, setup remains interrupted with both contracts or hashes in its error.
 
 Use `cluster command NAME REQUEST.json` for `world-export` (bounded TTL), scoped
 `trigger`, `handover-config-set`, or `artifact-release`; inspect with `diagnostics`,

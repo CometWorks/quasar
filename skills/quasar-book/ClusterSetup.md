@@ -9,7 +9,7 @@ Quasar side:
 - Quasar runs on Linux x64 from a published release. The release ships the Host executor as `Host/Quasar.Host` next to the web worker; a plain development build has none and enrollment fails with "This Quasar build does not include the Host installer (…)". For a development build, set `QUASAR_HOST_BINARY` to a published single-file `Quasar.Host`.
 - A GitHub token with access to `CometWorks/cluster` in **Updates → GitHub token**, so Quasar can download cluster releases.
 - The managed Dedicated Server, Magnetar and SteamCMD (Quasar installs and updates them; see [Updates](Updates.md)). The installed Magnetar must support managed plugin preparation (`-prepareManaged`).
-- A published cluster release whose pinned PluginSdk matches the installed Magnetar.
+- A published cluster release that runs on the installed Magnetar's PluginSdk: same PluginSdk contract major and an equal or higher minor on the Magnetar side. For a release or Magnetar without a contract version, the exact PluginSdk build has to match.
 - `dotnet` with the .NET 10 runtime on the Quasar machine, because Quasar runs the release's world converter (`MagnetarWorld.dll`) with `dotnet`.
 - A world template and a configuration profile. The profile's administrators must be numeric SteamID64 values and max players must be at least 2.
 - Roles: cluster manage and configuration editing (Editor or Admin) to run setup; security administration (Admin) to enroll host machines. Without Admin the wizard says "A security administrator must enroll host machines. You can continue with an existing connected host machine."
@@ -137,7 +137,7 @@ The status line shows each phase:
 
 1. "Checking cluster hosts": each selected Host executor must answer with its enrolled identity and the required capabilities.
 2. "Provisioning Dedicated Server and Magnetar": installs or updates the managed runtime.
-3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one does not match the installed PluginSdk.
+3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one cannot run on the installed PluginSdk.
 4. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
 5. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
 6. "Converting a copy of the world": splits the world with the release's converter.
@@ -160,7 +160,7 @@ Setup is durable. Its files live in `<install root>/ClusterSetup/<Cluster ID>/` 
 - **Start a new setup** clears the bound request so you can change the inputs under a new Cluster ID.
 - Submitting a finished setup again only re-checks the Hosts.
 
-Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup selects a newer matching cluster release and prepares the plugins again.
+Resume also re-checks the PluginSdk: if Magnetar was updated in between and the selected cluster release no longer fits it, setup selects a newer compatible release. If Magnetar changed at all, it prepares the plugins again.
 
 ## Setup errors
 
@@ -171,7 +171,8 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup s
 | "Host executor '<name>' does not match its enrollment or has no executor identity." | Another Host answered on that registration. Check the machine and reinstall. |
 | "Host executor '<name>' has not configured this cluster deployment. Resume setup after the Host executor is ready." | The Host has not applied the deployment yet. Resume. |
 | "Cannot reach Host executor '<id>'. Start the Host executor (Quasar.Host) on that host machine and wait for it to reconnect before retrying." | The Host is offline. See [Cluster hosts](ClusterHosts.md#troubleshooting-connection-problems). |
-| "Cluster release <v> pins PluginSdk <hash>, but installed Magnetar has <hash>. Resume after a compatible cluster release is published." | No published cluster release matches the installed Magnetar yet. Wait for a matching release, then resume. |
+| "Cluster release <v> cannot run on the installed Magnetar: it needs PluginSdk contract <x.y>, but Magnetar has <x.y>. …" | The cluster release and Magnetar have incompatible PluginSdk contracts. The message says whether a newer Magnetar or a cluster release built for the newer contract is needed. Update, or wait for that release, then resume. |
+| "Cluster release <v> cannot run on the installed Magnetar: it was built against PluginSdk <hash>, but Magnetar has <hash> …" | The release or Magnetar declares no PluginSdk contract, so the exact PluginSdk build has to match, and no published cluster release matches the installed Magnetar yet. Wait for a matching release, then resume. |
 | "The installed Magnetar release does not support managed plugin preparation. …" | Update Magnetar, then resume. No game server was started. |
 | "Magnetar preparation failed: …" | Magnetar's exporter failed, often a plugin that cannot build or has unsupported configuration. Read the message, fix the profile, resume. |
 | "Could not … from GitHub repository CometWorks/cluster (HTTP 404). …" | Missing release or no access. Check the token in **Updates → GitHub token**. 401, 403 and 429 have their own guidance in the message. |
