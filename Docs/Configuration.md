@@ -135,6 +135,16 @@ The server editor does not report `MagnetarMod` as missing from the selected
 config profile while Magnetar's implicit mod loading is active. It still warns
 when implicit loading is disabled explicitly or by cross-play.
 
+`MagnetarMod` is the client-side receiver for those popups; clients download it
+with the world. Magnetar keeps its Workshop copy with the server's other
+Workshop mods, in the server's dedicated server data folder:
+`Magnetars/<server>/DedicatedServer/content/244850/3750200326` by default.
+Magnetar 2.4.3.6 and older also put a copy into the managed dedicated server
+install, `ManagedRuntime/Tools/SpaceEngineersDedicatedServer/Content/Workshop`.
+Newer versions don't write into the install, and that folder can be deleted.
+If the download fails, newer Magnetar versions start the server without the mod
+and log a warning instead of failing the world load.
+
 ## Server storage paths
 
 Server path fields under **Edit Server -> Paths** use three forms:
