@@ -10,9 +10,11 @@ namespace Quasar.Services;
 /// <summary>Builds a candidate with the selected installation and the cluster's retained world seed and topology.</summary>
 public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, ClusterDependencyService dependencies,
     ClusterHostClient hosts, ClusterDeploymentService deployments, QuasarConfigProfileCatalog profiles,
-    ClusterSetupService setup, ClusterWorkshopModStager modStager, QuasarWorkshopModResolver workshop)
+    ClusterSetupService setup, ClusterWorkshopModStager modStager, QuasarWorkshopModResolver workshop,
+    ManagedDedicatedServerRuntimeResolver runtime)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private const string PluginSdkPath = "Libraries/MagnetarInterim/PluginSdk.dll";
 
     public Task<ClusterOperation> StageProfileSelectionAsync(string clusterId, string profileId,
         string actor, CancellationToken token, IProgress<string>? progress = null) => catalog.WithLifecycleAsync(clusterId, async cluster =>
@@ -85,10 +87,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var sources = await dependencies.ReusableSourcesAsync(cluster, token);
                 var exportedData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), token))!.AsObject();
                 if (queued is not null) ValidateQueuedPlugins(queued, exportedData);
-                string sdk = Path.Combine(sources["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll");
-                if (exportedData["pluginSdkSha256"]?.GetValue<string>() !=
-                    ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(sdk, token)))
-                    throw new InvalidOperationException("Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds. Stage a matching release first.");
+                string? exporterSdk = exportedData["pluginSdkSha256"]?.GetValue<string>();
+                sources["Magnetar"] = ExportingMagnetar(inputs.PackageDirectory, sources["Magnetar"],
+                    runtime.ResolveInstalledMagnetarInstallDirectory(), exporterSdk);
                 sources["CommonPlugins"] = Path.Combine(exported, "CommonPlugins");
                 sources["DirectTransport"] = Path.Combine(exported, "DirectTransport");
                 var candidate = await dependencies.InspectAsync(cluster, sources, token);
@@ -96,6 +97,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var stagedCluster = cluster.Clone();
                 stagedCluster.DependencyManifestSha256 = candidate.ManifestSha256;
                 inputs = await dependencies.GetDeploymentInputsAsync(stagedCluster, token);
+                // The exported plugins must be frozen with the Magnetar that built them, whichever was chosen.
+                if (inputs.Files["Dependencies/payload/Magnetar/" + PluginSdkPath].Sha256 != exporterSdk)
+                    throw new InvalidOperationException("Magnetar changed during plugin preparation. Stage again.");
                 byte[] inputBytes = JsonSerializer.SerializeToUtf8Bytes(inputs, Json);
                 string inputsHash = ClusterDeploymentFiles.Hash(inputBytes);
                 string archive = Path.Combine(work, "installation.tar");
@@ -157,6 +161,28 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             }
             finally { if (Directory.Exists(work)) Directory.Delete(work, true); }
         }, token);
+
+    /// <summary>
+    /// The Magnetar to freeze with plugins exported by the Magnetar whose PluginSdk hashes to
+    /// <paramref name="exporterSdkSha256"/>: the snapshot's own when it is that Magnetar. After managed
+    /// Magnetar updated itself the installed one is the exporter, and it replaces the snapshot's when
+    /// both it and the cluster release declare a PluginSdk contract and its contract satisfies the release's.
+    /// </summary>
+    internal static string ExportingMagnetar(string package, string snapshotMagnetar, string installedMagnetar,
+        string? exporterSdkSha256)
+    {
+        static string SdkHash(string magnetar) => ClusterDeploymentFiles.Hash(File.ReadAllBytes(Path.Combine(magnetar, PluginSdkPath)));
+        if (exporterSdkSha256 == SdkHash(snapshotMagnetar)) return snapshotMagnetar;
+        const string different = "Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds.";
+        if (exporterSdkSha256 != SdkHash(installedMagnetar))
+            throw new InvalidOperationException(different + " Magnetar changed during plugin preparation. Stage again.");
+        string sdk = Path.Combine(installedMagnetar, PluginSdkPath);
+        if (ClusterDeploymentFiles.GetPluginSdkPin(package).Contract is null || PluginSdkContract.Read(sdk) is null)
+            throw new InvalidOperationException(different + " Stage a matching release first.");
+        if (ClusterDeploymentFiles.PluginSdkMismatch(package, sdk) is { } mismatch)
+            throw new InvalidOperationException($"{different} The installed Magnetar cannot replace the snapshot's: {mismatch}");
+        return installedMagnetar;
+    }
 
     internal static void ValidateQueuedMods(ClusterContentUpdateQueue queued, IReadOnlyList<QuasarModSelection> mods,
         IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)

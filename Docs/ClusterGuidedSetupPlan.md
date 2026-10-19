@@ -149,6 +149,12 @@ Selection clears the previous dependency snapshot; a plugin export made with an 
 SDK is prepared again. If no compatible release is published, setup stops with both
 contracts or hashes in the error and can be resumed after publication. Activated deployments keep
 their frozen runtime and use the separate cluster update workflow.
+Profile and content staging on an activated cluster exports the plugins with the installed
+Magnetar too. When that Magnetar is no longer the snapshot's, staging freezes it into the new
+snapshot in place of the old one if both it and the selected release declare a PluginSdk
+contract and its contract satisfies the release's. Otherwise staging stops and asks for a
+matching cluster release. Either way the exported plugins and the frozen Magnetar must have the
+same PluginSdk hash.
 
 Preparation reuses Magnetar's existing loader profile: Quasar writes
 `Profiles/Current.xml` in its isolated preparation configuration directory and passes
