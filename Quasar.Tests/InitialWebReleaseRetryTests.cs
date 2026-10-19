@@ -69,6 +69,32 @@ public sealed class InitialWebReleaseRetryTests
         });
     }
 
+    [Theory]
+    [InlineData("quasar-token", "generic-token", "Bearer quasar-token")]
+    [InlineData(null, "generic-token", "Bearer generic-token")]
+    [InlineData(" ", null, null)]
+    public async Task FirstStartDownloadUsesAGitHubTokenFromTheEnvironment(
+        string? quasarToken,
+        string? genericToken,
+        string? expected
+    )
+    {
+        await WithEnvironmentAsync(
+            quasarToken,
+            genericToken,
+            () =>
+                WithRootAsync(async () =>
+                {
+                    var github = new FakeGitHub(CreateWebArchive());
+                    using var coordinator = CreateCoordinator(github, []);
+
+                    await coordinator.WaitForInitialWebReleaseAsync(CancellationToken.None);
+
+                    Assert.Equal(expected, Assert.Single(github.ReleaseAuthorizations));
+                })
+        );
+    }
+
     [Fact]
     public void RecognizesGitHubRateLimitResponses()
     {
@@ -191,6 +217,27 @@ public sealed class InitialWebReleaseRetryTests
         return archive.ToArray();
     }
 
+    private static async Task WithEnvironmentAsync(
+        string? quasarToken,
+        string? genericToken,
+        Func<Task> action
+    )
+    {
+        var previousQuasar = Environment.GetEnvironmentVariable("QUASAR_GITHUB_TOKEN");
+        var previousGeneric = Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+        Environment.SetEnvironmentVariable("QUASAR_GITHUB_TOKEN", quasarToken);
+        Environment.SetEnvironmentVariable("GITHUB_TOKEN", genericToken);
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("QUASAR_GITHUB_TOKEN", previousQuasar);
+            Environment.SetEnvironmentVariable("GITHUB_TOKEN", previousGeneric);
+        }
+    }
+
     private static async Task WithRootAsync(Func<Task> action)
     {
         var cache = typeof(MagnetarPaths).GetField(
@@ -228,6 +275,8 @@ public sealed class InitialWebReleaseRetryTests
 
         public int ReleaseRequests { get; private set; }
 
+        public List<string?> ReleaseAuthorizations { get; } = [];
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
             CancellationToken cancellationToken
@@ -236,6 +285,7 @@ public sealed class InitialWebReleaseRetryTests
             var url = request.RequestUri!.AbsoluteUri;
             if (url == ReleasesUrl)
             {
+                ReleaseAuthorizations.Add(request.Headers.Authorization?.ToString());
                 if (++ReleaseRequests <= RateLimitedReleaseRequests)
                     return Task.FromResult(RateLimited(ResetAt));
 

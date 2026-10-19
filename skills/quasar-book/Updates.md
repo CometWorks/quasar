@@ -127,6 +127,8 @@ Quasar works without a token, but GitHub rate-limits unauthenticated API calls p
 2. On **Updates**, paste it into **GitHub token** and press **Save token**.
 3. Press **Check Quasar** to test it.
 
+Before the first start, or when the UI isn't reachable, give Bootstrap the token in its environment instead. Bootstrap uses `QUASAR_GITHUB_TOKEN` first, then the saved token, then `GITHUB_TOKEN`, for the first web UI download and for its own update checks. The web worker doesn't read these variables. On Linux, add `EnvironmentFile=%h/.config/quasar-github-token.env` under `[Service]` with `systemctl --user edit quasar.service`, write `QUASAR_GITHUB_TOKEN=<token>` into that file, `chmod 600` it and restart the service. On Windows, run `setx QUASAR_GITHUB_TOKEN <token>` as the account the Scheduled Task runs as and restart the task.
+
 Quasar encrypts the token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** removes it. Bootstrap, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads, and uses it to read [plugin hubs](Plugins.md#plugin-hubs) other than MagnetarHub, so a private hub repository needs a token that can read it.
 
 The token chip shows `not set`, `set`, `expires <date>`, `expires soon`, `expired` or `rejected`. Quasar warns 14 days before expiry, using the expiry date GitHub reports. The warnings are:
