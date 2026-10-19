@@ -38,7 +38,7 @@ public sealed class ClusterPackageService
     private readonly string? _archiveOverrideError;
 
     public ClusterPackageService(IHttpClientFactory clients, GitHubUpdateCredentialsCatalog credentials, ManagedRuntimeOptions options)
-        : this(clients, () => credentials.GetCredentials().Token,
+        : this(clients, () => credentials.Token,
             Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "Cluster"), options.ClusterArchiveUrl) { }
 
     internal ClusterPackageService(IHttpClientFactory clients, Func<string> token, string directory, string? archiveUrl = null)

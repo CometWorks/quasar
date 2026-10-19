@@ -206,7 +206,7 @@ Short `QUASAR_*` variables for admins. Each wins over the matching `appsettings.
 | `QUASAR_UPDATES_ENABLED`, `QUASAR_UPDATES_INCLUDE_PRERELEASE`, `QUASAR_UPDATES_AUTO_STAGE_WEB`, `QUASAR_UPDATES_AUTO_APPLY`, `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS`, `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS` | `Quasar:Updates` keys |
 | `QUASAR_AGENT_*` | Agent keys in [Shutdown and agent behavior](#shutdown-and-agent-behavior) |
 | `QUASAR_DS_*`, `QUASAR_STEAMCMD_*`, `QUASAR_MAGNETAR_*` | Managed runtime keys |
-| `QUASAR_GITHUB_TOKEN`, `GITHUB_TOKEN` | GitHub token for the launcher's first web UI download and its update checks. `QUASAR_GITHUB_TOKEN` wins over the token saved on [Updates](Updates.md#github-token-for-update-checks), `GITHUB_TOKEN` comes last. Launcher only |
+| `QUASAR_GITHUB_TOKEN`, `GITHUB_TOKEN` | GitHub token for the launcher's first web UI download and every GitHub request of the launcher and the web worker. `QUASAR_GITHUB_TOKEN` wins over the token saved on [Updates](Updates.md#github-token-for-update-checks), `GITHUB_TOKEN` comes last |
 | `QUASAR_URL`, `QUASAR_API_TOKEN` | Used by the `Quasar cluster` CLI |
 
 The installed Linux service sets `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_START=false`, `HOME` and `QUASAR_INSTALL_DIR`. The Docker image sets `QUASAR_INSTALL_DIR=/data`, `QUASAR_MODE=service`, `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`, `QUASAR_UPDATES_ENABLED=false`, `QUASAR_CONSOLE_LOGGING=true` and `ASPNETCORE_URLS=http://+:8080`. Some `QUASAR_*` variables are internal and set by the launcher for the worker (`QUASAR_LAUNCHER_TOKEN`, `QUASAR_BOOTSTRAP_VERSION`, `QUASAR_COORDINATED_UPDATES`, `QUASAR_CONSOLE_LOGGING`) or by Quasar for each server; do not set them by hand.

@@ -53,7 +53,7 @@ public sealed class QuasarPluginCatalogService
         GitHubUpdateCredentialsCatalog? gitHubCredentials = null)
         : this(logger, httpClientFactory, devFolderCatalog, GetCachePath(),
             hubCatalog is null ? null : hubCatalog.GetHubs,
-            gitHubCredentials is null ? null : () => gitHubCredentials.GetCredentials().Token) { }
+            gitHubCredentials is null ? null : () => gitHubCredentials.Token) { }
 
     internal QuasarPluginCatalogService(ILogger<QuasarPluginCatalogService> logger,
         IHttpClientFactory httpClientFactory, QuasarDevFolderCatalog devFolderCatalog, string cachePath,

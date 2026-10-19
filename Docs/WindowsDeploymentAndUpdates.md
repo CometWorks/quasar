@@ -268,8 +268,10 @@ UI from GitHub first. For that first start, and for Bootstrap's own update check
 later, Bootstrap also reads a token from its environment: `QUASAR_GITHUB_TOKEN`
 wins over the saved token, and `GITHUB_TOKEN` is used only when neither is set.
 Set it for the account the Scheduled Task runs as (`setx QUASAR_GITHUB_TOKEN
-<token>`) and restart the task. The web worker doesn't read these variables; its
-release checks and Magnetar starts use the saved token only.
+<token>`) and restart the task. The web worker uses the same order for its
+release checks, plugin hubs and Magnetar starts. The Updates page says when the
+token in use comes from one of these variables; a `QUASAR_GITHUB_TOKEN` hides a
+token saved there.
 
 The same token is handed to every managed Magnetar start through the
 `PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are

@@ -113,7 +113,7 @@ public sealed class DedicatedServerRuntimePreparer
         await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
-        var gitHubToken = _githubCredentials.GetCredentials().Token?.Trim() ?? string.Empty;
+        var gitHubToken = _githubCredentials.Token;
         var arguments = BuildLaunchArguments(
             definition,
             dedicatedServerAppDataPath,
