@@ -45,6 +45,9 @@ public sealed class QuasarWorkshopModResolver
 
     // Workshop exposes time_updated without a Web API key. It is an observation,
     // not proof of the bytes currently loaded by a dedicated server.
+    // Friends-only and private items answer result 9 without a key. The keyed
+    // GetDetails sees them when the key's account can; otherwise they are marked
+    // Hidden and the stager pins the version SteamCMD downloads.
     public async Task<IReadOnlyDictionary<long, WorkshopUpdateObservation>> CheckUpdatesAsync(
         IEnumerable<long> workshopIds, CancellationToken token = default)
     {
@@ -55,15 +58,34 @@ public sealed class QuasarWorkshopModResolver
             try
             {
                 var details = await GetPublishedFileDetailsAsync(batch, token);
+                long[] hidden = batch.Where(id => details.TryGetValue(id, out var detail) && detail.Result != 1).ToArray();
+                string webApiKey = hidden.Length == 0 ? string.Empty : _credentialsCatalog.GetCredentials().WebApiKey;
+                if (!string.IsNullOrWhiteSpace(webApiKey))
+                {
+                    try
+                    {
+                        foreach (var (id, detail) in await GetPublishedFileDetailsWithChildrenAsync(hidden, webApiKey.Trim(), token))
+                            if (detail.Result == 1) details[id] = detail;
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                    catch (Exception error) when (error is HttpRequestException or JsonException or OperationCanceledException)
+                    {
+                        _logger.LogWarning(error, "Keyed Workshop details check failed for hidden items.");
+                    }
+                }
                 foreach (long id in batch)
                 {
                     details.TryGetValue(id, out var detail);
                     bool valid = detail is { Result: 1, TimeUpdated: > 0 }
                         && detail.ConsumerAppId == SpaceEngineersAppId && !IsClearlyNonMod(detail)
                         && !IsWorkshopCollection(detail) && detail.TimeUpdated <= 253402300799;
-                    result[id] = new(id, detail?.Title ?? id.ToString(CultureInfo.InvariantCulture),
+                    bool isHidden = detail is { Result: not 1 };
+                    result[id] = new(id, detail?.Title is { Length: > 0 } title ? title : id.ToString(CultureInfo.InvariantCulture),
                         valid ? detail!.TimeUpdated : null,
-                        valid ? null : "Workshop item is unavailable or has no valid update timestamp.");
+                        valid ? null : isHidden
+                            ? "Workshop item is hidden from the public Workshop API (friends-only, private or removed). Staging pins the version SteamCMD downloads; a Steam Web API key of an account that can see it also enables update checks."
+                            : "Workshop item is unavailable or has no valid update timestamp.",
+                        isHidden);
                 }
             }
             catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
@@ -932,7 +954,9 @@ public sealed class QuasarWorkshopModResolver
 
         await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
         var payload = await JsonSerializer.DeserializeAsync<T>(stream, JsonOptions, cancellationToken);
-        return payload ?? throw new InvalidOperationException($"Steam Workshop returned no payload for {url}.");
+        // The query carries the Web API key; keep it out of the message.
+        return payload ?? throw new InvalidOperationException(
+            $"Steam Workshop returned no payload for {new Uri(url).GetLeftPart(UriPartial.Path)}.");
     }
 
     private static List<long> ParseWorkshopIds(string input)
@@ -1287,7 +1311,9 @@ public sealed record QuasarWorkshopResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,
     IReadOnlyList<string> Warnings);
 
-public sealed record WorkshopUpdateObservation(long WorkshopId, string Name, long? UpdatedTimestamp, string? Error);
+// Hidden: the public API does not show the item, so only a download can tell its version.
+public sealed record WorkshopUpdateObservation(long WorkshopId, string Name, long? UpdatedTimestamp, string? Error,
+    bool Hidden = false);
 
 public sealed record QuasarModDependencyResolutionResult(
     IReadOnlyList<QuasarModSelection> Mods,

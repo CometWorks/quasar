@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Quasar.Host.Contract.V1;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
@@ -15,9 +16,11 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
     private readonly SemaphoreSlim gate = new(1, 1);
     internal static string StorageDirectory => Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "ClusterModVersions");
     internal sealed record Receipt(long Id, long Version, Dictionary<string, DeploymentFile> Files);
+    public sealed record StagedMods(string Directory, IReadOnlyDictionary<long, long> Versions);
 
 
-    public async Task<string> StageAsync(IReadOnlyList<QuasarModSelection> mods, string work, CancellationToken token,
+    /// <summary>Hidden items have no observed version; they are pinned to what SteamCMD downloads.</summary>
+    public async Task<StagedMods> StageAsync(IReadOnlyList<QuasarModSelection> mods, string work, CancellationToken token,
         IProgress<string>? progress, IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)
     {
         using var activity = await ClusterStorageActivity.BeginAsync(token);
@@ -27,48 +30,64 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
             string destination = Path.Combine(work, "mods");
             Directory.CreateDirectory(destination);
             ClusterWorldFiles.Private(destination);
-            if (mods.Count == 0) return destination;
+            var versions = new Dictionary<long, long>();
+            if (mods.Count == 0) return new(destination, versions);
             using var content = await ClusterContentStore.OpenAsync(StorageDirectory, token);
             int index = 0;
             foreach (var mod in mods)
             {
-                long version = ObservedVersion(mod.WorkshopId, observations);
+                long? observed = PinnedVersion(mod.WorkshopId, observations);
                 string id = mod.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture);
-                string versionPath = Path.Combine(StorageDirectory, id + "-" + version);
+                string? versionPath = observed is { } known ? Path.Combine(StorageDirectory, id + "-" + known) : null;
                 Receipt receipt;
-                if (Directory.Exists(versionPath))
+                if (versionPath is not null && Directory.Exists(versionPath))
                 {
                     progress?.Report($"Reusing verified mod {++index}/{mods.Count}: {mod.DisplayName} ({id})...");
-                    receipt = await ReadReceiptAsync(versionPath, mod.WorkshopId, version, token);
+                    receipt = await ReadReceiptAsync(versionPath, mod.WorkshopId, observed!.Value, token);
                 }
                 else
                 {
-                    progress?.Report($"Downloading changed mod {++index}/{mods.Count}: {mod.DisplayName} ({id})...");
-                    string source = await DownloadModAsync(id, work, token);
+                    progress?.Report($"Downloading {(observed is null ? "hidden" : "changed")} mod {++index}/{mods.Count}: {mod.DisplayName} ({id})...");
+                    var (source, downloaded) = await DownloadModAsync(id, work, token);
+                    long version = observed ?? downloaded ?? throw new InvalidOperationException(
+                        $"Workshop version for {id} is unknown: the public Workshop API hides the item, no configured Steam Web API key can see it, and SteamCMD recorded no version for the download.");
+                    versionPath = Path.Combine(StorageDirectory, id + "-" + version);
                     var pins = await ClusterDeploymentFiles.InspectAsync(source, token);
                     if (pins.Count == 0) throw new InvalidDataException($"Workshop item {id} has no mod payload.");
-                    if (ObservedVersion(mod.WorkshopId, await workshop.CheckUpdatesAsync([mod.WorkshopId], token)) != version)
+                    if ((downloaded ?? version) != version
+                        || (PinnedVersion(mod.WorkshopId, await workshop.CheckUpdatesAsync([mod.WorkshopId], token)) ?? version) != version)
                         throw new InvalidOperationException($"Workshop item {id} changed during download. Check updates and stage again.");
                     receipt = new(mod.WorkshopId, version, pins);
-                    string staging = versionPath + ".stage-" + Guid.NewGuid().ToString("N");
-                    Directory.CreateDirectory(staging);
-                    try
+                    // A hidden item is downloaded every time; its version may be stored already.
+                    if (Directory.Exists(versionPath))
+                        receipt = await ReadReceiptAsync(versionPath, mod.WorkshopId, version, token);
+                    else
                     {
-                        foreach (var (name, pin) in pins)
-                            await content.ReferenceAsync(Path.Combine(source, name), Path.Combine(staging, "payload", name), pin, token);
-                        await File.WriteAllBytesAsync(Path.Combine(staging, "receipt.json"),
-                            JsonSerializer.SerializeToUtf8Bytes(receipt, ClusterDeploymentFiles.JsonOptions), token);
-                        Directory.Move(staging, versionPath);
+                        string staging = versionPath + ".stage-" + Guid.NewGuid().ToString("N");
+                        Directory.CreateDirectory(staging);
+                        try
+                        {
+                            foreach (var (name, pin) in pins)
+                                await content.ReferenceAsync(Path.Combine(source, name), Path.Combine(staging, "payload", name), pin, token);
+                            await File.WriteAllBytesAsync(Path.Combine(staging, "receipt.json"),
+                                JsonSerializer.SerializeToUtf8Bytes(receipt, ClusterDeploymentFiles.JsonOptions), token);
+                            Directory.Move(staging, versionPath);
+                        }
+                        finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
                     }
-                    finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
                 }
+                versions[mod.WorkshopId] = receipt.Version;
                 foreach (var (name, pin) in receipt.Files)
                     await content.ReferenceAsync(Path.Combine(versionPath, "payload", name), Path.Combine(destination, id + ".sbm", name), pin, token);
             }
-            return destination;
+            return new(destination, versions);
         }
         finally { gate.Release(); }
     }
+
+    /// <summary>The observed version, or null for a hidden item whose download decides it.</summary>
+    internal static long? PinnedVersion(long id, IReadOnlyDictionary<long, WorkshopUpdateObservation> observations) =>
+        observations.TryGetValue(id, out var observed) && observed.Hidden ? null : ObservedVersion(id, observations);
 
     internal static long ObservedVersion(long id, IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)
     {
@@ -90,7 +109,7 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
         return receipt;
     }
 
-    private async Task<string> DownloadModAsync(string id, string work, CancellationToken token)
+    private async Task<(string Source, long? Version)> DownloadModAsync(string id, string work, CancellationToken token)
     {
         string steamCmd = runtime.GetInstalledVersions().SteamCmdPath;
         if (string.IsNullOrWhiteSpace(steamCmd) || !File.Exists(steamCmd))
@@ -108,9 +127,23 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
             if (!await DownloadAsync(steamCmd, install, id, account, token))
                 throw new InvalidOperationException($"SteamCMD could not download Workshop item {id} with the configured account. Check its Workshop access and Steam Guard authentication.");
         }
-        return new[] { install, Path.Combine(options.SteamCmdHomeDirectory, ".steam", "steamcmd"), Path.GetDirectoryName(steamCmd)! }
-            .Select(root => Path.Combine(root, "steamapps", "workshop", "content", WorkshopAppId, id))
-            .FirstOrDefault(Directory.Exists) ?? throw new InvalidDataException($"Workshop item {id} has no downloaded payload.");
+        string workshopRoot = new[] { install, Path.Combine(options.SteamCmdHomeDirectory, ".steam", "steamcmd"), Path.GetDirectoryName(steamCmd)! }
+            .Select(root => Path.Combine(root, "steamapps", "workshop"))
+            .FirstOrDefault(root => Directory.Exists(Path.Combine(root, "content", WorkshopAppId, id)))
+            ?? throw new InvalidDataException($"Workshop item {id} has no downloaded payload.");
+        string manifest = Path.Combine(workshopRoot, "appworkshop_" + WorkshopAppId + ".acf");
+        return (Path.Combine(workshopRoot, "content", WorkshopAppId, id),
+            File.Exists(manifest) ? DownloadedVersion(await File.ReadAllTextAsync(manifest, token), id) : null);
+    }
+
+    /// <summary>The timeupdated SteamCMD recorded for the item; the same value the Workshop API reports.</summary>
+    internal static long? DownloadedVersion(string appWorkshopAcf, string id)
+    {
+        int installed = appWorkshopAcf.IndexOf("\"WorkshopItemsInstalled\"", StringComparison.Ordinal);
+        if (installed < 0) return null;
+        var match = Regex.Match(appWorkshopAcf[installed..], "\"" + Regex.Escape(id) + "\"\\s*\\{[^}]*?\"timeupdated\"\\s*\"(\\d+)\"");
+        return match.Success && long.TryParse(match.Groups[1].Value, out long version) && version is > 0 and <= 253402300799
+            ? version : null;
     }
 
     private async Task<bool> DownloadAsync(string steamCmd, string install, string id,
