@@ -45,7 +45,7 @@ public sealed class QuasarWorkshopModResolver
 
     // Workshop exposes time_updated without a Web API key. It is an observation,
     // not proof of the bytes currently loaded by a dedicated server.
-    // Friends-only and private items answer result 9 without a key. The keyed
+    // Unlisted, friends-only and private items answer result 9 without a key. The keyed
     // GetDetails sees them when the key's account can; otherwise they are marked
     // Hidden and the stager pins the version SteamCMD downloads.
     public async Task<IReadOnlyDictionary<long, WorkshopUpdateObservation>> CheckUpdatesAsync(
@@ -83,7 +83,7 @@ public sealed class QuasarWorkshopModResolver
                     result[id] = new(id, detail?.Title is { Length: > 0 } title ? title : id.ToString(CultureInfo.InvariantCulture),
                         valid ? detail!.TimeUpdated : null,
                         valid ? null : isHidden
-                            ? "Workshop item is hidden from the public Workshop API (friends-only, private or removed). Staging pins the version SteamCMD downloads; a Steam Web API key of an account that can see it also enables update checks."
+                            ? "Workshop item is hidden from the public Workshop API (unlisted, friends-only, private or removed). Staging pins the version SteamCMD downloads; a Steam Web API key of an account that can see it also enables update checks."
                             : "Workshop item is unavailable or has no valid update timestamp.",
                         isHidden);
                 }

@@ -7,7 +7,7 @@ using Xunit;
 
 namespace Quasar.Tests;
 
-// Friends-only and private Workshop items answer result 9 to the keyless API (#1199).
+// Unlisted, friends-only and private Workshop items answer result 9 to the keyless API (#1199).
 public sealed class HiddenWorkshopItemTests
 {
     private const long Hidden = 3816175430, Public = 2344068716;
@@ -50,7 +50,7 @@ public sealed class HiddenWorkshopItemTests
 
         Assert.True(observations[Hidden].Hidden);
         Assert.Null(observations[Hidden].UpdatedTimestamp);
-        Assert.Contains("hidden", observations[Hidden].Error);
+        Assert.Contains("unlisted", observations[Hidden].Error);
         Assert.Null(ClusterWorkshopModStager.PinnedVersion(Hidden, observations));
         Assert.False(observations[Public].Hidden);
         Assert.Equal(1785868586, ClusterWorkshopModStager.PinnedVersion(Public, observations));
