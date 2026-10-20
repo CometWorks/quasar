@@ -36,7 +36,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
     DedicatedServerSupervisor supervisor, ServerRestoreCoordinator stoppedServers, QuasarConfigProfileCatalog profiles,
     PluginConfigService pluginConfigs, ClusterDependencyService dependencies, ClusterHostClient hosts,
     ClusterDeploymentService deployments, ClusterBackupService clusterBackups, QuasarBackupService serverBackups,
-    ClusterOperationStore operations, WebServiceOptions options)
+    ClusterOperationStore operations, WebServiceOptions options, ClusterWorkshopModStager modStager)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<Guid, ClusterConversionStatus> progress = new();
@@ -148,6 +148,18 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 await ConvertOnceAsync(installation.Directory, "to-split", effective, converted, [], ct);
                 string worldArchivePath = Path.Combine(work, "split-world.tar");
                 string worldHash = await ClusterWorldFiles.PackAsync(converted, worldArchivePath, ct);
+                // The packaged generator refuses a world whose mods have no verified payload: stage them as guided setup does.
+                string modWork = Path.Combine(work, "mod-stage"), modArchive = Path.Combine(modWork, "mods.tar");
+                ClusterSetupService.DeleteModStage(work);
+                ClusterWorkshopModStager.StagedProfileMods? mods = null;
+                string? modHash = null;
+                if (profile.Mods.Count != 0)
+                {
+                    await StageAsync(request.Id, clusterId, "to-cluster", "Staging the profile's Workshop mods", ct);
+                    Directory.CreateDirectory(modWork); ClusterWorldFiles.Private(modWork);
+                    mods = await modStager.StageProfileAsync(profile, modWork, ct, null);
+                    modHash = await ClusterWorldFiles.PackAsync(mods.Directory, modArchive, ct, requireCheckpoint: false);
+                }
                 string installationArchive = Path.Combine(work, "installation.tar");
                 using (var output = new FileStream(installationArchive, FileMode.Create))
                     await ClusterDeploymentFiles.ExportAsync(installation.Directory, output, ct);
@@ -161,12 +173,21 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                         await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), null, ct);
                     var installed = await hosts.TransferConversionInputAsync(target, request.Id, "installation", installationArchive, installation.InputsSha256, ct);
                     var world = await hosts.TransferConversionInputAsync(target, request.Id, "world", worldArchivePath, worldHash, ct);
-                    if (installed.HostId != host.HostId || world.HostId != host.HostId) throw new InvalidDataException("Conversion Host identity mismatch.");
+                    var hostMods = modHash is null ? null : await hosts.TransferConversionInputAsync(target, request.Id, "mods", modArchive, modHash, ct);
+                    if (installed.HostId != host.HostId || world.HostId != host.HostId || hostMods is not null && hostMods.HostId != host.HostId)
+                        throw new InvalidDataException("Conversion Host identity mismatch.");
                     paths.Add(host.HostId, world);
                     preparationHosts.Add(new(host.HostId, host.CommandUrl, host.TokenEnvironmentVariable,
-                        host.ExecutorTokenEnvironmentVariable, installed.Directory, world.Directory, world.ConfigurationDirectory));
+                        host.ExecutorTokenEnvironmentVariable, installed.Directory, world.Directory, world.ConfigurationDirectory, hostMods?.Directory));
                 }
                 string specification = await SpecificationAsync(cluster, source, profile, snapshot, request, converted, paths, ct);
+                if (mods is not null)
+                {
+                    var withMods = JsonNode.Parse(specification)!.AsObject();
+                    ClusterWorkshopModStager.AddToSpecification(withMods, mods, await ClusterWorkshopModStager.ProfileSettingsXmlAsync(
+                        Path.Combine(modWork, "profile-patch"), mods.Profile, source.InGameWorldName, ct));
+                    specification = withMods.ToJsonString(Json);
+                }
                 var preparation = new ClusterPreparationRequest(installation.InputsSha256, specification, cluster.GatewayUrl, preparationHosts.ToArray());
                 await StageAsync(request.Id, clusterId, "to-cluster", "Preparing and validating the destination", ct);
                 // Preparation owns immutable files only; activation below owns publication under this lifecycle lock.

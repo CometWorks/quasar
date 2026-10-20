@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Xml.Linq;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
 using Quasar.Models;
@@ -10,7 +9,7 @@ namespace Quasar.Services;
 /// <summary>Builds a candidate with the selected installation and the cluster's retained world seed and topology.</summary>
 public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, ClusterDependencyService dependencies,
     ClusterHostClient hosts, ClusterDeploymentService deployments, QuasarConfigProfileCatalog profiles,
-    ClusterSetupService setup, ClusterWorkshopModStager modStager, QuasarWorkshopModResolver workshop,
+    ClusterSetupService setup, ClusterWorkshopModStager modStager,
     ManagedDedicatedServerRuntimeResolver runtime)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -47,37 +46,13 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 if (activeDeployment.Provenance is null)
                     await catalog.RecordActiveProvenanceAsync(cluster, token);
 
-                progress?.Report("Resolving the profile's Workshop dependencies...");
-                var requestedMods = selected.Mods.ToList();
-                // Magnetar adds its Steam companion implicitly. Pin it with the rest of
-                // the managed payload so profile migration cannot drop it or download at launch.
-                if (!selected.RootSettings.CrossPlatform && requestedMods.All(m => m.WorkshopId != 3750200326))
-                    requestedMods.Add(new() { WorkshopId = 3750200326, DisplayName = "MagnetarMod" });
-                var resolved = await workshop.ResolveDependenciesAsync(requestedMods, sortLoadOrder: true, cancellationToken: token);
-                var unresolved = resolved.Warnings.Where(w => !w.StartsWith("Reordered dependency ", StringComparison.Ordinal)).ToArray();
-                if (unresolved.Length != 0)
-                    throw new InvalidOperationException("Resolve Workshop dependencies before staging: " + string.Join(" ", unresolved));
-                var effective = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(selected, Json), Json)!;
-                effective.Mods = resolved.Mods.ToList();
-                var observations = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
-                if (queued is not null) ValidateQueuedMods(queued, effective.Mods, observations);
-                var (mods, modVersions) = await modStager.StageAsync(effective.Mods, work, token, progress, observations);
-                var afterDownload = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
-                foreach (var mod in effective.Mods)
-                    if ((ClusterWorkshopModStager.PinnedVersion(mod.WorkshopId, afterDownload) ?? modVersions[mod.WorkshopId])
-                        != modVersions[mod.WorkshopId])
-                        throw new InvalidOperationException($"Workshop item {mod.WorkshopId} changed during preparation. Check updates and stage again.");
-                var modFiles = (await ClusterDeploymentFiles.InspectAsync(mods, token))
-                    .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
+                var staged = await modStager.StageProfileAsync(selected, work, token, progress, queued);
+                var effective = staged.Profile;
+                string mods = staged.Directory;
                 string modArchive = Path.Combine(work, "mods.tar");
 
                 string sourceWorld = Path.Combine(work, "profile-source");
-                Directory.CreateDirectory(sourceWorld);
-                string checkpoint = Path.Combine(sourceWorld, "Sandbox.sbc");
-                await File.WriteAllTextAsync(checkpoint, new XDocument(new XElement("MyObjectBuilder_Checkpoint",
-                    new XElement("Settings"), new XElement("Mods"))).ToString(), token);
-                await WorldSandboxConfigEditor.WriteProfileAsync(checkpoint, effective, cluster.DisplayName, token);
-                string patch = XDocument.Load(checkpoint).ToString(SaveOptions.DisableFormatting);
+                string patch = await ClusterWorkshopModStager.ProfileSettingsXmlAsync(sourceWorld, effective, cluster.DisplayName, token);
                 string exported = Path.Combine(work, "exported");
                 progress?.Report("Preparing pinned plugins and their configuration...");
                 var excluded = await setup.ExportProfilePluginsAsync(cluster.UniqueName, cluster.DisplayName,
@@ -108,11 +83,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 spec["memberLimit"] = ClusterConversionService.MemberLimit(effective);
                 spec["administrators"] = JsonSerializer.SerializeToNode(ClusterConversionService.Administrators(effective), Json);
                 spec["selectedConfigProfileId"] = effective.ConfigProfileId;
-                spec["profileSettingsXml"] = patch;
-                spec["modFiles"] = JsonSerializer.SerializeToNode(modFiles, Json);
-                spec["modVersions"] = JsonSerializer.SerializeToNode(effective.Mods.ToDictionary(m =>
-                    m.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    m => modVersions[m.WorkshopId]), Json);
+                ClusterWorkshopModStager.AddToSpecification(spec, staged, patch);
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);

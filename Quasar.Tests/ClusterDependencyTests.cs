@@ -131,7 +131,7 @@ public sealed class ClusterDependencyTests
             var hosts = new ClusterHostClient(http);
             var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
             var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
-                null!, null!, null!, null!, null!);
+                null!, null!, null!, null!);
             var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
             Assert.Equal(ClusterOperationState.Succeeded, result.State);
             var saved = catalog.GetCluster("demo")!;
@@ -484,7 +484,7 @@ public sealed class ClusterDependencyTests
             await File.WriteAllTextAsync(Path.Combine(root, "demo/cluster.json"), JsonSerializer.Serialize(cluster, ClusterDeploymentFiles.JsonOptions));
             using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = root }).Build());
-            var service = new ClusterUpdatePreparationService(catalog, null!, null!, null!, null!, null!, null!, null!, null!);
+            var service = new ClusterUpdatePreparationService(catalog, null!, null!, null!, null!, null!, null!, null!);
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.PrepareAsync("demo", "release-manager", default));
             Assert.Contains("Configuration editing permission", error.Message);
             Assert.NotNull(catalog.GetCluster("demo")!.QueuedContentUpdates);
