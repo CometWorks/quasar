@@ -194,7 +194,7 @@ The wizard steps:
 3. **Place the cluster**: per placement the Host machine ID, Host executor command URL, credential environment variable names, private IP address and regular nodes (1 to 32). Then the Cluster Gateway and World Authority host machine, game build, public server port, allowed internal networks and two more credential variable names. Credential fields take environment variable names, never secret values.
 4. Confirm and choose **Back up and convert**.
 
-Quasar then reserves the source, takes a server backup and a world backup, converts a copy of the world with the release's MagnetarWorld tool, sends the installation and the converted world to every Host, prepares and activates the stopped cluster.
+Quasar then reserves the source, takes a server backup and a world backup, converts a copy of the world with the release's MagnetarWorld tool, stages the profile's Workshop mods as guided setup does (a profile with mods needs the Steam Web API key), sends the installation, the converted world and the mods to every Host, prepares and activates the stopped cluster.
 
 Conversion is blocked when:
 
