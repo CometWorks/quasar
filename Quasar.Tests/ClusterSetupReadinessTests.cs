@@ -53,7 +53,7 @@ public sealed class ClusterSetupReadinessTests : IDisposable
         var world = await worlds.ImportAsync("World", "", source);
         using var http = new HttpClient(new HostResponses(fault));
         var setup = new ClusterSetupService(clusters, hosts, new ClusterHostClient(http, credentials), credentials,
-            null!, null!, null!, null!, worlds, profiles, null!, new ClusterOperationStore(Path.Combine(_root, "operations")), servers);
+            null!, null!, null!, null!, worlds, profiles, null!, new ClusterOperationStore(Path.Combine(_root, "operations")), servers, null!);
         var request = new ClusterSetupRequest("demo", "Demo", world.WorldTemplateId, "profile", "one", 28000,
             [new("one", 1), new("two", 1)]);
         if (completed)

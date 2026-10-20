@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
+using System.Xml.Linq;
 using Quasar.Host.Contract.V1;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
@@ -13,10 +15,69 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
     SteamWorkshopCredentialsCatalog credentials, ManagedRuntimeOptions options, QuasarWorkshopModResolver workshop)
 {
     private const string WorkshopAppId = "244850";
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly SemaphoreSlim gate = new(1, 1);
     internal static string StorageDirectory => Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "ClusterModVersions");
     internal sealed record Receipt(long Id, long Version, Dictionary<string, DeploymentFile> Files);
     public sealed record StagedMods(string Directory, IReadOnlyDictionary<long, long> Versions);
+    private const long MagnetarModId = 3750200326;
+
+    /// <summary>A profile with its resolved mod list, and the exact Workshop payload staged for it.</summary>
+    public sealed record StagedProfileMods(QuasarConfigProfile Profile, string Directory,
+        Dictionary<string, string> Files, Dictionary<string, long> Versions);
+
+    /// <summary>Resolves the profile's Workshop dependencies and stages the pinned versions under
+    /// <paramref name="work"/>, for a deployment specification's modFiles, modVersions and profile patch.</summary>
+    public async Task<StagedProfileMods> StageProfileAsync(QuasarConfigProfile selected, string work, CancellationToken token,
+        IProgress<string>? progress, ClusterContentUpdateQueue? queued = null)
+    {
+        progress?.Report("Resolving the profile's Workshop dependencies...");
+        var requestedMods = selected.Mods.ToList();
+        // Magnetar adds its Steam companion implicitly. Pin it with the rest of
+        // the managed payload so profile migration cannot drop it or download at launch.
+        if (!selected.RootSettings.CrossPlatform && requestedMods.All(m => m.WorkshopId != MagnetarModId))
+            requestedMods.Add(new() { WorkshopId = MagnetarModId, DisplayName = "MagnetarMod" });
+        var resolved = await workshop.ResolveDependenciesAsync(requestedMods, sortLoadOrder: true, cancellationToken: token);
+        var unresolved = resolved.Warnings.Where(w => !w.StartsWith("Reordered dependency ", StringComparison.Ordinal)).ToArray();
+        if (unresolved.Length != 0)
+            throw new InvalidOperationException("Resolve Workshop dependencies before staging: " + string.Join(" ", unresolved));
+        var effective = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(selected, Json), Json)!;
+        effective.Mods = resolved.Mods.ToList();
+        var observations = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
+        if (queued is not null) ClusterUpdatePreparationService.ValidateQueuedMods(queued, effective.Mods, observations);
+        var (mods, modVersions) = await StageAsync(effective.Mods, work, token, progress, observations);
+        var afterDownload = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
+        foreach (var mod in effective.Mods)
+            if ((PinnedVersion(mod.WorkshopId, afterDownload) ?? modVersions[mod.WorkshopId]) != modVersions[mod.WorkshopId])
+                throw new InvalidOperationException($"Workshop item {mod.WorkshopId} changed during preparation. Check updates and stage again.");
+        var files = (await ClusterDeploymentFiles.InspectAsync(mods, token))
+            .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
+        var versions = effective.Mods.ToDictionary(m => m.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            m => modVersions[m.WorkshopId]);
+        return new(effective, mods, files, versions);
+    }
+
+    /// <summary>Writes the profile into an empty checkpoint in <paramref name="directory"/> and returns it as the
+    /// generator's profileSettingsXml patch, which replaces the seed's settings and mod list.</summary>
+    internal static async Task<string> ProfileSettingsXmlAsync(string directory, QuasarConfigProfile profile, string name,
+        CancellationToken token)
+    {
+        Directory.CreateDirectory(directory);
+        string checkpoint = Path.Combine(directory, "Sandbox.sbc");
+        await File.WriteAllTextAsync(checkpoint, new XDocument(new XElement("MyObjectBuilder_Checkpoint",
+            new XElement("Settings"), new XElement("Mods"))).ToString(), token);
+        await WorldSandboxConfigEditor.WriteProfileAsync(checkpoint, profile, name, token);
+        return XDocument.Load(checkpoint).ToString(SaveOptions.DisableFormatting);
+    }
+
+    /// <summary>Puts the staged mods and the profile patch listing them into a deployment specification. Every Host
+    /// preparation then needs <see cref="StagedProfileMods.Directory"/> as its mod input, or the generator refuses the world.</summary>
+    internal static void AddToSpecification(JsonObject specification, StagedProfileMods mods, string profileSettingsXml)
+    {
+        specification["profileSettingsXml"] = profileSettingsXml;
+        specification["modFiles"] = JsonSerializer.SerializeToNode(mods.Files, Json);
+        specification["modVersions"] = JsonSerializer.SerializeToNode(mods.Versions, Json);
+    }
 
 
     /// <summary>Hidden items have no observed version; they are pinned to what SteamCMD downloads.</summary>

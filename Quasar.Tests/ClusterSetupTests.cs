@@ -82,6 +82,39 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public async Task GuidedSetupGivesTheGeneratorAVerifiedPayloadForEveryProfileMod()
+    {
+        string work = Path.Combine(Path.GetTempPath(), "cluster-setup-mods-" + Guid.NewGuid());
+        string payload = Path.Combine(work, "mod-stage/mods");
+        Directory.CreateDirectory(Path.Combine(payload, "123456.sbm/Data/Scripts"));
+        File.WriteAllText(Path.Combine(payload, "123456.sbm/Data/Scripts/Mod.cs"), "// mod");
+        try
+        {
+            var profile = new QuasarConfigProfile { Mods = [new() { WorkshopId = 123456, DisplayName = "Test mod" }] };
+            var files = (await Quasar.ClusterDeployment.ClusterDeploymentFiles.InspectAsync(payload, default))
+                .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
+            var staged = new ClusterWorkshopModStager.StagedProfileMods(profile, payload, files, new() { ["123456"] = 42 });
+            var specification = new System.Text.Json.Nodes.JsonObject();
+            ClusterWorkshopModStager.AddToSpecification(specification, staged, await ClusterWorkshopModStager.ProfileSettingsXmlAsync(
+                Path.Combine(work, "mod-stage/profile-patch"), profile, "Demo", default));
+
+            // managed_deployment.py prepare: the patched checkpoint lists exactly the staged <id>.sbm folders,
+            // and the payload the Host receives hashes to modFiles.
+            var patch = System.Xml.Linq.XDocument.Parse(specification["profileSettingsXml"]!.GetValue<string>()).Root!;
+            var item = Assert.Single(patch.Descendants().Where(e => e.Name.LocalName == "ModItem"));
+            Assert.Equal("123456", item.Elements().Single(e => e.Name.LocalName == "PublishedFileId").Value);
+            Assert.Equal(["123456.sbm"], Directory.GetDirectories(payload).Select(Path.GetFileName));
+            Assert.Equal("123456.sbm", item.Elements().Single(e => e.Name.LocalName == "Name").Value);
+            Assert.Equal(["123456.sbm/Data/Scripts/Mod.cs"], specification["modFiles"]!.AsObject().Select(p => p.Key));
+            Assert.Equal(42, specification["modVersions"]!["123456"]!.GetValue<long>());
+
+            ClusterSetupService.CleanupTransferFiles(work);
+            Assert.False(Directory.Exists(Path.Combine(work, "mod-stage")));
+        }
+        finally { Directory.Delete(work, true); }
+    }
+
+    [Fact]
     public void BundledAgentGetsTraceableLoaderCompatibleMetadataWithoutChangingItsBytes()
     {
         string config = Path.Combine(Path.GetTempPath(), "cluster-agent-bundle-" + Guid.NewGuid());

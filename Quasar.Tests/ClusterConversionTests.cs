@@ -39,7 +39,7 @@ public sealed class ClusterConversionTests : IDisposable
             reservations, NullLogger<DedicatedServerSupervisor>.Instance);
         var configs = new PluginConfigService(null!, NullLogger<PluginConfigService>.Instance, Path.Combine(root, "configs"));
         service = new(clusters, servers, supervisor, reservations, profiles, configs, null!, null!, null!, null!, null!,
-            new ClusterOperationStore(Path.Combine(root, "operations")), options);
+            new ClusterOperationStore(Path.Combine(root, "operations")), options, null!);
     }
 
     private async Task Source(DedicatedServerGoalState goal = DedicatedServerGoalState.Off)

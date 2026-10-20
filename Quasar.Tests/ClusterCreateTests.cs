@@ -232,8 +232,8 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new QuasarAuthOptions(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
-        context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
-        context.Services.AddSingleton(new ClusterConversionService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, new WebServiceOptions()));
+        context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
+        context.Services.AddSingleton(new ClusterConversionService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, new WebServiceOptions(), null!));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddSingleton<QuasarPermissionService>();
         context.ComponentFactories.AddStub<ClusterBetaNotice>();
