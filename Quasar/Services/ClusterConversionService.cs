@@ -18,10 +18,12 @@ namespace Quasar.Services;
 
 public sealed record ClusterConversionHost(string HostId, string CommandUrl, string TokenEnvironmentVariable,
     string ExecutorTokenEnvironmentVariable, string Address, int RegularNodes = 1);
+/// <summary><paramref name="HotSpares"/>: how many hot spares the cluster has. Quasar only writes that many spare slots into
+/// the specification; the cluster promotes and refills them (cluster ManagedDeployment.md "Hot spares").</summary>
 public sealed record ServerToClusterRequest(Guid Id, string Server, string SourceRevision, string BinaryVersion,
     string GatewayHost, int SteamPort, string JoinTokenEnvironmentVariable, string AdminTokensFileEnvironmentVariable,
     string[] InternalNetworks, ClusterConversionHost[] Hosts, string? DependencySha256 = null, long? PackageRevision = null,
-    int? NodePortBase = null);
+    int? NodePortBase = null, int HotSpares = 0);
 public sealed record ClusterToServerRequest(Guid Id, string UniqueName, string DisplayName, int Port,
     string ConfigProfileId, string SourceLifecycle);
 public sealed record ClusterConversionReview(string SourceRevision, string ProfileName, string[] Plugins,
@@ -124,6 +126,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 await StageAsync(request.Id, clusterId, "to-cluster", "Verifying release and dependencies", ct);
                 var installation = await InstallationAsync(cluster, work, ct);
                 VerifyPluginSelection(profile, installation.Directory);
+                if (request.HotSpares > 0)
+                    ClusterDeploymentFiles.RequireHotSpares(Path.Combine(installation.Directory, "Package"));
                 await StageAsync(request.Id, clusterId, "to-cluster", "Backing up the stopped source", ct);
                 string backupReceipt = Path.Combine(work, "source-backups.json");
                 if (!File.Exists(backupReceipt))
@@ -359,6 +363,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 throw new InvalidDataException("Choose a valid Host identity, IP address, command URL and 1–32 regular nodes per host.");
             foreach (string variable in new[] { host.TokenEnvironmentVariable, host.ExecutorTokenEnvironmentVariable }) Variable(variable);
         }
+        if (request.HotSpares < 0 || PlaceHotSpares(request).Values.Sum() != request.HotSpares)
+            throw new InvalidDataException("Choose 0 or more hot spares that fit next to the regular nodes, 32 nodes per host machine.");
         Variable(request.JoinTokenEnvironmentVariable); Variable(request.AdminTokensFileEnvironmentVariable);
         Variable(cluster.GatewayAdminTokenEnvironmentVariable);
         if (!Uri.TryCreate(cluster.GatewayUrl, UriKind.Absolute, out var gateway) || !IPAddress.TryParse(gateway.Host.Trim('[', ']'), out _))
@@ -395,6 +401,30 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
 
     internal static void ValidateAdmission(QuasarConfigProfile profile) { Administrators(profile); MemberLimit(profile); }
 
+    /// <summary>Spreads the cluster's hot spares over its hosts, one at a time from the Gateway host on, never above 32
+    /// nodes on a host. Fewer than asked when they don't fit.</summary>
+    internal static Dictionary<string, int> PlaceHotSpares(ServerToClusterRequest request)
+    {
+        var spares = request.Hosts.ToDictionary(h => h.HostId, _ => 0);
+        var order = request.Hosts.OrderBy(h => h.HostId == request.GatewayHost ? 0 : 1).ToArray();
+        for (int placed = 0, skipped = 0, i = 0; placed < request.HotSpares && skipped < order.Length; i++)
+        {
+            var host = order[i % order.Length];
+            if (host.RegularNodes + spares[host.HostId] >= 32) { skipped++; continue; }
+            spares[host.HostId]++; placed++; skipped = 0;
+        }
+        return spares;
+    }
+
+    /// <summary>The hot spare slots of a deployment specification (0 for a missing one or one written before hot spares).</summary>
+    internal static int HotSpares(string? specificationJson)
+    {
+        if (string.IsNullOrEmpty(specificationJson)) return 0;
+        using var specification = JsonDocument.Parse(specificationJson);
+        return specification.RootElement.TryGetProperty("nodes", out var nodes) ? nodes.EnumerateArray()
+            .Count(node => node.TryGetProperty("spare", out var spare) && spare.ValueKind == JsonValueKind.True) : 0;
+    }
+
     internal static async Task<string> SpecificationAsync(ClusterDefinition cluster, DedicatedServerDefinition source,
         QuasarConfigProfile profile, LastKnownPluginConfigSnapshot? snapshot, ServerToClusterRequest request,
         string world, Dictionary<string, HostContract.HostConversionPaths> paths, CancellationToken token,
@@ -423,15 +453,24 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         QuasarConfigProfile profile, LastKnownPluginConfigSnapshot? snapshot, ServerToClusterRequest request,
         string world, Dictionary<string, HostContract.HostConversionPaths> paths, CancellationToken token)
     {
-        var nodes = new List<object>(); int slot = 1;
+        // Regular nodes take catalog slots 1.. across all hosts, the seeded ones included; hot spares come after them, so
+        // no spare loads seeded partitions at its start.
+        var spares = PlaceHotSpares(request);
+        var nodes = new List<object>(); int slot = 1, spareSlot = request.Hosts.Sum(h => h.RegularNodes) + 1;
         static string Endpoint(string address, int port) => new IPEndPoint(IPAddress.Parse(address), port).ToString();
         foreach (var host in request.Hosts)
         {
-            for (int i = 0; i < host.RegularNodes; i++) nodes.Add(new { slotKey = host.HostId + "-node-" + i,
-                nodeId = host.HostId + "-node-" + i, host = host.HostId, role = "regular", catalogSlot = slot++,
-                backend = Endpoint(host.Address, (request.NodePortBase ?? 28417) + i), control = Endpoint(host.Address, (request.NodePortBase is { } port ? port + 100 : 29417) + i) });
+            for (int i = 0; i < host.RegularNodes + spares[host.HostId]; i++)
+            {
+                var node = new { slotKey = host.HostId + "-node-" + i, nodeId = host.HostId + "-node-" + i, host = host.HostId,
+                    role = "regular", catalogSlot = i < host.RegularNodes ? slot++ : spareSlot++, backend = Endpoint(host.Address, (request.NodePortBase ?? 28417) + i),
+                    control = Endpoint(host.Address, (request.NodePortBase is { } port ? port + 100 : 29417) + i) };
+                // A spec without spares stays byte-identical to one written before hot spares existed.
+                nodes.Add(i < host.RegularNodes ? node : new { node.slotKey, node.nodeId, node.host, node.role, node.catalogSlot,
+                    node.backend, node.control, spare = true });
+            }
             if (host.HostId == request.GatewayHost) nodes.Add(new { slotKey = "world-authority", nodeId = "world-authority",
-                host = host.HostId, role = "WA", catalogSlot = request.Hosts.Sum(h => h.RegularNodes) + 1,
+                host = host.HostId, role = "WA", catalogSlot = request.Hosts.Sum(h => h.RegularNodes) + spares.Values.Sum() + 1,
                 backend = Endpoint(host.Address, request.NodePortBase is { } waPort ? waPort + 64 : 28700),
                 control = Endpoint(host.Address, request.NodePortBase is { } waControl ? waControl + 164 : 29700) });
         }

@@ -14,6 +14,7 @@ Managed clusters are in beta. The setup, conversion and cluster pages show "Mana
 | Cluster Registry | Runs in the same process as the Cluster Gateway. It owns coordination, placement, drain and administration. Quasar talks to its HTTP admin endpoint (the "Cluster Registry admin URL"). |
 | World Authority (WA) | A special node that owns world-wide state. It runs on the Cluster Gateway host machine. |
 | Regular node | A Magnetar process that simulates part of the world (a partition). |
+| Hot spare | A regular node that runs warm and holds nothing until a node crashes; then it takes over that node's partitions, and the crashed node restarts as the new spare. Shown as **Hot spare** in **Nodes and players**. |
 | Cluster Gateway and World Authority host machine | The placement choice for the machine that runs the Gateway, Registry and World Authority. |
 | Public server port | The UDP port players connect to. Separate from the internal node ports and the Registry admin port. |
 | Host machine ID / Cluster ID / Server ID | Permanent IDs. Server name and Host machine name are the editable display names. |
@@ -191,7 +192,7 @@ The wizard steps:
 
 1. **Review the stopped source**: profile, plugins, when plugin settings were captured, and blocking warnings.
 2. **Choose the destination and verified release**: an empty, stopped registered cluster. **Review frozen plugin versions** lists the frozen plugin commits.
-3. **Place the cluster**: per placement the Host machine ID, Host executor command URL, credential environment variable names, private IP address and regular nodes (1 to 32). Then the Cluster Gateway and World Authority host machine, game build, public server port, allowed internal networks and two more credential variable names. Credential fields take environment variable names, never secret values.
+3. **Place the cluster**: per placement the Host machine ID, Host executor command URL, credential environment variable names, private IP address, regular nodes (1 to 32). Then the number of hot spares (1 by default). Then the Cluster Gateway and World Authority host machine, game build, public server port, allowed internal networks and two more credential variable names. Credential fields take environment variable names, never secret values.
 4. Confirm and choose **Back up and convert**.
 
 Quasar then reserves the source, takes a server backup and a world backup, converts a copy of the world with the release's MagnetarWorld tool, sends the installation and the converted world to every Host, prepares and activates the stopped cluster.

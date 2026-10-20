@@ -72,6 +72,11 @@
                                     <MudNumericField T="int" Label="Regular nodes" @bind-Value="machine.Nodes" Min="1" Max="32" Disabled="@(!machine.Selected || Locked)" />
                                 </div>
                             }
+                            <MudNumericField T="int" Label="Hot spares" @bind-Value="_spares" Min="0" Max="32" Disabled="Locked" HelperText="Warm nodes that hold nothing. When a node crashes, a hot spare takes over its partitions at once and the crashed node restarts as the new spare. The cluster does this by itself; Quasar only sets how many there are." />
+                            @if (_spares == 0)
+                            {
+                                <MudAlert Severity="Severity.Warning">Without a hot spare, the partitions of a crashed node reload on the remaining nodes, which then carry its load until it restarts.</MudAlert>
+                            }
                             <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this host machine. Quasar generates and installs the Cluster Registry credentials automatically.">
                                 @foreach (var machine in _machines.Where(m => m.Selected)) { <MudSelectItem Value="machine.Host.Id">@machine.Host.Name</MudSelectItem> }
                             </MudSelect>
@@ -130,7 +135,7 @@
     private readonly CancellationTokenSource _stop = new();
     private string _id = "", _name = "", _world = "", _profile = "", _gateway = "";
     private string _importId = "", _importName = "", _url = "", _credential = "";
-    private int _port = 28000, _setupStep;
+    private int _port = 28000, _setupStep, _spares = 1;
     private bool _busy, _disposed, _showEnrollment;
     private string? _error;
     private ClusterSetupRequest? _request;
@@ -145,6 +150,7 @@
         && _machines.Any(m => m.Selected && m.Host.Id == _gateway)
         && _port is >= 1024 and <= 65000
         && _machines.Where(m => m.Selected).All(m => m.Nodes is >= 1 and <= 32)
+        && _spares >= 0 && _spares <= _machines.Where(m => m.Selected).Sum(m => 32 - m.Nodes)
         && _machines.Where(m => m.Selected).Sum(m => (long)m.Nodes) is >= 2 and <= 254;
     protected override void OnInitialized()
     {
@@ -191,6 +197,7 @@
             _profile = _request.ConfigProfileId; _gateway = _request.GatewayHost; _port = _request.PlayerPort;
             foreach (var row in _machines)
             { var placement = _request.Machines.SingleOrDefault(m => m.HostId == row.Host.Id); row.Selected = placement is not null; row.Nodes = placement?.RegularNodes ?? 1; }
+            _spares = _request.HotSpares;
         }
         catch (ArgumentException error) { _error = error.Message; }
     }
@@ -227,7 +234,7 @@
         if (_busy || !await AuthorizedAsync(_id, true)) return;
         _busy = true; _error = null;
         var request = _request ?? new(_id, _name, _world, _profile, _gateway, _port,
-            _machines.Where(m => m.Selected).Select(m => new ClusterSetupPlacement(m.Host.Id, m.Nodes)).ToArray());
+            _machines.Where(m => m.Selected).Select(m => new ClusterSetupPlacement(m.Host.Id, m.Nodes)).ToArray(), _spares);
         try
         {
             var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;

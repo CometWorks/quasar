@@ -3,6 +3,7 @@ using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Quasar.ClusterDeployment;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Backup;
@@ -153,6 +154,40 @@ public sealed class ClusterConversionTests : IDisposable
         var nodes = spec.RootElement.GetProperty("nodes").EnumerateArray().ToArray();
         Assert.Equal(new[] { 1, 2 }, nodes.Where(n => n.GetProperty("role").GetString() == "regular").Select(n => n.GetProperty("catalogSlot").GetInt32()));
         Assert.Equal(3, nodes.Single(n => n.GetProperty("role").GetString() == "WA").GetProperty("catalogSlot").GetInt32());
+    }
+
+    [Fact]
+    public async Task HotSparesFollowTheRegularNodesOfTheGatewayHost()
+    {
+        await Source();
+        var request = Request() with { Hosts = [new("host", "http://127.0.0.1:29500", "HOST", "EXEC", "127.0.0.1", 2),
+            new("second", "http://127.0.0.2:29500", "HOST2", "EXEC2", "127.0.0.2", 1)], HotSpares = 1 };
+        string world = Path.Combine(root, "split"); Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var paths = request.Hosts.ToDictionary(h => h.HostId, h => new Quasar.Host.Contract.V1.HostConversionPaths(h.HostId, "/world", "/config", "/runtime"));
+        string json = await ClusterConversionService.SpecificationAsync(clusters.GetCluster("demo")!, servers.GetServer("source")!,
+            profiles.GetProfile("profile")!, null, request, world, paths, default);
+        var nodes = JsonDocument.Parse(json).RootElement.GetProperty("nodes").EnumerateArray().ToArray();
+        var spare = Assert.Single(nodes, n => n.TryGetProperty("spare", out _));
+        Assert.True(spare.GetProperty("spare").GetBoolean());
+        // The spare follows every regular node's catalog slot (the seeded slots 1 and 2 belong to regular nodes).
+        Assert.Equal(("host-node-2", "regular", 4, "127.0.0.1:28419"), (spare.GetProperty("nodeId").GetString(), spare.GetProperty("role").GetString(),
+            spare.GetProperty("catalogSlot").GetInt32(), spare.GetProperty("backend").GetString()));
+        Assert.Equal(3, nodes.Single(n => n.GetProperty("nodeId").GetString() == "second-node-0").GetProperty("catalogSlot").GetInt32());
+        Assert.Equal(5, nodes.Single(n => n.GetProperty("role").GetString() == "WA").GetProperty("catalogSlot").GetInt32());
+        Assert.Equal(1, ClusterConversionService.HotSpares(json));
+        Assert.Equal(0, ClusterConversionService.HotSpares(null));
+    }
+
+    [Fact]
+    public void HotSparesNeedAReleaseThatDeclaresThem()
+    {
+        string package = Path.Combine(root, "package"); Directory.CreateDirectory(Path.Combine(package, "cli"));
+        string capabilities = Path.Combine(package, "cli/deployment-capabilities.json");
+        File.WriteAllText(capabilities, """{"schemaVersion":1,"frozenPluginBundles":true,"managedProfileMigration":1}""");
+        Assert.Contains("does not support hot spares", Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.RequireHotSpares(package)).Message);
+        File.WriteAllText(capabilities, """{"schemaVersion":1,"frozenPluginBundles":true,"managedHotSpares":1}""");
+        ClusterDeploymentFiles.RequireHotSpares(package);
     }
 
     [Fact]

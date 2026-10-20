@@ -222,6 +222,15 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("Select a cluster release with managed profile migration support to stage profile settings, mods and plugins.");
     }
 
+    /// <summary>A release older than <c>managedHotSpares</c> ignores the spare flag, so its spares would serve.</summary>
+    internal static void RequireHotSpares(string package)
+    {
+        ValidateCapabilities(package);
+        using var capabilities = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capabilities.RootElement.TryGetProperty("managedHotSpares", out var version) || version.GetInt32() < 1)
+            throw new InvalidDataException("This cluster release does not support hot spares. Set Hot spares to 0, or resume once a cluster release with hot spare support is published.");
+    }
+
     private static Dictionary<string, string> EnvironmentFor(string root) => new()
     {
         ["SPACE_ENGINEERS_BIN64"] = Path.Combine(root, "Dependencies/payload/DedicatedServer/DedicatedServer64"),

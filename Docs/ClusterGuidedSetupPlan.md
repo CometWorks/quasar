@@ -50,7 +50,10 @@ inputs; removed cluster IDs remain reserved.
 3. In **Configure and deploy**, select a world template, configuration profile,
    Cluster Gateway and World Authority host machine, public server port and node counts. **Back to host enrollment** lets you add or repair
    hosts without leaving the wizard; entered cluster settings are preserved.
-   Every selected host machine requires 1–32 regular nodes, with at least two in total.
+   Every selected host machine requires 1–32 regular nodes, with at least two in total. **Hot spares**
+   is one count for the cluster, 1 by default. Quasar adds that many regular slots marked `spare` to the
+   deployment specification, from the Gateway host on, at most 32 nodes per host; the cluster promotes
+   and refills them. It needs a cluster release with `managedHotSpares`.
    The Cluster Gateway host machine also runs the Cluster Registry and World Authority. Every selected host machine must be connected before
    creation or resume is enabled. Quasar checks authenticated Host executor identity and
    required capabilities before creating a cluster registration; an offline or
