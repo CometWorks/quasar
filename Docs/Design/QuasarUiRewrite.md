@@ -115,6 +115,10 @@ as expanded. Keyboard disclosure behavior and action permissions are unchanged.
 and Mud themes. Legacy public theme accessors remain for plugin compatibility.
 Native icons reuse Quasar's existing Material SVG paths; their Apache license is
 [distributed with the UI](../../Quasar/wwwroot/licenses/material-icons.txt).
+Table hover and selection change icon colors through `currentColor`, preserving
+each SVG's fill and stroke. Do not force paint onto descendant paths: Material
+icons can include transparent canvas paths, and plugin dialogs nested in a row
+remain descendants even when displayed in the browser's top layer.
 
 Core Mud assets/providers, dialog/snackbar services, color parsing, and some
 helper enum types remain during migration. This is not complete dependency removal.
