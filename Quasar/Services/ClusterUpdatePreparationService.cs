@@ -61,11 +61,11 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 effective.Mods = resolved.Mods.ToList();
                 var observations = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
                 if (queued is not null) ValidateQueuedMods(queued, effective.Mods, observations);
-                string mods = await modStager.StageAsync(effective.Mods, work, token, progress, observations);
+                var (mods, modVersions) = await modStager.StageAsync(effective.Mods, work, token, progress, observations);
                 var afterDownload = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
                 foreach (var mod in effective.Mods)
-                    if (ClusterWorkshopModStager.ObservedVersion(mod.WorkshopId, observations)
-                        != ClusterWorkshopModStager.ObservedVersion(mod.WorkshopId, afterDownload))
+                    if ((ClusterWorkshopModStager.PinnedVersion(mod.WorkshopId, afterDownload) ?? modVersions[mod.WorkshopId])
+                        != modVersions[mod.WorkshopId])
                         throw new InvalidOperationException($"Workshop item {mod.WorkshopId} changed during preparation. Check updates and stage again.");
                 var modFiles = (await ClusterDeploymentFiles.InspectAsync(mods, token))
                     .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
@@ -112,7 +112,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 spec["modFiles"] = JsonSerializer.SerializeToNode(modFiles, Json);
                 spec["modVersions"] = JsonSerializer.SerializeToNode(effective.Mods.ToDictionary(m =>
                     m.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    m => ClusterWorkshopModStager.ObservedVersion(m.WorkshopId, observations)), Json);
+                    m => modVersions[m.WorkshopId]), Json);
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);
