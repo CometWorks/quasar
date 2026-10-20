@@ -63,6 +63,7 @@
             </section>
         }
         <MudButton OnClick="@(() => _hosts.Add(new HostForm()))" Disabled="@Locked">Add placement</MudButton>
+        <MudNumericField T="int" Label="Hot spares" @bind-Value="_spares" Min="0" Max="32" Disabled="@Locked" HelperText="Warm nodes that hold nothing. When a node crashes, a hot spare takes over its partitions at once and the crashed node restarts as the new spare. The cluster does this by itself; Quasar only sets how many there are." />
         <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gatewayHost" Disabled="@Locked">
             @foreach (var host in _hosts.Where(h => !string.IsNullOrWhiteSpace(h.Id))) { <MudSelectItem Value="@host.Id">@host.Id</MudSelectItem> }
         </MudSelect>
@@ -71,7 +72,7 @@
         <MudTextField Label="Allowed internal networks (comma-separated CIDRs)" @bind-Value="_networks" Disabled="@Locked" />
         <MudTextField Label="Join token environment variable on host machines" @bind-Value="_joinToken" Disabled="@Locked" />
         <MudTextField Label="Cluster Registry token-file environment variable" @bind-Value="_tokenFile" Disabled="@Locked" />
-        <span class="quasar-text quasar-type-caption">Regular nodes use backend ports 28417 upward and control ports 29417 upward on each host machine. World Authority uses 28700/29700. Cluster Registry administration uses the destination cluster URL.</span>
+        <span class="quasar-text quasar-type-caption">Regular nodes, then hot spares, use backend ports 28417 upward and control ports 29417 upward on each host machine. World Authority uses 28700/29700. Cluster Registry administration uses the destination cluster URL.</span>
     }
     else
     {
@@ -112,7 +113,7 @@
     private string _targetCluster = "", _gatewayHost = "host-1", _binaryVersion = "", _networks = "127.0.0.0/8";
     private string _joinToken = "CLUSTER_JOIN_TOKEN", _tokenFile = "CLUSTER_ADMIN_TOKENS";
     private string _serverId = "", _displayName = "", _profileId = "";
-    private int _steamPort = 27016, _serverPort = 27017;
+    private int _steamPort = 27016, _serverPort = 27017, _spares = 1;
     private bool _busy, _confirmed;
     private string? _error;
     private object? _request;
@@ -155,6 +156,7 @@
                     _networks = string.Join(", ", forward.InternalNetworks);
                     _hosts.Clear(); _hosts.AddRange(forward.Hosts.Select(h => new HostForm { Id = h.HostId, Url = h.CommandUrl,
                         Token = h.TokenEnvironmentVariable, Executor = h.ExecutorTokenEnvironmentVariable, Address = h.Address, Nodes = h.RegularNodes }));
+                    _spares = forward.HotSpares;
                 }
                 else if (_request is ClusterToServerRequest reverse)
                 { _serverId = reverse.UniqueName; _displayName = reverse.DisplayName; _serverPort = reverse.Port; _profileId = reverse.ConfigProfileId; }
@@ -210,7 +212,7 @@
                 _request = ToCluster ? new ServerToClusterRequest(_id, ServerName!, _review?.SourceRevision ?? "", _binaryVersion,
                     _gatewayHost, _steamPort, _joinToken, _tokenFile, _networks.Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries),
                     _hosts.Select(h => new ClusterConversionHost(h.Id, h.Url, h.Token, h.Executor, h.Address, h.Nodes)).ToArray(),
-                    _reviewedDependencies, _reviewedPackage)
+                    _reviewedDependencies, _reviewedPackage, HotSpares: _spares)
                     : new ClusterToServerRequest(_id, _serverId, _displayName, _serverPort, _profileId,
                         Clusters.GetCluster(clusterId)?.GetLifecycleId() ?? "");
                 Navigation.NavigateTo(Navigation.GetUriWithQueryParameter("conversion", _id.ToString()), replace: true);

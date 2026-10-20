@@ -32,6 +32,25 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void HotSparesAreOneCountPerClusterThatFitsNextToTheRegularNodes()
+    {
+        Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 2)) with { HotSpares = 1 }, [Host("one", "127.0.0.1")]));
+        Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 31)) with { HotSpares = 1 }, [Host("one", "127.0.0.1")]));
+        foreach (int spares in new[] { -1, 2 })
+            Assert.Throws<ArgumentException>(() => ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 31)) with { HotSpares = spares }, [Host("one", "127.0.0.1")]));
+
+        var cluster = new ClusterDefinition { GatewayUrl = "http://10.1.0.1:28016", GatewayAdminTokenEnvironmentVariable = "ADMIN" };
+        var conversion = new ServerToClusterRequest(Guid.NewGuid(), "server", "revision", "1210014", "two", 28000,
+            "JOIN", "TOKENS", ["10.1.0.0/24"], [new("one", "http://one:18400", "HOST_ONE", "EXEC_ONE", "10.1.0.1", 2),
+                new("two", "http://two:18400", "HOST_TWO", "EXEC_TWO", "10.1.0.2", 31)], HotSpares: 3);
+        ClusterConversionService.ValidateTopology(cluster, conversion);
+        // From the Gateway host on, one at a time, never above 32 nodes on a host.
+        Assert.Equal(new Dictionary<string, int> { ["one"] = 2, ["two"] = 1 }, ClusterConversionService.PlaceHotSpares(conversion));
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateTopology(cluster, conversion with { HotSpares = 32 }));
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateTopology(cluster, conversion with { HotSpares = -1 }));
+    }
+
+    [Fact]
     public void PlacementSupportsBothLocalAndRemoteButRefusesMixedLoopback()
     {
         Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 2)), [Host("one", "127.0.0.1")]));

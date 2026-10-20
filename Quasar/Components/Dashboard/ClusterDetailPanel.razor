@@ -246,7 +246,8 @@
     private int WantedNodes => _plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
     private string CapacityText => _stale || _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
     private string CapacityDetail => _stale || _status is null ? "Capacity unavailable."
-        : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting.";
+        : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting; "
+            + $"{ClusterConversionService.HotSpares(Cluster.Preparation?.SpecificationJson)} hot spare(s) configured.";
     private string WorldAuthorityText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.WorldAuthority.Node ?? "Unavailable";
     private string RecoveryText => _recovery?.State.ToString() ?? "Unknown";
     private Color RecoveryColor => _recovery?.State switch

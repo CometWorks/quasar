@@ -19,6 +19,10 @@
                         <span class="quasar-text quasar-type-caption">@(context.Fleet is { } node ? $"{node.Registry.Node} · epoch {node.Registry.Epoch}" : "No registered node")</span>
                     </MudTd>
                     <MudTd DataLabel="Host machine / role">@(context.Plan?.Host ?? context.Fleet?.Registry.Host ?? "-") · @RoleText(context.Plan?.Role ?? context.Fleet?.Registry.Role)
+                        @if (context.Fleet?.Registry.Spare == true)
+                        {
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">Hot spare</MudChip>
+                        }
                         @if (context.Plan is { } planned && context.Fleet is { } registered
                             && (planned.Host != registered.Registry.Host || planned.Role != registered.Registry.Role))
                         {

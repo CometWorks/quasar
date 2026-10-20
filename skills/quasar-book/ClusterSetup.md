@@ -109,6 +109,7 @@ Open **New cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Cr
 | World template | Quasar converts a copy; the template is not changed. |
 | Configuration profile | Game settings, mods and plugin selection. Quasar copies it to a new profile "<Server name> (cluster)". |
 | Host machines | Tick each machine and set **Regular nodes**, 1 to 32 per machine, at least 2 and at most 254 in total. |
+| Hot spares | How many hot spares the cluster has, 1 by default. A hot spare runs warm and holds nothing; when a node crashes the cluster moves that node's partitions to a spare at once, and the crashed node restarts as the new spare. Quasar only sets the count: it adds that many spare nodes, from the Gateway host machine on, at most 32 nodes per machine. With 0 the page warns that a crashed node's partitions reload on the remaining nodes. Hot spares need a cluster release that supports them; with an older release setup stops with "This cluster release does not support hot spares". |
 | Cluster Gateway and World Authority host machine | One of the selected machines. Players connect to it. It also runs the Cluster Registry and the World Authority. |
 | Public server port | UDP, 1024 to 65000, default 28000. |
 
