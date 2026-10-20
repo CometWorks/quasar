@@ -121,18 +121,14 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             await WriteAsync(sourceReceipt, await ClusterDeploymentFiles.InspectAsync(seed, ct), ct);
                         }
                         await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), ct);
-                        // The packaged generator refuses a world whose mods have no verified payload. Stage the
-                        // exact Workshop versions as the guided profile update does. Without mods nothing changes:
-                        // Magnetar still fetches its companion mod at launch, and no Workshop Web API key is needed.
+                        // The packaged generator refuses a world whose mods have no verified payload, and nodes never
+                        // download mods. Stage the exact Workshop versions as the guided profile update does, MagnetarMod
+                        // included even when the profile has no mods.
                         string modWork = Path.Combine(work, "mod-stage");
                         DeleteModStage(work);
-                        ClusterWorkshopModStager.StagedProfileMods? mods = null;
-                        if (savedProfile.Mods.Count != 0)
-                        {
-                            await StageAsync(request, "Staging the profile's Workshop mods", null, ct);
-                            Directory.CreateDirectory(modWork); ClusterWorldFiles.Private(modWork);
-                            mods = await modStager.StageProfileAsync(savedProfile, modWork, ct, null);
-                        }
+                        await StageAsync(request, "Staging the profile's Workshop mods", null, ct);
+                        Directory.CreateDirectory(modWork); ClusterWorldFiles.Private(modWork);
+                        var mods = await modStager.StageProfileAsync(savedProfile, modWork, ct, null);
                         string exported = Path.Combine(work, "plugins");
                         string exportReceipt = Path.Combine(work, "plugin-export.json");
                         if (File.Exists(exportReceipt))
@@ -184,7 +180,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         string worldHash = await ClusterWorldFiles.PackAsync(world, worldArchive, ct);
                         using (var output = File.Create(installationArchive)) await ClusterDeploymentFiles.ExportAsync(installed.Directory, output, ct);
                         string modArchive = Path.Combine(modWork, "mods.tar");
-                        string? modHash = mods is null ? null : await ClusterWorldFiles.PackAsync(mods.Directory, modArchive, ct, requireCheckpoint: false);
+                        string modHash = await ClusterWorldFiles.PackAsync(mods.Directory, modArchive, ct, requireCheckpoint: false);
                         string joinReference = credentials.Create("cluster:" + cluster.UniqueName, "join");
                         var executorSecrets = selected.ToDictionary(h => h.Id, h => credentials.Resolve(credentials.Create("cluster:" + cluster.UniqueName, "executor:" + h.Id))!);
                         var secretSet = new HostContract.HostManagedCredentials(cluster.UniqueName, credentials.Resolve(adminReference)!, credentials.Resolve(joinReference)!, executorSecrets);
@@ -207,20 +203,19 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                                 await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), logger, ct);
                             var remote = await hosts.TransferConversionInputAsync(target, topology.Id, "installation", installationArchive, installed.InputsSha256, ct);
                             var remoteWorld = await hosts.TransferConversionInputAsync(target, topology.Id, "world", worldArchive, worldHash, ct);
-                            var remoteMods = modHash is null ? null : await hosts.TransferConversionInputAsync(target, topology.Id, "mods", modArchive, modHash, ct);
-                            if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id || remoteMods is not null && remoteMods.HostId != machine.Id)
+                            var remoteMods = await hosts.TransferConversionInputAsync(target, topology.Id, "mods", modArchive, modHash, ct);
+                            if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id || remoteMods.HostId != machine.Id)
                                 throw new InvalidDataException("Transfer returned another Host executor identity.");
                             paths.Add(machine.Id, remoteWorld);
                             preparationHosts.Add(new(machine.Id, machine.CommandUrl, machine.CredentialReference,
                                 HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + machine.Id), remote.Directory, remoteWorld.Directory, remoteWorld.ConfigurationDirectory,
-                                remoteMods?.Directory));
+                                remoteMods.Directory));
                         }
                         var source = new DedicatedServerDefinition { DisplayName = request.DisplayName, InGameServerName = request.DisplayName };
                         var specification = JsonNode.Parse(await ClusterConversionService.SpecificationAsync(cluster, source, savedProfile, null, topology, world, paths, ct))!;
                         specification["pluginConfigurations"] = pluginData["pluginConfigurations"]?.DeepClone() ?? throw new InvalidDataException("Magnetar did not export canonical plugin configurations.");
-                        if (mods is not null)
-                            ClusterWorkshopModStager.AddToSpecification(specification.AsObject(), mods,
-                                await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.DisplayName, ct));
+                        ClusterWorkshopModStager.AddToSpecification(specification.AsObject(), mods,
+                            await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.DisplayName, ct));
                         await StageAsync(request, "Preparing and activating the stopped cluster", null, ct);
                         var preparation = new ClusterPreparationRequest(installed.InputsSha256, specification.ToJsonString(), origin, preparationHosts.ToArray());
                         var result = await deployments.PrepareAsync(cluster.UniqueName, preparation, "setup-prepare-" + key, actor, ct);

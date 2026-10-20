@@ -32,17 +32,18 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
         IProgress<string>? progress, ClusterContentUpdateQueue? queued = null)
     {
         progress?.Report("Resolving the profile's Workshop dependencies...");
-        var requestedMods = selected.Mods.ToList();
-        // Magnetar adds its Steam companion implicitly. Pin it with the rest of
-        // the managed payload so profile migration cannot drop it or download at launch.
-        if (!selected.RootSettings.CrossPlatform && requestedMods.All(m => m.WorkshopId != MagnetarModId))
-            requestedMods.Add(new() { WorkshopId = MagnetarModId, DisplayName = "MagnetarMod" });
-        var resolved = await workshop.ResolveDependenciesAsync(requestedMods, sortLoadOrder: true, cancellationToken: token);
+        var resolved = await workshop.ResolveDependenciesAsync(selected.Mods, sortLoadOrder: true, cancellationToken: token);
         var unresolved = resolved.Warnings.Where(w => !w.StartsWith("Reordered dependency ", StringComparison.Ordinal)).ToArray();
         if (unresolved.Length != 0)
             throw new InvalidOperationException("Resolve Workshop dependencies before staging: " + string.Join(" ", unresolved));
         var effective = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(selected, Json), Json)!;
         effective.Mods = resolved.Mods.ToList();
+        // Magnetar adds its Steam companion to every managed node, even for a crossplay profile: the node
+        // configuration the cluster writes never enables crossplay. Nodes load mods only from the staged
+        // payload, so pin it here. It has no dependencies; appending it after resolution, as Magnetar does,
+        // keeps a mod-less profile working without a Web API key.
+        if (effective.Mods.All(m => m.WorkshopId != MagnetarModId))
+            effective.Mods.Add(new() { WorkshopId = MagnetarModId, DisplayName = "MagnetarMod" });
         var observations = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
         if (queued is not null) ClusterUpdatePreparationService.ValidateQueuedMods(queued, effective.Mods, observations);
         var (mods, modVersions) = await StageAsync(effective.Mods, work, token, progress, observations);
