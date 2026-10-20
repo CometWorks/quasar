@@ -159,6 +159,8 @@ Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone s
 
 The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
 
+Hovering or selecting a row changes its icon colors without changing their shapes. The viewer's eye and close icons stay visible when the originating row is highlighted.
+
 ## Notifications
 
 **Notifications** (`/notifications`, under **Settings** in the menu) and the bell in the app bar show update notices and optional instance alerts. Update notices are described in [Updates](Updates.md#update-notices-on-the-notifications-page).
@@ -311,6 +313,7 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
 
 ## Sources
+- `Quasar/wwwroot/app.css`
 - `Docs/AnalyticsCpuLoad.md`
 - `Docs/StateMachines/ProfilerMode.md`
 - `Docs/StateMachines/AgentConnection.md`
