@@ -703,11 +703,13 @@ public class Program
 
     private static void AddDeploymentConfigurationSources(ConfigurationManager configuration, string environmentName, string[] args)
     {
+        // No reloadOnChange: settings are read once at startup anyway, and the reload watch covers
+        // the file's whole folder tree, which for the data directory holds every server (SE1-0195).
         foreach (var directory in GetConfigurationDirectories(AppContext.BaseDirectory, Directory.GetCurrentDirectory(),
                      MagnetarPaths.GetQuasarDirectory()))
         {
-            configuration.AddJsonFile(Path.Combine(directory, "appsettings.json"), optional: true, reloadOnChange: true);
-            configuration.AddJsonFile(Path.Combine(directory, $"appsettings.{environmentName}.json"), optional: true, reloadOnChange: true);
+            configuration.AddJsonFile(Path.Combine(directory, "appsettings.json"), optional: true, reloadOnChange: false);
+            configuration.AddJsonFile(Path.Combine(directory, $"appsettings.{environmentName}.json"), optional: true, reloadOnChange: false);
         }
 
         configuration.AddEnvironmentVariables();

@@ -46,7 +46,7 @@ The profile does not hold the game port, listen IP, server and world names, rest
 | `<quasar-root>/ConfigProfiles/<profile id>/profile.json` | The profile. |
 | `<quasar-root>/ConfigProfiles/<profile id>/History/<timestamp>.json` | A copy on every save. Delete writes `<timestamp>-deleted.json` here and removes `profile.json`. |
 
-The profile id is a slug made from the name when the profile is created. Quasar writes files atomically and watches the folder: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
+The profile id is a slug made from the name when the profile is created. Quasar writes files atomically and checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
 
 ### Unsaved changes
 
@@ -194,6 +194,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Models/QuasarWorldTemplate.cs`
 - `Quasar/Models/DedicatedServerPathResolver.cs`
 - `Quasar/Services/QuasarConfigProfileCatalog.cs`
+- `Quasar/Services/ChildFileWatcher.cs`
 - `Quasar/Services/QuasarConfigMetadata.cs`
 - `Quasar/Services/QuasarWorldTemplateCatalog.cs`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`

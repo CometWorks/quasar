@@ -20,7 +20,7 @@ Each server has a stable **Server ID** (internally `UniqueName`). It is also the
 
 | Path | Contents |
 | --- | --- |
-| `Magnetars/<Server ID>/server.json` | The server definition (all editor settings, goal state). |
+| `Magnetars/<Server ID>/server.json` | The server definition (all editor settings, goal state). Quasar picks up a hand edit within 2 seconds. Only this file directly in the server folder counts. |
 | `Magnetars/<Server ID>/History/` | A timestamped copy of `server.json` on every save, plus `<timestamp>-deleted.json` when the server is deleted. |
 | `Magnetars/<Server ID>/DedicatedServer/` | DS app-data (`-path`): `SpaceEngineers-Dedicated.cfg`, `SpaceEngineersDedicated*.log`, Steam Workshop content. |
 | `Magnetars/<Server ID>/DedicatedServer/Saves/` | World saves. `LastSession.sbl` is written here before every start. |
@@ -65,7 +65,7 @@ New servers start with the goal **Off**. Nothing launches until you click **Star
 - **Create world template** (server menu) needs a stopped server with goal Off. See [Config profiles](ConfigProfiles.md#world-templates).
 - **Convert to cluster** is described in [Clusters](Clusters.md).
 
-Editing `server.json` by hand works too: Quasar watches the `Magnetars` folder and reloads changed definitions.
+Editing `server.json` by hand works too: Quasar checks every `Magnetars/<Server ID>/server.json` every 2 seconds and reloads changed definitions.
 
 ## Dashboard and server controls
 
@@ -356,6 +356,7 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/DedicatedServerCatalog.cs`
+- `Quasar/Services/ChildFileWatcher.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
 - `Quasar/Services/ManagedRuntimeOptions.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
