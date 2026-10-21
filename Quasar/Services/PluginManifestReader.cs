@@ -65,6 +65,40 @@ public static class PluginManifestReader
         }
     }
 
+    /// <summary>
+    /// The dev folder for a manifest: Magnetar compiles the manifest's
+    /// <c>&lt;SourceDirectories&gt;</c> and resolves its asset paths relative to the
+    /// folder, not to the manifest. A manifest in a subfolder of its repository
+    /// (linux-compat's <c>ServerPlugin/ServerPlugin.xml</c>) names directories of the
+    /// repository root, so the folder is the nearest one that holds all of them, and
+    /// the manifest file is relative to it. Without source directories, or when no
+    /// folder up to the repository root holds them, it is the manifest's own folder.
+    /// </summary>
+    public static (string FolderPath, string DataFile) ResolveDevFolder(string manifestPath)
+    {
+        var manifestFolder = Path.GetDirectoryName(Path.GetFullPath(manifestPath)) ?? string.Empty;
+        string[] directories;
+        try
+        {
+            directories = XDocument.Load(manifestPath).Root?.Element("SourceDirectories")?.Elements("Directory")
+                .Select(directory => directory.Value.Trim()).Where(directory => directory.Length != 0).ToArray() ?? [];
+        }
+        catch
+        {
+            directories = [];
+        }
+
+        for (var folder = manifestFolder; directories.Length != 0 && !string.IsNullOrEmpty(folder); folder = Path.GetDirectoryName(folder))
+        {
+            if (directories.All(directory => Directory.Exists(Path.Combine(folder, directory))))
+                return (folder, Path.GetRelativePath(folder, Path.GetFullPath(manifestPath)));
+            if (Path.Exists(Path.Combine(folder, ".git")))
+                break; // never past the repository root
+        }
+
+        return (manifestFolder, Path.GetFileName(manifestPath));
+    }
+
     private static string GetValue(XElement root, string name) =>
         root.Element(name)?.Value?.Trim() ?? string.Empty;
 }

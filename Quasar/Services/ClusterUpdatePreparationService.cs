@@ -60,6 +60,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     selected.ConfigProfileId, sourceWorld, effective, work, exported, token);
                 if (excluded.Count != 0)
                     throw new InvalidOperationException("Selected plugins lack pinned provenance: " + string.Join(", ", excluded));
+                if (ClusterSetupService.DevBuilds(exported, Path.Combine(work, "preparation/Magnetar")) is { Length: > 0 } devBuilds)
+                    progress?.Report("Dev overrides, built from dev folders instead of their hub pins: " + string.Join("; ", devBuilds));
                 var sources = await dependencies.ReusableSourcesAsync(cluster, token);
                 var exportedData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), token))!.AsObject();
                 if (queued is not null) ValidateQueuedPlugins(queued, exportedData);

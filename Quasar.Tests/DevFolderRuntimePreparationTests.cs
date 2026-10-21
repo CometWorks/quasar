@@ -25,6 +25,27 @@ public sealed class DevFolderRuntimePreparationTests : IDisposable
         _cache.SetValue(null, _root);
     }
 
+    [Fact]
+    public void DevFolderIsTheFolderThatHoldsTheManifestSourceDirectories()
+    {
+        string repo = Path.Combine(_root, "linux-compat");
+        Directory.CreateDirectory(Path.Combine(repo, "Shared"));
+        Directory.CreateDirectory(Path.Combine(repo, "ServerPlugin"));
+        string manifest = Path.Combine(repo, "ServerPlugin", "ServerPlugin.xml");
+        new XDocument(new XElement("PluginData", new XElement("Id", "linux-compat"), new XElement("SourceDirectories",
+            new XElement("Directory", "Shared"), new XElement("Directory", "ServerPlugin")))).Save(manifest);
+        Assert.Equal((repo, Path.Combine("ServerPlugin", "ServerPlugin.xml")), PluginManifestReader.ResolveDevFolder(manifest));
+
+        string plain = Path.Combine(_root, "plain", "Plugin.xml");
+        Directory.CreateDirectory(Path.GetDirectoryName(plain)!);
+        new XDocument(new XElement("PluginData", new XElement("Id", "plain"))).Save(plain);
+        Assert.Equal((Path.GetDirectoryName(plain)!, "Plugin.xml"), PluginManifestReader.ResolveDevFolder(plain));
+
+        string missing = Path.Combine(_root, "plain", "Missing.xml");
+        new XDocument(new XElement("PluginData", new XElement("SourceDirectories", new XElement("Directory", "NoSuchDirectory")))).Save(missing);
+        Assert.Equal((Path.GetDirectoryName(missing)!, "Missing.xml"), PluginManifestReader.ResolveDevFolder(missing));
+    }
+
     [Theory]
     [InlineData("914a8b69-5d79-4b80-90ba-9ccf0a1c4827", false)]
     [InlineData(null, true)]

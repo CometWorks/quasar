@@ -124,6 +124,17 @@ commit it, choose **Stage profile changes** for the cluster, then apply the pend
 update from Maintenance. This needs a Magnetar release with dev folder support in
 managed preparation; older releases refuse dev folders and fail the setup.
 
+A dev folder whose id a plugin hub also lists overrides the hub build (a dev override),
+also for the core plugins Magnetar loads by itself such as `linux-compat`: Quasar then adds
+a release `LocalFolderConfig` for it to the exported profile, since Magnetar builds an
+unlisted dev folder as debug, and names every dev-built plugin from `preparation.json`
+(`source: "dev-folder"`) in the staging progress and log. When the manifest sits in a
+subfolder of its repository, Quasar registers the folder that holds its
+`SourceDirectories` (up to the repository root). Native assets come from the manifest's
+`Asset Path` entries; `scripts/dev-override-assets.py` puts a hub manifest's pinned
+downloads there (SHA-256 checked) so a branch build runs with the hub pin's native files.
+See the admin handbook, `skills/quasar-book/Plugins.md`.
+
 A dev folder builds one plugin from a checkout. To serve several plugins, or to share
 unpublished plugins between Quasar installs, register a
 [plugin hub](Configuration.md#plugin-hubs) instead: a folder or repository of manifests

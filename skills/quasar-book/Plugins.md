@@ -135,6 +135,8 @@ A dev folder registers a local plugin source checkout so it shows up in the plug
 1. Open **Configs** and expand **Developer** at the bottom of the profile editor.
 2. Click **Add dev folder...** and pick the plugin's manifest XML in the file browser. The browser shows the file system of the machine that runs Quasar.
 3. Quasar checks the file exists and is valid XML, then adds the folder. Errors: "Plugin manifest not found: {path}" or "Plugin manifest could not be parsed: {path} (...)".
+
+The dev folder is the folder Magnetar compiles from: the nearest folder, from the manifest's own up to its git repository root, that holds every `<SourceDirectories>` entry of the manifest. A manifest in a subfolder of its repository, such as linux-compat's `ServerPlugin/ServerPlugin.xml` with `Shared` and `ServerPlugin` sources, registers the repository root, and the **Manifest** column shows the path relative to it. Asset paths in the manifest are relative to the same folder.
 4. In the profile's **Plugins** tab, tick the dev folder entry in **Plugin catalog** (marked "Local dev folder") and save the profile.
 
 Dev folders are global to the Quasar install and stored in `{Quasar install directory}/dev-folders.json`. Quasar lists every registered dev folder as a plugin source for every server, but Magnetar loads it only on servers whose profile selects it. Removing a dev folder needs `CanEditConfigs` and asks for confirmation.
@@ -149,6 +151,34 @@ When a dev folder has the same id as a hub plugin, the dev folder replaces the h
 
 - For regular servers, Magnetar compiles the plugin from the folder when the server starts. The **Debug build** checkbox next to a selected dev folder in **Plugins to load** chooses a debug or release build. New dev folders default to debug.
 - For clusters, Quasar builds each selected dev folder once, at cluster setup and whenever the profile is staged, always as a release build. The folder's git repository must have no uncommitted or untracked changes, the manifest needs a `RepoId`, and the cluster records the HEAD commit. Nodes keep running that build until the next staging, and the cluster content monitor never reports new dev folder commits. See [Clusters](Clusters.md).
+
+### Dev overrides of hub plugins
+
+A dev folder whose id a plugin hub lists too is a dev override: wherever that id loads, servers and clusters build the dev folder instead of the hub's pinned commit. The **Developer** list marks such a folder with a **Dev override** chip; its tooltip names the hub pin it replaces. Use it to run a branch build of a hub plugin on a test server or test cluster without changing the hub, which is a release.
+
+- An ordinary plugin is replaced in every profile that selects its id.
+- A core plugin that Magnetar loads by itself (`linux-compat`, `dotnet-compat`, `error-reporting`) is replaced on every server start and every cluster staging of this Quasar install, whatever the profile selects. Quasar logs "Server {name} loads dev overrides of Magnetar core plugins instead of their hub builds: ..." at each start. Cluster staging builds it as a Release build.
+- Cluster setup and staging show "dev overrides, not the hub pins: {id} {commit} from {folder}" in their progress and log it as a warning. The cluster's content panel shows "Dev override: ..." for the plugin and offers no hub update for it.
+- Dev folders belong to the whole Quasar install, not to one cluster. To test on one cluster only, run that cluster from its own Quasar install.
+
+Native assets. Magnetar compiles the C# sources of a dev folder and resolves the manifest's `<Asset Path="...">` entries relative to the dev folder, so native libraries come from those paths. For linux-compat they are `../../linux-dependencies/dist/se1-dependencies.tar.gz` and `../../linux-native-wrappers/build`, outside the checkout. To run a branch build with the same native libraries as the hub pin, put the hub's pinned downloads there with `scripts/dev-override-assets.py` from the Quasar source:
+
+```
+python3 scripts/dev-override-assets.py ~/overrides/se1/linux-compat ServerPlugin/ServerPlugin.xml \
+    https://raw.githubusercontent.com/CometWorks/magnetar-hub/main/Plugins/LinuxCompat.xml
+```
+
+It downloads each `<Asset Url="..." Sha256="...">` of the hub manifest, refuses a SHA-256 mismatch, and puts it at the dev manifest's path for the asset of the same name (extracted when that path is a folder). It refuses paths inside the checkout, because a cluster stages only a clean dev folder, and keeps existing files unless you pass `--force`. To test native changes instead, build them at those paths.
+
+Running a branch build of linux-compat on a test cluster:
+
+1. Clone the plugin repository at the commit to test, for example `git clone https://github.com/CometWorks/linux-compat ~/overrides/se1/linux-compat` and `git -C ~/overrides/se1/linux-compat checkout testing`. Keep the checkout clean.
+2. Place the native assets with `scripts/dev-override-assets.py` as above.
+3. **Configs → Developer → Add dev folder...**, pick `~/overrides/se1/linux-compat/ServerPlugin/ServerPlugin.xml`. The row shows the repository root, the manifest `ServerPlugin/ServerPlugin.xml` and the **Dev override** chip.
+4. Stage the cluster's profile (**Stage profile changes**, or **Stage latest release**). The progress names the override with its commit.
+5. Apply the pending update from **Maintenance** (full downtime).
+
+To drop the override, remove the dev folder (one click in the **Developer** list), then stage and apply again. The next staging pins the hub build.
 
 ## Quasar.Agent
 
