@@ -149,6 +149,21 @@ public sealed class ClusterCliTests
             unsent, new StringWriter(), new StringWriter()));
     }
 
+    [Fact]
+    public async Task ReleaseUpdatePreparePostsWithIdempotencyKey()
+    {
+        var handler = new Handler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/api/v1/clusters/demo/release-update-preparation", request.RequestUri!.AbsolutePath);
+            Assert.Equal("release-1", request.Headers.GetValues("Idempotency-Key").Single());
+            return Response(HttpStatusCode.Accepted, """{"protocolVersion":1,"data":{"operationId":"op","state":"Succeeded"}}""");
+        });
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "release-update-prepare", "demo", "--url", "http://quasar.test",
+            "--idempotency-key", "release-1"], handler, new StringWriter(), new StringWriter()));
+        Assert.Equal(1, handler.Calls);
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("9223372036854775807")]

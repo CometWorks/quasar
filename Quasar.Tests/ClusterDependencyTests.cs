@@ -131,7 +131,7 @@ public sealed class ClusterDependencyTests
             var hosts = new ClusterHostClient(http);
             var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
             var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
-                null!, null!, null!, null!);
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
             var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
             Assert.Equal(ClusterOperationState.Succeeded, result.State);
             var saved = catalog.GetCluster("demo")!;
@@ -141,6 +141,90 @@ public sealed class ClusterDependencyTests
             Assert.Equal(new[] { "one", "two" }, handler.Hosts);
             Assert.All(saved.Preparation!.Hosts, host => Assert.Contains("config-", host.ConfigurationDirectory));
             using var spec = JsonDocument.Parse(saved.Preparation.SpecificationJson);
+            Assert.Equal(9, spec.RootElement.GetProperty("pluginConfigurations").GetProperty("plugin")
+                .GetProperty("configuration").GetProperty("values").GetProperty("limit").GetInt32());
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    private static ClusterPreparationRequest Preparation(string inputs, string direct, int limit = 1) => new(inputs, $$"""
+        {"clusterId":"demo","hosts":[{"id":"one"}],"steamListen":"0.0.0.0:27016","directListen":"{{direct}}",
+        "pluginConfigurations":{"plugin":{"configType":"Primary","configuration":{"values":{"limit":{{limit}} } } } } }
+        """, "http://gateway.test", [new("one", "http://one", "TOKEN", "TOKEN", "/installation", "/world", "/configuration/original")]);
+
+    [Fact]
+    public void ReprepareBuildsOnTheActivePreparationUnlessTheSavedOneIsActiveOrStaged()
+    {
+        var active = Preparation(new string('a', 64), "192.168.1.80:27116");
+        var stale = Preparation(new string('a', 64), "192.168.1.80:8116");
+        var selection = new ClusterPackageSelection(1, "0.1.1296", new string('b', 64), new string('c', 40), "package");
+        var cluster = new ClusterDefinition { UniqueName = "demo", Preparation = stale,
+            ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active), [], DateTimeOffset.UtcNow)
+            { Provenance = new(selection, new string('d', 64), active) } };
+        var service = new ClusterUpdatePreparationService(null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            NullLogger<ClusterUpdatePreparationService>.Instance);
+        var messages = new List<string>();
+        var progress = new SynchronousProgress(messages.Add);
+
+        // A failed restore left its backup's specification saved, with its prepared deployment still recorded.
+        cluster.PreparedDeployment = new(cluster.ActiveDeployment.Revision, ClusterDependencyService.DeploymentRevision(stale), []);
+        Assert.Same(active, service.BasePreparation(cluster, progress));
+        Assert.Contains("Direct Transport stays 192.168.1.80:27116 (the saved preparation had 192.168.1.80:8116).", Assert.Single(messages));
+        Assert.DoesNotContain("Steam stays", messages[0]);
+
+        // A change staged by Quasar on top of the active deployment stays the base, and so does the active one.
+        cluster.PreparedForSelectedRelease = true;
+        Assert.Same(stale, service.BasePreparation(cluster, progress));
+        cluster.Preparation = active with { Hosts = [.. active.Hosts] };
+        cluster.PreparedForSelectedRelease = false;
+        Assert.Same(cluster.Preparation, service.BasePreparation(cluster, progress));
+        // A catalog from before provenance keeps its saved preparation.
+        cluster.Preparation = stale;
+        cluster.ActiveDeployment = cluster.ActiveDeployment with { Provenance = null };
+        Assert.Same(stale, service.BasePreparation(cluster, progress));
+        Assert.Single(messages);
+    }
+
+    private sealed class SynchronousProgress(Action<string> report) : IProgress<string>
+    { public void Report(string value) => report(value); }
+
+    [LinuxFact]
+    public async Task StagingAfterAFailedRestoreKeepsTheActiveFrontends()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        string credential = "CONFIG_STAGE_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            ClusterPreparationRequest Prepared(string direct) => Preparation(hash, direct) with { Hosts =
+                [new("one", "http://one", credential, credential, "/installation", "/world", "/configuration/original")] };
+            var active = Prepared("192.168.1.80:27116");
+            var restore = Prepared("192.168.1.80:8116");
+            fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active), [], DateTimeOffset.UtcNow,
+                fixture.Cluster.PackageSelection!.Version)
+                { Provenance = new(fixture.Cluster.PackageSelection, candidate.ManifestSha256, active) };
+            fixture.Cluster.Preparation = restore;
+            fixture.Cluster.PreparedDeployment = new(fixture.Cluster.ActiveDeployment.Revision, ClusterDependencyService.DeploymentRevision(restore), []);
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            using var handler = new ConfigurationPreparationHandler();
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            using var spec = JsonDocument.Parse(catalog.GetCluster("demo")!.Preparation!.SpecificationJson);
+            Assert.Equal("192.168.1.80:27116", spec.RootElement.GetProperty("directListen").GetString());
             Assert.Equal(9, spec.RootElement.GetProperty("pluginConfigurations").GetProperty("plugin")
                 .GetProperty("configuration").GetProperty("values").GetProperty("limit").GetInt32());
         }
@@ -484,8 +568,12 @@ public sealed class ClusterDependencyTests
             await File.WriteAllTextAsync(Path.Combine(root, "demo/cluster.json"), JsonSerializer.Serialize(cluster, ClusterDeploymentFiles.JsonOptions));
             using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = root }).Build());
-            var service = new ClusterUpdatePreparationService(catalog, null!, null!, null!, null!, null!, null!, null!);
+            var service = new ClusterUpdatePreparationService(catalog, null!, null!, null!, null!, null!, null!, null!, null!,
+                NullLogger<ClusterUpdatePreparationService>.Instance);
             var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.PrepareAsync("demo", "release-manager", default));
+            Assert.Contains("Configuration editing permission", error.Message);
+            // The API's release update refuses before it contacts GitHub or changes the package selection.
+            error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.StageLatestReleaseAsync("demo", "release-manager", default));
             Assert.Contains("Configuration editing permission", error.Message);
             Assert.NotNull(catalog.GetCluster("demo")!.QueuedContentUpdates);
         }

@@ -5,10 +5,7 @@
 @inject ClusterBackupService Backups
 @inject ClusterUpdateService Updates
 @inject ClusterUpdatePreparationService UpdatePreparation
-@inject ClusterPackageService Packages
-@inject ClusterDependencyService Dependencies
 @inject ClusterReleaseMonitor Releases
-@inject ManagedDedicatedServerRuntimeResolver Runtime
 @inject QuasarPermissionService Permissions
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
@@ -284,23 +281,8 @@
     });
     private Task PrepareLatestUpdateAsync() => ExecuteAsync(async actor =>
     {
-        using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(default);
-        await EnsureQueuedContentPermissionAsync();
-        await ShowProgressAsync("Checking and staging the latest cluster release...");
-        var release = await Packages.GetReleaseAsync(null, default);
-        var prior = Current;
-        var changingPackage = prior.PackageSelection?.Version != release.Version || prior.PackageSelection.Sha256 != release.Sha256;
-        var reusable = changingPackage && prior.DependencyManifestSha256 is not null
-            ? await Dependencies.ReusableSourcesAsync(prior, default) : null;
-        if (!await StageLatestCoreAsync(release, reusable)) reusable = null;
-        if (Current.DependencyManifestSha256 is null)
-        {
-            await ShowProgressAsync("Freezing the selected release's runtime dependencies...");
-            await FreezeDependenciesCoreAsync(reusable);
-        }
-        await ShowProgressAsync("Transferring and preparing the selected release on all Hosts...");
         bool allowContent = await EnsureQueuedContentPermissionAsync();
-        var result = await UpdatePreparation.PrepareAsync(Cluster.UniqueName, actor, default, PreparationProgress(), allowContent);
+        var result = await UpdatePreparation.StageLatestReleaseAsync(Cluster.UniqueName, actor, default, PreparationProgress(), allowContent);
         if (result.State == ClusterOperationState.Succeeded) _preparationRequest = Current.Preparation;
         return result;
     });
@@ -311,41 +293,14 @@
     }
     private Task StageLatestAsync() => ExecuteAsync<ClusterOperation?>(async _ =>
     {
-        await StageLatestCoreAsync();
+        await UpdatePreparation.SelectReleaseAsync(Cluster.UniqueName, null, null, default);
         return null;
     });
-    private async Task<bool> StageLatestCoreAsync(ClusterPackageRelease? latest = null, Dictionary<string, string>? reusable = null)
-    {
-        var release = latest ?? await Packages.GetReleaseAsync(null, default);
-        if (Current.PackageSelection is { } selected && selected.Version == release.Version && selected.Sha256 == release.Sha256)
-            return reusable is not null;
-        var package = await Packages.StageAsync(new(release.Version, release.Sha256), default);
-        bool reuse = reusable is not null && Quasar.ClusterDeployment.ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath,
-            System.IO.Path.Combine(reusable["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll")) is null;
-        if (!reuse)
-        {
-            string installedSdk = System.IO.Path.Combine(Runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
-            if (Quasar.ClusterDeployment.ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath, installedSdk) is { } mismatch)
-                throw new InvalidOperationException($"Cluster release {release.Version} cannot run on the installed Magnetar: {mismatch} A compatible Magnetar installation or existing dependency snapshot is required.");
-        }
-        await Catalog.SelectPackageAsync(Cluster.UniqueName, Current.PackageSelection?.Revision ?? 0, package,
-            "web-ui-" + Guid.NewGuid().ToString("N"), default);
-        return reuse;
-    }
     private Task FreezeDependenciesAsync() => ExecuteAsync<ClusterOperation?>(async _ =>
     {
-        await FreezeDependenciesCoreAsync();
+        await UpdatePreparation.FreezeDependenciesAsync(Cluster.UniqueName, null, default);
         return null;
     });
-    private async Task FreezeDependenciesCoreAsync(Dictionary<string, string>? sources = null)
-    {
-        using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(default);
-        var cluster = Current;
-        var candidate = await Dependencies.InspectAsync(cluster, sources, default);
-        var request = new ClusterDependencyRequest(candidate.ManifestSha256, cluster.PackageSelection!.Revision, cluster.DependencyManifestSha256);
-        await Dependencies.StageAsync(cluster, request, sources, default);
-        await Catalog.SelectDependenciesAsync(Cluster.UniqueName, request, default);
-    }
     private Task PrepareSelectedAsync() => ExecuteAsync(async actor =>
     {
         bool allowContent = await EnsureQueuedContentPermissionAsync();

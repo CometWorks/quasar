@@ -1863,7 +1863,19 @@ The cluster deployment panel persists one preparation specification for all Host
 The **Release update** section is hidden when the active deployment's recorded
 version and SHA-256 match the latest known cluster release. **Stage latest release** automatically selects
 that release, freezes matching dependencies, and prepares every Host from the saved
-world seed and topology. **Pending update** remains visible for any staged configuration
+world seed and topology. The API equivalent is
+`POST /api/v1/clusters/{uniqueName}/release-update-preparation` (no body, cluster
+management and config editing permissions, because queued content is staged with it),
+or `./Quasar cluster release-update-prepare NAME --idempotency-key KEY`. It returns the
+preparation operation; 502 `cluster_package_unavailable` means the release could not be
+read or staged, 409 `release_preparation_conflict` names any other refusal.
+Re-preparing steps (release update, hot spares, plugin configuration and profile staging)
+build on the saved preparation only while it describes the active deployment or the change
+Quasar staged on top of it (`preparedForSelectedRelease`). A failed restore preparation,
+a rollback, or a package or dependency selection that discarded a staged change leaves an
+older saved preparation; those steps then build on the active deployment's recorded
+preparation, log a warning and report it, naming any `steamListen` or `directListen` that
+differs. **Pending update** remains visible for any staged configuration
 or deployment change, including changes on the current package version. **Apply pending
 update** starts the durable full-downtime workflow without requiring JSON input.
 Fine-grained package, dependency, import and activation overrides share one flat
