@@ -13,6 +13,7 @@ internal static class DeploymentSelfTest
         LocalWorldModsRequired();
         ProfileContentUpdate();
         WorldFilesUpdate();
+        NewNodeWorldStorage();
         ConfigurationReferenceRetention();
         SteamClientLibraryInstallation();
         OnlineSnapshot();
@@ -362,6 +363,38 @@ internal static class DeploymentSelfTest
             Assert(All(mes, "<MaxNpcGrids>40</MaxNpcGrids> rewritten by MES"), "a later update with the same seed touched world files");
             File.WriteAllText(Path.Combine(root, "staged", "seed/world", mes), "tampered");
             AssertThrows(() => WorldFilesMigration.Apply(candidate, staged.Path, old.Manifest));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    // #1313: a node seeded for the first time (a new spare) gets the seed's mod world storage where its mods read it.
+    private static void NewNodeWorldStorage()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-node-storage-" + Guid.NewGuid().ToString("N"));
+        string config = Path.Combine(root, "config"), runtime = Path.Combine(root, "runtime");
+        const string mes = "Storage/1521905890.sbm_ModularEncountersSystems/Config-General.xml";
+        try
+        {
+            string data = "nodes/" + ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes("spare-2"))[..24] + "/data";
+            var files = new Dictionary<string, string> { ["seed/spare-2/premade-world/Sandbox.sbc"] = "<checkpoint/>",
+                ["seed/spare-2/premade-world/" + mes] = "<MaxGlobalNpcGrids>137</MaxGlobalNpcGrids>", ["seed/other/premade-world/" + mes] = "other" };
+            foreach (var (name, text) in files)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(config, name))!);
+                File.WriteAllText(Path.Combine(config, name), text);
+            }
+            var node = new NodeSpawnSpec("spare-2", Admin.NodeRole.Regular, "spare-2", "unused", "", [],
+                new() { ["CLUSTER_WORLD_ID"] = "world-1", ["CLUSTER_DATA_ROOT"] = Path.Combine(runtime, data) }, []);
+            var manifest = new BundleManifest(1, "revision", [], [node], RuntimeRoot: runtime,
+                InitialDirectories: new() { [data] = "seed/spare-2", ["nodes/unknown/data"] = "seed/other" },
+                ConfigFiles: files.Keys.Select(f => new BundleFile(f, ExecutionBundle.Hash(File.ReadAllBytes(Path.Combine(config, f))))).ToArray());
+            string path = Path.Combine(config, "bundle.json");
+            File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            ExecutionBundle.Load(path, ExecutionBundle.Hash(File.ReadAllBytes(path))).InitializeData("cluster");
+            Assert(File.ReadAllText(Path.Combine(runtime, data, "Saves/world-1", mes)) == "<MaxGlobalNpcGrids>137</MaxGlobalNpcGrids>",
+                "a new node's saved world misses the seed's mod storage");
+            Assert(File.Exists(Path.Combine(runtime, data, "premade-world", mes)), "the premade world lost its storage");
+            Assert(!Directory.Exists(Path.Combine(runtime, "nodes/unknown/data/Saves")), "storage was seeded for a directory that is no node's");
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

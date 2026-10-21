@@ -238,11 +238,33 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
                         throw new CryptographicException("Data seed changed during preparation.");
                 }
                 if (!Directory.EnumerateFileSystemEntries(staging).Any()) throw new InvalidDataException("Data seed is empty.");
+                SeedSavedWorldStorage(staging, target);
                 using (var stream = new FileStream(Path.Combine(staging, ".quasar-seed.json"), FileMode.CreateNew))
                 { stream.Write(identityBytes); stream.Flush(true); }
                 Directory.Move(staging, target);
             }
             finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+        }
+    }
+
+    /// <summary>
+    /// A node saves its world into <c>Saves/&lt;world&gt;</c> and its mods read world storage there, already in the first
+    /// session's LoadData, but the game never copies <c>Storage/</c> from the premade world. Seed it, so a new node or spare
+    /// starts with the mod configuration of the world seed (#1313) instead of writing the mods' defaults.
+    /// </summary>
+    private void SeedSavedWorldStorage(string staging, string target)
+    {
+        string storage = Path.Combine(staging, "premade-world", "Storage");
+        if (!Directory.Exists(storage)) return;
+        var node = Manifest.Nodes.FirstOrDefault(n => n.Environment.TryGetValue("CLUSTER_DATA_ROOT", out var root)
+            && Path.GetFullPath(root) == Path.GetFullPath(target));
+        if (node is null || !node.Environment.TryGetValue("CLUSTER_WORLD_ID", out var worldId)
+            || worldId.Length == 0 || worldId != Path.GetFileName(worldId)) return;
+        foreach (string file in Directory.EnumerateFiles(storage, "*", SearchOption.AllDirectories))
+        {
+            string copy = Path.Combine(staging, "Saves", worldId, "Storage", Path.GetRelativePath(storage, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+            File.Copy(file, copy);
         }
     }
 
