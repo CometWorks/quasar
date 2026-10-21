@@ -10,6 +10,9 @@ namespace Quasar.Services.Analytics;
 /// Each series is averaged down to at most <c>maxPoints</c> samples (default 1000). Samples are
 /// bucketed onto a single shared timeline so every series in a chart is aligned for uPlot's
 /// columnar data format (<c>[x[], y0[], y1[], ...]</c>); buckets with no samples are dropped.
+///
+/// A requested server can be a cluster slot (<see cref="AgentRuntimeState.AnalyticsKey"/>): its node
+/// instances and epochs are merged into one series under the slot's key.
 /// </summary>
 public sealed class AnalyticsSeriesService
 {
@@ -20,12 +23,15 @@ public sealed class AnalyticsSeriesService
     private readonly MetricsStoreService _store;
     private readonly ProfilerStoreService _profilerStore;
     private readonly PluginStatsStoreService _pluginStatsStore;
+    private readonly AgentRegistry? _registry;
 
-    public AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore, PluginStatsStoreService pluginStatsStore)
+    public AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore, PluginStatsStoreService pluginStatsStore,
+        AgentRegistry? registry = null)
     {
         _store = store;
         _profilerStore = profilerStore;
         _pluginStatsStore = pluginStatsStore;
+        _registry = registry;
     }
 
     public AnalyticsSeriesResponse Build(
@@ -65,18 +71,47 @@ public sealed class AnalyticsSeriesService
         if (metrics.Count == 0 && profilerMetrics.Count == 0 && profilerEntryMetrics.Count == 0 && pluginStatKeys.Count == 0)
             return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
 
+        var sources = ResolveSources(servers);
+        if (sources.Count == 0)
+            return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
+
         var charts = new List<AnalyticsChartDto>(metrics.Count + profilerMetrics.Count + profilerEntryMetrics.Count + pluginStatKeys.Count);
-        charts.AddRange(BuildMetricCharts(fromUnix, toUnix, servers, metrics, maxPoints));
-        charts.AddRange(BuildProfilerCharts(fromUnix, toUnix, servers, profilerMetrics, maxPoints));
-        charts.AddRange(BuildProfilerEntryCharts(fromUnix, toUnix, servers, profilerEntryMetrics, maxPoints));
-        charts.AddRange(BuildPluginStatsCharts(fromUnix, toUnix, servers, pluginStatKeys, maxPoints));
+        charts.AddRange(BuildMetricCharts(fromUnix, toUnix, sources, metrics, maxPoints));
+        charts.AddRange(BuildProfilerCharts(fromUnix, toUnix, sources, profilerMetrics, maxPoints));
+        charts.AddRange(BuildProfilerEntryCharts(fromUnix, toUnix, sources, profilerEntryMetrics, maxPoints));
+        charts.AddRange(BuildPluginStatsCharts(fromUnix, toUnix, sources, pluginStatKeys, maxPoints));
         return new AnalyticsSeriesResponse(fromUnix, toUnix, charts);
+    }
+
+    private IReadOnlyList<Source> ResolveSources(IReadOnlyList<string> servers)
+    {
+        var keys = servers
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var expanded = _registry?.ExpandAnalyticsKeys(keys);
+        return keys
+            .Select(key => new Source(key, expanded?.GetValueOrDefault(key) ?? [key]))
+            .ToList();
+    }
+
+    // Telemetry key -> the requested source that merges it.
+    private static Dictionary<string, string> MapMembers(IReadOnlyList<Source> sources)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var source in sources)
+        {
+            foreach (var member in source.Members)
+                map.TryAdd(member, source.Key);
+        }
+
+        return map;
     }
 
     private IReadOnlyList<AnalyticsChartDto> BuildMetricCharts(
         long fromUnix,
         long toUnix,
-        IReadOnlyList<string> servers,
+        IReadOnlyList<Source> sources,
         IReadOnlyList<AnalyticsMetric> metrics,
         int maxPoints)
     {
@@ -87,18 +122,18 @@ public sealed class AnalyticsSeriesService
         var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
 
         // Read and bucket each server's samples once, accumulating per-metric sums per bucket.
-        var serverBuckets = new List<ServerBuckets>(servers.Count);
+        var serverBuckets = new List<ServerBuckets>(sources.Count);
         var bucketHasData = new bool[bucketCount];
 
-        foreach (var uniqueName in servers)
+        foreach (var source in sources)
         {
-            var store = _store.GetStore(uniqueName);
-            if (store is null)
-                continue;
-
             // Read from alignedFrom (not fromUnix) so the leading bucket is also a complete window and
             // stays stable as fromUnix slides within it.
-            var samples = ReadSamplesForRange(store, alignedFrom, toUnix, spanSeconds);
+            var samples = source.Members
+                .Select(member => _store.GetStore(member))
+                .Where(store => store is not null)
+                .SelectMany(store => ReadSamplesForRange(store!, alignedFrom, toUnix, spanSeconds))
+                .ToArray();
             if (samples.Length == 0)
                 continue;
 
@@ -133,7 +168,7 @@ public sealed class AnalyticsSeriesService
                 }
             }
 
-            serverBuckets.Add(new ServerBuckets(uniqueName, sums, counts));
+            serverBuckets.Add(new ServerBuckets(source.Key, sums, counts));
         }
 
         // Compact to the buckets that actually hold data; this X axis is shared by every chart.
@@ -201,28 +236,21 @@ public sealed class AnalyticsSeriesService
     private IReadOnlyList<AnalyticsChartDto> BuildProfilerCharts(
         long fromUnix,
         long toUnix,
-        IReadOnlyList<string> servers,
+        IReadOnlyList<Source> sources,
         IReadOnlyList<ProfilerAnalyticsMetric> metrics,
         int maxPoints)
     {
         if (metrics.Count == 0)
             return [];
 
-        var serverKeys = servers
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (serverKeys.Count == 0)
-            return [];
-
         var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
-        var response = _profilerStore.Build(alignedFrom, toUnix, serverKeys);
+        var response = _profilerStore.Build(alignedFrom, toUnix, sources.SelectMany(source => source.Members).ToList());
         var samplesByServer = response.Servers.ToDictionary(server => server.UniqueName, StringComparer.OrdinalIgnoreCase);
 
-        var serverBuckets = new List<ServerBuckets>(serverKeys.Count);
+        var serverBuckets = new List<ServerBuckets>(sources.Count);
         var bucketHasData = new bool[bucketCount];
 
-        foreach (var uniqueName in serverKeys)
+        foreach (var source in sources)
         {
             var sums = new double[metrics.Count][];
             var counts = new int[metrics.Count][];
@@ -232,13 +260,12 @@ public sealed class AnalyticsSeriesService
                 counts[mi] = new int[bucketCount];
             }
 
-            if (!samplesByServer.TryGetValue(uniqueName, out var server))
-            {
-                serverBuckets.Add(new ServerBuckets(uniqueName, sums, counts));
-                continue;
-            }
+            var samples = source.Members
+                .Select(member => samplesByServer.GetValueOrDefault(member))
+                .Where(server => server is not null)
+                .SelectMany(server => server!.Samples);
 
-            foreach (var sample in server.Samples)
+            foreach (var sample in samples)
             {
                 var timestamp = sample.CapturedAtUtc.ToUnixTimeSeconds();
                 var bucket = (int)((timestamp - alignedFrom) / bucketWidth);
@@ -262,7 +289,7 @@ public sealed class AnalyticsSeriesService
                     bucketHasData[bucket] = true;
             }
 
-            serverBuckets.Add(new ServerBuckets(uniqueName, sums, counts));
+            serverBuckets.Add(new ServerBuckets(source.Key, sums, counts));
         }
 
         var kept = new List<int>(bucketCount);
@@ -316,22 +343,16 @@ public sealed class AnalyticsSeriesService
     private IReadOnlyList<AnalyticsChartDto> BuildProfilerEntryCharts(
         long fromUnix,
         long toUnix,
-        IReadOnlyList<string> servers,
+        IReadOnlyList<Source> sources,
         IReadOnlyList<ProfilerEntryAnalyticsMetric> metrics,
         int maxPoints)
     {
         if (metrics.Count == 0)
             return [];
 
-        var serverKeys = servers
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (serverKeys.Count == 0)
-            return [];
-
         var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
-        var response = _profilerStore.Build(alignedFrom, toUnix, serverKeys);
+        var sourceByMember = MapMembers(sources);
+        var response = _profilerStore.Build(alignedFrom, toUnix, sourceByMember.Keys.ToList());
 
         var bucketsByMetric = new List<Dictionary<string, EntryBuckets>>(metrics.Count);
         for (var mi = 0; mi < metrics.Count; mi++)
@@ -343,6 +364,7 @@ public sealed class AnalyticsSeriesService
 
         foreach (var server in response.Servers)
         {
+            var sourceKey = sourceByMember.GetValueOrDefault(server.UniqueName, server.UniqueName);
             foreach (var sample in server.Samples)
             {
                 var timestamp = sample.CapturedAtUtc.ToUnixTimeSeconds();
@@ -363,7 +385,7 @@ public sealed class AnalyticsSeriesService
                         if (!double.IsFinite(value) || value <= 0d)
                             continue;
 
-                        var label = BuildEntrySeriesLabel(server.UniqueName, entry);
+                        var label = BuildEntrySeriesLabel(sourceKey, entry);
                         var series = GetOrCreateEntryBuckets(bucketsByMetric[mi], label, bucketCount);
                         series.Sums[bucket] += value;
                         series.Counts[bucket]++;
@@ -428,20 +450,15 @@ public sealed class AnalyticsSeriesService
     private IReadOnlyList<AnalyticsChartDto> BuildPluginStatsCharts(
         long fromUnix,
         long toUnix,
-        IReadOnlyList<string> servers,
+        IReadOnlyList<Source> sources,
         IReadOnlyList<string> metricKeys,
         int maxPoints)
     {
         if (metricKeys.Count == 0)
             return [];
 
-        var serverKeys = servers
-            .Where(value => !string.IsNullOrWhiteSpace(value))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-        if (serverKeys.Count == 0)
-            return [];
-
+        var sourceByMember = MapMembers(sources);
+        var serverKeys = sourceByMember.Keys.ToList();
         var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
 
         var charts = new List<AnalyticsChartDto>(metricKeys.Count);
@@ -460,6 +477,7 @@ public sealed class AnalyticsSeriesService
 
             foreach (var timeline in timelines)
             {
+                var sourceKey = sourceByMember.GetValueOrDefault(timeline.Server, timeline.Server);
                 foreach (var sample in timeline.Samples)
                 {
                     var bucket = (int)((sample.CapturedAtUtc.ToUnixTimeSeconds() - alignedFrom) / bucketWidth);
@@ -485,7 +503,7 @@ public sealed class AnalyticsSeriesService
                         if (!double.IsFinite(value))
                             continue;
 
-                        var label = BuildPluginSeriesLabel(timeline.Server, instance.Label, group.Name);
+                        var label = BuildPluginSeriesLabel(sourceKey, instance.Label, group.Name);
                         var series = GetOrCreateEntryBuckets(buckets, label, bucketCount);
                         series.Sums[bucket] += value;
                         series.Counts[bucket]++;
@@ -651,6 +669,8 @@ public sealed class AnalyticsSeriesService
 
         return store.OneHour.Read(fromUnix, toUnix);
     }
+
+    private sealed record Source(string Key, IReadOnlyList<string> Members);
 
     private readonly record struct ServerBuckets(string UniqueName, double[][] Sums, int[][] Counts);
 

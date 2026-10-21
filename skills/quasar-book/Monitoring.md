@@ -64,7 +64,7 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 | --- | --- |
 | **Time range** | 30s, 1m, 2m, 5m, 15m, 30m, 1h (default), 6h, 24h, 7d, 30d, **Custom** (from and to date and time) |
 | **Auto refresh** | Off, 5s, 15s, 30s, 60s |
-| **Servers** | Check boxes, **Select all**, **Select none** |
+| **Servers** | Check boxes, **Select all**, **Select none**. A cluster has one check box per slot (`cluster / slot`); its chart line joins every node instance and epoch that served the slot. |
 | **Grid** | **Columns** 1 to 6 (default 2), **Rows** 1 to 12 (default 4), **Row height (px)** 180 to 960 (default 320), **Reset panels** |
 | **Add panel** | Shows a hidden panel again. The tune icon on each chart opens its panel settings. |
 | **Reset layout** | Back to 2 columns, 4 rows, 320 px |
