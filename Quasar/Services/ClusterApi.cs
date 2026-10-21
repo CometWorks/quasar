@@ -265,6 +265,7 @@ internal static class ClusterApi
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
         RouteHandlerBuilder setAdministration = routes.MapPut("/{uniqueName}/administration", SetAdministration);
         RouteHandlerBuilder stageProfile = routes.MapPost("/{uniqueName}/config-profile-preparation", StageProfile);
+        RouteHandlerBuilder stageHotSpares = routes.MapPost("/{uniqueName}/hot-spares-preparation", StageHotSpares);
         RouteHandlerBuilder setGoal = routes.MapPut("/{uniqueName}/goal", SetGoal);
         RouteHandlerBuilder setGatewaySpec = routes.MapPut("/{uniqueName}/gateway-spec", SetGatewaySpec);
         RouteHandlerBuilder restartGateway = routes.MapPost("/{uniqueName}/gateway/restart", RestartGateway);
@@ -302,6 +303,7 @@ internal static class ClusterApi
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setAdministration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+            stageHotSpares.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             setGoal.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setGatewaySpec.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             restartGateway.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -797,6 +799,19 @@ internal static class ClusterApi
         { return Error(409, "profile_preparation_conflict", error.Message); }
     }
 
+    private static async Task<IResult> StageHotSpares(string uniqueName, ClusterHotSparesSelection request,
+        HttpContext context, ClusterUpdatePreparationService preparation, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return AcceptedOperation(uniqueName, context, await preparation.StageHotSparesAsync(uniqueName,
+            request.HotSpares, context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException)
+        { return Error(409, "hot_spares_preparation_conflict", error.Message); }
+    }
+
     private static async Task<IResult> GetHostStatus(string uniqueName, HttpContext context,
         ClusterCatalog catalog, ClusterHostClient client, CancellationToken cancellationToken)
     {
@@ -1022,3 +1037,4 @@ internal static class ClusterApi
 
 public sealed record ClusterRecoveryRequest(Guid Generation);
 public sealed record ClusterProfileSelection(string ConfigProfileId);
+public sealed record ClusterHotSparesSelection(int HotSpares);

@@ -1361,6 +1361,15 @@ stage the selection again after editing it. The API equivalent is
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
 config editing permissions.
 
+**Hot spares** with **Stage hot spare change** prepares a deployment with a
+different number of hot spares. A spare is an extra regular slot of the approved
+node inventory, so Quasar adds or removes spare slots in the saved specification
+(placed like guided setup places them) and prepares it on every Host. Apply it
+from **Maintenance → Pending update**: the update stops the fleet cleanly,
+activates the new inventory and starts the cluster again. The API equivalent is
+`POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
+`{"hotSpares":2}`, with the same permissions.
+
 The current deployment format preserves existing mutable worlds when activating
 a new revision. Consequently, this control accepts profiles that differ from the
 active profile only in max players, which the prepared Gateway admission
