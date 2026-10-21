@@ -159,6 +159,7 @@
         _sourceProfile.SourceWorldTemplateId = WorldTemplateId.Trim();
         _sourceProfile.Name = _profileName.Trim();
         _sourceProfile.Description = _profileDescription?.Trim() ?? string.Empty;
+        QuasarDefaultPlugins.Apply(_sourceProfile, enable: true);
         MudDialog.Close(DialogResult.Ok(new WorldTemplateConfigProfileDialogResult(_sourceProfile)));
     }
 

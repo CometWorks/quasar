@@ -183,6 +183,20 @@ New config profiles default **Online Mode** to **Public**. Profiles created from
 a world template also use Public rather than importing the template world's
 saved Online Mode.
 
+## Default plugins of new profiles
+
+A config profile Quasar creates for single servers selects the default server
+plugins Bugfixes (`bugfixes`) and Performance (`454B0F55-C727-4DAB-B1A9-5AE6050A0932`)
+from MagnetarHub, with their default settings and the hub's current commit. That
+covers **Create profile** on the Configs page, **Create profile** in the server
+editor, the profile the setup guide and the world template dialogs create from a
+world, and the profile an existing-server import creates. They use the same list
+as guided cluster setup (`Quasar/Services/QuasarDefaultPlugins.cs`) and record it
+in `offeredDefaultPlugins`, so a default removed from the profile stays removed.
+Clones and converted profiles keep their source's plugin list, and existing
+profiles are never changed: a new server that picks an existing profile runs that
+profile's plugins.
+
 Offline mode is unsafe on an ordinary Space Engineers dedicated server because
 every connected user receives Owner-level permissions. Quasar shows a warning
 whenever a profile is set to Offline. At launch it overrides that server's

@@ -17,6 +17,7 @@ Open **Configs** in the navigation menu (page title "Configuration profiles"). C
 The left column lists profiles. Type a name in **New profile name** and click **Create profile** to add an empty profile. Each profile has **Clone <name>** and **Delete <name>** buttons.
 
 - **Clone** creates "<name> (Copy)" with the same content.
+- A new profile starts with the Bugfixes and Performance server plugins selected. See [Plugins](Plugins.md#default-plugins).
 - **Delete** is refused while servers use the profile: "Profile still assigned to servers. Reassign or clear them first." Otherwise it asks for confirmation.
 
 The editor header shows **Profile name**, **Description**, counters for plugins, mods and **Assigned Servers**, and "Applied to:" with the Server IDs that use it. Buttons:
@@ -186,6 +187,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - **"Selected world save is missing Sandbox.sbc."**: the folder is not a valid save. Create a save from a template or copy a complete save folder.
 
 ## Sources
+- `Quasar/Services/QuasarDefaultPlugins.cs`
 - `Docs/StateMachines/ConfigProfileChanges.md`
 - `Docs/Configuration.md`
 - `Docs/QuasarArchitecture.md`

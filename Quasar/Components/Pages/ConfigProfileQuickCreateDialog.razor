@@ -70,6 +70,7 @@
                 Name = _name.Trim(),
                 Description = _description?.Trim() ?? string.Empty,
             };
+            QuasarDefaultPlugins.Apply(template, enable: true);
 
             await ConfigProfiles.UpsertAsync(template);
             MudDialog.Close(DialogResult.Ok(template));

@@ -321,6 +321,7 @@ public sealed class ExistingServerImportService(
                 .ToList();
         }
 
+        QuasarDefaultPlugins.Apply(profile, enable: true);
         return profile;
     }
 
