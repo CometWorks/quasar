@@ -1,6 +1,8 @@
 using System.Net;
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text;
+using System.Security.Cryptography;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
 using Quasar.Services.Auth;
@@ -17,6 +19,10 @@ public sealed class PushNotificationService(
     ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
     ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins, AnnouncementService announcements) : BackgroundService
 {
+    internal const int MaxAnnouncementReceiptsPerBrowser = 4096;
+    internal const int MaxReceiptKeysPerBrowser = 8192;
+    internal const int MaxReceiptKeys = 65536;
+    internal const int MaxStateBytes = 8 * 1024 * 1024;
     private const string VapidSubject = "https://github.com/CometWorks/quasar";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly IDataProtector _protector = protection.CreateProtector("Quasar.PushNotifications.v1");
@@ -25,14 +31,19 @@ public sealed class PushNotificationService(
     private readonly WebPushClient _client = new();
     private PushState? _state;
     private readonly Func<UpdateNotice, CancellationToken, Task>? _sendOverride;
+    private readonly Func<UpdateNotice[]>? _otherNoticesOverride;
+    private bool _receiptStateReadOnly;
+    private int _receiptWarningReported;
 
     internal PushNotificationService(IDataProtectionProvider protection, QuasarRoleMapper roles,
-        AnnouncementService announcements, string path, Func<UpdateNotice, CancellationToken, Task> send)
-        : this(protection, null!, null!, null!, roles, Microsoft.Extensions.Logging.Abstractions.NullLogger<PushNotificationService>.Instance,
+        AnnouncementService announcements, string path, Func<UpdateNotice, CancellationToken, Task> send,
+        ILogger<PushNotificationService>? testLogger = null, Func<UpdateNotice[]>? otherNotices = null)
+        : this(protection, null!, null!, null!, roles, testLogger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PushNotificationService>.Instance,
             null!, null!, null!, null!, announcements)
     {
         _path = path;
         _sendOverride = send;
+        _otherNoticesOverride = otherNotices;
     }
 
     private readonly InstanceNotificationMonitor _instances = new();
@@ -77,6 +88,7 @@ public sealed class PushNotificationService(
         PushState state;
         await _gate.WaitAsync(token);
         try { state = await LoadAsync(token); }
+        catch (InvalidDataException) { return MergeAnnouncements([], announcements); }
         finally { _gate.Release(); }
         return Notices(state, identity.Provider, identity.Subject, user);
     }
@@ -88,7 +100,7 @@ public sealed class PushNotificationService(
             { "critical" => 2, "warning" => 1, _ => 0 }).ToArray();
 
     private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user) =>
-        MergeAnnouncements(_instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
+        MergeAnnouncements(_otherNoticesOverride?.Invoke() ?? _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
             .Concat(Preferences(state, provider, subject).Updates
                 ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
                 : [])
@@ -182,7 +194,8 @@ public sealed class PushNotificationService(
                     await SendPendingAsync(stoppingToken);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
-                catch (Exception error) { logger.LogError(error, "Browser push notification sweep failed."); }
+                catch (InvalidDataException) { } // Load/admission reports a bounded warning without exposing state.
+                catch (Exception error) { logger.LogError("Browser push notification sweep failed ({FailureType}).", error.GetType().Name); }
                 try { await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken); }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             }
@@ -208,6 +221,7 @@ public sealed class PushNotificationService(
         PushState state;
         await _gate.WaitAsync(token);
         try { state = await LoadAsync(token); }
+        catch (InvalidDataException) { return; }
         finally { _gate.Release(); }
         foreach (var item in state.Subscriptions)
         {
@@ -226,9 +240,10 @@ public sealed class PushNotificationService(
             if (!DeliveredKeys(current).SequenceEqual(retained))
                 current = await UpdateSubscriptionAsync(current, null, false, token, retained);
             if (current is null) continue;
-            foreach (var notice in PendingNotices(notices, current).Take(10))
+            int attempts = 0;
+            foreach (var notice in PendingNotices(notices, current))
             {
-                if (current is null) break;
+                if (current is null || attempts >= 10) break;
                 var expected = current;
                 try
                 {
@@ -241,14 +256,17 @@ public sealed class PushNotificationService(
                         // At most one attempt per browser/ID. A crash after the durable reservation
                         // can miss a push; active feed state is independent and remains visible.
                         if (!announcements.IsCurrent(notice)) continue;
-                        current = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
-                        if (current is null) break;
+                        var reserved = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
+                        if (reserved is null) continue; // Full announcement receipts must not starve ordinary notices.
+                        current = reserved;
                         expected = current;
+                        attempts++;
                         var sending = announcements.StartDelivery(notice, Send, token);
                         if (sending is not null) await sending;
                     }
                     else
                     {
+                        attempts++;
                         await Send(token);
                         current = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
                     }
@@ -289,11 +307,42 @@ public sealed class PushNotificationService(
         DeliveredKeys(item).Where(key => key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal)
             || notices.Any(notice => notice.Key == key)).ToArray();
 
-    internal static string[] DeliveredKeys(StoredSubscription item) => item.DeliveredNoticeKeys
-        ?? (item.LastNoticeKey is null ? [] : [item.LastNoticeKey]);
+    internal static string[] DeliveredKeys(StoredSubscription item) => (item.DeliveredNoticeKeys ?? [])
+        .Concat(item.LastNoticeKey is null ? [] : [item.LastNoticeKey]).OfType<string>().Distinct(StringComparer.Ordinal).ToArray();
 
-    internal static UpdateNotice[] PendingNotices(IEnumerable<UpdateNotice> notices, StoredSubscription item) =>
-        notices.Where(n => !DeliveredKeys(item).Contains(n.Key, StringComparer.Ordinal)).ToArray();
+    internal static UpdateNotice[] PendingNotices(IEnumerable<UpdateNotice> notices, StoredSubscription item)
+    {
+        var delivered = DeliveredKeys(item).ToHashSet(StringComparer.Ordinal);
+        return notices.Where(n => !delivered.Contains(n.Key)).ToArray();
+    }
+
+    private static bool IsAnnouncementKey(string key) => key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal);
+
+    internal static bool ReceiptStateWithinBounds(PushState state)
+    {
+        int total = 0;
+        foreach (var item in state.Subscriptions)
+        {
+            if (item.LastNoticeKey is { Length: 0 } || item.DeliveredNoticeKeys?.Any(string.IsNullOrEmpty) == true) return false;
+            var keys = DeliveredKeys(item);
+            if (StoredReceiptCount(item) > MaxReceiptKeysPerBrowser || (total += StoredReceiptCount(item)) > MaxReceiptKeys
+                || keys.Count(IsAnnouncementKey) > MaxAnnouncementReceiptsPerBrowser) return false;
+            foreach (var key in keys)
+                if (key.Length > 2048 || IsAnnouncementKey(key) && (key.Length != AnnouncementService.KeyPrefix.Length + 32
+                    || !Guid.TryParseExact(key[AnnouncementService.KeyPrefix.Length..], "N", out _)
+                    || key != key.ToLowerInvariant())) return false;
+        }
+        return true;
+    }
+
+    private static int StoredReceiptCount(StoredSubscription item) => (item.DeliveredNoticeKeys?.Length ?? 0)
+        + (item.LastNoticeKey is not null && item.DeliveredNoticeKeys?.Contains(item.LastNoticeKey, StringComparer.Ordinal) != true ? 1 : 0);
+
+    private void WarnReceiptPause()
+    {
+        if (Interlocked.Exchange(ref _receiptWarningReported, 1) == 0)
+            logger.LogWarning("Browser announcement push paused: receipt state is full, invalid or unavailable. Existing IDs are retained; check push state storage or remove the affected subscription.");
+    }
 
     internal static List<StoredSubscription> RegisterSubscription(List<StoredSubscription> existing,
         string provider, string subject, BrowserPushSubscription subscription, string? noticeKey)
@@ -323,41 +372,121 @@ public sealed class PushNotificationService(
             var state = await LoadAsync(token);
             var current = state.Subscriptions.FirstOrDefault(item => item.Endpoint == expected.Endpoint);
             if (current != expected) return null;
+            bool announcement = key is not null && IsAnnouncementKey(key);
+            if (announcement && (_receiptStateReadOnly
+                || DeliveredKeys(expected).Count(IsAnnouncementKey) >= MaxAnnouncementReceiptsPerBrowser
+                || StoredReceiptCount(expected) >= MaxReceiptKeysPerBrowser
+                || state.Subscriptions.Sum(StoredReceiptCount) >= MaxReceiptKeys))
+            {
+                WarnReceiptPause(); return null;
+            }
             var updated = remove ? null : expected with { LastNoticeKey = key,
                 DeliveredNoticeKeys = retained ?? DeliveredKeys(expected).Concat(key is null ? [] : new[] { key }).Distinct().ToArray() };
-            await SaveAsync(state with { Subscriptions = state.Subscriptions.Select(item => item == expected
-                ? updated : item).OfType<StoredSubscription>().ToList() }, token);
+            var next = state with { Subscriptions = state.Subscriptions.Select(item => item == expected
+                ? updated : item).OfType<StoredSubscription>().ToList() };
+            if (_receiptStateReadOnly && !announcement && !remove)
+            {
+                // Readable legacy receipt damage must not disable ordinary pushes. Keep their
+                // session receipts in memory; never rewrite the invalid durable history.
+                if (!RememberSessionReceipts(next)) return null;
+            }
+            else if (announcement)
+            {
+                try
+                {
+                    if (!await TrySaveAsync(next, token))
+                    { _receiptStateReadOnly = true; WarnReceiptPause(); return null; }
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                { WarnReceiptPause(); return null; }
+            }
+            else if (!await TrySaveAsync(next, token))
+            {
+                WarnReceiptPause();
+                if (!RememberSessionReceipts(next)) return null;
+            }
             return updated;
         }
         finally { _gate.Release(); }
     }
 
+    private bool RememberSessionReceipts(PushState state)
+    {
+        if (Encoding.UTF8.GetByteCount(JsonSerializer.Serialize(state, Json)) > MaxStateBytes) return false;
+        _state = state;
+        _receiptStateReadOnly = true;
+        return true;
+    }
+
     private async Task<PushState> LoadAsync(CancellationToken token)
     {
         if (_state is not null) return _state;
-        if (File.Exists(_path))
+        try
         {
-            var encrypted = await File.ReadAllTextAsync(_path, token);
-            var loaded = JsonSerializer.Deserialize<PushState>(_protector.Unprotect(encrypted), Json)
-                ?? throw new InvalidDataException("Push notification state is empty.");
-            if (string.IsNullOrWhiteSpace(loaded.PublicKey) || string.IsNullOrWhiteSpace(loaded.PrivateKey)
-                || loaded.Subscriptions is null)
-                throw new InvalidDataException("Push notification state is incomplete.");
-            foreach (var account in loaded.Preferences ?? []) account.Options.Validate();
-            _state = loaded;
-            return _state;
+            if (File.Exists(_path))
+            {
+                await using var file = File.OpenRead(_path);
+                if (file.Length > MaxStateBytes) throw new InvalidDataException("Push state exceeds limit.");
+                using var bytes = new MemoryStream();
+                byte[] buffer = new byte[8192]; int read;
+                while ((read = await file.ReadAsync(buffer, token)) > 0)
+                {
+                    if (bytes.Length + read > MaxStateBytes) throw new InvalidDataException("Push state exceeds limit.");
+                    bytes.Write(buffer, 0, read);
+                }
+                var json = _protector.Unprotect(Encoding.UTF8.GetString(bytes.GetBuffer(), 0, (int)bytes.Length));
+                if (Encoding.UTF8.GetByteCount(json) > MaxStateBytes) throw new InvalidDataException("Push JSON exceeds limit.");
+                var loaded = JsonSerializer.Deserialize<PushState>(json, Json)
+                    ?? throw new InvalidDataException("Push notification state is empty.");
+                if (string.IsNullOrWhiteSpace(loaded.PublicKey) || string.IsNullOrWhiteSpace(loaded.PrivateKey)
+                    || loaded.Subscriptions is null || loaded.Subscriptions.Any(item => item is null
+                        || string.IsNullOrWhiteSpace(item.Provider) || string.IsNullOrWhiteSpace(item.Subject)
+                        || string.IsNullOrWhiteSpace(item.Endpoint) || item.P256dh is null || item.Auth is null))
+                    throw new InvalidDataException("Push notification state is incomplete.");
+                foreach (var account in loaded.Preferences ?? [])
+                {
+                    if (account?.Options is null) throw new InvalidDataException("Push preferences are incomplete.");
+                    account.Options.Validate();
+                }
+                _receiptStateReadOnly = !ReceiptStateWithinBounds(loaded);
+                if (_receiptStateReadOnly) WarnReceiptPause();
+                _state = loaded;
+                return loaded;
+            }
+            var keys = VapidHelper.GenerateVapidKeys();
+            var state = new PushState(keys.PublicKey, keys.PrivateKey, []);
+            await SaveAsync(state, token);
+            return state;
         }
-        var keys = VapidHelper.GenerateVapidKeys();
-        var state = new PushState(keys.PublicKey, keys.PrivateKey, []);
-        await SaveAsync(state, token);
-        return state;
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or CryptographicException or InvalidDataException)
+        {
+            // Never replace unreadable state with fresh subscriptions or lost delivery history.
+            WarnReceiptPause();
+            throw new InvalidDataException("Browser push state is unavailable; existing state was preserved.");
+        }
     }
 
     private async Task SaveAsync(PushState state, CancellationToken token)
     {
-        await AtomicFileWriter.WriteTextAsync(_path, _protector.Protect(JsonSerializer.Serialize(state, Json)), token);
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        if (!await TrySaveAsync(state, token))
+        {
+            WarnReceiptPause();
+            throw new InvalidDataException("Browser push state exceeds its receipt or byte limits; existing state was preserved.");
+        }
+    }
+
+    private async Task<bool> TrySaveAsync(PushState state, CancellationToken token)
+    {
+        if (!ReceiptStateWithinBounds(state)) return false;
+        var json = JsonSerializer.Serialize(state, Json);
+        if (Encoding.UTF8.GetByteCount(json) > MaxStateBytes) return false;
+        var encrypted = _protector.Protect(json);
+        if (Encoding.UTF8.GetByteCount(encrypted) > MaxStateBytes) return false;
+        await AtomicFileWriter.WriteTextAsync(_path, encrypted, token);
         _state = state;
+        _receiptStateReadOnly = false;
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+        return true;
     }
 
     private static (string Provider, string Subject) BrowserIdentity(ClaimsPrincipal user)

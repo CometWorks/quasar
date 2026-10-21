@@ -21,7 +21,7 @@ using Xunit;
 
 namespace Quasar.Tests;
 
-public sealed class AnnouncementTests : IDisposable
+public sealed partial class AnnouncementTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "announcements-" + Guid.NewGuid().ToString("N"));
     private readonly List<IDisposable> _owned = [];

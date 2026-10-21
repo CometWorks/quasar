@@ -643,6 +643,12 @@ VAPID keys, subscriptions, and account preferences are kept in the Quasar data d
 `PushNotifications.json`, protected with Quasar's persisted ASP.NET Data
 Protection key ring. Keep that key ring with the data directory during
 migration or restore; losing it makes existing subscriptions unreadable.
+Browser announcement push has a fixed lifetime cap of 4,096 IDs per subscription;
+accepted IDs are never evicted to admit new ones. Whole push state has fixed
+receipt-count and 8 MiB byte bounds. See
+[browser delivery limits and legacy recovery](Announcements.md#browser-delivery)
+for admission, retained history and ordinary-notification behavior at capacity.
+
 Headless mode does not run browser push delivery. With current-policy YES and
 diagnostic-report consent, it still polls CometWorks announcements and writes
 eligible notices to the existing service logs with durable per-ID deduplication.

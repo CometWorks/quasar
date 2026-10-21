@@ -59,7 +59,11 @@ fetch. An independent one-second timer invalidates idle UIs even while a network
 fetch is stalled or fails. A restart preserves active display only within that deadline and under
 the same consent. Browser push uses existing subscriptions, with one durable
 attempt per browser and announcement ID; failed attempts can be missed and
-already accepted pushes cannot be recalled. See [Monitoring](Monitoring.md#notifications)
+already accepted pushes cannot be recalled. Browser admission stops at 4,096 IDs
+per subscription without evicting accepted history. Protected browser state has
+receipt-count and 8 MiB representation bounds. Invalid/oversized state is kept
+for repair; the bell/page remain available and readable legacy state can still
+support ordinary push with session-only receipts. See [Monitoring](Monitoring.md#notifications)
 and [the delivery contract](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md).
 
 Headless log attempts are deduplicated in `Announcements.log-receipts.json`, even

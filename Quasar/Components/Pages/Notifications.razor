@@ -130,13 +130,13 @@
         {
             var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
             _preferences = await NotificationService.GetPreferencesAsync(user);
-            await RefreshAsync();
         }
         catch (Exception error)
         {
             Logger.LogWarning(error, "Could not load notification preferences.");
             _settingsError = "Notification settings are unavailable. Check Quasar logs and refresh this page.";
         }
+        await RefreshAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

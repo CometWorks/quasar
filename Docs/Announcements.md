@@ -102,6 +102,49 @@ missed, while the active notice remains in the bell and page. The normal push
 sweep runs every 30 seconds and sends at most ten pending notices per browser per
 sweep, prioritizing critical and warning notices.
 
+A browser admits at most **4,096 distinct announcement IDs for the lifetime of
+its subscription**. Reaching that limit pauses new announcement push attempts
+for that browser; it never evicts an accepted ID to admit another. Existing IDs
+stay deduplicated after restart, regrant, withdrawal and expiry. Refreshing an
+existing browser's subscription keys preserves history. Explicitly removing the
+subscription releases that browser's history; subscribing again can receive
+currently active notices. No expiry pruning is applied to browser IDs because
+older receipts do not carry enough expiry information to prune safely.
+
+Protected push persistence also has whole-state limits: 8,192 stored receipt keys
+per browser, 65,536 across subscriptions, and **8 MiB each** for UTF-8 JSON and the
+protected file. Both byte limits apply before writing; file reads are bounded
+before unprotecting, and the decoded JSON has its own byte check. Protection
+framing/encoding means the protected limit can be reached before the JSON limit.
+Announcement keys must contain a lowercase GUID N; receipt keys are bounded to
+2,048 characters. Counts include legacy LastNoticeKey history and array entries.
+Legacy states using only LastNoticeKey remain compatible; if both legacy and array
+history exist, their accepted IDs are combined instead of losing either history.
+
+At an admission/byte limit, announcement reservation stops before transport and
+existing durable IDs remain untouched. Full announcement queues do not consume
+the ordinary-notification sweep allowance, so updates and instance notices still
+flow where state capacity permits. A continuing pause emits at most one generic
+warning per service instance, without subscription endpoints or credentials.
+
+A readable older state with invalid or over-limit receipt history is retained on
+disk and announcement push is paused. Existing subscriptions, VAPID keys and valid
+preferences stay usable. Ordinary push can continue with bounded **session-only**
+receipts when its receipt updates cannot be persisted safely; those ordinary
+notices can replay after restart until state is repaired. Invalid receipt history
+is never rewritten merely to admit more IDs. Preference/subscription writes that
+still violate bounds fail instead of truncating history. Explicitly removing an
+affected subscription can restore a valid state without changing other browsers.
+Repair invalid state and restart before resuming announcement admission.
+
+If the protected file or JSON is oversized, corrupt, unreadable or structurally
+invalid, Quasar preserves it rather than generating replacement keys or resetting
+subscriptions. Push waits for repair because authenticated subscriptions cannot
+be reconstructed safely; the bell and Notifications page still show currently
+eligible announcements. Consent, withdrawal, exclusive expiry and six-minute
+staleness checks apply to that fallback too. Headless log receipts and delivery
+are independent of browser push state.
+
 Critical notices sort first, show an explicit **CRITICAL announcement** label and
 error styling, and turn the bell red. Warning notices have warning styling.
 Browser push includes up to 400 UTF-16 code units of text (plus an ellipsis when truncated), so maximum-length announcements fit the transport payload limit. The page retains the full text. Push titles include severity and open `/notifications`; external HTTPS
@@ -138,6 +181,8 @@ dotnet test Quasar.Tests/Quasar.Tests.csproj -m:2 --filter 'FullyQualifiedName~A
 The tests use isolated state and fake HTTP/push transports, exercise the actual
 notification feed and shared rendered bell and notice card, the production
 headless service registration and structured logger sink, bounded durable receipt
-state, and real expiry/staleness events during a stalled then failed fetch. They
+state, browser admission/whole-state byte limits and legacy compatibility,
+ordinary push under announcement saturation, and real expiry/staleness events
+during a stalled then failed fetch. They
 require no running Quasar web service, game, backend, browser push subscription or
 production announcement.

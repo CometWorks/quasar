@@ -184,7 +184,20 @@ snapshots stop displaying after six minutes. An independent timer raises UI
 change events even during stalled or failed fetches. Each subscribed browser gets at most
 one push attempt per ID, including across Quasar restarts, withdrawal and regrant.
 Failed attempts can be missed; active notices remain on the page. Subscriptions
-removed and recreated have new delivery history. See
+removed and recreated have new delivery history. Browser history admits at most
+4,096 announcement IDs for that subscription's lifetime. At capacity, new
+announcement attempts pause without evicting accepted IDs; ordinary notices can
+still flow and the page/bell remain visible. Refreshing a subscription keeps its
+IDs. Whole push state is bounded to 8,192 receipt keys per browser, 65,536 total,
+and 8 MiB each for protected state and decoded UTF-8 JSON.
+
+Legacy LastNoticeKey history is preserved alongside array history. Readable
+invalid or over-limit receipt history remains on disk; announcement push pauses
+and ordinary push can use session-only receipts, which can replay after restart.
+Unreadable/oversized push state is preserved for repair, with no subscription or
+key reset. Eligible announcements remain in the bell/page. Repair invalid state
+and restart, or explicitly remove the affected subscription; continuing pauses
+emit one generic warning per service instance. See
 [announcements](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md) for the full contract and limits.
 
 ### Notification preferences
@@ -394,3 +407,4 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar.Tests/AnnouncementTests.cs`
 - `Quasar/Components/Shared/NotificationBell.razor`
+- `Quasar.Tests/AnnouncementBrowserReceiptTests.cs`
