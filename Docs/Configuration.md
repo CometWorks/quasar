@@ -829,6 +829,36 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
 
+Trusted-network roles also require an intended browser destination and same-origin
+context. This check applies to every browser API, including Entity Viewer, before
+issuing a trusted-network principal. It does not replace cookies, service
+principal authentication or the separate machine endpoint policy.
+
+- Both the original destination (before forwarding) and effective destination must
+  match the authority and scheme of the configured public BaseUrl
+  (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete configured
+  listener URL, or localhost/loopback/the actual socket destination IP at the
+  socket's local port. Wildcard listeners do not trust arbitrary DNS names.
+- A browser `Origin` must match the effective request's scheme, host and port.
+  A supplied `Sec-Fetch-Site` must be `same-origin` or `none`; without Origin, a
+  supplied Referer must be same-origin. Normal same-origin iframe requests and
+  direct navigation/bootstrap clients without these headers remain supported.
+- Forwarded bypass requires a known original socket peer, one valid
+  `X-Forwarded-For` client IP (an optional port is supported) and fully consumed `X-Forwarded-*` headers. The proxy
+  must replace incoming forwarding values with its own single-hop values.
+  `Forwarded`, `X-Real-IP`, leftover/ambiguous forwarded values and client-supplied
+  `X-Original-*` do not establish proxy trust. Proxying without an effective
+  client address cannot turn the proxy's loopback address into browser admin.
+
+To keep passwordless trusted access through a public DNS name, set the public
+BaseUrl to that intended URL and give the proxy an accepted backend Host too.
+Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
+longer get automatic roles; use the configured URL or sign in. Signed-in users
+and service principals retain their existing authentication and permissions.
+Local loopback bypass remains on and same-subnet bypass remains off by default.
+No new aliases or auth configuration fields are introduced. See the
+[Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
+
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
 needed because loopback is trusted. For a Docker bridge or a separate reverse
 proxy host, add the proxy container/host address or bridge CIDR:

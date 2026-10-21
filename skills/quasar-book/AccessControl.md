@@ -109,12 +109,18 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
-Treat every trusted address as a full admin unless you reduce `Roles`. With `AllowSameSubnet` on, anyone on the LAN can manage Quasar without signing in.
+Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on, LAN users at an accepted destination can manage Quasar without signing in.
+
+Quasar checks the original Host and scheme before proxy forwarding and checks the effective destination again before granting roles. Accepted destinations are the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or localhost, loopback or the actual socket destination IP at its local port. A wildcard listener does not authorize arbitrary DNS aliases. Set the public BaseUrl to the URL browsers should use.
+
+A supplied Origin must match the effective scheme, host and port. A supplied `Sec-Fetch-Site` must be `same-origin` or `none`. Without Origin, a supplied Referer must be same-origin. Same-origin Viewer iframes and direct navigation or bootstrap clients without context headers still work. A rejected context gets no automatic roles; existing signed-in users and service principals keep their normal authentication and permissions. The separate machine endpoint policy is unchanged.
+
+The Viewer follow-up needs both the Quasar shared auth update and the Viewer plugin path update. It does not delay the original urgent agent/Host fix. See [Viewer follow-up rollout](https://github.com/CometWorks/quasar/blob/dis-0042-viewer-guards/Docs/SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
 
 ### Behind a reverse proxy
 
 - Quasar accepts `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only from loopback and from `TrustedProxies` entries, one proxy hop deep. The proxy must send all three so Steam returns the browser to the right public URL.
-- A request that carries forwarding headers (`Forwarded`, `X-Forwarded-*`, `X-Real-IP`) which Quasar did not accept from a trusted proxy never gets the bypass. The user has to sign in with Steam.
+- Trusted bypass requires a known original socket peer, an accepted original backend Host, one valid `X-Forwarded-For` address and fully consumed `X-Forwarded-*` values. The proxy must replace incoming forwarding values. `Forwarded`, `X-Real-IP`, ambiguous or unconsumed values and client-supplied `X-Original-*` do not establish bypass trust. The user can still sign in with Steam.
 - Behind a trusted proxy, Quasar checks the forwarded client address, so remote browsers have to sign in even when the proxy runs on the same machine.
 
 The checklist under **Safely expose Quasar to the internet** on the **Security** page: put Quasar behind an HTTPS reverse proxy, keep the Quasar port closed on the router, apply the public proxy preset, add the proxy's IP or Docker bridge CIDR if it is on another host, send the three `X-Forwarded-*` headers, restart Quasar, then test from an outside network and expect the Steam sign-in.
@@ -207,6 +213,8 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
+- `Quasar/Services/WebServiceOptions.cs`
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/ClusterApi.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
 - `Quasar/Services/ServerManagementActions.cs`
