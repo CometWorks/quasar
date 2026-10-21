@@ -163,7 +163,23 @@ Hovering or selecting a row changes its icon colors without changing their shape
 
 ## Notifications
 
-**Notifications** (`/notifications`, under **Settings** in the menu) and the bell in the app bar show update notices and optional instance alerts. Update notices are described in [Updates](Updates.md#update-notices-on-the-notifications-page).
+**Notifications** (`/notifications`, under **Settings** in the menu) and the bell in the app bar show CometWorks operational announcements, update notices and optional instance alerts. Update notices are described in [Updates](Updates.md#update-notices-on-the-notifications-page).
+
+Announcements require current-policy YES and diagnostic-report consent in
+Security. They do not add a separate opt-in. Critical announcements sort first,
+show a CRITICAL label with error styling and turn the bell red. Plain text is
+escaped; optional details links are HTTPS. Push titles include severity and open
+the central Notifications page. Push carries a short text preview; the page shows
+the full text. Linked Hosts are represented by this Quasar UI;
+there is no separate Host delivery or server chat broadcast.
+
+Revoking consent clears cached visibility and cancels pending delivery. Withdrawal
+removes a notice on the next successful poll; expiry is exclusive and stale
+snapshots stop displaying after six minutes. Each subscribed browser gets at most
+one push attempt per ID, including across Quasar restarts, withdrawal and regrant.
+Failed attempts can be missed; active notices remain on the page. Subscriptions
+removed and recreated have new delivery history. See
+[announcements](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md) for the full contract and limits.
 
 ### Notification preferences
 
@@ -364,3 +380,11 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar.Agent/ConsoleCommandRunner.cs`
 - `Quasar.Agent/StopCommand.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+
+- `Docs/Announcements.md`
+- `Quasar/Services/Updates/AnnouncementService.cs`
+- `Quasar/Services/Updates/UpdateNotice.cs`
+- `Quasar/Components/Shared/NotificationCard.razor`
+- `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar.Tests/AnnouncementTests.cs`
+- `Quasar/Components/Shared/NotificationBell.razor`

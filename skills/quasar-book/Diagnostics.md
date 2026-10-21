@@ -41,6 +41,24 @@ Running servers keep their current statistics setting until they restart. The UI
 
 `data-handling-consent.json` in the Quasar data directory. The Security page shows the full path. Quasar watches the file and reloads it when it changes on disk. Decisions stored under an older policy version are reset, so admins get the prompt again after upgrading to a version with a new policy (the current policy version is 3).
 
+## CometWorks announcements
+
+Current-policy **YES** and enabled **Diagnostic reports** also allow Quasar to
+check CometWorks announcements every five minutes, with 30 seconds of jitter.
+They appear in the existing bell and Notifications page, including for operators
+of linked Hosts in this central UI. There is no Host relay, game broadcast,
+command or automatic restart. Headless mode does not poll this feed.
+
+Turning YES or diagnostic reports off cancels pending fetches and push delivery,
+clears displayed notices, and stops network polling. The backend only knows
+enrollment, not current local consent. Successful snapshots remove withdrawn
+notices; notices also disappear at expiry or six minutes after the last successful
+fetch. A restart preserves active display only within that deadline and under
+the same consent. Browser push uses existing subscriptions, with one durable
+attempt per browser and announcement ID; failed attempts can be missed and
+already accepted pushes cannot be recalled. See [Monitoring](Monitoring.md#notifications)
+and [the delivery contract](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md).
+
 ## What is collected
 
 | Source | Captured locally | Uploaded with diagnostic consent |
@@ -232,3 +250,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar.Tests/ServerListPublisherTests.cs`
 - `Quasar.Tests/ServerListSettingsTests.cs`
 - `Quasar.Tests/ServerListingPageTests.cs`
+
+- `Docs/Announcements.md`
+- `Quasar/Services/Updates/AnnouncementService.cs`
+- `Quasar.Tests/AnnouncementTests.cs`

@@ -15,8 +15,9 @@
 <div class="quasar-stack">
     <h1>Notifications</h1>
     <p>
-        Quasar and cluster updates, plus optional UI plugin updates and instance health alerts. Open a notice to review its details.
+        CometWorks announcements, Quasar and cluster updates, plus optional UI plugin updates and instance health alerts. Open a notice to review its details.
     </p>
+    <p class="quasar-muted quasar-caption">CometWorks announcements appear while current data-handling consent is YES and diagnostic reports are enabled in Security. Browser push uses this browser's existing subscription.</p>
     <section class="pa-4 quasar-panel quasar-section">
         <div class="quasar-stack">
             <h2>Browser push notifications</h2>
@@ -46,7 +47,7 @@
     <section class="pa-4 quasar-panel quasar-section">
         <div class="quasar-stack">
             <h2>Notification preferences</h2>
-            <p>Choose which notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default.</p>
+            <p>Choose which update and instance notices appear here, in the bell, and in browser push. Preferences apply to your account across browsers. Instance alerts are off by default.</p>
             @if (_preferences is not null)
             {
                 <form @onsubmit="SavePreferencesAsync" @onsubmit:preventDefault><fieldset class="quasar-fieldset" disabled="@_saving">
@@ -95,35 +96,22 @@
             }
         </div>
     </section>
-    @if (_notices.Length == 0)
+    @if (CurrentNotices.Length == 0)
     {
         <div class="quasar-notice quasar-notice-info" role="status">No notifications.</div>
     }
     else
     {
-        @foreach (var notice in _notices)
+        @foreach (var notice in CurrentNotices)
         {
-            <section class="pa-4 quasar-panel quasar-section" @key="notice.Key">
-                <div class="quasar-stack">
-                    <h2>@notice.Title</h2>
-                    @if (notice.OccurredAt is { } occurredAt)
-                    {
-                        <p class="quasar-muted quasar-caption">@occurredAt.UtcDateTime.ToString("u")</p>
-                    }
-                    <p>@notice.Body</p>
-                    <div>
-                        <a class="quasar-button quasar-tone-primary" aria-label="@($"Open {notice.Title}: {notice.Body}")" href="@notice.Url"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />
-                            Open details
-                        </a>
-                    </div>
-                </div>
-            </section>
+            <NotificationCard Notice="notice" @key="notice.Key" />
         }
     }
 </div>
 
 @code {
     private UpdateNotice[] _notices = [];
+    private UpdateNotice[] CurrentNotices => _notices.Where(NotificationService.IsCurrent).ToArray();
     private NotificationPreferences? _preferences;
     private bool _saving;
     private bool _saved;

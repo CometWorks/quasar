@@ -7,7 +7,12 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.Updates;
 
-internal sealed record UpdateNotice(string Key, string Title, string Body, string Url, DateTimeOffset? OccurredAt = null);
+public sealed record UpdateNotice(string Key, string Title, string Body, string Url, DateTimeOffset? OccurredAt = null,
+    string Severity = "info")
+{
+    public bool IsAnnouncement => Key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal);
+    public string Tone => Severity == "critical" ? "error" : Severity;
+}
 
 internal static class UpdateNotices
 {

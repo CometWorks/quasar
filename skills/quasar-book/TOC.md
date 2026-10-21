@@ -32,7 +32,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 ## Watching servers
 
 - [Monitoring](Monitoring.md): the dashboard, Analytics, Players, Chat, Entities, notifications, the Discord bot, appearance.
-- [Diagnostics](Diagnostics.md): error report consent, what is collected and uploaded, the public server listing.
+- [Diagnostics](Diagnostics.md): error report consent, what is collected and uploaded, the public server listing and CometWorks announcements.
 
 ## Clusters
 

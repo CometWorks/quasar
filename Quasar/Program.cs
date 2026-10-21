@@ -292,6 +292,10 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
             if (!webServiceOptions.Headless)
             {
+                builder.Services.AddHttpClient("Announcements", client => client.Timeout = TimeSpan.FromSeconds(30))
+                    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+                builder.Services.AddSingleton<AnnouncementService>();
+                builder.Services.AddHostedService(services => services.GetRequiredService<AnnouncementService>());
                 builder.Services.AddSingleton<PushNotificationService>();
                 builder.Services.AddScoped<BrowserPushState>();
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PushNotificationService>());

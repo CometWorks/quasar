@@ -15,7 +15,7 @@ public sealed record BrowserPushSubscription(string Endpoint, string P256dh, str
 public sealed class PushNotificationService(
     IDataProtectionProvider protection, QuasarUpdateService updates, ClusterReleaseMonitor releases,
     ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
-    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins) : BackgroundService
+    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins, AnnouncementService announcements) : BackgroundService
 {
     private const string VapidSubject = "https://github.com/CometWorks/quasar";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -24,8 +24,20 @@ public sealed class PushNotificationService(
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly WebPushClient _client = new();
     private PushState? _state;
+    private readonly Func<UpdateNotice, CancellationToken, Task>? _sendOverride;
+
+    internal PushNotificationService(IDataProtectionProvider protection, QuasarRoleMapper roles,
+        AnnouncementService announcements, string path, Func<UpdateNotice, CancellationToken, Task> send)
+        : this(protection, null!, null!, null!, roles, Microsoft.Extensions.Logging.Abstractions.NullLogger<PushNotificationService>.Instance,
+            null!, null!, null!, null!, announcements)
+    {
+        _path = path;
+        _sendOverride = send;
+    }
+
     private readonly InstanceNotificationMonitor _instances = new();
     private readonly object _observationSync = new();
+    private readonly SemaphoreSlim _sendGate = new(1, 1);
     public event Action? Changed;
 
     public async Task<NotificationPreferences> GetPreferencesAsync(ClaimsPrincipal user, CancellationToken token = default)
@@ -69,13 +81,19 @@ public sealed class PushNotificationService(
         return Notices(state, identity.Provider, identity.Subject, user);
     }
 
+    internal bool IsCurrent(UpdateNotice notice) => announcements.IsCurrent(notice);
+
+    internal static UpdateNotice[] MergeAnnouncements(IEnumerable<UpdateNotice> existing, AnnouncementService announcements) =>
+        existing.Concat(announcements.GetNotices()).OrderByDescending(n => n.Severity switch
+            { "critical" => 2, "warning" => 1, _ => 0 }).ToArray();
+
     private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user) =>
-        _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
+        MergeAnnouncements(_instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
             .Concat(Preferences(state, provider, subject).Updates
                 ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
                 : [])
             .Concat(Preferences(state, provider, subject).UiPluginUpdates
-                ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []).ToArray();
+                ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []), announcements);
 
     internal static NotificationPreferences Preferences(PushState state, string provider, string subject) =>
         state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject)?.Options ?? new();
@@ -147,6 +165,7 @@ public sealed class PushNotificationService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         uiPlugins.Changed += OnUiPluginsChanged;
+        announcements.Changed += OnUiPluginsChanged;
         agents.Changed += ObserveInstances;
         supervisor.Changed += ObserveInstances;
         try
@@ -171,12 +190,20 @@ public sealed class PushNotificationService(
         finally
         {
             uiPlugins.Changed -= OnUiPluginsChanged;
+            announcements.Changed -= OnUiPluginsChanged;
             agents.Changed -= ObserveInstances;
             supervisor.Changed -= ObserveInstances;
         }
     }
 
     internal async Task SendPendingAsync(CancellationToken token)
+    {
+        await _sendGate.WaitAsync(token);
+        try { await SendPendingCoreAsync(token); }
+        finally { _sendGate.Release(); }
+    }
+
+    private async Task SendPendingCoreAsync(CancellationToken token)
     {
         PushState state;
         await _gate.WaitAsync(token);
@@ -194,8 +221,8 @@ public sealed class PushNotificationService(
             if (principal is null || !CanView(principal)) continue;
             var notices = Notices(state, item.Provider, item.Subject, principal);
             var current = item;
-            // Keep receipts only for outstanding notices. Each browser owns its delivery history.
-            string[] retained = DeliveredKeys(current).Intersect(notices.Select(n => n.Key)).ToArray();
+            // Announcement IDs stay deduplicated across withdrawal, consent changes and restarts.
+            string[] retained = RetainedKeys(current, notices);
             if (!DeliveredKeys(current).SequenceEqual(retained))
                 current = await UpdateSubscriptionAsync(current, null, false, token, retained);
             if (current is null) continue;
@@ -205,10 +232,26 @@ public sealed class PushNotificationService(
                 var expected = current;
                 try
                 {
-                    await _client.SendNotificationAsync(new PushSubscription(item.Endpoint, item.P256dh, item.Auth),
-                        JsonSerializer.Serialize(new { title = notice.Title, body = notice.Body, url = notice.Url, tag = notice.Key }, Json),
-                        new VapidDetails(VapidSubject, state.PublicKey, state.PrivateKey), token);
-                    current = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
+                    Task Send(CancellationToken cancellation) => _sendOverride?.Invoke(notice, cancellation) ?? _client.SendNotificationAsync(
+                        new PushSubscription(item.Endpoint, item.P256dh, item.Auth),
+                        CreatePayload(notice),
+                        new VapidDetails(VapidSubject, state.PublicKey, state.PrivateKey), cancellation);
+                    if (notice.IsAnnouncement)
+                    {
+                        // At most one attempt per browser/ID. A crash after the durable reservation
+                        // can miss a push; active feed state is independent and remains visible.
+                        if (!announcements.IsCurrent(notice)) continue;
+                        current = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
+                        if (current is null) break;
+                        expected = current;
+                        var sending = announcements.StartDelivery(notice, Send, token);
+                        if (sending is not null) await sending;
+                    }
+                    else
+                    {
+                        await Send(token);
+                        current = await UpdateSubscriptionAsync(expected, notice.Key, remove: false, token);
+                    }
                     if (current is null) break;
                 }
                 catch (WebPushException error) when (error.StatusCode is HttpStatusCode.Gone or HttpStatusCode.NotFound)
@@ -217,10 +260,34 @@ public sealed class PushNotificationService(
                     break;
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
-                catch (Exception error) { logger.LogWarning(error, "Could not send browser push notification."); }
+                catch (OperationCanceledException) when (notice.IsAnnouncement) { }
+                catch (Exception error) { logger.LogWarning("Could not send browser push notification ({FailureType}).", error.GetType().Name); }
             }
         }
     }
+
+    internal static string CreatePayload(UpdateNotice notice)
+    {
+        var body = notice.Body;
+        // Keep worst-case JSON escaping below the browser push payload bound. Full text stays in the page.
+        if (notice.IsAnnouncement && body.Length > 400)
+        {
+            int length = char.IsHighSurrogate(body[399]) ? 399 : 400;
+            body = body[..length] + "…";
+        }
+        return JsonSerializer.Serialize(new
+        {
+            title = notice.IsAnnouncement ? $"{notice.Severity.ToUpperInvariant()}: {notice.Title}" : notice.Title,
+            body,
+            // External details require a human click in the central feed.
+            url = notice.IsAnnouncement ? "/notifications" : notice.Url,
+            tag = notice.Key,
+        }, Json);
+    }
+
+    internal static string[] RetainedKeys(StoredSubscription item, IEnumerable<UpdateNotice> notices) =>
+        DeliveredKeys(item).Where(key => key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal)
+            || notices.Any(notice => notice.Key == key)).ToArray();
 
     internal static string[] DeliveredKeys(StoredSubscription item) => item.DeliveredNoticeKeys
         ?? (item.LastNoticeKey is null ? [] : [item.LastNoticeKey]);
