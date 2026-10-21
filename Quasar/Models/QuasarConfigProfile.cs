@@ -50,6 +50,14 @@ public sealed class QuasarConfigProfile
 
     public List<QuasarModSelection> Mods { get; set; } = [];
 
+    /// <summary>
+    /// Default plugin ids (<see cref="Quasar.Services.QuasarDefaultPlugins"/>) Quasar already offered for this
+    /// profile, taken or declined. Quasar never offers them again, so an operator's opt-out sticks.
+    /// Null until the first offer, which keeps older profiles' JSON and hashes unchanged.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<string>? OfferedDefaultPlugins { get; set; }
+
     public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
 
     public bool WasCreatedFromWorldTemplate(string worldTemplateId) =>

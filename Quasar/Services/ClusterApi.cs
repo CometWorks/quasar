@@ -66,6 +66,32 @@ internal static class ClusterApi
             setupStatus.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             setupCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
         }
+        // A profile's plugin selection, so headless setups need no Configs page round trip. A cluster
+        // deploys a changed selection only after config-profile-preparation and the update are applied.
+        RouteGroupBuilder profileRoutes = app.MapGroup("/api/v1/config-profiles");
+        var profilePlugins = profileRoutes.MapGet("/{profileId}/plugins", (string profileId, HttpContext context,
+            [FromServices] QuasarConfigProfileCatalog profiles) =>
+        {
+            SetProtocolHeader(context);
+            return profiles.GetProfile(profileId) is { } profile ? Results.Json(Envelope(profile.Plugins), JsonOptions)
+                : Error(404, "unknown_profile", "Configuration profile was not found.");
+        });
+        var setProfilePlugins = profileRoutes.MapPut("/{profileId}/plugins", async (string profileId, QuasarPluginSelection[] plugins,
+            HttpContext context, [FromServices] QuasarConfigProfileCatalog profiles, CancellationToken token) =>
+        {
+            SetProtocolHeader(context);
+            if (profiles.GetProfile(profileId) is not { } profile) return Error(404, "unknown_profile", "Configuration profile was not found.");
+            if (plugins.Any(p => string.IsNullOrWhiteSpace(p?.PluginId)))
+                return Error(400, "invalid_plugins", "Every plugin needs a pluginId; an empty selectedVersion means the latest hub commit.");
+            profile.Plugins = plugins.ToList();
+            await profiles.UpsertAsync(profile, token);
+            return Results.Json(Envelope(profiles.GetProfile(profileId)!.Plugins), JsonOptions);
+        });
+        if (authOptions.Enabled)
+        {
+            profilePlugins.RequireAuthorization(QuasarPolicyNames.CanView);
+            setProfilePlugins.RequireAuthorization(QuasarPolicyNames.CanEditConfigs);
+        }
         routes.MapGet("", (HttpContext context, ClusterCatalog catalog) =>
         {
             SetProtocolHeader(context);
