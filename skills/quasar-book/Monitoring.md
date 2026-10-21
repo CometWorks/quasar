@@ -159,9 +159,46 @@ Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone s
 
 The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
 
+Hovering or selecting a row changes its icon colors without changing their shapes. The viewer's eye and close icons stay visible when the originating row is highlighted.
+
 ## Notifications
 
-**Notifications** (`/notifications`, under **Settings** in the menu) and the bell in the app bar show update notices and optional instance alerts. Update notices are described in [Updates](Updates.md#update-notices-on-the-notifications-page).
+**Notifications** (`/notifications`, under **Settings** in the menu) and the bell in the app bar show CometWorks operational announcements, update notices and optional instance alerts. Update notices are described in [Updates](Updates.md#update-notices-on-the-notifications-page).
+
+Announcements require current-policy YES and diagnostic-report consent in
+Security. They do not add a separate opt-in. Critical announcements sort first,
+show a CRITICAL label with error styling and turn the bell red. Plain text is
+escaped; optional details links are HTTPS. Push titles include severity and open
+the central Notifications page. Push carries a short text preview; the page shows
+the full text. Linked Hosts are represented by this Quasar UI;
+there is no separate Host delivery or server chat broadcast. Headless Quasar
+also polls, but writes consenting notices to its service logs instead of using UI
+or browser services. Log severity is Information, Warning or Critical. Headless
+receipts survive restart and regrant, retain up to 4,096 IDs until original expiry,
+and pause new logging at capacity or on invalid state. See
+[Diagnostics](Diagnostics.md#cometworks-announcements) for retention and failure limits.
+
+Revoking consent clears cached visibility and cancels pending delivery. Withdrawal
+removes a notice on the next successful poll; expiry is exclusive and stale
+snapshots stop displaying after six minutes. An independent timer raises UI
+change events even during stalled or failed fetches. Each subscribed browser gets at most
+one push attempt per ID, including across Quasar restarts, withdrawal and regrant.
+Failed attempts can be missed; active notices remain on the page. Subscriptions
+removed and recreated have new delivery history. Browser history admits at most
+4,096 announcement IDs for that subscription's lifetime. At capacity, new
+announcement attempts pause without evicting accepted IDs; ordinary notices can
+still flow and the page/bell remain visible. Refreshing a subscription keeps its
+IDs. Whole push state is bounded to 8,192 receipt keys per browser, 65,536 total,
+and 8 MiB each for protected state and decoded UTF-8 JSON.
+
+Legacy LastNoticeKey history is preserved alongside array history. Readable
+invalid or over-limit receipt history remains on disk; announcement push pauses
+and ordinary push can use session-only receipts, which can replay after restart.
+Unreadable/oversized push state is preserved for repair, with no subscription or
+key reset. Eligible announcements remain in the bell/page. Repair invalid state
+and restart, or explicitly remove the affected subscription; continuing pauses
+emit one generic warning per service instance. See
+[announcements](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md) for the full contract and limits.
 
 ### Notification preferences
 
@@ -311,6 +348,7 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
 
 ## Sources
+- `Quasar/wwwroot/app.css`
 - `Docs/AnalyticsCpuLoad.md`
 - `Docs/StateMachines/ProfilerMode.md`
 - `Docs/StateMachines/AgentConnection.md`
@@ -361,3 +399,12 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar.Agent/ConsoleCommandRunner.cs`
 - `Quasar.Agent/StopCommand.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+
+- `Docs/Announcements.md`
+- `Quasar/Services/Updates/AnnouncementService.cs`
+- `Quasar/Services/Updates/UpdateNotice.cs`
+- `Quasar/Components/Shared/NotificationCard.razor`
+- `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar.Tests/AnnouncementTests.cs`
+- `Quasar/Components/Shared/NotificationBell.razor`
+- `Quasar.Tests/AnnouncementBrowserReceiptTests.cs`

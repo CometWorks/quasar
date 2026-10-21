@@ -17,6 +17,7 @@ This page lists where Quasar and its servers write logs, and the common failures
 | Magnetar info log | `<data dir>/Magnetars/<server>/Magnetar/info*.log` | Magnetar and plugin startup, plugin exceptions, Quasar.Agent lines logged through PluginSdk |
 | DS console output | `<data dir>/Diagnostics/runs/<run id>/process.log` | Standard output of each launched process, including `[Quasar.Agent] ...` connection messages. Rotated at 8 MiB, run folders kept 7 days. See [Diagnostics](Diagnostics.md). |
 | Quasar.Host (cluster machines) | `journalctl --user -u quasar-host-<id>.service` | See [Cluster hosts](ClusterHosts.md#logs) |
+| Quasar.Host (local Host on the Quasar machine) | `<install root>/LocalHost/host.log` | See [Cluster hosts](ClusterHosts.md#the-local-host) |
 
 The DS and Magnetar paths are the defaults. A server with **Paths** overrides writes where those point.
 
@@ -50,10 +51,14 @@ How the wait works, per server (editor **Health Policy**, see [Servers](Servers.
 
 - **Agent startup log inactivity timeout** (default 60 s): if neither the DS log nor the Magnetar info log changed for this long, Quasar gives up: "Quasar.Agent did not attach; startup logs were inactive for 60s."
 - **Agent startup hard limit** (default 600 s, 10 minutes): the absolute limit, even while logs keep changing: "Quasar.Agent did not attach within the 600s hard startup limit."
-- With **Auto-restart when unhealthy** on, Quasar kills the process and relaunches ("Quasar.Agent attach timed out (1/3). Retrying in 5s."). After **Agent attach retry attempts** (default 3) the server is **Faulted** with "Quasar.Agent did not attach after 3 attempt(s). ..."
+- For newly launched processes with **Auto-restart when unhealthy** on, Quasar kills the process and relaunches ("Quasar.Agent attach timed out (1/3). Retrying in 5s."). After **Agent attach retry attempts** (default 3) the server is **Faulted** with "Quasar.Agent did not attach after 3 attempt(s). ..."
 - A connected agent that goes silent for **Agent heartbeat timeout** (default 20 s) makes the server Unhealthy: "Quasar.Agent heartbeat stale beyond 20s timeout."
 
 The agent finds Quasar through `QUASAR_BASE_URL`, which Quasar sets for each server it launches. It is `QUASAR_PUBLIC_BASE_URL` when set, otherwise `http://<Quasar:Host>:<Quasar:Port>`, with a wildcard host (`0.0.0.0`) advertised as `127.0.0.1`. The agent checks `/api/health` there, then opens the WebSocket `/ws/agent`. If it cannot connect it retries every 10 seconds plus up to 3 seconds of jitter (`QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS`, `QUASAR_AGENT_RECONNECT_JITTER_SECONDS`).
+
+Quasar refuses an agent that has no valid agent token, or whose server already has a connected agent; see [Plugins](Plugins.md). The Quasar log then has "Refused an agent connection from … without an agent token.", "Refused agent connection …: the agent token does not match server …" or "… already has a connected agent.", and the agent logs "Quasar refused the connection: …" or a 401 connection error. A server started by an older Quasar needs a restart to load the current agent (see [Updates](Updates.md)).
+
+After worker turnover, automatic attach/health/planned restart waits for authenticated running telemetry from an adopted process. This prevents killing a world without a save when an old agent is refused. A 403 on agent/Host routes means the original socket source, exact Host authority or Origin policy failed; forwarded headers do not grant access. Check [DIS-0042 migration and network policy](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) before manually restarting a disconnected server.
 
 What to check:
 
@@ -118,7 +123,7 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 - Check the service runs: `systemctl --user status quasar.service`, `Get-ScheduledTask -TaskName Quasar`, or `docker compose ps`.
 - On the Quasar machine, open `http://127.0.0.1:8080/api/health`. A JSON answer means the worker runs.
 - The shipped `Quasar:Host` is `0.0.0.0` (all interfaces) on port `8080`. If it is `127.0.0.1`, only local browsers can connect. Remote access also needs a firewall rule for the TCP port.
-- A fresh install starts the UI only after Bootstrap has downloaded the first UI release from GitHub. Until then it retries and logs "Failed downloading the Quasar web UI; retrying at <time> ...", or "GitHub's API rate limit is used up, ..." when the anonymous limit of the public IP address is spent, in which case it waits for GitHub's reset time. `QUASAR_UPDATES_ENABLED=false` blocks this first download; a foreground run then prints "Quasar has no running worker, so the web UI is not available." See [Install on Linux](InstallLinux.md#common-problems).
+- A fresh install starts the UI only after Bootstrap has downloaded the first UI release from GitHub. Until then it retries and logs "Failed downloading the Quasar web UI; retrying at <time> ...", or "GitHub's API rate limit is used up, ..." when the anonymous limit of the public IP address is spent, in which case it waits for GitHub's reset time, unless a token is set in `QUASAR_GITHUB_TOKEN` or `GITHUB_TOKEN`. `QUASAR_UPDATES_ENABLED=false` blocks this first download; a foreground run then prints "Quasar has no running worker, so the web UI is not available." See [Install on Linux](InstallLinux.md#common-problems).
 - After 3 worker start failures within 5 minutes, Bootstrap starts the UI once more with UI plugins disabled. See [UI plugins](UiPlugins.md#safe-boot).
 - `Quasar:Auth:RequireHttpsForPublicAccess` is in `appsettings.json` but the current code does not act on it. Put an HTTPS reverse proxy in front of Quasar yourself for access from untrusted networks; see [Access control](AccessControl.md#behind-a-reverse-proxy).
 
@@ -179,6 +184,7 @@ The code has no single-instance lock across data directories. Each launcher look
 Each server's agent connects to the Quasar that launched it, because that Quasar passes its own `QUASAR_BASE_URL`. The Docker Compose file uses host networking, so a container and a native install on the same machine share the port space too.
 
 ## Sources
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/AgentConnection.md`
 - `Docs/StateMachines/BlazorReconnect.md`
 - `Docs/StateMachines/DedicatedServerLifecycle.md`
@@ -206,6 +212,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
 - `Quasar.Bootstrap/Program.cs`
 - `Quasar.Agent/AgentConnection.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`

@@ -52,11 +52,7 @@
                 </nav>
             </div>
             <div class="quasar-topbar-actions">
-                <a class="quasar-icon-button quasar-update-bell @GetUpdateBellClass()" href="@(CurrentNotice?.Url ?? "/notifications")"
-                   title="@GetUpdateBellTooltip()" aria-label="Open current notification">
-                    <QuasarIcon Icon="@(BrowserPush.Enabled ? QuasarIcons.Notifications : QuasarIcons.NotificationsOutlined)" />
-                    @if (HasUpdateBellBadge) { <span class="quasar-notification-dot" aria-hidden="true"></span> }
-                </a>
+                <NotificationBell Notice="CurrentNotice" PushEnabled="BrowserPush.Enabled" TokenExpired="_updateSnapshot.GitHubTokenExpired" />
                 <label class="quasar-theme-select">
                     <QuasarIcon Icon="@GetThemeModeIcon()" />
                     <select value="@_themeMode" @onchange="HandleThemeSelectionAsync" aria-label="Color theme">
@@ -329,20 +325,12 @@
         _ => QuasarIcons.BrightnessAuto,
     };
 
-    private UpdateNotice? CurrentNotice => _notices.FirstOrDefault();
-
-    private bool HasUpdateBellBadge => CurrentNotice is not null;
+    private UpdateNotice? CurrentNotice => _notices.FirstOrDefault(Notifications.IsCurrent);
 
     private IReadOnlyList<Quasar.Models.ClusterDefinition> AvailableClusterUpdates =>
         _currentUser is null ? [] : ClusterCatalog.GetClusters()
             .Where(cluster => _currentUser.CanQueryCluster(cluster.UniqueName)
                 && ClusterReleaseMonitor.IsUpdateAvailable(cluster, _clusterReleaseSnapshot.Release)).ToArray();
-
-    private string GetUpdateBellClass() => _updateSnapshot.GitHubTokenExpired && CurrentNotice?.Key.StartsWith("token:", StringComparison.Ordinal) == true
-        ? "quasar-text-error"
-        : HasUpdateBellBadge ? "quasar-text-warning" : string.Empty;
-
-    private string GetUpdateBellTooltip() => CurrentNotice?.Body ?? "Notifications";
 
     private static QuasarUpdateCandidate? GetPrimaryWebUpdate(QuasarUpdateSnapshot snapshot) =>
         snapshot.WebReleases.FirstOrDefault(candidate => candidate.IsNewer && candidate.IsStaged) ??

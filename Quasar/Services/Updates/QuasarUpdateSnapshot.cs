@@ -18,6 +18,11 @@ public sealed record QuasarUpdateSnapshot
 
     public bool GitHubTokenConfigured { get; init; }
 
+    public bool GitHubTokenSaved { get; init; }
+
+    // The environment variable the token in use comes from, empty for the saved token.
+    public string GitHubTokenVariableName { get; init; } = string.Empty;
+
     public DateTimeOffset? GitHubTokenExpiresAtUtc { get; init; }
 
     public bool GitHubTokenExpired { get; init; }

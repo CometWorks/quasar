@@ -153,22 +153,56 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("Package identity does not match deployment inputs.");
         ClusterPluginBundles.Validate(Path.Combine(dependencies, "payload/CommonPlugins"));
         ValidateCapabilities(package);
-        string? sdkHash = GetPinnedPluginSdkSha256(package);
-        if (sdkHash is not null && sdkHash != payload["Magnetar/Libraries/MagnetarInterim/PluginSdk.dll"].Sha256)
-            throw new InvalidDataException("Magnetar PluginSdk does not match the SDK used to build this cluster release.");
+        if (PluginSdkMismatch(package, Path.Combine(dependencies, "payload/Magnetar/Libraries/MagnetarInterim/PluginSdk.dll")) is { } mismatch)
+            throw new InvalidDataException("The frozen Magnetar cannot run this cluster release: " + mismatch);
     }
 
-    internal static string? GetPinnedPluginSdkSha256(string package)
+    /// <summary>
+    /// Null when the cluster release in <paramref name="package"/> can run on the PluginSdk.dll at
+    /// <paramref name="sdkPath"/>, otherwise the reason. Compares contract versions when both sides
+    /// declare one (same major, Magnetar's minor at least the release's), else the exact SHA-256 pin
+    /// of the SDK the release was built against. Releases without plugin services pin nothing.
+    /// </summary>
+    internal static string? PluginSdkMismatch(string package, string sdkPath)
+    {
+        var (required, pinnedHash) = GetPluginSdkPin(package);
+        if (required is null && pinnedHash is null) return null;
+        var actual = PluginSdkContract.Read(sdkPath);
+        if (required is { } r && actual is { } a)
+        {
+            if (r.IsSatisfiedBy(a)) return null;
+            return $"it needs PluginSdk contract {r}, but Magnetar has {a}. " + (r.Major < a.Major
+                ? $"A cluster release built for contract {a.Major}.x (or an older Magnetar) is needed."
+                : "A newer Magnetar is needed.");
+        }
+        string contracts = $"(PluginSdk contract: release {required?.ToString() ?? "none"}, Magnetar {actual?.ToString() ?? "none"})";
+        if (pinnedHash is null)
+            return $"it needs PluginSdk contract {required}, but this Magnetar declares no contract. A newer Magnetar is needed.";
+        string actualHash = Hash(File.ReadAllBytes(sdkPath));
+        return pinnedHash == actualHash ? null
+            : $"it was built against PluginSdk {pinnedHash}, but Magnetar has {actualHash} {contracts}. "
+                + "A cluster release built against this Magnetar is needed.";
+    }
+
+    /// <summary>
+    /// The PluginSdk pin of a cluster release: its <c>pluginSdkContract</c> and the SHA-256 of the
+    /// exact PluginSdk.dll it was built against. A release with plugin services declares at least one.
+    /// </summary>
+    internal static (PluginSdkContract? Contract, string? Sha256) GetPluginSdkPin(string package)
     {
         using var capability = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
-        if (!capability.RootElement.TryGetProperty("pluginServices", out var services) || services.GetInt32() != 1)
-            return null;
-        if (!capability.RootElement.TryGetProperty("pluginSdkSha256", out var pin) || pin.ValueKind != JsonValueKind.String)
-            throw new InvalidDataException("Cluster release has an invalid PluginSdk SHA-256 pin.");
-        string? hash = pin.GetString();
+        var root = capability.RootElement;
+        if (!root.TryGetProperty("pluginServices", out var services) || services.GetInt32() != 1)
+            return (null, null);
+        PluginSdkContract? contract = null;
+        if (root.TryGetProperty("pluginSdkContract", out var declared))
+            contract = PluginSdkContract.Parse(declared.ValueKind == JsonValueKind.String ? declared.GetString() : null);
+        if (!root.TryGetProperty("pluginSdkSha256", out var pin))
+            return contract is null ? throw new InvalidDataException("Cluster release has no PluginSdk pin.") : (contract, null);
+        string? hash = pin.ValueKind == JsonValueKind.String ? pin.GetString() : null;
         if (hash is null || hash.Length != 64 || hash != hash.ToLowerInvariant() || !hash.All(Uri.IsHexDigit))
             throw new InvalidDataException("Cluster release has an invalid PluginSdk SHA-256 pin.");
-        return hash;
+        return (contract, hash);
     }
 
     internal static void ValidateCapabilities(string package)
@@ -186,6 +220,15 @@ internal static partial class ClusterDeploymentFiles
         using var capabilities = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
         if (!capabilities.RootElement.TryGetProperty("managedProfileMigration", out var version) || version.GetInt32() < 1)
             throw new InvalidDataException("Select a cluster release with managed profile migration support to stage profile settings, mods and plugins.");
+    }
+
+    /// <summary>A release older than <c>managedHotSpares</c> ignores the spare flag, so its spares would serve.</summary>
+    internal static void RequireHotSpares(string package)
+    {
+        ValidateCapabilities(package);
+        using var capabilities = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capabilities.RootElement.TryGetProperty("managedHotSpares", out var version) || version.GetInt32() < 1)
+            throw new InvalidDataException("This cluster release does not support hot spares. Set Hot spares to 0, or resume once a cluster release with hot spare support is published.");
     }
 
     private static Dictionary<string, string> EnvironmentFor(string root) => new()

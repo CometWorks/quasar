@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Xml.Linq;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
 using Quasar.Models;
@@ -10,9 +9,11 @@ namespace Quasar.Services;
 /// <summary>Builds a candidate with the selected installation and the cluster's retained world seed and topology.</summary>
 public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, ClusterDependencyService dependencies,
     ClusterHostClient hosts, ClusterDeploymentService deployments, QuasarConfigProfileCatalog profiles,
-    ClusterSetupService setup, ClusterWorkshopModStager modStager, QuasarWorkshopModResolver workshop)
+    ClusterSetupService setup, ClusterWorkshopModStager modStager,
+    ManagedDedicatedServerRuntimeResolver runtime)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private const string PluginSdkPath = "Libraries/MagnetarInterim/PluginSdk.dll";
 
     public Task<ClusterOperation> StageProfileSelectionAsync(string clusterId, string profileId,
         string actor, CancellationToken token, IProgress<string>? progress = null) => catalog.WithLifecycleAsync(clusterId, async cluster =>
@@ -45,37 +46,13 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 if (activeDeployment.Provenance is null)
                     await catalog.RecordActiveProvenanceAsync(cluster, token);
 
-                progress?.Report("Resolving the profile's Workshop dependencies...");
-                var requestedMods = selected.Mods.ToList();
-                // Magnetar adds its Steam companion implicitly. Pin it with the rest of
-                // the managed payload so profile migration cannot drop it or download at launch.
-                if (!selected.RootSettings.CrossPlatform && requestedMods.All(m => m.WorkshopId != 3750200326))
-                    requestedMods.Add(new() { WorkshopId = 3750200326, DisplayName = "MagnetarMod" });
-                var resolved = await workshop.ResolveDependenciesAsync(requestedMods, sortLoadOrder: true, cancellationToken: token);
-                var unresolved = resolved.Warnings.Where(w => !w.StartsWith("Reordered dependency ", StringComparison.Ordinal)).ToArray();
-                if (unresolved.Length != 0)
-                    throw new InvalidOperationException("Resolve Workshop dependencies before staging: " + string.Join(" ", unresolved));
-                var effective = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(selected, Json), Json)!;
-                effective.Mods = resolved.Mods.ToList();
-                var observations = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
-                if (queued is not null) ValidateQueuedMods(queued, effective.Mods, observations);
-                string mods = await modStager.StageAsync(effective.Mods, work, token, progress, observations);
-                var afterDownload = await workshop.CheckUpdatesAsync(effective.Mods.Select(m => m.WorkshopId), token);
-                foreach (var mod in effective.Mods)
-                    if (ClusterWorkshopModStager.ObservedVersion(mod.WorkshopId, observations)
-                        != ClusterWorkshopModStager.ObservedVersion(mod.WorkshopId, afterDownload))
-                        throw new InvalidOperationException($"Workshop item {mod.WorkshopId} changed during preparation. Check updates and stage again.");
-                var modFiles = (await ClusterDeploymentFiles.InspectAsync(mods, token))
-                    .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
+                var staged = await modStager.StageProfileAsync(selected, work, token, progress, queued);
+                var effective = staged.Profile;
+                string mods = staged.Directory;
                 string modArchive = Path.Combine(work, "mods.tar");
 
                 string sourceWorld = Path.Combine(work, "profile-source");
-                Directory.CreateDirectory(sourceWorld);
-                string checkpoint = Path.Combine(sourceWorld, "Sandbox.sbc");
-                await File.WriteAllTextAsync(checkpoint, new XDocument(new XElement("MyObjectBuilder_Checkpoint",
-                    new XElement("Settings"), new XElement("Mods"))).ToString(), token);
-                await WorldSandboxConfigEditor.WriteProfileAsync(checkpoint, effective, cluster.DisplayName, token);
-                string patch = XDocument.Load(checkpoint).ToString(SaveOptions.DisableFormatting);
+                string patch = await ClusterWorkshopModStager.ProfileSettingsXmlAsync(sourceWorld, effective, cluster.DisplayName, token);
                 string exported = Path.Combine(work, "exported");
                 progress?.Report("Preparing pinned plugins and their configuration...");
                 var excluded = await setup.ExportProfilePluginsAsync(cluster.UniqueName, cluster.DisplayName,
@@ -85,10 +62,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var sources = await dependencies.ReusableSourcesAsync(cluster, token);
                 var exportedData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), token))!.AsObject();
                 if (queued is not null) ValidateQueuedPlugins(queued, exportedData);
-                string sdk = Path.Combine(sources["Magnetar"], "Libraries/MagnetarInterim/PluginSdk.dll");
-                if (exportedData["pluginSdkSha256"]?.GetValue<string>() !=
-                    ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(sdk, token)))
-                    throw new InvalidOperationException("Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds. Stage a matching release first.");
+                string? exporterSdk = exportedData["pluginSdkSha256"]?.GetValue<string>();
+                sources["Magnetar"] = ExportingMagnetar(inputs.PackageDirectory, sources["Magnetar"],
+                    runtime.ResolveInstalledMagnetarInstallDirectory(), exporterSdk);
                 sources["CommonPlugins"] = Path.Combine(exported, "CommonPlugins");
                 sources["DirectTransport"] = Path.Combine(exported, "DirectTransport");
                 var candidate = await dependencies.InspectAsync(cluster, sources, token);
@@ -96,6 +72,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var stagedCluster = cluster.Clone();
                 stagedCluster.DependencyManifestSha256 = candidate.ManifestSha256;
                 inputs = await dependencies.GetDeploymentInputsAsync(stagedCluster, token);
+                // The exported plugins must be frozen with the Magnetar that built them, whichever was chosen.
+                if (inputs.Files["Dependencies/payload/Magnetar/" + PluginSdkPath].Sha256 != exporterSdk)
+                    throw new InvalidOperationException("Magnetar changed during plugin preparation. Stage again.");
                 byte[] inputBytes = JsonSerializer.SerializeToUtf8Bytes(inputs, Json);
                 string inputsHash = ClusterDeploymentFiles.Hash(inputBytes);
                 string archive = Path.Combine(work, "installation.tar");
@@ -104,11 +83,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 spec["memberLimit"] = ClusterConversionService.MemberLimit(effective);
                 spec["administrators"] = JsonSerializer.SerializeToNode(ClusterConversionService.Administrators(effective), Json);
                 spec["selectedConfigProfileId"] = effective.ConfigProfileId;
-                spec["profileSettingsXml"] = patch;
-                spec["modFiles"] = JsonSerializer.SerializeToNode(modFiles, Json);
-                spec["modVersions"] = JsonSerializer.SerializeToNode(effective.Mods.ToDictionary(m =>
-                    m.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                    m => ClusterWorkshopModStager.ObservedVersion(m.WorkshopId, observations)), Json);
+                ClusterWorkshopModStager.AddToSpecification(spec, staged, patch);
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);
@@ -157,6 +132,28 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             }
             finally { if (Directory.Exists(work)) Directory.Delete(work, true); }
         }, token);
+
+    /// <summary>
+    /// The Magnetar to freeze with plugins exported by the Magnetar whose PluginSdk hashes to
+    /// <paramref name="exporterSdkSha256"/>: the snapshot's own when it is that Magnetar. After managed
+    /// Magnetar updated itself the installed one is the exporter, and it replaces the snapshot's when
+    /// both it and the cluster release declare a PluginSdk contract and its contract satisfies the release's.
+    /// </summary>
+    internal static string ExportingMagnetar(string package, string snapshotMagnetar, string installedMagnetar,
+        string? exporterSdkSha256)
+    {
+        static string SdkHash(string magnetar) => ClusterDeploymentFiles.Hash(File.ReadAllBytes(Path.Combine(magnetar, PluginSdkPath)));
+        if (exporterSdkSha256 == SdkHash(snapshotMagnetar)) return snapshotMagnetar;
+        const string different = "Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds.";
+        if (exporterSdkSha256 != SdkHash(installedMagnetar))
+            throw new InvalidOperationException(different + " Magnetar changed during plugin preparation. Stage again.");
+        string sdk = Path.Combine(installedMagnetar, PluginSdkPath);
+        if (ClusterDeploymentFiles.GetPluginSdkPin(package).Contract is null || PluginSdkContract.Read(sdk) is null)
+            throw new InvalidOperationException(different + " Stage a matching release first.");
+        if (ClusterDeploymentFiles.PluginSdkMismatch(package, sdk) is { } mismatch)
+            throw new InvalidOperationException($"{different} The installed Magnetar cannot replace the snapshot's: {mismatch}");
+        return installedMagnetar;
+    }
 
     internal static void ValidateQueuedMods(ClusterContentUpdateQueue queued, IReadOnlyList<QuasarModSelection> mods,
         IReadOnlyDictionary<long, WorkshopUpdateObservation> observations)
@@ -241,20 +238,81 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 throw new InvalidOperationException("Stage the selected release before changing its plugin configuration.");
             var spec = JsonNode.Parse(request.SpecificationJson)!;
             SetPluginValues(spec, pluginId, configType, values);
-            string json = spec.ToJsonString();
-            string hash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(json));
-            request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
-                ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
-            var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
-            if (result.State == ClusterOperationState.Succeeded)
-            {
-                var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
-                    ?? throw new InvalidDataException("Host preparation returned no deployment.");
-                await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token,
-                    cluster.PreparedProfile?.ProfileId, cluster.PreparedProfile?.ProfileSha256);
-            }
-            return result;
+            return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
         }, token);
+
+    /// <summary>Stages a deployment with <paramref name="hotSpares"/> hot spares. A spare is an extra regular slot of
+    /// the approved inventory, so the change takes a new preparation and applies through the stopped-fleet update.</summary>
+    public Task<ClusterOperation> StageHotSparesAsync(string clusterId, int hotSpares, string actor, CancellationToken token) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException("Finish the current setup, update or activation before changing hot spares.");
+            var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing hot spares.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before changing hot spares.");
+            if (hotSpares > 0) ClusterDeploymentFiles.RequireHotSpares(inputs.PackageDirectory);
+            var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+            SetHotSpares(spec, hotSpares);
+            return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
+        }, token);
+
+    /// <summary>
+    /// Adds or removes spare slots until <paramref name="specification"/> has <paramref name="count"/> hot spares, placed
+    /// the way setup places them. Quasar names a host's slots <c>host-node-i</c> on consecutive ports, the spares after the
+    /// regular nodes; a removed spare is the last slot of its host, and a new one takes the next slot and catalog slot.
+    /// </summary>
+    internal static void SetHotSpares(JsonObject specification, int count)
+    {
+        var nodes = specification["nodes"]!.AsArray();
+        static bool Spare(JsonNode node) => node["spare"]?.GetValue<bool>() == true;
+        static string HostOf(JsonNode node) => node["host"]!.GetValue<string>();
+        var regular = specification["hosts"]!.AsArray().Select(h => h!["id"]!.GetValue<string>())
+            .Select(host => (host, nodes.Count(n => HostOf(n!) == host && n!["role"]!.GetValue<string>() == "regular" && !Spare(n)))).ToArray();
+        int current = nodes.Count(n => Spare(n!));
+        if (count == current) throw new InvalidOperationException($"The cluster already has {count} hot spare(s).");
+        var wanted = ClusterConversionService.PlaceHotSpares(regular, specification["gatewayHost"]!.GetValue<string>(), count);
+        if (count < 0 || wanted.Values.Sum() != count)
+            throw new InvalidDataException("Choose 0 or more hot spares that fit next to the regular nodes, 32 nodes per host machine.");
+        int catalogSlot = nodes.Max(n => n!["catalogSlot"]!.GetValue<int>());
+        foreach (var (host, regularNodes) in regular)
+        {
+            int spares = nodes.Count(n => HostOf(n!) == host && Spare(n!));
+            JsonNode Slot(int i) => nodes.SingleOrDefault(n => n!["slotKey"]!.GetValue<string>() == $"{host}-node-{i}" && HostOf(n) == host)
+                ?? throw new InvalidOperationException("This cluster's nodes were not laid out by Quasar's setup, so its hot spares cannot be changed here.");
+            for (int i = 0; i < regularNodes + spares; i++)
+                if (Spare(Slot(i)) != i >= regularNodes)
+                    throw new InvalidOperationException("This cluster's nodes were not laid out by Quasar's setup, so its hot spares cannot be changed here.");
+            for (int i = regularNodes + spares - 1; i >= regularNodes + wanted[host]; i--) nodes.Remove(Slot(i));
+            var backend = System.Net.IPEndPoint.Parse(Slot(0)["backend"]!.GetValue<string>());
+            var control = System.Net.IPEndPoint.Parse(Slot(0)["control"]!.GetValue<string>());
+            for (int i = regularNodes + spares; i < regularNodes + wanted[host]; i++)
+                nodes.Insert(nodes.IndexOf(Slot(i - 1)) + 1, new JsonObject { ["slotKey"] = $"{host}-node-{i}", ["nodeId"] = $"{host}-node-{i}",
+                    ["host"] = host, ["role"] = "regular", ["catalogSlot"] = ++catalogSlot,
+                    ["backend"] = new System.Net.IPEndPoint(backend.Address, backend.Port + i).ToString(),
+                    ["control"] = new System.Net.IPEndPoint(control.Address, control.Port + i).ToString(), ["spare"] = true });
+        }
+    }
+
+    private async Task<ClusterOperation> PrepareSpecificationAsync(ClusterDefinition cluster, ClusterPreparationRequest request,
+        JsonNode spec, string actor, CancellationToken token)
+    {
+        string json = spec.ToJsonString();
+        string hash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(json));
+        request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
+            ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
+        var result = await deployments.PrepareAsync(cluster.UniqueName, request, Guid.NewGuid().ToString("N"), actor, token);
+        if (result.State == ClusterOperationState.Succeeded)
+        {
+            var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
+                ?? throw new InvalidDataException("Host preparation returned no deployment.");
+            await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token,
+                cluster.PreparedProfile?.ProfileId, cluster.PreparedProfile?.ProfileSha256);
+        }
+        return result;
+    }
 
     internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
     {

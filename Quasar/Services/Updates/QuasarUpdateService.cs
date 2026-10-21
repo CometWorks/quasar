@@ -55,6 +55,8 @@ public sealed class QuasarUpdateService : BackgroundService
             IncludePrerelease = options.IncludePrerelease,
             AutoStageWebUpdates = options.AutoStageWebUpdates,
             GitHubTokenConfigured = githubCredentials.HasToken,
+            GitHubTokenSaved = githubCredentials.HasSavedToken,
+            GitHubTokenVariableName = githubCredentials.TokenVariableName,
             Status = QuasarUpdateStatus.Idle,
             Message = options.Enabled
                 ? "Update checks pending."
@@ -1256,7 +1258,7 @@ public sealed class QuasarUpdateService : BackgroundService
         client.Timeout = timeout;
         client.DefaultRequestHeaders.UserAgent.ParseAdd("Quasar");
 
-        var token = _githubCredentials.GetCredentials().Token;
+        var token = _githubCredentials.Token;
         if (!string.IsNullOrWhiteSpace(token))
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
@@ -1281,11 +1283,15 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private void OnGitHubCredentialsChanged()
     {
-        _githubTokenExpiresAtUtc = null;
-        _githubTokenRejected = false;
+        // Saving or clearing a shadowed token does not replace the environment token.
+        if (_githubCredentials.TokenVariableName != GitHubUpdateCredentialsCatalog.QuasarTokenVariableName)
+        {
+            _githubTokenExpiresAtUtc = null;
+            _githubTokenRejected = false;
+        }
         SetSnapshot(_snapshot with
         {
-            Message = _githubCredentials.HasToken
+            Message = _githubCredentials.HasSavedToken
                 ? "GitHub update token saved."
                 : "GitHub update token cleared.",
             Status = QuasarUpdateStatus.Idle,
@@ -1298,9 +1304,14 @@ public sealed class QuasarUpdateService : BackgroundService
         if (!configured)
             return new GitHubTokenState(false, null, false, false, string.Empty);
 
+        var variable = _githubCredentials.TokenVariableName;
+        var replace = variable.Length == 0
+            ? "Save a new token."
+            : $"Set a new token in {variable} and restart Quasar.";
+
         if (_githubTokenRejected)
             return new GitHubTokenState(true, _githubTokenExpiresAtUtc, true, false,
-                "GitHub update token was rejected. It may be expired or revoked. Save a new token.");
+                $"GitHub update token was rejected. It may be expired or revoked. {replace}");
 
         if (_githubTokenExpiresAtUtc is not { } expiresAtUtc)
             return new GitHubTokenState(true, null, false, false, string.Empty);
@@ -1308,7 +1319,7 @@ public sealed class QuasarUpdateService : BackgroundService
         var now = DateTimeOffset.UtcNow;
         if (expiresAtUtc <= now)
             return new GitHubTokenState(true, expiresAtUtc, true, false,
-                $"GitHub update token expired on {expiresAtUtc.ToLocalTime():yyyy-MM-dd}. Save a new token.");
+                $"GitHub update token expired on {expiresAtUtc.ToLocalTime():yyyy-MM-dd}. {replace}");
 
         if (expiresAtUtc - now <= GitHubTokenExpiryWarningWindow)
             return new GitHubTokenState(true, expiresAtUtc, false, true,
@@ -1331,6 +1342,8 @@ public sealed class QuasarUpdateService : BackgroundService
                 IncludePrerelease = _options.IncludePrerelease,
                 AutoStageWebUpdates = _options.AutoStageWebUpdates,
                 GitHubTokenConfigured = gitHubToken.Configured,
+                GitHubTokenSaved = _githubCredentials.HasSavedToken,
+                GitHubTokenVariableName = _githubCredentials.TokenVariableName,
                 GitHubTokenExpiresAtUtc = gitHubToken.ExpiresAtUtc,
                 GitHubTokenExpired = gitHubToken.Expired,
                 GitHubTokenExpiringSoon = gitHubToken.ExpiringSoon,

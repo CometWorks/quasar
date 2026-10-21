@@ -14,8 +14,10 @@ using HostContract = Quasar.Host.Contract.V1;
 namespace Quasar.Services;
 
 public sealed record ClusterSetupPlacement(string HostId, int RegularNodes);
+/// <summary><paramref name="HotSpares"/>: how many hot spares the cluster has (the setup page defaults to 1). Quasar only
+/// configures the count; the cluster promotes a spare when a node crashes and refills it.</summary>
 public sealed record ClusterSetupRequest(string UniqueName, string DisplayName, string WorldTemplateId,
-    string ConfigProfileId, string GatewayHost, int PlayerPort, ClusterSetupPlacement[] Machines);
+    string ConfigProfileId, string GatewayHost, int PlayerPort, ClusterSetupPlacement[] Machines, int HotSpares = 0);
 public sealed record ClusterSetupStatus(ClusterSetupRequest Request, string Phase, string? Error, DateTimeOffset UpdatedAt);
 
 /// <summary>Durable, copy-based creation using the same verified preparation and activation as conversion.</summary>
@@ -23,7 +25,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     ClusterCredentialStore credentials, ClusterPackageService packages, ClusterDependencyService dependencies,
     ManagedDedicatedServerRuntimeResolver runtime, DedicatedServerRuntimePreparer preparer,
     QuasarWorldTemplateCatalog worlds, QuasarConfigProfileCatalog profiles, ClusterDeploymentService deployments,
-    ClusterOperationStore operations, DedicatedServerCatalog servers, ILogger<ClusterSetupService>? logger = null)
+    ClusterOperationStore operations, DedicatedServerCatalog servers, ClusterWorkshopModStager modStager,
+    ILogger<ClusterSetupService>? logger = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
@@ -58,7 +61,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                     string identity = Path.Combine(work, "request.json");
                     if (File.Exists(identity))
                     {
-                        if (await File.ReadAllTextAsync(identity, ct) != JsonSerializer.Serialize(request, Json))
+                        // Compared as re-serialized requests: a request saved before a field was added still matches.
+                        if (JsonSerializer.Serialize(Read<ClusterSetupRequest>(identity), Json) != JsonSerializer.Serialize(request, Json))
                             throw new InvalidOperationException("This setup is already bound to another request. Resume its original settings or choose a new cluster ID.");
                         if (catalog.GetCluster(request.UniqueName)?.ActiveDeployment is not null && GetStatus(request.UniqueName)?.Phase == "Ready to start")
                         {
@@ -99,7 +103,10 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
                         string installedSdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
                         string installedSdkHash = ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, ct));
-                        cluster = await EnsureCompatiblePackageAsync(cluster, request, installedSdkHash, ct);
+                        cluster = await EnsureCompatiblePackageAsync(cluster, request, installedSdk, ct);
+                        if (request.HotSpares > 0)
+                            ClusterDeploymentFiles.RequireHotSpares((await packages.GetInstalledAsync(
+                                new(cluster.PackageSelection!.Version, cluster.PackageSelection.Sha256), ct)).PackagePath);
                         var savedProfile = Read<QuasarConfigProfile>(Path.Combine(work, "profile.json"));
                         ClusterConversionService.ValidateAdmission(savedProfile);
                         string seed = Path.Combine(work, "source-world");
@@ -114,6 +121,14 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             await WriteAsync(sourceReceipt, await ClusterDeploymentFiles.InspectAsync(seed, ct), ct);
                         }
                         await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), ct);
+                        // The packaged generator refuses a world whose mods have no verified payload, and nodes never
+                        // download mods. Stage the exact Workshop versions as the guided profile update does, MagnetarMod
+                        // included even when the profile has no mods.
+                        string modWork = Path.Combine(work, "mod-stage");
+                        DeleteModStage(work);
+                        await StageAsync(request, "Staging the profile's Workshop mods", null, ct);
+                        Directory.CreateDirectory(modWork); ClusterWorldFiles.Private(modWork);
+                        var mods = await modStager.StageProfileAsync(savedProfile, modWork, ct, null);
                         string exported = Path.Combine(work, "plugins");
                         string exportReceipt = Path.Combine(work, "plugin-export.json");
                         if (File.Exists(exportReceipt))
@@ -124,8 +139,12 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             if (previous["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
                                 File.Delete(exportReceipt); // The export is unpublished; retry prepares it with the current SDK.
                         }
+                        // A snapshot frozen before this export holds plugins another Magnetar built. The PluginSdk
+                        // contract can keep the package selected across a Magnetar update, so freeze again.
+                        bool refreeze = false;
                         if (!File.Exists(exportReceipt))
                         {
+                            refreeze = cluster.DependencyManifestSha256 is not null;
                             await StageAsync(request, "Preparing identical plugins and canonical configuration", null, ct);
                             await ExportPluginsAsync(request, savedProfile, work, exported, ct);
                             await WriteAsync(exportReceipt, await ClusterDeploymentFiles.InspectAsync(exported, ct), ct);
@@ -135,7 +154,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (pluginData["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
                         if (pluginData["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
                             throw new InvalidDataException("Magnetar changed during plugin preparation. Resume setup to select a matching release and prepare again.");
-                        if (cluster.DependencyManifestSha256 is null)
+                        if (cluster.DependencyManifestSha256 is null || refreeze)
                         {
                             await StageAsync(request, "Freezing the common runtime snapshot", null, ct);
                             string ds = runtime.ResolveInstalledDedicatedServer64Path();
@@ -144,9 +163,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                                 ["Magnetar"] = runtime.ResolveInstalledMagnetarInstallDirectory(),
                                 ["CommonPlugins"] = Path.Combine(exported, "CommonPlugins"), ["DirectTransport"] = Path.Combine(exported, "DirectTransport") };
                             if (ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, ct)) != installedSdkHash)
-                                throw new InvalidDataException("Magnetar changed during setup. Resume to select a matching cluster release.");
+                                throw new InvalidDataException("Magnetar changed during setup. Resume to select a compatible cluster release.");
                             var candidate = await dependencies.InspectAsync(cluster, sources, ct);
-                            var selection = new ClusterDependencyRequest(candidate.ManifestSha256, cluster.PackageSelection!.Revision, null);
+                            var selection = new ClusterDependencyRequest(candidate.ManifestSha256, cluster.PackageSelection!.Revision, cluster.DependencyManifestSha256);
                             await dependencies.StageAsync(cluster, selection, sources, ct);
                             await catalog.SelectDependenciesAsync(cluster.UniqueName, selection, ct);
                             cluster = catalog.GetCluster(cluster.UniqueName)!;
@@ -160,6 +179,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         string worldArchive = Path.Combine(work, "world.tar"), installationArchive = Path.Combine(work, "installation.tar");
                         string worldHash = await ClusterWorldFiles.PackAsync(world, worldArchive, ct);
                         using (var output = File.Create(installationArchive)) await ClusterDeploymentFiles.ExportAsync(installed.Directory, output, ct);
+                        string modArchive = Path.Combine(modWork, "mods.tar");
+                        string modHash = await ClusterWorldFiles.PackAsync(mods.Directory, modArchive, ct, requireCheckpoint: false);
                         string joinReference = credentials.Create("cluster:" + cluster.UniqueName, "join");
                         var executorSecrets = selected.ToDictionary(h => h.Id, h => credentials.Resolve(credentials.Create("cluster:" + cluster.UniqueName, "executor:" + h.Id))!);
                         var secretSet = new HostContract.HostManagedCredentials(cluster.UniqueName, credentials.Resolve(adminReference)!, credentials.Resolve(joinReference)!, executorSecrets);
@@ -169,7 +190,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         var topology = new ServerToClusterRequest(GuidFrom(cluster.UniqueName), "", "", NodeBinaryVersion(installed.Directory),
                             gateway.Id, request.PlayerPort, joinReference, HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "token-file"),
                             selected.Select(h => h.Address + (IPAddress.Parse(h.Address).AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? "/32" : "/128")).ToArray(),
-                            conversionHosts, cluster.DependencyManifestSha256, cluster.PackageSelection!.Revision, request.PlayerPort + 100);
+                            conversionHosts, cluster.DependencyManifestSha256, cluster.PackageSelection!.Revision, request.PlayerPort + 100, request.HotSpares);
                         ClusterConversionService.ValidateTopology(cluster, topology);
                         await StageAsync(request, "Distributing verified files and generated credentials", null, ct);
                         var paths = new Dictionary<string, HostContract.HostConversionPaths>();
@@ -182,14 +203,19 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                                 await ClusterSteamClientLibrary.ProvisionAsync(hosts, target, ClusterTestFrontend.FromEnvironment(), logger, ct);
                             var remote = await hosts.TransferConversionInputAsync(target, topology.Id, "installation", installationArchive, installed.InputsSha256, ct);
                             var remoteWorld = await hosts.TransferConversionInputAsync(target, topology.Id, "world", worldArchive, worldHash, ct);
-                            if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id) throw new InvalidDataException("Transfer returned another Host executor identity.");
+                            var remoteMods = await hosts.TransferConversionInputAsync(target, topology.Id, "mods", modArchive, modHash, ct);
+                            if (remote.HostId != machine.Id || remoteWorld.HostId != machine.Id || remoteMods.HostId != machine.Id)
+                                throw new InvalidDataException("Transfer returned another Host executor identity.");
                             paths.Add(machine.Id, remoteWorld);
                             preparationHosts.Add(new(machine.Id, machine.CommandUrl, machine.CredentialReference,
-                                HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + machine.Id), remote.Directory, remoteWorld.Directory, remoteWorld.ConfigurationDirectory));
+                                HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + machine.Id), remote.Directory, remoteWorld.Directory, remoteWorld.ConfigurationDirectory,
+                                remoteMods.Directory));
                         }
                         var source = new DedicatedServerDefinition { DisplayName = request.DisplayName, InGameServerName = request.DisplayName };
                         var specification = JsonNode.Parse(await ClusterConversionService.SpecificationAsync(cluster, source, savedProfile, null, topology, world, paths, ct))!;
                         specification["pluginConfigurations"] = pluginData["pluginConfigurations"]?.DeepClone() ?? throw new InvalidDataException("Magnetar did not export canonical plugin configurations.");
+                        ClusterWorkshopModStager.AddToSpecification(specification.AsObject(), mods,
+                            await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.DisplayName, ct));
                         await StageAsync(request, "Preparing and activating the stopped cluster", null, ct);
                         var preparation = new ClusterPreparationRequest(installed.InputsSha256, specification.ToJsonString(), origin, preparationHosts.ToArray());
                         var result = await deployments.PrepareAsync(cluster.UniqueName, preparation, "setup-prepare-" + key, actor, ct);
@@ -234,6 +260,12 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         foreach (string name in new[] { "installation.tar", "world.tar", "split-world.tar" }) File.Delete(Path.Combine(work, name));
         string installation = Path.Combine(work, "installation");
         if (Directory.Exists(installation)) { ClusterWorldFiles.Private(installation); Directory.Delete(installation, true); }
+        DeleteModStage(work);
+    }
+    internal static void DeleteModStage(string work)
+    {
+        string stage = Path.Combine(work, "mod-stage");
+        if (Directory.Exists(stage)) { ClusterWorldFiles.Private(stage); Directory.Delete(stage, true); }
     }
     private static ClusterDefinition Target(ClusterDefinition cluster, EnrolledClusterHost host)
     { var copy = cluster.Clone(); copy.HostCommandUrl = host.CommandUrl; copy.HostCommandTokenEnvironmentVariable = host.CredentialReference; return copy; }
@@ -292,6 +324,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             || request.Machines.Any(m => m is null || m.RegularNodes is < 1 or > 32) || request.Machines.Sum(m => (long)m.RegularNodes) is < 2 or > 254
             || request.Machines.Select(m => m.HostId).Distinct().Count() != request.Machines.Length)
             throw new ArgumentException("Choose a Server name, Public server port 1024–65000, and 1–32 regular nodes per host machine, with at least two in total.");
+        if (request.HotSpares < 0 || request.HotSpares > request.Machines.Sum(m => 32 - m.RegularNodes))
+            throw new ArgumentException("Choose 0 or more hot spares that fit next to the regular nodes, 32 nodes per host machine.");
         var selected = request.Machines.Select(m => enrolled.SingleOrDefault(h => h.Id == m.HostId) ?? throw new ArgumentException("Enroll every selected host machine first.")).ToArray();
         if (!selected.Any(h => h.Id == request.GatewayHost) || selected.Select(h => IPAddress.Parse(h.Address)).Distinct().Count() != selected.Length
             || selected.Length > 1 && selected.Any(h => IPAddress.IsLoopback(IPAddress.Parse(h.Address))))
@@ -300,22 +334,21 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     }
 
     private async Task<ClusterDefinition> EnsureCompatiblePackageAsync(ClusterDefinition cluster,
-        ClusterSetupRequest request, string installedSdkHash, CancellationToken token)
+        ClusterSetupRequest request, string installedSdk, CancellationToken token)
     {
         if (cluster.PackageSelection is { } selected)
         {
             var installed = await packages.GetInstalledAsync(new(selected.Version, selected.Sha256), token);
-            if (ClusterDeploymentFiles.GetPinnedPluginSdkSha256(installed.PackagePath) == installedSdkHash)
+            if (ClusterDeploymentFiles.PluginSdkMismatch(installed.PackagePath, installedSdk) is null)
                 return cluster;
         }
 
         await StageAsync(request, "Downloading a cluster release compatible with Magnetar", null, token);
         var release = await packages.GetReleaseAsync(null, token);
         var package = await packages.StageAsync(new(release.Version, release.Sha256), token);
-        string? pinnedSdkHash = ClusterDeploymentFiles.GetPinnedPluginSdkSha256(package.PackagePath);
-        if (pinnedSdkHash != installedSdkHash)
-            throw new InvalidOperationException($"Cluster release {release.Version} pins PluginSdk {pinnedSdkHash ?? "none"}, "
-                + $"but installed Magnetar has {installedSdkHash}. Resume after a compatible cluster release is published.");
+        if (ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath, installedSdk) is { } mismatch)
+            throw new InvalidOperationException($"Cluster release {release.Version} cannot run on the installed Magnetar: {mismatch} "
+                + "Resume after a compatible release is published.");
         await catalog.SelectPackageAsync(cluster.UniqueName, cluster.PackageSelection?.Revision ?? 0,
             package, "guided-setup-" + release.Version, token);
         return catalog.GetCluster(cluster.UniqueName)!;

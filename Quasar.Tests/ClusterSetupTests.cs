@@ -32,6 +32,25 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void HotSparesAreOneCountPerClusterThatFitsNextToTheRegularNodes()
+    {
+        Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 2)) with { HotSpares = 1 }, [Host("one", "127.0.0.1")]));
+        Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 31)) with { HotSpares = 1 }, [Host("one", "127.0.0.1")]));
+        foreach (int spares in new[] { -1, 2 })
+            Assert.Throws<ArgumentException>(() => ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 31)) with { HotSpares = spares }, [Host("one", "127.0.0.1")]));
+
+        var cluster = new ClusterDefinition { GatewayUrl = "http://10.1.0.1:28016", GatewayAdminTokenEnvironmentVariable = "ADMIN" };
+        var conversion = new ServerToClusterRequest(Guid.NewGuid(), "server", "revision", "1210014", "two", 28000,
+            "JOIN", "TOKENS", ["10.1.0.0/24"], [new("one", "http://one:18400", "HOST_ONE", "EXEC_ONE", "10.1.0.1", 2),
+                new("two", "http://two:18400", "HOST_TWO", "EXEC_TWO", "10.1.0.2", 31)], HotSpares: 3);
+        ClusterConversionService.ValidateTopology(cluster, conversion);
+        // From the Gateway host on, one at a time, never above 32 nodes on a host.
+        Assert.Equal(new Dictionary<string, int> { ["one"] = 2, ["two"] = 1 }, ClusterConversionService.PlaceHotSpares(conversion));
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateTopology(cluster, conversion with { HotSpares = 32 }));
+        Assert.Throws<InvalidDataException>(() => ClusterConversionService.ValidateTopology(cluster, conversion with { HotSpares = -1 }));
+    }
+
+    [Fact]
     public void PlacementSupportsBothLocalAndRemoteButRefusesMixedLoopback()
     {
         Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 2)), [Host("one", "127.0.0.1")]));
@@ -82,6 +101,39 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public async Task GuidedSetupGivesTheGeneratorAVerifiedPayloadForEveryProfileMod()
+    {
+        string work = Path.Combine(Path.GetTempPath(), "cluster-setup-mods-" + Guid.NewGuid());
+        string payload = Path.Combine(work, "mod-stage/mods");
+        Directory.CreateDirectory(Path.Combine(payload, "123456.sbm/Data/Scripts"));
+        File.WriteAllText(Path.Combine(payload, "123456.sbm/Data/Scripts/Mod.cs"), "// mod");
+        try
+        {
+            var profile = new QuasarConfigProfile { Mods = [new() { WorkshopId = 123456, DisplayName = "Test mod" }] };
+            var files = (await Quasar.ClusterDeployment.ClusterDeploymentFiles.InspectAsync(payload, default))
+                .ToDictionary(p => p.Key, p => p.Value.Sha256, StringComparer.Ordinal);
+            var staged = new ClusterWorkshopModStager.StagedProfileMods(profile, payload, files, new() { ["123456"] = 42 });
+            var specification = new System.Text.Json.Nodes.JsonObject();
+            ClusterWorkshopModStager.AddToSpecification(specification, staged, await ClusterWorkshopModStager.ProfileSettingsXmlAsync(
+                Path.Combine(work, "mod-stage/profile-patch"), profile, "Demo", default));
+
+            // managed_deployment.py prepare: the patched checkpoint lists exactly the staged <id>.sbm folders,
+            // and the payload the Host receives hashes to modFiles.
+            var patch = System.Xml.Linq.XDocument.Parse(specification["profileSettingsXml"]!.GetValue<string>()).Root!;
+            var item = Assert.Single(patch.Descendants().Where(e => e.Name.LocalName == "ModItem"));
+            Assert.Equal("123456", item.Elements().Single(e => e.Name.LocalName == "PublishedFileId").Value);
+            Assert.Equal(["123456.sbm"], Directory.GetDirectories(payload).Select(Path.GetFileName));
+            Assert.Equal("123456.sbm", item.Elements().Single(e => e.Name.LocalName == "Name").Value);
+            Assert.Equal(["123456.sbm/Data/Scripts/Mod.cs"], specification["modFiles"]!.AsObject().Select(p => p.Key));
+            Assert.Equal(42, specification["modVersions"]!["123456"]!.GetValue<long>());
+
+            ClusterSetupService.CleanupTransferFiles(work);
+            Assert.False(Directory.Exists(Path.Combine(work, "mod-stage")));
+        }
+        finally { Directory.Delete(work, true); }
+    }
+
+    [Fact]
     public void BundledAgentGetsTraceableLoaderCompatibleMetadataWithoutChangingItsBytes()
     {
         string config = Path.Combine(Path.GetTempPath(), "cluster-agent-bundle-" + Guid.NewGuid());
@@ -92,6 +144,10 @@ public sealed class ClusterSetupTests
             foreach (string name in new[] { "Quasar.Agent.dll", "Magnetar.Protocol.dll", "0Harmony.dll" })
                 File.WriteAllText(Path.Combine(config, "Local", name), name);
             File.WriteAllText(Path.Combine(config, "Profiles/Current.xml"), "<Profile><Local><string>Quasar.Agent.dll</string></Local></Profile>");
+            // Existing clusters retain their old source pin. Profile preparation must replace it.
+            string oldBundle = Path.Combine(config, "Local/Quasar.Agent");
+            Directory.CreateDirectory(oldBundle);
+            File.WriteAllText(Path.Combine(oldBundle, "Quasar.Agent.xml"), "<PluginData><Commit>" + new string('0', 40) + "</Commit></PluginData>");
             ClusterSetupService.PrepareAgentMetadata(config);
             string bundle = Path.Combine(config, "Local/Quasar.Agent");
             Assert.Equal("Quasar.Agent.dll", File.ReadAllText(Path.Combine(bundle, "Quasar.Agent.dll")));
@@ -99,6 +155,7 @@ public sealed class ClusterSetupTests
             var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(bundle, "Quasar.Agent.xml")).Root!;
             Assert.Equal("quasar-agent", metadata.Element("Id")!.Value);
             Assert.Matches("^[a-fA-F0-9]{40}$", metadata.Element("Commit")!.Value);
+            Assert.NotEqual(new string('0', 40), metadata.Element("Commit")!.Value);
             Assert.Contains("quasar-agent", File.ReadAllText(Path.Combine(config, "Profiles/Current.xml")));
         }
         finally { Directory.Delete(config, true); }

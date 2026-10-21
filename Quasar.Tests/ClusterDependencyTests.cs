@@ -196,11 +196,15 @@ public sealed class ClusterDependencyTests
         {
             string hash = new('a', 64);
             File.WriteAllText(capability, $$"""{"pluginServices":1,"pluginSdkSha256":"{{hash}}"}""");
-            Assert.Equal(hash, ClusterDeploymentFiles.GetPinnedPluginSdkSha256(root));
+            Assert.Equal((null, hash), ClusterDeploymentFiles.GetPluginSdkPin(root));
             File.WriteAllText(capability, """{"pluginServices":1,"pluginSdkSha256":"latest"}""");
-            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPinnedPluginSdkSha256(root));
+            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPluginSdkPin(root));
             File.WriteAllText(capability, """{"pluginServices":1}""");
-            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPinnedPluginSdkSha256(root));
+            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPluginSdkPin(root));
+            File.WriteAllText(capability, $$"""{"pluginServices":1,"pluginSdkContract":"1","pluginSdkSha256":"{{hash}}"}""");
+            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPluginSdkPin(root));
+            File.WriteAllText(capability, """{"pluginServices":1,"pluginSdkContract":1.2}""");
+            Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.GetPluginSdkPin(root));
         }
         finally { Directory.Delete(root, true); }
     }

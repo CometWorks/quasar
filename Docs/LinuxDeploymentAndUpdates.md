@@ -1,5 +1,8 @@
 # Linux Deployment and Updates
 
+**Security upgrade DIS-0042:** save and stop worlds before activation, back up the credential store and Data Protection keyring together, update Quasar before Hosts, re-pin cluster agents and restart servers. Read [the complete migration instructions](SecurityUpgradeDIS0042.md).
+
+
 Quasar Linux deployment is split into a stable Bootstrap layer and a replaceable
 web UI worker.
 
@@ -148,10 +151,16 @@ If the download fails, Bootstrap retries it until it works: 30 seconds after the
 first failure, then doubling up to 10 minutes between attempts. When GitHub
 answers 403 or 429 with `X-RateLimit-Remaining: 0` or `Retry-After`, Bootstrap
 waits until the reset time from `X-RateLimit-Reset` (or `Retry-After`) plus a few
-seconds instead, at most an hour, and says so. The launcher doesn't read
-`GITHUB_TOKEN`; the token from `github-updates.json` is used when one is saved.
+seconds instead, at most an hour, and says so. Bootstrap's GitHub requests use
+`QUASAR_GITHUB_TOKEN` from its environment, else the token saved in
+`github-updates.json`, else `GITHUB_TOKEN`. A fresh install has no saved token
+yet, so only the environment can supply one there (see
+[GitHub Token for Update Checks](#github-token-for-update-checks)).
 Each wait is logged; a run without a console (the service, `--quiet`) also writes
-it to stderr, so it reaches the journal. An explicitly configured
+it to stderr, so it reaches the journal. `ensure-running` without a terminal
+starts a detached launcher; it passes the launcher's stderr on and keeps waiting
+as long as the launcher retries the download, instead of giving up after 60
+seconds. An explicitly configured
 `QUASAR_WEB_EXE` / `QUASAR_WEB_DLL` worker or a source-tree build is used right
 away instead of waiting. The launcher prints `Quasar worker launching on <url>`
 only when a worker runs; otherwise it prints that the web UI is not available.
@@ -416,6 +425,27 @@ limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model and owner-only Unix permissions used for
 the Steam Workshop API key.
+
+The page can save a token only once the web UI runs, but Bootstrap downloads the
+UI from GitHub first. For that first start, and for Bootstrap's own update checks
+later, Bootstrap also reads a token from its environment: `QUASAR_GITHUB_TOKEN`
+wins over the saved token, and `GITHUB_TOKEN` is used only when neither is set.
+For the service, put the variable into a drop-in that only the service user can
+read, for example `systemctl --user edit quasar.service`:
+
+```ini
+[Service]
+EnvironmentFile=%h/.config/quasar-github-token.env
+```
+
+with `QUASAR_GITHUB_TOKEN=<token>` in that file (`chmod 600`), then restart the
+service. The web worker uses the same order for its release checks, plugin hubs
+and Magnetar starts. The Updates page says when the token in use comes from one
+of these variables; a `QUASAR_GITHUB_TOKEN` hides a token saved there.
+
+**Clear** removes only the saved token; environment tokens still apply. Saving or
+clearing a token does not dismiss expiry or rejection warnings for an overriding
+`QUASAR_GITHUB_TOKEN`. Replace that variable and restart Quasar.
 
 The same token is handed to every managed Magnetar start through the
 `PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are

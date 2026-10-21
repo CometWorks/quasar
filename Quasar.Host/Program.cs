@@ -61,11 +61,16 @@ internal static class Program
         {
             config = Load(path!);
             HostCredentials.Load(config.StateDirectory);
+            Environment.SetEnvironmentVariable(HostContract.AgentSocketToken.EnvironmentVariable, null);
             if (config.Connection is not null)
             {
                 // Agent discovery uses the same reachable origin as the enrolled Host.
                 Environment.SetEnvironmentVariable("QUASAR_BASE_URL", config.Connection.QuasarUrl);
                 Environment.SetEnvironmentVariable("MAGNETAR_HOST_ID", config.HostId);
+                // Cluster nodes inherit it; their agents present it on Quasar's /ws/agent.
+                if (Environment.GetEnvironmentVariable(config.Connection.TokenEnvironmentVariable) is { Length: > 0 } credential)
+                    Environment.SetEnvironmentVariable(global::Quasar.Host.Contract.V1.AgentSocketToken.EnvironmentVariable,
+                        global::Quasar.Host.Contract.V1.AgentSocketToken.ForHost(credential));
             }
         }
         catch (Exception exception) when (exception is IOException or JsonException or ArgumentException)
@@ -334,11 +339,14 @@ internal static class Program
             string url = command.Url?.Trim().TrimEnd('/') ?? string.Empty;
             if (!Uri.TryCreate(url, UriKind.Absolute, out Uri? commandUri)
                 || commandUri.Scheme != "http" || commandUri.AbsolutePath != "/"
+                || commandUri.UserInfo.Length != 0 || commandUri.Query.Length != 0 || commandUri.Fragment.Length != 0
                 || !IsLoopbackHost(commandUri.Host))
                 throw new ArgumentException("Host command URL must be an HTTP loopback origin");
             string tokenVariable = command.TokenEnvironmentVariable?.Trim() ?? string.Empty;
             if (tokenVariable.Length == 0)
                 throw new ArgumentException("Host command credential environment variable is required");
+            _ = new Quasar.Networking.MachineEndpointPolicy(command.AllowedSources ?? Quasar.Networking.MachineEndpointPolicy.LoopbackSources,
+                command.AllowedHosts ?? [commandUri.Authority]);
             command = command with { Url = url, TokenEnvironmentVariable = tokenVariable };
         }
         return config with
@@ -786,4 +794,5 @@ internal sealed record HostExecutorConfig(
     HostConnectionConfig? Connection = null,
     string DiagnosticsDirectory = "");
 
-internal sealed record HostCommandConfig(string Url, string TokenEnvironmentVariable);
+internal sealed record HostCommandConfig(string Url, string TokenEnvironmentVariable,
+    string[]? AllowedSources = null, string[]? AllowedHosts = null);

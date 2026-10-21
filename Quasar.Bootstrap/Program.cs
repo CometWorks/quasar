@@ -165,9 +165,20 @@ internal static class Program
             return 3;
         }
 
-        StartDetachedProcess(fileName, arguments, workingDirectory);
+        // The launcher retries a failed first web UI download until it works and says so
+        // on stderr. Pass that on and keep waiting while it does, instead of timing out.
+        var waitingForDownload = false;
+        var launcher = StartDetachedProcess(fileName, arguments, workingDirectory, line =>
+        {
+            if (line.Contains(LauncherCoordinator.InitialDownloadRetryText, StringComparison.Ordinal))
+                Volatile.Write(ref waitingForDownload, true);
+            if (!quiet)
+                Console.Error.WriteLine(line);
+        });
 
-        for (var attempt = 0; attempt < 60; attempt++)
+        for (var attempt = 0;
+             attempt < 60 || Volatile.Read(ref waitingForDownload) && launcher is { HasExited: false };
+             attempt++)
         {
             await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
             existing = await TryGetHealthyServiceUriAsync().ConfigureAwait(false);
@@ -655,7 +666,8 @@ internal static class Program
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    internal static void StartDetachedProcess(string fileName, string arguments, string workingDirectory)
+    internal static Process? StartDetachedProcess(string fileName, string arguments, string workingDirectory,
+        Action<string>? onErrorLine = null)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -673,15 +685,22 @@ internal static class Program
         {
             var process = Process.Start(startInfo);
             if (process is null)
-                return;
+                return null;
 
             // Drain output asynchronously so the child never blocks on a full pipe buffer.
             _ = process.StandardOutput.ReadToEndAsync();
-            _ = process.StandardError.ReadToEndAsync();
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (e.Data is not null)
+                    onErrorLine?.Invoke(e.Data);
+            };
+            process.BeginErrorReadLine();
+            return process;
         }
         catch
         {
             // Spawn failure is handled by the health-check polling loop in EnsureRunningAsync timing out.
+            return null;
         }
     }
 
@@ -880,10 +899,28 @@ internal sealed class BootstrapOptions
 internal static class GitHubUpdateTokenReader
 {
     private const string DataProtectionPurpose = "Quasar.GitHubUpdateCredentials.v1";
+    internal const string QuasarTokenVariableName = "QUASAR_GITHUB_TOKEN";
+    internal const string GenericTokenVariableName = "GITHUB_TOKEN";
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
+    // The token saved on the Updates page needs a running web UI, so the first start
+    // can only use one from the environment. QUASAR_GITHUB_TOKEN is meant for Quasar
+    // and wins over the saved one; a GITHUB_TOKEN set for other tools comes last.
     public static string ReadToken(ILogger logger)
+    {
+        var token = ReadVariable(QuasarTokenVariableName);
+        if (token.Length == 0)
+            token = ReadSavedToken(logger);
+        if (token.Length == 0)
+            token = ReadVariable(GenericTokenVariableName);
+        return token;
+    }
+
+    private static string ReadVariable(string name) =>
+        Environment.GetEnvironmentVariable(name)?.Trim() ?? string.Empty;
+
+    private static string ReadSavedToken(ILogger logger)
     {
         var path = MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath();
         if (!File.Exists(path))
@@ -950,6 +987,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private bool _isStopping;
     private bool _isRestartingForBootstrapUpdate;
     private bool _isDrained;
+    private bool _sentGitHubToken;
 
     // Complete only for intentional shutdown. ServeAsync then cleans up and exits
     // successfully, so systemd/Task Scheduler restart-on-failure stays inactive.
@@ -1476,6 +1514,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return await SHA256.HashDataAsync(stream, cancellationToken).ConfigureAwait(false);
     }
 
+    // Both initial download wait lines contain it. A detached ensure-running spots it in
+    // the launcher's stderr and keeps waiting instead of timing out.
+    internal const string InitialDownloadRetryText = "; retrying at ";
+
     // Without a worker there is no web UI, so a failed first download is retried until
     // it works, unless another worker (QUASAR_WEB_EXE, a source build) can take over.
     internal async Task WaitForInitialWebReleaseAsync(CancellationToken cancellationToken)
@@ -1499,15 +1541,18 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             {
                 ReportInitialDownloadWait(null,
                     "GitHub's API rate limit is used up, so Quasar can't download its web UI yet. " +
-                    $"Waiting for GitHub to reset the limit; retrying at {retryAt:HH:mm:ss} " +
-                    $"(in {Math.Ceiling(delay.TotalMinutes):0} min). GitHub allows 60 anonymous requests an hour " +
-                    "per public IP address, shared by every machine behind it. Quasar doesn't read GITHUB_TOKEN; " +
-                    "once the web UI is up, a GitHub token saved on its Updates page avoids this.");
+                    $"Waiting for GitHub to reset the limit{InitialDownloadRetryText}{retryAt:HH:mm:ss} " +
+                    $"(in {Math.Ceiling(delay.TotalMinutes):0} min). " +
+                    (_sentGitHubToken
+                        ? "The GitHub token Quasar uses has run out of requests too."
+                        : "GitHub allows 60 anonymous requests an hour per public IP address, shared by every " +
+                          $"machine behind it. To skip the wait, set {GitHubUpdateTokenReader.QuasarTokenVariableName} " +
+                          "to a GitHub token and restart Quasar."));
             }
             else
             {
                 ReportInitialDownloadWait(failure,
-                    $"Failed downloading the Quasar web UI; retrying at {retryAt:HH:mm:ss} " +
+                    $"Failed downloading the Quasar web UI{InitialDownloadRetryText}{retryAt:HH:mm:ss} " +
                     $"(in {delay.TotalSeconds:0} s). {failure.Message}");
             }
 
@@ -1657,6 +1702,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     private void ApplyGitHubAuthorization()
     {
         var token = GitHubUpdateTokenReader.ReadToken(_logger);
+        _sentGitHubToken = token.Length > 0;
         _downloadClient.DefaultRequestHeaders.Authorization = string.IsNullOrWhiteSpace(token)
             ? null
             : new AuthenticationHeaderValue("Bearer", token);

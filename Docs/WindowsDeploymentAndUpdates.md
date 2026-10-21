@@ -1,5 +1,8 @@
 # Windows Deployment and Updates
 
+**Security upgrade DIS-0042:** save and stop worlds before activation, back up the credential store and Data Protection keyring together, update Quasar before Hosts, re-pin cluster agents and restart servers. Read [the complete migration instructions](SecurityUpgradeDIS0042.md).
+
+
 Quasar's Windows deployment mirrors the [Linux model](LinuxDeploymentAndUpdates.md):
 a stable Bootstrap launcher layer plus a replaceable web UI worker. The only
 differences are platform conventions — `.zip` archives instead of `.tar.gz`, a
@@ -262,6 +265,20 @@ NAT gateways, and public cloud IP ranges can hit GitHub's unauthenticated rate
 limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model used for the Steam Workshop API key.
+
+The page can save a token only once the web UI runs, but Bootstrap downloads the
+UI from GitHub first. For that first start, and for Bootstrap's own update checks
+later, Bootstrap also reads a token from its environment: `QUASAR_GITHUB_TOKEN`
+wins over the saved token, and `GITHUB_TOKEN` is used only when neither is set.
+Set it for the account the Scheduled Task runs as (`setx QUASAR_GITHUB_TOKEN
+<token>`) and restart the task. The web worker uses the same order for its
+release checks, plugin hubs and Magnetar starts. The Updates page says when the
+token in use comes from one of these variables; a `QUASAR_GITHUB_TOKEN` hides a
+token saved there.
+
+**Clear** removes only the saved token; environment tokens still apply. Saving or
+clearing a token does not dismiss expiry or rejection warnings for an overriding
+`QUASAR_GITHUB_TOKEN`. Replace that variable and restart Quasar.
 
 The same token is handed to every managed Magnetar start through the
 `PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are

@@ -4,7 +4,7 @@ The branch implements machine enrollment and guided creation on top of the
 seven-stage deployment work. This is a separate acceptance gate from the historical
 live cluster tests. The original package pair was Magnetar 2.4.2.3 and cluster 1.1.7;
 the published cluster release is now v0.1.0 (beta). Quasar verifies the cluster
-release's exact PluginSdk binary pin. If either installed release lacks
+release's PluginSdk pin (contract version, or the exact binary hash as a fallback). If either installed release lacks
 the required capability or pin, setup stops and can be resumed. It never starts an older
 Magnetar with an unrecognized preparation flag.
 
@@ -30,16 +30,18 @@ inputs; removed cluster IDs remain reserved.
 1. Choose **Create Cluster** beside **Create Server** on the Dashboard (cards or list),
    then open **Create and deploy** at `/clusters/new`. **Register existing cluster** is a
    separate advanced tab for independently installed clusters.
-2. The wizard opens on **Host enrollment**. Quasar automatically enrolls and prepares
-   its Linux x64 localhost using the bundled Host. It prefers a private LAN/VPN
-   address for multi-host support, falling back to loopback for a single-host
-   cluster. Existing enrollments on this machine are reused.
+2. The wizard opens on **Host enrollment**. On Linux x64 the Quasar machine has a
+   built-in local Host (`local`) that Quasar runs from its own release, with its
+   files in `<install root>/LocalHost`, and starts when it is needed. It prefers
+   a private LAN/VPN address for multi-host support, falling back to loopback for
+   a single-host cluster.
    Add other Linux x64 host machines inline with **Add host machine**, or use
    **Hosts → Add host machine** outside the wizard. Both use the same enrollment
-   form: choose local installation, a one-time command, SSH, or a manual package.
+   form: choose a one-time command, SSH, or a manual package.
    At least one enrolled host must connect before **Continue to cluster configuration**
    is enabled. Existing connected hosts can be reused without another installation.
-   The same matching Quasar.Host executable is used in all four cases. Enrollment
+   The same matching Quasar.Host executable is used by all three methods and by the
+   local Host. Enrollment
    requires security-administration permission; SSH uses keys/agent and strict
    `known_hosts` verification. Password login and host-key bypass are not supported.
    Installation also enables a per-machine update timer. It checks the active Quasar
@@ -48,13 +50,16 @@ inputs; removed cluster IDs remain reserved.
 3. In **Configure and deploy**, select a world template, configuration profile,
    Cluster Gateway and World Authority host machine, public server port and node counts. **Back to host enrollment** lets you add or repair
    hosts without leaving the wizard; entered cluster settings are preserved.
-   Every selected host machine requires 1–32 regular nodes, with at least two in total.
+   Every selected host machine requires 1–32 regular nodes, with at least two in total. **Hot spares**
+   is one count for the cluster, 1 by default. Quasar adds that many regular slots marked `spare` to the
+   deployment specification, from the Gateway host on, at most 32 nodes per host; the cluster promotes
+   and refills them. It needs a cluster release with `managedHotSpares`.
    The Cluster Gateway host machine also runs the Cluster Registry and World Authority. Every selected host machine must be connected before
    creation or resume is enabled. Quasar checks authenticated Host executor identity and
    required capabilities before creating a cluster registration; an offline or
    incompatible Host executor leaves no new cluster registration.
 4. Quasar provisions DS/Magnetar, stages the verified latest cluster release whose
-   PluginSdk pin matches the installed Magnetar, prepares common plugins and Direct
+   PluginSdk pin the installed Magnetar satisfies, prepares common plugins and Direct
    Transport, and freezes the runtime snapshot.
    Magnetar exports default SDK configuration without starting a game server.
 5. Quasar converts a copy of the world, generates credentials, transfers verified
@@ -132,13 +137,27 @@ offline. The enrollment step remains available to repair connections; placement
 stays bound to the original request.
 Removed IDs remain reserved while their Host state and operation history exist.
 
-Before each attempt, guided setup updates managed Magnetar and checks its actual
-PluginSdk bytes against the selected cluster release. When the pins differ, it
-downloads the latest cluster release and selects it if its SDK pin matches.
+Before each attempt, guided setup updates managed Magnetar and checks its
+PluginSdk against the selected cluster release. A cluster release records the
+`pluginSdkContract` (`major.minor`) of the SDK it was built against, and Magnetar's
+`PluginSdk.dll` declares its own in the `PluginSdkContract` assembly metadata. The
+release runs on a Magnetar with the same major and an equal or higher minor, so a
+Magnetar release without a public SDK API change needs no new cluster release. When
+either side declares no contract, the exact `pluginSdkSha256` pin has to match
+instead. `ClusterDeploymentFiles.PluginSdkMismatch` makes this decision for guided
+setup, the update panel and deployment verification on every Host. When the selected
+release doesn't fit, setup downloads the latest cluster release and selects it if
+the installed Magnetar satisfies its pin.
 Selection clears the previous dependency snapshot; a plugin export made with an older
 SDK is prepared again. If no compatible release is published, setup stops with both
-hashes in the error and can be resumed after publication. Activated deployments keep
+contracts or hashes in the error and can be resumed after publication. Activated deployments keep
 their frozen runtime and use the separate cluster update workflow.
+Profile and content staging on an activated cluster exports the plugins with the installed
+Magnetar too. When that Magnetar is no longer the snapshot's, staging freezes it into the new
+snapshot in place of the old one if both it and the selected release declare a PluginSdk
+contract and its contract satisfies the release's. Otherwise staging stops and asks for a
+matching cluster release. Either way the exported plugins and the frozen Magnetar must have the
+same PluginSdk hash.
 
 Preparation reuses Magnetar's existing loader profile: Quasar writes
 `Profiles/Current.xml` in its isolated preparation configuration directory and passes
@@ -243,7 +262,6 @@ Machine enrollment requires security-administration permission:
 - `POST /api/v1/host-enrollment` registers ID, display name, private address and
   optional loopback command port (default 18400).
 - `POST /api/v1/host-enrollment/{host}/ticket` with `quasarUrl` returns an enrollment command.
-- `POST /api/v1/host-enrollment/{host}/local` installs on the Quasar machine.
 - `POST /api/v1/host-enrollment/{host}/ssh` accepts `quasarUrl` and
   `ssh: { address, user, port, identityFile }`. The optional key path is on Quasar.
 

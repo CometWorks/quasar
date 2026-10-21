@@ -51,8 +51,9 @@ tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-componen
 
 This installs Quasar in the extracted folder and starts the user
 `quasar.service`. Pass `--system` with `sudo` for a machine-wide service or
-`--install-dir <dir>` to install Quasar elsewhere. The web UI is then served at
-`http://localhost:8080`. In the installed user service, the UI **Shutdown
+`--install-dir <dir>` to install Quasar elsewhere. It also enables
+`quasar-clusters.service`, which saves the clusters on this PC at logout or
+shutdown. The web UI is then served at `http://localhost:8080`. In the installed user service, the UI **Shutdown
 Quasar** action drains the web worker and stops Bootstrap with exit code `0`.
 The installed `Restart=on-failure` policy leaves the service inactive. Start the
 service to bring the UI and supervisor back:
@@ -70,7 +71,8 @@ systemctl --user restart quasar.service
 ~/.local/share/Quasar/uninstall.sh --purge  # also delete the install folder
 ```
 
-The uninstall script stops `quasar.service` before removing it.
+The uninstall script saves and stops the clusters on this PC, then stops
+`quasar.service` and the local Host executor before removing them.
 
 For release assets, the auto-updater flow, and advanced configuration see the
 [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) guide.

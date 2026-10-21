@@ -166,6 +166,7 @@ h1:focus {
     background-color: var(--quasar-table-hover-background) !important;
 }
 
+/* Recolor icons through currentColor; overriding SVG fill/stroke paints transparent paths. */
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) *:not(.mud-button-root *) {
     color: var(--quasar-table-hover-text) !important;
 }
@@ -254,12 +255,6 @@ h1:focus {
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-error,
 .mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) .mud-chip-filled.mud-chip-color-error * {
     color: var(--mud-palette-error-text) !important;
-}
-
-.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) svg:not(.mud-button-root svg),
-.mud-table-hover .mud-table-body .mud-table-row:not(.servers-list-detail-row):is(:hover, .quasar-row-selected) svg:not(.mud-button-root svg) path {
-    fill: currentColor !important;
-    stroke: currentColor !important;
 }
 
 .entity-row-selectable {

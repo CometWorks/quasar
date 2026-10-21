@@ -285,6 +285,7 @@ internal sealed class HostCommandServer : IDisposable
     };
     private readonly HttpListener _listener = new();
     private readonly byte[] _tokenHash;
+    private readonly Quasar.Networking.MachineEndpointPolicy _policy;
     private readonly HostExecutorConfig _config;
     private readonly AttachmentStore _attachments;
     private readonly GatewaySpecStore _gateways;
@@ -304,6 +305,8 @@ internal sealed class HostCommandServer : IDisposable
         if (string.IsNullOrWhiteSpace(token))
             throw new InvalidOperationException(
                 $"host command credential environment variable '{command.TokenEnvironmentVariable}' is not set");
+        _policy = new(command.AllowedSources ?? Quasar.Networking.MachineEndpointPolicy.LoopbackSources,
+            command.AllowedHosts ?? [new Uri(command.Url).Authority]);
         _tokenHash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         _config = config;
         _attachments = attachments;
@@ -368,6 +371,18 @@ internal sealed class HostCommandServer : IDisposable
         IDisposable? storage = null;
         try
         {
+            if (!_policy.Allows(context.Request.RemoteEndPoint?.Address,
+                    context.Request.Headers.AllKeys.Contains("Origin", StringComparer.OrdinalIgnoreCase),
+                    context.Request.Headers["Host"] ?? ""))
+            {
+                await WriteErrorAsync(context, 403, "forbidden", "Host command transport policy rejected the request.", cancellationToken);
+                return;
+            }
+            if (!Authenticate(_tokenHash, context.Request.Headers["Authorization"]))
+            {
+                await WriteErrorAsync(context, 401, "unauthorized", "Host command credential is invalid.", cancellationToken);
+                return;
+            }
             // Candidate preparation writes only immutable directories and must not suspend executor heartbeats.
             bool preparing = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/", StringComparison.Ordinal) == true || context.Request.HttpMethod == "POST" &&
                 context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
@@ -406,12 +421,6 @@ internal sealed class HostCommandServer : IDisposable
 
     private async Task HandleAsync(HttpListenerContext context, CancellationToken cancellationToken)
     {
-        if (!Authenticate(context.Request.Headers["Authorization"]))
-        {
-            await WriteErrorAsync(context, 401, "unauthorized", "Host command credential is invalid.", cancellationToken);
-            return;
-        }
-
         string path = context.Request.Url?.AbsolutePath.TrimEnd('/') ?? string.Empty;
         string diagnosticsPrefix = HostContract.HostProtocol.RoutePrefix + "/diagnostics/";
         if (context.Request.HttpMethod == "PUT" && path == diagnosticsPrefix + "policy")
@@ -675,14 +684,14 @@ internal sealed class HostCommandServer : IDisposable
         await WriteErrorAsync(context, 404, "route_not_found", "Unknown Host command route.", cancellationToken);
     }
 
-    private bool Authenticate(string? authorization)
+    internal static bool Authenticate(byte[] tokenHash, string? authorization)
     {
         if (!AuthenticationHeaderValue.TryParse(authorization, out AuthenticationHeaderValue? value)
             || !value.Scheme.Equals("Bearer", StringComparison.OrdinalIgnoreCase)
             || string.IsNullOrEmpty(value.Parameter))
             return false;
         byte[] candidate = SHA256.HashData(Encoding.UTF8.GetBytes(value.Parameter));
-        return CryptographicOperations.FixedTimeEquals(_tokenHash, candidate);
+        return CryptographicOperations.FixedTimeEquals(tokenHash, candidate);
     }
 
     private static HostContract.HostAttachmentStatus ToStatus(HostContract.HostAttachmentSpec attachment) =>

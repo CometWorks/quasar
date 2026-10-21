@@ -226,14 +226,14 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.AddSingleton(installer);
         context.Services.AddSingleton(tunnels);
         context.Services.AddSingleton(new ClusterHostClient(new HttpClient(), credentials));
-        context.Services.AddSingleton(new ClusterLocalHostUpdater(hosts, installer, tunnels, new WebServiceOptions(), NullLogger<ClusterLocalHostUpdater>.Instance));
+        context.Services.AddSingleton(new ClusterLocalHost(hosts, credentials, installer, tunnels, new WebServiceOptions(), NullLogger<ClusterLocalHost>.Instance, Path.Combine(_root, "LocalHost"), supported: false));
         context.Services.AddSingleton(new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build()));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new QuasarAuthOptions(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
-        context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
-        context.Services.AddSingleton(new ClusterConversionService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, new WebServiceOptions()));
+        context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
+        context.Services.AddSingleton(new ClusterConversionService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, new WebServiceOptions(), null!));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddSingleton<QuasarPermissionService>();
         context.ComponentFactories.AddStub<ClusterBetaNotice>();

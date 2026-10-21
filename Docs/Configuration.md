@@ -135,6 +135,16 @@ The server editor does not report `MagnetarMod` as missing from the selected
 config profile while Magnetar's implicit mod loading is active. It still warns
 when implicit loading is disabled explicitly or by cross-play.
 
+`MagnetarMod` is the client-side receiver for those popups; clients download it
+with the world. Magnetar keeps its Workshop copy with the server's other
+Workshop mods, in the server's dedicated server data folder:
+`Magnetars/<server>/DedicatedServer/content/244850/3750200326` by default.
+Magnetar 2.4.3.6 and older also put a copy into the managed dedicated server
+install, `ManagedRuntime/Tools/SpaceEngineersDedicatedServer/Content/Workshop`.
+Newer versions don't write into the install, and that folder can be deleted.
+If the download fails, newer Magnetar versions start the server without the mod
+and log a warning instead of failing the world load.
+
 ## Server storage paths
 
 Server path fields under **Edit Server -> Paths** use three forms:
@@ -201,8 +211,8 @@ corrected or removed. Reset discards unsaved edits.
 
 ## Steam Workshop mod dependencies
 
-Managed cluster profile staging requires the Web API key to resolve the complete
-dependency set. Quasar then downloads exact mod payloads with its managed SteamCMD in
+Managed cluster profile staging, and guided setup or conversion with a profile that has
+mods, requires the Web API key to resolve the complete dependency set. Quasar then downloads exact mod payloads with its managed SteamCMD in
 private staging, trying anonymous access first. If an item needs an account, save its
 Steam username and password with the **SteamCMD account** control on the config
 profile's Workshop panel. Quasar encrypts these values with its local Data Protection
@@ -633,7 +643,16 @@ VAPID keys, subscriptions, and account preferences are kept in the Quasar data d
 `PushNotifications.json`, protected with Quasar's persisted ASP.NET Data
 Protection key ring. Keep that key ring with the data directory during
 migration or restore; losing it makes existing subscriptions unreadable.
-Headless mode does not run browser push delivery.
+Browser announcement push has a fixed lifetime cap of 4,096 IDs per subscription;
+accepted IDs are never evicted to admit new ones. Whole push state has fixed
+receipt-count and 8 MiB byte bounds. See
+[browser delivery limits and legacy recovery](Announcements.md#browser-delivery)
+for admission, retained history and ordinary-notification behavior at capacity.
+
+Headless mode does not run browser push delivery. With current-policy YES and
+diagnostic-report consent, it still polls CometWorks announcements and writes
+eligible notices to the existing service logs with durable per-ID deduplication.
+See [announcement delivery and retention](Announcements.md#headless-service-log-delivery).
 
 ## Discord bot presence
 
@@ -819,6 +838,36 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
 
+Trusted-network roles also require an intended browser destination and same-origin
+context. This check applies to every browser API, including Entity Viewer, before
+issuing a trusted-network principal. It does not replace cookies, service
+principal authentication or the separate machine endpoint policy.
+
+- Both the original destination (before forwarding) and effective destination must
+  match the authority and scheme of the configured public BaseUrl
+  (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete configured
+  listener URL, or localhost/loopback/the actual socket destination IP at the
+  socket's local port. Wildcard listeners do not trust arbitrary DNS names.
+- A browser `Origin` must match the effective request's scheme, host and port.
+  A supplied `Sec-Fetch-Site` must be `same-origin` or `none`; without Origin, a
+  supplied Referer must be same-origin. Normal same-origin iframe requests and
+  direct navigation/bootstrap clients without these headers remain supported.
+- Forwarded bypass requires a known original socket peer, one valid
+  `X-Forwarded-For` client IP (an optional port is supported) and fully consumed `X-Forwarded-*` headers. The proxy
+  must replace incoming forwarding values with its own single-hop values.
+  `Forwarded`, `X-Real-IP`, leftover/ambiguous forwarded values and client-supplied
+  `X-Original-*` do not establish proxy trust. Proxying without an effective
+  client address cannot turn the proxy's loopback address into browser admin.
+
+To keep passwordless trusted access through a public DNS name, set the public
+BaseUrl to that intended URL and give the proxy an accepted backend Host too.
+Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
+longer get automatic roles; use the configured URL or sign in. Signed-in users
+and service principals retain their existing authentication and permissions.
+Local loopback bypass remains on and same-subnet bypass remains off by default.
+No new aliases or auth configuration fields are introduced. See the
+[Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
+
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
 needed because loopback is trusted. For a Docker bridge or a separate reverse
 proxy host, add the proxy container/host address or bridge CIDR:
@@ -987,6 +1036,15 @@ command listeners stay on loopback. See [Guided cluster setup](ClusterGuidedSetu
 for topology, ports, API, resume behavior and release prerequisites. Guided creation
 requires Magnetar's new preparation/export command and a matching cluster SDK pin;
 older released packages fail explicitly before game startup.
+
+## Machine agent and control endpoint security
+
+Agent/control routes require credentials, explicit socket peer IP/CIDR restrictions,
+no Origin header, and an exact configured Host authority. These rules are separate
+from browser authentication and trusted-network bypass. The restrictive source
+default allows only loopback. For `Quasar:MachineEndpoints:AllowedSources`,
+`AllowedHosts`, environment overrides, proxy behavior, multiple LAN/VPN Hosts and
+mandatory save/restart migration, see [DIS-0042 security upgrade](SecurityUpgradeDIS0042.md).
 
 ## Cluster query catalog
 
@@ -1350,6 +1408,15 @@ stage the selection again after editing it. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
 config editing permissions.
+
+**Hot spares** with **Stage hot spare change** prepares a deployment with a
+different number of hot spares. A spare is an extra regular slot of the approved
+node inventory, so Quasar adds or removes spare slots in the saved specification
+(placed like guided setup places them) and prepares it on every Host. Apply it
+from **Maintenance → Pending update**: the update stops the fleet cleanly,
+activates the new inventory and starts the cluster again. The API equivalent is
+`POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
+`{"hotSpares":2}`, with the same permissions.
 
 The current deployment format preserves existing mutable worlds when activating
 a new revision. Consequently, this control accepts profiles that differ from the
@@ -1735,9 +1802,9 @@ atomic rename. If Quasar has no copy, setup continues and logs that the Gateway 
 the Host account already has the file. An older Host without this capability is refused
 until its per-machine update timer installs the Host binary bundled with the active
 Quasar web release. The timer checks every 15 minutes. Existing remote enrollments
-without a timer need one final reinstall through **Hosts → Add cluster machine**;
-older local enrollments gain the timer automatically when Quasar starts. The cluster
-package pin does not select the Host binary.
+without a timer need one final reinstall through **Hosts → Add cluster machine**.
+The local Host on the Quasar machine has no timer: Quasar restarts it from the
+active web release. The cluster package pin does not select the Host binary.
 
 The Host reads the Gateway's stdout and stderr, prefixes each line with `[gateway CLUSTER]`
 and writes it to its own output. It keeps the last 20 lines, each cut to 300 characters.
@@ -1849,10 +1916,12 @@ or deployment change, including changes on the current package version. **Apply 
 update** starts the durable full-downtime workflow without requiring JSON input.
 Fine-grained package, dependency, import and activation overrides share one flat
 **Advanced deployment tools** expansion panel.
-Staging checks the release's pinned PluginSdk against a verified existing dependency
-snapshot or installed Magnetar before changing the package selection. The normal action
-can reuse the existing frozen DS, Magnetar, Direct Transport and common plugins when
-their SDK matches the new release. Otherwise freezing uses the configured dependency
+Staging checks the release's PluginSdk pin against a verified existing dependency
+snapshot or installed Magnetar before changing the package selection: the Magnetar
+`PluginSdkContract` must have the release's `pluginSdkContract` major and at least its
+minor, or, when either side declares no contract, the `PluginSdk.dll` SHA-256 must equal
+the release's `pluginSdkSha256`. The normal action can reuse the existing frozen DS,
+Magnetar, Direct Transport and common plugins when their SDK satisfies the new release. Otherwise freezing uses the configured dependency
 sources described above; missing Direct Transport or common plugin inputs must be
 configured before that step.
 Preparation copies the selected verified installation to each enrolled Host, reuses the
@@ -1924,13 +1993,14 @@ explicit recovery operations to preserve the recorded revision.
 
 Host activation and restore compare the complete nonempty `storageFormats` map
 (`world`, `registry`, `plugins`). Different formats require explicit migration. The
-prepared package's exact PluginSdk hash must match the frozen Magnetar dependency.
+frozen Magnetar dependency must satisfy the prepared package's PluginSdk pin, the same
+check as staging.
 Guided setup provisions current managed Magnetar before choosing a cluster package.
-If a stopped, incomplete setup has an older package whose PluginSdk pin no longer
-matches, **Resume guided setup** downloads and selects the latest package only
-when its pin matches the installed SDK. It clears the prior dependency selection and
-rebuilds an export made with an older SDK. Until a matching release exists, setup
-remains interrupted with the expected and installed hashes in its error.
+If a stopped, incomplete setup has an older package whose PluginSdk pin the installed
+Magnetar no longer satisfies, **Resume guided setup** downloads and selects the latest
+package only when the installed SDK satisfies its pin. It clears the prior dependency
+selection and rebuilds an export made with an older SDK. Until a compatible release
+exists, setup remains interrupted with both contracts or hashes in its error.
 
 Use `cluster command NAME REQUEST.json` for `world-export` (bounded TTL), scoped
 `trigger`, `handover-config-set`, or `artifact-release`; inspect with `diagnostics`,

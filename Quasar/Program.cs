@@ -39,6 +39,7 @@ public class Program
             var builder = WebApplication.CreateBuilder(workerArgs);
             Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory();
             AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, workerArgs);
+            MachineEndpointSecurity.DisableAutomaticForwarding(builder.Configuration);
 
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
             if (!webServiceOptions.Headless && ShouldUseSourceStaticWebAssets())
@@ -47,6 +48,7 @@ public class Program
             var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
+            var machinePolicy = MachineEndpointSecurity.Create(builder.Configuration, webServiceOptions);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
             var runtimePluginCatalog = QuasarUiPluginCatalog.Create(
                 builder.Configuration, builder.Environment, loadPluginAssemblies: !webServiceOptions.Headless);
@@ -185,8 +187,8 @@ public class Program
             builder.Services.AddSingleton<ClusterHostCatalog>();
             builder.Services.AddSingleton<ClusterHostTunnels>();
             builder.Services.AddSingleton<ClusterHostInstaller>();
-            builder.Services.AddSingleton<ClusterLocalHostUpdater>();
-            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHostUpdater>());
+            builder.Services.AddSingleton<ClusterLocalHost>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterLocalHost>());
             builder.Services.AddSingleton<ClusterSetupService>();
             builder.Services.AddSingleton<ClusterUpdatePreparationService>();
             builder.Services.AddSingleton(webServiceOptions);
@@ -270,6 +272,7 @@ public class Program
             builder.Services.AddSingleton<PluginLogStream>();
             builder.Services.AddSingleton<PluginConfigService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginConfigService>());
+            builder.Services.AddSingleton<AgentSocketAuthenticator>();
             builder.Services.AddSingleton<AgentSocketHandler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DedicatedServerSupervisor>());
             builder.Services.AddHostedService<WebServiceManifestHostedService>();
@@ -290,12 +293,7 @@ public class Program
             builder.Services.AddSingleton<QuasarShutdownService>();
             builder.Services.AddSingleton<QuasarUpdateService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
-            if (!webServiceOptions.Headless)
-            {
-                builder.Services.AddSingleton<PushNotificationService>();
-                builder.Services.AddScoped<BrowserPushState>();
-                builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PushNotificationService>());
-            }
+            ConfigureNotificationServices(builder.Services, webServiceOptions);
             builder.Services.AddSingleton<QuasarBackupSettingsService>();
             builder.Services.AddSingleton<ServerRestoreCoordinator>();
             builder.Services.AddSingleton<QuasarBackupService>();
@@ -324,7 +322,15 @@ public class Program
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
 
-            app.UseForwardedHeaders(CreateForwardedHeadersOptions(authOptions));
+            app.Use((context, next) => MachineEndpointSecurity.InvokeAsync(context, next, machinePolicy));
+            var forwarding = CreateForwardedHeadersOptions(authOptions);
+            app.Use((context, next) =>
+            {
+                context.RequestServices.GetRequiredService<TrustedNetworkEvaluator>()
+                    .CaptureOriginalRequest(context, forwarding);
+                return next(context);
+            });
+            app.UseForwardedHeaders(forwarding);
             if (!webServiceOptions.Headless)
                 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
             app.UseWebSockets(new WebSocketOptions
@@ -499,17 +505,16 @@ public class Program
                     .AllowAnonymous();
             }
 
-            app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
+            app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime) =>
             {
                 var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
                 if (string.IsNullOrWhiteSpace(expectedToken) ||
-                    !string.Equals(context.Request.Headers["X-Quasar-Launcher-Token"], expectedToken, StringComparison.Ordinal))
+                    !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        System.Text.Encoding.UTF8.GetBytes(context.Request.Headers["X-Quasar-Launcher-Token"].ToString()),
+                        System.Text.Encoding.UTF8.GetBytes(expectedToken)))
                 {
                     return Results.Unauthorized();
                 }
-
-                if (authOptions.Enabled && !trustedNetworkEvaluator.IsTrusted(context))
-                    return Results.Unauthorized();
 
                 var delaySeconds = 0;
                 if (int.TryParse(context.Request.Query["delaySeconds"], out var parsedDelay))
@@ -639,6 +644,18 @@ public class Program
         {
             LogManager.Shutdown();
         }
+    }
+
+    internal static void ConfigureNotificationServices(IServiceCollection services, WebServiceOptions options)
+    {
+        services.AddHttpClient("Announcements", client => client.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddSingleton<AnnouncementService>();
+        services.AddHostedService(provider => provider.GetRequiredService<AnnouncementService>());
+        if (options.Headless) return;
+        services.AddSingleton<PushNotificationService>();
+        services.AddScoped<BrowserPushState>();
+        services.AddHostedService(provider => provider.GetRequiredService<PushNotificationService>());
     }
 
     internal static readonly TimeSpan WebServerDrainTimeout = TimeSpan.FromSeconds(5);

@@ -131,6 +131,10 @@ namespace Quasar.Agent
                         {
                             socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
                             socket.Options.AddSubProtocol("quasar.agent.v1");
+                            // Quasar.Host.Contract.V1.AgentSocketToken; Quasar or the cluster Host sets it at launch.
+                            var agentToken = Environment.GetEnvironmentVariable("QUASAR_AGENT_TOKEN");
+                            if (!string.IsNullOrWhiteSpace(agentToken))
+                                socket.Options.SetRequestHeader("X-Quasar-Agent-Token", agentToken.Trim());
 
                             var socketUri = new UriBuilder(baseUri)
                             {
@@ -171,6 +175,9 @@ namespace Quasar.Agent
                                     pluginConfigTask,
                                     pluginLogTask,
                                     receiveTask).ConfigureAwait(false);
+
+                                if (socket.CloseStatus == WebSocketCloseStatus.PolicyViolation)
+                                    Log($"Quasar refused the connection: {socket.CloseStatusDescription}");
                             }
                             finally
                             {

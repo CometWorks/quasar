@@ -28,6 +28,8 @@ public class AgentHello
 
     public string ClusterSlot { get; set; } = string.Empty;
 
+    public string ClusterLaunchAttempt { get; set; } = string.Empty;
+
     public long ClusterEpoch { get; set; }
 
     public string DeploymentRevision { get; set; } = string.Empty;

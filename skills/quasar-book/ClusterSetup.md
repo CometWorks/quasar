@@ -1,6 +1,6 @@
 # Guided cluster setup
 
-How to create a managed cluster with the **Set up cluster** wizard: enrolling host machines, installing the Host executor (local, enrollment command, SSH or manual package), the prerequisites, what the wizard checks and what its error messages mean. For cluster operation after setup see [Clusters](Clusters.md); for the Host executor itself see [Cluster hosts](ClusterHosts.md).
+How to create a managed cluster with the **Set up cluster** wizard: the local Host on the Quasar machine, enrolling other host machines and installing the Host executor there (enrollment command, SSH or manual package), the prerequisites, what the wizard checks and what its error messages mean. For cluster operation after setup see [Clusters](Clusters.md); for the Host executor itself see [Cluster hosts](ClusterHosts.md).
 
 ## Before you start
 
@@ -9,9 +9,10 @@ Quasar side:
 - Quasar runs on Linux x64 from a published release. The release ships the Host executor as `Host/Quasar.Host` next to the web worker; a plain development build has none and enrollment fails with "This Quasar build does not include the Host installer (…)". For a development build, set `QUASAR_HOST_BINARY` to a published single-file `Quasar.Host`.
 - A GitHub token with access to `CometWorks/cluster` in **Updates → GitHub token**, so Quasar can download cluster releases.
 - The managed Dedicated Server, Magnetar and SteamCMD (Quasar installs and updates them; see [Updates](Updates.md)). The installed Magnetar must support managed plugin preparation (`-prepareManaged`).
-- A published cluster release whose pinned PluginSdk matches the installed Magnetar.
+- A published cluster release that runs on the installed Magnetar's PluginSdk: same PluginSdk contract major and an equal or higher minor on the Magnetar side. For a release or Magnetar without a contract version, the exact PluginSdk build has to match.
 - `dotnet` with the .NET 10 runtime on the Quasar machine, because Quasar runs the release's world converter (`MagnetarWorld.dll`) with `dotnet`.
 - A world template and a configuration profile. The profile's administrators must be numeric SteamID64 values and max players must be at least 2.
+- If the profile has Workshop mods: a Steam Web API key in the Steam Workshop settings (**Configs → Mods → Add API Key**), because setup resolves the mods' dependencies. Without mods no key is needed.
 - Roles: cluster manage and configuration editing (Editor or Admin) to run setup; security administration (Admin) to enroll host machines. Without Admin the wizard says "A security administrator must enroll host machines. You can continue with an existing connected host machine."
 
 Host machine side (each machine that runs cluster processes):
@@ -34,7 +35,7 @@ Open **Hosts** (nav group "Infrastructure & tools") and choose **Add host machin
 | Host machine name | Display name. A blank name gets a generated suggestion. |
 | Cluster network IP address | A private IP: `10.x`, `172.16.x` to `172.31.x`, `192.168.x`, an IPv6 ULA (`fc00::/7`), or loopback. Use `127.0.0.1` only for a cluster entirely on the Quasar machine. |
 | Quasar address reachable by this host machine | The Quasar origin, for example `https://quasar.example.com`, with no path or query. HTTP is allowed only on loopback. |
-| Installation method | **Install on this PC**, **Run an enrollment command on the host machine**, **Install over SSH**, **Download package for manual installation**. |
+| Installation method | **Run an enrollment command on the host machine** (default), **Install over SSH**, **Download package for manual installation**. |
 
 Registration validation errors:
 
@@ -45,9 +46,13 @@ Registration validation errors:
 
 Each enrollment gets a Host executor control port (default 18400, loopback only on the host machine) and a generated credential. The Host executor connects out to Quasar; you do not open any inbound port for it.
 
-### Install on this PC
+### The local Host on this PC
 
-Quasar runs the installer script as its own user account on the Quasar machine. Quasar also does this by itself: on Linux x64 it registers a host machine with ID `localhost` and name "<host name> (local)", picks a private LAN/VPN address of the machine (or `127.0.0.1` if it has none) and installs the Host executor. It re-checks every 15 minutes. The Hosts page shows its status, for example "Local Host executor connected." or "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes."
+The Quasar machine needs no enrollment. On Linux x64 every Quasar install has a local Host executor with ID `local` and the name "<host name> (this PC)". Quasar registers it at its first start, with a private LAN/VPN address of the machine (or `127.0.0.1` if it has none) and a free loopback control port from 18401 up. The registration doesn't appear in the **Registration** list of the enrollment form.
+
+Quasar runs `Quasar.Host` from its own release and keeps the Host's files in `<install root>/LocalHost/`. Nothing goes into the home folder and no systemd unit is installed for it. Quasar starts the Host when the Hosts page or cluster setup is opened, when Quasar needs it for a cluster, and at Quasar start when a cluster is deployed on this PC. Details are in [Cluster hosts](ClusterHosts.md#the-local-host).
+
+The Hosts page and the wizard show its status, for example "Local Host executor ready. Quasar starts it when a cluster needs it.", "Local Host executor connected.", "Automatic local cluster hosting requires Linux x64. Enroll a Linux host machine to run cluster processes." or, in the Docker image, "Quasar has no local Host executor in a container. Enroll a Linux host machine to run cluster processes."
 
 ### Run an enrollment command
 
@@ -76,7 +81,7 @@ Keep it running with your own service manager. Before shutdown, have the service
 
 ### What the automatic installer does
 
-The local, command and SSH methods run the same script. It:
+The command and SSH methods run the same script. It:
 
 1. Checks Linux x64, a working systemd user session, Python 3, `flock` and the .NET 10 runtime.
 2. Installs into `~/.local/share/Quasar/Hosts/<id>/` with `Quasar.Host`, `host.json`, `state/credentials.json` and `bin/host-update.py`.
@@ -105,6 +110,7 @@ Open **New cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Cr
 | World template | Quasar converts a copy; the template is not changed. |
 | Configuration profile | Game settings, mods and plugin selection. Quasar copies it to a new profile "<Server name> (cluster)". |
 | Host machines | Tick each machine and set **Regular nodes**, 1 to 32 per machine, at least 2 and at most 254 in total. |
+| Hot spares | How many hot spares the cluster has, 1 by default. A hot spare runs warm and holds nothing; when a node crashes the cluster moves that node's partitions to a spare at once, and the crashed node restarts as the new spare. Quasar only sets the count: it adds that many spare nodes, from the Gateway host machine on, at most 32 nodes per machine. With 0 the page warns that a crashed node's partitions reload on the remaining nodes. Hot spares need a cluster release that supports them; with an older release setup stops with "This cluster release does not support hot spares". |
 | Cluster Gateway and World Authority host machine | One of the selected machines. Players connect to it. It also runs the Cluster Registry and the World Authority. |
 | Public server port | UDP, 1024 to 65000, default 28000. |
 
@@ -133,13 +139,14 @@ The status line shows each phase:
 
 1. "Checking cluster hosts": each selected Host executor must answer with its enrolled identity and the required capabilities.
 2. "Provisioning Dedicated Server and Magnetar": installs or updates the managed runtime.
-3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one does not match the installed PluginSdk.
-4. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
-5. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
-6. "Converting a copy of the world": splits the world with the release's converter.
-7. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation and world.
-8. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
-9. "Ready to start".
+3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one cannot run on the installed PluginSdk.
+4. "Staging the profile's Workshop mods": resolves the mods' dependencies and downloads the current version of each mod with the managed SteamCMD, the same way **Stage profile changes** does (see [Mods and content updates](Clusters.md#mods-and-content-updates)). Magnetar's companion mod is always pinned with them, also for a profile without mods or with crossplay enabled, because Magnetar adds it to every node.
+5. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
+6. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
+7. "Converting a copy of the world": splits the world with the release's converter.
+8. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation, the world and the staged mods.
+9. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
+10. "Ready to start".
 
 Quasar generates all credentials. You do not set any environment variable for a guided cluster.
 
@@ -156,7 +163,7 @@ Setup is durable. Its files live in `<install root>/ClusterSetup/<Cluster ID>/` 
 - **Start a new setup** clears the bound request so you can change the inputs under a new Cluster ID.
 - Submitting a finished setup again only re-checks the Hosts.
 
-Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup selects a newer matching cluster release and prepares the plugins again.
+Resume also re-checks the PluginSdk: if Magnetar was updated in between and the selected cluster release no longer fits it, setup selects a newer compatible release. If Magnetar changed at all, it prepares the plugins again.
 
 ## Setup errors
 
@@ -167,7 +174,8 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup s
 | "Host executor '<name>' does not match its enrollment or has no executor identity." | Another Host answered on that registration. Check the machine and reinstall. |
 | "Host executor '<name>' has not configured this cluster deployment. Resume setup after the Host executor is ready." | The Host has not applied the deployment yet. Resume. |
 | "Cannot reach Host executor '<id>'. Start the Host executor (Quasar.Host) on that host machine and wait for it to reconnect before retrying." | The Host is offline. See [Cluster hosts](ClusterHosts.md#troubleshooting-connection-problems). |
-| "Cluster release <v> pins PluginSdk <hash>, but installed Magnetar has <hash>. Resume after a compatible cluster release is published." | No published cluster release matches the installed Magnetar yet. Wait for a matching release, then resume. |
+| "Cluster release <v> cannot run on the installed Magnetar: it needs PluginSdk contract <x.y>, but Magnetar has <x.y>. …" | The cluster release and Magnetar have incompatible PluginSdk contracts. The message says whether a newer Magnetar or a cluster release built for the newer contract is needed. Update, or wait for that release, then resume. |
+| "Cluster release <v> cannot run on the installed Magnetar: it was built against PluginSdk <hash>, but Magnetar has <hash> …" | The release or Magnetar declares no PluginSdk contract, so the exact PluginSdk build has to match, and no published cluster release matches the installed Magnetar yet. Wait for a matching release, then resume. |
 | "The installed Magnetar release does not support managed plugin preparation. …" | Update Magnetar, then resume. No game server was started. |
 | "Magnetar preparation failed: …" | Magnetar's exporter failed, often a plugin that cannot build or has unsupported configuration. Read the message, fix the profile, resume. |
 | "Could not … from GitHub repository CometWorks/cluster (HTTP 404). …" | Missing release or no access. Check the token in **Updates → GitHub token**. 401, 403 and 429 have their own guidance in the message. |
@@ -187,7 +195,7 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup s
 - `POST /api/v1/clusters/setup` with an `Idempotency-Key` header and `{ "uniqueName", "displayName", "worldTemplateId", "configProfileId", "gatewayHost", "playerPort", "machines": [ { "hostId", "regularNodes" } ] }`. Needs cluster manage and configuration editing. After a failure, retry with a new key; reusing a key returns the earlier result.
 - `GET /api/v1/clusters/{id}/setup` returns the stored request and status.
 - `GET /api/v1/host-enrollment` lists enrollments with `connected`. `POST /api/v1/host-enrollment` registers `{ "id", "name", "address", "commandPort" }` (default 18400).
-- `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/local` installs on the Quasar machine; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
+- `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
 
 ## Sources
 - `Docs/ClusterGuidedSetupPlan.md`
@@ -208,8 +216,9 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between, setup s
 - `Quasar/Services/ClusterHostClient.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
-- `Quasar/Services/ClusterLocalHostUpdater.cs`
+- `Quasar/Services/ClusterLocalHost.cs`
 - `Quasar/Services/ClusterPackageService.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`
 - `Quasar/Services/ClusterSteamClientLibrary.cs`
+- `Quasar/Services/ClusterWorkshopModStager.cs`
 - `Quasar/Program.cs`

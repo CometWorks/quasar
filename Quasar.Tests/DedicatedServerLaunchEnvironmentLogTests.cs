@@ -17,11 +17,17 @@ public sealed class DedicatedServerLaunchEnvironmentLogTests
         };
         startInfo.Environment["PULSAR_GITHUB_TOKEN"] = "ghp_verySecretToken";
         startInfo.Environment["QUASAR_UNIQUE_NAME"] = "test";
+        startInfo.Environment["QUASAR_AGENT_TOKEN"] = "agentSecretToken";
 
+        startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = "launcher-secret";
+        startInfo.Environment["QSR_MANAGED_TEST"] = "managed-secret";
         var description = DedicatedServerSupervisor.DescribeLaunchEnvironment("test", startInfo);
 
         Assert.DoesNotContain("ghp_verySecretToken", description, StringComparison.Ordinal);
         Assert.Contains("PULSAR_GITHUB_TOKEN=<redacted>", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("agentSecretToken", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("launcher-secret", description, StringComparison.Ordinal);
+        Assert.DoesNotContain("managed-secret", description, StringComparison.Ordinal);
         Assert.Contains("QUASAR_UNIQUE_NAME=test", description, StringComparison.Ordinal);
         Assert.Contains("Arguments=-noconsole -daemon -consent accept", description, StringComparison.Ordinal);
         Assert.Contains("WorkingDirectory=/opt/magnetar", description, StringComparison.Ordinal);

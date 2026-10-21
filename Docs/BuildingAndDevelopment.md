@@ -426,7 +426,8 @@ Direct Transport address. Gateway control routes of a managed cluster need its a
 The seven-stage [integration plan](Phase4IntegrationPlan.md) separates focused checks
 from full local acceptance. Build/test Quasar services and `Quasar.Host --self-test`
 without launching the web service. Upstream cluster `Build/release.sh` builds the entire
-package, runs shipped Gateway/CLI self-tests and records the exact build PluginSdk hash.
+package, runs shipped Gateway/CLI self-tests and records the PluginSdk contract version
+and exact build hash.
 Use the coordinated Magnetar build through `MAGNETAR_SDK`; old published dependencies
 cannot provide the new provider contract. Check protocol parity with upstream
 `python3 Build/verify-plugin-protocol.py /path/to/magnetar`.

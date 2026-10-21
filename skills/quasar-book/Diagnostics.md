@@ -34,12 +34,47 @@ Running servers keep their current statistics setting until they restart. The UI
 - Turning diagnostic reports or crash dumps on or off starts a new consent generation. Reports captured before the change can never be uploaded under the new choice, including queued ones. Only incidents captured after enabling are eligible.
 - Turning diagnostic reports or crash dumps off cancels active transfers and deletes queued reports.
 - Already delivered reports cannot be recalled.
-- Hosts get a two-minute consent lease, renewed every 30 seconds. An offline host stops sharing when its lease expires.
+- Hosts get a two-minute consent lease, renewed every 30 seconds for the connected ones. An offline host stops sharing when its lease expires and gets a new one at the first renewal after it connects.
 - A crash dump setting applies to a process from its next start. Consent still gates packaging and upload of any dump already on disk.
 
 ### Where consent is stored
 
 `data-handling-consent.json` in the Quasar data directory. The Security page shows the full path. Quasar watches the file and reloads it when it changes on disk. Decisions stored under an older policy version are reset, so admins get the prompt again after upgrading to a version with a new policy (the current policy version is 3).
+
+## CometWorks announcements
+
+Current-policy **YES** and enabled **Diagnostic reports** also allow Quasar to
+check CometWorks announcements every five minutes, with 30 seconds of jitter.
+They appear in the existing bell and Notifications page, including for operators
+of linked Hosts in this central UI. There is no Host relay, game broadcast,
+command or automatic restart. All modes poll while consent permits it. Headless
+Quasar writes notices to its existing service logs with Information, Warning or
+Critical severity; it does not register browser notification services.
+
+Turning YES or diagnostic reports off cancels pending fetches and push delivery,
+clears displayed notices, and stops network polling. The backend only knows
+enrollment, not current local consent. Successful snapshots remove withdrawn
+notices; notices also disappear at expiry or six minutes after the last successful
+fetch. An independent one-second timer invalidates idle UIs even while a network
+fetch is stalled or fails. A restart preserves active display only within that deadline and under
+the same consent. Browser push uses existing subscriptions, with one durable
+attempt per browser and announcement ID; failed attempts can be missed and
+already accepted pushes cannot be recalled. Browser admission stops at 4,096 IDs
+per subscription without evicting accepted history. Protected browser state has
+receipt-count and 8 MiB representation bounds. Invalid/oversized state is kept
+for repair; the bell/page remain available and readable legacy state can still
+support ordinary push with session-only receipts. See [Monitoring](Monitoring.md#notifications)
+and [the delivery contract](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md).
+
+Headless log attempts are deduplicated in `Announcements.log-receipts.json`, even
+across restart, regrant and withdrawal. Receipts are reserved before logging, so
+an interrupted attempt can be missed. The file retains up to 4,096 IDs until their
+original exclusive expiry and is bounded to 1 MiB. At capacity or on invalid or
+unwritable state, delivery pauses rather than losing live deduplication history.
+Expired receipts free space; deliberately reused IDs after expiry can log again.
+Only a current, nonexpired snapshot within its six-minute freshness window can be
+logged. Text is structured and line breaks are escaped. Already written service
+logs cannot be recalled. See the delivery contract for failure/recovery limits.
 
 ## What is collected
 
@@ -62,7 +97,7 @@ Details:
 
 ## Upload and queues
 
-- Quasar polls its own collector and every enrolled host every 30 seconds, and immediately after a consent change.
+- Quasar polls its own collector and every connected host every 30 seconds, and immediately after a consent change.
 - Each report is copied into Quasar's outbound queue, checked against its declared length and SHA-256, and only then acknowledged to the source. The source deletes it after the acknowledgment.
 - Uploads use `PUT /v1/reports/{reportId}` on the backoffice. A failed upload stays queued and retries with the same report ID.
 - If the backoffice rejects one report (HTTP 400, 409, 413, 415, 422 or 507), Quasar keeps it and moves on to the next one.
@@ -232,3 +267,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar.Tests/ServerListPublisherTests.cs`
 - `Quasar.Tests/ServerListSettingsTests.cs`
 - `Quasar.Tests/ServerListingPageTests.cs`
+
+- `Docs/Announcements.md`
+- `Quasar/Services/Updates/AnnouncementService.cs`
+- `Quasar.Tests/AnnouncementTests.cs`

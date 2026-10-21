@@ -79,7 +79,7 @@ curl http://127.0.0.1:8080/api/ready
 | Command or flag | Effect |
 | --- | --- |
 | `serve` | Run Bootstrap and supervise the web worker in this process. Used by the service. |
-| (no command) | Same as `ensure-running`: reuse a healthy Quasar, otherwise start one. From a terminal it runs in the foreground; from a script it starts a detached launcher and waits up to 60 seconds for it to become healthy. |
+| (no command) | Same as `ensure-running`: reuse a healthy Quasar, otherwise start one. From a terminal it runs in the foreground; from a script it starts a detached launcher and waits up to 60 seconds for it to become healthy, or for as long as the launcher retries the first web UI download, printing the launcher's wait lines. |
 | `cluster ...` | Cluster command line tools. See [Clusters](Clusters.md). |
 | `help`, `--help`, `-h` | Print the commands and options and exit. |
 | `--headless` | API-only mode. |
@@ -109,7 +109,7 @@ With an extracted release archive, `install.sh` installs in place: the folder th
 | `--user <user>` | the `sudo` caller, or `root` | Account the system service runs as. Only valid with `--system`. |
 | `--user-service` | on | Explicitly select the user service. |
 | `--install-dir <dir>` | the script's folder for release archives; `<run-user-home>/.local/share/Quasar` for source checkouts | Copies Quasar to `<dir>` and points the service there. |
-| `--service-name <name>` | `quasar` | systemd unit name, `<name>.service`. |
+| `--service-name <name>` | `quasar` | systemd unit name, `<name>.service`, and the clusters unit `<name>-clusters.service`. |
 | `--no-enable` | off | Do not enable the unit at boot. |
 | `--install-renice-helper` | off | Builds `quasar-renice.c` with `cc` and installs `/usr/local/bin/quasar-renice` as setuid root. |
 | `--yes`, `-y` | off | Run .NET package install commands without asking. |
@@ -144,14 +144,16 @@ Both modes write the same `[Service]` section (the system unit adds `User=` and 
 | `KillMode` | `process` | `systemctl stop` signals only Bootstrap, so detached game servers keep running. |
 | `TimeoutStopSec` | `1800` | Up to 30 minutes for a clean stop. |
 | `SuccessExitStatus` | `130 143` | Exit after SIGINT or SIGTERM counts as success. |
-| `Environment` | `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_START=false`, `HOME=<run-user-home>`, `QUASAR_INSTALL_DIR=<install-dir>` | Service mode, no browser, fixed state root. |
+| `Environment` | `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_START=false`, `HOME=<run-user-home>`, `QUASAR_INSTALL_DIR=<install-dir>`, `QUASAR_HOST_STOP_UNIT=<path of the clusters unit>` | Service mode, no browser, fixed state root. The last one is for the local Host's warnings. |
 | `WantedBy` | `default.target` (user) or `multi-user.target` (system) | |
 
 The unit waits for `network-online.target`. Use `Restart=on-failure` in any custom unit too: `Restart=always` would bring Quasar back after the UI **Shutdown Quasar** action.
 
+`install.sh` also writes and enables `<service-name>-clusters.service` in the same folder (a system unit with the same `User=`). It saves and stops the clusters on this PC at logout or shutdown, before Quasar's service stops. See [Cluster hosts](ClusterHosts.md#systemd-units). Installs made before it existed get it when you rerun `install.sh`.
+
 ### Stopping and the Shutdown Quasar action
 
-- `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. A SIGTERM to Bootstrap, from `kill` or a process manager, does the same. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start.
+- `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. A SIGTERM to Bootstrap, from `kill` or a process manager, does the same. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start. The same goes for the local Host executor while it has running clusters; otherwise it stops with Quasar.
 - The power button in the top bar opens **Quasar power** (admin role). **Shutdown Quasar** saves the managed server state, stops the web worker and Bootstrap with exit code 0. systemd leaves the service inactive. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Start the service again to bring the UI back: `systemctl --user start quasar.service` or `sudo systemctl start quasar.service`.
 - **Restart Quasar** in the same dialog restarts only the web worker under Bootstrap. Servers keep running.
 - **Save and stop all servers** stops every server and leaves Quasar running.
@@ -195,6 +197,7 @@ Everything lives under the install root, `QUASAR_INSTALL_DIR`. The service unit 
 | `Magnetars/<server>/` | Per server: `server.json`, `DedicatedServer/` (DS app data, saves), `Magnetar/` (Magnetar profiles and config), `History/`, `analytics.jsonl` |
 | `WorldTemplates/<id>/` | World templates |
 | `Clusters/<name>/` | Cluster definitions |
+| `LocalHost/` | The local Host executor's configuration, state (cluster deployments and saves) and log. See [Cluster hosts](ClusterHosts.md#the-local-host). |
 | `Backups/` | Configuration backup ZIPs. Override with `QUASAR_BACKUP_DIR` or the Backups page. |
 | `ManagedRuntime/Tools/` | Downloaded `Magnetar/`, `SteamCMD/`, `SteamCmdHome/` (private HOME for SteamCMD), `SpaceEngineersDedicatedServer/`, `DotNetSdk/` |
 | `ManagedRuntime/WebService/<version>/` | Installed web UI worker releases |
@@ -221,20 +224,22 @@ Neither `install.sh` nor Quasar changes firewall rules. Keep the web port behind
 ## Uninstall
 
 ```bash
-~/.local/share/Quasar/uninstall.sh            # stop, disable and remove the user service
+~/.local/share/Quasar/uninstall.sh            # save the clusters on this PC, stop and remove the user service
 ~/.local/share/Quasar/uninstall.sh --purge    # also delete the install directory
 sudo ./uninstall.sh --system --install-dir /path/to/quasar --purge   # system service
 ```
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--service-name <name>` | `quasar` | Unit to remove |
+| `--service-name <name>` | `quasar` | Unit to remove, together with `<name>-clusters.service` |
 | `--install-dir <dir>` | the script's folder; `/opt/quasar` when `--system` is given without `--install-dir` | Folder `--purge` deletes |
 | `--user-service` | on | Remove the user unit from `~/.config/systemd/user/` |
 | `--system` | off | Remove `/etc/systemd/system/<name>.service`. Needs root. |
 | `--purge` | off | Delete the install directory, including all servers, saves, backups and logs inside it |
 
-The script stops the service, disables it, deletes the unit file, runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays. Managed game servers are detached and can keep running after the service stops, so use **Save and stop all servers** first if you want them stopped. With `--system`, always pass `--install-dir` together with `--purge`, otherwise the script targets `/opt/quasar`.
+The script first stops `<service-name>-clusters.service`, which saves and stops the clusters on this PC while the local Host still runs. Without that unit (an older install) it runs `LocalHost/stop-clusters` itself when the Host runs. Then it stops the service, disables it, stops the local Host process recorded in `LocalHost/host.pid`, deletes both unit files, runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays, `LocalHost/` included.
+
+A local Host that an older Quasar version installed in `~/.local/share/Quasar/Hosts/<id>` is left alone, because another install may use it. The script prints the commands to remove it. Managed game servers are detached and can keep running after the service stops, so use **Save and stop all servers** first if you want them stopped. With `--system`, always pass `--install-dir` together with `--purge`, otherwise the script targets `/opt/quasar`.
 
 ## Upgrading
 
@@ -266,7 +271,7 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
 - The UI doesn't come up after a fresh install: Bootstrap hasn't been able to download the web worker from GitHub yet, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. Bootstrap retries a failed download on its own, 30 seconds after the first failure, then doubling up to every 10 minutes, and writes each wait to the journal (`journalctl --user -u quasar.service`):
   - `Failed downloading the Quasar web UI; retrying at <time> (in <n> s). <error>`: GitHub can't be reached. Fix network access; there is no need to restart Quasar.
-  - `GitHub's API rate limit is used up, so Quasar can't download its web UI yet. Waiting for GitHub to reset the limit; retrying at <time> ...`: GitHub allows 60 anonymous API requests an hour per public IP address, and every machine behind the same NAT, CGNAT or hosting provider shares them. Quasar waits until the reset time GitHub sends (at most an hour) and then continues on its own. Bootstrap doesn't read `GITHUB_TOKEN`, and the token on the [Updates](Updates.md) page can only be saved once the UI is up; after that, it keeps later update checks out of the anonymous limit.
+  - `GitHub's API rate limit is used up, so Quasar can't download its web UI yet. Waiting for GitHub to reset the limit; retrying at <time> ...`: GitHub allows 60 anonymous API requests an hour per public IP address, and every machine behind the same NAT, CGNAT or hosting provider shares them. Quasar waits until the reset time GitHub sends (at most an hour) and then continues on its own. To skip the wait, give Bootstrap a GitHub token in `QUASAR_GITHUB_TOKEN` (or `GITHUB_TOKEN`) and restart the service; see [Updates](Updates.md#github-token-for-update-checks) for how to set it for the service. The token on the Updates page can only be saved once the UI is up.
   - Older launchers (1.3.1.27 and earlier) gave up after the first failure, printed `Failed downloading initial Quasar web release.` and `Quasar worker launching on ...` with no worker behind it, and needed a restart once GitHub could be reached again.
 
   With updates disabled and no worker, or when no `quasar-web-linux-x64.tar.gz` asset is found, a foreground run (`./Quasar serve`) prints `Quasar has no running worker, so the web UI is not available.` after the reason.

@@ -14,6 +14,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     private const long MaxSpoolBytes = 8L * 1024 * 1024 * 1024;
     private readonly DataHandlingConsentCatalog _consent;
     private readonly ClusterHostCatalog _hosts;
+    private readonly Func<string, bool> _connected;
     private readonly ClusterHostClient _client;
     private readonly HttpClient _backoffice;
     private readonly ILogger<DiagnosticsUplinkService> _logger;
@@ -45,14 +46,17 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     }
 
     public DiagnosticsUplinkService(DataHandlingConsentCatalog consent, ClusterHostCatalog hosts, ClusterHostClient client,
-        IHttpClientFactory factory, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, Quasar.Diagnostics.DiagnosticCollector collector)
+        IHttpClientFactory factory, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, Quasar.Diagnostics.DiagnosticCollector collector,
+        ClusterHostTunnels tunnels)
         : this(consent, hosts, client, factory.CreateClient("DiagnosticsBackoffice"), configuration, logger,
-            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Diagnostics"), collector) { }
+            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Diagnostics"), collector, tunnels.IsConnected) { }
 
     internal DiagnosticsUplinkService(DataHandlingConsentCatalog consent, ClusterHostCatalog hosts, ClusterHostClient client,
-        HttpClient backoffice, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, string stateDirectory, Quasar.Diagnostics.DiagnosticCollector? collector = null)
+        HttpClient backoffice, IConfiguration configuration, ILogger<DiagnosticsUplinkService> logger, string stateDirectory, Quasar.Diagnostics.DiagnosticCollector? collector = null,
+        Func<string, bool>? connected = null)
     {
         (_consent, _hosts, _client, _backoffice, _logger, StateDirectory) = (consent, hosts, client, backoffice, logger, stateDirectory);
+        _connected = connected ?? (_ => true);
         _collector = collector;
         _storageDirectory = collector?.RootDirectory ?? Quasar.Diagnostics.DiagnosticStorage.Resolve(
             Environment.GetEnvironmentVariable("QUASAR_DIAGNOSTICS_DIRECTORY")
@@ -90,6 +94,22 @@ public sealed class DiagnosticsUplinkService : BackgroundService
 
     internal Uri? BackofficeUrl => _url;
 
+    internal async Task<HttpRequestMessage?> CreateAnnouncementRequestAsync(CancellationToken token)
+    {
+        if (_url?.Scheme != Uri.UriSchemeHttps || !_consent.GetSettings().AllowsAnnouncements) return null;
+        await EnsureEnrolledAsync(token, announcements: true);
+        return _consent.WithSettings(settings =>
+        {
+            token.ThrowIfCancellationRequested();
+            return settings.AllowsAnnouncements ? Request(HttpMethod.Get, "v1/announcements") : null;
+        });
+    }
+
+    internal void RejectAnnouncementCredential()
+    {
+        if (!_configuredToken) _uploadToken = null;
+    }
+
     internal async Task<HttpRequestMessage?> CreateListingRequestAsync(HttpMethod method, string route, CancellationToken token)
     {
         if (_url is null) return null;
@@ -103,7 +123,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
         return Request(method, route);
     }
 
-    private async Task EnsureEnrolledAsync(CancellationToken token)
+    private async Task EnsureEnrolledAsync(CancellationToken token, bool announcements = false)
     {
         await _enrollmentGate.WaitAsync(token);
         try
@@ -132,7 +152,14 @@ public sealed class DiagnosticsUplinkService : BackgroundService
             { Content = JsonContent.Create(new { installationId = InstallationId, publicKey, issuedAt = issued,
                 signature = Convert.ToBase64String(key.SignData(signed, HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) }) };
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            using var response = await _backoffice.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            var sending = _consent.WithSettings(settings =>
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (!settings.DiagnosticsGranted || announcements && !settings.AllowsAnnouncements)
+                    throw new OperationCanceledException(timeout.Token);
+                return _backoffice.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            });
+            using var response = await sending;
             response.EnsureSuccessStatusCode();
             var bytes = new byte[4097];
             await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
@@ -240,8 +267,9 @@ public sealed class DiagnosticsUplinkService : BackgroundService
                 consent.GrantedSinceUtc, DateTimeOffset.UtcNow.AddMinutes(2), key?.KeyId ?? "", key?.PublicKeyPem ?? "",
                 key?.ExpiresAtUtc ?? DateTimeOffset.MinValue);
             lock (_sync) { token.ThrowIfCancellationRequested(); _policy = policy; }
-            // Lease refresh is independent of transfers, including slow or unreachable hosts.
-            await Task.WhenAll(_hosts.GetAll().Select(async host =>
+            // Lease refresh is independent of transfers, including slow or unreachable hosts. An offline Host
+            // gets the policy at the next refresh after it connects; asking for it would start the local Host.
+            await Task.WhenAll(_hosts.GetAll().Where(host => _connected(host.Id)).Select(async host =>
             {
                 try { await _client.SetDiagnosticsPolicyAsync(host, policy, token); }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
@@ -302,7 +330,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
                     { _logger.LogWarning("Local diagnostic report will retry ({FailureType}).", exception.GetType().Name); }
                 }
             }
-            foreach (var host in _hosts.GetAll())
+            foreach (var host in _hosts.GetAll().Where(host => _connected(host.Id)))
             {
                 token.ThrowIfCancellationRequested();
                 try

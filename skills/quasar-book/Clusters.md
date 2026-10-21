@@ -14,6 +14,7 @@ Managed clusters are in beta. The setup, conversion and cluster pages show "Mana
 | Cluster Registry | Runs in the same process as the Cluster Gateway. It owns coordination, placement, drain and administration. Quasar talks to its HTTP admin endpoint (the "Cluster Registry admin URL"). |
 | World Authority (WA) | A special node that owns world-wide state. It runs on the Cluster Gateway host machine. |
 | Regular node | A Magnetar process that simulates part of the world (a partition). |
+| Hot spare | A regular node that runs warm and holds nothing until a node crashes; then it takes over that node's partitions, and the crashed node restarts as the new spare. Shown as **Hot spare** in **Nodes and players**. |
 | Cluster Gateway and World Authority host machine | The placement choice for the machine that runs the Gateway, Registry and World Authority. |
 | Public server port | The UDP port players connect to. Separate from the internal node ports and the Registry admin port. |
 | Host machine ID / Cluster ID / Server ID | Permanent IDs. Server name and Host machine name are the editable display names. |
@@ -103,7 +104,8 @@ CLI equivalents: `cluster gateway-recover NAME` and `cluster recover NAME REQUES
 **Administration → Cluster settings** (needs configuration editing) has:
 
 - **Server name**: the name in Quasar lists.
-- **Configuration profile** and **Stage profile changes**: prepares a new deployment on every host machine with the selected profile. Allowed changes are session settings, administrators, mods and plugin selections. Network and dedicated-server root settings cannot change this way ("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update."). The change applies only when you **Apply pending update** in Maintenance. Quasar refuses to apply if the staged profile was edited or deleted after staging; stage it again.
+- **Configuration profile** and **Stage profile changes**: prepares a new deployment on every host machine with the selected profile. Allowed changes are session settings, administrators, mods and plugin selections. Network and dedicated-server root settings cannot change this way ("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update."). If managed Magnetar was updated since the cluster's runtime snapshot was frozen, staging freezes the installed Magnetar together with the plugins it exported, as long as its PluginSdk contract satisfies the cluster release's. The change applies only when you **Apply pending update** in Maintenance. Quasar refuses to apply if the staged profile was edited or deleted after staging; stage it again.
+- **Hot spares** and **Stage hot spare change**: changes how many hot spares the cluster has. A spare is an extra node, so this prepares a new deployment on every host machine that adds or removes spare nodes; nothing else changes. New spares go where guided setup would put them, from the Gateway host machine on, at most 32 nodes per machine, and a removed spare is the last node of its machine. The change applies only when you **Apply pending update** in Maintenance, which stops the cluster cleanly, activates the new node list and starts it again. Adding spares needs a cluster release that supports them ("This cluster release does not support hot spares..."). A cluster whose nodes Quasar's setup did not lay out cannot change its spares here ("This cluster's nodes were not laid out by Quasar's setup...").
 - **Shutdown grace period (seconds)**: used on the next managed shutdown.
 - **Save cluster settings**.
 
@@ -141,7 +143,7 @@ The **Mods and plugins** panel on the cluster page tracks changes after deployme
 3. **Maintenance → Stage queued content updates** (needs configuration editing) restages the whole active profile. Quasar downloads each changed mod with its managed SteamCMD, checks the Workshop timestamp before and after the download, checks each queued plugin commit against Magnetar's export, and prepares every host machine. It clears the queue only when every Host prepared successfully.
 4. **Apply pending update** stops the cluster, backs it up, activates the new deployment on every host machine and starts it again.
 
-Workshop downloads try anonymous SteamCMD first. Private items need a Steam account in the Steam Workshop settings, otherwise staging fails with "SteamCMD could not download Workshop item <id> anonymously." Unless crossplay is enabled, Quasar adds Magnetar's companion mod (Workshop ID 3750200326) to the pinned mods. Nodes always load mods from the staged copies and never download from the Workshop themselves.
+Workshop downloads try anonymous SteamCMD first. Private items need a Steam account in the Steam Workshop settings, otherwise staging fails with "SteamCMD could not download Workshop item <id> anonymously." Quasar always adds Magnetar's companion mod (Workshop ID 3750200326) to the pinned mods, also for a crossplay profile: Magnetar adds it to every node, and the node configuration the cluster writes never enables crossplay. Nodes always load mods from the staged copies and never download from the Workshop themselves.
 
 A dev folder plugin shows "Plugin manifest is unavailable or has no exact commit" in this panel, because the monitor only looks at the plugin hub. New commits in a dev folder reach the cluster only when you stage the profile again.
 
@@ -191,10 +193,10 @@ The wizard steps:
 
 1. **Review the stopped source**: profile, plugins, when plugin settings were captured, and blocking warnings.
 2. **Choose the destination and verified release**: an empty, stopped registered cluster. **Review frozen plugin versions** lists the frozen plugin commits.
-3. **Place the cluster**: per placement the Host machine ID, Host executor command URL, credential environment variable names, private IP address and regular nodes (1 to 32). Then the Cluster Gateway and World Authority host machine, game build, public server port, allowed internal networks and two more credential variable names. Credential fields take environment variable names, never secret values.
+3. **Place the cluster**: per placement the Host machine ID, Host executor command URL, credential environment variable names, private IP address, regular nodes (1 to 32). Then the number of hot spares (1 by default). Then the Cluster Gateway and World Authority host machine, game build, public server port, allowed internal networks and two more credential variable names. Credential fields take environment variable names, never secret values.
 4. Confirm and choose **Back up and convert**.
 
-Quasar then reserves the source, takes a server backup and a world backup, converts a copy of the world with the release's MagnetarWorld tool, sends the installation and the converted world to every Host, prepares and activates the stopped cluster.
+Quasar then reserves the source, takes a server backup and a world backup, converts a copy of the world with the release's MagnetarWorld tool, stages the profile's Workshop mods as guided setup does (a profile with mods needs the Steam Web API key), sends the installation, the converted world and the mods to every Host, prepares and activates the stopped cluster.
 
 Conversion is blocked when:
 
@@ -291,7 +293,7 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - **"Queued mod/plugin updates must be staged before applying."** Stage the queued content or remove the queue.
 - **"This stopped cluster has no clean shutdown proof."** Use **Recover stopped cluster after an unclean shutdown** before updating.
 - **"Resolve Workshop dependencies before staging: …"** A mod dependency could not be resolved; fix the profile's mod list.
-- **"Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds."** Stage a matching cluster release first.
+- **"Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds."** Managed Magnetar was updated after the snapshot was frozen, and the cluster release or the new Magnetar declares no PluginSdk contract, or the new Magnetar's contract doesn't fit the release. In the last case the error names both contracts and says whether a newer Magnetar or another cluster release is needed. Otherwise stage a matching cluster release.
 - **"Select the release and dependencies used by the active deployment before conversion."** Reselect the active package and dependencies before converting a cluster back.
 - **`cluster-credentials.json` damaged.** Quasar moves an unreadable `cluster-credentials.json` to `cluster-credentials.json.corrupt-<timestamp>` and starts without it. Restore it from a backup together with the Data Protection keys, or re-create the clusters and Host enrollments.
 
