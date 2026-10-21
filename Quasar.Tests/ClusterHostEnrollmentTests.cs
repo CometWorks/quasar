@@ -193,8 +193,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             else
             {
                 Assert.Null(ClusterLocalHost.ProcessIdentity(running.Pid));
-                Assert.EndsWith(" stop-clusters --config " + Path.Combine(install, "LocalHost", "host.json") + " stopunit=unset",
-                    (await WaitForCallsAsync(binary, 2))[1]);
+                // The run call's own log line can land after stop-clusters' on a loaded machine.
+                Assert.Contains(await WaitForCallsAsync(binary, 2),
+                    line => line.EndsWith(" stop-clusters --config " + Path.Combine(install, "LocalHost", "host.json") + " stopunit=unset"));
             }
         }
         finally { Process(running.Pid)?.Kill(); }
