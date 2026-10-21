@@ -80,7 +80,7 @@
                             <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this host machine. Quasar generates and installs the Cluster Registry credentials automatically.">
                                 @foreach (var machine in _machines.Where(m => m.Selected)) { <MudSelectItem Value="machine.Host.Id">@machine.Host.Name</MudSelectItem> }
                             </MudSelect>
-                            <MudNumericField T="int" Label="Public server port" @bind-Value="_port" Min="1024" Max="65000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +264 for Cluster Registry administration and node communication; keep that range free on these host machines." />
+                            <MudNumericField T="int" Label="Public server port" @bind-Value="_port" Min="1024" Max="64000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +16 and ports +1100 to +1264 for Cluster Registry administration and node communication; keep those ports free on these host machines. Port +100 stays free for a Direct Transport frontend." />
                             <p class="quasar-text quasar-type-body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host executor command listener stays on loopback and connects back to Quasar over HTTPS.</p>
                             @if (HasOfflineHosts)
                             {

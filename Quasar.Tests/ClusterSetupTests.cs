@@ -74,12 +74,27 @@ public sealed class ClusterSetupTests
         Assert.Equal(allowed, ClusterHostCatalog.IsClusterAddress(address));
 
     [Fact]
+    public void SteamDefaultLeavesTheDirectTransportDefaultFree()
+    {
+        // Steam 27016 next to Direct Transport 27116 (#1242): the nodes moved from P+100 to P+1100.
+        Assert.Equal(28116, ClusterSetupService.NodePortBase(27016));
+        Assert.Equal(new[] { (27016, 27032), (28116, 28280) }, ClusterSetupService.ReservedPorts(27016));
+        Assert.False(ClusterSetupService.IsReserved(27016, 27116));
+        foreach (int port in new[] { 27016, 27032, 28116, 28180, 28216, 28280 })
+            Assert.True(ClusterSetupService.IsReserved(27016, port));
+        Assert.False(ClusterSetupService.IsReserved(27016, 28281));
+        // The highest player port still gets its whole node range below 65536.
+        Assert.Single(ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 2)) with { PlayerPort = 64000 }, [Host("one", "127.0.0.1")]));
+        Assert.Throws<ArgumentException>(() => ClusterSetupService.Validate(Request(new ClusterSetupPlacement("one", 2)) with { PlayerPort = 64001 }, [Host("one", "127.0.0.1")]));
+    }
+
+    [Fact]
     public async Task GuidedPortsAndPerHostRuntimePathsReachTheShippedSpecification()
     {
-        var cluster = new ClusterDefinition { UniqueName = "demo", GatewayUrl = "http://10.1.0.1:28016", GatewayAdminTokenEnvironmentVariable = "ADMIN" };
-        var request = new ServerToClusterRequest(Guid.NewGuid(), "", "", "1210014", "one", 28000, "JOIN", "TOKENS",
+        var cluster = new ClusterDefinition { UniqueName = "demo", GatewayUrl = "http://10.1.0.1:27032", GatewayAdminTokenEnvironmentVariable = "ADMIN" };
+        var request = new ServerToClusterRequest(Guid.NewGuid(), "", "", "1210014", "one", 27016, "JOIN", "TOKENS",
             ["10.1.0.1/32", "10.1.0.2/32"], [new("one", "http://one.quasar-host.invalid:18400", "HOST_ONE", "EXEC_ONE", "10.1.0.1", 1),
-                new("two", "http://two.quasar-host.invalid:18400", "HOST_TWO", "EXEC_TWO", "10.1.0.2", 1)], NodePortBase: 28100);
+                new("two", "http://two.quasar-host.invalid:18400", "HOST_TWO", "EXEC_TWO", "10.1.0.2", 1)], NodePortBase: ClusterSetupService.NodePortBase(27016));
         string world = Path.Combine(Path.GetTempPath(), "cluster-setup-world-" + Guid.NewGuid()); Directory.CreateDirectory(world);
         try
         {
@@ -92,8 +107,16 @@ public sealed class ClusterSetupTests
             using var spec = JsonDocument.Parse(await ClusterConversionService.SpecificationAsync(cluster, new() { DisplayName = "Demo" }, new(), null, request, world, paths, default));
             var nodes = spec.RootElement.GetProperty("nodes").EnumerateArray().ToArray();
             Assert.Equal(3, nodes.Length);
-            Assert.Contains(nodes, n => n.GetProperty("role").GetString() == "WA" && n.GetProperty("backend").GetString() == "10.1.0.1:28164");
-            Assert.Contains(nodes, n => n.GetProperty("host").GetString() == "two" && n.GetProperty("control").GetString() == "10.1.0.2:28200");
+            Assert.Contains(nodes, n => n.GetProperty("role").GetString() == "WA" && n.GetProperty("backend").GetString() == "10.1.0.1:28180"
+                && n.GetProperty("control").GetString() == "10.1.0.1:28280");
+            Assert.Contains(nodes, n => n.GetProperty("host").GetString() == "two" && n.GetProperty("backend").GetString() == "10.1.0.2:28116"
+                && n.GetProperty("control").GetString() == "10.1.0.2:28216");
+            // Every generated port is one the reserved-port check guards, and none is the Direct Transport default.
+            var ports = nodes.SelectMany(n => new[] { n.GetProperty("backend").GetString()!, n.GetProperty("control").GetString()! })
+                .Append(spec.RootElement.GetProperty("gatewayControl").GetString()!).Select(e => IPEndPoint.Parse(e).Port).ToArray();
+            Assert.All(ports, port => Assert.True(ClusterSetupService.IsReserved(27016, port), port.ToString()));
+            Assert.DoesNotContain(27116, ports);
+            Assert.Equal("0.0.0.0:27016", spec.RootElement.GetProperty("steamListen").GetString());
             Assert.Equal("/runs/two", spec.RootElement.GetProperty("hosts")[1].GetProperty("runRoot").GetString());
             Assert.False(spec.RootElement.TryGetProperty("sharedStorageRoot", out _));
         }

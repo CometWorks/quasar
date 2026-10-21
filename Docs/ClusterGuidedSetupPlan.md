@@ -111,10 +111,12 @@ filesystem mounted identically on every Host; matching local path strings are
 insufficient. Quasar does not provision that mount or include external storage
 in its per-Host snapshots.
 
-The chosen player port is UDP. Setup reserves that port through port +264 for
-Cluster Registry administration and node communication: admin control is port +16; regular node
-backends start at +100, their controls at +200, and WA uses +164/+264. Keep this
-range free on the selected machines and allow internal traffic over the LAN/VPN.
+The chosen player port is UDP. Setup reserves that port through port +16 and ports
++1100 to +1264 for Cluster Registry administration and node communication: admin control is
+port +16; regular node backends start at +1100, their controls at +1200, and WA uses
++1164/+1264. Port +100 stays free, so Steam 27016 and the Direct Transport default 27116 fit
+together (nodes on 28116+, controls on 28216+, WA on 28180/28280). Keep these ports
+free on the selected machines and allow internal traffic over the LAN/VPN.
 Known cluster assignments are checked; external services and firewall rules still
 need verification on the target machines. Only the player port should be public.
 

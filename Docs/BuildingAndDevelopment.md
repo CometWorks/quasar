@@ -414,7 +414,7 @@ only and need a cluster release that knows `directListen`:
 
 | Environment variable | Effect |
 | --- | --- |
-| `QUASAR_CLUSTER_TEST_DIRECT_LISTEN=IP:PORT` | Adds `directListen`: the Gateway also starts its Direct Transport frontend there. That frontend admits every client, so only loopback or a private address is accepted, and the Gateway itself refuses a public bind. Pick a port outside the cluster's reserved range (player port to player port + 264). |
+| `QUASAR_CLUSTER_TEST_DIRECT_LISTEN=IP:PORT` | Adds `directListen`: the Gateway also starts its Direct Transport frontend there. That frontend admits every client, so only loopback or a private address is accepted, and the Gateway itself refuses a public bind. Guided setup refuses a port inside the cluster's reserved ports (player port to +16 and +1100 to +1264); player port +100, such as 27116 next to Steam 27016, is free. |
 | `QUASAR_CLUSTER_TEST_DISABLE_STEAM=true` | Omits `steamListen`: Direct Transport only, exactly like the cluster bench. The Gateway Host then needs no Steam client library. Requires the variable above. |
 
 The variables are read when a specification is generated; an existing deployment keeps its
