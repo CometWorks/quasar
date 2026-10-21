@@ -202,6 +202,19 @@ public sealed partial class ClusterHostClient
         catch (ClusterHostException error) when (error.StatusCode == HttpStatusCode.NotFound) { return null; }
     }
 
+    /// <summary>The Host's inventory of an installed world input, or null for a Host without the route (older than #1313).</summary>
+    internal async Task<Dictionary<string, HostContract.DeploymentFile>?> GetWorldInputsAsync(ClusterDefinition cluster,
+        string hash, CancellationToken token)
+    {
+        if (!ClusterPackageService.IsHash(hash, 64)) return null;
+        try
+        {
+            return (await SendAsync<Dictionary<string, HostContract.DeploymentFile>>(cluster, HttpMethod.Get,
+                HostContract.HostProtocol.RoutePrefix + "/deployment-worlds/" + hash, null, token)).Data;
+        }
+        catch (ClusterHostException error) when (error.StatusCode == HttpStatusCode.NotFound) { return null; }
+    }
+
     public async Task<HostContract.HostConversionPaths> TransferConversionInputAsync(ClusterDefinition cluster, Guid id,
         string kind, string archive, string hash, CancellationToken token, string? baseInputsHash = null)
     {

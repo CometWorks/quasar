@@ -1370,6 +1370,21 @@ activates the new inventory and starts the cluster again. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
 `{"hotSpares":2}`, with the same permissions.
 
+**World files** stage mod configuration that lives in the world's `Storage` folder
+(for example Modular Encounters Systems' `Storage/1521905890.sbm_ModularEncountersSystems/Config-*.xml`)
+as a new revision of the cluster's world seed. `POST /api/v1/clusters/{uniqueName}/world-files-preparation`
+with `{"files":[{"path":"Storage/<mod folder>/<file>","content":"<base64>"}]}`, or
+`./Quasar cluster world-files-prepare NAME FOLDER --idempotency-key KEY` where `FOLDER` is laid out like
+the world's `Storage` folder. Paths must be under `Storage/<mod folder>/`; at most 1000 files and 16 MiB.
+Quasar reads each Host's copy of the active seed (`GET /host/v1/deployment-worlds/{sha256}`, Host
+executors from this release on), sends only the added or changed files as a sparse world input, pins the
+new seed in the specification's `worldFiles` and prepares every Host. Apply it from **Maintenance → Pending
+update**. Activation copies the seed's `Storage/` files whose pins differ from the installed bundle's into
+the Gateway's `runtime/world` and every node's `premade-world` and `Saves/<world>` (World Authority, regular
+nodes and spares). Storage files the seed did not change are left as the mods wrote them, so later updates,
+which keep the seed, neither revert nor reapply the files. `GET /api/v1/clusters/{uniqueName}/world-files`
+lists the seed's `Storage/` files and their SHA-256.
+
 The current deployment format preserves existing mutable worlds when activating
 a new revision. Consequently, this control accepts profiles that differ from the
 active profile only in max players, which the prepared Gateway admission

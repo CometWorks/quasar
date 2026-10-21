@@ -246,6 +246,139 @@ public sealed class ClusterDependencyTests
         }
     }
 
+    // #1313: world Storage files staged as a new world seed revision; each Host receives only the changed files.
+    [LinuxFact]
+    public async Task StagingWorldFilesSendsOnlyChangedFilesAndPinsTheNewSeed()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        const string mes = "Storage/1521905890.sbm_ModularEncountersSystems/Config-General.xml";
+        string world = Path.Combine(fixture.Root, "world");
+        foreach (var (name, text) in new[] { ("Sandbox.sbc", "<checkpoint/>"), (mes, "<MaxNpcGrids>100</MaxNpcGrids>"),
+                     ("Storage/111.sbm_Other/state.dat", "state"), ("SANDBOX_0_0_0_.sbs", "sector") })
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(world, name))!);
+            File.WriteAllText(Path.Combine(world, name), text);
+        }
+        string seedArchive = Path.Combine(fixture.Root, "seed.tar");
+        string seedHash = await ClusterWorldFiles.PackAsync(world, seedArchive, default);
+        var seedPins = (await ClusterDeploymentFiles.InspectAsync(world, default)).ToDictionary(p => p.Key, p => p.Value.Sha256);
+        using var handler = new WorldFilesHandler(Path.Combine(fixture.Root, "hosts"));
+        foreach (string host in new[] { "one", "two" })
+            await using (var input = File.OpenRead(seedArchive))
+                await ClusterWorldFiles.UnpackAsync(input, seedHash, handler.Worlds(host), default);
+        string credential = "WORLD_FILES_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            var preparationHosts = new[] { "one", "two" }.Select(id => new ClusterPreparationHost(id, "http://" + id, credential, credential,
+                "/installation", Path.Combine(handler.Worlds(id), seedHash), "/configuration/original")).ToArray();
+            fixture.Cluster.Preparation = new(hash, JsonSerializer.Serialize(new { clusterId = "demo", hosts = new[] { new { id = "one" }, new { id = "two" } }, worldFiles = seedPins }),
+                "http://gateway.test", preparationHosts);
+            fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(fixture.Cluster.Preparation),
+                preparationHosts.Select(h => new ClusterHostRevision(h.HostId, h.CommandUrl, credential,
+                    new("demo", "active", new string('a', 64), null!, null))).ToArray(), DateTimeOffset.UtcNow, fixture.Cluster.PackageSelection!.Version);
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            Assert.Equal(new[] { mes, "Storage/111.sbm_Other/state.dat" }.Order(StringComparer.Ordinal), preparation.GetWorldFiles("demo").Keys);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => preparation.StageWorldFilesAsync("demo",
+                new Dictionary<string, byte[]> { [mes] = "<MaxNpcGrids>100</MaxNpcGrids>"u8.ToArray() }, "test", default));
+
+            byte[] updated = "<MaxNpcGrids>40</MaxNpcGrids>"u8.ToArray();
+            var result = await preparation.StageWorldFilesAsync("demo", new Dictionary<string, byte[]> { [mes] = updated }, "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            Assert.Equal(new[] { mes, mes }, handler.Transferred); // One changed file per Host, nothing else.
+            var saved = catalog.GetCluster("demo")!;
+            Assert.True(saved.HasPreparedUpdate);
+            using var spec = JsonDocument.Parse(saved.Preparation!.SpecificationJson);
+            var pins = spec.RootElement.GetProperty("worldFiles").Deserialize<Dictionary<string, string>>()!;
+            Assert.Equal(ClusterDeploymentFiles.Hash(updated), pins[mes]);
+            Assert.Equal(seedPins.Keys.Order(), pins.Keys.Order());
+            foreach (var host in saved.Preparation.Hosts)
+            {
+                // The Host's new seed is the old one plus the file, exactly as the spec pins it.
+                var actual = await ClusterDeploymentFiles.InspectAsync(host.WorldDirectory, default);
+                Assert.Equal(pins, actual.ToDictionary(p => p.Key, p => p.Value.Sha256));
+                Assert.Equal("<MaxNpcGrids>40</MaxNpcGrids>", File.ReadAllText(Path.Combine(host.WorldDirectory, mes)));
+                Assert.Contains("config-", host.ConfigurationDirectory);
+            }
+            Assert.Equal(preparation.GetWorldFiles("demo")[mes], ClusterDeploymentFiles.Hash(updated));
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    [Theory]
+    [InlineData("Storage/1521905890.sbm_ModularEncountersSystems/Config-General.xml", true)]
+    [InlineData("Storage/mod/sub/file.txt", true)]
+    [InlineData("Sandbox.sbc", false)]
+    [InlineData("Storage/file.txt", false)]
+    [InlineData("Storage/../Sandbox.sbc", false)]
+    [InlineData("Storage//file.txt", false)]
+    [InlineData("/Storage/mod/file.txt", false)]
+    [InlineData("Storage\\mod\\file.txt", false)]
+    [InlineData("Mods/123.sbm/file.txt", false)]
+    public void WorldFilesMustBeModWorldStorage(string path, bool valid)
+    {
+        var files = new Dictionary<string, byte[]> { [path] = [1] };
+        if (valid) ClusterUpdatePreparationService.ValidateWorldFiles(files);
+        else Assert.Throws<ArgumentException>(() => ClusterUpdatePreparationService.ValidateWorldFiles(files));
+    }
+
+    [Fact]
+    public void WorldFilesHaveSizeLimits()
+    {
+        Assert.Throws<ArgumentException>(() => ClusterUpdatePreparationService.ValidateWorldFiles(new Dictionary<string, byte[]>()));
+        Assert.Throws<ArgumentException>(() => ClusterUpdatePreparationService.ValidateWorldFiles(new Dictionary<string, byte[]>
+            { ["Storage/mod/big.bin"] = new byte[ClusterUpdatePreparationService.MaxWorldFileBytes + 1] }));
+    }
+
+    /// <summary>A Host's world input routes, backed by the real archive code.</summary>
+    private sealed class WorldFilesHandler(string root) : HttpMessageHandler
+    {
+        public List<string> Transferred { get; } = [];
+        public string Worlds(string host) => Path.Combine(root, host, "worlds");
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            string host = request.RequestUri!.Host, path = request.RequestUri.AbsolutePath;
+            var query = System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query);
+            object data;
+            if (path.Contains("/deployment-worlds/"))
+                data = await ClusterWorldFiles.ReadPinsAsync(Worlds(host), path.Split('/')[^1], token);
+            else if (path.Contains("/conversion-inputs/") && path.EndsWith("/world"))
+            {
+                using var buffer = new MemoryStream();
+                await request.Content!.CopyToAsync(buffer, token);
+                buffer.Position = 0;
+                using (var reader = new System.Formats.Tar.TarReader(buffer, leaveOpen: true))
+                    while (await reader.GetNextEntryAsync(cancellationToken: token) is { } entry)
+                        if (entry.Name != "world-files.json") Transferred.Add(entry.Name);
+                buffer.Position = 0;
+                string directory = await ClusterWorldFiles.UnpackAsync(buffer, query["sha256"]!, Worlds(host), token,
+                    baseHash: query["baseInputsSha256"]);
+                data = new Quasar.Host.Contract.V1.HostConversionPaths(host, directory, "/c", "/r");
+            }
+            else if (path.Contains("/deployment-preparations/"))
+                data = new Quasar.Host.Contract.V1.HostPreparedConfiguration(host, "candidate", "/manifest.json", new string('c', 64));
+            else throw new InvalidOperationException("Unexpected Host route " + path);
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create(
+                new Quasar.Host.Contract.V1.HostEnvelope<object>(1, DateTimeOffset.UtcNow, data)) };
+            response.Headers.Add(Quasar.Host.Contract.V1.HostProtocol.HeaderName, "1");
+            return response;
+        }
+    }
+
     [LinuxFact]
     public async Task ContentInventoryMustMatchActivePreparationAndVerifiedDependencies()
     {

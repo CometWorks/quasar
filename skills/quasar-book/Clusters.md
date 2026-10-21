@@ -160,6 +160,16 @@ A plugin that a registered dev folder overrides shows "Dev override: staging bui
 
 Observations live in `<install root>/ClusterContentUpdates.json`. If that file is damaged, checks pause with "Saved content observations are unavailable. Restore ClusterContentUpdates.json and restart Quasar; checks are paused to preserve baselines."
 
+### Mod configuration files (world Storage)
+
+Some mods read their settings from the world's `Storage` folder, for example Modular Encounters Systems from `Storage/1521905890.sbm_ModularEncountersSystems/Config-General.xml`. Do not edit those files in Quasar's state folders: every node, the World Authority and the spare have their own copy of the world. Stage them instead:
+
+1. Put the files in a folder laid out like the world's `Storage` folder, one subfolder per mod (`<folder>/1521905890.sbm_ModularEncountersSystems/Config-General.xml`).
+2. Run `./Quasar cluster world-files-prepare NAME <folder> --idempotency-key KEY` (API `POST /api/v1/clusters/{name}/world-files-preparation`, needs cluster manage and configuration editing). Quasar adds or replaces those files in the cluster's world seed, sends each host machine only the changed files and prepares a new deployment. The cluster keeps running.
+3. **Apply pending update** (or `cluster update`) stops the cluster cleanly, backs it up, activates the deployment and starts it again. On activation each host machine copies the changed files into the World Authority's and every node's world, spares included.
+
+Later updates (profile, release, hot spares, plugin settings) keep the new world seed, so they keep the files and copy nothing again. Files a mod rewrites while it runs stay as the mod wrote them until you stage that file again. `./Quasar cluster world-files NAME` lists the `Storage/` files of the seed with their SHA-256. Only files under `Storage/<mod folder>/` are accepted, at most 1000 files and 16 MiB per staging; files are added or replaced, never deleted. Every host machine needs a Host executor with this feature; an older one is refused with "Host … cannot update world files: update its Host executor first."
+
 ## Cluster release updates
 
 Quasar checks the latest cluster release on the update interval (15 minutes by default) when at least one cluster has a package selected. A different release lights the update bell, appears on the cluster page and under **Updates → Cluster packages**. Checks only notify.
@@ -284,7 +294,7 @@ Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (defa
 | Read | `list`, `health`, `status`, `lifecycle`, `plan`, `recovery-readiness`, `config`, `capabilities`, `fleet`, `nodes`, `world-authority`, `snapshots`, `partitions`, `clients`, `bans`, `events`, `chat-history`, `gateway-operations`, `operation NAME ID`, `diagnostics`, `handover-config`, `artifacts`, `artifact NAME ID` |
 | Lifecycle | `goal NAME on|off`, `gateway-restart`, `gateway-recover`, `recover NAME REQUEST.json`, `command NAME REQUEST.json` |
 | Packages | `package-release`, `package-stage NAME VERSION SHA256`, `package-selection`, `package-select NAME VERSION SHA256 EXPECTED_REVISION`, `dependency-candidate`, `dependencies`, `dependencies-stage NAME FILE`, `deployment-inputs` |
-| Deployment | `create FILE`, `deployment-prepare NAME FILE`, `release-update-prepare NAME`, `deployment`, `deployment-activate NAME FILE`, `update NAME FILE`, `update-status`, `update-abandon` |
+| Deployment | `create FILE`, `deployment-prepare NAME FILE`, `release-update-prepare NAME`, `world-files NAME`, `world-files-prepare NAME FOLDER`, `deployment`, `deployment-activate NAME FILE`, `update NAME FILE`, `update-status`, `update-abandon` |
 | Backups | `backups`, `backup NAME FILE`, `restore NAME FILE`, `artifact-backup NAME ID` |
 | Conversion | `conversion-review NAME SERVER`, `conversion-plugins NAME`, `convert-to-cluster NAME FILE`, `convert-to-server NAME FILE`, `conversion-status NAME UUID` |
 
@@ -344,6 +354,8 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `Quasar/Services/ClusterBetaNoticeCatalog.cs`
 - `Quasar/Services/ClusterCatalog.cs`
 - `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterUpdatePreparationService.cs`
+- `Quasar.Host/WorldFilesMigration.cs`
 - `Quasar/Services/ClusterContentMonitor.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterCredentialStore.cs`
