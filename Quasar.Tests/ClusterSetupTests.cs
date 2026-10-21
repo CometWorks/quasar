@@ -144,6 +144,10 @@ public sealed class ClusterSetupTests
             foreach (string name in new[] { "Quasar.Agent.dll", "Magnetar.Protocol.dll", "0Harmony.dll" })
                 File.WriteAllText(Path.Combine(config, "Local", name), name);
             File.WriteAllText(Path.Combine(config, "Profiles/Current.xml"), "<Profile><Local><string>Quasar.Agent.dll</string></Local></Profile>");
+            // Existing clusters retain their old source pin. Profile preparation must replace it.
+            string oldBundle = Path.Combine(config, "Local/Quasar.Agent");
+            Directory.CreateDirectory(oldBundle);
+            File.WriteAllText(Path.Combine(oldBundle, "Quasar.Agent.xml"), "<PluginData><Commit>" + new string('0', 40) + "</Commit></PluginData>");
             ClusterSetupService.PrepareAgentMetadata(config);
             string bundle = Path.Combine(config, "Local/Quasar.Agent");
             Assert.Equal("Quasar.Agent.dll", File.ReadAllText(Path.Combine(bundle, "Quasar.Agent.dll")));
@@ -151,6 +155,7 @@ public sealed class ClusterSetupTests
             var metadata = System.Xml.Linq.XDocument.Load(Path.Combine(bundle, "Quasar.Agent.xml")).Root!;
             Assert.Equal("quasar-agent", metadata.Element("Id")!.Value);
             Assert.Matches("^[a-fA-F0-9]{40}$", metadata.Element("Commit")!.Value);
+            Assert.NotEqual(new string('0', 40), metadata.Element("Commit")!.Value);
             Assert.Contains("quasar-agent", File.ReadAllText(Path.Combine(config, "Profiles/Current.xml")));
         }
         finally { Directory.Delete(config, true); }

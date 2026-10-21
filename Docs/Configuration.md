@@ -998,6 +998,15 @@ for topology, ports, API, resume behavior and release prerequisites. Guided crea
 requires Magnetar's new preparation/export command and a matching cluster SDK pin;
 older released packages fail explicitly before game startup.
 
+## Machine agent and control endpoint security
+
+Agent/control routes require credentials, explicit socket peer IP/CIDR restrictions,
+no Origin header, and an exact configured Host authority. These rules are separate
+from browser authentication and trusted-network bypass. The restrictive source
+default allows only loopback. For `Quasar:MachineEndpoints:AllowedSources`,
+`AllowedHosts`, environment overrides, proxy behavior, multiple LAN/VPN Hosts and
+mandatory save/restart migration, see [DIS-0042 security upgrade](SecurityUpgradeDIS0042.md).
+
 ## Cluster query catalog
 
 Quasar discovers clusters from `<quasar-root>/Clusters/<unique-name>/cluster.json`.

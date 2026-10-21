@@ -1,5 +1,8 @@
 # Windows Deployment and Updates
 
+**Security upgrade DIS-0042:** save and stop worlds before activation, back up the credential store and Data Protection keyring together, update Quasar before Hosts, re-pin cluster agents and restart servers. Read [the complete migration instructions](SecurityUpgradeDIS0042.md).
+
+
 Quasar's Windows deployment mirrors the [Linux model](LinuxDeploymentAndUpdates.md):
 a stable Bootstrap launcher layer plus a replaceable web UI worker. The only
 differences are platform conventions — `.zip` archives instead of `.tar.gz`, a

@@ -25,6 +25,8 @@ namespace Quasar.Agent
 
         public string ClusterSlot { get; set; } = string.Empty;
 
+        public string ClusterLaunchAttempt { get; set; } = string.Empty;
+
         public long ClusterEpoch { get; set; }
 
         public string DeploymentRevision { get; set; } = string.Empty;
@@ -64,6 +66,7 @@ namespace Quasar.Agent
                 ClusterNodeId = ReadString("CLUSTER_NODE_ID"),
                 ClusterNodeRole = ReadString("CLUSTER_NODE_ROLE"),
                 ClusterSlot = ReadString("CLUSTER_SLOT_ID"),
+                ClusterLaunchAttempt = ReadString("CLUSTER_LAUNCH_ATTEMPT"),
                 // Zero/negative is meaningful here (stop promptly), so it is kept as-is.
                 OfflineShutdownSeconds = ReadInt("QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS", 3600),
                 ReconnectIntervalSeconds = ReadInt("QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS", 10),

@@ -37,7 +37,7 @@ stateDiagram-v2
 | State | Behavior |
 | --- | --- |
 | `Locating` | `WebServiceLocator` probes the explicit supervisor URL from `QUASAR_BASE_URL` (plus compatible public-base-url variables) and the discovery manifest, accepting the first `/api/health` response that succeeds. If no healthy instance is found, the agent does not start Quasar or Bootstrap; it waits for the reconnect loop. |
-| `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s) with the `QUASAR_AGENT_TOKEN` value in the `X-Quasar-Agent-Token` header. Quasar answers 401 without the header. |
+| `Connecting` | Opens `ws(s)://…/ws/agent` (WebSocket keep-alive 20s) with the `QUASAR_AGENT_TOKEN` value in the `X-Quasar-Agent-Token` header. Quasar answers 401 without the header, or 403 when socket source, Host or Origin policy fails. See [machine endpoint policy and upgrade order](../SecurityUpgradeDIS0042.md). |
 | `Handshaking` | Sends the `Hello` identity message and forces an initial `PluginConfigSnapshot`. Cluster hello/snapshot payloads include cluster, node, and role tags from the executor environment. |
 | `Streaming` | Sends a `Snapshot` every ~2s, flushes buffered plugin-log batches, and dispatches inbound `Command` (including `PluginRequest` companion dispatch) / `Ping` / `PluginConfigUpdate` messages. |
 | `Reconnecting` | On socket error/close, waits `ReconnectIntervalSeconds` (~10s) ± jitter (~3s) then re-locates. |

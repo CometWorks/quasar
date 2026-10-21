@@ -26,10 +26,16 @@ public sealed class AgentSocketAuthenticator(
 
     public bool IsValid(AgentHello hello, string token)
     {
+        if (string.IsNullOrWhiteSpace(hello.AgentId)
+            || hello.ClusterMode && (string.IsNullOrWhiteSpace(hello.ClusterId)
+                || string.IsNullOrWhiteSpace(hello.ClusterSlot) || string.IsNullOrWhiteSpace(hello.ClusterNodeId)
+                || string.IsNullOrWhiteSpace(hello.ClusterNodeRole) || string.IsNullOrWhiteSpace(hello.ClusterLaunchAttempt))
+            || !hello.ClusterMode && hello.ServerId != hello.UniqueName)
+            return false;
         string? expected = hello.ClusterMode
             ? hosts.Get(hello.HostId) is { } host
             && credentials.Resolve(host.CredentialReference) is { } credential
-                ? AgentSocketToken.ForHost(credential)
+                ? AgentSocketToken.ForNode(AgentSocketToken.ForHost(credential), hello.ClusterId, hello.ClusterSlot, hello.ClusterNodeId, hello.ClusterNodeRole, hello.ClusterLaunchAttempt)
                 : null
             : string.IsNullOrEmpty(hello.UniqueName)
                 ? null

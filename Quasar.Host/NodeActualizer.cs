@@ -412,6 +412,16 @@ internal sealed class NodeActualizer
         start.Environment["CLUSTER_NODE_ID"] = spec.NodeId;
         start.Environment["CLUSTER_NODE_ROLE"] = role;
         ExecutionBundle.ApplySecrets(start, spec.SecretEnvironment);
+        // The parent holds a Host-scoped key; each child gets only its own node credential.
+        if (Environment.GetEnvironmentVariable(HostContract.AgentSocketToken.EnvironmentVariable) is { Length: > 0 } agentKey)
+            start.Environment[HostContract.AgentSocketToken.EnvironmentVariable] =
+                HostContract.AgentSocketToken.ForNode(agentKey, attachment.ClusterId, plan.SlotKey, spec.NodeId, role, attemptKey);
+        else
+            start.Environment.Remove(HostContract.AgentSocketToken.EnvironmentVariable);
+        // Do not hand the enrollment/managed credential store to child plugins.
+        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("QSR_MANAGED_", StringComparison.Ordinal)
+                     || name == "QUASAR_LAUNCHER_TOKEN").ToArray())
+            start.Environment.Remove(name);
         // A managed node must never download a newer Workshop mod on recycle.
         start.Environment["CLUSTER_LOCAL_WORLD_MODS"] = "1";
         return start;

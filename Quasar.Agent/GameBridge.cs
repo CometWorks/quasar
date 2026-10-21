@@ -282,6 +282,7 @@ namespace Quasar.Agent
                 ClusterNodeId = _options.ClusterNodeId,
                 ClusterNodeRole = _options.ClusterNodeRole,
                 ClusterSlot = _options.ClusterSlot,
+                ClusterLaunchAttempt = _options.ClusterLaunchAttempt,
                 ClusterEpoch = _options.ClusterEpoch,
                 DeploymentRevision = _options.DeploymentRevision,
                 ReadinessVerified = _options.ReadinessVerified,

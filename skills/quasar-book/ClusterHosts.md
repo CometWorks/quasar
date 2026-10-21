@@ -9,6 +9,12 @@ The Host executor (`Quasar.Host`) is the service that runs on every cluster host
 - Guided enrollment and automatic installation support Linux x64 only.
 - `Quasar.Host --self-test` runs a built-in test with harmless child processes and temporary state. It does not start Space Engineers or contact Quasar.
 
+## Security upgrade and network access
+
+Host enrollment, update downloads and control tunnels require the Host's bearer credential, an allowed original socket IP/CIDR and exact Host authority, and no Origin header. The default permits only loopback. List every remote Host/VPN site in Quasar's machine policy before enrollment. Provisioned Hosts keep their command listener on loopback and connect out only to their configured Quasar HTTPS origin; no LAN command port is needed. Nodes receive separate tokens bound to Host, cluster, slot, node, role and launch attempt, without the Host agent key.
+
+For DIS-0042, save and stop clusters, back up each Host's configuration/state, update Quasar before Hosts, then re-pin the agent through **Stage profile changes** and **Apply pending update**. See the [complete security migration and proxy policy](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md).
+
 ## Files on a host machine
 
 This section is about enrolled machines. The Quasar machine's own Host is described in [The local Host](#the-local-host). The automatic installer puts everything under the account that ran it:
@@ -229,6 +235,7 @@ The cluster console in Quasar shows Registry events and node plugin logs, not th
 Stop clusters through their Quasar controls before you remove a Host installation.
 
 ## Sources
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/ClusterGuidedSetupPlan.md`
 - `Docs/Configuration.md`
 - `Docs/BuildingAndDevelopment.md`

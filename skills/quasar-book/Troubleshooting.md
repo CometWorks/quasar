@@ -51,12 +51,14 @@ How the wait works, per server (editor **Health Policy**, see [Servers](Servers.
 
 - **Agent startup log inactivity timeout** (default 60 s): if neither the DS log nor the Magnetar info log changed for this long, Quasar gives up: "Quasar.Agent did not attach; startup logs were inactive for 60s."
 - **Agent startup hard limit** (default 600 s, 10 minutes): the absolute limit, even while logs keep changing: "Quasar.Agent did not attach within the 600s hard startup limit."
-- With **Auto-restart when unhealthy** on, Quasar kills the process and relaunches ("Quasar.Agent attach timed out (1/3). Retrying in 5s."). After **Agent attach retry attempts** (default 3) the server is **Faulted** with "Quasar.Agent did not attach after 3 attempt(s). ..."
+- For newly launched processes with **Auto-restart when unhealthy** on, Quasar kills the process and relaunches ("Quasar.Agent attach timed out (1/3). Retrying in 5s."). After **Agent attach retry attempts** (default 3) the server is **Faulted** with "Quasar.Agent did not attach after 3 attempt(s). ..."
 - A connected agent that goes silent for **Agent heartbeat timeout** (default 20 s) makes the server Unhealthy: "Quasar.Agent heartbeat stale beyond 20s timeout."
 
 The agent finds Quasar through `QUASAR_BASE_URL`, which Quasar sets for each server it launches. It is `QUASAR_PUBLIC_BASE_URL` when set, otherwise `http://<Quasar:Host>:<Quasar:Port>`, with a wildcard host (`0.0.0.0`) advertised as `127.0.0.1`. The agent checks `/api/health` there, then opens the WebSocket `/ws/agent`. If it cannot connect it retries every 10 seconds plus up to 3 seconds of jitter (`QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS`, `QUASAR_AGENT_RECONNECT_JITTER_SECONDS`).
 
 Quasar refuses an agent that has no valid agent token, or whose server already has a connected agent; see [Plugins](Plugins.md). The Quasar log then has "Refused an agent connection from … without an agent token.", "Refused agent connection …: the agent token does not match server …" or "… already has a connected agent.", and the agent logs "Quasar refused the connection: …" or a 401 connection error. A server started by an older Quasar needs a restart to load the current agent (see [Updates](Updates.md)).
+
+After worker turnover, automatic attach/health/planned restart waits for authenticated running telemetry from an adopted process. This prevents killing a world without a save when an old agent is refused. A 403 on agent/Host routes means the original socket source, exact Host authority or Origin policy failed; forwarded headers do not grant access. Check [DIS-0042 migration and network policy](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) before manually restarting a disconnected server.
 
 What to check:
 
@@ -182,6 +184,7 @@ The code has no single-instance lock across data directories. Each launcher look
 Each server's agent connects to the Quasar that launched it, because that Quasar passes its own `QUASAR_BASE_URL`. The Docker Compose file uses host networking, so a container and a native install on the same machine share the port space too.
 
 ## Sources
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/AgentConnection.md`
 - `Docs/StateMachines/BlazorReconnect.md`
 - `Docs/StateMachines/DedicatedServerLifecycle.md`

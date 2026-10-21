@@ -85,8 +85,19 @@ public sealed class AgentRegistry
     {
         lock (_sync)
         {
+            // AgentId is a transport key, never permission to replace another authenticated identity.
+            if (_agents.TryGetValue(hello.AgentId, out var previous) && previous.Hello is { } identity
+                && (identity.ClusterMode != hello.ClusterMode || identity.UniqueName != hello.UniqueName
+                    || identity.ClusterMode && (identity.HostId != hello.HostId || identity.ClusterId != hello.ClusterId
+                        || identity.ClusterSlot != hello.ClusterSlot || identity.ClusterNodeId != hello.ClusterNodeId
+                        || identity.ClusterLaunchAttempt != hello.ClusterLaunchAttempt)))
+                return false;
             var holders = _agents.Values.Where(state => state.IsConnected && state.ConnectionId != connectionId &&
                     (string.Equals(state.AgentId, hello.AgentId, StringComparison.OrdinalIgnoreCase) ||
+                     hello.ClusterMode && state.Hello is { ClusterMode: true } current
+                         && current.HostId == hello.HostId && current.ClusterId == hello.ClusterId
+                         && current.ClusterSlot == hello.ClusterSlot && current.ClusterNodeId == hello.ClusterNodeId
+                         && current.ClusterLaunchAttempt == hello.ClusterLaunchAttempt ||
                      !hello.ClusterMode && !state.IsCluster &&
                      string.Equals(state.UniqueNameKey, hello.UniqueName, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
@@ -139,9 +150,11 @@ public sealed class AgentRegistry
         {
             if (!_agents.TryGetValue(snapshot.AgentId, out var state) || !state.IsConnected
                 || state.ConnectionId != connectionId || state.Hello is not { } hello
-                || snapshot.ClusterMode != hello.ClusterMode || snapshot.UniqueName != hello.UniqueName)
+                || snapshot.ClusterMode != hello.ClusterMode || snapshot.UniqueName != hello.UniqueName
+                || snapshot.HostId != hello.HostId || snapshot.ServerId != hello.ServerId)
                 return;
             if (hello.ClusterMode && (snapshot.ClusterId != hello.ClusterId || snapshot.ClusterSlot != hello.ClusterSlot
+                || snapshot.ClusterNodeRole != hello.ClusterNodeRole
                 || (hello.ClusterNodeId.Length > 0 && snapshot.ClusterNodeId != hello.ClusterNodeId)
                 || (hello.ClusterEpoch > 0 && snapshot.ClusterEpoch != hello.ClusterEpoch)
                 || (state.Snapshot?.ClusterEpoch is > 0 && snapshot.ClusterEpoch != state.Snapshot.ClusterEpoch)))

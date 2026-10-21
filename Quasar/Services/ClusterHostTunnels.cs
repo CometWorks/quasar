@@ -27,7 +27,7 @@ public sealed class ClusterHostTunnels
             { KeepAliveInterval = TimeSpan.FromSeconds(20), KeepAliveTimeout = TimeSpan.FromSeconds(20) });
         var connection = new Connection(socket, new(1, 1));
         using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted, _stopping);
-        if (!_hosts.TryAdd(host, connection)) { await socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "Host already connected", context.RequestAborted); return; }
+        if (!_hosts.TryAdd(host, connection)) { await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Host already connected", context.RequestAborted); return; }
         try
         {
             byte[] data = new byte[1];

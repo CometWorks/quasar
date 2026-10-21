@@ -109,6 +109,10 @@ public sealed class AgentSocketHandler
         catch (OperationCanceledException)
         {
         }
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        {
+            await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Invalid agent message.", CancellationToken.None);
+        }
         catch (WebSocketException exception)
         {
             _logger.LogWarning(exception, "Agent socket closed with transport error: {ConnectionId}", connectionId);
@@ -132,7 +136,7 @@ public sealed class AgentSocketHandler
         HttpContext context,
         CancellationToken cancellationToken)
     {
-        var message = await ReceiveAsync(socket, cancellationToken);
+        var message = await ReceiveAsync(socket, cancellationToken, 64 * 1024);
         if (message is null)
             return null;
 
@@ -297,7 +301,7 @@ public sealed class AgentSocketHandler
         }
     }
 
-    private static async Task<AgentWireMessage?> ReceiveAsync(WebSocket socket, CancellationToken cancellationToken)
+    private static async Task<AgentWireMessage?> ReceiveAsync(WebSocket socket, CancellationToken cancellationToken, int maximumBytes = 16 * 1024 * 1024)
     {
         var buffer = new byte[16 * 1024];
         using var stream = new MemoryStream();
@@ -309,6 +313,8 @@ public sealed class AgentSocketHandler
             if (result.MessageType == WebSocketMessageType.Close)
                 return null;
 
+            if (result.MessageType != WebSocketMessageType.Text || stream.Length + result.Count > maximumBytes)
+                throw new InvalidDataException("Agent message exceeds protocol limits.");
             stream.Write(buffer, 0, result.Count);
 
             if (result.EndOfMessage)

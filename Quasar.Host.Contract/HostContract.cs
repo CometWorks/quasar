@@ -26,6 +26,9 @@ public static class AgentSocketToken
             System.Text.Encoding.UTF8.GetBytes("quasar-agent:" + scope))).ToLowerInvariant();
 
     public static string ForHost(string hostCredential) => Derive(hostCredential, "host");
+
+    public static string ForNode(string hostAgentKey, string cluster, string slot, string node, string role, string attempt) =>
+        Derive(hostAgentKey, System.Text.Json.JsonSerializer.Serialize(new[] { cluster, slot, node, role, attempt }));
 }
 
 public static class HostProtocol

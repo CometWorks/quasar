@@ -42,7 +42,9 @@ Managed servers keep running. Quasar starts them detached, so the web worker can
 
 A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new release bundles a different agent DLL, the server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent." Quasar does not schedule that restart. Use the server's **Restart** action when convenient. Quasar then does a full stop and start and deploys the new agent.
 
-Agents older than the release that added agent tokens send no token, and Quasar refuses them (see [Plugins](Plugins.md)). After updating from such a release, servers keep running but show as disconnected until restarted, and Quasar logs "Refused an agent connection from … without an agent token." A Quasar restart can't save the world through a disconnected agent, so save the world in game before you restart, or stop the servers before the update. If you do nothing, each old agent saves the world and stops its server after the offline window (`QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS`, one hour by default). Quasar then restarts it if **Restart on crash** is on, and the server comes back with the new agent. Cluster nodes run the agent pinned at cluster setup and get the token from the Host executor, so they reconnect only after the Host has updated and the nodes run an agent from this release.
+**Urgent DIS-0042 upgrade:** save and stop worlds before activating this security release. Back up `cluster-credentials.json` together with `DataProtection-Keys/`, even for standalone-only installs. Update Quasar first, then every Host. Existing clusters must use **Stage profile changes** with the existing profile to re-pin the bundled agent, then **Apply pending update**; a node restart alone retains the old pin. Finally start standalone servers and verify authenticated telemetry everywhere. Follow the complete [security upgrade instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md).
+
+Old tokenless agents are refused even on loopback. An adopted server stays disconnected until its agent can authenticate. Automatic attach recovery, health restarts and planned restarts wait for authenticated running telemetry; explicit admin actions remain possible. If you already upgraded with servers running, save in game before restarting because Quasar cannot save through a refused agent. An old standalone agent that had connected can save and stop after its own offline window (one hour by default). Current cluster agents never self-stop for a Quasar outage; Gateway/Host owns their lifecycle.
 
 ### Rolling back the UI
 
@@ -233,6 +235,7 @@ What to do:
 - **A server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL..."** Restart that server after a Quasar update.
 
 ## Sources
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
 - `Docs/LinuxDeploymentAndUpdates.md`
