@@ -140,7 +140,7 @@ The status line shows each phase:
 1. "Checking cluster hosts": each selected Host executor must answer with its enrolled identity and the required capabilities.
 2. "Provisioning Dedicated Server and Magnetar": installs or updates the managed runtime.
 3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one cannot run on the installed PluginSdk.
-4. "Staging the profile's Workshop mods" (only when the profile has mods): resolves the mods' dependencies and downloads the current version of each mod with the managed SteamCMD, the same way **Stage profile changes** does (see [Mods and content updates](Clusters.md#mods-and-content-updates)). Unless crossplay is enabled, Magnetar's companion mod is pinned with them.
+4. "Staging the profile's Workshop mods": resolves the mods' dependencies and downloads the current version of each mod with the managed SteamCMD, the same way **Stage profile changes** does (see [Mods and content updates](Clusters.md#mods-and-content-updates)). Magnetar's companion mod is always pinned with them, also for a profile without mods or with crossplay enabled, because Magnetar adds it to every node.
 5. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
 6. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
 7. "Converting a copy of the world": splits the world with the release's converter.
