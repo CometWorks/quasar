@@ -144,6 +144,8 @@
         get
         {
             var pending = Profiles.GetProfile(_profile) is { } profile ? QuasarDefaultPlugins.Pending(profile) : [];
+            if (!_defaultPlugins)
+                return "The cluster gets only the plugins the selected profile has. Quasar won't offer Bugfixes and Performance for its profile again.";
             if (!string.IsNullOrWhiteSpace(_profile) && pending.Count == 0)
                 return "The selected profile already has them, or they were turned off in it before. Quasar leaves its plugin selection as it is.";
             return "Adds " + (pending.Count == 0 ? "Bugfixes and Performance" : string.Join(" and ", pending.Select(p => p.DisplayName)))

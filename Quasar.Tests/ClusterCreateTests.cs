@@ -96,6 +96,8 @@ public sealed class ClusterCreateTests : IDisposable
         Assert.True(option.Instance.GetState(c => c.Value));
         await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("half"));
         Assert.Contains("Adds Performance from MagnetarHub", page.Markup);
+        await page.InvokeAsync(() => option.Instance.ValueChanged.InvokeAsync(false));
+        Assert.Contains("The cluster gets only the plugins the selected profile has.", page.Markup);
     }
 
     [Fact]
