@@ -1,5 +1,7 @@
 # Quasar
 
+**Urgent security upgrade:** DIS-0042 requires saving worlds, updating Hosts and restarting game servers. Read the [upgrade order and machine endpoint policy](Docs/SecurityUpgradeDIS0042.md) before activation.
+
 Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)
 dedicated servers, with an optional Blazor Server UI. It supervises multiple DS
 processes on a single host — starting, stopping, health-checking, configuring, and

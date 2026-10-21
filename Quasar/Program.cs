@@ -39,6 +39,7 @@ public class Program
             var builder = WebApplication.CreateBuilder(workerArgs);
             Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory();
             AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, workerArgs);
+            MachineEndpointSecurity.DisableAutomaticForwarding(builder.Configuration);
 
             var webServiceOptions = WebServiceOptions.Create(builder.Configuration);
             if (!webServiceOptions.Headless && ShouldUseSourceStaticWebAssets())
@@ -47,6 +48,7 @@ public class Program
             var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
+            var machinePolicy = MachineEndpointSecurity.Create(builder.Configuration, webServiceOptions);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
             var runtimePluginCatalog = QuasarUiPluginCatalog.Create(
                 builder.Configuration, builder.Environment, loadPluginAssemblies: !webServiceOptions.Headless);
@@ -270,6 +272,7 @@ public class Program
             builder.Services.AddSingleton<PluginLogStream>();
             builder.Services.AddSingleton<PluginConfigService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginConfigService>());
+            builder.Services.AddSingleton<AgentSocketAuthenticator>();
             builder.Services.AddSingleton<AgentSocketHandler>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DedicatedServerSupervisor>());
             builder.Services.AddHostedService<WebServiceManifestHostedService>();
@@ -324,6 +327,7 @@ public class Program
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
 
+            app.Use((context, next) => MachineEndpointSecurity.InvokeAsync(context, next, machinePolicy));
             app.UseForwardedHeaders(CreateForwardedHeadersOptions(authOptions));
             if (!webServiceOptions.Headless)
                 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
@@ -499,17 +503,16 @@ public class Program
                     .AllowAnonymous();
             }
 
-            app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime, TrustedNetworkEvaluator trustedNetworkEvaluator) =>
+            app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime) =>
             {
                 var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
                 if (string.IsNullOrWhiteSpace(expectedToken) ||
-                    !string.Equals(context.Request.Headers["X-Quasar-Launcher-Token"], expectedToken, StringComparison.Ordinal))
+                    !System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(
+                        System.Text.Encoding.UTF8.GetBytes(context.Request.Headers["X-Quasar-Launcher-Token"].ToString()),
+                        System.Text.Encoding.UTF8.GetBytes(expectedToken)))
                 {
                     return Results.Unauthorized();
                 }
-
-                if (authOptions.Enabled && !trustedNetworkEvaluator.IsTrusted(context))
-                    return Results.Unauthorized();
 
                 var delaySeconds = 0;
                 if (int.TryParse(context.Request.Query["delaySeconds"], out var parsedDelay))

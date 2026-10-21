@@ -42,6 +42,10 @@ Managed servers keep running. Quasar starts them detached, so the web worker can
 
 A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new release bundles a different agent DLL, the server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent." Quasar does not schedule that restart. Use the server's **Restart** action when convenient. Quasar then does a full stop and start and deploys the new agent.
 
+**Urgent DIS-0042 upgrade:** save and stop worlds before activating this security release. Back up `cluster-credentials.json` together with `DataProtection-Keys/`, even for standalone-only installs. Update Quasar first, then every Host. Existing clusters must use **Stage profile changes** with the existing profile to re-pin the bundled agent, then **Apply pending update**; a node restart alone retains the old pin. Finally start standalone servers and verify authenticated telemetry everywhere. Follow the complete [security upgrade instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md).
+
+Old tokenless agents are refused even on loopback. An adopted server stays disconnected until its agent can authenticate. Automatic attach recovery, health restarts and planned restarts wait for authenticated running telemetry; explicit admin actions remain possible. If you already upgraded with servers running, save in game before restarting because Quasar cannot save through a refused agent. An old standalone agent that had connected can save and stop after its own offline window (one hour by default). Current cluster agents never self-stop for a Quasar outage; Gateway/Host owns their lifecycle.
+
 ### Rolling back the UI
 
 Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. Automatic staging never picks an older version. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
@@ -231,6 +235,7 @@ What to do:
 - **A server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL..."** Restart that server after a Quasar update.
 
 ## Sources
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
 - `Docs/LinuxDeploymentAndUpdates.md`
@@ -240,6 +245,7 @@ What to do:
 - `Dockerfile`
 - `.github/workflows/release.yml`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`
 - `Quasar/Services/Updates/QuasarUpdateSnapshot.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`

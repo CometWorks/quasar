@@ -6,6 +6,7 @@ using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Quasar.Models;
 using Quasar.Diagnostics;
+using Quasar.Host.Contract.V1;
 using Quasar.Services.Backup;
 using Quasar.Services.PluginSdk;
 
@@ -37,6 +38,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly ManagedRuntimeWarmupService _runtimeWarmup;
     private readonly WebServiceOptions _options;
     private readonly DiagnosticCollector? _diagnostics;
+    private readonly AgentSocketAuthenticator? _agentTokens;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
@@ -54,7 +56,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         WebServiceOptions options,
         ServerRestoreCoordinator restoreCoordinator,
         ILogger<DedicatedServerSupervisor> logger,
-        DiagnosticCollector? diagnostics = null)
+        DiagnosticCollector? diagnostics = null,
+        AgentSocketAuthenticator? agentTokens = null)
     {
         _catalog = catalog;
         _registry = registry;
@@ -65,6 +68,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _restoreCoordinator = restoreCoordinator;
         _logger = logger;
         _diagnostics = diagnostics;
+        _agentTokens = agentTokens;
 
         // When set (the default), Quasar leaves managed servers running on its own
         // shutdown instead of stopping them — they are detached (Magnetar -daemon /
@@ -789,6 +793,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                         affinityActions.Add((state.UniqueName, state.Definition.CpuAffinity, "ready"));
                 }
 
+                if (agent?.IsConnected == true && agent.Snapshot?.IsRunning == true)
+                    state.AwaitingAdoptedAgent = false;
+
                 if (goalState == DedicatedServerGoalState.On)
                 {
                     if (!processActive && state.State == DedicatedServerProcessState.Stopped)
@@ -798,6 +805,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     else if (processActive &&
                              health.State == DedicatedServerHealthState.Unhealthy &&
                              state.Definition.AutoRestartOnUnhealthy &&
+                             !state.AwaitingAdoptedAgent &&
                              state.State == DedicatedServerProcessState.Starting)
                     {
                         actions.Add(new(state.UniqueName, ReconcileAction.RetryAttach, health.Summary));
@@ -805,6 +813,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                     else if (processActive &&
                              health.State == DedicatedServerHealthState.Unhealthy &&
                              state.Definition.AutoRestartOnUnhealthy &&
+                             !state.AwaitingAdoptedAgent &&
                              state.State == DedicatedServerProcessState.Running &&
                              CanScheduleHealthRestart(state, now))
                     {
@@ -1163,8 +1172,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             EnableRaisingEvents = true,
         };
 
+        process.StartInfo.Environment.Remove("QUASAR_LAUNCHER_TOKEN");
         process.StartInfo.Environment["QUASAR_UNIQUE_NAME"] = definition.UniqueName;
         process.StartInfo.Environment["QUASAR_BASE_URL"] = _options.BaseUrl;
+        if (_agentTokens is not null)
+            process.StartInfo.Environment[AgentSocketToken.EnvironmentVariable] = _agentTokens.ForServer(definition.UniqueName);
         process.StartInfo.Environment["MAGNETAR_HOST_ID"] = _options.HostId;
         process.StartInfo.Environment["QUASAR_DS_APPDATA_PATH"] = launch.DedicatedServerAppDataPath;
         process.StartInfo.Environment["QUASAR_MAGNETAR_APPDATA_PATH"] = launch.MagnetarAppDataPath;
@@ -1248,6 +1260,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 current.ProcessId = process.Id;
                 current.StartedAtUtc = processStartedAtUtc;
                 current.AgentWatchSinceUtc = current.StartedAtUtc;
+                current.AwaitingAdoptedAgent = false;
                 current.LastStartupLogActivityUtc = null;
                 current.LastStartupLogActivityKind = string.Empty;
                 current.StoppedAtUtc = null;
@@ -1333,6 +1346,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly HashSet<string> SecretEnvironmentVariableNames = new(StringComparer.OrdinalIgnoreCase)
     {
         PulsarGitHubTokenVariableName,
+        AgentSocketToken.EnvironmentVariable,
+        "QUASAR_LAUNCHER_TOKEN",
     };
 
     private void LogManagedServerLaunchEnvironment(DedicatedServerDefinition definition, ProcessStartInfo startInfo)
@@ -1365,7 +1380,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     }
 
     private static string? RedactEnvironmentValue(string name, string? value) =>
-        SecretEnvironmentVariableNames.Contains(name) && !string.IsNullOrEmpty(value) ? RedactedValue : value;
+        (SecretEnvironmentVariableNames.Contains(name) || name.StartsWith("QSR_MANAGED_", StringComparison.OrdinalIgnoreCase))
+            && !string.IsNullOrEmpty(value) ? RedactedValue : value;
 
     // Quasar strips -github-token from user-supplied arguments, but the LEGACY-MAGNETAR-COMPAT
     // path still emits it for pre-2.3.3.0 builds, so it must stay redacted in this log. Keep
@@ -2088,12 +2104,12 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
                     state.Process = process;
                     state.ProcessId = process.Id;
-                    // Give the agent a fresh grace window to reconnect to this new
-                    // worker before health monitoring can judge the adopted server
-                    // unhealthy and restart (kill) it.
+                    // Give the agent a fresh grace window. If an old agent is refused,
+                    // recovery remains paused until authenticated telemetry returns.
                     state.AgentWatchSinceUtc = DateTimeOffset.UtcNow;
                     state.LastStartupLogActivityUtc = null;
                     state.LastStartupLogActivityKind = string.Empty;
+                    state.AwaitingAdoptedAgent = true;
                     state.State = persistedState.State is DedicatedServerProcessState.Starting
                         ? DedicatedServerProcessState.Starting
                         : DedicatedServerProcessState.Running;
@@ -2865,7 +2881,10 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             // Count startup monitoring from when we started watching for the agent
             // (adoption time for a re-adopted process), not the original start. An
             // adopted long-running server receives a fresh activity-aware window.
-            return EvaluateAgentStartupHealth(state, now, "attach", "Waiting for Quasar.Agent to attach.");
+            var startup = EvaluateAgentStartupHealth(state, now, "attach", "Waiting for Quasar.Agent to attach.");
+            return state.AwaitingAdoptedAgent && startup.State == DedicatedServerHealthState.Unhealthy
+                ? startup with { Summary = startup.Summary + " Automatic recovery is paused for this adopted process. Save in game before a manual restart." }
+                : startup;
         }
 
         if (agent.Snapshot is null)
@@ -3138,6 +3157,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
     private bool CanRunPlannedRestart(ManagedServerState state)
     {
+        // An adopted old agent may be refused after upgrade; only an admin can authorize a restart before telemetry returns.
+        if (state.AwaitingAdoptedAgent) return false;
         if (!_options.AvoidSimultaneousScheduledRestarts)
             return true;
 
@@ -3609,6 +3630,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         public DateTimeOffset? LastSimulationProgressEvaluatedAtUtc { get; set; }
 
         public string LastHealthySummary { get; set; } = string.Empty;
+
+        public bool AwaitingAdoptedAgent { get; set; }
 
         public string LastAgentDeploymentMismatchKey { get; set; } = string.Empty;
 

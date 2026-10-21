@@ -1,5 +1,8 @@
 # Linux Deployment and Updates
 
+**Security upgrade DIS-0042:** save and stop worlds before activation, back up the credential store and Data Protection keyring together, update Quasar before Hosts, re-pin cluster agents and restart servers. Read [the complete migration instructions](SecurityUpgradeDIS0042.md).
+
+
 Quasar Linux deployment is split into a stable Bootstrap layer and a replaceable
 web UI worker.
 
