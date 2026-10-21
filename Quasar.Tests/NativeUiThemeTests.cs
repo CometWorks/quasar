@@ -239,41 +239,46 @@ public sealed class NativeAppearanceTests : IDisposable
         context.ComponentFactories.AddStub<ServerDetailPanel>();
         context.ComponentFactories.AddStub<ClusterDetailPanel>();
         var page = context.Render<Servers>(p => p.Add(x => x.LaunchBlocked, true).Add(x => x.LaunchBlockedMessage, "Runtime preparing"));
-        Assert.Equal(2, page.FindAll(".quasar-agent-details").Count);
-        Assert.Contains("Orphan node", page.FindAll(".quasar-agent-details")[0].TextContent);
-        Assert.Contains("Register the owning cluster", page.Markup);
-        Assert.DoesNotContain("slot-42", string.Join(" ", page.FindAll(".quasar-agent-details").Select(x => x.TextContent)));
-        Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
-        Assert.Empty(page.FindAll("a[title='Convert to cluster']")); // Existing ClusterManage policy still applies.
-        page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
-        Assert.Equal(new[] { "zulu", "alpha", "cluster" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
-        Assert.Equal("ascending", page.FindAll("th")[3].GetAttribute("aria-sort"));
-        page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
-        Assert.Equal("descending", page.FindAll("th")[3].GetAttribute("aria-sort"));
-        Assert.True(page.Find("button[title='Runtime preparing']").HasAttribute("disabled"));
-        Assert.True(page.Find("button[title^='Wait for a stable']").HasAttribute("disabled"));
-        foreach (var label in new[] { "Show console output", "Clone server", "Create world template", "Edit server", "Delete server", "Open cluster details" })
-            Assert.NotEmpty(page.FindAll($"button[title='{label}']"));
-        var menuTarget = page.Find("button[title='Clone server']").GetAttribute("popovertarget");
-        Assert.NotNull(menuTarget);
-        Assert.NotNull(page.Find($"[id='{menuTarget}'][popover=auto]"));
-        page.Find("input[type=search]").Input("ALPHA");
-        Assert.Equal("alpha", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
-        page.Find("input[type=search]").Input("no matching server");
-        Assert.Contains("No servers match", page.Markup);
-        page.FindAll("button").Single(x => x.TextContent == "Clear filters").Click();
-        Assert.Equal(3, page.FindAll(".quasar-server-name-cell").Count);
-        page.Find("input[type=checkbox]").Change(true);
-        Assert.Contains("Agent / WA", page.Find("thead").TextContent);
-        Assert.Contains("Process", page.Find("thead").TextContent);
-        page.Find("input[type=checkbox]").Change(false);
-        if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } preview)
-            await File.WriteAllTextAsync(preview + ".servers", $"<div style=\"{QuasarTheme.BuildCss(BrandingPresets.GetDarkPalette(BrandingPresets.CometWorksId), true)}\">{page.Markup}</div>");
-        page.FindAll("button[title='Show live data']")[0].Click();
-        Assert.Equal("true", page.FindAll("button[title='Show live data']")[0].GetAttribute("aria-expanded"));
-        Assert.Single(page.FindAll(".quasar-server-detail-row"));
-        page.FindAll("button[title='Show live data']")[0].Click();
-        Assert.Empty(page.FindAll(".quasar-server-detail-row"));
+        // The page re-renders on its own (initial cluster load, 5 s refresh, catalog events). Run every DOM read and
+        // event on the renderer's dispatcher, so no render lands between a Find and its Click (#1274).
+        await page.InvokeAsync(() =>
+        {
+            Assert.Equal(2, page.FindAll(".quasar-agent-details").Count);
+            Assert.Contains("Orphan node", page.FindAll(".quasar-agent-details")[0].TextContent);
+            Assert.Contains("Register the owning cluster", page.Markup);
+            Assert.DoesNotContain("slot-42", string.Join(" ", page.FindAll(".quasar-agent-details").Select(x => x.TextContent)));
+            Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
+            Assert.Empty(page.FindAll("a[title='Convert to cluster']")); // Existing ClusterManage policy still applies.
+            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
+            Assert.Equal(new[] { "zulu", "alpha", "cluster" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
+            Assert.Equal("ascending", page.FindAll("th")[3].GetAttribute("aria-sort"));
+            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
+            Assert.Equal("descending", page.FindAll("th")[3].GetAttribute("aria-sort"));
+            Assert.True(page.Find("button[title='Runtime preparing']").HasAttribute("disabled"));
+            Assert.True(page.Find("button[title^='Wait for a stable']").HasAttribute("disabled"));
+            foreach (var label in new[] { "Show console output", "Clone server", "Create world template", "Edit server", "Delete server", "Open cluster details" })
+                Assert.NotEmpty(page.FindAll($"button[title='{label}']"));
+            var menuTarget = page.Find("button[title='Clone server']").GetAttribute("popovertarget");
+            Assert.NotNull(menuTarget);
+            Assert.NotNull(page.Find($"[id='{menuTarget}'][popover=auto]"));
+            page.Find("input[type=search]").Input("ALPHA");
+            Assert.Equal("alpha", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
+            page.Find("input[type=search]").Input("no matching server");
+            Assert.Contains("No servers match", page.Markup);
+            page.FindAll("button").Single(x => x.TextContent == "Clear filters").Click();
+            Assert.Equal(3, page.FindAll(".quasar-server-name-cell").Count);
+            page.Find("input[type=checkbox]").Change(true);
+            Assert.Contains("Agent / WA", page.Find("thead").TextContent);
+            Assert.Contains("Process", page.Find("thead").TextContent);
+            page.Find("input[type=checkbox]").Change(false);
+            if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } preview)
+                File.WriteAllText(preview + ".servers", $"<div style=\"{QuasarTheme.BuildCss(BrandingPresets.GetDarkPalette(BrandingPresets.CometWorksId), true)}\">{page.Markup}</div>");
+            page.FindAll("button[title='Show live data']")[0].Click();
+            Assert.Equal("true", page.FindAll("button[title='Show live data']")[0].GetAttribute("aria-expanded"));
+            Assert.Single(page.FindAll(".quasar-server-detail-row"));
+            page.FindAll("button[title='Show live data']")[0].Click();
+            Assert.Empty(page.FindAll(".quasar-server-detail-row"));
+        });
     }
 
     [Fact]
