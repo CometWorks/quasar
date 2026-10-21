@@ -5,7 +5,9 @@ bell and **Notifications** page. Every authenticated viewer of this Quasar
 installation can see them, including operators managing linked Hosts and cluster
 nodes. This is centralized operator visibility through the existing Quasar UI;
 there is no new Host protocol, inbound listener, server chat broadcast, remote
-command or automatic restart. Headless mode does not poll this human-facing feed.
+command or automatic restart. All Quasar modes poll with the same consent gates.
+Headless installations deliver notices through their existing service logs,
+without registering browser or UI notification services.
 
 ## Consent and authentication
 
@@ -16,7 +18,8 @@ preferences do not suppress these operational notices. Browser push still
 requires the browser's existing, explicitly enabled subscription.
 
 Quasar checks local consent before enrollment, before fetching, before committing
-a response, and whenever returning or rendering a notice or starting a push.
+a response, and whenever returning or rendering a notice, starting a push, or
+writing a headless announcement log.
 Changing the consent decision cancels enrollment/fetch/delivery operations and
 clears mismatched cached display state. A response captured before revocation
 cannot become visible after regrant. UI circuits refresh through the existing
@@ -45,14 +48,47 @@ A successful full snapshot replaces the active set, so withdrawal removes the
 notice on the next successful poll. Display stops at the exclusive announcement
 expiry or six minutes after the last successful snapshot, whichever comes first.
 An unavailable or malformed feed cannot extend this deadline. Open UI circuits
-are notified within about one second of local expiry/staleness; every feed read
-and render eligibility check also enforces the deadline.
+are notified within about one second of local expiry/staleness by a timer that
+runs independently of network polling. A stalled or failed fetch cannot suppress
+this invalidation event. Every feed read, render eligibility check and headless
+log delivery also enforces the deadline.
 
 `Announcements.json` under the Quasar application-state directory persists the
 active snapshot, configured origin, consent decision/generation and successful
 fetch time. After restart it is eligible only under the same current consent,
 origin and deadline. This file contains announcement content, never credentials.
 Announcement IDs are stable; receiving an ID does not dismiss its active display.
+
+### Headless service-log delivery
+
+In headless mode, eligible notices are written with the existing
+`ILogger<AnnouncementService>` pipeline to `quasar.log` and any configured service
+console/journal target. Severity maps to Information (`info`), Warning (`warning`)
+and Critical (`critical`). The normal logging-level filters still apply. ID,
+severity, title, text and optional HTTPS details link are structured values in a
+fixed message template. Newlines, tabs, backslashes and Unicode line separators
+are escaped so remote text cannot inject extra physical log lines or templates.
+Nothing opens the details link or executes the text.
+
+`Announcements.log-receipts.json` in the application-state directory records each
+attempted log delivery before invoking the logger, independently of active display
+state. Restart, regrant and withdrawal do not replay an unexpired ID. Delivery is
+at most one attempt per ID during its original lifetime; a crash between receipt
+publication and log acceptance can miss a notice. Existing log queues and targets
+also remain best effort. Already written log entries cannot be recalled on
+withdrawal, expiry or revocation.
+
+The receipt file has schema version 1, at most 4,096 distinct lowercase GUID N
+IDs with explicit UTC expiries, and a 1 MiB read limit. Receipts remain until their
+original exclusive expiry and are pruned before new delivery. Reusing an ID after
+that retention window can result in another log entry. Unexpired receipts are
+never evicted to make space: at capacity, new headless log delivery pauses until
+expiry frees space. Corrupt, oversized or unwritable receipt state also pauses
+log delivery instead of resetting history and replaying notices. One warning is
+emitted for a continuing failure; repair the state/storage and let the next poll
+retry. None of these cases bypass consent, expiry or the six-minute cache limit.
+
+### Browser delivery
 
 Browser push uses existing account authorization, subscriptions and protected
 `PushNotifications.json` state. Each browser retains a durable receipt per
@@ -100,5 +136,8 @@ dotnet test Quasar.Tests/Quasar.Tests.csproj -m:2 --filter 'FullyQualifiedName~A
 ```
 
 The tests use isolated state and fake HTTP/push transports, exercise the actual
-notification feed and shared rendered bell and notice card, and require no running Quasar,
-game, backend, browser push subscription or production announcement.
+notification feed and shared rendered bell and notice card, the production
+headless service registration and structured logger sink, bounded durable receipt
+state, and real expiry/staleness events during a stalled then failed fetch. They
+require no running Quasar web service, game, backend, browser push subscription or
+production announcement.

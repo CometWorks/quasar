@@ -643,7 +643,10 @@ VAPID keys, subscriptions, and account preferences are kept in the Quasar data d
 `PushNotifications.json`, protected with Quasar's persisted ASP.NET Data
 Protection key ring. Keep that key ring with the data directory during
 migration or restore; losing it makes existing subscriptions unreadable.
-Headless mode does not run browser push delivery.
+Headless mode does not run browser push delivery. With current-policy YES and
+diagnostic-report consent, it still polls CometWorks announcements and writes
+eligible notices to the existing service logs with durable per-ID deduplication.
+See [announcement delivery and retention](Announcements.md#headless-service-log-delivery).
 
 ## Discord bot presence
 

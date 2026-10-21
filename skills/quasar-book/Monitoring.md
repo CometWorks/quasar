@@ -171,11 +171,17 @@ show a CRITICAL label with error styling and turn the bell red. Plain text is
 escaped; optional details links are HTTPS. Push titles include severity and open
 the central Notifications page. Push carries a short text preview; the page shows
 the full text. Linked Hosts are represented by this Quasar UI;
-there is no separate Host delivery or server chat broadcast.
+there is no separate Host delivery or server chat broadcast. Headless Quasar
+also polls, but writes consenting notices to its service logs instead of using UI
+or browser services. Log severity is Information, Warning or Critical. Headless
+receipts survive restart and regrant, retain up to 4,096 IDs until original expiry,
+and pause new logging at capacity or on invalid state. See
+[Diagnostics](Diagnostics.md#cometworks-announcements) for retention and failure limits.
 
 Revoking consent clears cached visibility and cancels pending delivery. Withdrawal
 removes a notice on the next successful poll; expiry is exclusive and stale
-snapshots stop displaying after six minutes. Each subscribed browser gets at most
+snapshots stop displaying after six minutes. An independent timer raises UI
+change events even during stalled or failed fetches. Each subscribed browser gets at most
 one push attempt per ID, including across Quasar restarts, withdrawal and regrant.
 Failed attempts can be missed; active notices remain on the page. Subscriptions
 removed and recreated have new delivery history. See

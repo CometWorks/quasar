@@ -123,6 +123,12 @@ Headless mode runs the supervisor, background jobs, HTTP APIs and the agent sock
 Start it with `Quasar serve --headless` or with `QUASAR_HEADLESS=true` in the launcher's environment. The launcher passes the mode to the worker and keeps it across updates. Under the launcher the `Quasar:Headless` key in `appsettings.json` has no effect, because the launcher always sets `QUASAR_HEADLESS` for the worker. The key works when running the worker directly.
 
 Authentication stays on in headless mode; see [Access control](AccessControl.md).
+With current-policy YES and diagnostic-report consent, headless Quasar polls
+CometWorks announcements and writes eligible notices to its existing service logs.
+Browser push services remain disabled. Headless log receipts survive restart and
+regrant, retain up to 4,096 IDs until their original expiry, and pause new logging
+at capacity or on invalid state. See
+[CometWorks announcements](Diagnostics.md#cometworks-announcements) for limits.
 
 Health endpoints, available in both modes:
 

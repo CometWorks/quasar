@@ -1,7 +1,6 @@
 using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Magnetar.Protocol.Runtime;
 
 namespace Quasar.Services.Updates;
 
@@ -12,6 +11,9 @@ internal sealed record Announcement(string Id, string Severity, string Title, st
 public sealed class AnnouncementService : BackgroundService
 {
     internal const int MaxResponseBytes = 2 * 1024 * 1024;
+    internal const int MaxLogReceipts = 4096;
+    internal const int MaxLogStateBytes = 1024 * 1024;
+    internal static readonly EventId HeadlessNoticeEvent = new(1358, "CometWorksAnnouncement");
     internal const string KeyPrefix = "announcement:";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
@@ -26,6 +28,11 @@ public sealed class AnnouncementService : BackgroundService
     private readonly ILogger<AnnouncementService> _logger;
     private readonly string _path;
     private readonly Func<DateTimeOffset> _now;
+    private readonly bool _headless;
+    private LogReceipt[]? _logReceipts;
+    private bool _logFailureReported;
+    private UpdateNotice[] _lastNotified = [];
+    internal string LogReceiptsPath => Path.ChangeExtension(_path, ".log-receipts.json");
     private readonly object _sync = new();
     private readonly SemaphoreSlim _pollGate = new(1, 1);
     private readonly SemaphoreSlim _wake = new(0, 1);
@@ -35,14 +42,15 @@ public sealed class AnnouncementService : BackgroundService
     public event Action? Changed;
 
     public AnnouncementService(DataHandlingConsentCatalog consent, DiagnosticsUplinkService diagnostics,
-        IHttpClientFactory factory, ILogger<AnnouncementService> logger)
+        IHttpClientFactory factory, ILogger<AnnouncementService> logger, WebServiceOptions options)
         : this(consent, diagnostics, factory.CreateClient("Announcements"), logger,
-            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "Announcements.json")) { }
+            Path.Combine(Path.GetDirectoryName(diagnostics.StateDirectory)!, "Announcements.json"), headless: options.Headless) { }
 
     internal AnnouncementService(DataHandlingConsentCatalog consent, DiagnosticsUplinkService diagnostics,
-        HttpClient http, ILogger<AnnouncementService> logger, string path, Func<DateTimeOffset>? now = null)
+        HttpClient http, ILogger<AnnouncementService> logger, string path, Func<DateTimeOffset>? now = null, bool headless = false)
     {
         (_consent, _diagnostics, _http, _logger, _path, _now) = (consent, diagnostics, http, logger, path, now ?? (() => DateTimeOffset.UtcNow));
+        _headless = headless;
         // Subscribe before reading. All snapshot access uses the same consent -> snapshot lock order.
         consent.Changed += ConsentChanged;
         consent.WithSettings(settings =>
@@ -64,6 +72,7 @@ public sealed class AnnouncementService : BackgroundService
                 }
                 catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
                 { logger.LogWarning("Announcement cache unavailable ({FailureType}).", error.GetType().Name); }
+                _lastNotified = VisibleNotices(settings);
                 return true;
             }
         });
@@ -77,10 +86,28 @@ public sealed class AnnouncementService : BackgroundService
 
     internal UpdateNotice[] GetNotices() => _consent.WithSettings(settings =>
     {
-        lock (_sync)
-            return _snapshot is { } cache && Matches(cache, settings)
-                ? cache.Announcements.Where(a => a.ExpiresAtUtc > _now()).Select(ToNotice).ToArray() : [];
+        lock (_sync) return VisibleNotices(settings);
     });
+
+    // Caller holds the consent and snapshot locks.
+    private UpdateNotice[] VisibleNotices(DataHandlingConsentSettings settings) =>
+        _snapshot is { } cache && Matches(cache, settings)
+            ? cache.Announcements.Where(a => a.ExpiresAtUtc > _now()).Select(ToNotice).ToArray() : [];
+
+    private void NotifyVisibilityChanged()
+    {
+        bool changed = _consent.WithSettings(settings =>
+        {
+            lock (_sync)
+            {
+                var current = VisibleNotices(settings);
+                if (_lastNotified.SequenceEqual(current)) return false;
+                _lastNotified = current;
+                return true;
+            }
+        });
+        if (changed) Changed?.Invoke();
+    }
 
     internal bool IsCurrent(UpdateNotice notice) => !notice.Key.StartsWith(KeyPrefix, StringComparison.Ordinal)
         || GetNotices().Contains(notice);
@@ -132,7 +159,7 @@ public sealed class AnnouncementService : BackgroundService
                 return true;
             }
         });
-        Changed?.Invoke();
+        NotifyVisibilityChanged();
         if (_wake.CurrentCount == 0) try { _wake.Release(); } catch (SemaphoreFullException) { }
     }
 
@@ -184,7 +211,8 @@ public sealed class AnnouncementService : BackgroundService
                     return true;
                 }
             });
-            Changed?.Invoke();
+            NotifyVisibilityChanged();
+            DeliverHeadlessNotices(stoppingToken);
         }
         finally { _pollGate.Release(); }
     }
@@ -231,30 +259,98 @@ public sealed class AnnouncementService : BackgroundService
         }
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override Task ExecuteAsync(CancellationToken stoppingToken) =>
+        Task.WhenAll(InvalidateVisibilityAsync(stoppingToken), PollAsync(stoppingToken));
+
+    private async Task InvalidateVisibilityAsync(CancellationToken token)
     {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token)) NotifyVisibilityChanged();
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task PollAsync(CancellationToken stoppingToken)
+    {
+        // A still-current cache may be delivered after switching from UI to headless mode.
+        DeliverHeadlessNotices(stoppingToken);
         while (!stoppingToken.IsCancellationRequested)
         {
             try { await PollOnceAsync(stoppingToken); }
             catch (OperationCanceledException) { }
             catch (Exception error)
             { _logger.LogWarning("Announcement poll deferred ({FailureType}).", error.GetType().Name); }
-            // Expiry invalidates open UIs promptly, independently of the five-minute network poll.
-            var deadline = _now().AddSeconds(300 + Random.Shared.Next(-30, 31));
-            try
-            {
-                while (_now() < deadline)
-                {
-                    var delay = deadline - _now();
-                    if (delay <= TimeSpan.Zero) break;
-                    var expiry = GetNotices().Select(n => n.Key).ToArray();
-                    if (await _wake.WaitAsync(delay < TimeSpan.FromSeconds(1) ? delay : TimeSpan.FromSeconds(1), stoppingToken)) break;
-                    if (!expiry.SequenceEqual(GetNotices().Select(n => n.Key))) Changed?.Invoke();
-                }
-            }
+            try { await _wake.WaitAsync(TimeSpan.FromSeconds(300 + Random.Shared.Next(-30, 31)), stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
     }
+
+    internal void DeliverHeadlessNotices(CancellationToken token = default)
+    {
+        if (!_headless) return;
+        _consent.WithSettings(settings =>
+        {
+            lock (_sync)
+            {
+                if (_disposed || _snapshot is not { } cache || !Matches(cache, settings)) return false;
+                try
+                {
+                    _logReceipts ??= ReadLogReceipts();
+                    foreach (var announcement in cache.Announcements.Where(a => a.ExpiresAtUtc > _now()))
+                    {
+                        token.ThrowIfCancellationRequested();
+                        if (_logReceipts.Any(r => r.Id == announcement.Id)) continue;
+                        var level = announcement.Severity switch
+                        { "critical" => LogLevel.Critical, "warning" => LogLevel.Warning, _ => LogLevel.Information };
+                        if (!_logger.IsEnabled(level)) continue;
+                        var retained = _logReceipts.Where(r => r.ExpiresAtUtc > _now()).ToArray();
+                        if (retained.Length >= MaxLogReceipts) throw new InvalidDataException("Announcement log receipts are full.");
+                        var next = retained.Append(new LogReceipt(announcement.Id, announcement.ExpiresAtUtc)).ToArray();
+                        // Reserve before the logger. A crash can miss one log attempt, never replay it.
+                        AtomicFileWriter.WriteTextAsync(LogReceiptsPath, JsonSerializer.Serialize(new LogReceiptState(1, next), Json), token)
+                            .GetAwaiter().GetResult();
+                        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(LogReceiptsPath, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                        _logReceipts = next;
+                        token.ThrowIfCancellationRequested();
+                        if (!Matches(cache, settings) || announcement.ExpiresAtUtc <= _now()) continue;
+                        _logger.Log(level, HeadlessNoticeEvent,
+                            "CometWorks announcement {AnnouncementId} [{Severity}]: {Title} | {Text} | Details: {Link}",
+                            announcement.Id, announcement.Severity, LogText(announcement.Title), LogText(announcement.Text), announcement.Link);
+                    }
+                    _logFailureReported = false;
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException or JsonException or InvalidDataException)
+                {
+                    // Do not reset corrupt receipts and replay notices, or spam failures every poll.
+                    if (!_logFailureReported)
+                        _logger.LogWarning("Announcement log delivery paused ({FailureType}); check log receipt state.", error.GetType().Name);
+                    _logFailureReported = true;
+                }
+                return true;
+            }
+        });
+    }
+
+    private LogReceipt[] ReadLogReceipts()
+    {
+        if (!File.Exists(LogReceiptsPath)) return [];
+        using var file = File.OpenRead(LogReceiptsPath);
+        if (file.Length > MaxLogStateBytes) throw new InvalidDataException("Announcement log state exceeds limit.");
+        var state = JsonSerializer.Deserialize<LogReceiptState>(file, Json);
+        if (state is null || state.SchemaVersion != 1 || state.Receipts is null || state.Receipts.Length > MaxLogReceipts
+            || state.Receipts.Any(r => r is null || r.Id is not { Length: 32 } || !Guid.TryParseExact(r.Id, "N", out _)
+                || r.Id != r.Id.ToLowerInvariant() || r.ExpiresAtUtc <= DateTimeOffset.UnixEpoch)
+            || state.Receipts.Select(r => r.Id).Distinct(StringComparer.Ordinal).Count() != state.Receipts.Length)
+            throw new InvalidDataException("Invalid announcement log receipts.");
+        return state.Receipts.Where(r => r.ExpiresAtUtc > _now()).ToArray();
+    }
+
+    private static string LogText(string value) => value.Replace("\\", "\\\\", StringComparison.Ordinal)
+        .Replace("\r", "\\r", StringComparison.Ordinal).Replace("\n", "\\n", StringComparison.Ordinal)
+        .Replace("\t", "\\t", StringComparison.Ordinal).Replace("\u2028", "\\u2028", StringComparison.Ordinal)
+        .Replace("\u2029", "\\u2029", StringComparison.Ordinal);
 
     public override void Dispose()
     {
@@ -268,6 +364,8 @@ public sealed class AnnouncementService : BackgroundService
         base.Dispose();
     }
 
+    private sealed record LogReceipt(string Id, DateTimeOffset ExpiresAtUtc);
+    private sealed record LogReceiptState(int SchemaVersion, LogReceipt[] Receipts);
     private sealed record WireSnapshot(int SchemaVersion, Announcement[] Announcements);
     private sealed record CachedSnapshot(string Origin, long Generation, string? Decision, DateTimeOffset FetchedAtUtc, Announcement[] Announcements);
 

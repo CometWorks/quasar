@@ -19,7 +19,8 @@ Consent changes cancel active transfers, invalidate the local collector lease an
 ## Operational announcements
 
 Current-policy YES plus diagnostic-report consent also permits the existing
-notification feed to fetch and show CometWorks operational announcements. The
+notification feed to fetch and show CometWorks operational announcements; headless
+installations write eligible notices once to their existing service logs. The
 backend cannot determine current local consent. Quasar rechecks it before
 fetch/display/push and cancels in-flight work on revocation. See
 [announcements](Announcements.md) for authentication, restart deduplication,

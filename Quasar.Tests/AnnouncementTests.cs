@@ -9,6 +9,10 @@ using Bunit;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+using System.Collections.Concurrent;
 using Quasar.Components.Shared;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -139,21 +143,24 @@ public sealed class AnnouncementTests : IDisposable
         _now = _now.AddMinutes(6); Assert.Empty(service.GetNotices());
     }
 
-    [Fact]
-    public async Task RevocationDuringFetchDiscardsResponseEvenWhenTransportIgnoresCancellation()
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task RevocationDuringFetchDiscardsResponseEvenWhenTransportIgnoresCancellation(bool headless)
     {
         var consent = Consent(); await consent.SaveAsync(true, true, false);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var response = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
         CancellationToken inFlight = default;
         var http = Http((_, token) => { inFlight = token; entered.SetResult(); return response.Task; });
-        var service = Service(consent, Diagnostics(consent, http), http);
+        var logger = new RecordingLogger(_ => { });
+        var service = Own(new AnnouncementService(consent, Diagnostics(consent, http), http, logger, Cache,
+            () => _now, headless: headless));
         var polling = service.PollOnceAsync(); await entered.Task;
         await consent.SaveAsync(false); Assert.True(inFlight.IsCancellationRequested);
         await consent.SaveAsync(true, true, false); // Regrant must not admit the old response.
         response.SetResult(Snapshot(Message()));
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => polling);
-        Assert.Empty(service.GetNotices()); Assert.False(File.Exists(Cache));
+        Assert.Empty(service.GetNotices()); Assert.False(File.Exists(Cache)); Assert.Empty(logger.Notices);
     }
 
     [Theory]
@@ -387,6 +394,249 @@ public sealed class AnnouncementTests : IDisposable
         Assert.Equal("/notifications", json.RootElement.GetProperty("url").GetString());
         Assert.Equal("CRITICAL: " + notice.Title, json.RootElement.GetProperty("title").GetString());
         Assert.Equal(401, json.RootElement.GetProperty("body").GetString()!.Length);
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public async Task ExpiryChangedEventContinuesDuringStalledThenFailedFetch(bool stale)
+    {
+        var consent = Consent(); await consent.SaveAsync(true, true, false);
+        var message = Message() with { ExpiresAtUtc = _now.AddMinutes(stale ? 20 : 1) };
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reply = new TaskCompletionSource<HttpResponseMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var failed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int requests = 0;
+        var http = Http((_, _) =>
+        {
+            if (Interlocked.Increment(ref requests) == 1) return Task.FromResult(Snapshot(message));
+            entered.TrySetResult(); return reply.Task;
+        });
+        long ticks = _now.UtcTicks;
+        var logger = new RecordingLogger(entry =>
+        {
+            if (entry.EventId != AnnouncementService.HeadlessNoticeEvent && entry.Message.StartsWith("Announcement poll deferred", StringComparison.Ordinal)) failed.TrySetResult();
+        });
+        var service = Own(new AnnouncementService(consent, Diagnostics(consent, http), http, logger, Cache,
+            () => new DateTimeOffset(Interlocked.Read(ref ticks), TimeSpan.Zero)));
+        await service.PollOnceAsync();
+        int changes = 0;
+        var invalidated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        service.Changed += () =>
+        {
+            Interlocked.Increment(ref changes);
+            if (service.GetNotices().Length == 0) invalidated.TrySetResult();
+        };
+        await service.StartAsync(default);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Interlocked.Exchange(ref ticks, stale ? _now.AddMinutes(6).UtcTicks : message.ExpiresAtUtc.UtcTicks);
+            await invalidated.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(reply.Task.IsCompleted); // The UI event must arrive while the fetch is still stalled.
+            Assert.Empty(service.GetNotices()); Assert.Equal(1, Volatile.Read(ref changes));
+            reply.SetResult(new(HttpStatusCode.ServiceUnavailable));
+            await failed.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(1100); // One more independent invalidation tick after failure must not spam.
+            Assert.Equal(1, Volatile.Read(ref changes));
+        }
+        finally
+        {
+            reply.TrySetResult(new(HttpStatusCode.ServiceUnavailable));
+            await service.StopAsync(default);
+        }
+    }
+
+    [Fact]
+    public async Task ActualHeadlessRegistrationPollsAndLogsWithoutUiServicesAndDeduplicatesAcrossRegrantRestart()
+    {
+        var consent = Consent();
+        var messages = new[] { Message("info"), Message("warning"), Message("critical") };
+        int requests = 0;
+        var logged = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var logger = new RecordingLogger(_ => { });
+        logger.OnNotice = () => { if (logger.Notices.Length >= 3) logged.TrySetResult(); };
+        var http = Http((_, _) => { Interlocked.Increment(ref requests); return Task.FromResult(Snapshot(messages)); });
+        var diagnostics = Diagnostics(consent, http);
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton(consent); services.AddSingleton(diagnostics);
+        services.AddSingleton(new WebServiceOptions { Headless = true });
+        services.AddSingleton<IHttpClientFactory>(new ClientFactory(http));
+        services.AddSingleton<ILogger<AnnouncementService>>(logger);
+        Program.ConfigureNotificationServices(services, new WebServiceOptions { Headless = true });
+        await using (var provider = services.BuildServiceProvider())
+        {
+            Assert.Null(provider.GetService<PushNotificationService>());
+            Assert.Null(provider.GetService<BrowserPushState>());
+            var hosted = Assert.Single(provider.GetServices<IHostedService>());
+            var service = provider.GetRequiredService<AnnouncementService>();
+            Assert.Same(service, hosted);
+            await service.PollOnceAsync(); Assert.Equal(0, requests); Assert.Empty(logger.Notices);
+            await hosted.StartAsync(default);
+            try
+            {
+                await consent.SaveAsync(true, true, false);
+                await logged.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                Assert.Equal(new[] { LogLevel.Information, LogLevel.Warning, LogLevel.Critical }.Order(), logger.Notices.Select(e => e.Level).Order());
+                Assert.All(logger.Notices, entry =>
+                {
+                    Assert.DoesNotContain("\n", entry.Message); Assert.DoesNotContain("\r", entry.Message);
+                    Assert.Contains("\\nsecond line", entry.Message);
+                    Assert.Contains(entry.Properties, p => p.Key == "AnnouncementId");
+                    Assert.Contains(entry.Properties, p => p.Key == "{OriginalFormat}" && p.Value!.ToString()!.Contains("{Title}"));
+                });
+                await consent.SaveAsync(false);
+                int stoppedAt = Volatile.Read(ref requests);
+                await service.PollOnceAsync(); service.DeliverHeadlessNotices();
+                Assert.Equal(stoppedAt, Volatile.Read(ref requests)); Assert.Equal(3, logger.Notices.Length);
+                await consent.SaveAsync(true, true, false);
+                await service.PollOnceAsync(); Assert.Equal(3, logger.Notices.Length);
+            }
+            finally { await hosted.StopAsync(default); }
+        }
+        // Reload both receipt file and active snapshot from disk using a new service instance.
+        var restartedConsent = Consent();
+        var restarted = Own(new AnnouncementService(restartedConsent, Diagnostics(restartedConsent, http),
+            new ClientFactory(http), logger, new WebServiceOptions { Headless = true }));
+        restarted.DeliverHeadlessNotices(); await restarted.PollOnceAsync();
+        Assert.Equal(3, logger.Notices.Length);
+    }
+
+    [Theory]
+    [InlineData(false)] [InlineData(true)]
+    public void NotificationRegistrationKeepsUiServicesOnlyInUiMode(bool headless)
+    {
+        var services = new ServiceCollection();
+        Program.ConfigureNotificationServices(services, new WebServiceOptions { Headless = headless });
+        Assert.Contains(services, service => service.ServiceType == typeof(AnnouncementService));
+        Assert.Equal(!headless, services.Any(service => service.ServiceType == typeof(PushNotificationService)));
+        Assert.Equal(!headless, services.Any(service => service.ServiceType == typeof(BrowserPushState)));
+    }
+
+    [Theory]
+    [InlineData("withdrawal")] [InlineData("expiry")] [InlineData("stale")] [InlineData("revoked")]
+    public async Task HeadlessLogRechecksVisibilityAndConsentImmediatelyBeforeDelivery(string reason)
+    {
+        var consent = Consent(); await consent.SaveAsync(true, true, false);
+        var message = Message(); Announcement[] items = [message];
+        var logger = new RecordingLogger(_ => { });
+        var http = Http((_, _) => Task.FromResult(Snapshot(items)));
+        var service = Own(new AnnouncementService(consent, Diagnostics(consent, http), http, logger, Cache,
+            () => _now, headless: true));
+        // Invoked between commit and the log sink, proving that the sink does its own current-state check.
+        service.Changed += () =>
+        {
+            if (reason == "expiry") _now = message.ExpiresAtUtc;
+            if (reason == "stale") _now = _now.AddMinutes(6);
+            if (reason == "revoked" && service.GetNotices().Length != 0) consent.SaveAsync(false).GetAwaiter().GetResult();
+        };
+        if (reason == "withdrawal") items = [];
+        await service.PollOnceAsync(); service.DeliverHeadlessNotices();
+        Assert.Empty(logger.Notices);
+        Assert.False(File.Exists(service.LogReceiptsPath));
+    }
+
+    [Theory]
+    [InlineData("invalid")] [InlineData("oversize")] [InlineData("duplicate")]
+    [InlineData("bad-id")] [InlineData("too-many")] [InlineData("full")]
+    public async Task HeadlessReceiptStateIsBoundedValidatedAndNeverResetToReplay(string kind)
+    {
+        var consent = Consent(); await consent.SaveAsync(true, true, false);
+        var message = Message(); var logger = new RecordingLogger(_ => { });
+        var http = Http((_, _) => Task.FromResult(Snapshot(message)));
+        var service = Own(new AnnouncementService(consent, Diagnostics(consent, http), http, logger, Cache,
+            () => _now, headless: true));
+        var receipts = Enumerable.Range(0, AnnouncementService.MaxLogReceipts).Select(_ => new
+        { id = Guid.NewGuid().ToString("N"), expiresAtUtc = _now.AddDays(1) }).ToArray();
+        string json = kind switch
+        {
+            "invalid" => "{invalid",
+            "oversize" => new string('x', AnnouncementService.MaxLogStateBytes + 1),
+            "duplicate" => JsonSerializer.Serialize(new { schemaVersion = 1, receipts = new[] { receipts[0], receipts[0] } }, Json),
+            "bad-id" => JsonSerializer.Serialize(new { schemaVersion = 1, receipts = new[] { new { id = "bad", expiresAtUtc = _now.AddDays(1) } } }, Json),
+            "too-many" => JsonSerializer.Serialize(new { schemaVersion = 1, receipts = receipts.Append(new { id = Guid.NewGuid().ToString("N"), expiresAtUtc = _now.AddDays(1) }) }, Json),
+            _ => JsonSerializer.Serialize(new { schemaVersion = 1, receipts }, Json),
+        };
+        await File.WriteAllTextAsync(service.LogReceiptsPath, json);
+        await service.PollOnceAsync(); await service.PollOnceAsync();
+        Assert.Empty(logger.Notices);
+        Assert.Equal(json, await File.ReadAllTextAsync(service.LogReceiptsPath));
+        Assert.Single(logger.Entries, e => e.Message.StartsWith("Announcement log delivery paused", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task ExpiredHeadlessReceiptsFreeCapacityWithoutDroppingLiveDedup()
+    {
+        var consent = Consent(); await consent.SaveAsync(true, true, false);
+        var message = Message(); var logger = new RecordingLogger(_ => { });
+        var http = Http((_, _) => Task.FromResult(Snapshot(message)));
+        var service = Own(new AnnouncementService(consent, Diagnostics(consent, http), http, logger, Cache,
+            () => _now, headless: true));
+        await File.WriteAllTextAsync(service.LogReceiptsPath, JsonSerializer.Serialize(new { schemaVersion = 1,
+            receipts = Enumerable.Range(0, AnnouncementService.MaxLogReceipts).Select(_ => new
+            { id = Guid.NewGuid().ToString("N"), expiresAtUtc = _now.AddSeconds(-1) }) }, Json));
+        await service.PollOnceAsync(); await service.PollOnceAsync();
+        Assert.Single(logger.Notices);
+        using var receipts = JsonDocument.Parse(await File.ReadAllTextAsync(service.LogReceiptsPath));
+        Assert.Single(receipts.RootElement.GetProperty("receipts").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task InterruptedHeadlessLogAttemptIsReservedBeforeLoggerAndNotReplayed()
+    {
+        var consent = Consent(); await consent.SaveAsync(true, true, false);
+        var message = Message();
+        var http = Http((_, _) => Task.FromResult(Snapshot(message)));
+        var diagnostics = Diagnostics(consent, http);
+        var failing = new RecordingLogger(entry =>
+        {
+            if (entry.EventId == AnnouncementService.HeadlessNoticeEvent) throw new IOException("fixture logger interruption");
+        });
+        var service = Own(new AnnouncementService(consent, diagnostics, http, failing, Cache, () => _now, headless: true));
+        await service.PollOnceAsync(); Assert.Single(failing.Notices);
+        var logger = new RecordingLogger(_ => { });
+        var restarted = Own(new AnnouncementService(consent, diagnostics, http, logger, Cache, () => _now, headless: true));
+        restarted.DeliverHeadlessNotices(); await restarted.PollOnceAsync();
+        Assert.Empty(logger.Notices); Assert.Single(restarted.GetNotices());
+    }
+
+    [Fact]
+    public async Task UnwritableHeadlessReceiptsPauseWithoutSpammingAndRetryAfterStorageRepair()
+    {
+        var consent = Consent(); await consent.SaveAsync(true, true, false);
+        var message = Message(); var logger = new RecordingLogger(_ => { });
+        var http = Http((_, _) => Task.FromResult(Snapshot(message)));
+        var service = Own(new AnnouncementService(consent, Diagnostics(consent, http), http, logger, Cache,
+            () => _now, headless: true));
+        Directory.CreateDirectory(service.LogReceiptsPath); // A path collision reliably fails writes on every OS.
+        await service.PollOnceAsync(); await service.PollOnceAsync();
+        Assert.Empty(logger.Notices);
+        Assert.Single(logger.Entries, e => e.Message.StartsWith("Announcement log delivery paused", StringComparison.Ordinal));
+        Directory.Delete(service.LogReceiptsPath);
+        await service.PollOnceAsync(); await service.PollOnceAsync();
+        Assert.Single(logger.Notices);
+    }
+
+    private sealed record LogEntry(LogLevel Level, EventId EventId, string Message, KeyValuePair<string, object?>[] Properties);
+    private sealed class RecordingLogger(Action<LogEntry> onEntry) : ILogger<AnnouncementService>
+    {
+        private readonly ConcurrentQueue<LogEntry> _entries = new();
+        public LogEntry[] Entries => _entries.ToArray();
+        public LogEntry[] Notices => Entries.Where(entry => entry.EventId == AnnouncementService.HeadlessNoticeEvent).ToArray();
+        public Action? OnNotice { get; set; }
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel level) => true;
+        public void Log<TState>(LogLevel level, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            var entry = new LogEntry(level, eventId, formatter(state, exception),
+                state is IEnumerable<KeyValuePair<string, object?>> properties ? properties.ToArray() : []);
+            _entries.Enqueue(entry); onEntry(entry);
+            if (eventId == AnnouncementService.HeadlessNoticeEvent) OnNotice?.Invoke();
+        }
+    }
+    private sealed class ClientFactory(HttpClient http) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => http;
     }
 
     private sealed class StreamingContent(byte[] bytes) : HttpContent
