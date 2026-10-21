@@ -1,5 +1,8 @@
 # Windows Deployment and Updates
 
+**Security upgrade DIS-0042:** save and stop worlds before activation, back up the credential store and Data Protection keyring together, update Quasar before Hosts, re-pin cluster agents and restart servers. Read [the complete migration instructions](SecurityUpgradeDIS0042.md).
+
+
 Quasar's Windows deployment mirrors the [Linux model](LinuxDeploymentAndUpdates.md):
 a stable Bootstrap launcher layer plus a replaceable web UI worker. The only
 differences are platform conventions — `.zip` archives instead of `.tar.gz`, a
@@ -272,6 +275,10 @@ Set it for the account the Scheduled Task runs as (`setx QUASAR_GITHUB_TOKEN
 release checks, plugin hubs and Magnetar starts. The Updates page says when the
 token in use comes from one of these variables; a `QUASAR_GITHUB_TOKEN` hides a
 token saved there.
+
+**Clear** removes only the saved token; environment tokens still apply. Saving or
+clearing a token does not dismiss expiry or rejection warnings for an overriding
+`QUASAR_GITHUB_TOKEN`. Replace that variable and restart Quasar.
 
 The same token is handed to every managed Magnetar start through the
 `PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are

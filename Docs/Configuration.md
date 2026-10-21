@@ -211,8 +211,8 @@ corrected or removed. Reset discards unsaved edits.
 
 ## Steam Workshop mod dependencies
 
-Managed cluster profile staging requires the Web API key to resolve the complete
-dependency set. Quasar then downloads exact mod payloads with its managed SteamCMD in
+Managed cluster profile staging, and guided setup or conversion with a profile that has
+mods, requires the Web API key to resolve the complete dependency set. Quasar then downloads exact mod payloads with its managed SteamCMD in
 private staging, trying anonymous access first. If an item needs an account, save its
 Steam username and password with the **SteamCMD account** control on the config
 profile's Workshop panel. Quasar encrypts these values with its local Data Protection
@@ -643,7 +643,16 @@ VAPID keys, subscriptions, and account preferences are kept in the Quasar data d
 `PushNotifications.json`, protected with Quasar's persisted ASP.NET Data
 Protection key ring. Keep that key ring with the data directory during
 migration or restore; losing it makes existing subscriptions unreadable.
-Headless mode does not run browser push delivery.
+Browser announcement push has a fixed lifetime cap of 4,096 IDs per subscription;
+accepted IDs are never evicted to admit new ones. Whole push state has fixed
+receipt-count and 8 MiB byte bounds. See
+[browser delivery limits and legacy recovery](Announcements.md#browser-delivery)
+for admission, retained history and ordinary-notification behavior at capacity.
+
+Headless mode does not run browser push delivery. With current-policy YES and
+diagnostic-report consent, it still polls CometWorks announcements and writes
+eligible notices to the existing service logs with durable per-ID deduplication.
+See [announcement delivery and retention](Announcements.md#headless-service-log-delivery).
 
 ## Discord bot presence
 
@@ -829,6 +838,36 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
 
+Trusted-network roles also require an intended browser destination and same-origin
+context. This check applies to every browser API, including Entity Viewer, before
+issuing a trusted-network principal. It does not replace cookies, service
+principal authentication or the separate machine endpoint policy.
+
+- Both the original destination (before forwarding) and effective destination must
+  match the authority and scheme of the configured public BaseUrl
+  (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete configured
+  listener URL, or localhost/loopback/the actual socket destination IP at the
+  socket's local port. Wildcard listeners do not trust arbitrary DNS names.
+- A browser `Origin` must match the effective request's scheme, host and port.
+  A supplied `Sec-Fetch-Site` must be `same-origin` or `none`; without Origin, a
+  supplied Referer must be same-origin. Normal same-origin iframe requests and
+  direct navigation/bootstrap clients without these headers remain supported.
+- Forwarded bypass requires a known original socket peer, one valid
+  `X-Forwarded-For` client IP (an optional port is supported) and fully consumed `X-Forwarded-*` headers. The proxy
+  must replace incoming forwarding values with its own single-hop values.
+  `Forwarded`, `X-Real-IP`, leftover/ambiguous forwarded values and client-supplied
+  `X-Original-*` do not establish proxy trust. Proxying without an effective
+  client address cannot turn the proxy's loopback address into browser admin.
+
+To keep passwordless trusted access through a public DNS name, set the public
+BaseUrl to that intended URL and give the proxy an accepted backend Host too.
+Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
+longer get automatic roles; use the configured URL or sign in. Signed-in users
+and service principals retain their existing authentication and permissions.
+Local loopback bypass remains on and same-subnet bypass remains off by default.
+No new aliases or auth configuration fields are introduced. See the
+[Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
+
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
 needed because loopback is trusted. For a Docker bridge or a separate reverse
 proxy host, add the proxy container/host address or bridge CIDR:
@@ -997,6 +1036,15 @@ command listeners stay on loopback. See [Guided cluster setup](ClusterGuidedSetu
 for topology, ports, API, resume behavior and release prerequisites. Guided creation
 requires Magnetar's new preparation/export command and a matching cluster SDK pin;
 older released packages fail explicitly before game startup.
+
+## Machine agent and control endpoint security
+
+Agent/control routes require credentials, explicit socket peer IP/CIDR restrictions,
+no Origin header, and an exact configured Host authority. These rules are separate
+from browser authentication and trusted-network bypass. The restrictive source
+default allows only loopback. For `Quasar:MachineEndpoints:AllowedSources`,
+`AllowedHosts`, environment overrides, proxy behavior, multiple LAN/VPN Hosts and
+mandatory save/restart migration, see [DIS-0042 security upgrade](SecurityUpgradeDIS0042.md).
 
 ## Cluster query catalog
 
@@ -1360,6 +1408,15 @@ stage the selection again after editing it. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
 config editing permissions.
+
+**Hot spares** with **Stage hot spare change** prepares a deployment with a
+different number of hot spares. A spare is an extra regular slot of the approved
+node inventory, so Quasar adds or removes spare slots in the saved specification
+(placed like guided setup places them) and prepares it on every Host. Apply it
+from **Maintenance → Pending update**: the update stops the fleet cleanly,
+activates the new inventory and starts the cluster again. The API equivalent is
+`POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
+`{"hotSpares":2}`, with the same permissions.
 
 The current deployment format preserves existing mutable worlds when activating
 a new revision. Consequently, this control accepts profiles that differ from the

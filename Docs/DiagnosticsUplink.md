@@ -16,6 +16,16 @@ This update resets all previous consent decisions and reprompts administrators u
 
 Consent changes cancel active transfers, invalidate the local collector lease and purge outdated outbound archives immediately. Hosts receive renewable two-minute leases every 30 seconds through their existing authenticated connection. Renewal runs independently of transfers. An offline host cannot keep sharing indefinitely. Already delivered reports cannot be recalled. Memory dump environment settings for an existing process take effect on its next start; consent still gates packaging and upload of any dump already captured locally.
 
+## Operational announcements
+
+Current-policy YES plus diagnostic-report consent also permits the existing
+notification feed to fetch and show CometWorks operational announcements; headless
+installations write eligible notices once to their existing service logs. The
+backend cannot determine current local consent. Quasar rechecks it before
+fetch/display/push and cancels in-flight work on revocation. See
+[announcements](Announcements.md) for authentication, restart deduplication,
+withdrawal/expiry bounds, central linked-host UI visibility and push limits.
+
 ## Configuration
 
 Configure Quasar with these keys, or their equivalent environment variables:

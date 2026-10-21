@@ -81,6 +81,9 @@ namespace Quasar.Agent
             if (!Uri.TryCreate(rawBaseUrl.Trim(), UriKind.Absolute, out var uri))
                 return;
 
+            if (uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0)
+                return;
+
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return;
 

@@ -105,6 +105,9 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             Assert.Equal(ClusterLocalHost.HostId, host.Id);
             Assert.EndsWith("(this PC)", host.Name);
             string folder = Path.Combine(install, "LocalHost");
+            // The output pump creates host.log asynchronously after process startup.
+            using (var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5)))
+                while (!File.Exists(Path.Combine(folder, "host.log"))) await Task.Delay(10, deadline.Token);
             Assert.Equal(new[] { "host.json", "host.log", "host.pid", "state", "stop-clusters" },
                 Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName).Order().ToArray());
             using (var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "host.json"))))

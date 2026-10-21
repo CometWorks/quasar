@@ -1,5 +1,7 @@
 # Quasar
 
+**Urgent security upgrade:** DIS-0042 requires saving worlds, updating Hosts and restarting game servers. Read the [upgrade order and machine endpoint policy](Docs/SecurityUpgradeDIS0042.md) before activation.
+
 Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)
 dedicated servers, with an optional Blazor Server UI. It supervises multiple DS
 processes on a single host — starting, stopping, health-checking, configuring, and
@@ -42,6 +44,7 @@ raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and UI migration compatibility. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Diagnostic Consent & Upload](Docs/DiagnosticsUplink.md) | Separate statistics/report/dump consent, configurable storage paths, central upload configuration, durable queues and host leases. |
+| [CometWorks announcements](Docs/Announcements.md) | Consent-gated operational notices in the existing bell, page, browser push and headless service logs; delivery and withdrawal limits. |
 | [Building & Development](Docs/BuildingAndDevelopment.md) | Project layout, build setup, managed-runtime selection, and developer utilities. |
 | [UI Rewrite Design Study](Docs/Design/QuasarUiRewrite.md) | Migration progress, MudBlazor removal estimate, feature/theme compatibility, and interactive visual samples. |
 | [Phase 4 Integration](Docs/Phase4IntegrationPlan.md) | Cluster release integration, verified package staging, upstream requirements, and acceptance plan. |

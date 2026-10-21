@@ -1,3 +1,4 @@
+using System.Net;
 using System.Reflection;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
@@ -35,6 +36,7 @@ public sealed class GitHubUpdateTokenSourceTests : IDisposable
     [InlineData(null, "saved", "generic", "saved", "")]
     [InlineData(" quasar ", "saved", "generic", "quasar", "QUASAR_GITHUB_TOKEN")]
     [InlineData(" ", null, "generic", "generic", "GITHUB_TOKEN")]
+    [InlineData(null, " ", " generic ", "generic", "GITHUB_TOKEN")]
     public async Task TokenFollowsTheLauncherOrder(
         string? quasarVariable,
         string? saved,
@@ -54,7 +56,7 @@ public sealed class GitHubUpdateTokenSourceTests : IDisposable
         Assert.Equal(expectedToken, catalog.Token);
         Assert.Equal(expectedToken.Length > 0, catalog.HasToken);
         Assert.Equal(expectedVariable, catalog.TokenVariableName);
-        Assert.Equal(saved is not null, catalog.HasSavedToken);
+        Assert.Equal(!string.IsNullOrWhiteSpace(saved), catalog.HasSavedToken);
     }
 
     [Fact]
@@ -74,12 +76,16 @@ public sealed class GitHubUpdateTokenSourceTests : IDisposable
         Assert.False(quasar.HasSavedToken);
     }
 
-    [Fact]
-    public void UpdatesPageSeesTheVariableAndARejectedVariableTokenAsksForANewVariable()
+    [Theory]
+    [InlineData("quasar", null, "QUASAR_GITHUB_TOKEN", "quasar")]
+    [InlineData(null, "generic", "GITHUB_TOKEN", "generic")]
+    public async Task UpdatesPageSeesTheVariableAndARejectedVariableTokenAsksForANewVariable(
+        string? quasarVariable, string? genericVariable, string expectedVariable, string expectedToken)
     {
-        using var credentials = CreateCatalog("quasar", null);
+        using var credentials = CreateCatalog(quasarVariable, genericVariable);
+        using var handler = new RejectedTokenHandler(expectedToken);
         using var updater = new QuasarUpdateService(
-            new NoNetwork(),
+            new Factory(handler),
             new QuasarUpdateOptions(),
             new WebServiceOptions { Version = "1.3.0", BootstrapVersion = "1.3.0" },
             credentials,
@@ -89,19 +95,28 @@ public sealed class GitHubUpdateTokenSourceTests : IDisposable
         var snapshot = updater.GetSnapshot();
         Assert.True(snapshot.GitHubTokenConfigured);
         Assert.False(snapshot.GitHubTokenSaved);
-        Assert.Equal("QUASAR_GITHUB_TOKEN", snapshot.GitHubTokenVariableName);
+        Assert.Equal(expectedVariable, snapshot.GitHubTokenVariableName);
 
-        typeof(QuasarUpdateService)
-            .GetField("_githubTokenRejected", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .SetValue(updater, true);
-        typeof(QuasarUpdateService)
-            .GetMethod("SetSnapshot", BindingFlags.Instance | BindingFlags.NonPublic)!
-            .Invoke(updater, [snapshot]);
+        await updater.CheckNowAsync();
 
+        Assert.Equal(1, handler.Requests);
+        Assert.True(updater.GetSnapshot().GitHubTokenExpired);
         Assert.EndsWith(
-            "Set a new token in QUASAR_GITHUB_TOKEN and restart Quasar.",
+            $"Set a new token in {expectedVariable} and restart Quasar.",
             updater.GetSnapshot().GitHubTokenWarning
         );
+
+        await credentials.SaveAsync(new GitHubUpdateCredentials { Token = "saved" });
+        Assert.True(updater.GetSnapshot().GitHubTokenSaved);
+        Assert.Equal(quasarVariable is not null, updater.GetSnapshot().GitHubTokenExpired);
+
+        await credentials.ClearAsync();
+        var cleared = updater.GetSnapshot();
+        Assert.False(cleared.GitHubTokenSaved);
+        Assert.True(cleared.GitHubTokenConfigured);
+        Assert.Equal(expectedVariable, cleared.GitHubTokenVariableName);
+        Assert.Equal(quasarVariable is not null, cleared.GitHubTokenExpired);
+        Assert.Equal("GitHub update token cleared.", cleared.Message);
     }
 
     public void Dispose()
@@ -130,9 +145,21 @@ public sealed class GitHubUpdateTokenSourceTests : IDisposable
                 }
         );
 
-    private sealed class NoNetwork : IHttpClientFactory
+    private sealed class RejectedTokenHandler(string expectedToken) : HttpMessageHandler
     {
-        public HttpClient CreateClient(string name) =>
-            throw new InvalidOperationException("No network expected.");
+        public int Requests { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Requests++;
+            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
+            Assert.Equal(expectedToken, request.Headers.Authorization?.Parameter);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Unauthorized));
+        }
+    }
+
+    private sealed class Factory(HttpMessageHandler handler) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(handler, disposeHandler: false);
     }
 }

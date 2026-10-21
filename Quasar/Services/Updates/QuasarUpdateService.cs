@@ -1283,11 +1283,15 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private void OnGitHubCredentialsChanged()
     {
-        _githubTokenExpiresAtUtc = null;
-        _githubTokenRejected = false;
+        // Saving or clearing a shadowed token does not replace the environment token.
+        if (_githubCredentials.TokenVariableName != GitHubUpdateCredentialsCatalog.QuasarTokenVariableName)
+        {
+            _githubTokenExpiresAtUtc = null;
+            _githubTokenRejected = false;
+        }
         SetSnapshot(_snapshot with
         {
-            Message = _githubCredentials.HasToken
+            Message = _githubCredentials.HasSavedToken
                 ? "GitHub update token saved."
                 : "GitHub update token cleared.",
             Status = QuasarUpdateStatus.Idle,

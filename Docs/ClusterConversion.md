@@ -25,7 +25,8 @@ plus access to the selected cluster. The initial cluster release targets Linux.
    and World Authority host machine. At least two regular nodes are required: the
    shipped converter seeds slots 1 and 2. Additional regular nodes may start without
    seed partitions. Each host machine
-   requires 1–32 regular nodes in this wizard, with 254 across the cluster.
+   requires 1–32 regular nodes in this wizard, with 254 across the cluster. **Hot spares** is one
+   count for the cluster, 1 by default.
 5. Confirm **Back up and convert**. Quasar reserves the source against supervised
    starts, creates both server and world backups, and converts a verified copy with
    the release's MagnetarWorld tool. It sends the complete verified installation and

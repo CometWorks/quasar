@@ -891,7 +891,7 @@
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Clear GitHub token?",
-            "Quasar update checks will go back to unauthenticated GitHub API rate limits.",
+            "Remove the token saved on this page? Tokens set through environment variables are unaffected.",
             yesText: "Clear token",
             cancelText: "Cancel");
 

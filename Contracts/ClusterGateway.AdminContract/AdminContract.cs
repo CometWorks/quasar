@@ -250,6 +250,7 @@ public sealed record ClusterCounts(
 
 public sealed record WorldAuthorityStatus(string? Node, long Epoch, long Generation, DateTimeOffset LeaseExpires);
 
+/// <summary>A registered node incarnation. <c>Spare</c>: a warm hot spare that holds nothing until it replaces a dead node.</summary>
 public sealed record NodeStatus(
     string Node,
     string? SlotKey,
@@ -263,7 +264,8 @@ public sealed record NodeStatus(
     long SimulationFrame,
     int QuarantinedPartitions,
     string? Host,
-    bool LeaseFresh);
+    bool LeaseFresh,
+    bool Spare = false);
 
 public sealed record PartitionSummary(
     ulong Partition,

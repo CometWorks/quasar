@@ -42,6 +42,10 @@ Managed servers keep running. Quasar starts them detached, so the web worker can
 
 A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new release bundles a different agent DLL, the server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent." Quasar does not schedule that restart. Use the server's **Restart** action when convenient. Quasar then does a full stop and start and deploys the new agent.
 
+**Urgent DIS-0042 upgrade:** save and stop worlds before activating this security release. Back up `cluster-credentials.json` together with `DataProtection-Keys/`, even for standalone-only installs. Update Quasar first, then every Host. Existing clusters must use **Stage profile changes** with the existing profile to re-pin the bundled agent, then **Apply pending update**; a node restart alone retains the old pin. Finally start standalone servers and verify authenticated telemetry everywhere. Follow the complete [security upgrade instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md).
+
+Old tokenless agents are refused even on loopback. An adopted server stays disconnected until its agent can authenticate. Automatic attach recovery, health restarts and planned restarts wait for authenticated running telemetry; explicit admin actions remain possible. If you already upgraded with servers running, save in game before restarting because Quasar cannot save through a refused agent. An old standalone agent that had connected can save and stop after its own offline window (one hour by default). Current cluster agents never self-stop for a Quasar outage; Gateway/Host owns their lifecycle.
+
 ### Rolling back the UI
 
 Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. Automatic staging never picks an older version. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
@@ -129,7 +133,7 @@ Quasar works without a token, but GitHub rate-limits unauthenticated API calls p
 
 Before the first start, or when the UI isn't reachable, give Bootstrap the token in its environment instead. Bootstrap uses `QUASAR_GITHUB_TOKEN` first, then the saved token, then `GITHUB_TOKEN`, for the first web UI download and for its own update checks, and the web worker uses the same order for everything below. The page then says "Quasar uses the GitHub token from the <variable> environment variable"; a token in `QUASAR_GITHUB_TOKEN` wins over one saved on the page, so change the variable instead, while a saved token wins over `GITHUB_TOKEN`. On Linux, add `EnvironmentFile=%h/.config/quasar-github-token.env` under `[Service]` with `systemctl --user edit quasar.service`, write `QUASAR_GITHUB_TOKEN=<token>` into that file, `chmod 600` it and restart the service. On Windows, run `setx QUASAR_GITHUB_TOKEN <token>` as the account the Scheduled Task runs as and restart the task.
 
-Quasar encrypts the token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** removes it. Bootstrap, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads, and uses it to read [plugin hubs](Plugins.md#plugin-hubs) other than MagnetarHub, so a private hub repository needs a token that can read it.
+Quasar encrypts the saved token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** is available only when a saved token exists. It removes that token; environment tokens still apply. Bootstrap, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads, and uses it to read [plugin hubs](Plugins.md#plugin-hubs) other than MagnetarHub, so a private hub repository needs a token that can read it.
 
 The token chip shows `not set`, `set`, `expires <date>`, `expires soon`, `expired` or `rejected`. Quasar warns 14 days before expiry, using the expiry date GitHub reports. The warnings are:
 
@@ -138,6 +142,7 @@ The token chip shows `not set`, `set`, `expires <date>`, `expires soon`, `expire
 - "GitHub update token was rejected. It may be expired or revoked. Save a new token."
 
 For a token from the environment they end in "Set a new token in <variable> and restart Quasar." instead.
+Saving or clearing a token on this page does not dismiss a warning for the overriding `QUASAR_GITHUB_TOKEN`; replace that variable and restart Quasar.
 
 GitHub requests retry network errors and HTTP 408, 429 and 5xx up to four times, with delays from 1 second up to 30 seconds and respect for `Retry-After`.
 
@@ -235,6 +240,7 @@ What to do:
 - **A server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL..."** Restart that server after a Quasar update.
 
 ## Sources
+- `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
 - `Docs/LinuxDeploymentAndUpdates.md`
@@ -244,6 +250,7 @@ What to do:
 - `Dockerfile`
 - `.github/workflows/release.yml`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`
 - `Quasar/Services/Updates/QuasarUpdateSnapshot.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`

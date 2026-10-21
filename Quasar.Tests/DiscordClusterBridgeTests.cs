@@ -98,7 +98,8 @@ public sealed class DiscordClusterBridgeTests
             {
                 var snapshot = state.Snapshot!;
                 snapshot.ClusterChatReady = ready || snapshot.ClusterNodeId == "wa";
-                registry.UpsertHello(new() { AgentId = snapshot.AgentId, UniqueName = snapshot.UniqueName, ClusterMode = true,
+                registry.UpsertHello(new() { AgentId = snapshot.AgentId, UniqueName = snapshot.UniqueName,
+                    HostId = snapshot.HostId, ServerId = snapshot.ServerId, ClusterMode = true,
                     ClusterId = snapshot.ClusterId, ClusterSlot = snapshot.ClusterSlot, ClusterNodeId = snapshot.ClusterNodeId,
                     ClusterEpoch = snapshot.ClusterEpoch }, state.AgentId, (wire, _) =>
                 {

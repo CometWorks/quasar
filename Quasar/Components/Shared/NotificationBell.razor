@@ -1,0 +1,17 @@
+<a class="quasar-icon-button quasar-update-bell @Tone" href="@(Notice is { IsAnnouncement: false } notice ? notice.Url : "/notifications")"
+   title="@Tooltip" aria-label="Open current notification">
+    <QuasarIcon Icon="@(PushEnabled ? QuasarIcons.Notifications : QuasarIcons.NotificationsOutlined)" />
+    @if (Notice is not null) { <span class="quasar-notification-dot" aria-hidden="true"></span> }
+</a>
+
+@code {
+    [Parameter] public UpdateNotice? Notice { get; set; }
+    [Parameter] public bool PushEnabled { get; set; }
+    [Parameter] public bool TokenExpired { get; set; }
+
+    private string Tone => Notice?.Severity == "critical"
+        || TokenExpired && Notice?.Key.StartsWith("token:", StringComparison.Ordinal) == true
+        ? "quasar-text-error" : Notice is not null ? "quasar-text-warning" : string.Empty;
+    private string Tooltip => Notice is { } notice
+        ? $"{notice.Severity.ToUpperInvariant()}: {notice.Title}: {notice.Body}" : "Notifications";
+}

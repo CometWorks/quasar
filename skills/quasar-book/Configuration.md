@@ -123,6 +123,12 @@ Headless mode runs the supervisor, background jobs, HTTP APIs and the agent sock
 Start it with `Quasar serve --headless` or with `QUASAR_HEADLESS=true` in the launcher's environment. The launcher passes the mode to the worker and keeps it across updates. Under the launcher the `Quasar:Headless` key in `appsettings.json` has no effect, because the launcher always sets `QUASAR_HEADLESS` for the worker. The key works when running the worker directly.
 
 Authentication stays on in headless mode; see [Access control](AccessControl.md).
+With current-policy YES and diagnostic-report consent, headless Quasar polls
+CometWorks announcements and writes eligible notices to its existing service logs.
+Browser push services remain disabled. Headless log receipts survive restart and
+regrant, retain up to 4,096 IDs until their original expiry, and pause new logging
+at capacity or on invalid state. See
+[CometWorks announcements](Diagnostics.md#cometworks-announcements) for limits.
 
 Health endpoints, available in both modes:
 
@@ -206,7 +212,7 @@ Short `QUASAR_*` variables for admins. Each wins over the matching `appsettings.
 | `QUASAR_UPDATES_ENABLED`, `QUASAR_UPDATES_INCLUDE_PRERELEASE`, `QUASAR_UPDATES_AUTO_STAGE_WEB`, `QUASAR_UPDATES_AUTO_APPLY`, `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS`, `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS` | `Quasar:Updates` keys |
 | `QUASAR_AGENT_*` | Agent keys in [Shutdown and agent behavior](#shutdown-and-agent-behavior) |
 | `QUASAR_DS_*`, `QUASAR_STEAMCMD_*`, `QUASAR_MAGNETAR_*` | Managed runtime keys |
-| `QUASAR_GITHUB_TOKEN`, `GITHUB_TOKEN` | GitHub token for the launcher's first web UI download and every GitHub request of the launcher and the web worker. `QUASAR_GITHUB_TOKEN` wins over the token saved on [Updates](Updates.md#github-token-for-update-checks), `GITHUB_TOKEN` comes last |
+| `QUASAR_GITHUB_TOKEN`, `GITHUB_TOKEN` | GitHub token for launcher and worker release checks, managed runtime downloads, registered plugin hubs and Magnetar starts. `QUASAR_GITHUB_TOKEN` wins over the token saved on [Updates](Updates.md#github-token-for-update-checks), `GITHUB_TOKEN` comes last |
 | `QUASAR_URL`, `QUASAR_API_TOKEN` | Used by the `Quasar cluster` CLI |
 
 The installed Linux service sets `QUASAR_MODE=Service`, `QUASAR_OPEN_BROWSER_ON_START=false`, `HOME` and `QUASAR_INSTALL_DIR`. The Docker image sets `QUASAR_INSTALL_DIR=/data`, `QUASAR_MODE=service`, `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`, `QUASAR_UPDATES_ENABLED=false`, `QUASAR_CONSOLE_LOGGING=true` and `ASPNETCORE_URLS=http://+:8080`. Some `QUASAR_*` variables are internal and set by the launcher for the worker (`QUASAR_LAUNCHER_TOKEN`, `QUASAR_BOOTSTRAP_VERSION`, `QUASAR_COORDINATED_UPDATES`, `QUASAR_CONSOLE_LOGGING`) or by Quasar for each server; do not set them by hand.

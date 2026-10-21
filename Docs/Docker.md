@@ -1,5 +1,8 @@
 # Docker Deployment
 
+**Security upgrade DIS-0042:** save and stop worlds before activation, back up the credential store and Data Protection keyring together, update Quasar before Hosts, re-pin cluster agents and restart servers. Read [the complete migration instructions](SecurityUpgradeDIS0042.md).
+
+
 Quasar publishes a Linux AMD64 image to `ghcr.io/cometworks/quasar` for every
 full release. Each image contains the exact checksummed Linux worker artifact
 from that release. Available tags are:

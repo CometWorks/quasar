@@ -252,6 +252,9 @@ public sealed class DataHandlingConsentSettings
     public long Generation { get; set; }
     public DateTimeOffset GrantedSinceUtc { get; set; }
 
+    internal bool AllowsAnnouncements => PolicyVersion == CurrentPolicyVersion && ConsentGranted == true
+        && DiagnosticsGranted && Generation > 0 && GrantedSinceUtc != default;
+
     public DataHandlingConsentSettings Clone() =>
         new()
         {
@@ -330,6 +333,12 @@ public sealed class DataHandlingConsentCatalog : IDisposable
         {
             return _settings.Clone();
         }
+    }
+
+    // Start consent-sensitive work atomically with the current decision. Do not await inside the fence.
+    internal T WithSettings<T>(Func<DataHandlingConsentSettings, T> action)
+    {
+        lock (_sync) return action(_settings.Clone());
     }
 
     public Task SaveAsync(bool consentGranted, CancellationToken cancellationToken = default) =>

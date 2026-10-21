@@ -12,6 +12,7 @@ Quasar side:
 - A published cluster release that runs on the installed Magnetar's PluginSdk: same PluginSdk contract major and an equal or higher minor on the Magnetar side. For a release or Magnetar without a contract version, the exact PluginSdk build has to match.
 - `dotnet` with the .NET 10 runtime on the Quasar machine, because Quasar runs the release's world converter (`MagnetarWorld.dll`) with `dotnet`.
 - A world template and a configuration profile. The profile's administrators must be numeric SteamID64 values and max players must be at least 2.
+- If the profile has Workshop mods: a Steam Web API key in the Steam Workshop settings (**Configs → Mods → Add API Key**), because setup resolves the mods' dependencies. Without mods no key is needed.
 - Roles: cluster manage and configuration editing (Editor or Admin) to run setup; security administration (Admin) to enroll host machines. Without Admin the wizard says "A security administrator must enroll host machines. You can continue with an existing connected host machine."
 
 Host machine side (each machine that runs cluster processes):
@@ -109,6 +110,7 @@ Open **New cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Cr
 | World template | Quasar converts a copy; the template is not changed. |
 | Configuration profile | Game settings, mods and plugin selection. Quasar copies it to a new profile "<Server name> (cluster)". |
 | Host machines | Tick each machine and set **Regular nodes**, 1 to 32 per machine, at least 2 and at most 254 in total. |
+| Hot spares | How many hot spares the cluster has, 1 by default. A hot spare runs warm and holds nothing; when a node crashes the cluster moves that node's partitions to a spare at once, and the crashed node restarts as the new spare. Quasar only sets the count: it adds that many spare nodes, from the Gateway host machine on, at most 32 nodes per machine. With 0 the page warns that a crashed node's partitions reload on the remaining nodes. Hot spares need a cluster release that supports them; with an older release setup stops with "This cluster release does not support hot spares". |
 | Cluster Gateway and World Authority host machine | One of the selected machines. Players connect to it. It also runs the Cluster Registry and the World Authority. |
 | Public server port | UDP, 1024 to 65000, default 28000. |
 
@@ -138,12 +140,13 @@ The status line shows each phase:
 1. "Checking cluster hosts": each selected Host executor must answer with its enrolled identity and the required capabilities.
 2. "Provisioning Dedicated Server and Magnetar": installs or updates the managed runtime.
 3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one cannot run on the installed PluginSdk.
-4. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
-5. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
-6. "Converting a copy of the world": splits the world with the release's converter.
-7. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation and world.
-8. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
-9. "Ready to start".
+4. "Staging the profile's Workshop mods": resolves the mods' dependencies and downloads the current version of each mod with the managed SteamCMD, the same way **Stage profile changes** does (see [Mods and content updates](Clusters.md#mods-and-content-updates)). Magnetar's companion mod is always pinned with them, also for a profile without mods or with crossplay enabled, because Magnetar adds it to every node.
+5. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
+6. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
+7. "Converting a copy of the world": splits the world with the release's converter.
+8. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation, the world and the staged mods.
+9. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
+10. "Ready to start".
 
 Quasar generates all credentials. You do not set any environment variable for a guided cluster.
 
@@ -217,4 +220,5 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between and the 
 - `Quasar/Services/ClusterPackageService.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`
 - `Quasar/Services/ClusterSteamClientLibrary.cs`
+- `Quasar/Services/ClusterWorkshopModStager.cs`
 - `Quasar/Program.cs`
