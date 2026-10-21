@@ -439,8 +439,13 @@ EnvironmentFile=%h/.config/quasar-github-token.env
 ```
 
 with `QUASAR_GITHUB_TOKEN=<token>` in that file (`chmod 600`), then restart the
-service. The web worker doesn't read these variables; its release checks and
-Magnetar starts use the saved token only.
+service. The web worker uses the same order for its release checks, plugin hubs
+and Magnetar starts. The Updates page says when the token in use comes from one
+of these variables; a `QUASAR_GITHUB_TOKEN` hides a token saved there.
+
+**Clear** removes only the saved token; environment tokens still apply. Saving or
+clearing a token does not dismiss expiry or rejection warnings for an overriding
+`QUASAR_GITHUB_TOKEN`. Replace that variable and restart Quasar.
 
 The same token is handed to every managed Magnetar start through the
 `PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are

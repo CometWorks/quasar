@@ -765,7 +765,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             (!Uri.TryCreate(url, UriKind.Absolute, out var uri) || !IsGitHubHost(uri.Host)))
             return;
 
-        var token = _githubCredentials.GetCredentials().Token;
+        var token = _githubCredentials.Token;
         if (!string.IsNullOrWhiteSpace(token))
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
     }

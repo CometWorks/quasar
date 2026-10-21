@@ -381,6 +381,12 @@
                                 @_snapshot.GitHubTokenWarning
                             </MudAlert>
                         }
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.GitHubTokenVariableName))
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                                @FormatGitHubTokenVariableNotice()
+                            </MudAlert>
+                        }
                         <p class="quasar-text quasar-type-body2">
                             Add a GitHub personal access token so Quasar update checks use your account rate limit instead of the shared public IP limit.
                         </p>
@@ -428,7 +434,7 @@
                             <MudButton Variant="Variant.Outlined"
                                        Color="Color.Default"
                                        StartIcon="@Icons.Material.Filled.DeleteOutline"
-                                       Disabled="_busy || !_snapshot.GitHubTokenConfigured"
+                                       Disabled="_busy || !_snapshot.GitHubTokenSaved"
                                        OnClick="ClearGitHubTokenAsync">
                                 Clear
                             </MudButton>
@@ -885,7 +891,7 @@
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Clear GitHub token?",
-            "Quasar update checks will go back to unauthenticated GitHub API rate limits.",
+            "Remove the token saved on this page? Tokens set through environment variables are unaffected.",
             yesText: "Clear token",
             cancelText: "Cancel");
 
@@ -1003,6 +1009,13 @@
 
         return "set";
     }
+
+    private string FormatGitHubTokenVariableNotice() =>
+        _snapshot.GitHubTokenVariableName == GitHubUpdateCredentialsCatalog.QuasarTokenVariableName
+            ? $"Quasar uses the GitHub token from the {_snapshot.GitHubTokenVariableName} environment variable. " +
+              "It wins over a token saved here."
+            : $"Quasar uses the GitHub token from the {_snapshot.GitHubTokenVariableName} environment variable " +
+              "until a token is saved here.";
 
     private Color GetGitHubTokenChipColor()
     {

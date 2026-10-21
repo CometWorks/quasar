@@ -8,6 +8,8 @@ namespace Quasar.Services;
 public sealed class GitHubUpdateCredentialsCatalog : IDisposable
 {
     private const string DataProtectionPurpose = "Quasar.GitHubUpdateCredentials.v1";
+    public const string QuasarTokenVariableName = "QUASAR_GITHUB_TOKEN";
+    public const string GenericTokenVariableName = "GITHUB_TOKEN";
 
     private static readonly UnixFileMode CredentialUnixFileMode =
         UnixFileMode.UserRead | UnixFileMode.UserWrite;
@@ -21,16 +23,22 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
     private readonly object _sync = new();
     private readonly ILogger<GitHubUpdateCredentialsCatalog> _logger;
     private readonly IDataProtector _protector;
+    private readonly string _quasarVariableToken;
+    private readonly string _genericVariableToken;
     private GitHubUpdateCredentials _credentials;
     private string _snapshot;
     private DebouncedFileWatcher? _watcher;
 
     public GitHubUpdateCredentialsCatalog(
         ILogger<GitHubUpdateCredentialsCatalog> logger,
-        IDataProtectionProvider dataProtectionProvider)
+        IDataProtectionProvider dataProtectionProvider,
+        Func<string, string?>? readEnvironmentVariable = null)
     {
         _logger = logger;
         _protector = dataProtectionProvider.CreateProtector(DataProtectionPurpose);
+        readEnvironmentVariable ??= Environment.GetEnvironmentVariable;
+        _quasarVariableToken = readEnvironmentVariable(QuasarTokenVariableName)?.Trim() ?? string.Empty;
+        _genericVariableToken = readEnvironmentVariable(GenericTokenVariableName)?.Trim() ?? string.Empty;
         _credentials = LoadCredentials();
         _snapshot = CreateSnapshot(_credentials);
 
@@ -39,13 +47,46 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
 
     public event Action? Changed;
 
-    public bool HasToken
+    public bool HasToken => Token.Length > 0;
+
+    // The same order as the launcher's GitHubUpdateTokenReader, so both use the same token:
+    // QUASAR_GITHUB_TOKEN wins over the saved token, a GITHUB_TOKEN set for other tools comes last.
+    public string Token
+    {
+        get
+        {
+            if (_quasarVariableToken.Length > 0)
+                return _quasarVariableToken;
+
+            lock (_sync)
+            {
+                if (_credentials.Token.Length > 0)
+                    return _credentials.Token;
+            }
+
+            return _genericVariableToken;
+        }
+    }
+
+    /// <summary>The environment variable <see cref="Token"/> comes from, empty when it is the saved one or none.</summary>
+    public string TokenVariableName
+    {
+        get
+        {
+            if (_quasarVariableToken.Length > 0)
+                return QuasarTokenVariableName;
+
+            return HasSavedToken || _genericVariableToken.Length == 0 ? string.Empty : GenericTokenVariableName;
+        }
+    }
+
+    public bool HasSavedToken
     {
         get
         {
             lock (_sync)
             {
-                return !string.IsNullOrWhiteSpace(_credentials.Token);
+                return _credentials.Token.Length > 0;
             }
         }
     }

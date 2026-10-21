@@ -46,7 +46,8 @@ public sealed class DevFolderRuntimePreparationTests : IDisposable
         await devFolders.UpsertAsync(new() { FolderPath = folder, DataFile = "Manifests/Plugin.xml", PluginId = "multi-project-repo", DebugBuild = debugBuild });
         using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         using var consent = new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance);
-        using var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
+        using var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider(),
+            name => name == GitHubUpdateCredentialsCatalog.QuasarTokenVariableName ? "environment-token" : null);
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         { ["Quasar:Plugins:SafeMode"] = "true" }).Build();
         var uiPlugins = QuasarUiPluginCatalog.Create(configuration, new HostingEnvironment { ContentRootPath = _root });
@@ -75,6 +76,7 @@ public sealed class DevFolderRuntimePreparationTests : IDisposable
         Assert.Empty(current.Element("GitHub")!.Elements());
         Assert.Equal(originalManifest, File.ReadAllText(manifest));
         Assert.Equal(manifestId ?? "multi-project-repo", Assert.Single(profile.Plugins).PluginId);
+        Assert.Equal("environment-token", prepared.GitHubToken);
     }
 
     [Fact]
