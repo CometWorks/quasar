@@ -1278,6 +1278,7 @@
         {
             Name = name,
         };
+        QuasarDefaultPlugins.Apply(template, enable: true);
 
         await ConfigProfiles.UpsertAsync(template);
         _newProfileName = string.Empty;

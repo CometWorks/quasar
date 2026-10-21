@@ -39,6 +39,12 @@ Quasar writes the plugin list into the server's Magnetar files each time it prep
 
 Editing needs the `CanEditConfigs` permission. Viewers see a read-only summary of the profile, including its plugins. See [Access control](AccessControl.md).
 
+### Default plugins
+
+Every config profile Quasar creates selects the MagnetarHub server plugins **Bugfixes** and **Performance** with their default settings: **Create profile** on the Configs page and in the server editor, the profile the setup guide or a world template creates from a world, and the profile an existing-server import creates. Guided cluster setup adds the same two to the cluster's copy of its profile (see [Clusters](Clusters.md#bugfixes-and-performance-by-default)).
+
+To turn one off, remove it from **Plugins to load** and click **Save Profile**. Quasar records in `profile.json` (`offeredDefaultPlugins`) that it offered them and never adds them to that profile again. Clones and converted profiles keep their source's plugins. Quasar does not add the defaults to existing profiles, so a new server that uses an existing profile runs that profile's plugins.
+
 ### Plugins you cannot select
 
 - `dotnet-compat` and `error-reporting` (and the legacy `se-dotnet-compat`) are managed by Magnetar. Selecting them shows "This plugin is managed automatically by Magnetar and cannot be selected manually." Magnetar loads `dotnet-compat`, `error-reporting`, and `linux-compat` on Linux by itself, so they never need to be in a profile.
@@ -260,6 +266,8 @@ Agent/control traffic additionally requires explicit socket peer and Host restri
 
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
+- `Quasar/Services/QuasarDefaultPlugins.cs`
+- `Quasar/Services/ExistingServerImportService.cs`
 - `README.md`
 - `Docs/ClusterPlugins.md`
 - `Docs/BuildingAndDevelopment.md`
