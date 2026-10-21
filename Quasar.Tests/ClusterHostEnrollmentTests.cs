@@ -105,6 +105,8 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             Assert.Equal(ClusterLocalHost.HostId, host.Id);
             Assert.EndsWith("(this PC)", host.Name);
             string folder = Path.Combine(install, "LocalHost");
+            // The Host's shell opens host.log before it runs the Host, so the first call means the log exists.
+            string call = Assert.Single(await WaitForCallsAsync(binary, 1));
             Assert.Equal(new[] { "host.json", "host.log", "host.pid", "state", "stop-clusters" },
                 Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName).Order().ToArray());
             using (var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "host.json"))))
@@ -119,7 +121,6 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             Assert.Equal((UnixFileMode)0x1c0, File.GetUnixFileMode(folder));
             Assert.Contains($"'{binary}' stop-clusters --config '{Path.Combine(folder, "host.json")}'", File.ReadAllText(local.StopScriptPath));
 
-            string call = Assert.Single(await WaitForCallsAsync(binary, 1));
             var running = local.ReadPid()!;
             Assert.Equal($"{running.Pid} run --config {Path.Combine(folder, "host.json")} stopunit=", call);
             // Its own session, so a Ctrl+C on a foreground Quasar doesn't reach it.
@@ -633,6 +634,8 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         using var control = new ClientWebSocket();
         control.Options.SetRequestHeader("Authorization", "Bearer " + credentials.Resolve(host.CredentialReference));
         await control.ConnectAsync(Url("/api/v1/hosts/one/connect"), deadline.Token);
+        // The server registers the channel after the handshake the client already saw complete.
+        while (!tunnels.IsConnected(host.Id)) await Task.Delay(10, deadline.Token);
         using var http = new HttpClient(new SocketsHttpHandler { ConnectCallback = tunnels.OpenAsync, UseProxy = false });
         var request = new HttpRequestMessage(HttpMethod.Get, host.CommandUrl + "/host/v1/status");
         request.Headers.Host = "127.0.0.1:18400";
