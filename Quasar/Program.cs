@@ -293,12 +293,7 @@ public class Program
             builder.Services.AddSingleton<QuasarShutdownService>();
             builder.Services.AddSingleton<QuasarUpdateService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUpdateService>());
-            if (!webServiceOptions.Headless)
-            {
-                builder.Services.AddSingleton<PushNotificationService>();
-                builder.Services.AddScoped<BrowserPushState>();
-                builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PushNotificationService>());
-            }
+            ConfigureNotificationServices(builder.Services, webServiceOptions);
             builder.Services.AddSingleton<QuasarBackupSettingsService>();
             builder.Services.AddSingleton<ServerRestoreCoordinator>();
             builder.Services.AddSingleton<QuasarBackupService>();
@@ -649,6 +644,18 @@ public class Program
         {
             LogManager.Shutdown();
         }
+    }
+
+    internal static void ConfigureNotificationServices(IServiceCollection services, WebServiceOptions options)
+    {
+        services.AddHttpClient("Announcements", client => client.Timeout = TimeSpan.FromSeconds(30))
+            .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+        services.AddSingleton<AnnouncementService>();
+        services.AddHostedService(provider => provider.GetRequiredService<AnnouncementService>());
+        if (options.Headless) return;
+        services.AddSingleton<PushNotificationService>();
+        services.AddScoped<BrowserPushState>();
+        services.AddHostedService(provider => provider.GetRequiredService<PushNotificationService>());
     }
 
     internal static readonly TimeSpan WebServerDrainTimeout = TimeSpan.FromSeconds(5);

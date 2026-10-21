@@ -94,6 +94,22 @@ public sealed class DiagnosticsUplinkService : BackgroundService
 
     internal Uri? BackofficeUrl => _url;
 
+    internal async Task<HttpRequestMessage?> CreateAnnouncementRequestAsync(CancellationToken token)
+    {
+        if (_url?.Scheme != Uri.UriSchemeHttps || !_consent.GetSettings().AllowsAnnouncements) return null;
+        await EnsureEnrolledAsync(token, announcements: true);
+        return _consent.WithSettings(settings =>
+        {
+            token.ThrowIfCancellationRequested();
+            return settings.AllowsAnnouncements ? Request(HttpMethod.Get, "v1/announcements") : null;
+        });
+    }
+
+    internal void RejectAnnouncementCredential()
+    {
+        if (!_configuredToken) _uploadToken = null;
+    }
+
     internal async Task<HttpRequestMessage?> CreateListingRequestAsync(HttpMethod method, string route, CancellationToken token)
     {
         if (_url is null) return null;
@@ -107,7 +123,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
         return Request(method, route);
     }
 
-    private async Task EnsureEnrolledAsync(CancellationToken token)
+    private async Task EnsureEnrolledAsync(CancellationToken token, bool announcements = false)
     {
         await _enrollmentGate.WaitAsync(token);
         try
@@ -136,7 +152,14 @@ public sealed class DiagnosticsUplinkService : BackgroundService
             { Content = JsonContent.Create(new { installationId = InstallationId, publicKey, issuedAt = issued,
                 signature = Convert.ToBase64String(key.SignData(signed, HashAlgorithmName.SHA256, RSASignaturePadding.Pss)) }) };
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            using var response = await _backoffice.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            var sending = _consent.WithSettings(settings =>
+            {
+                timeout.Token.ThrowIfCancellationRequested();
+                if (!settings.DiagnosticsGranted || announcements && !settings.AllowsAnnouncements)
+                    throw new OperationCanceledException(timeout.Token);
+                return _backoffice.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeout.Token);
+            });
+            using var response = await sending;
             response.EnsureSuccessStatusCode();
             var bytes = new byte[4097];
             await using var input = await response.Content.ReadAsStreamAsync(timeout.Token);
