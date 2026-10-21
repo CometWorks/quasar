@@ -424,11 +424,17 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
 
     /// <summary>Spreads the cluster's hot spares over its hosts, one at a time from the Gateway host on, never above 32
     /// nodes on a host. Fewer than asked when they don't fit.</summary>
-    internal static Dictionary<string, int> PlaceHotSpares(ServerToClusterRequest request)
+    internal static Dictionary<string, int> PlaceHotSpares(ServerToClusterRequest request) =>
+        PlaceHotSpares(request.Hosts.Select(h => (h.HostId, h.RegularNodes)).ToArray(), request.GatewayHost, request.HotSpares);
+
+    /// <summary>The same placement for hosts given by their regular node counts. Placing one more spare keeps the
+    /// earlier ones where they are, so a changed count only adds or removes spares.</summary>
+    internal static Dictionary<string, int> PlaceHotSpares(IReadOnlyList<(string HostId, int RegularNodes)> hosts,
+        string gatewayHost, int count)
     {
-        var spares = request.Hosts.ToDictionary(h => h.HostId, _ => 0);
-        var order = request.Hosts.OrderBy(h => h.HostId == request.GatewayHost ? 0 : 1).ToArray();
-        for (int placed = 0, skipped = 0, i = 0; placed < request.HotSpares && skipped < order.Length; i++)
+        var spares = hosts.ToDictionary(h => h.HostId, _ => 0);
+        var order = hosts.OrderBy(h => h.HostId == gatewayHost ? 0 : 1).ToArray();
+        for (int placed = 0, skipped = 0, i = 0; placed < count && skipped < order.Length; i++)
         {
             var host = order[i % order.Length];
             if (host.RegularNodes + spares[host.HostId] >= 32) { skipped++; continue; }

@@ -80,6 +80,12 @@
                                     <p>Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</p>
                                 }
                                 <button class="quasar-button quasar-tone-primary" type="button" disabled="@(Busy || Cluster.ActiveDeployment is null || string.IsNullOrWhiteSpace(_configProfileId))" @onclick="StageProfileAsync">Stage profile changes</button>
+                                <label class="quasar-field"><span>Hot spares</span><input type="number" @bind="_hotSpares" disabled="@Busy" min="0" max="32" /><small>Warm nodes that hold nothing. When a node crashes, a hot spare takes over its partitions at once and the crashed node restarts as the new spare. Changing the count adds or removes nodes, so it stages an update; apply it from Maintenance during full downtime.</small></label>
+                                @if (_hotSpares == 0)
+                                {
+                                    <div class="quasar-notice quasar-notice-warning" role="status">Without a hot spare, the partitions of a crashed node reload on the remaining nodes, which then carry its load until it restarts.</div>
+                                }
+                                <button class="quasar-button quasar-tone-primary" type="button" disabled="@(Busy || Cluster.ActiveDeployment is null || _hotSpares == PreparedHotSpares)" @onclick="StageHotSparesAsync">Stage hot spare change</button>
                                 <label class="quasar-field"><span>Shutdown grace period (seconds)</span><input type="number" @bind="_shutdownGracePeriodSeconds" disabled="@Busy" min="0" max="3600" /><small>Time allowed for the Cluster Registry to save and drain when Quasar stops the cluster.</small></label>
                                 <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(Busy || string.IsNullOrWhiteSpace(_displayName))" @onclick="SaveAdministrationAsync">Save cluster settings</button>
                             </div>
@@ -146,6 +152,8 @@
     private string _displayName = string.Empty;
     private string _configProfileId = string.Empty;
     private int _shutdownGracePeriodSeconds;
+    private int _hotSpares;
+    private int PreparedHotSpares => ClusterConversionService.HotSpares(Catalog.GetCluster(Cluster.UniqueName)?.Preparation?.SpecificationJson);
     private bool _canStart;
     private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
     private bool ManagedLifecycle => Cluster.Gateway is not null && !string.IsNullOrWhiteSpace(Cluster.HostCommandUrl);
@@ -157,6 +165,7 @@
         _displayName = Cluster.DisplayName;
         _configProfileId = Cluster.PreparedProfile?.ProfileId ?? Cluster.ConfigProfileId;
         _shutdownGracePeriodSeconds = Cluster.ShutdownGracePeriodSeconds;
+        _hotSpares = PreparedHotSpares;
         await RefreshCapabilitiesAsync();
         await RefreshStartAvailabilityAsync();
         _poll = PollAsync();
@@ -263,6 +272,25 @@
                 _configProfileId, user.Identity?.Name ?? "web-ui", _shutdown.Token);
             if (_operation.State != ClusterOperationState.Succeeded)
                 _error = _operation.Error?.Message ?? "Profile preparation did not complete.";
+        }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or KeyNotFoundException)
+        { _error = error.Message; }
+        finally { _submitting = false; }
+    }
+    private async Task StageHotSparesAsync()
+    {
+        if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        _submitting = true;
+        _error = null;
+        try
+        {
+            _operation = await UpdatePreparation.StageHotSparesAsync(Cluster.UniqueName, _hotSpares,
+                user.Identity?.Name ?? "web-ui", _shutdown.Token);
+            if (_operation.State != ClusterOperationState.Succeeded)
+                _error = _operation.Error?.Message ?? "Hot spare preparation did not complete.";
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or KeyNotFoundException)
         { _error = error.Message; }

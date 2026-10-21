@@ -180,6 +180,38 @@ public sealed class ClusterConversionTests : IDisposable
     }
 
     [Fact]
+    public async Task ChangingHotSparesGivesTheSlotsOfASpecWrittenWithThatCount()
+    {
+        await Source();
+        var request = Request() with { Hosts = [new("host", "http://127.0.0.1:29500", "HOST", "EXEC", "127.0.0.1", 2),
+            new("second", "http://127.0.0.2:29500", "HOST2", "EXEC2", "127.0.0.2", 1)] };
+        string world = Path.Combine(root, "split"); Directory.CreateDirectory(world);
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var paths = request.Hosts.ToDictionary(h => h.HostId, h => new Quasar.Host.Contract.V1.HostConversionPaths(h.HostId, "/world", "/config", "/runtime"));
+        async Task<System.Text.Json.Nodes.JsonObject> Spec(int spares) => System.Text.Json.Nodes.JsonNode.Parse(await ClusterConversionService.SpecificationAsync(
+            clusters.GetCluster("demo")!, servers.GetServer("source")!, profiles.GetProfile("profile")!, null, request with { HotSpares = spares },
+            world, paths, default))!.AsObject();
+        static string[] Slots(System.Text.Json.Nodes.JsonObject spec) => spec["nodes"]!.AsArray().Select(n =>
+            $"{n!["slotKey"]} {n["host"]} {n["role"]} {n["backend"]} {n["control"]} {n["spare"]}").ToArray();
+        var spec = await Spec(1);
+        foreach (int spares in new[] { 2, 0, 1, 3 })
+        {
+            ClusterUpdatePreparationService.SetHotSpares(spec, spares);
+            Assert.Equal(Slots(await Spec(spares)), Slots(spec));
+            Assert.Equal(spares, ClusterConversionService.HotSpares(spec.ToJsonString()));
+            var nodes = spec["nodes"]!.AsArray().Select(n => n!).ToArray();
+            Assert.Equal(nodes.Length, nodes.Select(n => n["catalogSlot"]!.GetValue<int>()).Distinct().Count());
+            // A spare never takes a seeded catalog slot: every one follows the serving regular nodes.
+            Assert.All(nodes.Where(n => n["spare"] is not null), spare => Assert.True(spare["catalogSlot"]!.GetValue<int>() > 3));
+        }
+        Assert.Contains("already has 3", Assert.Throws<InvalidOperationException>(() => ClusterUpdatePreparationService.SetHotSpares(spec, 3)).Message);
+        Assert.Throws<InvalidDataException>(() => ClusterUpdatePreparationService.SetHotSpares(spec, 62));
+        Assert.Throws<InvalidDataException>(() => ClusterUpdatePreparationService.SetHotSpares(spec, -1));
+        spec["nodes"]!.AsArray().Single(n => n!["slotKey"]!.GetValue<string>() == "host-node-1")!["slotKey"] = "custom";
+        Assert.Contains("not laid out by Quasar", Assert.Throws<InvalidOperationException>(() => ClusterUpdatePreparationService.SetHotSpares(spec, 1)).Message);
+    }
+
+    [Fact]
     public void HotSparesNeedAReleaseThatDeclaresThem()
     {
         string package = Path.Combine(root, "package"); Directory.CreateDirectory(Path.Combine(package, "cli"));
