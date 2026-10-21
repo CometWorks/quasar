@@ -164,6 +164,37 @@ public sealed class ClusterCliTests
         Assert.Equal(1, handler.Calls);
     }
 
+    [Fact]
+    public async Task WorldFilesPreparePostsAFolderAsStorageFiles()
+    {
+        string folder = Path.Combine(Path.GetTempPath(), "world-files-cli-" + Guid.NewGuid().ToString("N"));
+        string mod = Path.Combine(folder, "1521905890.sbm_ModularEncountersSystems");
+        Directory.CreateDirectory(mod);
+        File.WriteAllText(Path.Combine(mod, "Config-General.xml"), "<MaxNpcGrids>40</MaxNpcGrids>");
+        try
+        {
+            var handler = new Handler((request, _) =>
+            {
+                Assert.Equal(HttpMethod.Post, request.Method);
+                Assert.Equal("/api/v1/clusters/demo/world-files-preparation", request.RequestUri!.AbsolutePath);
+                Assert.Equal("world-1", request.Headers.GetValues("Idempotency-Key").Single());
+                var body = System.Text.Json.JsonSerializer.Deserialize<Quasar.Services.ClusterWorldFilesSelection>(
+                    request.Content!.ReadAsStringAsync().GetAwaiter().GetResult(), new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web))!;
+                var file = Assert.Single(body.Files);
+                Assert.Equal("Storage/1521905890.sbm_ModularEncountersSystems/Config-General.xml", file.Path);
+                Assert.Equal("<MaxNpcGrids>40</MaxNpcGrids>", System.Text.Encoding.UTF8.GetString(file.Content));
+                return Response(HttpStatusCode.Accepted, """{"protocolVersion":1,"data":{"operationId":"op","state":"Succeeded"}}""");
+            });
+            Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "world-files-prepare", "demo", folder, "--url", "http://quasar.test",
+                "--idempotency-key", "world-1"], handler, new StringWriter(), new StringWriter()));
+            Assert.Equal(1, handler.Calls);
+            var unsent = new Handler((_, _) => throw new InvalidOperationException("must not send"));
+            Assert.Equal(2, await ClusterCli.RunAsync(["cluster", "world-files-prepare", "demo", folder + "-missing", "--url", "http://quasar.test",
+                "--idempotency-key", "world-2"], unsent, new StringWriter(), new StringWriter()));
+        }
+        finally { Directory.Delete(folder, true); }
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("9223372036854775807")]

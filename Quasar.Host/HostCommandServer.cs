@@ -531,6 +531,19 @@ internal sealed class HostCommandServer : IDisposable
             { await WriteErrorAsync(context, 404, "mods_missing", "Mod inputs are not installed.", cancellationToken); }
             return;
         }
+        string worldsPrefix = HostContract.HostProtocol.RoutePrefix + "/deployment-worlds/";
+        if (context.Request.HttpMethod == "GET" && path.StartsWith(worldsPrefix, StringComparison.Ordinal))
+        {
+            try
+            {
+                var pins = await Quasar.ClusterDeployment.ClusterWorldFiles.ReadPinsAsync(
+                    Path.Combine(_config.StateDirectory, "conversions/worlds"), path[worldsPrefix.Length..], cancellationToken);
+                await WriteAsync(context, 200, pins, cancellationToken);
+            }
+            catch (DirectoryNotFoundException)
+            { await WriteErrorAsync(context, 404, "world_missing", "World inputs are not installed.", cancellationToken); }
+            return;
+        }
         string conversionPrefix = HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/";
         if (context.Request.HttpMethod == "PUT" && path.StartsWith(conversionPrefix, StringComparison.Ordinal))
         {
@@ -549,7 +562,8 @@ internal sealed class HostCommandServer : IDisposable
                     context.Request.InputStream, hash, Path.Combine(root, "installations"), cancellationToken,
                     context.Request.QueryString["baseInputsSha256"])).Directory,
                 "world" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
-                    context.Request.InputStream, hash, Path.Combine(root, "worlds"), cancellationToken),
+                    context.Request.InputStream, hash, Path.Combine(root, "worlds"), cancellationToken,
+                    baseHash: context.Request.QueryString["baseInputsSha256"]),
                 "mods" => await Quasar.ClusterDeployment.ClusterWorldFiles.UnpackAsync(
                     context.Request.InputStream, hash, Path.Combine(root, "mods"), cancellationToken, requireCheckpoint: false,
                     baseHash: context.Request.QueryString["baseInputsSha256"]),
