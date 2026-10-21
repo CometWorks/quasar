@@ -29,6 +29,7 @@ public sealed class ClusterContentMonitor : BackgroundService
     private readonly Func<ClusterDefinition, CancellationToken, Task<ClusterPluginPin[]>> _pins;
     private readonly Func<IEnumerable<long>, CancellationToken, Task<IReadOnlyDictionary<long, WorkshopUpdateObservation>>> _workshop;
     private readonly Func<CancellationToken, Task<IReadOnlyList<QuasarPluginCatalogEntry>>> _hub;
+    private readonly Func<IReadOnlyList<QuasarDevFolderSelection>> _devFolders;
     private readonly QuasarUpdateOptions _options;
     private readonly ILogger<ClusterContentMonitor> _logger;
     private readonly string _path;
@@ -40,20 +41,22 @@ public sealed class ClusterContentMonitor : BackgroundService
 
     public ClusterContentMonitor(ClusterCatalog clusters, QuasarConfigProfileCatalog profiles,
         ClusterDependencyService dependencies, QuasarWorkshopModResolver workshop, QuasarPluginCatalogService hub,
-        QuasarUpdateOptions options, ILogger<ClusterContentMonitor> logger)
+        QuasarDevFolderCatalog devFolders, QuasarUpdateOptions options, ILogger<ClusterContentMonitor> logger)
         : this(clusters.GetClusters, id => profiles.GetProfile(id)?.Mods, dependencies.ReadActivePluginPinsAsync,
             workshop.CheckUpdatesAsync, async token => { await hub.RefreshAsync(token); return hub.GetHubEntries(); },
-            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ClusterContentUpdates.json"), options, logger) { }
+            Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ClusterContentUpdates.json"), options, logger, devFolders.GetDevFolders) { }
 
     internal ClusterContentMonitor(Func<IReadOnlyList<ClusterDefinition>> clusters,
         Func<string, IReadOnlyList<QuasarModSelection>?> mods,
         Func<ClusterDefinition, CancellationToken, Task<ClusterPluginPin[]>> pins,
         Func<IEnumerable<long>, CancellationToken, Task<IReadOnlyDictionary<long, WorkshopUpdateObservation>>> workshop,
         Func<CancellationToken, Task<IReadOnlyList<QuasarPluginCatalogEntry>>> hub,
-        string path, QuasarUpdateOptions options, ILogger<ClusterContentMonitor> logger)
+        string path, QuasarUpdateOptions options, ILogger<ClusterContentMonitor> logger,
+        Func<IReadOnlyList<QuasarDevFolderSelection>>? devFolders = null)
     {
         (_clusters, _mods, _pins, _workshop, _hub, _path, _options, _logger) =
             (clusters, mods, pins, workshop, hub, path, options, logger);
+        _devFolders = devFolders ?? (() => []);
         if (File.Exists(path))
         {
             try
@@ -116,6 +119,7 @@ public sealed class ClusterContentMonitor : BackgroundService
         catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
         catch (Exception error) { _logger.LogWarning(error, "Cluster plugin check failed."); hubError = "Plugin hub check failed; previous observations retained."; }
         var now = DateTimeOffset.UtcNow;
+        var devFolders = _devFolders();
         foreach (var cluster in clusters)
         {
             previous.TryGetValue(cluster.UniqueName, out var old);
@@ -150,7 +154,8 @@ public sealed class ClusterContentMonitor : BackgroundService
             foreach (var pin in pins ?? [])
             {
                 var prior = old?.Items.FirstOrDefault(i => i.Kind == "plugin" && i.Id == pin.Id && i.PinnedVersion == pin.Commit);
-                items.Add(ObservePlugin(pin, hub.FirstOrDefault(e => e.PluginId == pin.Id), prior, hubError, now));
+                var devFolder = devFolders.LastOrDefault(d => string.Equals(QuasarPluginCatalogService.GetDevFolderPluginId(d), pin.Id, StringComparison.OrdinalIgnoreCase));
+                items.Add(ObservePlugin(pin, hub.FirstOrDefault(e => e.PluginId == pin.Id), prior, hubError, now, devFolder?.FolderPath));
             }
             // A candidate/activation racing network requests must not publish observations as its inventory.
             if (_clusters().FirstOrDefault(c => c.UniqueName == cluster.UniqueName)?.ActiveDeployment?.Revision != cluster.ActiveDeployment.Revision)
@@ -167,9 +172,15 @@ public sealed class ClusterContentMonitor : BackgroundService
         Changed?.Invoke();
     }
 
+    // A registered dev folder with the plugin's id replaces its hub build at every staging, so a
+    // hub commit is no update for this cluster: name the override instead.
     internal static ClusterContentItem ObservePlugin(ClusterPluginPin pin, QuasarPluginCatalogEntry? entry,
-        ClusterContentItem? prior, string? error, DateTimeOffset now)
+        ClusterContentItem? prior, string? error, DateTimeOffset now, string? devFolder = null)
     {
+        if (devFolder is not null)
+            return new("plugin", pin.Id, pin.Name, pin.Commit, null, null, now,
+                $"Dev override: staging builds this plugin from the dev folder {devFolder}, not from its hub, so hub commits are not observed. "
+                + "Remove the dev folder in Configs → Developer and stage again to return to the hub build.", null);
         if (error is null && entry is { HubError.Length: > 0 })
             error = $"Plugin hub {entry.HubName} could not be checked; previous observation retained.";
         if (error is null && entry is { ConflictingHubs.Count: > 1 })

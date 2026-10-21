@@ -235,6 +235,61 @@ public sealed class ClusterSetupTests
     }
 
     [Fact]
+    public void ManagedExportBuildsCoreDevOverridesInRelease()
+    {
+        string config = Path.Combine(Path.GetTempPath(), "cluster-core-override-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(config, "Profiles"));
+        Directory.CreateDirectory(Path.Combine(config, "Sources"));
+        try
+        {
+            string path = Path.Combine(config, "Profiles/Current.xml");
+            File.WriteAllText(path, """
+                <Profile>
+                  <DevFolder><LocalFolderConfig><Id>selected-plugin</Id><DebugBuild>true</DebugBuild></LocalFolderConfig></DevFolder>
+                </Profile>
+                """);
+            File.WriteAllText(Path.Combine(config, "Sources/sources.xml"), """
+                <SourcesConfig><LocalPluginSources>
+                  <LocalPlugin><Name>selected-plugin</Name><Folder>/src/selected</Folder><File>Plugin.xml</File><Enabled>true</Enabled></LocalPlugin>
+                  <LocalPlugin><Name>unselected-plugin</Name><Folder>/src/unselected</Folder><File>Plugin.xml</File><Enabled>true</Enabled></LocalPlugin>
+                  <LocalPlugin><Name>linux-compat</Name><Folder>/src/linux-compat</Folder><File>ServerPlugin/ServerPlugin.xml</File><Enabled>true</Enabled></LocalPlugin>
+                </LocalPluginSources></SourcesConfig>
+                """);
+            ClusterSetupService.UseReleaseBuilds(config);
+            ClusterSetupService.UseReleaseBuilds(config);
+            var entries = System.Xml.Linq.XDocument.Load(path).Root!.Element("DevFolder")!.Elements("LocalFolderConfig").ToArray();
+            Assert.Equal(["selected-plugin", "linux-compat"], entries.Select(e => e.Element("Id")!.Value));
+            Assert.All(entries, e => Assert.Equal("false", e.Element("DebugBuild")!.Value));
+        }
+        finally { Directory.Delete(config, true); }
+    }
+
+    [Fact]
+    public void DevBuildsNameThePluginsTheExportBuiltFromDevFolders()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cluster-dev-builds-" + Guid.NewGuid());
+        Directory.CreateDirectory(Path.Combine(root, "exported"));
+        Directory.CreateDirectory(Path.Combine(root, "config/Sources"));
+        try
+        {
+            File.WriteAllText(Path.Combine(root, "config/Sources/sources.xml"), """
+                <SourcesConfig><LocalPluginSources>
+                  <LocalPlugin><Name>linux-compat</Name><Folder>/src/linux-compat</Folder><File>ServerPlugin/ServerPlugin.xml</File><Enabled>true</Enabled></LocalPlugin>
+                </LocalPluginSources></SourcesConfig>
+                """);
+            File.WriteAllText(Path.Combine(root, "exported/preparation.json"), $$"""
+                {"plugins": [
+                  {"id": "bugfixes", "repository": "CometWorks/bugfixes", "commit": "{{new string('a', 40)}}", "source": "github"},
+                  {"id": "linux-compat", "repository": "CometWorks/linux-compat", "commit": "3e187ee9{{new string('b', 32)}}", "source": "dev-folder"}
+                ]}
+                """);
+            Assert.Equal(["linux-compat 3e187ee9bbbb from /src/linux-compat"],
+                ClusterSetupService.DevBuilds(Path.Combine(root, "exported"), Path.Combine(root, "config")));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
+    [Fact]
     public void NodeBinaryVersionIsTheGameAssemblyVersionTheRegistryCompares()
     {
         string installation = Path.Combine(Path.GetTempPath(), "cluster-setup-binary-" + Guid.NewGuid());

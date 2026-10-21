@@ -934,6 +934,11 @@
                             The folder's git repository must have no uncommitted or untracked changes, and the cluster records its HEAD commit.
                             The manifest needs a <span class="mono">RepoId</span>. The cluster build is always a release build; the Debug build setting applies to regular servers.
                         </p>
+                        <p class="quasar-text quasar-type-body2 mb-3">
+                            A dev folder with the id of a hub plugin is a dev override: it replaces the hub build, for a core plugin such as
+                            <span class="mono">linux-compat</span> on every server and cluster, and is marked as such below, in staging progress and in the cluster content panel.
+                            Its native assets come from the manifest's asset paths. Remove the dev folder and stage again to return to the hub build.
+                        </p>
 
                         <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders">
                             <HeaderContent>
@@ -948,6 +953,12 @@
                                     <div class="quasar-layout quasar-align-start quasar-gap-0">
                                         <h3 class="quasar-text quasar-type-subtitle2">@context.Name</h3>
                                         <span class="quasar-text quasar-type-caption config-secondary">@context.PluginId</span>
+                                        @if (GetDevOverride(context) is { } devOverride)
+                                        {
+                                            <MudTooltip Text="@devOverride">
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">Dev override</MudChip>
+                                            </MudTooltip>
+                                        }
                                     </div>
                                 </MudTd>
                                 <MudTd DataLabel="Folder">
@@ -2732,9 +2743,8 @@
         if (result is not { Canceled: false, Data: string xmlPath })
             return;
 
-        var folderPath = (Path.GetDirectoryName(xmlPath) ?? string.Empty).Trim();
-        var dataFile = Path.GetFileName(xmlPath).Trim();
-        _lastDevFolderPath = folderPath;
+        _lastDevFolderPath = (Path.GetDirectoryName(xmlPath) ?? string.Empty).Trim();
+        var (folderPath, dataFile) = PluginManifestReader.ResolveDevFolder(xmlPath);
 
         if (string.IsNullOrWhiteSpace(folderPath) || string.IsNullOrWhiteSpace(dataFile))
             return;
@@ -2773,6 +2783,19 @@
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         await DevFolderCatalog.UpsertAsync(devFolder);
         Snackbar.Add("Dev folder added.", Severity.Success);
+    }
+
+    // A dev folder with the id of a hub plugin replaces it wherever that id loads; a core plugin
+    // loads on every Linux server and cluster node whatever the profile selects.
+    private string? GetDevOverride(QuasarDevFolderSelection devFolder)
+    {
+        var pluginId = QuasarPluginCatalogService.GetDevFolderPluginId(devFolder);
+        var hub = PluginCatalog.GetHubEntries().FirstOrDefault(entry => string.Equals(entry.PluginId, pluginId, StringComparison.OrdinalIgnoreCase));
+        var pin = hub is null ? string.Empty : $" pinned by {hub.HubName} at {hub.SourceCommit[..Math.Min(8, hub.SourceCommit.Length)]}";
+        if (QuasarPluginCatalogService.CorePluginIds.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+            return $"Replaces the Magnetar core plugin {pluginId}{pin} on every server start and every cluster staging. Remove the dev folder to return to the hub build.";
+        return hub is null ? null
+            : $"Replaces the plugin {pluginId}{pin} in every profile that selects it, from the next server start or cluster staging. Remove the dev folder to return to the hub build.";
     }
 
     private async Task SetDevFolderDebugAsync(QuasarDevFolderSelection devFolder, bool value)

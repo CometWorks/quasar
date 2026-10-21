@@ -366,6 +366,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     {
         var excluded = await ExportProfilePluginsAsync(request.UniqueName, request.DisplayName, request.ConfigProfileId,
             Path.Combine(work, "source-world"), profile, work, destination, token);
+        if (DevBuilds(destination, Path.Combine(work, "preparation/Magnetar")) is { Length: > 0 } devBuilds)
+            await StageAsync(request, "Preparing identical plugins and canonical configuration (dev overrides, not the hub pins: "
+                + string.Join("; ", devBuilds) + ")", null, token);
         if (excluded.Count != 0)
         {
             string names = string.Join(", ", excluded);
@@ -404,7 +407,23 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         await RunMagnetarAsync(magnetar, ["-prepareManaged", destination, "-config", prepared.MagnetarAppDataPath,
             "-profile", Path.Combine(prepared.MagnetarAppDataPath, "Profiles/Current.xml"),
             "-ds64", prepared.DedicatedServer64Path, "-consent", "deny", "-noupdate"], prepared.GitHubToken, token);
+        if (DevBuilds(destination, prepared.MagnetarAppDataPath) is { Length: > 0 } devBuilds)
+            logger?.LogWarning("Cluster {Cluster} plugins are dev overrides, built from dev folders instead of their hub pins: {Plugins}. "
+                + "Remove the dev folders in Configs → Developer and stage the profile again to return to the hub builds.", clusterId, string.Join("; ", devBuilds));
         return excluded;
+    }
+    // The exported plugins Magnetar built from a dev folder, as "id commit from folder".
+    internal static string[] DevBuilds(string exported, string config)
+    {
+        var folders = (XDocument.Load(Path.Combine(config, "Sources/sources.xml")).Root?.Element("LocalPluginSources")?.Elements("LocalPlugin") ?? [])
+            .GroupBy(source => source.Element("Name")?.Value.Trim() ?? "", StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.Last().Element("Folder")?.Value, StringComparer.OrdinalIgnoreCase);
+        return (JsonNode.Parse(File.ReadAllText(Path.Combine(exported, "preparation.json")))?["plugins"]?.AsArray() ?? [])
+            .Where(plugin => plugin?["source"]?.GetValue<string>() == "dev-folder")
+            .Select(plugin => (Id: plugin!["id"]?.GetValue<string>() ?? "", Commit: plugin["commit"]?.GetValue<string>() ?? ""))
+            .Select(plugin => $"{plugin.Id} {plugin.Commit[..Math.Min(12, plugin.Commit.Length)]}"
+                + (folders.GetValueOrDefault(plugin.Id) is { } folder ? " from " + folder : ""))
+            .ToArray();
     }
     internal static void RemoveDirectTransportDevSource(string config)
     {
@@ -416,15 +435,28 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         sources.Save(path);
     }
     // Every node runs the frozen export, so dev folders build release there whatever their
-    // Debug build setting for regular servers.
+    // Debug build setting for regular servers. A dev folder that overrides a core plugin
+    // (linux-compat, dotnet-compat, error-reporting) is never in the profile, and Magnetar
+    // builds an unlisted dev folder as debug, so it gets a release entry of its own.
     internal static void UseReleaseBuilds(string config)
     {
-        string path = Path.Combine(config, "Profiles/Current.xml");
+        string path = Path.Combine(config, "Profiles/Current.xml"), sources = Path.Combine(config, "Sources/sources.xml");
         var profile = XDocument.Load(path);
-        foreach (var debugBuild in profile.Root?.Element("DevFolder")?.Elements("LocalFolderConfig").Elements("DebugBuild") ?? [])
+        var devFolder = profile.Root!.Element("DevFolder") ?? new XElement("DevFolder");
+        if (devFolder.Parent is null) profile.Root.Add(devFolder);
+        var listed = devFolder.Elements("LocalFolderConfig").Select(c => c.Element("Id")?.Value.Trim()).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (string id in CoreDevOverrides(sources).Where(id => !listed.Contains(id)))
+            devFolder.Add(new XElement("LocalFolderConfig", new XElement("Id", id), new XElement("DebugBuild", "false")));
+        foreach (var debugBuild in devFolder.Elements("LocalFolderConfig").Elements("DebugBuild"))
             debugBuild.Value = "false";
         profile.Save(path);
     }
+    // Core plugin ids that a registered dev folder overrides in this Magnetar config.
+    internal static string[] CoreDevOverrides(string sources) => !File.Exists(sources) ? [] :
+        XDocument.Load(sources).Root?.Element("LocalPluginSources")?.Elements("LocalPlugin")
+            .Select(source => source.Element("Name")?.Value.Trim() ?? "")
+            .Where(id => QuasarPluginCatalogService.CorePluginIds.Contains(id, StringComparer.OrdinalIgnoreCase))
+            .Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
     // The Registry admits a node only when its MySandboxGame.BuildVersion equals the specification's
     // binaryVersion. That is the assembly version of Sandbox.Game.dll ("0.1.1.0"), not the game version
     // Magnetar reports ("1210014"); with the latter every node was rejected with "binary version".
