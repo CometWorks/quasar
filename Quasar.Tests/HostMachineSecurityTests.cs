@@ -28,8 +28,10 @@ public sealed class HostMachineSecurityTests
                 null, 0, null, null, null, null, 0, false, true);
             var spec = new HostApp.NodeSpawnSpec("slot-a", Admin.NodeRole.Regular, "node-a", "unused", "",
                 [], new() { [AgentSocketToken.EnvironmentVariable] = "untrusted-override" }, []);
+            string root = Path.Combine(Path.GetTempPath(), "host-launch-security");
             ProcessStartInfo start = HostApp.NodeActualizer.CreateStartInfo(attachment, plan, spec,
-                "/tmp/bundle", "/tmp/run", "/tmp/ready", "attempt", "/unused", "revision");
+                Path.Combine(root, "bundle"), Path.Combine(root, "run"), Path.Combine(root, "ready"),
+                "attempt", Path.Combine(root, "unused"), "revision");
             Assert.Equal(AgentSocketToken.ForNode(hostKey, "fleet", "slot-a", "node-a", "Regular", "attempt"),
                 start.Environment[AgentSocketToken.EnvironmentVariable]);
             Assert.DoesNotContain("enrollment-secret", start.Environment.Values);
