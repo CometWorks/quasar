@@ -124,4 +124,7 @@ public sealed record ClusterUpdate(Guid Id, Quasar.Services.ClusterDeploymentReq
     ClusterActiveRevision Previous, bool Rollback, ClusterUpdatePhase Phase, DateTimeOffset StartedAt,
     DateTimeOffset UpdatedAt, string? LastError = null, bool BackupRequired = false, DateTimeOffset? PhaseStartedAt = null,
     DedicatedServerGoalState? GoalBefore = null, Guid? Backup = null, string? Failure = null, Guid? RevertRestoreId = null,
-    Quasar.Services.ClusterRestoreRequest? Revert = null);
+    Quasar.Services.ClusterRestoreRequest? Revert = null,
+    // An update despite a recorded dirty shutdown: the Dirty list the operator accepted, and whether
+    // its fenced stop of the Gateway has happened.
+    string[]? DirtyShutdown = null, bool FencedStop = false);

@@ -104,7 +104,7 @@ public sealed class ClusterCatalog : IDisposable
                     throw new InvalidOperationException("Complete the interrupted deployment before changing the lifecycle goal.");
                 current.GoalState = goal;
                 if (goal == DedicatedServerGoalState.On && current.Gateway?.StartGeneration is not null)
-                    current.Gateway = current.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false };
+                    current.Gateway = current.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false, RecoveryUpdate = false };
             }, cancellationToken), cancellationToken);
 
     public Task<ClusterDefinition> UpdateAdministrationAsync(string uniqueName, ClusterAdministrationSettings settings,
@@ -259,8 +259,9 @@ public sealed class ClusterCatalog : IDisposable
     }
 
     // Workflow checkpoints do not invalidate shutdown proof unless they change the lifecycle goal.
+    // recoveryUpdate: an update despite a dirty shutdown starts its new deployment as a recovery start.
     internal async Task<ClusterDefinition> RecordUpdateAsync(ClusterDefinition expected, ClusterUpdate workflow,
-        CancellationToken token, DedicatedServerGoalState? goal = null)
+        CancellationToken token, DedicatedServerGoalState? goal = null, bool recoveryUpdate = false)
     {
         await _writeGate.WaitAsync(token);
         try
@@ -277,7 +278,8 @@ public sealed class ClusterCatalog : IDisposable
                 current.ShutdownProof = null;
                 current.ActivationProof = null;
                 if (requested == DedicatedServerGoalState.On && current.Gateway is not null)
-                    current.Gateway = current.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false };
+                    current.Gateway = current.Gateway with { StartGeneration = Guid.NewGuid(), Recover = recoveryUpdate,
+                        RecoveryUpdate = recoveryUpdate };
             }
             await SaveAsync(current, token);
             return current;
@@ -340,7 +342,7 @@ public sealed class ClusterCatalog : IDisposable
         {
             if (cluster.GetLifecycleId() != expected.GetLifecycleId() || cluster.Gateway is null)
                 throw new InvalidOperationException("Cluster changed during recovery.");
-            cluster.Gateway = cluster.Gateway with { StartGeneration = generation, Recover = true, StopFence = null };
+            cluster.Gateway = cluster.Gateway with { StartGeneration = generation, Recover = true, RecoveryUpdate = false, StopFence = null };
             cluster.GoalState = DedicatedServerGoalState.On;
         }, token);
 
@@ -357,7 +359,7 @@ public sealed class ClusterCatalog : IDisposable
         {
             if (cluster.GetLifecycleId() != expected.GetLifecycleId() || cluster.Gateway is null)
                 throw new InvalidOperationException("Cluster lifecycle changed before its restart.");
-            cluster.Gateway = cluster.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false };
+            cluster.Gateway = cluster.Gateway with { StartGeneration = Guid.NewGuid(), Recover = false, RecoveryUpdate = false };
         }, token);
 
     public void Dispose() => _watcher?.Dispose();

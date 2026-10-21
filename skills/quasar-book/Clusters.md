@@ -85,6 +85,16 @@ If the Gateway did not prove a clean shutdown, the cluster needs explicit recove
 
 CLI equivalents: `cluster gateway-recover NAME` and `cluster recover NAME REQUEST.json` with `{"generation":"NEW-UUID"}`.
 
+#### Update despite the recorded dirty shutdown
+
+Recovery restarts the same build. If every stop of that build ends dirty, for example because a node crashes while it drains, the cluster could never take the update that fixes it. For that case, with a pending update prepared from the selected release, use **Maintenance → Pending update → Update despite the recorded dirty shutdown**:
+
+1. Quasar asks the stopped Gateway what its last shutdown left unsaved (the Dirty list of its CleanShutdown snapshot: `node:<id>`, `partition:<id>`, `global` or voxel entries) and shows it. Accept it to continue.
+2. Stopping proves every node stopped and stops the Gateway fenced, as Recovery does, then takes the pre-update backup. That backup is crash-consistent.
+3. Quasar activates the update and starts it as a recovery start that may also change the revision and the node list (`CLUSTER_START_RECOVERY=update`). The listed parts come back from their newest saves; their unsaved changes are lost. Everything else had been saved.
+
+It needs the stopped Gateway to still answer in phase Down, and a cluster release that declares `managedRecoveryUpdate: 1`. It refuses a rollback (restore a backup instead) and refuses when the Gateway lists something else than what was accepted. API callers send the list in `acceptDirtyShutdown` of the update request.
+
 ### Reconciler status codes
 
 | Code | Meaning and action |
@@ -291,7 +301,9 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - **"Cannot reach the Cluster Registry at …"** The Gateway is not running or its admin port is not reachable from Quasar. While the cluster is stopped this is expected.
 - **"Cluster Registry credential environment variable '…' is not set."** For a registered cluster, set that variable on the Quasar service and restart Quasar.
 - **"Queued mod/plugin updates must be staged before applying."** Stage the queued content or remove the queue.
-- **"This stopped cluster has no clean shutdown proof."** Use **Recover stopped cluster after an unclean shutdown** before updating.
+- **"This stopped cluster has no clean shutdown proof."** Use **Recover stopped cluster after an unclean shutdown** before updating. If every stop ends dirty and only the prepared update can fix that, use [Update despite the recorded dirty shutdown](#update-despite-the-recorded-dirty-shutdown).
+- **"This cluster release cannot start an update after a dirty shutdown."** The selected cluster release has no `managedRecoveryUpdate` capability. Recover the stopped cluster, or select a newer release.
+- **"The recorded dirty shutdown is not the one that was accepted."** The Gateway's Dirty list changed since it was shown. Review it and try again.
 - **"Resolve Workshop dependencies before staging: …"** A mod dependency could not be resolved; fix the profile's mod list.
 - **"Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds."** Managed Magnetar was updated after the snapshot was frozen, and the cluster release or the new Magnetar declares no PluginSdk contract, or the new Magnetar's contract doesn't fit the release. In the last case the error names both contracts and says whether a newer Magnetar or another cluster release is needed. Otherwise stage a matching cluster release.
 - **"Select the release and dependencies used by the active deployment before conversion."** Reselect the active package and dependencies before converting a cluster back.
