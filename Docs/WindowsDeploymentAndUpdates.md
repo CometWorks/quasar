@@ -266,6 +266,14 @@ limit. The Updates page lets an admin save a GitHub token for release checks.
 It is stored in `github-updates.json` under the Quasar install directory with the
 same Data Protection encryption model used for the Steam Workshop API key.
 
+The page can save a token only once the web UI runs, but Bootstrap downloads the
+UI from GitHub first. For that first start, and for Bootstrap's own update checks
+later, Bootstrap also reads a token from its environment: `QUASAR_GITHUB_TOKEN`
+wins over the saved token, and `GITHUB_TOKEN` is used only when neither is set.
+Set it for the account the Scheduled Task runs as (`setx QUASAR_GITHUB_TOKEN
+<token>`) and restart the task. The web worker doesn't read these variables; its
+release checks and Magnetar starts use the saved token only.
+
 The same token is handed to every managed Magnetar start through the
 `PULSAR_GITHUB_TOKEN` environment variable so Pulsar's plugin-hub downloads are
 authenticated too. It is never placed on the server command line, and a

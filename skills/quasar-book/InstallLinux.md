@@ -79,7 +79,7 @@ curl http://127.0.0.1:8080/api/ready
 | Command or flag | Effect |
 | --- | --- |
 | `serve` | Run Bootstrap and supervise the web worker in this process. Used by the service. |
-| (no command) | Same as `ensure-running`: reuse a healthy Quasar, otherwise start one. From a terminal it runs in the foreground; from a script it starts a detached launcher and waits up to 60 seconds for it to become healthy. |
+| (no command) | Same as `ensure-running`: reuse a healthy Quasar, otherwise start one. From a terminal it runs in the foreground; from a script it starts a detached launcher and waits up to 60 seconds for it to become healthy, or for as long as the launcher retries the first web UI download, printing the launcher's wait lines. |
 | `cluster ...` | Cluster command line tools. See [Clusters](Clusters.md). |
 | `help`, `--help`, `-h` | Print the commands and options and exit. |
 | `--headless` | API-only mode. |
@@ -271,7 +271,7 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
 - The UI doesn't come up after a fresh install: Bootstrap hasn't been able to download the web worker from GitHub yet, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. Bootstrap retries a failed download on its own, 30 seconds after the first failure, then doubling up to every 10 minutes, and writes each wait to the journal (`journalctl --user -u quasar.service`):
   - `Failed downloading the Quasar web UI; retrying at <time> (in <n> s). <error>`: GitHub can't be reached. Fix network access; there is no need to restart Quasar.
-  - `GitHub's API rate limit is used up, so Quasar can't download its web UI yet. Waiting for GitHub to reset the limit; retrying at <time> ...`: GitHub allows 60 anonymous API requests an hour per public IP address, and every machine behind the same NAT, CGNAT or hosting provider shares them. Quasar waits until the reset time GitHub sends (at most an hour) and then continues on its own. Bootstrap doesn't read `GITHUB_TOKEN`, and the token on the [Updates](Updates.md) page can only be saved once the UI is up; after that, it keeps later update checks out of the anonymous limit.
+  - `GitHub's API rate limit is used up, so Quasar can't download its web UI yet. Waiting for GitHub to reset the limit; retrying at <time> ...`: GitHub allows 60 anonymous API requests an hour per public IP address, and every machine behind the same NAT, CGNAT or hosting provider shares them. Quasar waits until the reset time GitHub sends (at most an hour) and then continues on its own. To skip the wait, give Bootstrap a GitHub token in `QUASAR_GITHUB_TOKEN` (or `GITHUB_TOKEN`) and restart the service; see [Updates](Updates.md#github-token-for-update-checks) for how to set it for the service. The token on the Updates page can only be saved once the UI is up.
   - Older launchers (1.3.1.27 and earlier) gave up after the first failure, printed `Failed downloading initial Quasar web release.` and `Quasar worker launching on ...` with no worker behind it, and needed a restart once GitHub could be reached again.
 
   With updates disabled and no worker, or when no `quasar-web-linux-x64.tar.gz` asset is found, a foreground run (`./Quasar serve`) prints `Quasar has no running worker, so the web UI is not available.` after the reason.
