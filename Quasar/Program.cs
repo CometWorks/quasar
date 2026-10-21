@@ -328,7 +328,14 @@ public class Program
                 app.UseExceptionHandler("/Error");
 
             app.Use((context, next) => MachineEndpointSecurity.InvokeAsync(context, next, machinePolicy));
-            app.UseForwardedHeaders(CreateForwardedHeadersOptions(authOptions));
+            var forwarding = CreateForwardedHeadersOptions(authOptions);
+            app.Use((context, next) =>
+            {
+                context.RequestServices.GetRequiredService<TrustedNetworkEvaluator>()
+                    .CaptureOriginalRequest(context, forwarding);
+                return next(context);
+            });
+            app.UseForwardedHeaders(forwarding);
             if (!webServiceOptions.Headless)
                 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
             app.UseWebSockets(new WebSocketOptions

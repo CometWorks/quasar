@@ -170,3 +170,33 @@ credential stores. Upgrade-safety tests adopt a harmless bounded `sleep` process
 never a game. Full Windows/.NET Framework and real enrolled multi-machine game
 acceptance still require a human before release. This note is release preparation;
 it does not authorize publication, announcements or deployment.
+
+## Viewer follow-up rollout
+
+The source-based Viewer follow-up for [ticket 1364](https://tasks.cometworks.se/tasks/1364)
+is separate from [urgent agent/Host PR242](https://github.com/CometWorks/quasar/pull/242).
+Apply the original urgent fix independently. The follow-up has two parts:
+
+1. Update Quasar with the shared trusted-network principal guard. It validates
+   original/effective destinations and same-origin browser context before
+   granting automatic loopback or subnet roles. Configure the intended public
+   BaseUrl and the proxy's backend Host as described in
+   [reverse proxy auth](Configuration.md#reverse-proxy-auth). Cookies and service
+   principals retain their normal precedence; machine routes retain PR242's policy.
+2. Update the Entity Viewer Quasar UI plugin with approved-root asset containment
+   and final-open checks, then restart the worker through the usual plugin update
+   flow and reload Viewer. Install its adapter and static assets from the same
+   pinned Viewer revision. See [Viewer asset boundaries](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md#asset-boundary).
+   No new companion protocol or agent change is introduced by this follow-up.
+
+Neither update substitutes for the other. Viewer scene/assets retain `CanView`,
+replay/settings retain administrator policies, and asset tokens remain expiring
+and bound to their user/session. Streaming consent and private/no-store responses
+remain required. No bearer secrets are added to browser links.
+
+Proof is limited to in-memory request unit tests and synthetic temporary asset
+fixtures on Linux. Windows link/reparse behavior and installed browser/proxy
+acceptance remain for human verification after review. Managed filesystem checks
+are not atomic against concurrent local directory/link replacement; protect asset
+roots and their ancestors from untrusted writers. Native atomic-open evaluation
+is tracked in [ticket 1367](https://tasks.cometworks.se/tasks/1367).
