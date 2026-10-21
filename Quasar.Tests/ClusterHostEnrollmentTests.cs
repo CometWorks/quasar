@@ -173,6 +173,8 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         var local = LocalHost(binary, install, preserve: preserve);
         await local.EnsureRunningAsync(default);
         var running = local.ReadPid()!;
+        // A Host stopped before its shell got to log 'run' never logs it, so wait for that line first.
+        await WaitForCallsAsync(binary, 1);
         try
         {
             string state = Path.Combine(install, "LocalHost", "state");
@@ -193,9 +195,8 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             else
             {
                 Assert.Null(ClusterLocalHost.ProcessIdentity(running.Pid));
-                // The run call's own log line can land after stop-clusters' on a loaded machine.
-                Assert.Contains(await WaitForCallsAsync(binary, 2),
-                    line => line.EndsWith(" stop-clusters --config " + Path.Combine(install, "LocalHost", "host.json") + " stopunit=unset"));
+                Assert.EndsWith(" stop-clusters --config " + Path.Combine(install, "LocalHost", "host.json") + " stopunit=unset",
+                    (await WaitForCallsAsync(binary, 2))[1]);
             }
         }
         finally { Process(running.Pid)?.Kill(); }
@@ -259,6 +260,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         {
             await first.EnsureRunningAsync(default);
             await second.EnsureRunningAsync(default);
+            await WaitForCallsAsync(binary, 2); // both 'run' lines, before the uninstalls stop the Hosts
             var firstPid = first.ReadPid()!;
             File.WriteAllText(Path.Combine(units, "quasar.service"), "");
             File.WriteAllText(Path.Combine(units, "quasar-clusters.service"), "");
