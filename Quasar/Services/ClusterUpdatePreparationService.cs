@@ -10,7 +10,8 @@ namespace Quasar.Services;
 public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, ClusterDependencyService dependencies,
     ClusterHostClient hosts, ClusterDeploymentService deployments, QuasarConfigProfileCatalog profiles,
     ClusterSetupService setup, ClusterWorkshopModStager modStager,
-    ManagedDedicatedServerRuntimeResolver runtime)
+    ManagedDedicatedServerRuntimeResolver runtime, ClusterPackageService packages,
+    ILogger<ClusterUpdatePreparationService> logger)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const string PluginSdkPath = "Libraries/MagnetarInterim/PluginSdk.dll";
@@ -32,7 +33,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 ?? throw new InvalidOperationException("Choose an existing configuration profile.");
             EnsureCompatibleProfileSelection(current, selected);
             string selectedHash = ProfileHash(selected);
-            var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing profiles.");
+            var request = BasePreparation(cluster, progress) ?? throw new InvalidOperationException("Complete guided setup before changing profiles.");
             string work = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ClusterUpdates", Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(work);
             ClusterWorldFiles.Private(work);
@@ -232,7 +233,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
                 throw new InvalidOperationException("Finish the current setup, update or activation before changing configuration.");
-            var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing plugin configuration.");
+            var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing plugin configuration.");
             var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
             if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
                 throw new InvalidOperationException("Stage the selected release before changing its plugin configuration.");
@@ -249,7 +250,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
                 throw new InvalidOperationException("Finish the current setup, update or activation before changing hot spares.");
-            var request = cluster.Preparation ?? throw new InvalidOperationException("Complete guided setup before changing hot spares.");
+            var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing hot spares.");
             var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
             if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
                 throw new InvalidOperationException("Stage the selected release before changing hot spares.");
@@ -323,6 +324,105 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             ?? throw new InvalidDataException("Plugin settings must be a JSON object.");
     }
 
+    /// <summary>
+    /// The preparation a re-prepare builds on. The saved <see cref="ClusterDefinition.Preparation"/> is whatever was
+    /// prepared last, so it can be a failed restore's backup specification, a rolled-back update's, or a change that a
+    /// later package or dependency selection discarded. It is the base only while it describes the active deployment or
+    /// the change still pending from Quasar's own staging; otherwise the active deployment's recorded preparation is,
+    /// and the switch is reported with any frontend it keeps.
+    /// </summary>
+    internal ClusterPreparationRequest? BasePreparation(ClusterDefinition cluster, IProgress<string>? progress = null)
+    {
+        var saved = cluster.Preparation;
+        if (saved is null || cluster.ActiveDeployment?.Provenance?.Preparation is not { } active || saved == active) return saved;
+        string revision = ClusterDependencyService.DeploymentRevision(saved);
+        if (revision == cluster.ActiveDeployment.Revision
+            || cluster.PreparedForSelectedRelease && revision == cluster.PreparedDeployment?.Revision) return saved;
+        string message = $"The saved preparation (revision {revision[..Math.Min(8, revision.Length)]}) is not the active deployment's, "
+            + "for example after a failed restore or a rollback. Building on the active deployment's preparation instead.";
+        string frontends = string.Join(" ", FrontendDifferences(saved, active)
+            .Select(d => $"{d.Name} stays {d.Active ?? "unset"} (the saved preparation had {d.Saved ?? "unset"})."));
+        if (frontends.Length != 0) message += " " + frontends;
+        logger.LogWarning("Cluster {Cluster}: {Message}", cluster.UniqueName, message);
+        progress?.Report(message);
+        return active;
+    }
+
+    internal static IEnumerable<(string Name, string? Saved, string? Active)> FrontendDifferences(
+        ClusterPreparationRequest saved, ClusterPreparationRequest active)
+    {
+        var before = JsonNode.Parse(saved.SpecificationJson)!.AsObject();
+        var after = JsonNode.Parse(active.SpecificationJson)!.AsObject();
+        foreach (var (name, key) in new[] { ("Steam", "steamListen"), ("Direct Transport", "directListen") })
+        {
+            string? old = before[key]?.ToString(), current = after[key]?.ToString();
+            if (old != current) yield return (name, old, current);
+        }
+    }
+
+    /// <summary>
+    /// <b>Stage latest release</b> for the UI and the API: selects the latest cluster release, freezes its dependencies
+    /// and prepares every Host from the active deployment's world seed and topology. Freezing reuses the selected
+    /// snapshot's DS, Magnetar, Direct Transport and common plugins when their PluginSdk satisfies the new release, so
+    /// a cluster set up by guided setup needs no configured dependency sources.
+    /// </summary>
+    public async Task<ClusterOperation> StageLatestReleaseAsync(string clusterId, string actor, CancellationToken token,
+        IProgress<string>? progress = null, bool allowQueuedContent = false)
+    {
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
+        var prior = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);
+        if (prior.QueuedContentUpdates is not null && !allowQueuedContent)
+            throw new InvalidOperationException("Configuration editing permission is required to stage queued content with a release update.");
+        progress?.Report("Checking and staging the latest cluster release...");
+        var release = await packages.GetReleaseAsync(null, token);
+        bool changingPackage = prior.PackageSelection?.Version != release.Version || prior.PackageSelection.Sha256 != release.Sha256;
+        var reusable = changingPackage && prior.DependencyManifestSha256 is not null
+            ? await dependencies.ReusableSourcesAsync(prior, token) : null;
+        if (!await SelectReleaseAsync(clusterId, release, reusable, token)) reusable = null;
+        if (catalog.GetCluster(clusterId)!.DependencyManifestSha256 is null)
+        {
+            progress?.Report("Freezing the selected release's runtime dependencies...");
+            await FreezeDependenciesAsync(clusterId, reusable, token);
+        }
+        progress?.Report("Transferring and preparing the selected release on all Hosts...");
+        return await PrepareAsync(clusterId, actor, token, progress, allowQueuedContent);
+    }
+
+    /// <summary>Stages and selects <paramref name="release"/> (the latest one when null) unless it is selected already.
+    /// Returns whether the <paramref name="reusable"/> snapshot sources fit its PluginSdk.</summary>
+    public async Task<bool> SelectReleaseAsync(string clusterId, ClusterPackageRelease? release,
+        Dictionary<string, string>? reusable, CancellationToken token)
+    {
+        release ??= await packages.GetReleaseAsync(null, token);
+        var cluster = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);
+        if (cluster.PackageSelection is { } selected && selected.Version == release.Version && selected.Sha256 == release.Sha256)
+            return reusable is not null;
+        var package = await packages.StageAsync(new(release.Version, release.Sha256), token);
+        bool reuse = reusable is not null
+            && ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath, Path.Combine(reusable["Magnetar"], PluginSdkPath)) is null;
+        if (!reuse)
+        {
+            string installedSdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), PluginSdkPath);
+            if (ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath, installedSdk) is { } mismatch)
+                throw new InvalidOperationException($"Cluster release {release.Version} cannot run on the installed Magnetar: {mismatch} A compatible Magnetar installation or existing dependency snapshot is required.");
+        }
+        await catalog.SelectPackageAsync(clusterId, cluster.PackageSelection?.Revision ?? 0, package,
+            "release-" + Guid.NewGuid().ToString("N"), token);
+        return reuse;
+    }
+
+    /// <summary>Freezes the selected release's dependencies from <paramref name="sources"/>, or from the configured
+    /// dependency sources when null.</summary>
+    public async Task FreezeDependenciesAsync(string clusterId, Dictionary<string, string>? sources, CancellationToken token)
+    {
+        using var storage = await ClusterStorageActivity.BeginAsync(token);
+        var cluster = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);
+        var candidate = await dependencies.InspectAsync(cluster, sources, token);
+        var request = new ClusterDependencyRequest(candidate.ManifestSha256, cluster.PackageSelection!.Revision, cluster.DependencyManifestSha256);
+        await dependencies.StageAsync(cluster, request, sources, token);
+        await catalog.SelectDependenciesAsync(clusterId, request, token);
+    }
+
     public async Task<ClusterOperation> PrepareAsync(string clusterId, string actor, CancellationToken token,
         IProgress<string>? progress = null, bool allowQueuedContent = false)
     {
@@ -334,7 +434,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 throw new InvalidOperationException("Configuration editing permission is required to stage queued content with a release update.");
             return await StageProfileSelectionAsync(clusterId, cluster.ConfigProfileId, actor, token, progress);
         }
-        var previous = cluster.Preparation ?? throw new InvalidOperationException("No saved preparation exists. Import a deployment request first.");
+        var previous = BasePreparation(cluster, progress) ?? throw new InvalidOperationException("No saved preparation exists. Import a deployment request first.");
         if (cluster.ActiveDeployment is null || cluster.PackageSelection is null || cluster.DependencyManifestSha256 is null)
             throw new InvalidOperationException("Select a cluster package and freeze its dependencies first.");
         if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
