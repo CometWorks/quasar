@@ -19,6 +19,7 @@ In headless mode (`--headless`) the `/login` page does not exist. Only the trust
 ## Steam sign-in
 
 - `/login` redirects to Steam (`https://steamcommunity.com/openid/`) and back. Any Steam account can complete the sign-in. Quasar then gives it the roles mapped to its SteamID64 in `rbac.json`.
+- The top bar shows your Steam profile name beside the sign-out button and in its tooltip. Quasar looks it up from your public Steam Community profile at sign-in without an API key and keeps it in the session cookie. If the lookup fails or takes more than five seconds, it shows `Steam <SteamID64>`. Sign out and back in to refresh the name, including after upgrading. Permissions and audit records still use SteamID64.
 - An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (`/logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
 - The sign-in cookie is `Quasar.Auth`, HTTP-only, valid for 12 hours with sliding renewal. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
@@ -199,6 +200,8 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | `Login unavailable` page | `Quasar:Auth:Steam:Enabled` is `false` or `DefaultProvider` is not `Steam`. |
 
 ## Sources
+
+- `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Docs/Configuration.md`
 - `Docs/QuickStart.md`
 - `Docs/Docker.md`
