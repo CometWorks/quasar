@@ -1938,7 +1938,8 @@ world seed and package specification. Changing the selected package or dependenc
 snapshot clears that candidate. The final action starts the existing durable shutdown,
 activation, and readiness workflow; release checks and earlier steps do not interrupt
 the running cluster. A stopped cluster without clean shutdown proof must use the
-**Recover stopped cluster after an unclean shutdown** control first.
+**Recover stopped cluster after an unclean shutdown** control first, or
+**Update despite the recorded dirty shutdown** (below).
 The panel shows a short summary of the saved request instead of binding its large,
 nested JSON string to a browser text field. Download the request to inspect or edit
 advanced installation and topology inputs, then import the JSON file before selecting
@@ -1958,7 +1959,25 @@ The individual Agent editor cannot change cluster-owned configuration.
 
 `cluster update NAME REQUEST.json --wait` submits a durable workflow and waits for its
 exact ID to reach Complete. A request contains `id` (UUID) and `deployment` (the result
-of preparation). For rollback use `{"id":"<new UUID>","rollback":true}`. Inspect with
+of preparation). For rollback use `{"id":"<new UUID>","rollback":true}`.
+
+**Update despite the recorded dirty shutdown** (Maintenance → Pending update; API field
+`acceptDirtyShutdown`) is for a cluster whose every graceful stop ends dirty, for example a node
+that crashes in its drain, so that Recovery only restarts the build whose next stop is dirty again.
+It needs goal Off, no clean shutdown proof, the stopped Gateway still answering in phase Down
+with a CleanShutdown snapshot for its last shutdown, and a deployment prepared from the selected
+cluster release whose package declares `managedRecoveryUpdate: 1`. The panel shows that snapshot's
+Dirty list (`node:<id>`, `partition:<id>`, `global`, voxel entries) and asks to accept it; the API
+caller sends the same list, read from `GET .../snapshots`, in `acceptDirtyShutdown`. Quasar refuses
+the update when the Gateway lists anything else by then, and refuses a rollback this way (restore a
+backup instead). Stopping then does what Recovery does: every Host proves its nodes stopped and the
+Gateway stops fenced, checkpointed in the update as `fencedStop`. The pre-update backup is
+CrashConsistent. Activation needs no clean-Down proof, and the new deployment starts with
+`CLUSTER_START_RECOVERY=update`: a recovery start that may also change the revision and the slots
+(so a hot spare or node count change applies the same way). The listed parts come back from their
+newest catalogued saves; their unsaved changes are lost, as with Recovery. Everything else had been
+saved. The workflow logs the accepting actor and the list. A failed start reverts from the backup as
+any update does. Inspect with
 `cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
 An update that cannot finish locks goal changes, commands, backup, restore and deletion. It
 records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds

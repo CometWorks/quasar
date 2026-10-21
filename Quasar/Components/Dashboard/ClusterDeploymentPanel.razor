@@ -69,7 +69,10 @@
                     }
                     @if (Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && !Current.IsProvenStopped())
                     {
-                        <MudAlert Severity="Severity.Warning">Recover the stopped cluster after its unclean shutdown before applying an update.</MudAlert>
+                        <MudAlert Severity="Severity.Warning">The stopped cluster has no clean shutdown proof. Recover it after its unclean shutdown before applying an update, or apply the update despite the recorded dirty shutdown.</MudAlert>
+                        <MudButton OnClick="StartUpdateDespiteDirtyShutdownAsync" Color="Color.Warning" Variant="Variant.Outlined"
+                                   Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null)">Update despite the recorded dirty shutdown</MudButton>
+                        <span class="quasar-text quasar-type-caption">Shows what the last shutdown left unsaved and asks to accept it. Quasar then stops the Gateway fenced once every node is proven stopped, backs up the stopped cluster (crash-consistent), activates the update and starts it as a recovery start. The listed parts come back from their newest saves; their unsaved changes are lost. Use it when every stop ends dirty and only the update can fix that.</span>
                     }
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
                                Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && !Current.IsProvenStopped())"
@@ -374,6 +377,25 @@
     private Task StartPreparedUpdateAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
         new(Guid.NewGuid(), Current.PreparedDeployment ?? throw new InvalidDataException("Prepare a deployment first.")),
         Guid.NewGuid().ToString("N"), actor, default));
+    private async Task StartUpdateDespiteDirtyShutdownAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        string[] dirty;
+        try { dirty = await Updates.GetRecordedDirtyShutdownAsync(Cluster.UniqueName, default); }
+        catch (Exception error) when (error is InvalidOperationException or KeyNotFoundException)
+        {
+            _message = error.Message;
+            return;
+        }
+        string listed = dirty.Length == 0 ? "nothing (the shutdown proof is missing for another reason)"
+            : string.Join(", ", dirty.Take(40)) + (dirty.Length > 40 ? $" and {dirty.Length - 40} more" : "");
+        if (await DialogService.ShowMessageBoxAsync("Update despite the recorded dirty shutdown?",
+            $"The last shutdown left unsaved: {listed}. When the updated cluster starts as a recovery start, these parts come back from their newest saves and their unsaved changes are lost. Quasar backs up the stopped cluster first. Continue?",
+            yesText: "Update", cancelText: "Cancel") != true) return;
+        await ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
+            new(Guid.NewGuid(), Current.PreparedDeployment ?? throw new InvalidDataException("Prepare a deployment first."),
+                AcceptDirtyShutdown: dirty), Guid.NewGuid().ToString("N"), actor, default));
+    }
     private Task UpdateFromJsonAsync() => ExecuteAsync(actor => Updates.BeginAsync(Cluster.UniqueName,
         new(Guid.NewGuid(), JsonSerializer.Deserialize<ClusterDeploymentRequest>(_activation, Json)
             ?? throw new InvalidDataException("Activation request is required.")), Guid.NewGuid().ToString("N"), actor, default));

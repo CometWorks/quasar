@@ -223,6 +223,17 @@ public sealed class ClusterConversionTests : IDisposable
     }
 
     [Fact]
+    public void UpdateDespiteADirtyShutdownNeedsAReleaseThatDeclaresIt()
+    {
+        string package = Path.Combine(root, "package"); Directory.CreateDirectory(Path.Combine(package, "cli"));
+        string capabilities = Path.Combine(package, "cli/deployment-capabilities.json");
+        File.WriteAllText(capabilities, """{"schemaVersion":1,"frozenPluginBundles":true,"managedHotSpares":1}""");
+        Assert.Contains("cannot start an update after a dirty shutdown", Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.RequireRecoveryUpdate(package)).Message);
+        File.WriteAllText(capabilities, """{"schemaVersion":1,"frozenPluginBundles":true,"managedRecoveryUpdate":1}""");
+        ClusterDeploymentFiles.RequireRecoveryUpdate(package);
+    }
+
+    [Fact]
     public async Task TestFrontendAddsDirectTransportAndCanDropSteamButProductionSpecIsSteamOnly()
     {
         await Source(); var request = Request();

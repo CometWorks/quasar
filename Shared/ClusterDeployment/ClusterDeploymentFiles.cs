@@ -231,6 +231,15 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("This cluster release does not support hot spares. Set Hot spares to 0, or resume once a cluster release with hot spare support is published.");
     }
 
+    /// <summary>A release older than <c>managedRecoveryUpdate</c> refuses a recovery start with a new revision or slots.</summary>
+    internal static void RequireRecoveryUpdate(string package)
+    {
+        ValidateCapabilities(package);
+        using var capabilities = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capabilities.RootElement.TryGetProperty("managedRecoveryUpdate", out var version) || version.GetInt32() < 1)
+            throw new InvalidDataException("This cluster release cannot start an update after a dirty shutdown. Recover the stopped cluster, or select a cluster release that supports it.");
+    }
+
     private static Dictionary<string, string> EnvironmentFor(string root) => new()
     {
         ["SPACE_ENGINEERS_BIN64"] = Path.Combine(root, "Dependencies/payload/DedicatedServer/DedicatedServer64"),
