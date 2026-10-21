@@ -1437,9 +1437,7 @@ new seed in the specification's `worldFiles` and prepares every Host. Apply it f
 update**. Activation copies the seed's `Storage/` files whose pins differ from the installed bundle's into
 the Gateway's `runtime/world` and every node's `premade-world` and `Saves/<world>` (World Authority, regular
 nodes and spares). Storage files the seed did not change are left as the mods wrote them, so later updates,
-which keep the seed, neither revert nor reapply the files. A node seeded for the first time (a new spare)
-also gets the seed's `Storage/` in `Saves/<world>`, where its mods read world storage from the first load on;
-the game itself never copies `Storage/` from the premade world. `GET /api/v1/clusters/{uniqueName}/world-files`
+which keep the seed, neither revert nor reapply the files. `GET /api/v1/clusters/{uniqueName}/world-files`
 lists the seed's `Storage/` files and their SHA-256.
 
 The current deployment format preserves existing mutable worlds when activating
