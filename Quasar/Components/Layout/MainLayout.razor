@@ -63,7 +63,7 @@
                 </label>
                 <AuthorizeView>
                     <Authorized Context="authContext">
-                        <span class="quasar-user-name">@authContext.User.Identity?.Name</span>
+                        <span class="quasar-user-name">@authContext.User.GetQuasarDisplayName()</span>
                         <a class="quasar-icon-button" href="/logout" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></a>
                     </Authorized>
                     <NotAuthorized>

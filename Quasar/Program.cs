@@ -127,14 +127,14 @@ public class Program
                     options.CorrelationCookie.SameSite = SameSiteMode.Lax;
                     options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
 
-                    options.Events.OnAuthenticated = context =>
+                    options.Events.OnAuthenticated = async context =>
                     {
                         var roleMapper = context.HttpContext.RequestServices.GetRequiredService<QuasarRoleMapper>();
                         var identity = context.Identity;
                         if (identity is null)
                         {
                             context.Ticket = null!;
-                            return Task.CompletedTask;
+                            return;
                         }
 
                         var steamId = ExtractSteamId(context.Identifier) ??
@@ -142,13 +142,13 @@ public class Program
                         if (steamId is null)
                         {
                             context.Ticket = null!;
-                            return Task.CompletedTask;
+                            return;
                         }
 
                         if (!roleMapper.IsSteamIdAllowed(steamId))
                         {
                             context.Ticket = null!;
-                            return Task.CompletedTask;
+                            return;
                         }
 
                         AddOrReplaceClaim(identity, ClaimTypes.NameIdentifier, steamId);
@@ -157,10 +157,13 @@ public class Program
                         AddOrReplaceClaim(identity, QuasarClaimTypes.SteamId, steamId);
                         AddOrReplaceClaim(identity, QuasarClaimTypes.SteamProfileUrl, $"https://steamcommunity.com/profiles/{steamId}");
 
+                        var profileClient = context.HttpContext.RequestServices.GetRequiredService<SteamProfileClient>();
+                        var displayName = await profileClient.GetDisplayNameAsync(steamId, context.HttpContext.RequestAborted);
+                        if (!string.IsNullOrWhiteSpace(displayName))
+                            AddOrReplaceClaim(identity, QuasarClaimTypes.SteamDisplayName, displayName);
+
                         foreach (var role in roleMapper.GetSteamRoles(steamId))
                             identity.AddClaim(new Claim(ClaimTypes.Role, role));
-
-                        return Task.CompletedTask;
                     };
                 });
             builder.Services.AddAuthorization(ConfigureAuthorizationPolicies);
@@ -176,6 +179,12 @@ public class Program
                     return new GitHubRetryHandler((message, exception) =>
                         logger.LogWarning(exception, "{Message}", message));
                 });
+            builder.Services.AddHttpClient<SteamProfileClient>(client =>
+                {
+                    client.Timeout = TimeSpan.FromSeconds(5);
+                    client.MaxResponseContentBufferSize = 128 * 1024;
+                })
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
             builder.Services.AddHttpClient<ClusterGatewayClient>(client =>
                 client.Timeout = Timeout.InfiniteTimeSpan);
             builder.Services.AddHttpClient<ClusterHostClient>(client =>

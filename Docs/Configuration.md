@@ -909,6 +909,13 @@ trust broad networks unless every host in that range is under your control.
 
 ### RBAC enforcement
 
+The top bar and sign-out tooltip show the Steam profile name fetched from the
+public Steam Community profile at sign-in. No API key is required. Failed or
+timed-out lookups fall back to `Steam <SteamID64>` and do not prevent sign-in.
+Names are stored in the session cookie; sign out and back in to refresh a name
+or pick up this behavior after upgrading. Permissions and audit records continue
+to use SteamID64.
+
 Steam users receive roles from the runtime `rbac.json` catalog. Quasar supports
 three roles: `viewer`, `editor`, and `admin`. Viewers can open every built-in page
 in the **Control plane** navigation: Dashboard, Configs, Worlds, Plugins, Players,

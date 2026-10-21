@@ -15,6 +15,7 @@ public static class QuasarClaimTypes
     public const string Provider = "quasar:provider";
     public const string SteamId = "steamid";
     public const string SteamProfileUrl = "steam_profile_url";
+    public const string SteamDisplayName = "steam_display_name";
     public const string Scope = "quasar:scope";
     public const string Cluster = "quasar:cluster";
 }
@@ -76,10 +77,14 @@ public static class ClaimsPrincipalExtensions
     {
         var provider = principal.FindFirstValue(QuasarClaimTypes.Provider);
         var steamId = principal.FindFirstValue(QuasarClaimTypes.SteamId);
+        if (string.Equals(provider, QuasarAuthSchemes.TrustedNetwork, StringComparison.OrdinalIgnoreCase))
+            return "Trusted network";
+
         if (!string.IsNullOrWhiteSpace(steamId))
-            return string.Equals(provider, QuasarAuthSchemes.TrustedNetwork, StringComparison.OrdinalIgnoreCase)
-                ? "Trusted network"
-                : $"Steam {steamId}";
+        {
+            var displayName = principal.FindFirstValue(QuasarClaimTypes.SteamDisplayName);
+            return string.IsNullOrWhiteSpace(displayName) ? $"Steam {steamId}" : displayName;
+        }
 
         return principal.Identity?.Name;
     }
