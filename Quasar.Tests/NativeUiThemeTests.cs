@@ -282,7 +282,7 @@ public sealed class NativeAppearanceTests : IDisposable
     }
 
     [Fact]
-    public async Task AnalyticsUsesSeparateIncarnationKeysAndReadableNodeLabels()
+    public async Task AnalyticsMergesNodeIncarnationsIntoOneSlotOption()
     {
         await using var context = new BunitContext();
         context.Services.AddMudServices();
@@ -297,8 +297,11 @@ public sealed class NativeAppearanceTests : IDisposable
         var registry = new AgentRegistry(null!, metrics, profiler, stats);
         foreach (var epoch in new long[] { 41, 42 })
             registry.UpsertHello(new() { AgentId = "node-" + epoch, UniqueName = "same-slot-name",
-                ClusterMode = true, ClusterId = "cluster", ClusterSlot = "slot", ClusterNodeId = "node",
+                ClusterMode = true, ClusterId = "cluster", ClusterSlot = "slot", ClusterNodeId = "node-" + epoch,
                 ClusterEpoch = epoch }, "connection-" + epoch, (_, _) => Task.CompletedTask);
+        registry.UpsertHello(new() { AgentId = "other", UniqueName = "same-slot-name", ClusterMode = true,
+            ClusterId = "cluster", ClusterSlot = "other-slot", ClusterNodeId = "node-9", ClusterEpoch = 1 },
+            "connection-other", (_, _) => Task.CompletedTask);
         context.Services.AddSingleton(catalog);
         context.Services.AddSingleton(metrics);
         context.Services.AddSingleton(profiler);
@@ -310,13 +313,20 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddScoped<QuasarPermissionService>();
         context.Render<MudPopoverProvider>();
         var page = context.Render<Quasar.Components.Pages.Analytics>();
-        Assert.Contains("cluster / slot / node / epoch 41", page.Markup);
-        Assert.Contains("cluster / slot / node / epoch 42", page.Markup);
+        var labels = page.FindComponents<MudCheckBox<bool>>().Select(box => box.Instance.Label).ToList();
+        Assert.Equal(["cluster / other-slot", "cluster / slot"], labels);
+        Assert.DoesNotContain("epoch", page.Markup);
         Assert.DoesNotContain("same-slot-name", page.Markup);
         // Check the actual browser request, which also drives the analytics HTTP endpoints.
         await page.WaitForAssertionAsync(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarCharts.sync"]));
         var request = JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
-        foreach (var agent in registry.GetAgents()) Assert.Contains(agent.TelemetryKey, request);
+        var agents = registry.GetAgents();
+        Assert.Equal(2, agents.Select(agent => agent.AnalyticsKey).Distinct().Count());
+        foreach (var agent in agents)
+        {
+            Assert.Contains(agent.AnalyticsKey, request);
+            Assert.DoesNotContain(agent.TelemetryKey, request);
+        }
         Assert.DoesNotContain("same-slot-name", request);
     }
 

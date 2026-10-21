@@ -345,6 +345,7 @@ else
     private long _fromUnix;
     private long _toUnix;
     private List<string> _effectiveServers = [];
+    private IReadOnlyDictionary<string, IReadOnlyList<string>> _selectedMembers = new Dictionary<string, IReadOnlyList<string>>();
     private IReadOnlyList<PluginStatPanel> _pluginPanels = [];
     private Dictionary<string, PluginStatPanel> _pluginPanelsByKey = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _serverNameMap = new(StringComparer.OrdinalIgnoreCase);
@@ -356,6 +357,9 @@ else
         .Where(panel => !panel.Visible)
         .OrderBy(panel => panel.Order)
         .ToList();
+
+    // The telemetry stores behind the selected servers; a cluster slot has one per node instance and epoch.
+    private IReadOnlyList<string> SelectedTelemetryKeys => _selectedMembers.Values.SelectMany(members => members).ToList();
 
     private IReadOnlyList<ServerOption> SelectedServerOptions => _serverOptions
         .Where(option => IsServerSelected(option.UniqueName))
@@ -560,7 +564,7 @@ else
 
             var agent = Registry.GetAgents()
                 .Where(item => item.IsConnected &&
-                               string.Equals(item.TelemetryKey, uniqueName, StringComparison.OrdinalIgnoreCase))
+                               string.Equals(item.AnalyticsKey, uniqueName, StringComparison.OrdinalIgnoreCase))
                 .OrderByDescending(item => item.LastSeenUtc)
                 .FirstOrDefault();
             if (agent is not null)
@@ -908,25 +912,26 @@ else
         // All selected servers are charted; there is no visible-line cap.
         var selectedServers = GetSelectedUniqueNames();
         _effectiveServers = selectedServers.ToList();
+        _selectedMembers = Registry.ExpandAnalyticsKeys(selectedServers);
 
         RefreshPluginPanels();
 
         // Read range samples in-memory purely to drive the summary chips and decide whether there is
         // anything to chart. The bulk series data is fetched by the browser, not sent over the circuit.
         var samplesByServer = new Dictionary<string, MetricSample[]>(StringComparer.OrdinalIgnoreCase);
-        foreach (var uniqueName in selectedServers)
+        foreach (var (uniqueName, members) in _selectedMembers)
         {
-            var store = MetricsStore.GetStore(uniqueName);
-            if (store is null)
-                continue;
-
-            var samples = ReadSamplesForRange(store, fromUnix, toUnix, spanSeconds);
+            var samples = members
+                .Select(member => MetricsStore.GetStore(member))
+                .Where(store => store is not null)
+                .SelectMany(store => ReadSamplesForRange(store!, fromUnix, toUnix, spanSeconds))
+                .ToArray();
             if (samples.Length > 0)
                 samplesByServer[uniqueName] = samples;
         }
 
         var hasScalarData = samplesByServer.Count > 0;
-        var hasProfilerData = !hasScalarData && ProfilerStore.HasSamples(fromUnix, toUnix, selectedServers);
+        var hasProfilerData = !hasScalarData && ProfilerStore.HasSamples(fromUnix, toUnix, SelectedTelemetryKeys);
 
         BuildSummary(selectedServers, samplesByServer);
         BuildChartCards(hasScalarData || hasProfilerData, keepEmptyProfilerPanels: selectedServers.Count > 0);
@@ -936,7 +941,7 @@ else
     // into the panel set (hidden) so they surface in the "Add panel" menu and the plugin section.
     private void RefreshPluginPanels()
     {
-        _pluginPanels = PluginStatsStore.GetCatalog(_effectiveServers);
+        _pluginPanels = PluginStatsStore.GetCatalog(SelectedTelemetryKeys);
         _pluginPanelsByKey = _pluginPanels.ToDictionary(panel => panel.Key, StringComparer.OrdinalIgnoreCase);
 
         var known = _config.Panels.Select(panel => panel.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -986,9 +991,10 @@ else
         _serverDefinitionsByName = definitions
             .GroupBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+        // A cluster slot is one option: its node instances and epochs are merged under AnalyticsKey.
         _agentsByUniqueName = agents
-            .Where(agent => !string.IsNullOrWhiteSpace(agent.TelemetryKey))
-            .GroupBy(agent => agent.TelemetryKey, StringComparer.OrdinalIgnoreCase)
+            .Where(agent => !string.IsNullOrWhiteSpace(agent.AnalyticsKey))
+            .GroupBy(agent => agent.AnalyticsKey, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(
                 group => group.Key,
                 group => group
@@ -1002,14 +1008,13 @@ else
         foreach (var server in definitions)
             names[server.UniqueName] = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
 
-        foreach (var agent in agents)
+        foreach (var agent in _agentsByUniqueName.Values)
         {
-            var uniqueName = agent.TelemetryKey;
-            if (string.IsNullOrWhiteSpace(uniqueName))
-                continue;
-
+            var uniqueName = agent.AnalyticsKey;
             var displayName = agent.IsCluster
-                ? $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}"
+                ? uniqueName == agent.TelemetryKey
+                    ? $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}"
+                    : $"{agent.ClusterId} / {agent.ClusterSlot}"
                 : agent.ServerDisplayName;
             if (string.IsNullOrWhiteSpace(displayName) || string.Equals(displayName, "Unknown server", StringComparison.OrdinalIgnoreCase))
                 displayName = uniqueName;
@@ -1017,7 +1022,11 @@ else
             names.TryAdd(uniqueName, displayName);
         }
 
-        foreach (var uniqueName in MetricsStore.GetUniqueNames())
+        var mergedKeys = agents
+            .Where(agent => agent.AnalyticsKey != agent.TelemetryKey)
+            .Select(agent => agent.TelemetryKey)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var uniqueName in MetricsStore.GetUniqueNames().Where(key => !mergedKeys.Contains(key)))
             names.TryAdd(uniqueName, uniqueName);
 
         return names
@@ -1233,11 +1242,13 @@ else
         _summaryChips.Clear();
 
         var latestSamples = new List<MetricSample>();
-        foreach (var uniqueName in selectedServers)
+        foreach (var members in _selectedMembers.Values)
         {
-            var latest = MetricsStore.GetStore(uniqueName)?.Raw.ReadLatest(1);
-            if (latest is { Length: > 0 })
-                latestSamples.Add(latest[0]);
+            var latest = members
+                .SelectMany(member => MetricsStore.GetStore(member)?.Raw.ReadLatest(1) ?? [])
+                .OrderByDescending(sample => sample.TimestampUnixSeconds)
+                .Take(1);
+            latestSamples.AddRange(latest);
         }
 
         _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
