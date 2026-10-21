@@ -86,6 +86,19 @@ public sealed class ClusterCreateTests : IDisposable
     }
 
     [Fact]
+    public async Task DefaultPluginsAreOnForANewClusterAndNameWhatTheProfileLacks()
+    {
+        await using var context = CreateContext();
+        await context.Services.GetRequiredService<QuasarConfigProfileCatalog>().UpsertAsync(new() { ConfigProfileId = "half", Name = "Half",
+            Plugins = [new() { PluginId = QuasarDefaultPlugins.BugfixesPluginId, DisplayName = "Bugfixes" }] });
+        var page = context.Render<ClusterCreate>();
+        var option = page.FindComponents<MudCheckBox<bool>>().Single(c => c.Instance.Label?.Contains("Bugfixes and Performance") == true);
+        Assert.True(option.Instance.GetState(c => c.Value));
+        await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("half"));
+        Assert.Contains("Adds Performance from MagnetarHub", page.Markup);
+    }
+
+    [Fact]
     public async Task EnrollmentRequiresSecurityPermissionAndStandalonePageUsesSameForm()
     {
         await using var context = CreateContext(securityAdmin: false);

@@ -252,6 +252,12 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
             })
             .DistinctBy(mod => mod.WorkshopId)
             .ToList();
+        profile.OfferedDefaultPlugins = profile.OfferedDefaultPlugins?
+            .Where(value => !string.IsNullOrWhiteSpace(value))
+            .Select(value => value.Trim())
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
         if (profile.UpdatedAtUtc == default)
             profile.UpdatedAtUtc = DateTimeOffset.UtcNow;
         return profile;

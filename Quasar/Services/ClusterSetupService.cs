@@ -15,9 +15,12 @@ namespace Quasar.Services;
 
 public sealed record ClusterSetupPlacement(string HostId, int RegularNodes);
 /// <summary><paramref name="HotSpares"/>: how many hot spares the cluster has (the setup page defaults to 1). Quasar only
-/// configures the count; the cluster promotes a spare when a node crashes and refills it.</summary>
+/// configures the count; the cluster promotes a spare when a node crashes and refills it.
+/// <paramref name="DefaultPlugins"/>: add <see cref="QuasarDefaultPlugins"/> (Bugfixes, Performance) to the cluster's
+/// copy of the profile when it lacks them. The source profile is never changed.</summary>
 public sealed record ClusterSetupRequest(string UniqueName, string DisplayName, string WorldTemplateId,
-    string ConfigProfileId, string GatewayHost, int PlayerPort, ClusterSetupPlacement[] Machines, int HotSpares = 0);
+    string ConfigProfileId, string GatewayHost, int PlayerPort, ClusterSetupPlacement[] Machines, int HotSpares = 0,
+    bool DefaultPlugins = true);
 public sealed record ClusterSetupStatus(ClusterSetupRequest Request, string Phase, string? Error, DateTimeOffset UpdatedAt);
 
 /// <summary>Durable, copy-based creation using the same verified preparation and activation as conversion.</summary>
@@ -78,6 +81,11 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (worlds.GetTemplate(request.WorldTemplateId) is null) throw new InvalidOperationException("Choose a world template.");
                         try { ClusterConversionService.ValidateAdmission(profile); }
                         catch (InvalidDataException error) { throw new InvalidOperationException("Configuration profile cannot be used for a cluster: " + error.Message); }
+                        // Only the snapshot changes: it becomes the cluster's own profile, which remembers the offer.
+                        var added = QuasarDefaultPlugins.Apply(profile, request.DefaultPlugins);
+                        if (added.Count != 0)
+                            logger?.LogInformation("Cluster {Cluster} setup enables the default plugins {Plugins} in its copy of profile {Profile}.",
+                                request.UniqueName, string.Join(", ", added.Select(p => p.DisplayName)), request.ConfigProfileId);
                         await WriteAsync(Path.Combine(work, "profile.json"), profile, ct);
                         await WriteAsync(identity, request, ct);
                     }

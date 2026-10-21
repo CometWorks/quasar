@@ -109,6 +109,7 @@ Open **New cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Cr
 | Server name | Shown to players and in Quasar. |
 | World template | Quasar converts a copy; the template is not changed. |
 | Configuration profile | Game settings, mods and plugin selection. Quasar copies it to a new profile "<Server name> (cluster)". |
+| Enable the Bugfixes and Performance server plugins (recommended) | On by default. Adds the MagnetarHub plugins Bugfixes (`bugfixes`) and Performance (`454B0F55-C727-4DAB-B1A9-5AE6050A0932`) at their current hub commit and with their default settings to the cluster's copy of the profile, when the profile lacks them. The selected profile is not changed. The caption under it names what will be added, or says the profile already has them or had them turned off before, in which case Quasar leaves its plugin selection alone. Untick it to leave both out. To keep only one, leave it ticked and remove the other from the cluster's profile later. |
 | Host machines | Tick each machine and set **Regular nodes**, 1 to 32 per machine, at least 2 and at most 254 in total. |
 | Hot spares | How many hot spares the cluster has, 1 by default. A hot spare runs warm and holds nothing; when a node crashes the cluster moves that node's partitions to a spare at once, and the crashed node restarts as the new spare. Quasar only sets the count: it adds that many spare nodes, from the Gateway host machine on, at most 32 nodes per machine. With 0 the page warns that a crashed node's partitions reload on the remaining nodes. Hot spares need a cluster release that supports them; with an older release setup stops with "This cluster release does not support hot spares". |
 | Cluster Gateway and World Authority host machine | One of the selected machines. Players connect to it. It also runs the Cluster Registry and the World Authority. |
@@ -192,7 +193,8 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between and the 
 
 ## API
 
-- `POST /api/v1/clusters/setup` with an `Idempotency-Key` header and `{ "uniqueName", "displayName", "worldTemplateId", "configProfileId", "gatewayHost", "playerPort", "machines": [ { "hostId", "regularNodes" } ] }`. Needs cluster manage and configuration editing. After a failure, retry with a new key; reusing a key returns the earlier result.
+- `POST /api/v1/clusters/setup` with an `Idempotency-Key` header and `{ "uniqueName", "displayName", "worldTemplateId", "configProfileId", "gatewayHost", "playerPort", "machines": [ { "hostId", "regularNodes" } ], "hotSpares", "defaultPlugins" }`. `hotSpares` defaults to 0 here; `defaultPlugins` defaults to `true` (Bugfixes and Performance, as the checkbox above). Needs cluster manage and configuration editing. After a failure, retry with a new key; reusing a key returns the earlier result.
+- `GET` and `PUT /api/v1/config-profiles/{profileId}/plugins` read and replace a profile's plugin selection, `[ { "pluginId", "displayName", "selectedVersion" } ]`, where an empty `selectedVersion` means the hub's current commit. Reading needs view access, changing needs configuration editing. A cluster runs the new selection only after **Stage profile changes** (`config-profile-preparation`) and **Apply pending update**.
 - `GET /api/v1/clusters/{id}/setup` returns the stored request and status.
 - `GET /api/v1/host-enrollment` lists enrollments with `connected`. `POST /api/v1/host-enrollment` registers `{ "id", "name", "address", "commandPort" }` (default 18400).
 - `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
@@ -210,6 +212,7 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between and the 
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Services/ClusterApi.cs`
 - `Quasar/Services/ClusterSetupService.cs`
+- `Quasar/Services/QuasarDefaultPlugins.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterWorldConverter.cs`
 - `Quasar/Services/ClusterHostCatalog.cs`
