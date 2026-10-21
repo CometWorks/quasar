@@ -190,7 +190,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         var topology = new ServerToClusterRequest(GuidFrom(cluster.UniqueName), "", "", NodeBinaryVersion(installed.Directory),
                             gateway.Id, request.PlayerPort, joinReference, HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "token-file"),
                             selected.Select(h => h.Address + (IPAddress.Parse(h.Address).AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork ? "/32" : "/128")).ToArray(),
-                            conversionHosts, cluster.DependencyManifestSha256, cluster.PackageSelection!.Revision, request.PlayerPort + 100, request.HotSpares);
+                            conversionHosts, cluster.DependencyManifestSha256, cluster.PackageSelection!.Revision, NodePortBase(request.PlayerPort), request.HotSpares);
                         ClusterConversionService.ValidateTopology(cluster, topology);
                         await StageAsync(request, "Distributing verified files and generated credentials", null, ct);
                         var paths = new Dictionary<string, HostContract.HostConversionPaths>();
@@ -291,39 +291,47 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                 throw new InvalidOperationException($"Host executor '{host.Name}' has not configured this cluster deployment. Resume setup after the Host executor is ready.");
         }
     }
+    /// <summary>Ports guided setup derives from the player port P: Registry admin P+16; node backends from P+1100,
+    /// controls from P+1200, WA P+1164/P+1264. P+100 stays free for the Direct Transport frontend (Steam 27016, DT 27116).</summary>
+    internal static int NodePortBase(int playerPort) => playerPort + 1100;
+    internal static (int First, int Last)[] ReservedPorts(int playerPort) =>
+        [(playerPort, playerPort + 16), (NodePortBase(playerPort), NodePortBase(playerPort) + 164)];
+    internal static bool IsReserved(int playerPort, int port) => ReservedPorts(playerPort).Any(r => port >= r.First && port <= r.Last);
     private void CheckReservedPorts(ClusterSetupRequest request, EnrolledClusterHost[] selected)
     {
+        if (ClusterTestFrontend.FromEnvironment().DirectListen is { } direct && IsReserved(request.PlayerPort, IPEndPoint.Parse(direct).Port))
+            throw new InvalidOperationException($"{ClusterTestFrontend.DirectListenVariable} {direct} is inside this cluster's reserved ports. Choose a different public server port.");
         var addresses = selected.Select(h => IPAddress.Parse(h.Address)).ToHashSet();
         var local = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
             .SelectMany(n => n.GetIPProperties().UnicastAddresses).Select(a => a.Address).ToHashSet();
         if (addresses.Any(a => IPAddress.IsLoopback(a) || local.Contains(a)) && servers.GetServers()
-            .Any(s => s.ServerPort >= request.PlayerPort && s.ServerPort <= request.PlayerPort + 264))
+            .Any(s => new[] { s.ServerPort, s.ServerPort + 1000, s.ServerPort + 2000 }.Any(port => IsReserved(request.PlayerPort, port))))
             throw new InvalidOperationException("This port range overlaps a local standalone server. Choose a different public server port.");
         foreach (var other in catalog.GetClusters().Where(c => !c.UniqueName.Equals(request.UniqueName, StringComparison.OrdinalIgnoreCase)))
         {
             bool gatewayHere = selected.Any(h => h.CommandUrl == other.HostCommandUrl)
                 || Uri.TryCreate(other.GatewayUrl, UriKind.Absolute, out var gateway) && IPAddress.TryParse(gateway.Host.Trim('[', ']'), out var address) && addresses.Contains(address);
-            if (gatewayHere && other.Gateway?.Ports.Any(port => port >= request.PlayerPort && port <= request.PlayerPort + 264) == true)
+            if (gatewayHere && other.Gateway?.Ports.Any(port => IsReserved(request.PlayerPort, port)) == true)
                 throw new InvalidOperationException($"This port range overlaps Cluster Gateway '{other.DisplayName}'. Choose a different public server port.");
             if (GetStatus(other.UniqueName)?.Request is { } setup && setup.Machines.Any(m => selected.Any(h => h.Id == m.HostId))
-                && request.PlayerPort <= setup.PlayerPort + 264 && setup.PlayerPort <= request.PlayerPort + 264)
-                throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}' on a selected host machine. Choose a public server port at least 265 ports away.");
+                && ReservedPorts(request.PlayerPort).Any(a => ReservedPorts(setup.PlayerPort).Any(b => a.First <= b.Last && b.First <= a.Last)))
+                throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}' on a selected host machine. Choose a different public server port.");
             if (other.Preparation is not { } preparation) continue;
             var specification = JsonNode.Parse(preparation.SpecificationJson)!;
             var endpoints = specification["nodes"]!.AsArray().SelectMany(n => new[] { n!["backend"]!.GetValue<string>(), n["control"]!.GetValue<string>() })
                 .Append(specification["gatewayControl"]!.GetValue<string>());
             if (endpoints.Any(e => IPEndPoint.TryParse(e, out var endpoint) && addresses.Contains(endpoint.Address)
-                && endpoint.Port >= request.PlayerPort && endpoint.Port <= request.PlayerPort + 264))
+                && IsReserved(request.PlayerPort, endpoint.Port)))
                 throw new InvalidOperationException($"This port range overlaps cluster '{other.DisplayName}'. Choose a different public server port.");
         }
     }
     internal static EnrolledClusterHost[] Validate(ClusterSetupRequest request, IReadOnlyList<EnrolledClusterHost> enrolled)
     {
         ValidateId(request.UniqueName);
-        if (string.IsNullOrWhiteSpace(request.DisplayName) || request.PlayerPort is < 1024 or > 65000 || request.Machines is null || request.Machines.Length is < 1 or > 64
+        if (string.IsNullOrWhiteSpace(request.DisplayName) || request.PlayerPort is < 1024 or > 64000 || request.Machines is null || request.Machines.Length is < 1 or > 64
             || request.Machines.Any(m => m is null || m.RegularNodes is < 1 or > 32) || request.Machines.Sum(m => (long)m.RegularNodes) is < 2 or > 254
             || request.Machines.Select(m => m.HostId).Distinct().Count() != request.Machines.Length)
-            throw new ArgumentException("Choose a Server name, Public server port 1024–65000, and 1–32 regular nodes per host machine, with at least two in total.");
+            throw new ArgumentException("Choose a Server name, Public server port 1024–64000, and 1–32 regular nodes per host machine, with at least two in total.");
         if (request.HotSpares < 0 || request.HotSpares > request.Machines.Sum(m => 32 - m.RegularNodes))
             throw new ArgumentException("Choose 0 or more hot spares that fit next to the regular nodes, 32 nodes per host machine.");
         var selected = request.Machines.Select(m => enrolled.SingleOrDefault(h => h.Id == m.HostId) ?? throw new ArgumentException("Enroll every selected host machine first.")).ToArray();
