@@ -603,7 +603,10 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         control.Options.SetRequestHeader("Authorization", "Bearer " + credentials.Resolve(host.CredentialReference));
         var url = new UriBuilder(new Uri(new Uri(app.Urls.Single()), "/api/v1/hosts/one/connect")) { Scheme = "ws" }.Uri;
         await control.ConnectAsync(url, default);
-        Assert.True(app.Services.GetRequiredService<ClusterHostTunnels>().IsConnected("one"));
+        // The server registers the channel after the handshake the client already saw complete.
+        var tunnels = app.Services.GetRequiredService<ClusterHostTunnels>();
+        for (int i = 0; i < 100 && !tunnels.IsConnected("one"); i++) await Task.Delay(50);
+        Assert.True(tunnels.IsConnected("one"));
 
         // The Host keeps its control channel open for as long as it runs; shutdown must not wait for it.
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
