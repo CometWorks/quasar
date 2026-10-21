@@ -227,6 +227,7 @@ internal sealed class NodeActualizer
 
             string runDirectory = EnsureRunDirectory(attachment, plan.SlotKey);
             ExecutionBundle.PrepareNodeConfiguration(attachment.BundleManifestPath!, bundle.Manifest, spec, runDirectory, attachment.ClusterId);
+            ModStorageSeed.Apply(bundle.Manifest, spec);
             string readyPath = Path.Combine(runDirectory, ReadyFileName);
             if (File.Exists(readyPath))
                 File.Delete(readyPath);

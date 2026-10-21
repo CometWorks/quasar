@@ -168,7 +168,9 @@ Some mods read their settings from the world's `Storage` folder, for example Mod
 2. Run `./Quasar cluster world-files-prepare NAME <folder> --idempotency-key KEY` (API `POST /api/v1/clusters/{name}/world-files-preparation`, needs cluster manage and configuration editing). Quasar adds or replaces those files in the cluster's world seed, sends each host machine only the changed files and prepares a new deployment. The cluster keeps running.
 3. **Apply pending update** (or `cluster update`) stops the cluster cleanly, backs it up, activates the deployment and starts it again. On activation each host machine copies the changed files into the World Authority's and every node's world, spares included.
 
-Later updates (profile, release, hot spares, plugin settings) keep the new world seed, so they keep the files and copy nothing again. Files a mod rewrites while it runs stay as the mod wrote them until you stage that file again. `./Quasar cluster world-files NAME` lists the `Storage/` files of the seed with their SHA-256. Only files under `Storage/<mod folder>/` are accepted, at most 1000 files and 16 MiB per staging; files are added or replaced, never deleted. Every host machine needs a Host executor with this feature; an older one is refused with "Host … cannot update world files: update its Host executor first."
+Later updates (profile, release, hot spares, plugin settings) keep the new world seed, so they keep the files and copy nothing again. Files a mod rewrites on the World Authority stay as the mod wrote them until you stage that file again. `./Quasar cluster world-files NAME` lists the `Storage/` files of the seed with their SHA-256. Only files under `Storage/<mod folder>/` are accepted, at most 1000 files and 16 MiB per staging; files are added or replaced, never deleted. Every host machine needs a Host executor with this feature; an older one is refused with "Host … cannot update world files: update its Host executor first."
+
+The World Authority's copy of the mod Storage is the cluster's copy. Every time a node process starts, its host machine replaces the node's world `Storage` folder (in `premade-world` and `Saves/<world>`) with the World Authority's, and the node's own `Storage` folder (the mods' local and global storage) with the World Authority's. What a mod writes on a regular node therefore lasts only until that node restarts. The World Authority's world `Storage` is its `premade-world` copy with the files it saved while running on top, so its own writes survive its restart too. Only a host machine that runs the World Authority can do this; nodes on the other host machines keep the prepared seed and the files their mods write.
 
 ## Cluster release updates
 
@@ -356,6 +358,7 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterUpdatePreparationService.cs`
 - `Quasar.Host/WorldFilesMigration.cs`
+- `Quasar.Host/ModStorageSeed.cs`
 - `Quasar/Services/ClusterContentMonitor.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterCredentialStore.cs`
