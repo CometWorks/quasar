@@ -155,9 +155,11 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     internal const int KeptPurposeBackups = 3;
 
     // Pre-update backups say "update", pre-conversion ones "conversion"; only those are pruned by purpose.
-    internal void PrunePurpose(string clusterId, string purpose, int keep)
+    // The backup just taken is the way back from its update and is never pruned, even when a clock step
+    // dated older backups after it. An unreadable manifest is not listed, so it is never deleted either.
+    internal void PrunePurpose(string clusterId, string purpose, int keep, Guid taken)
     {
-        foreach (var old in List(clusterId).Where(b => b.Purpose == purpose && !b.Automatic).Skip(keep))
+        foreach (var old in List(clusterId).Where(b => b.Purpose == purpose && !b.Automatic && b.SnapshotId != taken).Skip(keep - 1))
             Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
     }
 
@@ -209,7 +211,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             Verify(staging, cluster.UniqueName);
             Directory.Move(staging, destination);
             await ReleaseHostCopiesAsync(backup, token);
-            if (purpose is not null) PrunePurpose(cluster.UniqueName, purpose, KeptPurposeBackups);
+            if (purpose is not null) PrunePurpose(cluster.UniqueName, purpose, KeptPurposeBackups, request.SnapshotId);
             return backup;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }

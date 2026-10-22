@@ -404,6 +404,11 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal("update", taken.Purpose);
         Assert.Equal(new[] { taken.SnapshotId, updates[3], updates[2], scheduled, conversion, manual },
             backups.List("demo").Select(b => b.SnapshotId));
+        // A clock step back: three older backups dated after the one just taken. It is still kept.
+        Guid[] future = [Write(48, "update"), Write(49, "update"), Write(50, "update")];
+        var stepped = await backups.CaptureCoreAsync(cluster, new(Guid.NewGuid()), default, purpose: "update");
+        Assert.Equal(new[] { future[2], future[1], stepped.SnapshotId, scheduled, conversion, manual },
+            backups.List("demo").Select(b => b.SnapshotId));
     }
 
     [Fact]
