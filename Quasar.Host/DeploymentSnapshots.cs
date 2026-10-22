@@ -12,7 +12,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record SnapshotManifest(int SchemaVersion, string ClusterId, string HostId, Guid SnapshotId,
         string Revision, string BundleManifestSha256, Dictionary<string, string> Files, string[] CredentialHashes, Dictionary<string, string>? StorageFormats, string CaptureFence,
-        Dictionary<string, int> Modes, Dictionary<string, int> Directories);
+        Dictionary<string, int> Modes, Dictionary<string, int> Directories, string[]? RebuiltMods = null);
     private string Root(string clusterId) => Path.Combine(stateDirectory, "snapshots", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(clusterId)));
     internal string ArchivePath(string clusterId, Guid id) => Path.Combine(Root(clusterId), id.ToString("N") + ".tar");
 
@@ -145,6 +145,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         try
         {
             var (directories, sources) = Walk(runtime, request.Online);
+            string[] rebuilt = RebuiltMods(bundle.Manifest);
+            bool Skip(string relative) => request.Online && LeftOutOnline(relative) || LeftOut(relative, rebuilt);
             var files = new Dictionary<string, string>(StringComparer.Ordinal);
             var modes = new Dictionary<string, int>(StringComparer.Ordinal);
             var directoryModes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -156,7 +158,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                     foreach (string source in directories.Order(StringComparer.Ordinal))
                     {
                         string relative = Path.GetRelativePath(runtime, source).Replace('\\', '/');
-                        if (request.Online && LeftOutOnline(relative)) continue;
+                        if (Skip(relative)) continue;
                         int mode;
                         try { mode = Mode(source); }
                         catch (Exception error) when (request.Online && error is FileNotFoundException or DirectoryNotFoundException) { continue; }
@@ -166,7 +168,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                     foreach (string source in sources.Order(StringComparer.Ordinal))
                     {
                         string relative = Path.GetRelativePath(runtime, source).Replace('\\', '/');
-                        if (request.Online && LeftOutOnline(relative)) continue;
+                        if (Skip(relative)) continue;
                         WriteFile(writer, source, "runtime/" + relative, request.Online, rate, files, modes);
                     }
                     if (registry is not null)
@@ -178,7 +180,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                     }
                     if (files.Count == 0) throw new InvalidDataException("Runtime data is empty.");
                     var manifest = new SnapshotManifest(3, request.ClusterId, hostId, request.SnapshotId, bundle.Manifest.Revision,
-                        request.ExpectedBundleManifestSha256, files, Credentials(bundle.Manifest, attachment.TokenEnvironmentVariable), bundle.Manifest.StorageFormats, request.CaptureFence, modes, directoryModes);
+                        request.ExpectedBundleManifestSha256, files, Credentials(bundle.Manifest, attachment.TokenEnvironmentVariable), bundle.Manifest.StorageFormats, request.CaptureFence, modes, directoryModes,
+                        rebuilt.Length == 0 ? null : rebuilt);
                     using var metadata = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(manifest, Json));
                     writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "snapshot.json") { DataStream = metadata });
                 }
@@ -191,6 +194,22 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     }
 
     private const string RegistryFile = "registry.db";
+
+    // #1397: what no snapshot copies. Each node's profile-pinned mods: every restore activates a newly prepared
+    // revision, whose profile migration writes them again from the bundle (they were 16 of a 36 GB backup).
+    // The round-trip gate's handover-diff dumps: diagnostics, not world state (15 of those 36 GB).
+    internal static bool LeftOut(string relative, string[] rebuiltMods)
+    {
+        string[] parts = relative.Split('/');
+        return parts.Length >= 5 && parts[0] == "nodes" && parts[2] == "data" && parts[3] == "cluster" && parts[4] == "handover-diff"
+            || rebuiltMods.Any(mods => relative == mods || relative.StartsWith(mods + "/", StringComparison.Ordinal));
+    }
+
+    // The runtime-relative Mods directory of every node whose mods the bundle's profile pins.
+    internal static string[] RebuiltMods(BundleManifest manifest) => manifest.ProfileContent is not { } profile ? []
+        : manifest.Nodes.Where(node => profile.NodeModSeeds.ContainsKey(node.SlotKey))
+            .Select(node => "nodes/" + ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(node.SlotKey))[..24] + "/data/Mods")
+            .Order(StringComparer.Ordinal).ToArray();
 
     // A stopped runtime must be complete and free of links. A live one changes under the walk: entries that
     // vanish (retention deletes old saves) are skipped, and files written after the walk are not copied.
@@ -323,6 +342,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             if (manifest.ClusterId != request.ClusterId || manifest.HostId != hostId || manifest.SnapshotId != request.SnapshotId)
                 throw new InvalidDataException("Snapshot belongs to a different cluster or Host.");
             ExecutionBundle.RequireCompatibleStorage(candidate.Manifest.StorageFormats, manifest.StorageFormats);
+            if ((manifest.RebuiltMods ?? []).Except(RebuiltMods(candidate.Manifest), StringComparer.Ordinal).Any())
+                throw new InvalidDataException("The snapshot left out node mods that the candidate deployment does not pin; prepare it from a profile with its mods.");
             var credentials = Credentials(candidate.Manifest, request.CandidateExecutorTokenEnvironmentVariable);
             if (credentials.Length == 0 || credentials.Intersect(manifest.CredentialHashes).Any()
                 || credentials.Intersect(Credentials(current.Manifest, attachment.TokenEnvironmentVariable)).Any())
