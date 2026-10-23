@@ -44,6 +44,10 @@ public static class HostProtocol
 
     public static string GatewayRoute(string clusterId) =>
         $"{RoutePrefix}/gateways/{Uri.EscapeDataString(clusterId)}";
+
+    /// <summary>DELETE detaches a deleted cluster from the Host; <c>?sha256=</c> fences it to the active bundle.</summary>
+    public static string ClusterRoute(string clusterId) =>
+        $"{RoutePrefix}/clusters/{Uri.EscapeDataString(clusterId)}";
 }
 
 public sealed record HostEnvelope<T>(int ProtocolVersion, DateTimeOffset CapturedAt, T Data);
@@ -68,7 +72,12 @@ public sealed record HostStatus(
     bool GatewayStopFencing = false,
     bool SteamClientLibrary = false,
     DateTimeOffset? StartedAt = null,
-    string[]? Warnings = null);
+    string[]? Warnings = null,
+    bool ClusterDetach = false);
+
+/// <summary>What the Host stopped supervising: the state files it moved (attachment, gateway,
+/// deployment) and where they went. Runtime data, launch records and snapshots stay in place.</summary>
+public sealed record HostClusterDetach(string ClusterId, string[] Detached, string? ArchiveDirectory);
 
 /// <summary>Result of staging Valve's steamclient.so for the Gateway's Steam frontend on this Host.</summary>
 public sealed record HostSteamClientLibrary(string Path, string Sha256, bool Installed);

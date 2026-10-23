@@ -19,17 +19,21 @@ internal static class HostCommandCli
         bool attachmentApply = args.Length > 1 && args[0] == "attachment" && args[1] == "apply";
         bool gatewayApply = args.Length > 1 && args[0] == "gateway" && args[1] == "apply";
         bool deploymentApply = args.Length > 1 && args[0] == "deployment" && args[1] == "activate";
+        bool clusterDetach = args.Length > 1 && args[0] == "cluster" && args[1] == "detach";
         bool apply = attachmentApply || gatewayApply || deploymentApply;
-        if (!status && !apply)
+        if (!status && !apply && !clusterDetach)
             return null;
         int start = status ? 1 : 2;
-        if (!TryOptions(args, start, out string? url, out string? tokenVariable, out string? file)
-            || apply && string.IsNullOrWhiteSpace(file) || status && file is not null)
+        if (!TryOptions(args, start, out string? url, out string? tokenVariable, out string? file,
+                out string? clusterId, out string? sha256)
+            || apply && string.IsNullOrWhiteSpace(file) || !apply && file is not null
+            || clusterDetach != !string.IsNullOrWhiteSpace(clusterId) || !clusterDetach && sha256 is not null)
         {
             Console.Error.WriteLine("Usage: Quasar.Host status --url URL --token-env ENV"
                 + " | attachment apply --url URL --token-env ENV --file FILE"
                 + " | gateway apply --url URL --token-env ENV --file FILE"
-                + " | deployment activate --url URL --token-env ENV --file FILE");
+                + " | deployment activate --url URL --token-env ENV --file FILE"
+                + " | cluster detach --url URL --token-env ENV --cluster ID [--sha256 BUNDLE_SHA256]");
             return 2;
         }
         string? token = Environment.GetEnvironmentVariable(tokenVariable!);
@@ -48,6 +52,12 @@ internal static class HostCommandCli
             {
                 request.Method = HttpMethod.Get;
                 request.RequestUri = new Uri(url!.TrimEnd('/') + HostContract.HostProtocol.StatusRoute);
+            }
+            else if (clusterDetach)
+            {
+                request.Method = HttpMethod.Delete;
+                request.RequestUri = new Uri(url!.TrimEnd('/') + HostContract.HostProtocol.ClusterRoute(clusterId!)
+                    + "?sha256=" + Uri.EscapeDataString(sha256 ?? ""));
             }
             else
             {
@@ -103,25 +113,22 @@ internal static class HostCommandCli
     }
 
     private static bool TryOptions(string[] args, int start, out string? url,
-        out string? tokenVariable, out string? file)
+        out string? tokenVariable, out string? file, out string? clusterId, out string? sha256)
     {
-        url = null;
-        tokenVariable = null;
-        file = null;
-        for (int index = start; index < args.Length; index++)
+        var options = new Dictionary<string, string>(StringComparer.Ordinal);
+        url = tokenVariable = file = clusterId = sha256 = null;
+        for (int index = start; index < args.Length; index += 2)
         {
-            if (index + 1 >= args.Length)
-                return false;
-            string value = args[++index];
-            if (args[index - 1] == "--url" && url is null)
-                url = value;
-            else if (args[index - 1] == "--token-env" && tokenVariable is null)
-                tokenVariable = value;
-            else if (args[index - 1] == "--file" && file is null)
-                file = value;
-            else
+            if (index + 1 >= args.Length
+                || args[index] is not ("--url" or "--token-env" or "--file" or "--cluster" or "--sha256")
+                || !options.TryAdd(args[index], args[index + 1]))
                 return false;
         }
+        url = options.GetValueOrDefault("--url");
+        tokenVariable = options.GetValueOrDefault("--token-env");
+        file = options.GetValueOrDefault("--file");
+        clusterId = options.GetValueOrDefault("--cluster");
+        sha256 = options.GetValueOrDefault("--sha256");
         return Uri.TryCreate(url, UriKind.Absolute, out _) && !string.IsNullOrWhiteSpace(tokenVariable);
     }
 

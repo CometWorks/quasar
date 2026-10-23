@@ -109,6 +109,15 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             throw new InvalidOperationException("An online backup is copying this cluster's runtime; retry when it completes.");
     }
 
+    internal void RefuseDuringRestore(string clusterId)
+    {
+        string directory = Path.Combine(stateDirectory, "restores");
+        if (Directory.Exists(directory) && Directory.EnumerateFiles(directory, "*.json").Any(path =>
+                JsonSerializer.Deserialize<HostContract.HostSnapshotRestore>(File.ReadAllBytes(path), Json)?.ClusterId
+                    .Equals(clusterId, StringComparison.OrdinalIgnoreCase) != false))
+            throw new InvalidOperationException("A restore of this cluster has not completed; finish it first.");
+    }
+
     internal HostContract.HostSnapshot Capture(HostContract.HostSnapshotRequest request)
     {
         if (request.SnapshotId == Guid.Empty || request.CaptureFence.Length != 64 || !request.CaptureFence.All(Uri.IsHexDigit)) throw new InvalidDataException("Snapshot ID is required.");

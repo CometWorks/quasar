@@ -162,6 +162,8 @@ public sealed class ClusterDeploymentTests : IDisposable
     [InlineData("host-offline")]
     [InlineData("goal-on")]
     [InlineData("deployment-pending")]
+    [InlineData("detach-refused")]
+    [InlineData("old-host")]
     public async Task DeleteManagedRequiresStoppedFleet(string state)
     {
         using var catalog = Catalog();
@@ -171,17 +173,20 @@ public sealed class ClusterDeploymentTests : IDisposable
         handler.Deletion = state;
         if (state == "goal-on") await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
         if (state == "deployment-pending") await catalog.RecordPendingDeploymentAsync(catalog.GetCluster("demo")!, "pending", default);
-        if (state == "stopped")
+        if (state is "stopped" or "detach-refused" or "old-host")
         {
             await service.DeleteAsync("demo");
             Assert.Null(catalog.GetCluster("demo"));
             Assert.Equal(new[] { "one", "two" }, handler.DeletePreviews);
+            // Each Host stops supervising the deleted cluster; one that cannot never undoes the deletion.
+            Assert.Equal(state == "old-host" ? [] : new[] { "one", "two" }, handler.Detaches);
         }
         else
         {
             var error = await Record.ExceptionAsync(() => service.DeleteAsync("demo"));
             Assert.True(error is InvalidOperationException or ClusterHostException, error?.ToString());
             Assert.NotNull(catalog.GetCluster("demo"));
+            Assert.Empty(handler.Detaches);
         }
         Assert.Equal(2, handler.Applied.Count); // Deletion never activates or erases Host data.
     }
@@ -1418,6 +1423,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal string Revision = "revision";
         internal string? Deletion;
         internal readonly List<string> DeletePreviews = [];
+        internal readonly List<string> Detaches = [];
         private readonly Dictionary<string, string> active = [];
         internal readonly List<string> Applied = [];
         internal int FailCaptures;
@@ -1445,10 +1451,19 @@ public sealed class ClusterDeploymentTests : IDisposable
                 }
                 else data = new { };
             }
+            else if (request.Method == HttpMethod.Delete && request.RequestUri.AbsolutePath == HostProtocol.ClusterRoute("demo"))
+            {
+                Assert.Equal("?sha256=" + active[host], request.RequestUri.Query);
+                Detaches.Add(host);
+                if (Deletion == "detach-refused" && host == "one")
+                    throw new HttpRequestException("Every node and the Gateway must be verifiably stopped");
+                data = new HostClusterDetach("demo", ["attachment"], "/state/detached/demo");
+            }
             else if (Deletion is not null && request.Method == HttpMethod.Get)
                 data = new HostStatus(host, host, [], host == "one" ? [new("demo", GatewayGoal.Off,
                     Deletion == "gateway-running" ? GatewayObservedState.Running : GatewayObservedState.Missing,
-                    active[host], Revision, [29416], "/runs/one/gateway", null, null, null)] : [], true);
+                    active[host], Revision, [29416], "/runs/one/gateway", null, null, null)] : [], true,
+                    ClusterDetach: Deletion != "old-host");
             else if (request.RequestUri.AbsolutePath.Contains("/recovery-readiness/"))
             {
                 if (host == "two" && RefuseRecovery) throw new HttpRequestException("nodes still running");

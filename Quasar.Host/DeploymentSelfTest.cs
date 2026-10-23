@@ -18,6 +18,7 @@ internal static class DeploymentSelfTest
         SteamClientLibraryInstallation();
         OnlineSnapshot();
         ModLinksAndLeanSnapshots();
+        ClusterDetach();
         Assert(HostShutdown.ParseSystemdSeconds("2min") == 120 && HostShutdown.ParseSystemdSeconds("1min 30s") == 90
             && HostShutdown.ParseSystemdSeconds("500ms\n") == 0.5 && HostShutdown.ParseSystemdSeconds("infinity") is null
             && HostShutdown.ParseSystemdSeconds("5s junk") is null, "systemd time span parsing");
@@ -721,6 +722,85 @@ internal static class DeploymentSelfTest
         File.WriteAllText(file, "first!");
         File.SetLastWriteTimeUtc(file, written);
         Assert(ExecutionBundle.VerifiedHash(file, pin) is null, "changed size did not invalidate the cache");
+    }
+
+    // A deleted cluster leaves the Host's supervision loop only through the fenced detach (DF-1451).
+    private static void ClusterDetach()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-detach-" + Guid.NewGuid());
+        try
+        {
+            string state = Path.Combine(root, "state"), runtime = Path.Combine(root, "runtime");
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            string path = Path.Combine(root, "config/bundle.json");
+            var manifest = new BundleManifest(1, "revision-1", [], [], new GatewaySpawnSpec("gateway", "{runRoot}", [], [],
+                ReservedPorts: [29416]), RuntimeRoot: runtime, ClusterId: "cluster", HostId: "host",
+                StorageFormats: new() { ["world"] = "test-v1", ["registry"] = "test-v1", ["plugins"] = "test-v1" });
+            File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            string hash = ExecutionBundle.Hash(File.ReadAllBytes(path));
+            var attachments = new AttachmentStore(state, [new("configured", "http://127.0.0.1:29417", "EXECUTOR_TOKEN")]);
+            var gateways = new GatewaySpecStore(state);
+            var activation = new DeploymentActivation(state, "host", attachments, gateways,
+                new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
+            activation.Apply(new("cluster", null, path, hash, "http://127.0.0.1:29416", "EXECUTOR_TOKEN"));
+            string world = Path.Combine(runtime, "nodes/one/data/world.dat");
+            Directory.CreateDirectory(Path.GetDirectoryName(world)!);
+            File.WriteAllText(world, "world");
+
+            AssertThrows(() => activation.Detach("cluster", new string('0', 64)));
+            AssertThrows(() => activation.Detach("cluster", ""));
+            AssertThrows(() => activation.Detach("configured", ""));
+            var spec = gateways.GetAll().Single();
+            gateways.Apply(spec with { Goal = HostContract.GatewayGoal.On });
+            AssertThrows(() => activation.Detach("cluster", hash));
+            gateways.Apply(spec);
+            string launch = Path.Combine(state, "launch-records/launching.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(launch)!);
+            File.WriteAllBytes(launch, JsonSerializer.SerializeToUtf8Bytes(new LaunchRecord(1, "cluster", "slot", "attempt", null, null,
+                null, "revision-1", hash, "unused", "unused", runtime, null, null, DateTimeOffset.UtcNow, LaunchStatus.Launching, null),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            AssertThrows(() => activation.Detach("cluster", hash));
+            File.Delete(launch);
+            string transaction = Directory.GetFiles(Path.Combine(state, "deployments"), "*.json").Single();
+            string applied = File.ReadAllText(transaction);
+            var json = JsonNode.Parse(applied)!;
+            json["applied"] = false;
+            File.WriteAllText(transaction, json.ToJsonString());
+            AssertThrows(() => activation.Detach("cluster", hash));
+            File.WriteAllText(transaction, applied);
+            string journal = Path.Combine(state, "restores", Guid.NewGuid().ToString("N") + ".json");
+            Directory.CreateDirectory(Path.GetDirectoryName(journal)!);
+            File.WriteAllBytes(journal, JsonSerializer.SerializeToUtf8Bytes(new HostContract.HostSnapshotRestore("cluster",
+                Guid.NewGuid(), Guid.NewGuid(), hash, path, hash, "EXECUTOR_TOKEN"), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            var snapshots = new DeploymentSnapshots(state, "host", attachments, new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
+            AssertThrows(() => snapshots.RefuseDuringRestore("CLUSTER"));
+            File.Delete(journal);
+            snapshots.RefuseDuringRestore("cluster");
+
+            var detached = activation.Detach("CLUSTER", hash.ToUpperInvariant());
+            Assert(detached.Detached.SequenceEqual(["attachment", "gateway", "deployment"]), "detach moved " + string.Join(",", detached.Detached));
+            Assert(attachments.GetAll().Select(a => a.ClusterId).SequenceEqual(["configured"]) && gateways.GetAll().Length == 0
+                && gateways.GetStatuses().Length == 0 && !activation.IsManaged("cluster"), "detached cluster is still supervised");
+            Assert(File.Exists(Path.Combine(detached.ArchiveDirectory!, "attachment.json"))
+                && File.Exists(Path.Combine(detached.ArchiveDirectory!, "gateway.json"))
+                && File.Exists(Path.Combine(detached.ArchiveDirectory!, "deployment.json")), "detach did not keep the state files");
+            Assert(File.ReadAllText(world) == "world", "detach touched runtime data");
+            // A restart neither reloads nor replays the detached cluster.
+            var reloaded = new AttachmentStore(state, []);
+            var reloadedGateways = new GatewaySpecStore(state);
+            new DeploymentActivation(state, "host", reloaded, reloadedGateways, new NodeActualizer(state, "host"),
+                new GatewayActualizer(state, "host")).Recover();
+            Assert(reloaded.GetAll().Length == 0 && reloadedGateways.GetAll().Length == 0, "restart brought the detached cluster back");
+            var repeated = activation.Detach("cluster", "");
+            Assert(repeated.Detached.Length == 0 && repeated.ArchiveDirectory is null
+                && Directory.GetDirectories(Path.Combine(state, "detached")).Length == 1, "repeated detach was not a no-op");
+            try { activation.Detach("../cluster", ""); throw new InvalidOperationException("detach accepted a path as cluster ID"); }
+            catch (ArgumentException) { }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
     }
 
     private static void Assert(bool condition, string message)

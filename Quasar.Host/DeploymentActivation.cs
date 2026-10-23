@@ -100,6 +100,55 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         return active;
     }
 
+    /// <summary>Stops supervising a deleted cluster: its attachment, Gateway spec and deployment record move
+    /// to state/detached/. Fenced like activation: every process must be verifiably stopped. Runtime data,
+    /// launch records and snapshots stay where they are. Repeating it after a crash finishes the move.</summary>
+    internal HostContract.HostClusterDetach Detach(string clusterId, string expectedHash)
+    {
+        // The ID names a directory below.
+        if (clusterId.Length == 0 || clusterId.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_')))
+            throw new ArgumentException("Cluster ID must contain only letters, digits, underscores, and hyphens");
+        var attachment = attachments.GetAll().SingleOrDefault(a => a.ClusterId.Equals(clusterId, StringComparison.OrdinalIgnoreCase));
+        var spec = gateways.GetAll().SingleOrDefault(g => g.ClusterId.Equals(clusterId, StringComparison.OrdinalIgnoreCase));
+        clusterId = attachment?.ClusterId ?? spec?.ClusterId ?? clusterId; // the deployment record is keyed on the exact ID
+        string path = Path.Combine(DirectoryPath, ExecutionBundle.Hash(Encoding.UTF8.GetBytes(clusterId)) + ".json");
+        Transaction? transaction = Read(path);
+        if (transaction is { Applied: false })
+            throw new InvalidOperationException("An interrupted activation must be recovered before the cluster is detached.");
+        string? current = attachment?.BundleManifestSha256 ?? spec?.BundleManifestSha256 ?? transaction?.Deployment.BundleManifestSha256;
+        if (!string.Equals(current ?? "", expectedHash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Active deployment changed; refresh before detaching the cluster.");
+        if (spec is not null && spec.Goal != HostContract.GatewayGoal.Off)
+            throw new InvalidOperationException("The Gateway goal must be Off before the cluster is detached.");
+        try
+        {
+            nodes.EnsureStopped(clusterId);
+            gateway.EnsureStopped(clusterId);
+        }
+        catch (InvalidOperationException)
+        {
+            throw new InvalidOperationException("Every node and the Gateway must be verifiably stopped before the cluster is detached.");
+        }
+        if (attachment is null && spec is null && transaction is null)
+            return new(clusterId, [], null);
+        if (attachment is not null && attachments.IsConfigured(clusterId)) // the Host config would bring it back
+            throw new InvalidOperationException("This attachment comes from the Host configuration file; remove it there.");
+        string archive = Path.Combine(stateDirectory, "detached", $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{clusterId}");
+        Directory.CreateDirectory(archive);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(archive,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        var detached = new List<string>();
+        if (attachments.Detach(clusterId, archive)) detached.Add("attachment");
+        if (gateways.Detach(clusterId, archive)) detached.Add("gateway");
+        if (transaction is not null)
+        {
+            File.Move(path, Path.Combine(archive, "deployment.json"));
+            detached.Add("deployment");
+        }
+        Console.Error.WriteLine($"cluster={clusterId} detached {string.Join(", ", detached)} to {archive}");
+        return new(clusterId, detached.ToArray(), archive);
+    }
+
     internal bool IsManaged(string clusterId) => File.Exists(Path.Combine(DirectoryPath,
         ExecutionBundle.Hash(Encoding.UTF8.GetBytes(clusterId)) + ".json"));
 

@@ -18,12 +18,16 @@ internal sealed class AttachmentStore
     private readonly string _directory;
     private readonly Dictionary<string, HostContract.HostAttachmentSpec> _attachments =
         new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _configured = new(StringComparer.OrdinalIgnoreCase);
 
     public AttachmentStore(string stateDirectory, IEnumerable<HostContract.HostAttachmentSpec> configured)
     {
         _directory = Path.Combine(stateDirectory, "attachments");
         foreach (HostContract.HostAttachmentSpec attachment in configured)
+        {
             _attachments[attachment.ClusterId] = Validate(attachment);
+            _configured.Add(attachment.ClusterId);
+        }
         if (!Directory.Exists(_directory))
             return;
         foreach (string path in Directory.GetFiles(_directory, "*.json").OrderBy(path => path, StringComparer.Ordinal))
@@ -57,6 +61,29 @@ internal sealed class AttachmentStore
             WriteAtomic(AttachmentPath(attachment.ClusterId), attachment);
             _attachments[attachment.ClusterId] = attachment;
             return attachment;
+        }
+    }
+
+    public bool IsConfigured(string clusterId)
+    {
+        lock (_sync)
+            return _configured.Contains(clusterId);
+    }
+
+    /// <summary>Moves the cluster's attachment file into <paramref name="archive"/>; false when there is none.</summary>
+    public bool Detach(string clusterId, string archive)
+    {
+        lock (_sync)
+        {
+            if (!_attachments.TryGetValue(clusterId, out HostContract.HostAttachmentSpec? attachment))
+                return false;
+            if (_configured.Contains(clusterId))
+                throw new InvalidOperationException("This attachment comes from the Host configuration file; remove it there.");
+            string path = AttachmentPath(attachment.ClusterId);
+            if (File.Exists(path))
+                File.Move(path, Path.Combine(archive, "attachment.json"));
+            _attachments.Remove(clusterId);
+            return true;
         }
     }
 
@@ -185,6 +212,22 @@ internal sealed class GatewaySpecStore
             WriteAtomic(SpecPath(spec.ClusterId), spec);
             _specs[spec.ClusterId] = spec;
             return spec;
+        }
+    }
+
+    /// <summary>Moves the cluster's Gateway spec file into <paramref name="archive"/>; false when there is none.</summary>
+    public bool Detach(string clusterId, string archive)
+    {
+        lock (_sync)
+        {
+            if (!_specs.TryGetValue(clusterId, out HostContract.GatewaySpec? spec))
+                return false;
+            string path = SpecPath(spec.ClusterId);
+            if (File.Exists(path))
+                File.Move(path, Path.Combine(archive, "gateway.json"));
+            _specs.Remove(clusterId);
+            _statuses.Remove(clusterId);
+            return true;
         }
     }
 
@@ -476,7 +519,7 @@ internal sealed class HostCommandServer : IDisposable
             await WriteAsync(context, 200, new HostContract.HostStatus(
                 _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses(),
                 GatewayStopFencing: true, SteamClientLibrary: true, StartedAt: Program.StartedAt,
-                Warnings: HostShutdown.Warnings(_config.HostId)), cancellationToken);
+                Warnings: HostShutdown.Warnings(_config.HostId), ClusterDetach: true), cancellationToken);
             return;
         }
 
@@ -678,6 +721,17 @@ internal sealed class HostCommandServer : IDisposable
             HostContract.GatewayStatus status = await _gatewayActualizer.ReconcileAsync(spec, cancellationToken);
             _gateways.SetStatus(status);
             await WriteAsync(context, 200, status, cancellationToken);
+            return;
+        }
+
+        prefix = HostContract.HostProtocol.RoutePrefix + "/clusters/";
+        if (context.Request.HttpMethod == "DELETE" && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+        {
+            string clusterId = Uri.UnescapeDataString(path[prefix.Length..]);
+            _snapshots.RefuseDuringOnlineCapture(clusterId);
+            _snapshots.RefuseDuringRestore(clusterId);
+            await WriteAsync(context, 200, _deployments.Detach(clusterId, context.Request.QueryString["sha256"] ?? ""),
+                cancellationToken);
             return;
         }
 
