@@ -300,6 +300,7 @@ namespace Quasar.Agent
         {
             hello ??= BuildHello();
             var session = MySession.Static;
+            var telemetryPaused = ClusterTelemetryGate.IsPaused(_options);
 
             return new AgentSnapshot
             {
@@ -323,9 +324,10 @@ namespace Quasar.Agent
                 IsRunning = session != null && session.Ready,
                 CapturedAtUtc = DateTimeOffset.UtcNow,
                 Metrics = BuildMetrics(session),
+                TelemetryPaused = telemetryPaused,
                 ProfilerMode = AgentProfiler.Mode.ToString(),
-                Profiler = AgentProfiler.GetLatestSnapshot(),
-                PluginStats = PluginStatsCollector.Collect(),
+                Profiler = telemetryPaused ? null : AgentProfiler.GetLatestSnapshot(),
+                PluginStats = telemetryPaused ? null : PluginStatsCollector.Collect(),
                 Players = GetPlayers(session),
                 HiddenPlayerSteamIds = GetHiddenPlayerSteamIds(session),
                 HiddenPlayerIdentityIds = GetHiddenPlayerIdentityIds(session),

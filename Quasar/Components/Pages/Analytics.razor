@@ -1008,9 +1008,16 @@ else
         foreach (var server in definitions)
             names[server.UniqueName] = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
 
+        var storedKeys = MetricsStore.GetUniqueNames().ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var agent in _agentsByUniqueName.Values)
         {
             var uniqueName = agent.AnalyticsKey;
+            // A hot spare records nothing; it shows up here once its node or slot has data in MetricsStore.
+            if (agent.Snapshot?.TelemetryPaused == true &&
+                !agents.Any(member => string.Equals(member.AnalyticsKey, uniqueName, StringComparison.OrdinalIgnoreCase) &&
+                                      storedKeys.Contains(member.TelemetryKey)))
+                continue;
+
             var displayName = agent.IsCluster
                 ? uniqueName == agent.TelemetryKey
                     ? $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}"
@@ -1026,7 +1033,7 @@ else
             .Where(agent => agent.AnalyticsKey != agent.TelemetryKey)
             .Select(agent => agent.TelemetryKey)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        foreach (var uniqueName in MetricsStore.GetUniqueNames().Where(key => !mergedKeys.Contains(key)))
+        foreach (var uniqueName in storedKeys.Where(key => !mergedKeys.Contains(key)))
             names.TryAdd(uniqueName, uniqueName);
 
         return names
