@@ -150,9 +150,23 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                 ? await CaptureOnlineCoreAsync(catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId), request, key, bytesPerSecond, ct)
                 : await catalog.WithLifecycleAsync(clusterId, cluster => CaptureCoreAsync(cluster, request, ct), ct)), token);
 
-    internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token,
-        Guid? updateId = null)
+    // #1397: how many pre-update and how many pre-conversion backups a cluster keeps. They were never pruned:
+    // one full backup per managed update. The newest is the way back from the update that took it.
+    internal const int KeptPurposeBackups = 3;
+
+    // Pre-update backups say "update", pre-conversion ones "conversion"; only those are pruned by purpose.
+    // The backup just taken is the way back from its update and is never pruned, even when a clock step
+    // dated older backups after it. An unreadable manifest is not listed, so it is never deleted either.
+    internal void PrunePurpose(string clusterId, string purpose, int keep, Guid taken)
     {
+        foreach (var old in List(clusterId).Where(b => b.Purpose == purpose && !b.Automatic && b.SnapshotId != taken).Skip(keep - 1))
+            Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
+    }
+
+    internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token,
+        Guid? updateId = null, string? purpose = null)
+    {
+        purpose ??= updateId is null ? null : "update";
         if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete } activeUpdate
             && (updateId is null || activeUpdate.Id != updateId || activeUpdate.Phase != ClusterUpdatePhase.Stopping)
             || request.SnapshotId == Guid.Empty || cluster.GoalState != DedicatedServerGoalState.Off
@@ -192,11 +206,12 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             }
             var backup = new ClusterBackup(request.SnapshotId, cluster.UniqueName, DateTimeOffset.UtcNow,
                 clean ? Admin.ExportConsistency.Quiescent : Admin.ExportConsistency.CrashConsistent,
-                cluster.Clone(), snapshots.ToArray(), request.Automatic);
+                cluster.Clone(), snapshots.ToArray(), request.Automatic, Purpose: purpose);
             await File.WriteAllBytesAsync(Path.Combine(staging, "backup.json"), JsonSerializer.SerializeToUtf8Bytes(backup, Json), token);
             Verify(staging, cluster.UniqueName);
             Directory.Move(staging, destination);
             await ReleaseHostCopiesAsync(backup, token);
+            if (purpose is not null) PrunePurpose(cluster.UniqueName, purpose, KeptPurposeBackups, request.SnapshotId);
             return backup;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
@@ -541,4 +556,4 @@ public sealed record ClusterBackupRequest(Guid SnapshotId, bool AllowCrashConsis
 public sealed record ClusterRestorePreparationRequest(Guid SnapshotId, Guid RestoreId);
 public sealed record ClusterRestoreRequest(Guid SnapshotId, Guid RestoreId, ClusterDeploymentRequest Deployment);
 public sealed record ClusterBackup(Guid SnapshotId, string ClusterId, DateTimeOffset CreatedAt, Admin.ExportConsistency Consistency,
-    ClusterDefinition Deployment, HostContract.HostSnapshot[] Hosts, bool Automatic, bool Online = false);
+    ClusterDefinition Deployment, HostContract.HostSnapshot[] Hosts, bool Automatic, bool Online = false, string? Purpose = null);

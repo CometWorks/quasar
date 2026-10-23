@@ -372,6 +372,45 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Empty(handler.Captures);
     }
 
+    // #1397: one pre-update backup per managed update used to pile up forever.
+    [Fact]
+    public async Task UpdateBackupsKeepOnlyTheNewestFewAndNothingElseIsPruned()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        var cluster = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(cluster, new(cluster.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        cluster = catalog.GetCluster("demo")!;
+        string backupRoot = Path.Combine(root, "purpose-backups");
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "purpose-operations")), null!,
+            new WebServiceOptions { BackupDirectory = backupRoot }, null!, null!);
+        string Hash(string text) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(text)));
+        var start = DateTimeOffset.UtcNow.AddDays(-1);
+        Guid Write(int hour, string? purpose, bool automatic = false)
+        {
+            var id = Guid.NewGuid();
+            string directory = Path.Combine(backupRoot, "Clusters", Hash("demo"), id.ToString("N"));
+            Directory.CreateDirectory(directory);
+            File.WriteAllText(Path.Combine(directory, "backup.json"), JsonSerializer.Serialize(new ClusterBackup(id, "demo", start.AddHours(hour),
+                CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.Quiescent, cluster, [], automatic, Purpose: purpose), Json));
+            return id;
+        }
+        Guid manual = Write(0, null), conversion = Write(1, "conversion"), scheduled = Write(2, null, automatic: true);
+        Guid[] updates = [Write(3, "update"), Write(4, "update"), Write(5, "update"), Write(6, "update")];
+        var taken = await backups.CaptureCoreAsync(cluster, new(Guid.NewGuid()), default, purpose: "update");
+        Assert.Equal("update", taken.Purpose);
+        Assert.Equal(new[] { taken.SnapshotId, updates[3], updates[2], scheduled, conversion, manual },
+            backups.List("demo").Select(b => b.SnapshotId));
+        // A clock step back: three older backups dated after the one just taken. It is still kept.
+        Guid[] future = [Write(48, "update"), Write(49, "update"), Write(50, "update")];
+        var stepped = await backups.CaptureCoreAsync(cluster, new(Guid.NewGuid()), default, purpose: "update");
+        Assert.Equal(new[] { future[2], future[1], stepped.SnapshotId, scheduled, conversion, manual },
+            backups.List("demo").Select(b => b.SnapshotId));
+    }
+
     [Fact]
     public async Task RetentionKeepsTheNewestQuiescentBackupBeyondTheCount()
     {

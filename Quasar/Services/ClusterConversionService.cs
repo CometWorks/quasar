@@ -221,7 +221,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             await StageAsync(request.Id, clusterId, "to-server", "Verifying the converter", ct);
             var installation = await InstallationAsync(cluster, work, ct);
             await StageAsync(request.Id, clusterId, "to-server", "Backing up every stopped Host", ct);
-            var backup = await clusterBackups.CaptureCoreAsync(cluster, new(request.Id), ct);
+            var backup = await clusterBackups.CaptureCoreAsync(cluster, new(request.Id), ct, purpose: "conversion");
             await StageAsync(request.Id, clusterId, "to-server", "Verifying and assembling the saved world", ct);
             var roots = await clusterBackups.ExtractConversionSnapshotAsync(backup, Path.Combine(work, "snapshot"), ct);
             var gatewayHost = cluster.ActiveDeployment.Hosts.Single(h => h.Deployment.Gateway is not null).HostId;
