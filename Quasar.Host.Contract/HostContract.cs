@@ -130,7 +130,10 @@ public sealed record GatewayStatus(
     string? Failure,
     GatewayStopFence? CompletedStopFence = null, Guid? StartGeneration = null,
     // The last lines the failed Gateway wrote to stdout or stderr, oldest first. Null when the Host did not capture them.
-    string[]? Output = null);
+    string[]? Output = null, GatewayProcessMetrics? Metrics = null);
+
+/// <summary>Process totals; CPU 100% equals one logical CPU. Null CPU until two samples exist.</summary>
+public sealed record GatewayProcessMetrics(DateTimeOffset CapturedAt, double? CpuPercent, long MemoryWorkingSetBytes);
 
 public sealed record HostDeploymentActivation(string ClusterId, string? ExpectedBundleManifestSha256,
     string BundleManifestPath, string BundleManifestSha256, string GatewayUrl, string ExecutorTokenEnvironmentVariable);

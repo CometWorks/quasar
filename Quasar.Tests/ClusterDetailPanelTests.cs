@@ -9,12 +9,77 @@ using Quasar.Host.Contract.V1;
 using Quasar.Components.Dashboard;
 using Quasar.Models;
 using Quasar.Services;
+using Quasar.Services.PluginSdk;
 using Xunit;
 
 namespace Quasar.Tests;
 
 public sealed class ClusterDetailPanelTests
 {
+    [Fact]
+    public async Task TopologyKeepsIndependentObservationsAndClearsFailedEdgeCountsOnRefresh()
+    {
+        string credential = "QUASAR_TEST_HOST_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "fixture-credential");
+        try
+        {
+            await using var context = new BunitContext();
+            context.Services.AddMudServices();
+            context.JSInterop.Mode = JSRuntimeMode.Loose;
+            var fixture = ClusterHealthOverviewTests.Sample();
+            using var handler = new PartialGateway(fixture);
+            using var http = new HttpClient(handler);
+            var gateway = new ClusterGatewayClient(http);
+            var host = new ClusterHostClient(http);
+            context.Services.AddSingleton(gateway);
+            context.Services.AddSingleton(host);
+            context.Services.AddSingleton(new ClusterFleetService(gateway, new AgentRegistry(null!, null!, null!, null!), new PluginLogStream()));
+            context.Services.AddSingleton(new ClusterHostCatalog(null!, Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))));
+            context.Services.AddSingleton(new ClusterReconciler(null!, gateway, host, null!, NullLogger<ClusterReconciler>.Instance));
+            context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
+            context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
+            fixture.Cluster.HostCommandUrl = "http://host.test";
+            fixture.Cluster.HostCommandTokenEnvironmentVariable = credential;
+            var panel = context.Render<ClusterDetailPanel>(p => p.Add(c => c.Cluster, fixture.Cluster)
+                .Add(c => c.ShowTopology, true).Add(c => c.ShowConfigurationLinks, false));
+            Assert.Contains("18 routed players", panel.Markup);
+            Assert.Contains("34 partitions", panel.Markup);
+            Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
+            handler.FailEdges = true;
+            await panel.WaitForAssertionAsync(() => Assert.DoesNotContain("18 routed players", panel.Markup), TimeSpan.FromSeconds(10));
+            Assert.Contains("— routed players", panel.Markup);
+            Assert.DoesNotContain("34 partitions", panel.Markup);
+            Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    private sealed class PartialGateway(ClusterHealthOverviewTests.Fixture fixture) : HttpMessageHandler
+    {
+        internal volatile bool FailEdges;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            bool host = request.RequestUri!.Host == "host.test";
+            object? value = request.RequestUri.AbsolutePath switch
+            {
+                "/host/v1/status" => fixture.Host,
+                "/admin/v1/status" => fixture.Status,
+                "/admin/v1/plan" => Array.Empty<NodePlan>(),
+                "/admin/v1/clients" when !FailEdges => fixture.Clients,
+                "/admin/v1/partitions" when !FailEdges => fixture.Partitions,
+                _ => null,
+            };
+            var response = new HttpResponseMessage(value is null ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+            {
+                Content = host ? JsonContent.Create(new HostEnvelope<object>(1, DateTimeOffset.UtcNow, value!))
+                    : value is null ? JsonContent.Create(new AdminErrorEnvelope(1, DateTimeOffset.UtcNow, new("not_ready", "Fixture unavailable")))
+                    : JsonContent.Create(new AdminEnvelope<object>(1, DateTimeOffset.UtcNow, value)),
+            };
+            response.Headers.Add(host ? HostProtocol.HeaderName : "X-Cluster-Gateway-Protocol", "1");
+            return Task.FromResult(response);
+        }
+    }
+
     [Theory]
     [InlineData(DedicatedServerGoalState.Off, true, false, false)]
     [InlineData(DedicatedServerGoalState.Off, true, false, true)]
@@ -30,6 +95,8 @@ public sealed class ClusterDetailPanelTests
         using var http = new HttpClient(new OfflineGateway());
         var gateway = new ClusterGatewayClient(http);
         context.Services.AddSingleton(gateway);
+        context.Services.AddSingleton(new ClusterFleetService(gateway, null!, null!));
+        context.Services.AddSingleton(new ClusterHostCatalog(null!, Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))));
         context.Services.AddSingleton(new ClusterHostClient(http));
         context.Services.AddSingleton(new ClusterReconciler(null!, gateway, null!, null!, NullLogger<ClusterReconciler>.Instance));
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
@@ -61,6 +128,8 @@ public sealed class ClusterDetailPanelTests
         var gateway = new ClusterGatewayClient(http);
         var host = new ClusterHostClient(http);
         context.Services.AddSingleton(gateway);
+        context.Services.AddSingleton(new ClusterFleetService(gateway, null!, null!));
+        context.Services.AddSingleton(new ClusterHostCatalog(null!, Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))));
         context.Services.AddSingleton(host);
         context.Services.AddSingleton(new ClusterReconciler(null!, gateway, host, null!, NullLogger<ClusterReconciler>.Instance));
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));

@@ -180,6 +180,8 @@ Node and Gateway failure codes:
 | `recorded_process_identity_mismatch`, `running_spec_mismatch`, `running_deployment_mismatch` | The running process does not match the record or the active deployment. |
 | `gateway_stop_fence_mismatch`, `kill_authority_mismatch` | A stop or kill request named a different process than the one running. |
 
+The Host also reports Gateway working-set RAM and total process CPU for the [cluster health overview](Clusters.md#cluster-pages). CPU 100% equals one logical CPU and needs two samples of the same process. Process restarts reset the comparison. The optional metrics field keeps older Hosts compatible; their Gateway resource readings appear as unavailable. The overview excludes Gateway readings older than 15 seconds.
+
 ## Host command line
 
 | Command | Purpose |

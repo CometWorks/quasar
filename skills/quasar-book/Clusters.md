@@ -38,17 +38,23 @@ New dialogs prefill names and IDs such as `cluster-a1b2c3d4e5f6`, `host-machine-
 - Clusters appear next to standalone servers on the Dashboard, in cards and list view. A cluster card shows the Server name, Cluster ID, Gateway URL, **Desired state**, Start/Stop and Save buttons, the console button and **Manage cluster**.
 - **Hosts** (nav group "Infrastructure & tools", `/hosts`, page title "Host machines") lists Host executors and their reachability. See [Cluster hosts](ClusterHosts.md).
 
-The cluster page is `/clusters/<Cluster ID>`. From top to bottom:
+The cluster page is `/clusters/<Cluster ID>`. It opens on **Overview** and groups controls into five views. Start / Stop, **Save world** (while running), the console and the current operation result stay available across views.
 
-| Section | What it holds |
+| View | What it holds |
 | --- | --- |
-| Versions | **Deployed version** (from the active deployment, "Unknown" for older deployments without a package record) and **Latest available version**, with the release check time or error. |
-| Resume banner | Shown when the cluster has no active deployment: **Resume guided setup** if a setup exists, otherwise **Set up a new cluster**. |
-| Administration | Start / Stop, **Save world** (while running), **Cluster settings**, **Plugin configuration**, **Advanced cluster controls**. |
-| Cluster overview | Status, Capacity, Players, Recovery, "World, configuration & runtime", and **Last Cluster Registry process output** when the Gateway failed to start. |
-| Nodes and players | Slots, registered nodes, performance and players. Shown while the goal is On or the Gateway still runs. Node actions **Drain** and **Force remove node…**; player actions **Kick** and **Ban**. Tabs for events, plugin statistics and recent plugin logs. |
-| Mods and plugins | Content update checks (only with an active deployment). |
-| Maintenance | Release update, pending update, **Backups**, **Recovery**, **Convert to a standalone server**, **Advanced deployment tools**. |
+| Overview | Status, Capacity, Players, Recovery and a live map of Gateway, game nodes, hot spares and World Authority. Service addresses and expandable world/configuration/runtime details, including the last failed Gateway output. |
+| Nodes & players | Slots, registered nodes, performance and players. Node actions **Drain** and **Force remove node…**; player actions **Kick** and **Ban**. Events, plugin statistics and recent plugin logs. |
+| Mods & plugins | Content update checks and queues, with an active deployment. |
+| Maintenance | Deployed/latest versions, release staging, pending updates, **Backups**, **Recovery**, **Convert to a standalone server**, **Advanced deployment tools**. |
+| Settings | Server name, profile, hot spares, shutdown grace period, plugin configuration, advanced controls and cluster removal. Existing confirmations and permissions still apply. |
+
+A resume banner appears when there is no active deployment: **Resume guided setup** if a setup exists, otherwise **Set up a new cluster**. Views have bookmarkable fragments. Existing `#cluster-content` links open Mods & plugins; `#cluster-configuration` opens Maintenance; `#cluster-settings` opens Settings.
+
+The map shows connected players, routed players per node, hosted partitions, simulation speed, RAM in GB and process CPU. Hot spares are marked. Nodes show their host name when the cluster has at least two configured hosts. Configured empty slots remain visible. Solid links show player routing over Direct Transport; dashed links show partition synchronization. Internal node links show Registry lease status. Counts describe player routing and partition ownership, not transport socket counts, which the current Registry contract does not expose.
+
+CPU 100% means one logical CPU. Four bars each hold one core equivalent; they do not measure individual cores. The numeric total can exceed 400%. Totals sum available resource readings and state their coverage. Missing or stale readings are excluded and unavailable player/partition counts show a dash. Gateway resources need an updated Quasar.Host; older Hosts remain compatible but cannot supply them. Gateway CPU needs two samples of the same process, and Gateway readings older than 15 seconds are excluded. Node resources use the existing incarnation-matched agent telemetry and freshness checks.
+
+**Service addresses** lists Steam and optional Direct Transport player ports, internal Direct Transport and node management ports, Registry administration and Host executor management. It uses the active deployment's specification, not a staged update, plus current registered endpoints. Wildcard player binds use the enrolled host address when known and also show the original bind. These are configured addresses, not proof that a port is listening or reachable through a firewall. Older deployments without a recorded specification show the known endpoints only. See [Cluster health overview](https://github.com/CometWorks/Quasar/blob/main/Docs/ClusterOverview.md).
 
 The cluster page refreshes status every five seconds. When a managed cluster is stopped, Quasar does not show Cluster Registry connection failures as warnings.
 
@@ -111,7 +117,7 @@ It needs the stopped Gateway to still answer in phase Down, and a cluster releas
 
 ## Cluster settings and configuration profile
 
-**Administration → Cluster settings** (needs configuration editing) has:
+**Settings → Cluster settings** (needs configuration editing) has:
 
 - **Server name**: the name in Quasar lists.
 - **Configuration profile** and **Stage profile changes**: prepares a new deployment on every host machine with the selected profile. Allowed changes are session settings, administrators, mods and plugin selections. Network and dedicated-server root settings cannot change this way ("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update."). If managed Magnetar was updated since the cluster's runtime snapshot was frozen, staging freezes the installed Magnetar together with the plugins it exported, as long as its PluginSdk contract satisfies the cluster release's. The change applies only when you **Apply pending update** in Maintenance. Quasar refuses to apply if the staged profile was edited or deleted after staging; stage it again.
@@ -143,7 +149,7 @@ Every node (regular nodes, the World Authority, spares and replacements) runs th
 
 ### Plugin settings
 
-**Administration → Plugin configuration** shows the normal plugin settings editor for each plugin in the saved preparation. **Save and stage update** prepares a new deployment for all nodes; it does not change running nodes. Apply it from **Maintenance → Pending update → Apply pending update** (full downtime). The individual Agent editor on the Plugins page cannot change cluster-owned configuration. If no editor appears, the page says "No editable plugin configurations are available in the saved preparation. Complete guided setup or prepare an imported deployment first."
+**Settings → Plugin configuration** shows the normal plugin settings editor for each plugin in the saved preparation. **Save and stage update** prepares a new deployment for all nodes; it does not change running nodes. Apply it from **Maintenance → Pending update → Apply pending update** (full downtime). The individual Agent editor on the Plugins page cannot change cluster-owned configuration. If no editor appears, the page says "No editable plugin configurations are available in the saved preparation. Complete guided setup or prepare an imported deployment first."
 
 New clusters start with each plugin's SDK default values. A converted server keeps the plugin settings the Agent recorded before you stopped it.
 
@@ -335,6 +341,13 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - **`cluster-credentials.json` damaged.** Quasar moves an unreadable `cluster-credentials.json` to `cluster-credentials.json.corrupt-<timestamp>` and starts without it. Restore it from a backup together with the Data Protection keys, or re-create the clusters and Host enrollments.
 
 ## Sources
+- `Docs/ClusterOverview.md`
+- `Quasar/Components/Dashboard/ClusterHealthOverview.razor`
+- `Quasar/Components/Dashboard/ClusterResourceUsage.razor`
+- `Quasar/Services/ClusterOverview.cs`
+- `Quasar/Services/ClusterFleetService.cs`
+- `Quasar.Host.Contract/HostContract.cs`
+- `Quasar.Host/GatewayActualizer.cs`
 - `Docs/ClusterTerminology.md`
 - `Docs/ClusterConversion.md`
 - `Docs/ClusterPlugins.md`

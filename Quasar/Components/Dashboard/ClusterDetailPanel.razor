@@ -6,6 +6,8 @@
 @inject ClusterReconciler Reconciler
 @inject QuasarConfigProfileCatalog Profiles
 @inject QuasarWorldTemplateCatalog Worlds
+@inject ClusterFleetService Fleet
+@inject ClusterHostCatalog Hosts
 
 <section class="@(CollapseDetails ? "quasar-cluster-summary" : "quasar-panel quasar-section")">
 <div class="quasar-card-content">
@@ -45,6 +47,8 @@
         </div>
         @if (Cluster.GoalState == DedicatedServerGoalState.On)
         {
+        @if (!ShowTopology)
+        {
         <div class="quasar-detail-metric">
             <div>
                 <p class="quasar-eyebrow">Players</p>
@@ -52,6 +56,7 @@
                 <p class="quasar-muted quasar-caption">@JoinText</p>
             </div>
         </div>
+        }
         <div class="quasar-detail-metric">
             <div>
                 <p class="quasar-eyebrow">Capacity</p>
@@ -76,6 +81,13 @@
         </div>
     }
 
+    @if (ShowTopology)
+    {
+        <ClusterHealthOverview Cluster="Cluster" Status="@(_stale ? null : _status)" Plan="_plan"
+                               Fleet="_fleet" Clients="_clients" Partitions="_partitions" Host="_host"
+                               Hosts="Hosts.GetAll()" />
+    }
+
     @if (CollapseDetails)
     {
         <details class="quasar-card-disclosure"><summary>Cluster details <span class="quasar-muted">World, configuration &amp; runtime</span></summary>@RuntimeDetails</details>
@@ -89,6 +101,7 @@
 @code
 {
     [Parameter] public bool CollapseDetails { get; set; }
+    [Parameter] public bool ShowTopology { get; set; }
     private RenderFragment RuntimeDetails => @<div class="quasar-live-details">
     <div>
         <h2>World and configuration</h2>
@@ -125,6 +138,9 @@
     private bool _stale;
     private DateTimeOffset? _observedAt;
     private Admin.AdminCapabilities? _capabilities;
+    private ClusterFleet? _fleet;
+    private Admin.ClientSummary[]? _clients;
+    private Admin.PartitionSummary[]? _partitions;
 
     [Parameter, EditorRequired]
     public ClusterDefinition Cluster { get; set; } = new();
@@ -155,9 +171,15 @@
     private async Task RefreshAsync(CancellationToken cancellationToken)
     {
         _loading = true;
+        _fleet = null;
+        _clients = null;
+        _partitions = null;
+        _host = null;
+        _plan = [];
+        _recovery = null;
         try
         {
-            _capabilities = (await GatewayClient.GetCapabilitiesAsync(Cluster, cancellationToken)).Data;
+            var capabilities = GatewayClient.GetCapabilitiesAsync(Cluster, cancellationToken);
             Task<Admin.AdminEnvelope<Admin.ClusterStatus>> status =
                 GatewayClient.GetStatusAsync(Cluster, cancellationToken);
             Task<Admin.AdminEnvelope<Admin.NodePlan[]>> plan =
@@ -166,11 +188,19 @@
                 GatewayClient.GetRecoveryReadinessAsync(Cluster, cancellationToken);
             Task<HostContract.HostEnvelope<HostContract.HostStatus>>? host =
                 string.IsNullOrWhiteSpace(Cluster.HostCommandUrl) ? null : HostClient.GetStatusAsync(Cluster, cancellationToken);
+            var clients = ShowTopology ? GatewayClient.GetClientsAsync(Cluster, cancellationToken) : null;
+            var partitions = ShowTopology ? GatewayClient.GetPartitionsAsync(Cluster, cancellationToken) : null;
             Admin.ClusterStatus? nextStatus = null;
             Admin.NodePlan[] nextPlan = [];
             Admin.RecoveryReadiness? nextRecovery = null;
             HostContract.HostStatus? nextHost = null;
             var errors = new List<string>();
+            try { _capabilities = (await capabilities).Data; }
+            catch (ClusterGatewayException exception)
+            {
+                _capabilities = null;
+                if (!ExpectedOffline(exception)) errors.Add(exception.Message);
+            }
             try
             {
                 var response = await status;
@@ -205,18 +235,23 @@
             {
                 errors.Add(exception.Message);
             }
+            if (clients is not null)
+            {
+                try { _clients = (await clients).Data; }
+                catch (ClusterGatewayException exception) { if (!ExpectedOffline(exception)) errors.Add(exception.Message); }
+            }
+            if (partitions is not null)
+            {
+                try { _partitions = (await partitions).Data; }
+                catch (ClusterGatewayException exception) { if (!ExpectedOffline(exception)) errors.Add(exception.Message); }
+            }
+            if (ShowTopology && nextStatus is not null) _fleet = Fleet.Observe(nextStatus);
             _stale = nextStatus is null;
             _status = nextStatus ?? _status;
             _plan = nextPlan;
             _recovery = nextRecovery;
             _host = nextHost;
             _error = errors.Count == 0 ? null : string.Join(" ", errors.Distinct());
-        }
-        catch (ClusterGatewayException exception)
-        {
-            _stale = true;
-            _capabilities = null;
-            _error = ExpectedOffline(exception) ? null : exception.Message;
         }
         finally
         {

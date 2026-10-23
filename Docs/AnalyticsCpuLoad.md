@@ -5,6 +5,11 @@ usage, with **100% equal to one fully occupied logical CPU**. Values above 100%
 are valid. A reading of 150–160% represents about 1.5–1.6 logical CPUs of work
 across the process's threads; it does not mean the entire machine is overloaded.
 
+The [cluster health overview](ClusterOverview.md) uses the same process CPU units
+for game nodes, World Authority and Gateway. Its four bars each hold one core
+equivalent; they are not measurements of individual cores. Cluster totals sum
+available readings, with coverage shown for missing or stale processes.
+
 The in-game Shift+F11 **Server simulation CPU Load** measures a different quantity:
 the elapsed time spent updating a server frame, as a percentage of the nominal
 16.67 ms budget at 60 updates per second. A reading of 20–30% corresponds to about
