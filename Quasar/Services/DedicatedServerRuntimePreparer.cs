@@ -367,6 +367,16 @@ public sealed class DedicatedServerRuntimePreparer
             SerializeXml(currentProfileDocument),
             cancellationToken);
 
+        var coreOverrides = devFolders
+            .Where(devFolder => QuasarPluginCatalogService.CorePluginIds.Contains(QuasarPluginCatalogService.GetDevFolderPluginId(devFolder), StringComparer.OrdinalIgnoreCase))
+            .Select(devFolder => $"{QuasarPluginCatalogService.GetDevFolderPluginId(devFolder)} from {devFolder.FolderPath}")
+            .ToList();
+        if (coreOverrides.Count != 0)
+            _logger.LogWarning(
+                "Server {UniqueName} loads dev overrides of Magnetar core plugins instead of their hub builds: {Plugins}",
+                definition.UniqueName,
+                string.Join(", ", coreOverrides));
+
         if (remotePluginSources.UnresolvedPluginIds.Count != 0)
             _logger.LogWarning(
                 "Server {UniqueName} selects plugins that no plugin hub or dev folder lists, Magnetar won't load them: {Plugins}",

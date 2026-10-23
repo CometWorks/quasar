@@ -119,6 +119,20 @@ public sealed class ClusterContentMonitorTests
     }
 
     [Fact]
+    public void DevOverrideIsNamedAndNeverOffersTheHubBuildAsUpdate()
+    {
+        var pin = new ClusterPluginPin("linux-compat", "LinuxCompat", "CometWorks/linux-compat", new('a', 40));
+        var hub = new QuasarPluginCatalogEntry { PluginId = pin.Id, SourceRepo = pin.Repository, SourceCommit = new('b', 40) };
+        var prior = new ClusterContentItem("plugin", pin.Id, pin.Name, pin.Commit, null, hub.SourceCommit, DateTimeOffset.UtcNow, null, null);
+        Assert.True(ClusterContentMonitor.ObservePlugin(pin, hub, prior, null, DateTimeOffset.UtcNow).HasUpdate);
+        var item = ClusterContentMonitor.ObservePlugin(pin, hub, prior, null, DateTimeOffset.UtcNow, "/src/linux-compat");
+        Assert.False(item.HasUpdate);
+        Assert.Equal(pin.Commit, item.PinnedVersion);
+        Assert.StartsWith("Dev override: ", item.Error);
+        Assert.Contains("/src/linux-compat", item.Error);
+    }
+
+    [Fact]
     public async Task NoticesIncludeContentAlongsideWebAndRespectClusterScope()
     {
         using var fixture = new Fixture();

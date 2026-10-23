@@ -132,6 +132,7 @@ Every node (regular nodes, the World Authority, spares and replacements) runs th
 - Quasar adds the Quasar Agent (`quasar-agent`) pinned to Quasar's own source commit. This needs a published Quasar build; a build without commit information fails with "The Quasar build has no source commit provenance."
 - A server-side companion of a Quasar UI plugin is included only when that UI plugin was installed from QuasarHub. Other local plugins without source metadata are left out, and setup reports "left out, no provenance metadata: <names>".
 - Dev folder plugins are compiled from the checkout during preparation, always as a Release build, whatever their **Debug build** setting. A dev folder is identified by its manifest `Id`, or its folder name when the manifest has none.
+- A dev folder with the id of a hub plugin is a dev override and replaces the hub build, also for the core plugins Magnetar loads by itself (`linux-compat`, `dotnet-compat`). Setup and staging progress show "dev overrides, not the hub pins: <id> <commit> from <folder>", and Quasar logs the same as a warning. See [Dev overrides](Plugins.md#dev-overrides-of-hub-plugins).
 - Plugins from a registered [plugin hub](Plugins.md#plugin-hubs) are frozen like MagnetarHub plugins, at their manifest's `Commit`. Setup and staging stop with "No plugin hub or dev folder lists the selected plugins ..." when the profile selects an id no hub lists, and with "More than one plugin hub lists ..." when two hubs list it.
 
 ### Plugin settings
@@ -155,7 +156,7 @@ The **Mods and plugins** panel on the cluster page tracks changes after deployme
 
 Workshop downloads try anonymous SteamCMD first. Private items need a Steam account in the Steam Workshop settings, otherwise staging fails with "SteamCMD could not download Workshop item <id> anonymously." Quasar always adds Magnetar's companion mod (Workshop ID 3750200326) to the pinned mods, also for a crossplay profile: Magnetar adds it to every node, and the node configuration the cluster writes never enables crossplay. Nodes always load mods from the staged copies and never download from the Workshop themselves.
 
-A dev folder plugin shows "Plugin manifest is unavailable or has no exact commit" in this panel, because the monitor only looks at the plugin hub. New commits in a dev folder reach the cluster only when you stage the profile again.
+A plugin that a registered dev folder overrides shows "Dev override: staging builds this plugin from the dev folder <folder>, not from its hub, so hub commits are not observed." in this panel, and its hub commits are never offered as an update. New commits in a dev folder reach the cluster only when you stage the profile again; removing the dev folder and staging again returns the cluster to the hub build.
 
 Observations live in `<install root>/ClusterContentUpdates.json`. If that file is damaged, checks pause with "Saved content observations are unavailable. Restore ClusterContentUpdates.json and restart Quasar; checks are paused to preserve baselines."
 

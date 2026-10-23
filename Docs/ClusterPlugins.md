@@ -42,10 +42,12 @@ monitor compares the pinned commit with the hub that lists the plugin.
 
 A plugin selected from a dev folder is compiled from the checkout during that
 preparation, always as a release build, and pinned to its HEAD commit, which `preparation.json` reports with
-`source: "dev-folder"`. The repository must be clean. Content update monitoring looks
-for new commits in the plugin hub only, so it lists a dev folder plugin with "Plugin
-manifest is unavailable or has no exact commit" and never reports its new commits; a
-new commit reaches the cluster only when the profile is staged again. See [local development plugins](BuildingAndDevelopment.md#local-development-plugins).
+`source: "dev-folder"`. The repository must be clean. A dev folder with the id of a hub
+plugin is a dev override, also of a core plugin such as `linux-compat` that no profile
+selects; staging names every dev-built plugin in its progress and log. Content update
+monitoring reports a plugin that a registered dev folder overrides as "Dev override"
+and offers no hub commit as its update; a new dev folder commit reaches the cluster only
+when the profile is staged again. See [local development plugins](BuildingAndDevelopment.md#local-development-plugins).
 
 The update workflow stops the cluster, captures a verified backup under its update ID,
 then migrates preserved checkpoints and node mod directories. It starts the cluster only
