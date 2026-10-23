@@ -74,6 +74,16 @@
                                         <option value="@profile.ConfigProfileId">@profile.Name</option>
                                     }
                                 </select><small>Selection remains pending until the prepared cluster update is applied.</small></label>
+                                @if (Profiles.GetProfile(_configProfileId) is { } selectedProfile && QuasarDefaultPlugins.Pending(selectedProfile) is { Count: > 0 } missingDefaults)
+                                {
+                                    <div class="quasar-notice quasar-notice-info" role="status">
+                                        <p>Quasar enables @string.Join(" and ", missingDefaults.Select(p => p.DisplayName)) on new clusters, and profile @selectedProfile.Name doesn't have @(missingDefaults.Count == 1 ? "it" : "them"). Adding saves the profile with the MagnetarHub @(missingDefaults.Count == 1 ? "plugin" : "plugins") and default settings; stage the profile changes afterwards to deploy @(missingDefaults.Count == 1 ? "it" : "them"). Other servers and clusters that use this profile get @(missingDefaults.Count == 1 ? "it" : "them") at their next restart or profile update.</p>
+                                        <div class="quasar-row">
+                                            <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="@(() => OfferDefaultPluginsAsync(true))">Add to profile</button>
+                                            <button class="quasar-button" type="button" disabled="@Busy" @onclick="@(() => OfferDefaultPluginsAsync(false))">Don't offer again</button>
+                                        </div>
+                                    </div>
+                                }
                                 <a class="quasar-button quasar-tone-primary" href="/configs">Manage configuration profiles</a>
                                 @if (Catalog.GetCluster(Cluster.UniqueName)?.PreparedProfile is { } pendingProfile)
                                 {
@@ -275,6 +285,20 @@
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or KeyNotFoundException)
         { _error = error.Message; }
+        finally { _submitting = false; }
+    }
+    private async Task OfferDefaultPluginsAsync(bool enable)
+    {
+        if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
+        if (Profiles.GetProfile(_configProfileId) is not { } profile) return;
+        _submitting = true;
+        _error = null;
+        try
+        {
+            QuasarDefaultPlugins.Apply(profile, enable);
+            await Profiles.UpsertAsync(profile, _shutdown.Token);
+        }
+        catch (IOException error) { _error = error.Message; }
         finally { _submitting = false; }
     }
     private async Task StageHotSparesAsync()

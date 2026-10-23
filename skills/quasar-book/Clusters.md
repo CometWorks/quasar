@@ -123,6 +123,12 @@ Cluster profiles must list administrators as numeric SteamID64 values and have m
 
 Guided setup copies the chosen profile to a new profile named "<Server name> (cluster)", so later edits to the original profile do not affect the cluster.
 
+### Bugfixes and Performance by default
+
+New clusters get the MagnetarHub server plugins Bugfixes and Performance with their default settings, unless the operator unticks **Enable the Bugfixes and Performance server plugins** in guided setup (see [Guided cluster setup](ClusterSetup.md#create-the-cluster)). Quasar records in the profile that it offered them (`offeredDefaultPlugins` in `profile.json`), whether they were taken or not, and never adds them to that profile again: removing either one from the cluster's profile sticks.
+
+Quasar does not add them to existing clusters by itself. When the profile selected under **Cluster settings** lacks one of them and was never offered them, a notice offers **Add to profile**, which saves the profile with the missing plugins (then stage the profile changes and apply the update as usual), and **Don't offer again**. Other servers and clusters that use the same profile get the added plugins at their next restart or profile update.
+
 ## Plugins on clusters
 
 Every node (regular nodes, the World Authority, spares and replacements) runs the same common plugin files with the same settings. Quasar builds them once, freezes them with their source commits and copies the frozen set to every host machine. Nodes do not download from the plugin hub or compile on their own.
@@ -368,6 +374,7 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`
 - `Quasar/Services/ClusterSetupService.cs`
+- `Quasar/Services/QuasarDefaultPlugins.cs`
 - `Quasar/Services/ClusterStorageMaintenance.cs`
 - `Quasar/Services/ClusterUpdatePreparationService.cs`
 - `Quasar/Services/ClusterUpdateService.cs`

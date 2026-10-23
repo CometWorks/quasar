@@ -79,6 +79,18 @@ public sealed class ClusterApiRouteTests
     }
 
     [Fact]
+    public void ProfilePluginRoutesNeedViewToReadAndConfigEditToChange()
+    {
+        WebApplication app = MapRoutes(authEnabled: true);
+        var endpoints = ((IEndpointRouteBuilder)app).DataSources.SelectMany(s => s.Endpoints).OfType<RouteEndpoint>()
+            .Where(e => e.RoutePattern.RawText == "/api/v1/config-profiles/{profileId}/plugins").ToArray();
+        string[] Policies(string method) => endpoints.Single(e => e.Metadata.GetMetadata<HttpMethodMetadata>()!.HttpMethods.Contains(method))
+            .Metadata.GetOrderedMetadata<Microsoft.AspNetCore.Authorization.IAuthorizeData>().Select(p => p.Policy!).ToArray();
+        Assert.Equal([QuasarPolicyNames.CanView], Policies("GET"));
+        Assert.Equal([QuasarPolicyNames.CanEditConfigs], Policies("PUT"));
+    }
+
+    [Fact]
     public void GatewayApplyRouteIsPut()
     {
         WebApplication app = MapRoutes(authEnabled: false);

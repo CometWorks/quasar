@@ -62,6 +62,8 @@
                             <MudSelect T="string" Label="Configuration profile" @bind-Value="_profile" Disabled="Locked" HelperText="Game settings, mods and plugin selection. New clusters start with the selected plugins' SDK defaults, shared across every node.">
                                 @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="profile.ConfigProfileId">@profile.Name</MudSelectItem> }
                             </MudSelect>
+                            <MudCheckBox T="bool" @bind-Value="_defaultPlugins" Disabled="Locked" Label="Enable the Bugfixes and Performance server plugins (recommended)" />
+                            <p class="quasar-text quasar-type-caption">@DefaultPluginsHelp</p>
                             <h2 class="quasar-text quasar-type-h6">Host machines</h2>
                             <p class="quasar-text quasar-type-body2">Choose 1–32 regular nodes per selected host machine, with at least two in total. The Cluster Gateway host machine also runs the Cluster Registry and World Authority. Clusters on multiple host machines need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Cluster Registry admin port.</p>
                             @foreach (var machine in _machines)
@@ -136,7 +138,20 @@
     private string _id = "", _name = "", _world = "", _profile = "", _gateway = "";
     private string _importId = "", _importName = "", _url = "", _credential = "";
     private int _port = 28000, _setupStep, _spares = 1;
-    private bool _busy, _disposed, _showEnrollment;
+    private bool _busy, _disposed, _showEnrollment, _defaultPlugins = true;
+    private string DefaultPluginsHelp
+    {
+        get
+        {
+            var pending = Profiles.GetProfile(_profile) is { } profile ? QuasarDefaultPlugins.Pending(profile) : [];
+            if (!_defaultPlugins)
+                return "The cluster gets only the plugins the selected profile has. Quasar won't offer Bugfixes and Performance for its profile again.";
+            if (!string.IsNullOrWhiteSpace(_profile) && pending.Count == 0)
+                return "The selected profile already has them, or they were turned off in it before. Quasar leaves its plugin selection as it is.";
+            return "Adds " + (pending.Count == 0 ? "Bugfixes and Performance" : string.Join(" and ", pending.Select(p => p.DisplayName)))
+                + " from MagnetarHub with their default settings to the cluster's own copy of the profile. The selected profile stays unchanged. You can turn either off later in the cluster's profile.";
+        }
+    }
     private string? _error;
     private ClusterSetupRequest? _request;
     private ClusterSetupStatus? _status;
@@ -197,7 +212,7 @@
             _profile = _request.ConfigProfileId; _gateway = _request.GatewayHost; _port = _request.PlayerPort;
             foreach (var row in _machines)
             { var placement = _request.Machines.SingleOrDefault(m => m.HostId == row.Host.Id); row.Selected = placement is not null; row.Nodes = placement?.RegularNodes ?? 1; }
-            _spares = _request.HotSpares;
+            _spares = _request.HotSpares; _defaultPlugins = _request.DefaultPlugins;
         }
         catch (ArgumentException error) { _error = error.Message; }
     }
@@ -234,7 +249,7 @@
         if (_busy || !await AuthorizedAsync(_id, true)) return;
         _busy = true; _error = null;
         var request = _request ?? new(_id, _name, _world, _profile, _gateway, _port,
-            _machines.Where(m => m.Selected).Select(m => new ClusterSetupPlacement(m.Host.Id, m.Nodes)).ToArray(), _spares);
+            _machines.Where(m => m.Selected).Select(m => new ClusterSetupPlacement(m.Host.Id, m.Nodes)).ToArray(), _spares, _defaultPlugins);
         try
         {
             var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;

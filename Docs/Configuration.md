@@ -1414,7 +1414,19 @@ preparation time and refuses to begin activation if that profile is changed or d
 stage the selection again after editing it. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
-config editing permissions.
+config editing permissions. A profile's plugin selection can be read and replaced with
+`GET` and `PUT /api/v1/config-profiles/{profileId}/plugins`
+(`[{"pluginId":"...","displayName":"...","selectedVersion":""}]`; an empty version is
+the hub's current commit). Reading needs view access, changing needs config editing.
+
+Guided setup (`POST /api/v1/clusters/setup`, `"defaultPlugins"` defaults to `true`)
+adds the default server plugins Bugfixes (`bugfixes`) and Performance
+(`454B0F55-C727-4DAB-B1A9-5AE6050A0932`) from MagnetarHub, with their default
+settings, to the cluster's copy of the profile. The list lives in
+`Quasar/Services/QuasarDefaultPlugins.cs`. A profile records the defaults it was
+offered in `offeredDefaultPlugins` and is never offered them again, so a removed
+default stays removed. For an existing cluster whose selected profile lacks them,
+**Cluster settings** offers **Add to profile** and **Don't offer again**.
 
 **Hot spares** with **Stage hot spare change** prepares a deployment with a
 different number of hot spares. A spare is an extra regular slot of the approved
