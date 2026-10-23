@@ -15,13 +15,22 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
     private string? previousReferences;
     private long previousStorageRevision = -1;
     private DateTimeOffset retryAfter;
+    private bool deferred;
     private void Changed() => changes.Writer.TryWrite(true);
+    // Every lease ends in Idle, the reconciler's on every pass. A collection queued then takes the Writer
+    // when the next lease is released, and the next TryBegin fails: the third cluster of every pass was
+    // skipped for hours (#1423). Collect after an idle only when content changed or a collection is due.
+    private void StorageIdle()
+    {
+        if (Volatile.Read(ref deferred) || ClusterStorageActivity.Revision != Volatile.Read(ref previousStorageRevision))
+            Changed();
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!OperatingSystem.IsLinux()) return;
         catalog.Changed += Changed;
-        ClusterStorageActivity.Idle += Changed;
+        ClusterStorageActivity.Idle += StorageIdle;
         Changed();
         try
         {
@@ -51,7 +60,8 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                     string identity = JsonSerializer.Serialize(definitions.Select(c => new {
                         c.UniqueName, c.DependencyManifestSha256, c.Preparation, c.ActiveDeployment,
                         c.PreviousDeployment, c.Update, c.PreparedDeployment }).ToArray(), Json);
-                    if (identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision) continue;
+                    if (identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision)
+                    { Volatile.Write(ref deferred, false); continue; }
                     CleanupWorkspaces(catalog.GetClusters());
                     await dependencies.CollectAsync(retained, stoppingToken);
                     await CollectModVersionsAsync(definitions.SelectMany(Preparations), stoppingToken);
@@ -76,18 +86,20 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                         }
                     }
                     previousReferences = identity;
-                    previousStorageRevision = ClusterStorageActivity.Revision;
+                    Volatile.Write(ref previousStorageRevision, ClusterStorageActivity.Revision);
+                    Volatile.Write(ref deferred, false);
                     logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned.");
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception error)
                 {
                     retryAfter = DateTimeOffset.UtcNow.AddMinutes(1);
+                    Volatile.Write(ref deferred, true);
                     logger.LogWarning(error, "Cluster content collection deferred; retained references could not be reconciled.");
                 }
             }
         }
-        finally { catalog.Changed -= Changed; ClusterStorageActivity.Idle -= Changed; }
+        finally { catalog.Changed -= Changed; ClusterStorageActivity.Idle -= StorageIdle; }
     }
 
     internal static HashSet<string> DependencyReferences(IEnumerable<ClusterDefinition> definitions)

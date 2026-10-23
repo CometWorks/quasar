@@ -137,7 +137,10 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             .Concat(automatic.Where(b => b.Consistency == Admin.ExportConsistency.Quiescent).Take(1))
             .Select(b => b.SnapshotId).ToHashSet();
         foreach (var old in automatic.Where(b => !keep.Contains(b.SnapshotId)))
+        {
             Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
+            Quasar.ClusterDeployment.ClusterStorageActivity.MarkChanged(); // Its references are gone: collect after this workflow.
+        }
     }
 
     public Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor, CancellationToken token) =>
@@ -160,7 +163,10 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     internal void PrunePurpose(string clusterId, string purpose, int keep, Guid taken)
     {
         foreach (var old in List(clusterId).Where(b => b.Purpose == purpose && !b.Automatic && b.SnapshotId != taken).Skip(keep - 1))
+        {
             Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
+            Quasar.ClusterDeployment.ClusterStorageActivity.MarkChanged();
+        }
     }
 
     internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token,
