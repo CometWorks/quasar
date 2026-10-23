@@ -1399,9 +1399,13 @@ snapshots and edits are bound to a connection; reconnecting clears prior snapsho
 and an editor from the old connection cannot apply to its replacement. The ordinary
 Plugins page and log selector display cluster/slot/node/epoch labels.
 
-The **Cluster overview** card groups status, world/configuration references and runtime
-details. The **Nodes and players** section shows planned slots (host, role, goal and
-observed state), registered nodes, performance and players while the Gateway is running.
+The cluster page opens on **Overview**, with current health, a Gateway/node/World
+Authority map, resource totals, service addresses and expandable runtime details.
+Separate views group **Nodes & players**, **Mods & plugins**, **Maintenance** and
+**Settings**; lifecycle controls remain available across views. See
+[Cluster health overview](ClusterOverview.md) for sources, freshness and CPU units.
+The **Nodes & players** view shows planned slots (host, role, goal and
+observed state), registered nodes, performance and players.
 Slots without a registered node remain visible. Process telemetry, plugin runtime
 state, statistics/profiler snapshots,
 recent logs and a capped event history remain available in the node details and tabs.
@@ -1414,7 +1418,7 @@ generating boot images and converting worlds remain part of packaged provisionin
 
 ## Cluster plugin configuration status
 
-**Administration → Cluster settings** edits **Server name** and shutdown grace
+**Settings → Cluster settings** edits **Server name** and shutdown grace
 period (0–3600 seconds). The Server name is used in Quasar; the grace period
 is used on the next managed shutdown. Save these with
 `PUT /api/v1/clusters/{uniqueName}/administration`. Clean shutdown and
@@ -1488,7 +1492,7 @@ cluster settings or confirm cluster-wide application. Do not treat a per-Agent e
 a cluster-wide change. Replacing that path, persisting cluster revisions and enforcing
 startup/config consistency are planned integration work, not shipped behavior.
 
-On the cluster page, **Administration → Plugin configuration** edits the
+On the cluster page, **Settings → Plugin configuration** edits the
 plugin schemas in the saved deployment preparation. **Save and stage update** prepares the configuration
 for all nodes; it does not apply settings to running Agents. Use **Maintenance → Pending
 update → Apply pending update** for the full-downtime activation. Pending configuration

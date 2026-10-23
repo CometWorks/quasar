@@ -13,7 +13,7 @@ public sealed class ClusterFleetPanelTests
         var current = new ClusterFleetNode(Node("node-a", "slot-a"), null);
         var unmatched = new ClusterFleetNode(Node("old-node", "slot-a"), null);
 
-        var rows = ClusterFleetPanel.MergeNodes([Plan("slot-a", "node-a"), Plan("slot-b", null)],
+        var rows = ClusterFleetService.MergeNodes([Plan("slot-a", "node-a"), Plan("slot-b", null)],
             [current, unmatched]).ToArray();
 
         Assert.Equal(3, rows.Length);

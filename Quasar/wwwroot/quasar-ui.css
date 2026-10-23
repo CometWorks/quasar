@@ -513,6 +513,68 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-console-tabs { display: flex; gap: 4px; margin-bottom: 18px; border-bottom: 1px solid var(--quasar-palette-divider); }
 .quasar-console-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; min-height: 42px; padding: 10px 16px; }
 .quasar-console-tabs button[aria-pressed="true"] { color: var(--quasar-palette-primary); border-bottom-color: var(--quasar-palette-primary); }
+
+/* Cluster overview: current observations, with controls kept in their own views. */
+.cluster-view-tabs { flex-wrap: wrap; margin-bottom: 0; }
+.cluster-health { min-width: 0; }
+.cluster-health h3, .cluster-health h4, .cluster-health p { margin: 0; }
+.cluster-health-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--quasar-palette-divider); border-radius: 8px; overflow: hidden; }
+.cluster-health-totals > div { padding: 16px; display: flex; flex-direction: column; gap: 5px; }
+.cluster-health-totals > div + div { border-left: 1px solid var(--quasar-palette-divider); }
+.cluster-health-totals strong { font-size: 23px; font-variant-numeric: tabular-nums; }
+.cluster-health-totals span { color: var(--quasar-palette-text-secondary); font-size: 12px; }
+.cluster-map-scroll { overflow-x: auto; padding: 12px 0; border-radius: 8px; background: var(--quasar-palette-background); }
+.cluster-map-scroll:focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 2px; }
+.cluster-map { min-width: calc(var(--cluster-node-count) * 216px); display: flex; flex-direction: column; align-items: center; padding: 12px 0; }
+.cluster-player-entry { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border: 1px solid var(--quasar-palette-divider); border-radius: 8px; }
+.cluster-player-entry span { color: var(--quasar-palette-text-secondary); }
+.cluster-entry-link { width: 2px; height: 24px; background: var(--quasar-palette-success); }
+.cluster-process { width: 100%; min-width: 0; padding: 14px; border: 1px solid var(--quasar-palette-divider); border-top: 3px solid var(--quasar-palette-text-secondary); border-radius: 8px; background: var(--quasar-palette-surface); display: flex; flex-direction: column; gap: 10px; overflow-wrap: anywhere; }
+.cluster-process h4 { font-size: 15px; }
+.cluster-process[data-tone="healthy"] { border-top-color: var(--quasar-palette-success); }
+.cluster-process[data-tone="warning"] { border-top-color: var(--quasar-palette-warning); }
+.cluster-process[data-tone="unhealthy"] { border-top-color: var(--quasar-palette-error); }
+.cluster-gateway, .cluster-authority { width: 370px; max-width: calc(100% - 24px); }
+.cluster-authority { display: flex; flex-direction: column; gap: 10px; }
+.cluster-health-badge { display: inline-block; font-size: 11px; border: 1px solid var(--quasar-palette-divider); border-radius: 16px; padding: 3px 8px; }
+.cluster-health-badge[data-tone="healthy"] { color: var(--quasar-palette-success); }
+.cluster-health-badge[data-tone="warning"] { color: var(--quasar-palette-warning); }
+.cluster-health-badge[data-tone="unhealthy"] { color: var(--quasar-palette-error); }
+.cluster-game-nodes { width: 100%; display: grid; grid-template-columns: repeat(var(--cluster-node-count), minmax(0, 1fr)); }
+.cluster-node-column { min-width: 0; padding: 0 8px; display: flex; flex-direction: column; }
+.cluster-node-column .cluster-process { flex: 1; }
+.cluster-edge-label { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; text-align: center; padding: 6px 0 12px; color: var(--quasar-palette-text-secondary); }
+.cluster-edge-label strong { color: var(--quasar-palette-text-primary); font-size: 13px; }
+.cluster-partition-label { padding: 12px 0 6px; }
+.cluster-map-links { display: block; width: 100%; flex: none; height: 64px; overflow: visible; }
+.cluster-map-links path { fill: none; stroke: var(--quasar-palette-success); vector-effect: non-scaling-stroke; }
+.cluster-map-links .cluster-link-spare { stroke-dasharray: 5 5; opacity: .6; }
+.cluster-world-links { height: 56px; }
+.cluster-world-links path { stroke: var(--quasar-palette-primary); stroke-dasharray: 5 5; }
+.cluster-map-empty { padding: 30px; }
+.cluster-map-hint { display: none; }
+.cluster-game-nodes:focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 2px; }
+.cluster-spare-label { color: var(--quasar-palette-info); font-weight: 600; }
+.cluster-resources { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.cluster-cpu { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cluster-cpu-bars { display: flex; gap: 3px; height: 28px; align-items: stretch; }
+.cluster-cpu-bars > span { display: flex; width: 10px; align-items: flex-end; border-radius: 2px; overflow: hidden; background: color-mix(in srgb, var(--quasar-palette-primary) 12%, var(--quasar-palette-background)); }
+.cluster-cpu-bars i { display: block; width: 100%; background: var(--quasar-palette-primary); }
+.cluster-service-table code { white-space: nowrap; }
+.cluster-service-table small { display: block; }
+@media (max-width: 600px) {
+    .cluster-health-totals { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cluster-health-totals > div { padding: 12px; }
+    .cluster-health-totals > div:nth-child(3) { border-left: 0; }
+    .cluster-health-totals > div:nth-child(n+3) { border-top: 1px solid var(--quasar-palette-divider); }
+}
+@media (max-width: 900px) {
+    .cluster-map { min-width: 0; gap: 8px; }
+    .cluster-map-links { display: none; }
+    .cluster-map-hint { display: block; padding: 8px; }
+    .cluster-game-nodes { display: flex; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 8px; }
+    .cluster-node-column { flex: 0 0 216px; scroll-snap-align: start; }
+}
 .quasar-console-toolbar { align-items: center; padding: 12px 14px; border: 1px solid var(--quasar-palette-lines-default); border-bottom: 0; border-radius: 5px 5px 0 0; background: var(--quasar-palette-surface); }
 .quasar-console-toolbar .quasar-field { min-width: 220px; }
 .quasar-console-meta { min-width: 0; flex: 1; }

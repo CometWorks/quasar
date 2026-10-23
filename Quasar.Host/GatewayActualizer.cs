@@ -95,7 +95,7 @@ internal sealed class GatewayActualizer
             if (DateTimeOffset.UtcNow - record.LaunchedAt > StableAfter)
                 lock (_respawns) _respawns.Remove(spec.ClusterId);
             return Status(spec, HostContract.GatewayObservedState.Running,
-                record.ProcessId, record.LaunchedAt, null);
+                record.ProcessId, record.LaunchedAt, null) with { Metrics = SampleMetrics(spec.ClusterId, process) };
         }
 
         if (record is not null && match.State == ProcessMatchState.Missing
@@ -177,6 +177,32 @@ internal sealed class GatewayActualizer
     private readonly Dictionary<string, Respawn> _respawns = new(StringComparer.OrdinalIgnoreCase);
     // Output of the Gateways this Host process started; guarded by _gate.
     private readonly Dictionary<string, ProcessOutputTail> _outputs = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (int Pid, DateTime Started, long Timestamp, TimeSpan Cpu)> _cpuSamples = new(StringComparer.OrdinalIgnoreCase);
+
+    private HostContract.GatewayProcessMetrics? SampleMetrics(string clusterId, Process process)
+    {
+        try
+        {
+            process.Refresh();
+            long timestamp = Stopwatch.GetTimestamp();
+            var started = process.StartTime.ToUniversalTime();
+            var cpu = process.TotalProcessorTime;
+            double? percent = null;
+            if (_cpuSamples.TryGetValue(clusterId, out var previous) && previous.Pid == process.Id && previous.Started == started)
+            {
+                double elapsed = Stopwatch.GetElapsedTime(previous.Timestamp, timestamp).TotalSeconds;
+                if (elapsed > 0 && cpu >= previous.Cpu)
+                    percent = (cpu - previous.Cpu).TotalSeconds / elapsed * 100;
+            }
+            _cpuSamples[clusterId] = (process.Id, started, timestamp, cpu);
+            return new(DateTimeOffset.UtcNow, percent, process.WorkingSet64);
+        }
+        catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception or NotSupportedException)
+        {
+            _cpuSamples.Remove(clusterId);
+            return null;
+        }
+    }
     private sealed record Respawn(string SpecKey, int Attempts, long NotBefore);
 
     private void DropOutput(string clusterId)

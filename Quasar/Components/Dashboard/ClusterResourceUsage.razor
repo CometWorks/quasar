@@ -1,0 +1,24 @@
+@using System.Globalization
+
+<div class="cluster-resources">
+    <span>@(MemoryBytes is >= 0 ? $"{MemoryBytes / 1073741824d:0.0} GB RAM" : "RAM unavailable")</span>
+    @if (CpuPercent is { } cpu && double.IsFinite(cpu) && cpu >= 0)
+    {
+        <div class="cluster-cpu" role="img" aria-label="@($"CPU {cpu:0}% of one core, {cpu / 100:0.00} core equivalents")">
+            <span class="cluster-cpu-bars" aria-hidden="true">
+                @for (int core = 0; core < 4; core++)
+                {
+                    <span><i style="@($"height:{Math.Clamp(cpu - core * 100, 0, 100).ToString("0.##", CultureInfo.InvariantCulture)}%")"></i></span>
+                }
+            </span>
+            <span>@cpu.ToString("0")% CPU</span>
+            @if (cpu > 400) { <small>+@((cpu / 100 - 4).ToString("0.0")) cores</small> }
+        </div>
+    }
+    else { <span class="quasar-muted">CPU unavailable</span> }
+</div>
+
+@code {
+    [Parameter] public double? CpuPercent { get; set; }
+    [Parameter] public long? MemoryBytes { get; set; }
+}
