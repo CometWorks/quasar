@@ -9,7 +9,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Quasar.Agent;
 using Quasar.Host.Contract.V1;
 using Quasar.Services;
 using Quasar.Services.PluginSdk;
@@ -191,8 +193,7 @@ public sealed class AgentSocketAuthTests : IDisposable
         Assert.Equal(2, _registry.GetAgents().Count(a => a.IsConnected));
     }
 
-    [Fact]
-    public async Task SocketRequiresAValidTokenAndOneConnectionPerServer()
+    private async Task<WebApplication> StartAppAsync(ILogger<AgentSocketHandler>? logger = null)
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
@@ -207,14 +208,22 @@ public sealed class AgentSocketAuthTests : IDisposable
         );
         builder.Services.AddSingleton<DedicatedServerSupervisor>(_ => null!);
         builder.Services.AddSingleton<PluginLogStream>();
+        if (logger is not null) builder.Services.AddSingleton(logger);
         builder.Services.AddSingleton<AgentSocketHandler>();
-        await using var app = builder.Build();
+        var app = builder.Build();
         app.UseWebSockets();
         app.Map(
             "/ws/agent",
             (HttpContext context, AgentSocketHandler handler) => handler.HandleAsync(context)
         );
         await app.StartAsync();
+        return app;
+    }
+
+    [Fact]
+    public async Task SocketRequiresAValidTokenAndOneConnectionPerServer()
+    {
+        await using var app = await StartAppAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         var url = new Uri("ws://localhost/ws/agent");
 
@@ -295,5 +304,126 @@ public sealed class AgentSocketAuthTests : IDisposable
         Assert.Contains("pong", Encoding.UTF8.GetString(reply, 0, response.Count), StringComparison.OrdinalIgnoreCase);
         Assert.Equal(2, _registry.GetAgents().Count(a => a.IsConnected));
         await app.StopAsync(deadline.Token);
+    }
+
+    [Fact]
+    public async Task LargeCompanionReplyAndOversizedReplyErrorKeepAgentConnected()
+    {
+        await using var app = await StartAppAsync();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var host = await _hosts.RegisterAsync("one", "One", "10.42.0.12", 18400, deadline.Token);
+        var hello = ClusterNode("one");
+        var token = AgentSocketToken.ForNode(AgentSocketToken.ForHost(_credentials.Resolve(host.CredentialReference)!),
+            hello.ClusterId, hello.ClusterSlot, hello.ClusterNodeId, hello.ClusterNodeRole, hello.ClusterLaunchAttempt);
+        var client = app.GetTestServer().CreateWebSocketClient();
+        client.SubProtocols.Add("quasar.agent.v1");
+        client.ConfigureRequest = request => request.Headers.Add(AgentSocketToken.HeaderName, token);
+        using var socket = await client.ConnectAsync(new Uri("ws://localhost/ws/agent"), deadline.Token);
+        async Task Send(AgentWireMessage message) => await socket.SendAsync(
+            AgentConnection.SerializeMessage(message), WebSocketMessageType.Text, true, deadline.Token);
+        await Send(new() { Kind = WireMessageKind.Hello, Hello = hello });
+
+        async Task Ping()
+        {
+            await Send(new() { Kind = WireMessageKind.Ping });
+            var buffer = new byte[4096];
+            var reply = await socket.ReceiveAsync(buffer, deadline.Token);
+            Assert.Equal(WebSocketMessageType.Text, reply.MessageType);
+            Assert.Contains("pong", Encoding.UTF8.GetString(buffer, 0, reply.Count));
+            Assert.True(_registry.GetAgents().Single().IsConnected);
+        }
+        await Ping(); // Hello authentication completed before issuing a command.
+
+        async Task<ServerCommandResult> Reply(string payload)
+        {
+            var command = new ServerCommandEnvelope { AgentId = hello.AgentId, CommandType = ServerCommandType.PluginRequest };
+            var pending = _registry.SendCommandAndWaitAsync(command, TimeSpan.FromSeconds(20), deadline.Token);
+            var received = await socket.ReceiveAsync(new byte[4096], deadline.Token);
+            Assert.Equal(WebSocketMessageType.Text, received.MessageType);
+            await Send(new()
+            {
+                Kind = WireMessageKind.CommandResult,
+                CommandResult = new()
+                {
+                    CommandId = command.CommandId, AgentId = hello.AgentId,
+                    Success = true, Payload = payload,
+                },
+            });
+            return await pending;
+        }
+
+        // The real agent serializer wraps the companion JSON twice. 12 MiB of binary data
+        // already exceeds the old 16 MiB wire limit before any scene metadata is added.
+        var scene = System.Text.Json.JsonSerializer.Serialize(new { content = new byte[12 * 1024 * 1024] });
+        var companion = System.Text.Json.JsonSerializer.Serialize(new CompanionPluginResponse { Success = true, PayloadJson = scene });
+        Assert.True(Encoding.UTF8.GetByteCount(companion) > 16 * 1024 * 1024);
+        var result = await Reply(companion);
+        Assert.True(result.Success);
+        Assert.Equal(companion, result.Payload);
+        await Ping();
+
+        // UTF-8 byte size matters: this string has fewer characters than the wire limit.
+        var oversized = new string('\u0800', AgentMessageLimits.MessageBytes / 3 + 1);
+        var rejected = await Reply(oversized);
+        Assert.False(rejected.Success);
+        Assert.Empty(rejected.Payload);
+        Assert.Contains("response is too large", rejected.Message);
+        await Ping();
+        await app.StopAsync(deadline.Token);
+    }
+
+    [Theory]
+    [InlineData("json", WebSocketCloseStatus.InvalidPayloadData, "malformed agent JSON")]
+    [InlineData("binary", WebSocketCloseStatus.InvalidMessageType, "text frames")]
+    [InlineData("large-hello", WebSocketCloseStatus.MessageTooBig, "65536-byte limit")]
+    [InlineData("large-authenticated", WebSocketCloseStatus.MessageTooBig, "67108864-byte limit")]
+    public async Task InvalidMessagesAreRejectedWithSafeDiagnostics(string kind, WebSocketCloseStatus status, string reason)
+    {
+        var logger = new RecordingLogger();
+        await using var app = await StartAppAsync(logger);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        const string secret = "private-payload-value";
+        var client = app.GetTestServer().CreateWebSocketClient();
+        client.SubProtocols.Add("quasar.agent.v1");
+        client.ConfigureRequest = request => request.Headers.Add(AgentSocketToken.HeaderName, _authenticator.ForServer("alpha"));
+        using var socket = await client.ConnectAsync(new Uri("ws://localhost/ws/agent"), deadline.Token);
+        if (kind == "large-authenticated")
+        {
+            await socket.SendAsync(AgentConnection.SerializeMessage(new() { Kind = WireMessageKind.Hello, Hello = Standalone("alpha") }),
+                WebSocketMessageType.Text, true, deadline.Token);
+            await socket.SendAsync(AgentConnection.SerializeMessage(new() { Kind = WireMessageKind.Ping }),
+                WebSocketMessageType.Text, true, deadline.Token);
+            await socket.ReceiveAsync(new byte[4096], deadline.Token);
+            var fragment = Encoding.UTF8.GetBytes(new string('x', 16 * 1024));
+            for (var sent = 0; sent <= AgentMessageLimits.MessageBytes; sent += fragment.Length)
+                await socket.SendAsync(fragment, WebSocketMessageType.Text, sent == AgentMessageLimits.MessageBytes, deadline.Token);
+        }
+        else
+        {
+            var data = kind == "large-hello"
+                ? new string('x', AgentMessageLimits.HelloBytes) + secret
+                : "{\"kind\":\"" + secret + "\",\"hello\":{\"processId\":\"" + secret + "\"}}";
+            await socket.SendAsync(Encoding.UTF8.GetBytes(data), kind == "binary" ? WebSocketMessageType.Binary : WebSocketMessageType.Text,
+                true, deadline.Token);
+        }
+        var close = await socket.ReceiveAsync(new byte[4096], deadline.Token);
+        Assert.Equal(WebSocketMessageType.Close, close.MessageType);
+        Assert.Equal(status, socket.CloseStatus);
+        // The close frame can arrive just before the handler's finally block updates the registry.
+        while (_registry.GetAgents().Any(agent => agent.IsConnected))
+            await Task.Delay(10, deadline.Token);
+        Assert.DoesNotContain(_registry.GetAgents(), agent => agent.IsConnected);
+        Assert.Contains(logger.Messages, message => message.Contains(reason, StringComparison.Ordinal));
+        Assert.All(logger.Messages, message => Assert.DoesNotContain(secret, message));
+        await app.StopAsync(deadline.Token);
+    }
+
+    private sealed class RecordingLogger : ILogger<AgentSocketHandler>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Messages { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            => Messages.Enqueue(formatter(state, exception));
     }
 }

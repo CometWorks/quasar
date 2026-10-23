@@ -176,7 +176,10 @@ namespace Quasar.Agent
                                     pluginLogTask,
                                     receiveTask).ConfigureAwait(false);
 
-                                if (socket.CloseStatus == WebSocketCloseStatus.PolicyViolation)
+                                if (socket.CloseStatus == WebSocketCloseStatus.PolicyViolation
+                                    || socket.CloseStatus == WebSocketCloseStatus.MessageTooBig
+                                    || socket.CloseStatus == WebSocketCloseStatus.InvalidPayloadData
+                                    || socket.CloseStatus == WebSocketCloseStatus.InvalidMessageType)
                                     Log($"Quasar refused the connection: {socket.CloseStatusDescription}");
                             }
                             finally
@@ -442,8 +445,7 @@ namespace Quasar.Agent
 
         private async Task SendAsync(ClientWebSocket socket, AgentWireMessage message, CancellationToken cancellationToken)
         {
-            var json = JsonConvert.SerializeObject(message, JsonSettings);
-            var payload = Encoding.UTF8.GetBytes(json);
+            var payload = SerializeMessage(message);
 
             await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
             try
@@ -458,6 +460,40 @@ namespace Quasar.Agent
             {
                 _sendLock.Release();
             }
+        }
+
+        internal static byte[] SerializeMessage(AgentWireMessage message)
+        {
+            var json = JsonConvert.SerializeObject(message, JsonSettings);
+            var maximumBytes = message.Kind == WireMessageKind.Hello
+                ? AgentMessageLimits.HelloBytes : AgentMessageLimits.MessageBytes;
+            var byteCount = Encoding.UTF8.GetByteCount(json);
+            if (byteCount > maximumBytes && message.Kind == WireMessageKind.CommandResult && message.CommandResult != null)
+            {
+                // A large optional companion response must not take telemetry and lifecycle control offline.
+                var result = message.CommandResult;
+                message = new AgentWireMessage
+                {
+                    Kind = WireMessageKind.CommandResult,
+                    CommandResult = new ServerCommandResult
+                    {
+                        CommandId = result.CommandId,
+                        UniqueName = result.UniqueName,
+                        AgentId = result.AgentId,
+                        ServerId = result.ServerId,
+                        CompletedAtUtc = result.CompletedAtUtc,
+                        Success = false,
+                        Message = $"Agent command response is too large ({byteCount} bytes; limit {maximumBytes} bytes).",
+                    },
+                };
+                json = JsonConvert.SerializeObject(message, JsonSettings);
+                byteCount = Encoding.UTF8.GetByteCount(json);
+            }
+
+            if (byteCount > maximumBytes)
+                throw new InvalidDataException($"Agent message is too large ({byteCount} bytes; limit {maximumBytes} bytes).");
+
+            return Encoding.UTF8.GetBytes(json);
         }
 
         private static async Task<AgentWireMessage> ReceiveAsync(ClientWebSocket socket, CancellationToken cancellationToken)
