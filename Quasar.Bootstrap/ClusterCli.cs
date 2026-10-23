@@ -197,6 +197,7 @@ internal static class ClusterCli
             "list" when values.Length == 1 => "/api/v1/clusters",
             "create" when values.Length == 2 => "/api/v1/clusters/",
             "deployment-prepare" when values.Length == 3 => ClusterRoute("deployment-preparation"),
+            "release-update-prepare" when values.Length == 2 => ClusterRoute("release-update-preparation"),
             "backups" when values.Length == 2 => ClusterRoute("backups"),
             "backup" when values.Length == 3 => ClusterRoute("backups"),
             "restore" when values.Length == 3 => ClusterRoute("restore"),
@@ -279,7 +280,7 @@ internal static class ClusterCli
             body = new { goal };
             mutation = true;
         }
-        else if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon")
+        else if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "release-update-prepare")
         {
             body = new { };
             mutation = true;
@@ -311,7 +312,7 @@ internal static class ClusterCli
         }
 
         request = new HttpRequestMessage(mutation ? HttpMethod.Put : HttpMethod.Get, baseUrl + route);
-        if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "command" or "create" or "deployment-prepare" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server") request.Method = HttpMethod.Post;
+        if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "release-update-prepare" or "command" or "create" or "deployment-prepare" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server") request.Method = HttpMethod.Post;
         if (body != null) request.Content = JsonContent.Create(body, options: JsonOptions);
         return true;
     }
@@ -385,7 +386,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,
