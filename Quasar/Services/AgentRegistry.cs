@@ -430,6 +430,30 @@ public sealed class AgentRegistry
             && state.IsConnected && state.ConnectionId == connectionId;
     }
 
+    // Maps Analytics source keys (AgentRuntimeState.AnalyticsKey) to the telemetry keys they merge: a
+    // cluster slot covers every node instance and epoch that served it. Other keys map to themselves.
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ExpandAnalyticsKeys(IEnumerable<string> analyticsKeys)
+    {
+        var expanded = analyticsKeys
+            .Where(key => !string.IsNullOrWhiteSpace(key))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(key => key, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+        lock (_sync)
+        {
+            foreach (var state in _agents.Values)
+            {
+                if (expanded.TryGetValue(state.AnalyticsKey, out var members) &&
+                    !members.Contains(state.TelemetryKey, StringComparer.OrdinalIgnoreCase))
+                    members.Add(state.TelemetryKey);
+            }
+        }
+
+        return expanded.ToDictionary(
+            pair => pair.Key,
+            pair => (IReadOnlyList<string>)(pair.Value.Count > 0 ? pair.Value : [pair.Key]),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
     public bool TryGetTelemetryKey(string connectionId, out string key)
     {
         lock (_sync)
@@ -492,6 +516,11 @@ public sealed class AgentRuntimeState
     public string TelemetryKey => !IsCluster ? UniqueNameKey : "cluster-" + Convert.ToHexString(
         System.Security.Cryptography.SHA256.HashData(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
             new { ClusterId, ClusterSlot, ClusterNodeId, ClusterEpoch, Process = HasClusterIdentity ? null : AgentId }))).ToLowerInvariant();
+
+    // Analytics charts a cluster slot as one source, so its node instances and epochs share this key.
+    public string AnalyticsKey => !IsCluster || ClusterId.Length == 0 || ClusterSlot.Length == 0 ? TelemetryKey
+        : "cluster-slot-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+            System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { ClusterId, ClusterSlot }))).ToLowerInvariant();
 
     public string UniqueNameKey => Snapshot?.UniqueName ?? Hello?.UniqueName ?? ServerKey;
 

@@ -59,6 +59,44 @@ public sealed class ClusterAgentIdentityTests : IDisposable
     }
 
     [Fact]
+    public void AnalyticsMergesEveryIncarnationOfASlotIntoOneSeries()
+    {
+        var registry = Registry();
+        var moved = Hello(301, "new");
+        moved.ClusterNodeId = "node-b";
+        var otherSlot = Hello(1, "other");
+        otherSlot.ClusterSlot = "slot-b";
+        registry.UpsertHello(Hello(300, "old"), "old", Sender);
+        registry.UpsertHello(moved, "new", Sender);
+        registry.UpsertHello(otherSlot, "other", Sender);
+        var agents = registry.GetAgents();
+        var old = agents.Single(agent => agent.AgentId == "old");
+        var current = agents.Single(agent => agent.AgentId == "new");
+        var other = agents.Single(agent => agent.AgentId == "other");
+        Assert.NotEqual(old.TelemetryKey, current.TelemetryKey);
+        Assert.Equal(old.AnalyticsKey, current.AnalyticsKey);
+        Assert.NotEqual(old.AnalyticsKey, other.AnalyticsKey);
+        Assert.Equal("standalone", new AgentRuntimeState { Hello = new() { UniqueName = "standalone" } }.AnalyticsKey);
+
+        var expanded = registry.ExpandAnalyticsKeys([old.AnalyticsKey, "standalone"]);
+        Assert.Equal(new[] { old.TelemetryKey, current.TelemetryKey }.Order(), expanded[old.AnalyticsKey].Order());
+        Assert.Equal(["standalone"], expanded["standalone"]);
+
+        // Both epochs land in one series under the slot key, not one series per incarnation.
+        foreach (var (key, timestamp) in new[] { (old.TelemetryKey, 1000L), (current.TelemetryKey, 1002L) })
+        {
+            var sample = new MetricSample(timestamp, 1, 155, 1024, 16.67f, 0, 0, 0, 0, null);
+            _metrics.Enqueue(key, sample);
+            _metrics.GetStore(key)!.Ingest(sample);
+        }
+        var chart = Assert.Single(new AnalyticsSeriesService(_metrics, new(), new(), registry)
+            .Build(1000, 1003, [old.AnalyticsKey], ["cpu"], 1000).Charts);
+        var series = Assert.Single(chart.Series);
+        Assert.Equal(old.AnalyticsKey, series.UniqueName);
+        Assert.Equal(new double?[] { 155, 155 }, series.Y);
+    }
+
+    [Fact]
     public void ClusterAgentCannotSignalStandaloneLifecycleOrChangeEpochOnConnection()
     {
         var registry = Registry();

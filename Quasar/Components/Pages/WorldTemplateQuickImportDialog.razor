@@ -485,6 +485,7 @@
         newProfile.SourceWorldTemplateId = worldTemplateId;
         newProfile.Name = _newProfileName.Trim();
         newProfile.Description = _newProfileDescription?.Trim() ?? string.Empty;
+        QuasarDefaultPlugins.Apply(newProfile, enable: true);
 
         await ResolveProfileModDependenciesAsync(newProfile);
         await ConfigProfiles.UpsertAsync(newProfile);

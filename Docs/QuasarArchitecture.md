@@ -82,8 +82,10 @@ match a standalone definition. Registry fleet matching still requires the exact
 cluster, slot, node and epoch; catalog ownership alone does not verify readiness.
 
 Analytics, profiler samples, plugin statistics and logs use the node's incarnation
-telemetry key. Analytics labels include cluster, slot, node and epoch; replacements
-have separate series. Chat selects node observations by incarnation and disables
+telemetry key. The Analytics page merges them per slot: it offers one
+`cluster / slot` source per cluster slot, and its charts draw every node instance
+and epoch that served the slot as one series (`AgentRuntimeState.AnalyticsKey`,
+expanded by `AgentRegistry.ExpandAnalyticsKeys`). Chat selects node observations by incarnation and disables
 standalone save/restart controls for them. Known Players excludes cluster processes;
 cluster player moderation uses cluster details, and cluster chat delivery uses the
 SDK bridge. Per-node plugin observations remain read-only;
