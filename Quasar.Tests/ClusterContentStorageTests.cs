@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.ClusterDeployment;
 using Quasar.Host.Contract.V1;
 using Quasar.Models;
@@ -111,6 +113,66 @@ public sealed class ClusterContentStorageTests : IDisposable
         first.Dispose();
         using var collection = await waiting.WaitAsync(TimeSpan.FromSeconds(30));
         Assert.Null(ClusterStorageActivity.TryBegin());
+    }
+
+    // #1423: every reconciler lease ends in Idle. A collection started then takes the Writer when the next
+    // lease is released, so TryBegin of the cluster after it failed on every 2 s pass: the third cluster
+    // of a fresh setup ignored its goal On and kept a stale lifecycle for hours.
+    [Fact]
+    public async Task IdleCollectionDoesNotStarveTheReconcilersLaterClusters()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(
+                new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
+        string[] names = ["a", "b", "c"];
+        foreach (string name in names)
+            await catalog.CreateAsync(new(name, name, "http://127.0.0.1:1", "TOKEN"), default);
+        using var maintenance = new ClusterStorageMaintenance(catalog,
+            new ClusterDependencyService(() => [], Path.Combine(root, "dependencies"), null!),
+            new ClusterHostClient(new HttpClient()), new WebServiceOptions { BackupDirectory = Path.Combine(root, "backups") },
+            NullLogger<ClusterStorageMaintenance>.Instance);
+        await maintenance.StartAsync(default);
+        try
+        {
+            await Task.Delay(500); // The start-up collection.
+            var reconciled = names.ToDictionary(name => name, _ => 0);
+            for (int pass = 0; pass < 20; pass++)
+            {
+                foreach (string name in names)
+                    await catalog.TryWithLifecycleAsync(name, async _ => { await Task.Delay(5); reconciled[name]++; }, default);
+                await Task.Delay(50);
+            }
+            Assert.All(names, name => Assert.True(reconciled[name] >= 18, $"{name} reconciled {reconciled[name]} of 20 passes"));
+        }
+        finally { await maintenance.StopAsync(default); }
+    }
+
+    [Fact]
+    public async Task IdleCollectsOnlyAfterStorageChanged()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
+        string dependencies = Path.Combine(root, "dependencies");
+        using var maintenance = new ClusterStorageMaintenance(catalog, new ClusterDependencyService(() => [], dependencies, null!),
+            new ClusterHostClient(new HttpClient()), new WebServiceOptions { BackupDirectory = Path.Combine(root, "backups") },
+            NullLogger<ClusterStorageMaintenance>.Instance);
+        await maintenance.StartAsync(default);
+        try
+        {
+            await Task.Delay(500); // The start-up collection.
+            // A collection that does work removes abandoned staging folders; one left in place shows that none did.
+            string stage = Directory.CreateDirectory(Path.Combine(dependencies, ".stage-test")).FullName;
+            (await ClusterStorageActivity.BeginAsync(default)).Dispose();
+            await Task.Delay(300);
+            Assert.True(Directory.Exists(stage));
+            ClusterStorageActivity.MarkChanged();
+            (await ClusterStorageActivity.BeginAsync(default)).Dispose();
+            for (int i = 0; i < 50 && Directory.Exists(stage); i++) await Task.Delay(100);
+            Assert.False(Directory.Exists(stage));
+        }
+        finally { await maintenance.StopAsync(default); }
     }
 
     [Fact]

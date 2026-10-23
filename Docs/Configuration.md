@@ -1469,7 +1469,8 @@ lists the seed's `Storage/` files and their SHA-256.
 The World Authority's mod Storage is canonical (#1281). Before each node process starts, the Host
 (`ModStorageSeed`) builds the World Authority's world `Storage` from its `premade-world/Storage` with its
 `Saves/<world>/Storage` files on top, and makes the starting node's `premade-world/Storage` and
-`Saves/<world>/Storage` (if that saved world exists) exact copies of it; for a regular node it also makes
+`Saves/<world>/Storage` exact copies of it. `Saves/<world>/Storage` is created on a node's first start too,
+because mods read world storage there from their first `LoadData` on (#1349). For a regular node it also makes
 `data/Storage` (local and global mod storage) a copy of the World Authority's. A node's own writes do not
 survive its restart. A Host whose bundle has no World Authority slot leaves its nodes' Storage alone.
 

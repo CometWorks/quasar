@@ -26,9 +26,9 @@ internal static class ManagedPreparation
         {
             // The packaged generator edits its copied checkpoint/configuration. Give
             // copytree writable copies while keeping shared snapshot objects read-only.
+            // It only copies the mods (#1397): they stay the read-only input instead of a
+            // second 1.7 GB copy in the temporary folder, which is RAM on a tmpfs host.
             await ClusterWorldFiles.CopyAsync(request.WorldDirectory, Path.Combine(mutableInputs, "world"), token);
-            if (request.ModDirectory is { } modInput)
-                await ClusterWorldFiles.CopyAsync(modInput, Path.Combine(mutableInputs, "mods"), token);
             await File.WriteAllBytesAsync(temporary, specification, token);
             var start = new ProcessStartInfo("python3") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
             start.ArgumentList.Add("-B"); // Imports must not write bytecode into the verified package.
@@ -36,7 +36,7 @@ internal static class ManagedPreparation
                 "prepare", "--spec", temporary, "--sha256", request.SpecificationSha256, "--host", hostId,
                 "--world", Path.Combine(mutableInputs, "world"), "--destination", request.ConfigurationDirectory }) start.ArgumentList.Add(value);
             if (request.ModDirectory is { } mods)
-            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(Path.Combine(mutableInputs, "mods")); }
+            { start.ArgumentList.Add("--mods"); start.ArgumentList.Add(Path.GetFullPath(mods)); }
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start packaged preparation.");
             var output = process.StandardOutput.ReadToEndAsync(token);
             var error = process.StandardError.ReadToEndAsync(token);

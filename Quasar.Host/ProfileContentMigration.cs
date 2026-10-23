@@ -84,6 +84,8 @@ internal static class ProfileContentMigration
     private static void PatchDirectory(string directory, XDocument desired)
     {
         if (!Directory.Exists(directory)) return;
+        // A node that stopped before its first save has only the mod Storage seeded for its first start (#1349).
+        if (Directory.EnumerateFileSystemEntries(directory).All(entry => Path.GetFileName(entry) == "Storage")) return;
         if (!File.Exists(Path.Combine(directory, "Sandbox.sbc")))
             throw new InvalidDataException("Existing managed world has no checkpoint: " + directory);
         foreach (string name in new[] { "Sandbox.sbc", "Sandbox_config.sbc" })
@@ -140,9 +142,13 @@ internal static class ProfileContentMigration
                     string source = Path.Combine(config, Relative(pin.Key));
                     string destination = Path.Combine(staging, id + ".sbm", relative);
                     Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
-                    using (var input = File.OpenRead(source))
-                    using (var output = new FileStream(destination, FileMode.CreateNew))
-                    { input.CopyTo(output); output.Flush(true); }
+                    // #1397: the node only reads its mods, so it shares the read-only store object.
+                    if (!Quasar.ClusterDeployment.ClusterContentStore.TryLinkReadOnly(source, destination))
+                    {
+                        using var input = File.OpenRead(source);
+                        using var output = new FileStream(destination, FileMode.CreateNew);
+                        input.CopyTo(output); output.Flush(true);
+                    }
                     using var check = File.OpenRead(destination);
                     if (!Convert.ToHexString(SHA256.HashData(check)).Equals(pin.Value, StringComparison.OrdinalIgnoreCase))
                         throw new CryptographicException("Mod payload changed during migration.");

@@ -97,6 +97,17 @@ internal sealed class ClusterContentStore : IDisposable
         }
     }
 
+    // #1397: hard-links a read-only file (a store object, or a configuration file that references one) instead of
+    // copying it, for payloads a process only reads, such as every node's mods (1.7 GB per process otherwise).
+    // False when it cannot: not Linux, a writable or symbolic-link source, another device, the link limit.
+    internal static bool TryLinkReadOnly(string source, string destination)
+    {
+        if (!OperatingSystem.IsLinux() || (File.GetAttributes(source) & FileAttributes.ReparsePoint) != 0
+            || (File.GetUnixFileMode(source) & (UnixFileMode.UserWrite | UnixFileMode.GroupWrite | UnixFileMode.OtherWrite)) != 0)
+            return false;
+        return Link(source, destination) == 0;
+    }
+
     internal static uint ReferenceCount(string path)
     {
         if (Statx(-100, path, 0x100, 4, out var data) != 0 || (data.Mask & 4) == 0)

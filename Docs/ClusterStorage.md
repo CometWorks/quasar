@@ -9,6 +9,11 @@ dependency snapshots, mod versions and generated configurations share their obje
 Linux hard links preserve the existing package directory layout without following symbolic
 links. The objects and references are read-only. Mutable runtime worlds and configuration
 receive independent writable copies; saving a game cannot modify a deployment snapshot.
+Node mods are the exception: a server process only reads them, so each node's `Mods`
+folder (and the runtime `world/Mods`) holds hard links to the read-only objects instead of
+a 1.7 GB copy per process. Files a server adds there (`.sbcB5` prefab caches, extracted
+legacy Workshop archives) are new files of that node; a read-only object refuses writes.
+On another filesystem, or for a writable seed file, the Host copies as before.
 
 Quasar uses `ManagedRuntime/Tools/.objects`; each Host uses
 `state/conversions/.objects`. These are separate distribution endpoints. A different
@@ -47,6 +52,20 @@ Completed setup/conversion deletes temporary installation trees and transfer arc
 Abandoned `ClusterUpdates` work directories are removed when no storage workflow is active.
 Published package download caches and deliberately retained runtime recovery copies have
 separate lifetimes; this collector does not delete them.
+
+## Cluster backups
+
+A Host snapshot leaves out what a restore does not need: the profile-pinned `Mods` folder of
+every node, which activating the restored deployment writes again from its bundle (a
+restore always activates a newly prepared revision), and the cluster plugin's
+`data/cluster/handover-diff` dumps, which are diagnostics. The snapshot manifest lists the
+left-out mod folders (`rebuiltMods`); a restore refuses a candidate deployment that does not
+pin mods for those nodes.
+
+Scheduled backups follow the Servers backup rule's retention. The pre-update backup of each
+managed update and the backup a conversion takes are recorded with their purpose
+(`purpose`: `update` or `conversion`) and Quasar keeps the newest 3 of each per cluster.
+Backups taken before this, and manual backups, are never pruned.
 
 ## Combined updates and transfer
 

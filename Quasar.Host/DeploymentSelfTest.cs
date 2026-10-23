@@ -17,6 +17,7 @@ internal static class DeploymentSelfTest
         ConfigurationReferenceRetention();
         SteamClientLibraryInstallation();
         OnlineSnapshot();
+        ModLinksAndLeanSnapshots();
         Assert(HostShutdown.ParseSystemdSeconds("2min") == 120 && HostShutdown.ParseSystemdSeconds("1min 30s") == 90
             && HostShutdown.ParseSystemdSeconds("500ms\n") == 0.5 && HostShutdown.ParseSystemdSeconds("infinity") is null
             && HostShutdown.ParseSystemdSeconds("5s junk") is null, "systemd time span parsing");
@@ -165,6 +166,102 @@ internal static class DeploymentSelfTest
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
+    // #1397: a node's mods are hard links to the read-only seed (a store object in production); a snapshot leaves
+    // them out with the handover-diff dumps, and activating the restored deployment writes them again.
+    private static void ModLinksAndLeanSnapshots()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string root = Path.Combine(Path.GetTempPath(), "host-mod-links-" + Guid.NewGuid().ToString("N"));
+        string runtime = Path.Combine(root, "runtime"), state = Path.Combine(root, "state"), slot = "node-1";
+        string data = Path.Combine(runtime, "nodes", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(slot))[..24], "data");
+        string variable = "QUASAR_TEST_MOD_LINKS_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(variable + "_OLD", "old-fixture-token");
+        Environment.SetEnvironmentVariable(variable + "_NEW", "new-fixture-token");
+        const string Settings = "<MyObjectBuilder_Checkpoint><Settings><SyncDistance>3000</SyncDistance></Settings>"
+            + "<Mods><ModItem><Name>111.sbm</Name><PublishedFileId>111</PublishedFileId></ModItem></Mods></MyObjectBuilder_Checkpoint>";
+        try
+        {
+            (string Path, string Hash) Bundle(string revision, bool pinsMods = true)
+            {
+                string config = Path.Combine(root, revision);
+                var files = new Dictionary<string, string>
+                {
+                    ["seed/world/Sandbox.sbc"] = Settings, [$"seed/{slot}/ClusterNode.cfg"] = "node settings",
+                    [$"seed/{slot}/Mods/111.sbm/Data.sbc"] = "mod payload",
+                };
+                foreach (var (relative, text) in files)
+                {
+                    string file = Path.Combine(config, relative);
+                    Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+                    File.WriteAllText(file, text);
+                }
+                // Production seeds reference read-only store objects (ClusterContentStore.AdoptAsync).
+                File.SetUnixFileMode(Path.Combine(config, $"seed/{slot}/Mods/111.sbm/Data.sbc"), UnixFileMode.UserRead | UnixFileMode.GroupRead);
+                var node = new NodeSpawnSpec(slot, Admin.NodeRole.Regular, slot, "unused", "", [],
+                    new() { ["CLUSTER_WORLD_ID"] = "world-1" }, []);
+                var manifest = new BundleManifest(1, revision, [], [node], RuntimeRoot: runtime,
+                    ConfigFiles: files.Keys.Select(relative => new BundleFile(relative, ExecutionBundle.Hash(File.ReadAllBytes(Path.Combine(config, relative))))).ToArray(),
+                    InitialDirectories: new() { [Path.GetRelativePath(runtime, data)] = $"seed/{slot}", ["world"] = "seed/world" },
+                    ClusterId: "cluster", HostId: "host",
+                    StorageFormats: new() { ["world"] = "test-v1", ["registry"] = "test-v1", ["plugins"] = "test-v1" },
+                    ProfileContent: pinsMods ? new("seed/world/Sandbox.sbc", ["111"], new() { [slot] = $"seed/{slot}/Mods" }) : null);
+                string path = Path.Combine(config, "bundle.json");
+                File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                return (path, ExecutionBundle.Hash(File.ReadAllBytes(path)));
+            }
+            var first = Bundle("first");
+            var attachments = new AttachmentStore(state, []);
+            var activation = new DeploymentActivation(state, "host", attachments, new GatewaySpecStore(state),
+                new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
+            var request = new HostContract.HostDeploymentActivation("cluster", null, first.Path, first.Hash,
+                "http://127.0.0.1:29416", variable + "_OLD");
+            activation.Apply(request);
+            ExecutionBundle.Load(first.Path, first.Hash).InitializeData("cluster");
+            string mod = Path.Combine(data, "Mods/111.sbm/Data.sbc");
+            Assert(File.ReadAllText(mod) == "mod payload" && Quasar.ClusterDeployment.ClusterContentStore.ReferenceCount(mod) == 2,
+                "the first seed copied a read-only mod file instead of linking it");
+            Assert(Quasar.ClusterDeployment.ClusterContentStore.ReferenceCount(Path.Combine(data, "ClusterNode.cfg")) == 1,
+                "the first seed linked a writable node file");
+            Directory.CreateDirectory(Path.Combine(data, "cluster/handover-diff"));
+            File.WriteAllText(Path.Combine(data, "cluster/handover-diff/7-a-source.xml.gz"), "diagnostic dump");
+            File.WriteAllText(Path.Combine(data, "Mods/111.sbm/Data.sbcB5"), "cache the DS wrote");
+
+            var snapshots = new DeploymentSnapshots(state, "host", attachments,
+                new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
+            var saved = snapshots.Capture(new("cluster", Guid.NewGuid(), first.Hash, new string('f', 64)));
+            var names = new List<string>();
+            using (var reader = new System.Formats.Tar.TarReader(File.OpenRead(snapshots.ArchivePath("cluster", saved.SnapshotId))))
+                while (reader.GetNextEntry() is { } entry) names.Add(entry.Name);
+            Assert(names.Any(name => name.EndsWith("/data/ClusterNode.cfg", StringComparison.Ordinal))
+                && names.Any(name => name.StartsWith("runtime/world/", StringComparison.Ordinal))
+                && !names.Any(name => name.Contains("/data/Mods") || name.Contains("handover-diff")),
+                "snapshot entries: " + string.Join(", ", names));
+
+            var bare = Bundle("bare", pinsMods: false);
+            try
+            {
+                snapshots.Restore(new("cluster", Guid.NewGuid(), saved.SnapshotId, saved.ArchiveSha256, bare.Path, bare.Hash, variable + "_NEW"), preview: true);
+                Assert(false, "a deployment that does not pin the mods restored a snapshot without them");
+            }
+            catch (InvalidDataException error) when (error.Message.Contains("does not pin")) { }
+            var restored = Bundle("restored");
+            snapshots.Restore(new("cluster", Guid.NewGuid(), saved.SnapshotId, saved.ArchiveSha256,
+                restored.Path, restored.Hash, variable + "_NEW"));
+            Assert(!Directory.Exists(Path.Combine(data, "Mods")) && File.ReadAllText(Path.Combine(data, "ClusterNode.cfg")) == "node settings",
+                "restore did not take the node data without its mods");
+            activation.Apply(request with { ExpectedBundleManifestSha256 = first.Hash, BundleManifestPath = restored.Path,
+                BundleManifestSha256 = restored.Hash, ExecutorTokenEnvironmentVariable = variable + "_NEW" });
+            Assert(File.ReadAllText(mod) == "mod payload" && Quasar.ClusterDeployment.ClusterContentStore.ReferenceCount(mod) == 2,
+                "activating the restored deployment did not link the node's mods again");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable + "_OLD", null);
+            Environment.SetEnvironmentVariable(variable + "_NEW", null);
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     // An online snapshot of a running Gateway Host: the registry copy replaces the live database, temporary
     // names, sockets and the export area stay out, and the one-pass archive ends with its manifest.
     private static void OnlineSnapshot()
@@ -190,6 +287,7 @@ internal static class DeploymentSelfTest
             Write("nodes/one/data/cluster/saves/P-1/.g1-s2.mps.node-1.0123.tmp", "in flight");
             Write("nodes/one/data/cluster/saves/P-1/g1-s3.mps.node-1.part", "partial");
             Write("nodes/one/data/node.log", "log");
+            Write("nodes/one/data/cluster/handover-diff/7-a-source.xml.gz", "diagnostic dump");
             Directory.CreateDirectory(Path.Combine(root, "config"));
             string path = Path.Combine(root, "config/bundle.json");
             var manifest = new BundleManifest(1, "revision-1", [], [], new GatewaySpawnSpec("gateway", "{runRoot}", [], []),
@@ -419,7 +517,10 @@ internal static class DeploymentSelfTest
             Assert(Same(Hashes(Path.Combine(node, "Storage")), Hashes(Path.Combine(wa, "Storage")))
                 && Same(Hashes(Path.Combine(fresh, "Storage")), Hashes(Path.Combine(wa, "Storage"))), "local and global Storage differ from the WA's");
             Assert(Hashes(Path.Combine(wa, "Storage")).Count == 2, "the WA's local and global Storage changed");
-            Assert(!Directory.Exists(Path.Combine(fresh, "Saves")), "seeding created a node's saved world");
+            // #1349: a node's mods read world Storage in Saves/<world> already in its first LoadData.
+            Assert(Same(Hashes(Path.Combine(fresh, "Saves/world-1/Storage")), canonical)
+                && Directory.EnumerateFileSystemEntries(Path.Combine(fresh, "Saves/world-1")).Count() == 1,
+                "a node's first start misses the WA's world Storage in its saved world");
             Assert(!Directory.EnumerateFileSystemEntries(node, "*.quasar-*", SearchOption.AllDirectories).Any()
                 && !Directory.EnumerateFileSystemEntries(wa, "*.quasar-*", SearchOption.AllDirectories).Any(), "seeding left work folders");
 
@@ -437,6 +538,9 @@ internal static class DeploymentSelfTest
             ModStorageSeed.Apply(manifest, nodes[1]);
             Assert(!Directory.Exists(Path.Combine(node, "Storage")) && !Directory.Exists(Path.Combine(node, "premade-world/Storage"))
                 && !Directory.Exists(Path.Combine(node, "Saves/world-1/Storage")), "Storage the WA does not have stayed on a node");
+            Directory.Delete(Path.Combine(fresh, "Saves"), true);
+            ModStorageSeed.Apply(manifest, nodes[2]);
+            Assert(!Directory.Exists(Path.Combine(fresh, "Saves/world-1")), "seeding no Storage created a node's saved world");
 
             if (!OperatingSystem.IsWindows())
             {
@@ -514,6 +618,17 @@ internal static class DeploymentSelfTest
             Assert(File.Exists(Path.Combine(data, "Mods/111.sbm/Data.sbc"))
                 && File.ReadAllText(Path.Combine(runtime, "world/Sandbox.sbc")).Contains("<SyncDistance>3000</SyncDistance>"),
                 "profile rollback did not restore the previous selection");
+
+            // #1349: a node that stopped before its first save has only the seeded mod Storage in Saves/<world>.
+            string saved = Path.Combine(data, "Saves/world-1");
+            Directory.Delete(saved, true);
+            Directory.CreateDirectory(Path.Combine(saved, "Storage/111.sbm"));
+            File.WriteAllText(Path.Combine(saved, "Storage/111.sbm/Config.xml"), "seeded");
+            ProfileContentMigration.Apply(candidate, next.Path);
+            Assert(Directory.EnumerateFileSystemEntries(saved).Count() == 1
+                && File.ReadAllText(Path.Combine(saved, "Storage/111.sbm/Config.xml")) == "seeded", "profile update changed an unsaved world");
+            File.WriteAllText(Path.Combine(saved, "SANDBOX_0_0_0_.sbs"), "sectors");
+            AssertThrows(() => ProfileContentMigration.Apply(candidate, next.Path));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
