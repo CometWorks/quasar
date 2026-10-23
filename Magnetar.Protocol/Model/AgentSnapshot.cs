@@ -45,6 +45,12 @@ public class AgentSnapshot
 
     public ServerMetrics Metrics { get; set; } = new();
 
+    /// <summary>
+    /// A cluster node hosting no partitions (a hot spare): Metrics is live status only, the
+    /// snapshot carries no profiler or plugin stats, and Quasar records no analytics for it.
+    /// </summary>
+    public bool TelemetryPaused { get; set; }
+
     public string ProfilerMode { get; set; } = string.Empty;
 
     public ProfilerSnapshot? Profiler { get; set; }

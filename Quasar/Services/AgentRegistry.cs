@@ -167,7 +167,7 @@ public sealed class AgentRegistry
         }
 
         if (!latestSnapshot.ClusterMode) _knownPlayers.ObserveSnapshot(latestSnapshot);
-        if (!string.IsNullOrWhiteSpace(snapshot.UniqueName))
+        if (!string.IsNullOrWhiteSpace(snapshot.UniqueName) && !snapshot.TelemetryPaused)
         {
             var sample = MetricSampleFactory.FromSnapshot(snapshot);
             _metricsStore.Enqueue(telemetryKey, in sample);
