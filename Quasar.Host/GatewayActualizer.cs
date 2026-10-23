@@ -37,6 +37,9 @@ internal sealed class GatewayActualizer
         match.Process?.Dispose();
         if (match.State != ProcessMatchState.Missing || record?.Status == GatewayLaunchStatus.Launching)
             throw new InvalidOperationException("Gateway must be verifiably stopped before activation.");
+        lock (_preparations)
+            if (_preparations.TryGetValue(clusterId, out Preparation? preparation) && !preparation.Task.IsCompleted)
+                throw new InvalidOperationException("The Gateway's start is still preparing its runtime data; try again when it has started.");
     }
 
     public async Task<HostContract.GatewayStatus> ReconcileAsync(
@@ -114,22 +117,60 @@ internal sealed class GatewayActualizer
         }
 
         // A Gateway that keeps failing is respawned with a growing delay: every attempt verifies
-        // the whole bundle while the Host execution gate is held. A changed spec (a new start
-        // generation from goal On included) retries at once.
+        // the whole bundle. A changed spec (a new start generation from goal On included) retries at once.
         string specKey = spec.BundleManifestSha256 + "/" + spec.ConfigRevision + "/" + spec.StartGeneration;
         lock (_respawns)
         {
             long now = Environment.TickCount64;
             _respawns.TryGetValue(spec.ClusterId, out Respawn? respawn);
-            if (respawn?.SpecKey != specKey) respawn = null;
-            if (respawn is not null && now < respawn.NotBefore && record?.Status == GatewayLaunchStatus.Failed)
+            if (respawn?.SpecKey == specKey && now < respawn.NotBefore && record?.Status == GatewayLaunchStatus.Failed)
                 return Status(spec, HostContract.GatewayObservedState.Failed, record.ProcessId, record.LaunchedAt,
                     (record.Failure ?? "spawn_failed") + $";respawn_in_seconds={(respawn.NotBefore - now + 999) / 1000}",
                     record.Output);
-            int attempts = (respawn?.Attempts ?? 0) + 1;
-            _respawns[spec.ClusterId] = new(specKey, attempts, now + RespawnDelay(attempts));
         }
-        return Spawn(spec);
+        Task<VerifiedBundle> preparation = Prepare(spec, specKey);
+        await Task.WhenAny(preparation, Task.Delay(PreparationWait, cancellationToken));
+        if (!preparation.IsCompleted)
+            return Status(spec, HostContract.GatewayObservedState.Missing, null, null, null);
+        lock (_preparations) _preparations.Remove(spec.ClusterId);
+        lock (_respawns)
+        {
+            _respawns.TryGetValue(spec.ClusterId, out Respawn? respawn);
+            int attempts = (respawn?.SpecKey == specKey ? respawn.Attempts : 0) + 1;
+            _respawns[spec.ClusterId] = new(specKey, attempts, Environment.TickCount64 + RespawnDelay(attempts));
+        }
+        return Spawn(spec, preparation);
+    }
+
+    // The bundle check and the data seeding of a first start (every node's data and the world: 35 s for
+    // 8 nodes on ai) outlast Quasar's 30 s Host command deadline, and held the execution gate, so every
+    // executor heartbeat on this Host, as long (#1433). They run in the background instead. Until they are
+    // done the Gateway stays Missing without a failure, which Quasar shows as Converging; the next
+    // reconcile, the Host loop's or Quasar's, launches it.
+    internal TimeSpan PreparationWait { get; init; } = TimeSpan.FromSeconds(5);
+    internal Func<Task>? BeforePreparation { get; init; }
+    private readonly Dictionary<string, Preparation> _preparations = new(StringComparer.OrdinalIgnoreCase);
+    private sealed record Preparation(string SpecKey, Task<VerifiedBundle> Task);
+
+    private Task<VerifiedBundle> Prepare(HostContract.GatewaySpec spec, string specKey)
+    {
+        lock (_preparations)
+        {
+            _preparations.TryGetValue(spec.ClusterId, out Preparation? current);
+            if (current?.SpecKey == specKey) return current.Task;
+            // Seeding writes the runtime root: one preparation per cluster at a time.
+            Task previous = current?.Task ?? Task.CompletedTask;
+            Task<VerifiedBundle> task = Task.Run(async () =>
+            {
+                await Task.WhenAny(previous);
+                // Hard-linked mods come from the content store; a collection must not prune it meanwhile.
+                using var storage = await Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(CancellationToken.None);
+                if (BeforePreparation is { } before) await before();
+                return LoadAndVerifyBundle(spec);
+            });
+            _preparations[spec.ClusterId] = new(specKey, task);
+            return task;
+        }
     }
 
     private static readonly TimeSpan StableAfter = TimeSpan.FromMinutes(2);
@@ -162,6 +203,9 @@ internal sealed class GatewayActualizer
         if (record is null || match.State == ProcessMatchState.Missing)
         {
             DropOutput(spec.ClusterId);
+            lock (_preparations)
+                if (_preparations.TryGetValue(spec.ClusterId, out Preparation? preparation) && preparation.Task.IsCompleted)
+                    _preparations.Remove(spec.ClusterId);
             if (record is not null && record.Status != GatewayLaunchStatus.Stopped)
                 WriteRecord(record with { Status = GatewayLaunchStatus.Stopped, Failure = null, Output = null });
             return Status(spec, HostContract.GatewayObservedState.Missing,
@@ -189,13 +233,13 @@ internal sealed class GatewayActualizer
         }
     }
 
-    private HostContract.GatewayStatus Spawn(HostContract.GatewaySpec spec)
+    private HostContract.GatewayStatus Spawn(HostContract.GatewaySpec spec, Task<VerifiedBundle> preparation)
     {
         bool processStarted = false;
         Process? process = null;
         try
         {
-            VerifiedBundle bundle = LoadAndVerifyBundle(spec);
+            VerifiedBundle bundle = preparation.GetAwaiter().GetResult();
             GatewaySpawnSpec spawn = bundle.Manifest.Gateway
                 ?? throw new InvalidDataException("Bundle manifest has no Gateway spawn specification");
             ValidateSpawn(spawn, bundle);
