@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -212,9 +213,14 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         try
         {
             await first.EnsureRunningAsync(default);
+            var a = hosts.Get(ClusterLocalHost.HostId)!;
+            // The fake Host doesn't listen; hold its command port the way the real one does, or the
+            // second install's probe finds it free whenever both install roots hash to the same offset.
+            using var listening = new TcpListener(IPAddress.Loopback, a.CommandPort);
+            listening.Start();
             await second.EnsureRunningAsync(default);
             Assert.NotEqual(first.ReadPid()!.Pid, second.ReadPid()!.Pid);
-            var a = hosts.Get(ClusterLocalHost.HostId)!; var b = otherHosts.Get(ClusterLocalHost.HostId)!;
+            var b = otherHosts.Get(ClusterLocalHost.HostId)!;
             Assert.NotEqual(a.CommandPort, b.CommandPort);
             Assert.NotEqual(credentials.Resolve(a.CredentialReference), otherCredentials.Resolve(b.CredentialReference));
             await first.StopAsync(default);
