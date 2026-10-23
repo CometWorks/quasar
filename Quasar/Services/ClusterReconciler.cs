@@ -358,14 +358,20 @@ public sealed class ClusterReconciler : BackgroundService
     // Null means nothing was; a missing snapshot cannot prove that.
     internal static string? DirtyShutdown(Admin.ClusterStatus status, Admin.SnapshotSummary[] snapshots)
     {
-        long? ticks = status.LastCleanShutdown?.UtcTicks;
-        Admin.SnapshotSummary? shutdown = snapshots.FirstOrDefault(snapshot =>
-            snapshot.Kind == Admin.AdminSnapshotKind.CleanShutdown && snapshot.ClusterTime == ticks);
-        if (shutdown is null)
+        string[]? dirty = DirtyList(status, snapshots);
+        if (dirty is null)
             return "The Gateway has no shutdown snapshot for its last shutdown, so it cannot prove nothing was left dirty.";
-        if (shutdown.Dirty.Length == 0) return null;
-        return "The last cluster shutdown left unsaved state: " + string.Join(", ", shutdown.Dirty.Take(12))
-            + (shutdown.Dirty.Length > 12 ? $" and {shutdown.Dirty.Length - 12} more." : ".");
+        if (dirty.Length == 0) return null;
+        return "The last cluster shutdown left unsaved state: " + string.Join(", ", dirty.Take(12))
+            + (dirty.Length > 12 ? $" and {dirty.Length - 12} more." : ".");
+    }
+
+    /// <summary>The Dirty list of the last shutdown's CleanShutdown snapshot; null without that snapshot.</summary>
+    internal static string[]? DirtyList(Admin.ClusterStatus status, Admin.SnapshotSummary[] snapshots)
+    {
+        long? ticks = status.LastCleanShutdown?.UtcTicks;
+        return snapshots.FirstOrDefault(snapshot => snapshot.Kind == Admin.AdminSnapshotKind.CleanShutdown
+            && snapshot.ClusterTime == ticks)?.Dirty;
     }
 
     private void Failed(ClusterDefinition cluster, string code, string message)

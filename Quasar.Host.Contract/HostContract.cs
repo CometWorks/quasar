@@ -102,7 +102,9 @@ public sealed record GatewaySpec(
     string ConfigRevision,
     int[] Ports,
     string RunRoot,
-    GatewayStopFence? StopFence = null, Guid? StartGeneration = null, bool Recover = false);
+    GatewayStopFence? StopFence = null, Guid? StartGeneration = null, bool Recover = false,
+    // With Recover: the recovery start may also take a new revision and slot inventory (an update despite a dirty shutdown).
+    bool RecoveryUpdate = false);
 
 public sealed record GatewayStopFence(int ProcessId, DateTimeOffset LaunchedAt);
 

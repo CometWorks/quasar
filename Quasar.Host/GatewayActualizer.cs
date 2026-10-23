@@ -302,7 +302,7 @@ internal sealed class GatewayActualizer
         start.Environment["CLUSTER_DEPLOYMENT_REVISION"] = spec.ConfigRevision;
         if (spec.StartGeneration is { } generation)
             start.Environment["CLUSTER_START_GENERATION"] = generation.ToString("D");
-        start.Environment["CLUSTER_START_RECOVERY"] = spec.Recover ? "true" : "false";
+        start.Environment["CLUSTER_START_RECOVERY"] = !spec.Recover ? "false" : spec.RecoveryUpdate ? "update" : "true";
         ExecutionBundle.ApplySecrets(start, spawn.SecretEnvironment);
         return start;
     }

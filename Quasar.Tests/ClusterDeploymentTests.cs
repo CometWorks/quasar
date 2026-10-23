@@ -711,6 +711,101 @@ public sealed class ClusterDeploymentTests : IDisposable
     }
 
     [Fact]
+    public async Task UpdateDespiteADirtyShutdownFencesTheStopBacksUpAndStartsARecoveryUpdate()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "dirty-update-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        await new ClusterDeploymentService(catalog, client, operations).ActivateAsync("demo", Request(), "initial", "test", default);
+        // It ran and stopped dirty: no clean shutdown proof, the Gateway still runs, Down.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        Assert.False(catalog.GetCluster("demo")!.IsProvenStopped());
+        handler.StartGeneration = catalog.GetCluster("demo")!.Gateway!.StartGeneration!.Value;
+        handler.Recovery = true;
+        var backups = new ClusterBackupService(catalog, client, operations, null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "dirty-update-backups") }, null!, null!);
+        var gateway = new DirtyGatewayHandler(["partition:836", "node:local-node-0"]);
+        var update = new ClusterUpdateService(catalog, new ClusterDeploymentService(catalog, client, operations),
+            new ClusterGatewayClient(new HttpClient(gateway)), client, operations, NullLogger<ClusterUpdateService>.Instance, backups);
+        handler.Revision = "candidate";
+        var candidate = Next("revision", "candidate", 'a', 'b');
+        string[] shown = await update.GetRecordedDirtyShutdownAsync("demo", default);
+        Assert.Equal(["node:local-node-0", "partition:836"], shown);
+
+        var plain = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "plain", "test", default));
+        Assert.Contains("update it despite the recorded dirty shutdown", plain.Message);
+        var stale = await Assert.ThrowsAsync<InvalidOperationException>(() => update.BeginAsync("demo",
+            new(Guid.NewGuid(), candidate, AcceptDirtyShutdown: ["node:local-node-0"]), "stale", "test", default));
+        Assert.Contains("It now lists: node:local-node-0, partition:836.", stale.Message);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => update.BeginAsync("demo",
+            new(Guid.NewGuid(), Rollback: true, AcceptDirtyShutdown: shown), "rollback", "test", default));
+        // The candidate's release must accept a recovery start with a new revision; without a known package it is refused.
+        var release = await Assert.ThrowsAsync<InvalidOperationException>(() => update.BeginAsync("demo",
+            new(Guid.NewGuid(), candidate, AcceptDirtyShutdown: shown), "release", "test", default));
+        Assert.Contains("prepared from the selected cluster release", release.Message);
+        Assert.Null(catalog.GetCluster("demo")!.Update);
+
+        update.RequireRecoveryUpdateAsync = (_, _, _) => Task.CompletedTask;
+        var id = Guid.NewGuid();
+        await update.BeginAsync("demo", new(id, candidate, AcceptDirtyShutdown: ["partition:836", "node:local-node-0"]), "begin", "test", default);
+        Assert.Equal(shown, catalog.GetCluster("demo")!.Update!.DirtyShutdown);
+
+        // Stopping: the fenced stop is checkpointed, so a retry after a later failure does not stop again.
+        handler.Revision = "revision";
+        await update.AdvanceAllAsync(default);
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Stopping, cluster.Update!.Phase);
+        Assert.True(cluster.Update.FencedStop);
+        Assert.Equal(1, handler.GatewayStops);
+        Assert.NotNull(cluster.Update.LastError);
+        handler.Revision = "candidate";
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Activating, cluster.Update!.Phase);
+        Assert.Equal(1, handler.GatewayStops);
+        Assert.Equal(id, cluster.Update.Backup);
+        Assert.Equal(CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.CrashConsistent,
+            Assert.Single(backups.List("demo")).Consistency);
+
+        // Activating: the new deployment's first start is a recovery start that may change the revision.
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Starting, cluster.Update!.Phase);
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        Assert.True(cluster.Gateway!.Recover && cluster.Gateway.RecoveryUpdate);
+
+        // An ordinary start later clears both flags.
+        await update.AbandonAsync("demo", "abandon", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        Assert.False(catalog.GetCluster("demo")!.Gateway!.Recover || catalog.GetCluster("demo")!.Gateway!.RecoveryUpdate);
+    }
+
+    // A stopped Gateway, Down, whose last shutdown's CleanShutdown snapshot lists dirty state.
+    private sealed class DirtyGatewayHandler(string[] dirty) : HttpMessageHandler
+    {
+        private readonly DateTimeOffset shutdown = DateTimeOffset.UtcNow;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            object data = request.RequestUri!.AbsolutePath.EndsWith("/snapshots")
+                ? new[] { new CometWorks.ClusterGateway.AdminContract.V1.SnapshotSummary("s1",
+                    CometWorks.ClusterGateway.AdminContract.V1.AdminSnapshotKind.CleanShutdown, shutdown.UtcTicks, 3, true, 0, dirty) }
+                : new CometWorks.ClusterGateway.AdminContract.V1.ClusterStatus("demo", "world",
+                    CometWorks.ClusterGateway.AdminContract.V1.ClusterPhase.Down, CometWorks.ClusterGateway.AdminContract.V1.StartupKind.Warm,
+                    shutdown, shutdown, false, false, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], false,
+                    CometWorks.ClusterGateway.AdminContract.V1.AdminHealth.Healthy, [], DateTimeOffset.UtcNow, "revision", false);
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(
+                new CometWorks.ClusterGateway.AdminContract.V1.AdminEnvelope<object>(1, DateTimeOffset.UtcNow, data)) };
+            response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
+            return Task.FromResult(response);
+        }
+    }
+
+    [Fact]
     public async Task FailedUpdateKeepsThePreviousVersionOrNamesItsBackup()
     {
         using var catalog = Catalog();
@@ -749,7 +844,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         handler.Recovery = false;
         var cluster = catalog.GetCluster("demo")!;
         Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
-        Assert.StartsWith("Update failed after 60 minutes in Stopping: still waiting for a verified clean shutdown.", cluster.Update.LastError);
+        Assert.StartsWith("Update failed after 60 minutes in Stopping: still waiting for a verified clean shutdown (if it ended dirty, abandon this update", cluster.Update.LastError);
         Assert.EndsWith("stays on its current deployment and its goal is On again.", cluster.Update.LastError);
         Assert.Equal("revision", cluster.ActiveDeployment!.Revision);
         Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);

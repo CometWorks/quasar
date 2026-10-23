@@ -7,14 +7,52 @@ namespace Quasar.Services;
 /// <summary>Durable full-downtime workflow; ordinary reconciliation owns shutdown and startup.</summary>
 public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeploymentService deployments,
     ClusterGatewayClient gateway, ClusterHostClient hosts, ClusterOperationStore operations, ILogger<ClusterUpdateService> logger,
-    ClusterBackupService? backups = null) : BackgroundService
+    ClusterBackupService? backups = null, ClusterPackageService? packages = null) : BackgroundService
 {
     public Task<ClusterOperation> BeginAsync(string clusterId, ClusterUpdateRequest request, string key, string actor, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.update.begin", key, actor, request,
             async ct => new Admin.AdminEnvelope<ClusterUpdate>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
-                await catalog.WithLifecycleAsync(clusterId, cluster => BeginCoreAsync(cluster, request, ct), ct)), token);
+                await catalog.WithLifecycleAsync(clusterId, cluster => BeginCoreAsync(cluster, request, actor, ct), ct)), token);
 
-    private async Task<ClusterUpdate> BeginCoreAsync(ClusterDefinition cluster, ClusterUpdateRequest request, CancellationToken token)
+    /// <summary>What the last shutdown left unsaved, as the stopped Gateway records it, sorted. The operator reviews this list
+    /// before an update despite a dirty shutdown and passes it back as <see cref="ClusterUpdateRequest.AcceptDirtyShutdown"/>.</summary>
+    public Task<string[]> GetRecordedDirtyShutdownAsync(string clusterId, CancellationToken token) =>
+        RecordedDirtyShutdownAsync(catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId), token);
+
+    private async Task<string[]> RecordedDirtyShutdownAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        Admin.ClusterStatus status;
+        Admin.SnapshotSummary[] snapshots;
+        try
+        {
+            status = (await gateway.GetStatusAsync(cluster, token)).Data;
+            snapshots = (await gateway.GetSnapshotsAsync(cluster, token)).Data;
+        }
+        catch (ClusterGatewayException error)
+        {
+            throw new InvalidOperationException("The stopped Gateway must answer to name what the shutdown left unsaved ("
+                + error.Message.TrimEnd('.') + "). Recover the stopped cluster instead.", error);
+        }
+        if (status.ClusterId != cluster.UniqueName) throw new InvalidOperationException("Gateway status belongs to a different cluster.");
+        if (status.Phase != Admin.ClusterPhase.Down)
+            throw new InvalidOperationException($"The Gateway is {status.Phase}. Wait for the shutdown to end before updating despite a dirty shutdown.");
+        return ClusterReconciler.DirtyList(status, snapshots)?.Order(StringComparer.Ordinal).ToArray() ?? throw new InvalidOperationException(
+            "The Gateway has no shutdown snapshot for its last shutdown, so it cannot name what was left unsaved. Recover the stopped cluster instead.");
+    }
+
+    // The new deployment's Registry runs the recovery start, so its release must accept a changed revision there.
+    internal Func<ClusterDefinition, ClusterDeploymentRequest, CancellationToken, Task> RequireRecoveryUpdateAsync =
+        async (cluster, candidate, token) =>
+        {
+            if (packages is null || cluster.PackageSelection is not { } selection || cluster.Preparation is not { } preparation
+                || ClusterDependencyService.DeploymentRevision(preparation) != candidate.Revision)
+                throw new InvalidOperationException("An update despite a dirty shutdown needs a deployment prepared from the selected cluster release.");
+            var package = await packages.GetInstalledAsync(new(selection.Version, selection.Sha256), token);
+            Quasar.ClusterDeployment.ClusterDeploymentFiles.RequireRecoveryUpdate(package.PackagePath);
+        };
+
+    private async Task<ClusterUpdate> BeginCoreAsync(ClusterDefinition cluster, ClusterUpdateRequest request, string actor,
+        CancellationToken token)
     {
         if (cluster.Update is { } recorded && recorded.Id == request.Id)
         {
@@ -28,20 +66,38 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete }) throw new InvalidOperationException("An update is already in progress.");
         if (cluster.QueuedContentUpdates is not null)
             throw new InvalidOperationException("Queued mod/plugin updates must be staged before applying. Stage the active profile to prepare the queued content, or remove the queue to apply only the prepared deployment.");
-        if (cluster.GoalState == DedicatedServerGoalState.Off && cluster.Gateway is not null
-            && !cluster.IsProvenStopped())
-            throw new InvalidOperationException("This stopped cluster has no clean shutdown proof. Recover the stopped cluster after an unclean shutdown before starting an update.");
+        bool dirty = cluster.GoalState == DedicatedServerGoalState.Off && cluster.Gateway is not null && !cluster.IsProvenStopped();
+        if (dirty && request.AcceptDirtyShutdown is null)
+            throw new InvalidOperationException("This stopped cluster has no clean shutdown proof. Recover the stopped cluster after an unclean shutdown, or update it despite the recorded dirty shutdown in Maintenance, before starting an update.");
+        if (!dirty && request.AcceptDirtyShutdown is not null)
+            throw new InvalidOperationException("Only a stopped cluster without a clean shutdown proof can be updated despite a dirty shutdown.");
+        if (dirty && request.Rollback)
+            throw new InvalidOperationException("A rollback cannot start despite a dirty shutdown. Restore a backup instead.");
         var candidate = request.Rollback ? RollbackDeployment(cluster) : request.Deployment
             ?? throw new InvalidDataException("Candidate deployment is required.");
         if (candidate.Revision == cluster.ActiveDeployment.Revision) throw new InvalidOperationException("Candidate must be a different deployment revision.");
+        string[]? accepted = null;
+        if (dirty)
+        {
+            // The operator accepts exactly what the Gateway names now. Those parts recover from their newest
+            // catalogued saves at the recovery start, as Recovery would; everything else was saved.
+            accepted = await RecordedDirtyShutdownAsync(cluster, token);
+            if (!accepted.SequenceEqual(request.AcceptDirtyShutdown!.Order(StringComparer.Ordinal)))
+                throw new InvalidOperationException("The recorded dirty shutdown is not the one that was accepted. It now lists: "
+                    + (accepted.Length == 0 ? "nothing" : string.Join(", ", accepted)) + ". Review it and try again.");
+            await RequireRecoveryUpdateAsync(cluster, candidate, token);
+        }
         await deployments.ActivateCoreAsync(cluster, candidate, token, dryRun: true, preflight: true, update: true);
         bool backupRequired = ClusterUpdatePreparationService.RequiresProfileMigration(cluster, candidate.Revision);
         if (backupRequired && backups is null)
             throw new InvalidOperationException("Profile migration needs cluster backup service.");
         var workflow = new ClusterUpdate(request.Id, candidate, cluster.ActiveDeployment, request.Rollback,
             ClusterUpdatePhase.Stopping, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, BackupRequired: backupRequired,
-            GoalBefore: cluster.GoalState);
+            GoalBefore: cluster.GoalState, DirtyShutdown: accepted);
         await catalog.RecordUpdateAsync(cluster, workflow, token, DedicatedServerGoalState.Off);
+        if (accepted is not null)
+            logger.LogWarning("Cluster {Cluster} update {Update} starts despite the recorded dirty shutdown, accepted by {Actor}: {Dirty}",
+                cluster.UniqueName, workflow.Id, actor, accepted.Length == 0 ? "nothing listed" : string.Join(", ", accepted));
         return workflow; // Accepted, not converged. Query Update.Phase until Complete.
     }
 
@@ -156,23 +212,40 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                     switch (workflow.Phase)
                     {
                         case ClusterUpdatePhase.Stopping:
+                            bool dirtyShutdown = workflow.DirtyShutdown is not null;
                             if (!cluster.IsProvenStopped())
-                                return await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown");
+                            {
+                                if (!dirtyShutdown)
+                                    return await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown (if it "
+                                        + "ended dirty, abandon this update and apply it with Update despite the recorded dirty shutdown)");
+                                if (!workflow.FencedStop)
+                                {
+                                    // As Recovery does: every Host proves its nodes stopped, then the Gateway stops fenced.
+                                    await deployments.StopFencedAsync(cluster, token);
+                                    workflow = workflow with { FencedStop = true, UpdatedAt = DateTimeOffset.UtcNow };
+                                    cluster = await catalog.RecordUpdateAsync(cluster, workflow, token);
+                                }
+                            }
                             // The stopped cut taken here is the way back to the previous version and world
                             // if the new deployment fails after it ran. Begin refuses a migration without it.
+                            // After a dirty shutdown it is crash-consistent: it holds what the Dirty list names as unsaved.
                             if (backups is not null)
-                                await backups.CaptureCoreAsync(cluster, new(workflow.Id), token, updateId: workflow.Id);
-                            await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, dryRun: true, update: true);
+                                await backups.CaptureCoreAsync(cluster, new(workflow.Id, AllowCrashConsistent: dirtyShutdown), token,
+                                    updateId: workflow.Id);
+                            await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, dryRun: true, update: true,
+                                dirtyShutdown: dirtyShutdown);
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Activating,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow,
                                 Backup = backups is null ? null : workflow.Id }, token);
                             break;
                         case ClusterUpdatePhase.Activating:
-                            await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, update: true);
+                            await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, update: true,
+                                dirtyShutdown: workflow.DirtyShutdown is not null);
                             cluster = catalog.GetCluster(cluster.UniqueName)!; // Activation changed lifecycle identity.
+                            // After a dirty shutdown the new deployment's first start is a recovery start.
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Starting,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow }, token,
-                                DedicatedServerGoalState.On);
+                                DedicatedServerGoalState.On, recoveryUpdate: workflow.DirtyShutdown is not null);
                             break;
                         case ClusterUpdatePhase.Starting:
                             if (await NotServingAsync(cluster, workflow.Deployment.Revision, "the new deployment") is { } awaited)
@@ -451,4 +524,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     }
 }
 
-public sealed record ClusterUpdateRequest(Guid Id, ClusterDeploymentRequest? Deployment = null, bool Rollback = false);
+/// <param name="AcceptDirtyShutdown">Update a stopped cluster without a clean shutdown proof: the exact Dirty list of its
+/// last shutdown (<see cref="ClusterUpdateService.GetRecordedDirtyShutdownAsync"/>, or the Gateway's CleanShutdown
+/// snapshot). The new deployment then starts as a recovery start.</param>
+public sealed record ClusterUpdateRequest(Guid Id, ClusterDeploymentRequest? Deployment = null, bool Rollback = false,
+    string[]? AcceptDirtyShutdown = null);

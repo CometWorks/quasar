@@ -224,8 +224,10 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
 
     internal async Task<ClusterActiveRevision> ActivateCoreAsync(ClusterDefinition cluster,
         ClusterDeploymentRequest request, CancellationToken token, bool restore = false, bool dryRun = false, bool preflight = false, bool update = false,
-        bool supersede = false)
+        bool supersede = false, bool dirtyShutdown = false)
     {
+        // dirtyShutdown: an update the operator started despite a recorded dirty shutdown; it fenced the Gateway stop
+        // and starts the new deployment as a recovery start, so it needs no clean-Down proof.
         // supersede: a reverting update restores its backup over a half-applied activation of its own.
         // Once a Host activation is partly committed, the same request must remain resumable.
         if (cluster.PendingDeploymentHash is null)
@@ -263,7 +265,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             throw new InvalidOperationException("Deployment activation requires goal Off and completed shutdown.");
         if (cluster.ActiveDeployment?.Revision != request.ExpectedRevision)
             throw new InvalidOperationException("Active deployment changed; refresh before activation.");
-        if (!preflight && !restore && cluster.Gateway is not null && !cluster.IsProvenStopped())
+        if (!preflight && !restore && !(update && dirtyShutdown) && cluster.Gateway is not null && !cluster.IsProvenStopped())
             throw new InvalidOperationException("Existing deployments require matching clean-Down or activation proof before activation.");
         var hostIds = request.Hosts.Select(h => h.HostId).Order(StringComparer.Ordinal).ToArray();
         if (cluster.ActiveDeployment is { } previous
