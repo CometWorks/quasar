@@ -109,8 +109,23 @@ public sealed class AgentSocketHandler
         catch (OperationCanceledException)
         {
         }
-        catch (Exception exception) when (exception is JsonException or InvalidDataException)
+        catch (AgentMessageException exception)
         {
+            // These reasons are constructed by ReceiveAsync from protocol metadata, never payloads.
+            _logger.LogWarning("Rejected agent message on connection {ConnectionId}: {Reason}",
+                connectionId, exception.Message);
+            await socket.CloseOutputAsync(exception.CloseStatus, exception.Message, CancellationToken.None);
+        }
+        catch (JsonException exception)
+        {
+            // JsonException.Message and Path can include peer-controlled data or credentials.
+            _logger.LogWarning("Rejected malformed agent JSON on connection {ConnectionId} at line {Line}, byte {Byte}.",
+                connectionId, exception.LineNumber, exception.BytePositionInLine);
+            await socket.CloseOutputAsync(WebSocketCloseStatus.InvalidPayloadData, "Invalid agent JSON.", CancellationToken.None);
+        }
+        catch (InvalidDataException)
+        {
+            _logger.LogWarning("Rejected invalid agent data on connection {ConnectionId}.", connectionId);
             await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Invalid agent message.", CancellationToken.None);
         }
         catch (WebSocketException exception)
@@ -136,7 +151,7 @@ public sealed class AgentSocketHandler
         HttpContext context,
         CancellationToken cancellationToken)
     {
-        var message = await ReceiveAsync(socket, cancellationToken, 64 * 1024);
+        var message = await ReceiveAsync(socket, cancellationToken, AgentMessageLimits.HelloBytes);
         if (message is null)
             return null;
 
@@ -301,7 +316,12 @@ public sealed class AgentSocketHandler
         }
     }
 
-    private static async Task<AgentWireMessage?> ReceiveAsync(WebSocket socket, CancellationToken cancellationToken, int maximumBytes = 16 * 1024 * 1024)
+    private sealed class AgentMessageException(WebSocketCloseStatus closeStatus, string reason) : Exception(reason)
+    {
+        public WebSocketCloseStatus CloseStatus { get; } = closeStatus;
+    }
+
+    private static async Task<AgentWireMessage?> ReceiveAsync(WebSocket socket, CancellationToken cancellationToken, int maximumBytes = AgentMessageLimits.MessageBytes)
     {
         var buffer = new byte[16 * 1024];
         using var stream = new MemoryStream();
@@ -313,8 +333,11 @@ public sealed class AgentSocketHandler
             if (result.MessageType == WebSocketMessageType.Close)
                 return null;
 
-            if (result.MessageType != WebSocketMessageType.Text || stream.Length + result.Count > maximumBytes)
-                throw new InvalidDataException("Agent message exceeds protocol limits.");
+            if (result.MessageType != WebSocketMessageType.Text)
+                throw new AgentMessageException(WebSocketCloseStatus.InvalidMessageType, "Agent message must use text frames.");
+            if (stream.Length + result.Count > maximumBytes)
+                throw new AgentMessageException(WebSocketCloseStatus.MessageTooBig,
+                    $"Agent message exceeded {maximumBytes}-byte limit ({stream.Length + result.Count} bytes received).");
             stream.Write(buffer, 0, result.Count);
 
             if (result.EndOfMessage)
@@ -322,7 +345,8 @@ public sealed class AgentSocketHandler
         }
 
         var json = Encoding.UTF8.GetString(stream.ToArray());
-        return JsonSerializer.Deserialize<AgentWireMessage>(json, JsonOptions);
+        return JsonSerializer.Deserialize<AgentWireMessage>(json, JsonOptions)
+            ?? throw new JsonException("Agent message must be an object.");
     }
 
     private static async Task SendAsync(WebSocket socket, AgentWireMessage message, CancellationToken cancellationToken)

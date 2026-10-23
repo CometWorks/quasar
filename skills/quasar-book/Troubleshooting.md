@@ -81,6 +81,24 @@ If Quasar itself stays down, a server that had connected keeps running and its a
 - **Restarts every 8 hours**: **Maximum uptime** defaults to `08:00`. See [Servers](Servers.md#crash-detection-and-automatic-restart).
 - **Server stops by itself and stays stopped**: someone used `!stop` or `!quit` in game, or a Discord `stop`. Both set the goal Off.
 
+### Agent message rejection
+
+If the agent reports **Invalid agent JSON**, **Agent message must use text frames**,
+or a message-size limit, check `Logs/quasar.log`. The warning gives the connection
+ID and the rejection category. JSON failures include only a line and byte position;
+logs do not include the message body, credentials or JSON exception text.
+
+The initial Hello is limited to 64 KiB and 30 seconds. After authentication, the
+limit is 64 MiB of encoded UTF-8 per message, including base64 and nested JSON.
+A command reply above that limit returns **Agent command response is too large**
+to the caller while the agent stays connected. Reduce the requested scene or
+response size. Increasing the 60-second startup inactivity timeout does not change
+these limits.
+
+Update Quasar and restart the server through the normal saved-world maintenance
+flow to load the matching agent. Existing clusters also need to stage and apply
+the bundled agent as described in [Cluster hosts](ClusterHosts.md).
+
 ## Port collisions
 
 | Symptom | Cause and fix |
@@ -213,6 +231,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar.Bootstrap/Program.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
+- `Magnetar.Protocol/Transport/AgentMessageLimits.cs`
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`

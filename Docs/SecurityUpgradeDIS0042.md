@@ -144,6 +144,13 @@ Enrollment ticket IDs and tunnel IDs in paths are not bearer credentials.
   Host agent key. `AgentRegistry` atomically refuses live duplicate identities,
   allows a stale holder after 30 seconds, and rejects a reused AgentId belonging
   to a different authenticated identity. Old sockets cannot update replacements.
+  Hello remains limited to 64 KiB and 30 seconds. Messages from authenticated agents
+  have a shared 64 MiB UTF-8 wire limit, allowing base64 voxel data and nested companion
+  JSON envelopes. The agent checks the encoded size before sending; an oversized
+  command reply becomes a small correlated failure, preserving telemetry and
+  lifecycle control. Invalid JSON, binary frames and over-limit messages from
+  peers are rejected with distinct diagnostics containing only protocol metadata,
+  never payloads, credentials or JSON exception text.
   Epoch/receipt validation and cluster lifecycle authority remain in existing
   cluster identity and Gateway/Host code; independent node incarnations may overlap.
 - `/api/v1/hosts/<host>/connect`, `/tunnels/<id>`, `/update`, `/update/binary`:
