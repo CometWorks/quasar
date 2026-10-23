@@ -520,7 +520,7 @@ public sealed class NativeAppearanceTests : IDisposable
         var page = context.Render<MudDialogProvider>();
         await page.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ServerConsoleDialog>("Server console", new DialogParameters { [nameof(ServerConsoleDialog.UniqueName)] = "console-test" }));
         page.WaitForAssertion(() => Assert.Contains("Live server output", page.Markup));
-        Assert.NotEmpty(context.JSInterop.Invocations["quasarConfigs.attachRolloverLog"]);
+        page.WaitForAssertion(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarConfigs.attachRolloverLog"]));
         page.Find("select").Change("SpaceEngineersDedicated-old.log");
         page.WaitForAssertion(() => Assert.Contains("Historical server output", page.Markup));
         Assert.True(page.FindAll("button").Single(x => x.TextContent == "Refresh").HasAttribute("disabled"));
@@ -528,7 +528,7 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Contains("SpaceEngineersDedicated-old.log", context.JSInterop.Invocations["quasarConfigs.downloadFile"].Single().Arguments[0]!.ToString());
         page.FindAll(".quasar-console-tabs button")[1].Click();
         page.WaitForAssertion(() => Assert.Contains("Magnetar plugin output", page.Markup));
-        Assert.NotEmpty(context.JSInterop.Invocations["quasarConfigs.detachRolloverLog"]);
+        page.WaitForAssertion(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarConfigs.detachRolloverLog"]));
         var attachments = context.JSInterop.Invocations["quasarConfigs.attachRolloverLog"].Count;
         page.FindAll(".quasar-console-tabs button")[0].Click();
         page.WaitForAssertion(() => Assert.True(context.JSInterop.Invocations["quasarConfigs.attachRolloverLog"].Count > attachments));
