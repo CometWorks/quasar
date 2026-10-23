@@ -92,7 +92,6 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);
                 spec["pluginConfigurations"] = canonical;
                 string json = spec.ToJsonString();
-                string hash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(json));
                 var transfer = Guid.NewGuid();
                 var preparationHosts = new List<ClusterPreparationHost>();
                 foreach (var old in request.Hosts)
@@ -114,7 +113,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                     preparationHosts.Add(old with { CommandUrl = active.CommandUrl,
                         TokenEnvironmentVariable = active.TokenEnvironmentVariable, InstallationDirectory = installation.Directory,
                         ModDirectory = payload.Directory,
-                        ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(old.ConfigurationDirectory)!, "config-" + hash) });
+                        ConfigurationDirectory = ConfigurationDirectory(old.ConfigurationDirectory, json, inputsHash) });
                 }
                 request = request with { InputsSha256 = inputsHash, SpecificationJson = json, Hosts = preparationHosts.ToArray() };
                 await catalog.SelectDependenciesAsync(clusterId,
@@ -393,9 +392,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         JsonNode spec, string actor, CancellationToken token)
     {
         string json = spec.ToJsonString();
-        string hash = ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(json));
         request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
-            ConfigurationDirectory = Path.Combine(Path.GetDirectoryName(h.ConfigurationDirectory)!, "config-" + hash) }).ToArray() };
+            ConfigurationDirectory = ConfigurationDirectory(h.ConfigurationDirectory, json, request.InputsSha256) }).ToArray() };
         var result = await deployments.PrepareAsync(cluster.UniqueName, request, Guid.NewGuid().ToString("N"), actor, token);
         if (result.State == ClusterOperationState.Succeeded)
         {
@@ -406,6 +404,16 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         }
         return result;
     }
+
+    /// <summary>
+    /// The generated configuration directory next to <paramref name="current"/> for a specification and installation
+    /// inputs, keyed like the deployment revision: SHA-256 of the specification's hash plus the inputs hash. Keying on the
+    /// specification alone gave a rebuilt dev-folder plugin (new inputs, same specification) the active deployment's
+    /// directory, which the Host refuses to overwrite (#1359).
+    /// </summary>
+    internal static string ConfigurationDirectory(string current, string specificationJson, string inputsSha256) =>
+        Path.Combine(Path.GetDirectoryName(current)!, "config-" + ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(
+            ClusterDeploymentFiles.Hash(System.Text.Encoding.UTF8.GetBytes(specificationJson)) + inputsSha256)));
 
     internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
     {
