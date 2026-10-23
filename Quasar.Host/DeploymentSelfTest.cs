@@ -419,7 +419,10 @@ internal static class DeploymentSelfTest
             Assert(Same(Hashes(Path.Combine(node, "Storage")), Hashes(Path.Combine(wa, "Storage")))
                 && Same(Hashes(Path.Combine(fresh, "Storage")), Hashes(Path.Combine(wa, "Storage"))), "local and global Storage differ from the WA's");
             Assert(Hashes(Path.Combine(wa, "Storage")).Count == 2, "the WA's local and global Storage changed");
-            Assert(!Directory.Exists(Path.Combine(fresh, "Saves")), "seeding created a node's saved world");
+            // #1349: a node's mods read world Storage in Saves/<world> already in its first LoadData.
+            Assert(Same(Hashes(Path.Combine(fresh, "Saves/world-1/Storage")), canonical)
+                && Directory.EnumerateFileSystemEntries(Path.Combine(fresh, "Saves/world-1")).Count() == 1,
+                "a node's first start misses the WA's world Storage in its saved world");
             Assert(!Directory.EnumerateFileSystemEntries(node, "*.quasar-*", SearchOption.AllDirectories).Any()
                 && !Directory.EnumerateFileSystemEntries(wa, "*.quasar-*", SearchOption.AllDirectories).Any(), "seeding left work folders");
 
@@ -437,6 +440,9 @@ internal static class DeploymentSelfTest
             ModStorageSeed.Apply(manifest, nodes[1]);
             Assert(!Directory.Exists(Path.Combine(node, "Storage")) && !Directory.Exists(Path.Combine(node, "premade-world/Storage"))
                 && !Directory.Exists(Path.Combine(node, "Saves/world-1/Storage")), "Storage the WA does not have stayed on a node");
+            Directory.Delete(Path.Combine(fresh, "Saves"), true);
+            ModStorageSeed.Apply(manifest, nodes[2]);
+            Assert(!Directory.Exists(Path.Combine(fresh, "Saves/world-1")), "seeding no Storage created a node's saved world");
 
             if (!OperatingSystem.IsWindows())
             {
@@ -514,6 +520,17 @@ internal static class DeploymentSelfTest
             Assert(File.Exists(Path.Combine(data, "Mods/111.sbm/Data.sbc"))
                 && File.ReadAllText(Path.Combine(runtime, "world/Sandbox.sbc")).Contains("<SyncDistance>3000</SyncDistance>"),
                 "profile rollback did not restore the previous selection");
+
+            // #1349: a node that stopped before its first save has only the seeded mod Storage in Saves/<world>.
+            string saved = Path.Combine(data, "Saves/world-1");
+            Directory.Delete(saved, true);
+            Directory.CreateDirectory(Path.Combine(saved, "Storage/111.sbm"));
+            File.WriteAllText(Path.Combine(saved, "Storage/111.sbm/Config.xml"), "seeded");
+            ProfileContentMigration.Apply(candidate, next.Path);
+            Assert(Directory.EnumerateFileSystemEntries(saved).Count() == 1
+                && File.ReadAllText(Path.Combine(saved, "Storage/111.sbm/Config.xml")) == "seeded", "profile update changed an unsaved world");
+            File.WriteAllText(Path.Combine(saved, "SANDBOX_0_0_0_.sbs"), "sectors");
+            AssertThrows(() => ProfileContentMigration.Apply(candidate, next.Path));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
