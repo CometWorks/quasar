@@ -8,8 +8,9 @@ namespace Quasar.Host;
 /// Storage folders are replaced with the World Authority's copy, so a node's own writes never reach its next start.
 /// </summary>
 /// <remarks>
-/// A managed node starts every time from data/premade-world, so mods read their world Storage there while the
-/// world loads, and from data/Saves/&lt;world&gt; after the first save; the game never copies Storage between them.
+/// A managed node starts every time from data/premade-world, but its session path is data/Saves/&lt;world&gt;, where
+/// mods read and write their world Storage from the first LoadData on, also on a node's first start, before the
+/// game created that folder (#1349); the game never copies Storage between them.
 /// The World Authority's world tier is therefore its premade copy with its saved copy's files on top, and that
 /// becomes both folders of the starting node, the World Authority's own included. The local and global tiers
 /// (data/Storage) of a regular node become the World Authority's. A Host without the World Authority keeps
@@ -35,8 +36,7 @@ internal static class ModStorageSeed
             CopyTree(Path.Combine(source, "premade-world", "Storage"), canonical);
             CopyTree(Path.Combine(source, "Saves", world, "Storage"), canonical);
             Replace(Path.Combine(target, "premade-world", "Storage"), canonical);
-            if (Directory.Exists(Path.Combine(target, "Saves", world)))
-                Replace(Path.Combine(target, "Saves", world, "Storage"), canonical);
+            Replace(Path.Combine(target, "Saves", world, "Storage"), canonical);
         }
         finally { if (Directory.Exists(canonical)) Directory.Delete(canonical, true); }
         if (spec.Role != Admin.NodeRole.WorldAuthority)

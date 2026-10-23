@@ -84,6 +84,8 @@ internal static class ProfileContentMigration
     private static void PatchDirectory(string directory, XDocument desired)
     {
         if (!Directory.Exists(directory)) return;
+        // A node that stopped before its first save has only the mod Storage seeded for its first start (#1349).
+        if (Directory.EnumerateFileSystemEntries(directory).All(entry => Path.GetFileName(entry) == "Storage")) return;
         if (!File.Exists(Path.Combine(directory, "Sandbox.sbc")))
             throw new InvalidDataException("Existing managed world has no checkpoint: " + directory);
         foreach (string name in new[] { "Sandbox.sbc", "Sandbox_config.sbc" })
