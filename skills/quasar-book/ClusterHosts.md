@@ -160,6 +160,7 @@ With the manual package, have your service manager run `./Quasar.Host stop-clust
 
 - Quasar sends each Host a deployment (verified installation, world, configuration) and activates it while the cluster is stopped. The Host keeps the active specification on disk, so it works without Quasar.
 - The Gateway Host starts the Cluster Gateway when the cluster goal is On and stops the exact recorded process when it is Off. It reconciles every `pollIntervalSeconds`.
+- Before it starts the Gateway, the Host verifies the installation and, on a cluster's first start, creates every node's data folder and the world from the deployment's seeds. That can take a minute on a large cluster (35 s for 8 nodes). The Host does it in the background: meanwhile the cluster's lifecycle shows Converging with "Waiting for the Gateway process.", and the Gateway starts when it is done. Activation, restore and snapshots of that cluster are refused until then.
 - Each Host polls its Gateway and starts or kills nodes as the Cluster Registry plans. Nodes receive `CLUSTER_ID`, `CLUSTER_NODE_ID`, `CLUSTER_NODE_ROLE`, `CLUSTER_SLOT_ID`, `CLUSTER_GATEWAY_REGISTRY`, `CLUSTER_DEPLOYMENT_REVISION` and `CLUSTER_LOCAL_WORLD_MODS=1`, so nodes load mods only from staged copies.
 - A node counts as ready only after it writes its readiness receipt; otherwise it fails with `ready_timeout`.
 - A node that exits with code 0 after a drain, or whose machine rebooted, is reported as gone, not failed. Any other exit is `process_exited:<code>`.
