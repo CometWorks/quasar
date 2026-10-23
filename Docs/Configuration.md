@@ -1838,6 +1838,16 @@ Activate a prepared local manifest with `Quasar.Host deployment activate --url U
 to be stopped, checks the expected prior manifest hash, verifies files and journals the
 attachment/Gateway transition for restart recovery. It does not start a process.
 
+`DELETE /host/v1/clusters/{clusterId}?sha256=BUNDLE_SHA256` (CLI `Quasar.Host cluster detach
+--url URL --token-env ENV --cluster ID [--sha256 BUNDLE_SHA256]`) detaches a deleted cluster: under
+the execution gate it checks the active bundle hash, Gateway goal Off, no unfinished activation,
+restore or online backup, and every node and Gateway process verifiably stopped, then moves the
+attachment, Gateway spec and activation journal to `state/detached/<timestamp>-<clusterId>/`, so
+the Host loop no longer polls it. Runtime data, launch records and snapshots stay. Attachments from
+`host.json` are refused; remove them there. Repeating it is a no-op. Hosts report the route with
+`clusterDetach: true` in their status; Quasar's cluster deletion calls it on each Host after the
+definition is archived and logs a warning when a Host cannot detach.
+
 Quasar's `GET/PUT /api/v1/clusters/{uniqueName}/deployment` inspect/activate a revision
 across Hosts. CLI equivalents are `cluster deployment NAME` and
 `cluster deployment-activate NAME REQUEST.json --idempotency-key KEY`.

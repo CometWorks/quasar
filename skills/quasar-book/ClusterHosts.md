@@ -31,6 +31,7 @@ This section is about enrolled machines. The Quasar machine's own Host is descri
 | `state/conversions/` | Installations, worlds and mods sent by Quasar (`installations/`, `worlds/`, `mods/`), one folder per deployment with `configuration/` and `runtime/`, and the shared content store `.objects`. |
 | `state/conversions/<id>/runtime/` | The cluster's run root: node data, saves and, for a single-machine cluster, `plugin-shared/`. |
 | `state/snapshots/`, `state/restores/` | Backup snapshots and restore journals. |
+| `state/detached/` | Attachments, Gateway specifications and activation journals of deleted clusters, one folder per detach. The Host no longer reads them. |
 | `state/diagnostics/` | Diagnostic data of the Host and its child processes. |
 | `bin/dotnet` | Link to the system `dotnet`, put first on the service `PATH`. |
 | `bin/host-update.py` | The automatic updater. |
@@ -187,6 +188,7 @@ Node and Gateway failure codes:
 | `Quasar.Host stop-clusters --config host.json` | Shut down this Host's running clusters with a save (used by the stop unit). |
 | `Quasar.Host status --url URL --token-env ENV` | Print the Host status JSON from its control port. |
 | `Quasar.Host attachment apply`, `gateway apply`, `deployment activate` `--url URL --token-env ENV --file FILE` | Apply an attachment, Gateway specification or activation directly. Quasar refuses these for managed clusters through its own API; calling the Host directly bypasses Quasar's safety checks. |
+| `Quasar.Host cluster detach --url URL --token-env ENV --cluster ID [--sha256 BUNDLE_SHA256]` | Stop supervising a deleted cluster: moves its attachment, Gateway specification and activation journal to `state/detached/`, keeps all its data. Refused while any of its processes runs or its Gateway goal is On. `--sha256` is the active bundle manifest hash, from `bundleManifestSha256` in the `status` output; leave it out for an attachment without a bundle. Quasar runs it itself when you delete a cluster. |
 | `Quasar.Host deployment prepare --file FILE --sha256 SHA256 --directory DIR` | Verify and copy deployment inputs offline. |
 | `Quasar.Host deployment configure …`, `deployment export`, `deployment import` | Offline preparation and transfer of installations. |
 | `Quasar.Host --self-test` | Built-in test. |
@@ -200,7 +202,7 @@ export "$VAR=$(python3 -c 'import json, sys; print(json.load(open("state/credent
 ./Quasar.Host status --url http://127.0.0.1:18400 --token-env "$VAR"
 ```
 
-Exit codes of `status` and the `apply` commands: `0` success, `2` usage or unset credential variable, `3` the Host rejected the request (the error code is printed), `4` connection or protocol error.
+Exit codes of `status`, `cluster detach` and the `apply` commands: `0` success, `2` usage or unset credential variable, `3` the Host rejected the request (the error code is printed), `4` connection or protocol error.
 
 ## Logs
 

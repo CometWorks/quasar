@@ -46,6 +46,11 @@ public sealed partial class ClusterHostClient
         HttpMethod.Put, HostContract.HostProtocol.GatewayRoute(gateway.ClusterId),
         gateway, cancellationToken);
 
+    public Task<HostContract.HostEnvelope<HostContract.HostClusterDetach>> DetachClusterAsync(ClusterDefinition cluster,
+        string bundleManifestSha256, CancellationToken token) => SendAsync<HostContract.HostClusterDetach>(cluster,
+            HttpMethod.Delete, HostContract.HostProtocol.ClusterRoute(cluster.UniqueName)
+                + "?sha256=" + Uri.EscapeDataString(bundleManifestSha256), null, token);
+
     public Task<HostContract.HostEnvelope<HostContract.HostRecoveryReadiness>> CheckRecoveryAsync(
         ClusterDefinition cluster, string expectedHash, CancellationToken token) => SendAsync<HostContract.HostRecoveryReadiness>(cluster,
             HttpMethod.Get, HostContract.HostProtocol.RoutePrefix + "/recovery-readiness/" + Uri.EscapeDataString(cluster.UniqueName)

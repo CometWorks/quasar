@@ -7,7 +7,7 @@ using HostContract = Quasar.Host.Contract.V1;
 namespace Quasar.Services;
 
 public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations,
-    QuasarConfigProfileCatalog? profiles = null)
+    QuasarConfigProfileCatalog? profiles = null, ILogger<ClusterDeploymentService>? logger = null)
 {
     public Task ForgetAsync(string clusterId, string confirmation, CancellationToken token = default) =>
         catalog.WithLifecycleAsync(clusterId, async cluster =>
@@ -27,6 +27,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.PendingDeploymentHash is not null
                 || cluster.PendingRestoreHash is not null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete })
                 throw new InvalidOperationException("Stop the cluster and complete any deployment or restore before deleting its definition.");
+            var detach = new List<(ClusterDefinition Target, string HostId, string Sha256, bool Supported)>();
             if (cluster.Gateway is not null || cluster.ActiveDeployment is not null)
             {
                 if (cluster.ActiveDeployment is not { Hosts.Length: > 0 } active || cluster.Gateway is null)
@@ -52,10 +53,34 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
                     if (preview.ClusterId != clusterId || preview.Revision != active.Revision
                         || preview.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
                         throw new InvalidOperationException("Host deployment changed while checking deletion.");
+                    detach.Add((target, host.HostId, host.Deployment.BundleManifestSha256, status.ClusterDetach));
                 }
             }
             // Observation-only entries own no processes; removing them only stops observation.
             await catalog.DeleteDefinitionAsync(cluster, token);
+            // Only after the definition is gone: a Host that keeps a deleted cluster just polls it, while a
+            // definition whose Host forgot it could not start again. Detaching keeps all runtime data.
+            foreach (var (target, hostId, sha256, supported) in detach)
+            {
+                if (!supported)
+                {
+                    logger?.LogWarning("Host {Host} cannot detach the deleted cluster; update its Host executor, then run "
+                        + "'Quasar.Host cluster detach --url URL --token-env ENV --cluster {Cluster} --sha256 {Sha256}' there", hostId, clusterId, sha256);
+                    continue;
+                }
+                try
+                {
+                    var result = (await hosts.DetachClusterAsync(target, sha256, CancellationToken.None)).Data;
+                    logger?.LogInformation("Host {Host} detached deleted cluster {Cluster}: {Detached}", hostId, clusterId,
+                        string.Join(", ", result.Detached));
+                }
+                catch (Exception exception) when (exception is ClusterHostException or InvalidDataException or JsonException)
+                {
+                    logger?.LogWarning("Host {Host} did not detach the deleted cluster ({Error}); it keeps polling it until "
+                        + "'Quasar.Host cluster detach --url URL --token-env ENV --cluster {Cluster} --sha256 {Sha256}' runs there", hostId,
+                        exception.Message, clusterId, sha256);
+                }
+            }
             return true;
         }, token);
 

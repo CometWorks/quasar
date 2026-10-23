@@ -15,7 +15,7 @@ internal static class Program
 {
     internal static readonly DateTimeOffset StartedAt = DateTimeOffset.UtcNow;
     private const string Usage = "Usage: Quasar.Host run --config FILE [--once] | stop-clusters --config FILE | status ..."
-        + " | attachment apply ... | gateway apply ... | deployment prepare --file FILE --sha256 SHA256 --directory DIR | --self-test";
+        + " | attachment apply ... | gateway apply ... | cluster detach ... | deployment prepare --file FILE --sha256 SHA256 --directory DIR | --self-test";
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter() },
@@ -448,6 +448,15 @@ internal static class Program
                 if (!applied.IsSuccessStatusCode
                     || attachmentStore.GetAll().Single().GatewayUrl != "http://127.0.0.1:29000")
                     throw new InvalidOperationException("self-test host attachment apply failed");
+                using HttpResponseMessage other = await commandClient.PutAsJsonAsync(
+                    commandUrl + HostContract.HostProtocol.AttachmentRoute("deleted"), updatedAttachment with { ClusterId = "deleted" }, JsonOptions);
+                string[] detach = ["cluster", "detach", "--url", commandUrl, "--token-env", commandTokenVariable, "--cluster"];
+                if (!other.IsSuccessStatusCode
+                    || await HostCommandCli.TryRunAsync([.. detach, "demo"]) != 3
+                    || await HostCommandCli.TryRunAsync([.. detach, "deleted", "--sha256", new string('0', 64)]) != 3
+                    || await HostCommandCli.TryRunAsync([.. detach, "deleted"]) != 0
+                    || !attachmentStore.GetAll().Select(a => a.ClusterId).SequenceEqual(["demo"]))
+                    throw new InvalidOperationException("self-test host cluster detach failed");
                 commandShutdown.Cancel();
             }
 

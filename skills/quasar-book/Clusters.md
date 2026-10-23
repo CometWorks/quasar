@@ -263,6 +263,8 @@ The delete icon on the card or page opens a dialog:
 - **Delete definition** archives the cluster definition. Managed processes must be stopped and all operations complete; Quasar checks each Host executor first. API: `DELETE /api/v1/clusters/{name}` (204, or 409 when blocked).
 - **Forget registration without checking remote processes** needs the Cluster ID typed exactly. Running processes keep running. API: `DELETE /api/v1/clusters/{name}/registration?confirmation={name}`.
 
+After a delete, Quasar asks each host machine's Host executor to detach the cluster, so the Host stops polling and supervising it. Detaching is refused while a node or the Gateway still runs, the Gateway goal is On, an activation or restore is unfinished, or the deployment changed. The Host moves the cluster's attachment, Gateway specification and activation journal to `state/detached/<timestamp>-<Cluster ID>/`. Worlds, run roots and snapshots stay where they are. When a Host is too old or refuses, the deletion still stands and Quasar logs a warning with the `Quasar.Host cluster detach` command to run on that machine (see [Host command line](ClusterHosts.md#host-command-line)). Forget does not detach: run that command once the processes are stopped.
+
 Both keep worlds, Host data and backups. The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history."
 
 ## Register an existing cluster
@@ -369,6 +371,8 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `Quasar.Host/ModStorageSeed.cs`
 - `Quasar.Host/DeploymentSnapshots.cs`
 - `Quasar.Host/ProfileContentMigration.cs`
+- `Quasar.Host/DeploymentActivation.cs`
+- `Quasar/Services/ClusterDeploymentService.cs`
 - `Quasar/Services/ClusterContentMonitor.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterCredentialStore.cs`
