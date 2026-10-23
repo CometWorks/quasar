@@ -147,6 +147,19 @@ public sealed class ClusterDependencyTests
         finally { Environment.SetEnvironmentVariable(credential, null); }
     }
 
+    [Fact]
+    public void ConfigurationDirectoryIsKeyedOnSpecificationAndInputs()
+    {
+        // A rebuilt dev-folder plugin changes only the inputs; it must not reuse the active deployment's directory (#1359).
+        string a = new('a', 64), b = new('b', 64), spec = "{\"clusterId\":\"demo\"}";
+        string active = ClusterUpdatePreparationService.ConfigurationDirectory("/conversions/x/configuration", spec, a);
+        Assert.Equal("/conversions/x", Path.GetDirectoryName(active));
+        Assert.StartsWith("config-", Path.GetFileName(active));
+        Assert.Equal(active, ClusterUpdatePreparationService.ConfigurationDirectory(active, spec, a));
+        Assert.NotEqual(active, ClusterUpdatePreparationService.ConfigurationDirectory(active, spec, b));
+        Assert.NotEqual(active, ClusterUpdatePreparationService.ConfigurationDirectory(active, "{\"clusterId\":\"other\"}", a));
+    }
+
     private static ClusterPreparationRequest Preparation(string inputs, string direct, int limit = 1) => new(inputs, $$"""
         {"clusterId":"demo","hosts":[{"id":"one"}],"steamListen":"0.0.0.0:27016","directListen":"{{direct}}",
         "pluginConfigurations":{"plugin":{"configType":"Primary","configuration":{"values":{"limit":{{limit}} } } } } }
