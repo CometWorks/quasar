@@ -13,6 +13,7 @@ internal static class DeploymentSelfTest
         LocalWorldModsRequired();
         ProfileContentUpdate();
         WorldFilesUpdate();
+        ModStorageSeeding();
         ConfigurationReferenceRetention();
         SteamClientLibraryInstallation();
         OnlineSnapshot();
@@ -362,6 +363,89 @@ internal static class DeploymentSelfTest
             Assert(All(mes, "<MaxNpcGrids>40</MaxNpcGrids> rewritten by MES"), "a later update with the same seed touched world files");
             File.WriteAllText(Path.Combine(root, "staged", "seed/world", mes), "tampered");
             AssertThrows(() => WorldFilesMigration.Apply(candidate, staged.Path, old.Manifest));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    // #1281: before each node start, the node's mod Storage folders become the World Authority's copy.
+    private static void ModStorageSeeding()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-mod-storage-" + Guid.NewGuid().ToString("N"));
+        string runtime = Path.Combine(root, "runtime");
+        const string mes = "1521905890.sbm_ModularEncountersSystems";
+        string Data(string slot) => Path.Combine(runtime, "nodes", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(slot))[..24], "data");
+        void Write(string path, string text)
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            File.WriteAllText(path, text);
+        }
+        Dictionary<string, string> Hashes(string directory) => !Directory.Exists(directory) ? [] :
+            Directory.EnumerateFiles(directory, "*", SearchOption.AllDirectories).ToDictionary(
+                file => Path.GetRelativePath(directory, file), file => ExecutionBundle.Hash(File.ReadAllBytes(file)));
+        bool Same(Dictionary<string, string> left, Dictionary<string, string> right) =>
+            left.Count == right.Count && left.All(pair => right.TryGetValue(pair.Key, out var hash) && hash == pair.Value);
+        try
+        {
+            var nodes = new[] { "wa", "node-1", "node-2" }.Select(slot => new NodeSpawnSpec(slot,
+                slot == "wa" ? Admin.NodeRole.WorldAuthority : Admin.NodeRole.Regular, slot, "unused", "", [],
+                new() { ["CLUSTER_WORLD_ID"] = "world-1" }, [])).ToArray();
+            var manifest = new BundleManifest(1, "revision", [], nodes, RuntimeRoot: runtime,
+                ProfileContent: new ProfileContentManifest("seed/world/Sandbox.sbc", [], []));
+            string wa = Data("wa"), node = Data("node-1"), fresh = Data("node-2");
+            Write(Path.Combine(wa, "premade-world/Storage", mes, "Config-General.xml"), "seed");
+            Write(Path.Combine(wa, "premade-world/Storage", mes, "Config-Grids.xml"), "seed grids");
+            Write(Path.Combine(wa, "Saves/world-1/Storage", mes, "Config-General.xml"), "written by the WA");
+            Write(Path.Combine(wa, "Storage/111_Local/local.dat"), "WA local");
+            Write(Path.Combine(wa, "Storage/global.dat"), "WA global");
+            Write(Path.Combine(node, "premade-world/Storage", mes, "Config-General.xml"), "seed");
+            Write(Path.Combine(node, "Saves/world-1/Storage", mes, "Config-General.xml"), "written by node-1");
+            Write(Path.Combine(node, "Saves/world-1/Storage/222_Node/only-here.dat"), "written by node-1");
+            Write(Path.Combine(node, "Storage/global.dat"), "node-1 global");
+            Write(Path.Combine(fresh, "premade-world/Sandbox.sbc"), "<checkpoint/>");
+            Directory.CreateDirectory(Path.Combine(node, "Saves/world-1/Storage.quasar-previous")); // An interrupted seed.
+
+            ModStorageSeed.Apply(manifest with { ProfileContent = null }, nodes[1]);
+            Assert(File.ReadAllText(Path.Combine(node, "Storage/global.dat")) == "node-1 global", "an unmanaged bundle seeded mod Storage");
+
+            foreach (var spec in nodes.Reverse()) ModStorageSeed.Apply(manifest, spec);
+            var canonical = new Dictionary<string, string>
+            {
+                [Path.Combine(mes, "Config-General.xml")] = ExecutionBundle.Hash("written by the WA"u8.ToArray()),
+                [Path.Combine(mes, "Config-Grids.xml")] = ExecutionBundle.Hash("seed grids"u8.ToArray()),
+            };
+            foreach (string world in new[] { Path.Combine(wa, "premade-world"), Path.Combine(wa, "Saves/world-1"),
+                         Path.Combine(node, "premade-world"), Path.Combine(node, "Saves/world-1"), Path.Combine(fresh, "premade-world") })
+                Assert(Same(Hashes(Path.Combine(world, "Storage")), canonical), "world Storage differs from the WA's: " + world);
+            Assert(Same(Hashes(Path.Combine(node, "Storage")), Hashes(Path.Combine(wa, "Storage")))
+                && Same(Hashes(Path.Combine(fresh, "Storage")), Hashes(Path.Combine(wa, "Storage"))), "local and global Storage differ from the WA's");
+            Assert(Hashes(Path.Combine(wa, "Storage")).Count == 2, "the WA's local and global Storage changed");
+            Assert(!Directory.Exists(Path.Combine(fresh, "Saves")), "seeding created a node's saved world");
+            Assert(!Directory.EnumerateFileSystemEntries(node, "*.quasar-*", SearchOption.AllDirectories).Any()
+                && !Directory.EnumerateFileSystemEntries(wa, "*.quasar-*", SearchOption.AllDirectories).Any(), "seeding left work folders");
+
+            // A node's own write stays in its process: its next start gets the WA's copy again.
+            Write(Path.Combine(node, "Saves/world-1/Storage", mes, "Config-General.xml"), "written by node-1 again");
+            Write(Path.Combine(node, "Storage/global.dat"), "node-1 global again");
+            ModStorageSeed.Apply(manifest, nodes[1]);
+            Assert(Same(Hashes(Path.Combine(node, "Saves/world-1/Storage")), canonical)
+                && Same(Hashes(Path.Combine(node, "Storage")), Hashes(Path.Combine(wa, "Storage"))), "a node's write leaked into its next start");
+
+            // A WA without mod Storage leaves none on the node.
+            Directory.Delete(Path.Combine(wa, "Storage"), true);
+            Directory.Delete(Path.Combine(wa, "premade-world/Storage"), true);
+            Directory.Delete(Path.Combine(wa, "Saves/world-1/Storage"), true);
+            ModStorageSeed.Apply(manifest, nodes[1]);
+            Assert(!Directory.Exists(Path.Combine(node, "Storage")) && !Directory.Exists(Path.Combine(node, "premade-world/Storage"))
+                && !Directory.Exists(Path.Combine(node, "Saves/world-1/Storage")), "Storage the WA does not have stayed on a node");
+
+            if (!OperatingSystem.IsWindows())
+            {
+                Write(Path.Combine(wa, "Storage/global.dat"), "WA global");
+                Directory.CreateDirectory(Path.Combine(node, "Storage"));
+                Directory.CreateSymbolicLink(Path.Combine(node, "Storage/link"), root);
+                AssertThrows(() => ModStorageSeed.Apply(manifest, nodes[1]));
+                Assert(Directory.Exists(root), "seeding followed a link");
+            }
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
