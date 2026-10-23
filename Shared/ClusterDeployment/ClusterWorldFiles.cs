@@ -67,6 +67,40 @@ internal static class ClusterWorldFiles
         return ClusterDeploymentFiles.Hash(metadata);
     }
 
+    /// <summary>
+    /// Packs a sparse world archive: <paramref name="previous"/> with <paramref name="files"/> added or replaced.
+    /// Only those files travel; <see cref="UnpackAsync"/> references the rest from the receiver's previous world.
+    /// Returns the new world's hash.
+    /// </summary>
+    internal static async Task<string> PackOverlayAsync(Dictionary<string, DeploymentFile> previous,
+        IReadOnlyDictionary<string, byte[]> files, string archive, CancellationToken token)
+    {
+        var pins = new SortedDictionary<string, DeploymentFile>(previous, StringComparer.Ordinal);
+        foreach (var (name, bytes) in files)
+        {
+            Relative(name);
+            if (pins.Keys.Any(p => p.StartsWith(name + "/", StringComparison.Ordinal) || name.StartsWith(p + "/", StringComparison.Ordinal)))
+                throw new InvalidDataException("World file collides with a folder of the same name: " + name);
+            pins[name] = new(ClusterDeploymentFiles.Hash(bytes), bytes.LongLength, false);
+        }
+        byte[] metadata = JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, DeploymentFile>(pins, StringComparer.Ordinal),
+            ClusterDeploymentFiles.JsonOptions);
+        using var output = new FileStream(archive, FileMode.Create, FileAccess.Write, FileShare.None);
+        using (var writer = new TarWriter(output, leaveOpen: true))
+        {
+            using var header = new MemoryStream(metadata);
+            await writer.WriteEntryAsync(new PaxTarEntry(TarEntryType.RegularFile, "world-files.json") { DataStream = header }, token);
+            foreach (var (name, bytes) in files.Where(f => !previous.TryGetValue(f.Key, out var old) || old != pins[f.Key])
+                .OrderBy(f => f.Key, StringComparer.Ordinal))
+            {
+                using var file = new MemoryStream(bytes);
+                await writer.WriteEntryAsync(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = file }, token);
+            }
+        }
+        output.Flush(true);
+        return ClusterDeploymentFiles.Hash(metadata);
+    }
+
     internal static async Task<string> UnpackAsync(Stream input, string hash, string directory, CancellationToken token,
         bool requireCheckpoint = true, string? baseHash = null)
     {

@@ -262,6 +262,96 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
         }, token);
 
+    internal const int MaxWorldFiles = 1000;
+    internal const long MaxWorldFileBytes = 16L * 1024 * 1024;
+
+    /// <summary>The world seed's <c>Storage/</c> files (mod world storage) the next re-prepare builds on: path to SHA-256.</summary>
+    public IReadOnlyDictionary<string, string> GetWorldFiles(string clusterId)
+    {
+        var cluster = catalog.GetCluster(clusterId) ?? throw new KeyNotFoundException(clusterId);
+        var request = BasePreparation(cluster) ?? throw new InvalidOperationException("The cluster has no saved preparation.");
+        return SeedPins(JsonNode.Parse(request.SpecificationJson)!.AsObject())
+            .Where(p => p.Key.StartsWith("Storage/", StringComparison.Ordinal))
+            .ToDictionary(p => p.Key, p => p.Value, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// Stages world <c>Storage/</c> files, for example a mod's configuration (MES), as a new revision of the cluster's
+    /// world seed (#1313). Each Host receives only the changed files on top of its copy of the seed. The managed update
+    /// that activates the candidate copies the files whose seed pins changed into the Gateway's world and every node's
+    /// preserved world; later updates keep the seed, so they carry the files without copying them again.
+    /// </summary>
+    public Task<ClusterOperation> StageWorldFilesAsync(string clusterId, IReadOnlyDictionary<string, byte[]> files,
+        string actor, CancellationToken token) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException("Finish the current setup, update or activation before changing world files.");
+            ValidateWorldFiles(files);
+            var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing world files.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before changing world files.");
+            var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+            var seed = SeedPins(spec);
+            if (files.All(f => seed.TryGetValue(f.Key, out var pin) && pin == ClusterDeploymentFiles.Hash(f.Value)))
+                throw new InvalidOperationException("The world already has these files.");
+            string work = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "ClusterUpdates", Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(work);
+            ClusterWorldFiles.Private(work);
+            try
+            {
+                var transfer = Guid.NewGuid();
+                var preparationHosts = new List<ClusterPreparationHost>();
+                string? worldHash = null;
+                foreach (var old in request.Hosts)
+                {
+                    var active = cluster.ActiveDeployment.Hosts.Single(h => h.HostId == old.HostId);
+                    var target = cluster.Clone();
+                    target.HostCommandUrl = active.CommandUrl;
+                    target.HostCommandTokenEnvironmentVariable = active.TokenEnvironmentVariable;
+                    string previousHash = Path.GetFileName(old.WorldDirectory);
+                    var previous = await hosts.GetWorldInputsAsync(target, previousHash, token)
+                        ?? throw new InvalidOperationException($"Host {old.HostId} cannot update world files: update its Host executor first.");
+                    if (previous.Count != seed.Count || previous.Any(p => !seed.TryGetValue(p.Key, out var pin) || pin != p.Value.Sha256))
+                        throw new InvalidDataException($"Host {old.HostId}'s world seed differs from the saved preparation.");
+                    string archive = Path.Combine(work, "world.tar");
+                    string hash = await ClusterWorldFiles.PackOverlayAsync(previous, files, archive, token);
+                    if (worldHash is not null && hash != worldHash) throw new InvalidDataException("Hosts hold different world seeds.");
+                    worldHash = hash;
+                    var payload = await hosts.TransferConversionInputAsync(target, transfer, "world", archive, hash, token, previousHash);
+                    if (payload.HostId != old.HostId) throw new InvalidDataException("Transfer returned another Host identity.");
+                    preparationHosts.Add(old with { WorldDirectory = payload.Directory });
+                }
+                foreach (var (name, bytes) in files) seed[name] = ClusterDeploymentFiles.Hash(bytes);
+                spec["worldFiles"] = JsonSerializer.SerializeToNode(seed, Json);
+                return await PrepareSpecificationAsync(cluster, request with { Hosts = preparationHosts.ToArray() }, spec, actor, token);
+            }
+            finally { if (Directory.Exists(work)) Directory.Delete(work, true); }
+        }, token);
+
+    private static SortedDictionary<string, string> SeedPins(JsonObject spec) =>
+        new(spec["worldFiles"]?.Deserialize<Dictionary<string, string>>(Json)
+            ?? throw new InvalidDataException("The saved preparation has no world seed pins."), StringComparer.Ordinal);
+
+    /// <summary>World files must be mod world storage, <c>Storage/&lt;mod folder&gt;/...</c>: the seed's checkpoint and
+    /// sectors are the world itself, and session settings and mods come from the profile.</summary>
+    internal static void ValidateWorldFiles(IReadOnlyDictionary<string, byte[]> files)
+    {
+        if (files.Count is 0 or > MaxWorldFiles)
+            throw new ArgumentException($"Choose 1 to {MaxWorldFiles} world files.");
+        if (files.Values.Sum(f => (long)f.Length) > MaxWorldFileBytes)
+            throw new ArgumentException($"World files exceed {MaxWorldFileBytes / 1048576} MiB.");
+        foreach (string name in files.Keys)
+        {
+            var parts = name.Split('/');
+            if (parts.Length < 3 || parts[0] != "Storage" || name.Contains('\\') || name.Contains(':')
+                || parts.Any(p => p is "" or "." or ".." || p.Any(char.IsControl)))
+                throw new ArgumentException("World files must be under Storage/<mod folder>/: " + name);
+        }
+    }
+
     /// <summary>
     /// Adds or removes spare slots until <paramref name="specification"/> has <paramref name="count"/> hot spares, placed
     /// the way setup places them. Quasar names a host's slots <c>host-node-i</c> on consecutive ports, the spares after the

@@ -71,9 +71,10 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
             throw new InvalidDataException("Execution bundle belongs to a different cluster/host or lacks a runtime root.");
         ExecutionBundle.RequireCompatibleStorage(bundle.Manifest.StorageFormats, bundle.Manifest.StorageFormats);
         var installed = attachments.GetAll().SingleOrDefault(a => a.ClusterId == request.ClusterId);
-        if (installed?.BundleManifestPath is { } installedPath)
-            ExecutionBundle.RequireCompatibleStorage(bundle.Manifest.StorageFormats,
-                ExecutionBundle.ReadManifest(installedPath, installed.BundleManifestSha256!).StorageFormats);
+        var installedManifest = installed?.BundleManifestPath is { } installedPath
+            ? ExecutionBundle.ReadManifest(installedPath, installed.BundleManifestSha256!) : null;
+        if (installedManifest is not null)
+            ExecutionBundle.RequireCompatibleStorage(bundle.Manifest.StorageFormats, installedManifest.StorageFormats);
         var attachment = AttachmentStore.Validate(new(request.ClusterId, request.GatewayUrl,
             request.ExecutorTokenEnvironmentVariable, request.BundleManifestPath, request.BundleManifestSha256,
             Path.Combine(runtime, "nodes")));
@@ -90,6 +91,7 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         var transaction = new Transaction(request, active, false);
         Write(path, transaction); // Intent precedes both writes; restart replays it before any process can start.
         ProfileContentMigration.Apply(bundle, request.BundleManifestPath);
+        WorldFilesMigration.Apply(bundle, request.BundleManifestPath, installedManifest);
         attachments.Apply(active.Attachment);
         if (active.Gateway is not null) gateways.Apply(active.Gateway);
         bundle.ConfirmRestoreActivation();

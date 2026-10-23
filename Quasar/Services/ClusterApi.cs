@@ -267,6 +267,8 @@ internal static class ClusterApi
         RouteHandlerBuilder stageProfile = routes.MapPost("/{uniqueName}/config-profile-preparation", StageProfile);
         RouteHandlerBuilder stageHotSpares = routes.MapPost("/{uniqueName}/hot-spares-preparation", StageHotSpares);
         RouteHandlerBuilder stageLatestRelease = routes.MapPost("/{uniqueName}/release-update-preparation", StageLatestRelease);
+        routes.MapGet("/{uniqueName}/world-files", GetWorldFiles);
+        RouteHandlerBuilder stageWorldFiles = routes.MapPost("/{uniqueName}/world-files-preparation", StageWorldFiles);
         RouteHandlerBuilder setGoal = routes.MapPut("/{uniqueName}/goal", SetGoal);
         RouteHandlerBuilder setGatewaySpec = routes.MapPut("/{uniqueName}/gateway-spec", SetGatewaySpec);
         RouteHandlerBuilder restartGateway = routes.MapPost("/{uniqueName}/gateway/restart", RestartGateway);
@@ -306,6 +308,7 @@ internal static class ClusterApi
             stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageHotSpares.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageLatestRelease.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+            stageWorldFiles.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             setGoal.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setGatewaySpec.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             restartGateway.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -814,6 +817,35 @@ internal static class ClusterApi
         { return Error(409, "hot_spares_preparation_conflict", error.Message); }
     }
 
+    private static IResult GetWorldFiles(string uniqueName, HttpContext context, ClusterUpdatePreparationService preparation)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return Results.Json(Envelope(preparation.GetWorldFiles(uniqueName)), JsonOptions); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException)
+        { return Error(409, "world_files_unavailable", error.Message); }
+    }
+
+    private static async Task<IResult> StageWorldFiles(string uniqueName, ClusterWorldFilesSelection request,
+        HttpContext context, ClusterUpdatePreparationService preparation, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        if (request.Files is null || request.Files.Any(f => f?.Path is null || f.Content is null || !files.TryAdd(f.Path, f.Content)))
+            return Error(400, "invalid_world_files", "Each world file needs a unique path and its content.");
+        try { return AcceptedOperation(uniqueName, context, await preparation.StageWorldFilesAsync(uniqueName,
+            files, context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (ArgumentException error) { return Error(400, "invalid_world_files", error.Message); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or IOException
+            or ClusterHostException or HttpRequestException)
+        { return Error(409, "world_files_preparation_conflict", error.Message); }
+    }
+
     // Queued content is staged with the release, so the route requires config editing like profile staging.
     private static async Task<IResult> StageLatestRelease(string uniqueName, HttpContext context,
         ClusterUpdatePreparationService preparation, CancellationToken token)
@@ -1057,3 +1089,6 @@ internal static class ClusterApi
 public sealed record ClusterRecoveryRequest(Guid Generation);
 public sealed record ClusterProfileSelection(string ConfigProfileId);
 public sealed record ClusterHotSparesSelection(int HotSpares);
+/// <summary>World files to stage: paths under <c>Storage/</c> of the world, contents base64 in JSON.</summary>
+public sealed record ClusterWorldFilesSelection(ClusterWorldFile[] Files);
+public sealed record ClusterWorldFile(string Path, byte[] Content);

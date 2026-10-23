@@ -12,6 +12,7 @@ internal static class DeploymentSelfTest
         CredentialInstallation();
         LocalWorldModsRequired();
         ProfileContentUpdate();
+        WorldFilesUpdate();
         ConfigurationReferenceRetention();
         SteamClientLibraryInstallation();
         OnlineSnapshot();
@@ -301,6 +302,68 @@ internal static class DeploymentSelfTest
             Assert(!Directory.Exists(next) && File.ReadAllText(Path.Combine(runtime, "world")) == "live world", "runtime was affected by configuration pruning");
         }
         finally { if (Directory.Exists(state)) Directory.Delete(state, true); }
+    }
+
+    // #1313: a staged world seed revision updates the preserved worlds' Storage files at activation, and only those.
+    private static void WorldFilesUpdate()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-world-files-" + Guid.NewGuid().ToString("N"));
+        string runtime = Path.Combine(root, "runtime");
+        const string mes = "Storage/1521905890.sbm_ModularEncountersSystems/Config-General.xml";
+        const string other = "Storage/111.sbm_Other/state.dat";
+        string[] slots = ["wa", "node-1", "spare-1", "unseeded"];
+        string Data(string slot) => Path.Combine(runtime, "nodes", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(slot))[..24], "data");
+        var worlds = new List<string> { Path.Combine(runtime, "world") };
+        foreach (string slot in slots.SkipLast(1))
+            worlds.AddRange([Path.Combine(Data(slot), "premade-world"), Path.Combine(Data(slot), "Saves/world-1")]);
+        try
+        {
+            foreach (string world in worlds)
+            {
+                Directory.CreateDirectory(Path.Combine(world, Path.GetDirectoryName(mes)!));
+                Directory.CreateDirectory(Path.Combine(world, Path.GetDirectoryName(other)!));
+                File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<checkpoint/>");
+                File.WriteAllText(Path.Combine(world, mes), "<MaxNpcGrids>100</MaxNpcGrids> rewritten by MES");
+                File.WriteAllText(Path.Combine(world, other), "runtime state");
+            }
+            (BundleManifest Manifest, string Path, string Hash) Bundle(string revision, string mesConfig)
+            {
+                string config = Path.Combine(root, revision);
+                var files = new Dictionary<string, string> { ["seed/world/Sandbox.sbc"] = "<checkpoint/>",
+                    ["seed/world/" + mes] = mesConfig, ["seed/world/" + other] = "imported state" };
+                foreach (var (name, text) in files)
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(config, name))!);
+                    File.WriteAllText(Path.Combine(config, name), text);
+                }
+                var nodes = slots.Select(slot => new NodeSpawnSpec(slot, slot == "wa" ? Admin.NodeRole.WorldAuthority : Admin.NodeRole.Regular,
+                    slot, "unused", "", [], new() { ["CLUSTER_WORLD_ID"] = "world-1" }, [])).ToArray();
+                var manifest = new BundleManifest(1, revision, [], nodes, RuntimeRoot: runtime,
+                    InitialDirectories: new() { ["world"] = "seed/world" },
+                    ConfigFiles: files.Keys.Select(f => new BundleFile(f, ExecutionBundle.Hash(File.ReadAllBytes(Path.Combine(config, f))))).ToArray());
+                string path = Path.Combine(config, "bundle.json");
+                File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(manifest, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+                return (manifest, path, ExecutionBundle.Hash(File.ReadAllBytes(path)));
+            }
+            bool All(string name, string text) => worlds.All(w => File.ReadAllText(Path.Combine(w, name)) == text);
+            var old = Bundle("old", "<MaxNpcGrids>100</MaxNpcGrids>");
+            var staged = Bundle("staged", "<MaxNpcGrids>40</MaxNpcGrids>");
+            var later = Bundle("later", "<MaxNpcGrids>40</MaxNpcGrids>");
+            Assert(WorldFilesMigration.Changed(staged.Manifest, null).Length == 0, "a first deployment copied world files");
+            Assert(WorldFilesMigration.Changed(staged.Manifest, old.Manifest).SequenceEqual([mes]), "world file diff is wrong");
+            var candidate = ExecutionBundle.Load(staged.Path, staged.Hash);
+            WorldFilesMigration.Apply(candidate, staged.Path, old.Manifest);
+            WorldFilesMigration.Apply(candidate, staged.Path, old.Manifest); // Replayed activation.
+            Assert(All(mes, "<MaxNpcGrids>40</MaxNpcGrids>"), "a node or the Gateway world missed the staged world file");
+            Assert(All(other, "runtime state"), "an unchanged Storage file was overwritten from the seed");
+            Assert(!Directory.Exists(Data("unseeded")), "world files created an unseeded node's data");
+            foreach (string world in worlds) File.WriteAllText(Path.Combine(world, mes), "<MaxNpcGrids>40</MaxNpcGrids> rewritten by MES");
+            WorldFilesMigration.Apply(ExecutionBundle.Load(later.Path, later.Hash), later.Path, staged.Manifest);
+            Assert(All(mes, "<MaxNpcGrids>40</MaxNpcGrids> rewritten by MES"), "a later update with the same seed touched world files");
+            File.WriteAllText(Path.Combine(root, "staged", "seed/world", mes), "tampered");
+            AssertThrows(() => WorldFilesMigration.Apply(candidate, staged.Path, old.Manifest));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
     private static void ProfileContentUpdate()
