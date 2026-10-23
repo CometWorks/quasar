@@ -205,6 +205,8 @@ Cluster backups are native snapshots taken by every Host executor.
 - **Back up stopped cluster** makes a clean (`Quiescent`) backup. It needs clean-shutdown proof.
 - **Back up running cluster** makes an online (`CrashConsistent`) backup without downtime. Quasar runs `save-all`, the Gateway copies its registry database, then each Host streams its runtime into the snapshot at most at the **Running cluster copy rate** (Backups page, default 32 MiB/s, range 1 to 4096). The cluster package must support online registry copies, otherwise "This cluster's Gateway cannot copy its registry while it runs. Update the cluster to get online backups."
 - Scheduled server backups on the **Backups** page cover clusters too: a cleanly stopped cluster gets a `Quiescent` backup, a running one a `CrashConsistent` backup. Retention keeps the newest **Keep last N per server** automatic backups plus the newest `Quiescent` one. A failed scheduled capture is retried after an hour. Manual backups are kept.
+- The pre-update backup of each managed update and the backup a conversion takes are kept per purpose: Quasar keeps the newest 3 pre-update and the newest 3 pre-conversion backups of a cluster and deletes older ones of that kind. Older backups that don't record a purpose are kept.
+- A backup leaves out each node's mods (activating the restored deployment writes them again from the profile) and the cluster plugin's handover diagnostic dumps (`data/cluster/handover-diff`). Restoring it needs a deployment whose profile pins the mods; otherwise the restore stops with "The snapshot left out node mods that the candidate deployment does not pin".
 
 To restore, stop the cluster, open **Maintenance → Backups**, pick **Backup to restore**, choose **Prepare restore with fresh credentials**, review the generated request under **Restore prepared backup**, then choose **Restore backup**. Restore always rotates the cluster's runtime credentials. Each Host keeps the replaced runtime data beside the restored one. If the saved profile changed after the backup's deployment, the cluster's profile stays unset and the Cluster settings panel asks you to choose and stage one.
 
@@ -280,7 +282,7 @@ Both keep worlds, Host data and backups. The definition moves to `Clusters/<Clus
 | `ManagedRuntime/Tools/Cluster/<version>/` | Staged cluster packages. |
 | `ManagedRuntime/Tools/ClusterDependencies/<hash>/` | Frozen DS, Content, Magnetar, Direct Transport and common plugin snapshots. |
 | `ManagedRuntime/Tools/ClusterModVersions/` | Verified Workshop mod versions. |
-| `ManagedRuntime/Tools/.objects` | Shared content store. Identical files across packages, snapshots and mods are stored once and hard-linked. |
+| `ManagedRuntime/Tools/.objects` | Shared content store. Identical files across packages, snapshots and mods are stored once and hard-linked. Each node's `Mods` folder hard-links the Host's read-only copies too, instead of copying them per node. |
 | `<backup directory>/Clusters/`, `<backup directory>/Conversions/` | Cluster backups and conversion work folders. |
 
 Quasar removes unused package, dependency and mod content once no cluster, prepared update or retained backup refers to it. There is no age-based retention. Completed setup and conversion delete their temporary installation trees and transfer archives.
@@ -365,6 +367,8 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `Quasar/Services/ClusterUpdatePreparationService.cs`
 - `Quasar.Host/WorldFilesMigration.cs`
 - `Quasar.Host/ModStorageSeed.cs`
+- `Quasar.Host/DeploymentSnapshots.cs`
+- `Quasar.Host/ProfileContentMigration.cs`
 - `Quasar/Services/ClusterContentMonitor.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterCredentialStore.cs`

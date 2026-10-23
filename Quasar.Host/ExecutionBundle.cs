@@ -230,9 +230,15 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
                     string relative = pin.Key[(source.Length + 1)..];
                     string copy = Path.Combine(staging, relative);
                     Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
-                    using (var input = File.OpenRead(Path.Combine(config, pin.Key)))
-                    using (var output = new FileStream(copy, FileMode.CreateNew))
-                    { input.CopyTo(output); output.Flush(true); }
+                    string file = Path.Combine(config, pin.Key);
+                    // #1397: mods are only read by the process, so it shares the read-only store object.
+                    if (!relative.StartsWith("Mods/", StringComparison.Ordinal)
+                        || !Quasar.ClusterDeployment.ClusterContentStore.TryLinkReadOnly(file, copy))
+                    {
+                        using var input = File.OpenRead(file);
+                        using var output = new FileStream(copy, FileMode.CreateNew);
+                        input.CopyTo(output); output.Flush(true);
+                    }
                     using var stream = File.OpenRead(copy);
                     if (!Convert.ToHexString(SHA256.HashData(stream)).Equals(pin.Value, StringComparison.OrdinalIgnoreCase))
                         throw new CryptographicException("Data seed changed during preparation.");
