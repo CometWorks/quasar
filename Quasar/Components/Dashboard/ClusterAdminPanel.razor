@@ -53,9 +53,9 @@
                     <p class="quasar-tone-warning">@error.Code: @error.Message</p>
                 }
             }
-            @if (!Compact)
+            @if (_settingsOpened)
             {
-            <div class="quasar-stack">
+            <div class="quasar-stack" hidden="@Compact">
                 <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="configurationAuthorization">
                     <Authorized>
                         <details class="quasar-details"><summary>Cluster settings</summary>
@@ -151,6 +151,8 @@
 @code {
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
     [Parameter] public bool Compact { get; set; }
+    private bool _settingsOpened;
+    protected override void OnParametersSet() => _settingsOpened |= !Compact;
     private readonly CancellationTokenSource _shutdown = new();
     private Admin.AdminCapabilities? _capabilities;
     private Admin.AdminConfig? _config;

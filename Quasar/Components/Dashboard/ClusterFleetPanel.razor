@@ -12,7 +12,7 @@
     @if (_capturedAt is { } captured) { <span class="quasar-text quasar-type-caption">Cluster Registry observation: @captured.ToString("u")</span> }
     <MudTabs>
         <MudTabPanel Text="Nodes">
-            <MudTable T="NodeRow" Items="NodeRows" Dense="true" Hover="true">
+            <MudTable T="ClusterNodeRow" Items="NodeRows" Dense="true" Hover="true">
                 <HeaderContent><MudTh>Slot / node</MudTh><MudTh>Host machine / role</MudTh><MudTh>Goal / observed</MudTh><MudTh>Cluster Registry status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Slot / node">@(context.Plan?.SlotKey ?? context.Fleet?.Registry.SlotKey ?? "-")
@@ -118,15 +118,7 @@
     private DateTimeOffset? _capturedAt;
     private string? _error, _selectedNode;
     private Task? _loop;
-    internal sealed record NodeRow(Admin.NodePlan? Plan, ClusterFleetNode? Fleet);
-    private IEnumerable<NodeRow> NodeRows => MergeNodes(_plan, _fleet?.Nodes ?? []);
-    internal static IEnumerable<NodeRow> MergeNodes(Admin.NodePlan[] plan, ClusterFleetNode[] fleet)
-    {
-        var planned = plan.Select(slot => new NodeRow(slot, fleet.FirstOrDefault(node =>
-            node.Registry.SlotKey == slot.SlotKey && node.Registry.Node == slot.ObservedNode))).ToArray();
-        return planned.Concat(fleet.Where(node => !planned.Any(row => ReferenceEquals(row.Fleet, node)))
-            .Select(node => new NodeRow(null, node)));
-    }
+    private IEnumerable<ClusterNodeRow> NodeRows => ClusterFleetService.MergeNodes(_plan, _fleet?.Nodes ?? []);
     private static string RoleText(Admin.NodeRole? role) => role switch
     {
         Admin.NodeRole.WorldAuthority => "World Authority",

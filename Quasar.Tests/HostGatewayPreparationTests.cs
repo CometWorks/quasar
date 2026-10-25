@@ -63,7 +63,18 @@ public sealed class HostGatewayPreparationTests : IDisposable
         Assert.Equal(GatewayObservedState.Running, running.Observed);
         Assert.Null(running.Failure);
         Assert.True(File.Exists(Path.Combine(_root, "runtime/world/world.dat")));
-        await StopAsync(actualizer, spec, running);
+        try
+        {
+            var first = await actualizer.ReconcileAsync(spec, CancellationToken.None);
+            Assert.NotNull(first.Metrics);
+            Assert.Null(first.Metrics.CpuPercent);
+            Assert.True(first.Metrics.MemoryWorkingSetBytes > 0);
+            var second = await actualizer.ReconcileAsync(spec, CancellationToken.None);
+            Assert.NotNull(second.Metrics?.CpuPercent);
+            Assert.True(second.Metrics.CpuPercent >= 0);
+            Assert.True(second.Metrics.CapturedAt >= first.Metrics.CapturedAt);
+        }
+        finally { await StopAsync(actualizer, spec, running); }
     }
 
     [Fact]
@@ -123,5 +134,6 @@ public sealed class HostGatewayPreparationTests : IDisposable
             StopFence = new(running.ProcessId!.Value, running.LaunchedAt!.Value),
         }, CancellationToken.None);
         Assert.Equal(GatewayObservedState.Missing, stopped.Observed);
+        Assert.Null(stopped.Metrics);
     }
 }

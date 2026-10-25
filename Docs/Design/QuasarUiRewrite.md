@@ -66,6 +66,11 @@ Additional migrated surfaces:
 - Cluster overview/configuration links and administration controls, including
   settings, staged profiles, diagnostics, exports, handover, and capacity edits.
   The embedded PluginSdk configuration renderer still uses legacy controls.
+- Cluster detail navigation groups Overview, Nodes & players, Mods & plugins,
+  Maintenance and Settings. The native live health map uses SVG connections,
+  resource bars, coverage-aware totals and service addresses. Existing lifecycle
+  commands, confirmations and permissions are retained. See
+  [Cluster health overview](../ClusterOverview.md) for data sources and limits.
 - Notification preferences/browser push controls and public listing settings,
   retaining service validation, publication consent, optimistic revisions,
   missing-source handling, account scope, and permission checks.

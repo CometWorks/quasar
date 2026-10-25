@@ -38,7 +38,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 
 Clusters are in beta. They split one world across several server processes behind a Cluster Gateway.
 
-- [Clusters](Clusters.md): cluster terms and pages, starting and stopping, profiles and plugins on clusters, mods and content updates, release updates, backups, converting a standalone server to a cluster and back, the `Quasar cluster` command line.
+- [Clusters](Clusters.md): cluster terms, live health map, service addresses and grouped controls, starting and stopping, profiles and plugins on clusters, mods and content updates, release updates, backups, converting a standalone server to a cluster and back, the `Quasar cluster` command line.
 - [Cluster setup](ClusterSetup.md): the setup wizard, enrolling host machines (local, command, SSH or manual), prerequisites, port layout, setup errors.
 - [Cluster hosts](ClusterHosts.md): Quasar.Host packages and files, `host.json`, credentials, the connection to Quasar, systemd units, updates, shutdown, logs and connection problems.
 

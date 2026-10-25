@@ -51,6 +51,7 @@ raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration
 | [Cluster Integration Verification](Docs/ClusterIntegrationVerification.md) | Implementation checks, review package provenance and remaining live acceptance gates. |
 | [Guided Cluster Setup](Docs/ClusterGuidedSetupPlan.md) | Machine enrollment, local/SSH/command installation, automatic provisioning and release prerequisites. |
 | [Cluster Terminology](Docs/ClusterTerminology.md) | Terminology occurrences and continuity findings across cluster setup, hosts, controls and contracts. |
+| [Cluster Health Overview](Docs/ClusterOverview.md) | Live cluster topology, resource readings, service addresses and grouped controls. |
 | [Cluster Conversion](Docs/ClusterConversion.md) | Guided standalone/cluster conversion, backups, resume and plugin configuration limits. |
 | [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
 | [Cluster Content Updates Plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md) | Proposed Workshop byte pinning, scheduled mod/plugin notices, explicit maintenance updates and compatible rollovers including World Authority. |

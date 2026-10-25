@@ -11,10 +11,15 @@ public sealed class ClusterFleetService(ClusterGatewayClient gateway, AgentRegis
     {
         // One Registry snapshot supplies both the cluster identity and current incarnations.
         var status = await gateway.GetStatusAsync(cluster, token);
+        return new(status.ProtocolVersion, status.CapturedAt, Observe(status.Data));
+    }
+
+    public ClusterFleet Observe(Admin.ClusterStatus status)
+    {
         var observations = agents.GetAgents();
-        var nodes = status.Data.Nodes.Select(node =>
+        var nodes = status.Nodes.Select(node =>
         {
-            var agent = MatchAgent(status.Data.ClusterId, node, observations);
+            var agent = MatchAgent(status.ClusterId, node, observations);
             var snapshot = agent?.Snapshot;
             var telemetry = agent is null ? null : new ClusterNodeTelemetry(agent.AgentId, agent.TelemetryKey,
                 agent.IsConnected && snapshot is not null && DateTimeOffset.UtcNow - agent.LastSnapshotReceivedUtc < TimeSpan.FromSeconds(15),
@@ -23,7 +28,15 @@ public sealed class ClusterFleetService(ClusterGatewayClient gateway, AgentRegis
                 snapshot?.DeploymentRevision, snapshot?.ReadinessVerified, snapshot?.DeploymentFailure);
             return new ClusterFleetNode(node, telemetry);
         }).ToArray();
-        return new(status.ProtocolVersion, status.CapturedAt, new(status.Data.ClusterId, nodes));
+        return new(status.ClusterId, nodes);
+    }
+
+    internal static IEnumerable<ClusterNodeRow> MergeNodes(Admin.NodePlan[] plan, ClusterFleetNode[] fleet)
+    {
+        var planned = plan.Select(slot => new ClusterNodeRow(slot, fleet.FirstOrDefault(node =>
+            node.Registry.SlotKey == slot.SlotKey && node.Registry.Node == slot.ObservedNode))).ToArray();
+        return planned.Concat(fleet.Where(node => !planned.Any(row => ReferenceEquals(row.Fleet, node)))
+            .Select(node => new ClusterNodeRow(null, node)));
     }
 
     public static AgentRuntimeState? MatchAgent(string clusterId, Admin.NodeStatus node, IReadOnlyList<AgentRuntimeState> agents)
@@ -37,6 +50,7 @@ public sealed class ClusterFleetService(ClusterGatewayClient gateway, AgentRegis
 
 public sealed record ClusterFleet(string ClusterId, ClusterFleetNode[] Nodes);
 public sealed record ClusterFleetNode(Admin.NodeStatus Registry, ClusterNodeTelemetry? Telemetry);
+internal sealed record ClusterNodeRow(Admin.NodePlan? Plan, ClusterFleetNode? Fleet);
 public sealed record ClusterNodeTelemetry(string AgentId, string TelemetryKey, bool Connected,
     DateTimeOffset? CapturedAt, ServerMetrics? Metrics, ProfilerSnapshot? Profiler,
     PluginStatsSnapshot? PluginStats, PluginRuntimeInfo[] Plugins, PluginLogEntry[] Logs,
