@@ -58,6 +58,10 @@ CPU 100% means one logical CPU. Four bars each hold one core equivalent; they do
 
 The cluster page refreshes status every five seconds. When a managed cluster is stopped, Quasar does not show Cluster Registry connection failures as warnings.
 
+Overview always stays available. The other tabs are greyed out while the Gateway admin connection is being checked or is unavailable. They unlock when its authenticated capabilities endpoint responds, regardless of whether the desired cluster state is On or Off. If the connection drops, Overview becomes visible; when it returns, Quasar restores the requested tab, including a bookmarked one. Opened panels retain their state across these changes. The existing five-second poll checks availability again.
+
+For a deployed cluster with desired state Off and an unavailable Gateway, expand **Offline maintenance and recovery** beneath Overview. It holds the same maintenance panel, including Host-based recovery and backup tools. Start/Stop and guided setup stay reachable as well. Tab availability does not bypass command permissions, confirmations or safety checks.
+
 ### Cluster console
 
 The terminal icon on the card or page opens the cluster console. It has two tabs, **Cluster Registry events** and **Node plugin logs** (up to 1000 most recent entries), and refreshes every five seconds. If the Registry cannot be reached it keeps the shown entries and says "Live feed unavailable. Retained entries may be stale." Full Gateway and node process logs stay on the host machines; see [Cluster hosts](ClusterHosts.md#logs).
@@ -84,7 +88,7 @@ At machine shutdown or user logout, the Host executor shuts its clusters down wi
 
 ### Recovery after an unclean shutdown
 
-If the Gateway did not prove a clean shutdown, the cluster needs explicit recovery. With the goal Off, open **Maintenance → Recovery**:
+If the Gateway did not prove a clean shutdown, the cluster needs explicit recovery. With the goal Off, open **Maintenance → Recovery**, or **Overview → Offline maintenance and recovery → Recovery** if the Gateway is unavailable:
 
 - **Recover missing cluster services** resumes the recorded Gateway and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.
 - **Recover stopped cluster after an unclean shutdown** requires every node to be stopped. It starts a new recovery generation from retained saves and plugin data. Unsaved game changes may be lost.

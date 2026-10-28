@@ -1404,6 +1404,10 @@ Authority map, resource totals, service addresses and expandable runtime details
 Separate views group **Nodes & players**, **Mods & plugins**, **Maintenance** and
 **Settings**; lifecycle controls remain available across views. See
 [Cluster health overview](ClusterOverview.md) for sources, freshness and CPU units.
+Tabs beyond Overview unlock after a successful Gateway admin capabilities check,
+independently of the desired cluster state, and are greyed out while that connection
+is unavailable. A stopped deployed cluster retains **Offline maintenance and
+recovery** beneath Overview so its Host-based recovery tools remain accessible.
 The **Nodes & players** view shows planned slots (host, role, goal and
 observed state), registered nodes, performance and players.
 Slots without a registered node remain visible. Process telemetry, plugin runtime

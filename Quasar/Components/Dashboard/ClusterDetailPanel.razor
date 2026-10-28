@@ -102,6 +102,7 @@
 {
     [Parameter] public bool CollapseDetails { get; set; }
     [Parameter] public bool ShowTopology { get; set; }
+    [Parameter] public EventCallback<bool> GatewayAvailabilityChanged { get; set; }
     private RenderFragment RuntimeDetails => @<div class="quasar-live-details">
     <div>
         <h2>World and configuration</h2>
@@ -138,6 +139,7 @@
     private bool _stale;
     private DateTimeOffset? _observedAt;
     private Admin.AdminCapabilities? _capabilities;
+    private bool? _reportedGatewayAvailability;
     private ClusterFleet? _fleet;
     private Admin.ClientSummary[]? _clients;
     private Admin.PartitionSummary[]? _partitions;
@@ -200,6 +202,12 @@
             {
                 _capabilities = null;
                 if (!ExpectedOffline(exception)) errors.Add(exception.Message);
+            }
+            bool gatewayAvailable = _capabilities is not null;
+            if (_reportedGatewayAvailability != gatewayAvailable)
+            {
+                _reportedGatewayAvailability = gatewayAvailable;
+                await GatewayAvailabilityChanged.InvokeAsync(gatewayAvailable);
             }
             try
             {
