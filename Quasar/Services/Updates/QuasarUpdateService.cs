@@ -500,7 +500,6 @@ public sealed class QuasarUpdateService : BackgroundService
         var path = MagnetarPaths.GetQuasarActiveReleasePath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await AtomicFileWriter.WriteTextAsync(path, JsonSerializer.Serialize(pointer, JsonOptions), cancellationToken);
-        CleanupStagedUpdates(pointer.WorkingDirectory);
         SetSnapshot(_snapshot with { Status = QuasarUpdateStatus.Activating, Message = $"Activating Quasar UI {pointer.Version}." });
     }
 
@@ -1158,21 +1157,6 @@ public sealed class QuasarUpdateService : BackgroundService
         TryDeleteFile(Path.Combine(activeDirectory, AppSettingsReleaseBaseFileName));
         QuasarWebReleaseLayout.ValidateDirectory(activeDirectory);
         EnsureExecutableBit(Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
-    }
-
-    private static void CleanupStagedUpdates(string activeWorkingDirectory)
-    {
-        var stagingDirectory = MagnetarPaths.GetQuasarStagingDirectory();
-        if (!Directory.Exists(stagingDirectory))
-            return;
-
-        foreach (var directory in Directory.EnumerateDirectories(stagingDirectory))
-        {
-            if (IsSamePath(directory, activeWorkingDirectory))
-                continue;
-
-            TryDeleteDirectory(directory);
-        }
     }
 
     private static bool IsSamePath(string left, string right)

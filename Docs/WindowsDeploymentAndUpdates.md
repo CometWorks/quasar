@@ -116,11 +116,18 @@ default and lists selectable `quasar-web-win-x64.zip` releases on
 automatically after its `SHA256SUMS` entry is verified; with it disabled, releases
 remain queued until the operator stages the selected version. Activation is
 explicit and requires the worker to be running under Bootstrap; the UI copies the
-staged payload into `<install-root>\ManagedRuntime\WebService\<version>`, clears
-stale staged payloads, and Bootstrap drains the old worker, starts the managed
+staged payload into `<install-root>\ManagedRuntime\WebService\<version>`,
+and Bootstrap drains the old worker, starts the managed
 `Quasar.exe` on the same port, and leaves managed Magnetar servers running. The
 browser shows a restart progress overlay, polls `/api/health` until the
 activated UI version is serving, then reloads the Updates page.
+
+After a worker passes its startup health check, Bootstrap removes completed
+UI and Bootstrap payloads from `Updates\Staged\`. It removes versions at or
+below the running version of each component, including leftovers from earlier
+updates. This runs on ordinary startup and after manual or coordinated updates.
+Newer staged payloads and any directory containing the running worker are kept.
+Cleanup failures are logged and retried after the next worker start.
 
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the install root (`<install-root>\Updates\appsettings.base.json`) as the merge

@@ -135,3 +135,12 @@ The Bootstrap installer leaves `WebService/` and root `appsettings.json` intact:
 UI activation uses the separately staged release pointer. This also preserves the
 packaged worker when it is the rollback target. Bootstrap revalidates the prepared
 UI directory after download, under the shared maintenance lease, before cutover.
+
+Once a worker passes its startup health check, Bootstrap removes completed
+payloads from `Updates/Staged/` under the maintenance lease. UI payloads at or
+below the healthy worker version and `Bootstrap-<version>` payloads at or below
+the running launcher version are removed. This also clears leftovers on ordinary
+startup after a coordinated launcher update. Newer staged releases and any
+directory containing the running worker are preserved. Failed worker starts do
+not trigger cleanup. Filesystem failures are logged and retried on the next
+successful worker start.

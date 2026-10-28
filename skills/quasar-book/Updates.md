@@ -31,7 +31,7 @@ The page has these panels:
 
 1. **Check.** The worker reads up to 100 releases from `https://api.github.com/repos/<Owner>/<Repository>/releases`, skips drafts, and skips prereleases unless prereleases are enabled. It finds the platform asset by name: `quasar-web-linux-x64.tar.gz` on Linux, `quasar-web-win-x64.zip` on Windows. The first check runs 10 seconds after startup, then every `CheckIntervalSeconds` (default 900).
 2. **Stage.** Quasar downloads the asset into `<install root>/ManagedRuntime/Cache/`, verifies it against the release's `SHA256SUMS` file, extracts it to `<install root>/Updates/Staged/<version>/`, and merges `appsettings.json` (see below). With **Automatically stage UI updates after checks** on (the default), staging happens right after a check finds a newer version. With it off, the newer version waits as "ready to download" until you press **Stage**.
-3. **Activate.** Press **Activate**. Quasar copies the staged files to `<install root>/ManagedRuntime/WebService/<version>/`, copies the resolved `appsettings.json` back to the install root, writes `<install root>/Updates/active-release.json`, and deletes other staged payloads.
+3. **Activate.** Press **Activate**. Quasar copies the staged files to `<install root>/ManagedRuntime/WebService/<version>/`, copies the resolved `appsettings.json` back to the install root, and writes `<install root>/Updates/active-release.json`.
 4. **Cutover.** Bootstrap sees the pointer change, asks the old worker to drain, starts the new worker on the same port and waits up to 60 seconds for `/api/health`. The browser shows a progress overlay and reloads the Updates page when the new version answers. After a successful cutover Bootstrap deletes the other release folders under `ManagedRuntime/WebService/`.
 
 Activation needs Quasar to run under Bootstrap (the installed systemd service or Scheduled Task). Otherwise the page shows "Quasar is not running under Bootstrap, so this update cannot be activated from the UI."
@@ -210,6 +210,19 @@ The launch mode applies only to the managed DS install. A server whose executabl
 
 - Enrolled cluster Hosts update their `Quasar.Host` binary from Quasar through a `quasar-host-<id>-update.timer` systemd user timer (2 minutes after boot, then 15 minutes after each run). The local Host on the Quasar machine has no timer: after an update Quasar restarts it from the new release. Cluster processes keep running in both cases. See [Cluster hosts](ClusterHosts.md).
 - The Docker image sets `QUASAR_UPDATES_ENABLED=false`, so the in-app Quasar updater is off. Upgrade by pulling a new image (`docker compose pull` then `docker compose up -d`) or pin `QUASAR_VERSION`. Magnetar and DS updates inside the container work as described above. See [Docker](Docker.md).
+
+## Completed update cleanup
+
+After the worker passes its startup health check, Bootstrap automatically removes
+completed payloads from `<install root>/Updates/Staged/`. UI versions at or below
+the running UI version and `Bootstrap-<version>` folders at or below the running
+launcher version are removed. This runs after manual and combined updates and
+on ordinary startup, so older leftovers are cleared too.
+
+Newer staged updates stay available for activation. A directory containing the
+running worker is also kept, including older installs that run from Staged.
+Failed worker starts do not trigger cleanup. If files cannot be removed,
+Bootstrap logs a warning and retries after the next successful worker start.
 
 ## When an update fails
 

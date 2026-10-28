@@ -1638,7 +1638,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 WorkingDirectory = releaseDirectory,
                 ActivatedAtUtc = DateTimeOffset.UtcNow,
             });
-            CleanupStagedUpdates(releaseDirectory);
             _logger.LogInformation("Downloaded initial Quasar web release {Version}.", version);
             return null;
         }
@@ -2105,6 +2104,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (healthy)
         {
             ClearWorkerStartupFailures();
+            CleanupCompletedStagedUpdates(pointer);
             return worker;
         }
 
@@ -2481,18 +2481,47 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private static void CleanupStagedUpdates(string activeWorkingDirectory)
+    // Called only after worker health succeeds, while holding the maintenance lease.
+    internal void CleanupCompletedStagedUpdates(QuasarActiveReleasePointer activeRelease)
     {
         var stagingDirectory = MagnetarPaths.GetQuasarStagingDirectory();
         if (!Directory.Exists(stagingDirectory))
             return;
 
-        foreach (var directory in Directory.EnumerateDirectories(stagingDirectory))
+        try
         {
-            if (IsSamePath(directory, activeWorkingDirectory))
-                continue;
+            foreach (var directory in Directory.EnumerateDirectories(stagingDirectory))
+            {
+                var name = Path.GetFileName(directory);
+                var isBootstrap = name.StartsWith("Bootstrap-", StringComparison.OrdinalIgnoreCase);
+                var version = isBootstrap ? name["Bootstrap-".Length..] : name;
+                var installedVersion = isBootstrap ? _options.Version : activeRelease.Version;
+                // Ignore unrelated directories and releases still waiting to be applied.
+                if (!Version.TryParse(version.Split('-')[0], out _) ||
+                    !(string.Equals(QuasarReleaseVersion.Normalize(version), QuasarReleaseVersion.Normalize(installedVersion), StringComparison.OrdinalIgnoreCase) ||
+                      QuasarReleaseVersion.IsNewer(installedVersion, version)))
+                    continue;
 
-            TryDeleteDirectory(directory);
+                var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+                var activeDirectory = Path.GetFullPath(activeRelease.WorkingDirectory);
+                if (IsSamePath(directory, activeDirectory) ||
+                    activeDirectory.StartsWith(Path.GetFullPath(directory) + Path.DirectorySeparatorChar, comparison))
+                    continue;
+
+                try
+                {
+                    Directory.Delete(directory, recursive: true);
+                    _logger.LogInformation("Removed completed Quasar update payload {Path}.", directory);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    _logger.LogWarning(exception, "Could not remove completed Quasar update payload {Path}; cleanup will retry after the next worker start.", directory);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger.LogWarning(exception, "Could not enumerate staged Quasar update payloads at {Path}.", stagingDirectory);
         }
     }
 
