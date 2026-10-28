@@ -67,6 +67,22 @@ Views have bookmarkable fragments: `#cluster-overview`, `#cluster-nodes`,
 Existing content notifications and maintenance links select their corresponding
 view. Opened views retain their component state when switching views.
 
+Overview stays available while Quasar checks the Gateway admin connection. The
+other tabs are greyed out until the authenticated Gateway capabilities endpoint
+responds successfully. Availability follows that connection, not the cluster's
+desired On/Off state or node readiness; a reachable Gateway in the Down phase can
+still expose its admin views. A failed check disables the tabs and returns the
+visible view to Overview. Quasar checks again with its five-second status poll.
+When the connection recovers, it restores the requested tab and its existing
+component state, including a tab selected by a bookmarked fragment.
+
+For a deployed cluster with desired state Off, **Offline maintenance and recovery**
+remains available beneath Overview when the Gateway is unavailable. It contains
+the existing maintenance panel, including Host-based recovery and backup tools,
+so bringing the Gateway back does not require an enabled Maintenance tab. Existing
+command checks, permissions and confirmations still apply. Start/Stop and guided
+setup also remain reachable.
+
 The map uses native HTML, CSS and SVG, with textual metrics alongside colors and
 bars. Large clusters scroll within a labelled, keyboard-focusable map region. On
 phones, the node row scrolls while Gateway and World Authority remain visible;

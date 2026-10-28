@@ -16,8 +16,10 @@ namespace Quasar.Tests;
 
 public sealed class ClusterDetailPanelTests
 {
-    [Fact]
-    public async Task TopologyKeepsIndependentObservationsAndClearsFailedEdgeCountsOnRefresh()
+    [Theory]
+    [InlineData(DedicatedServerGoalState.Off)]
+    [InlineData(DedicatedServerGoalState.On)]
+    public async Task TopologyKeepsIndependentObservationsAndClearsFailedEdgeCountsOnRefresh(DedicatedServerGoalState goal)
     {
         string credential = "QUASAR_TEST_HOST_" + Guid.NewGuid().ToString("N");
         Environment.SetEnvironmentVariable(credential, "fixture-credential");
@@ -27,6 +29,7 @@ public sealed class ClusterDetailPanelTests
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var fixture = ClusterHealthOverviewTests.Sample();
+            fixture.Cluster.GoalState = goal;
             using var handler = new PartialGateway(fixture);
             using var http = new HttpClient(handler);
             var gateway = new ClusterGatewayClient(http);
@@ -40,16 +43,21 @@ public sealed class ClusterDetailPanelTests
             context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
             fixture.Cluster.HostCommandUrl = "http://host.test";
             fixture.Cluster.HostCommandTokenEnvironmentVariable = credential;
+            var availability = new List<bool>();
             var panel = context.Render<ClusterDetailPanel>(p => p.Add(c => c.Cluster, fixture.Cluster)
-                .Add(c => c.ShowTopology, true).Add(c => c.ShowConfigurationLinks, false));
+                .Add(c => c.ShowTopology, true).Add(c => c.ShowConfigurationLinks, false)
+                .Add(c => c.GatewayAvailabilityChanged, available => availability.Add(available)));
+            Assert.Equal([true], availability);
             Assert.Contains("18 routed players", panel.Markup);
             Assert.Contains("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
             handler.FailEdges = true;
+            handler.FailCapabilities = true;
             await panel.WaitForAssertionAsync(() => Assert.DoesNotContain("18 routed players", panel.Markup), TimeSpan.FromSeconds(10));
             Assert.Contains("— routed players", panel.Markup);
             Assert.DoesNotContain("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
+            Assert.Equal([true, false], availability);
         }
         finally { Environment.SetEnvironmentVariable(credential, null); }
     }
@@ -57,12 +65,14 @@ public sealed class ClusterDetailPanelTests
     private sealed class PartialGateway(ClusterHealthOverviewTests.Fixture fixture) : HttpMessageHandler
     {
         internal volatile bool FailEdges;
+        internal volatile bool FailCapabilities;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             bool host = request.RequestUri!.Host == "host.test";
             object? value = request.RequestUri.AbsolutePath switch
             {
                 "/host/v1/status" => fixture.Host,
+                "/admin/v1/capabilities" when !FailCapabilities => new AdminCapabilities("gateway", AdminScope.Query, [], new Dictionary<string, string>()),
                 "/admin/v1/status" => fixture.Status,
                 "/admin/v1/plan" => Array.Empty<NodePlan>(),
                 "/admin/v1/clients" when !FailEdges => fixture.Clients,
@@ -102,11 +112,14 @@ public sealed class ClusterDetailPanelTests
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
 
+        var availability = new List<bool>();
         var panel = context.Render<ClusterDetailPanel>(parameters => parameters
             .Add(p => p.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test", GoalState = goal,
                 Gateway = managed ? new GatewaySpec("test", GatewayGoal.Off, "/bundle", "hash", "rev", [], "/run") : null })
-            .Add(p => p.ShowConfigurationLinks, false).Add(p => p.CollapseDetails, collapseDetails));
+            .Add(p => p.ShowConfigurationLinks, false).Add(p => p.CollapseDetails, collapseDetails)
+            .Add(p => p.GatewayAvailabilityChanged, available => availability.Add(available)));
 
+        Assert.Equal([false], availability);
         Assert.Equal(shouldWarn, panel.Markup.Contains("Cannot reach the Cluster Registry", StringComparison.Ordinal));
         if (collapseDetails)
         {

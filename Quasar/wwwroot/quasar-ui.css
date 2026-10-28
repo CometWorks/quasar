@@ -516,6 +516,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 
 /* Cluster overview: current observations, with controls kept in their own views. */
 .cluster-view-tabs { flex-wrap: wrap; margin-bottom: 0; }
+.cluster-view-tabs button:disabled { opacity: .45; cursor: not-allowed; color: var(--quasar-palette-text-secondary); }
 .cluster-health { min-width: 0; }
 .cluster-health h3, .cluster-health h4, .cluster-health p { margin: 0; }
 .cluster-health-totals { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border: 1px solid var(--quasar-palette-divider); border-radius: 8px; overflow: hidden; }
