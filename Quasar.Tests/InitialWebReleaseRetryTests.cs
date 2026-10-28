@@ -31,6 +31,10 @@ public sealed class InitialWebReleaseRetryTests
             github.ResetAt = reset;
             var delays = new List<TimeSpan>();
             using var coordinator = CreateCoordinator(github, delays);
+            var staged = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), "1.3.0");
+            Directory.CreateDirectory(staged);
+            var payload = Path.Combine(staged, "payload");
+            File.WriteAllText(payload, "retained until worker health succeeds");
 
             await coordinator.WaitForInitialWebReleaseAsync(CancellationToken.None);
 
@@ -47,6 +51,7 @@ public sealed class InitialWebReleaseRetryTests
             )!;
             Assert.Equal("1.4.0", pointer.Version);
             Assert.True(File.Exists(pointer.FileName));
+            Assert.True(File.Exists(payload));
         });
     }
 

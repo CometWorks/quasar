@@ -661,6 +661,9 @@ Linux-first cutover ownership:
 - activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`
   and writes `Updates/active-release.json`
 - Bootstrap observes the pointer change, drains the old worker, then starts the managed worker
+- after worker health succeeds, Bootstrap removes completed UI and Bootstrap
+  payloads from `Updates/Staged/`, including earlier leftovers on ordinary startup;
+  newer staged versions and any directory containing the running worker are kept
 - UI-plugin install/update/remove restarts write `Updates/worker-restart-request.json`;
   Bootstrap consumes it, drains the old worker, then starts the same active release
   so dynamic plugin assemblies are loaded from the updated install root

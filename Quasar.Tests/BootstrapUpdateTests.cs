@@ -3,7 +3,10 @@ extern alias Bootstrap;
 using System.Reflection;
 using System.Text.Json;
 using Magnetar.Protocol.Runtime;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
+using BootstrapOptions = Bootstrap::Quasar.Bootstrap.BootstrapOptions;
+using ForegroundOptions = Bootstrap::Quasar.Bootstrap.LauncherForegroundOptions;
 using Coordinator = Bootstrap::Quasar.Bootstrap.LauncherCoordinator;
 
 namespace Quasar.Tests;
@@ -72,6 +75,63 @@ public sealed class BootstrapUpdateTests
             Assert.Equal("old worker", File.ReadAllText(Path.Combine(install, "WebService", "worker")));
             Assert.Equal("local settings", File.ReadAllText(Path.Combine(install, "appsettings.json")));
             Assert.Equal("new launcher", File.ReadAllText(Path.Combine(install, "launcher-component")));
+        });
+    }
+
+    [Theory]
+    [InlineData("1.4.0", "1.4.0", "1.4.0", false)]
+    [InlineData("1.4.0", "1.4.0", "Bootstrap-1.4.0", false)]
+    [InlineData("1.4.0", "1.4.0", "1.3.1.69", false)]
+    [InlineData("1.4.0", "1.4.0", "Bootstrap-1.3.1.69", false)]
+    [InlineData("1.4.0", "1.4.0", "1.4.0-pr.299", false)]
+    [InlineData("1.4.0-pr.10", "1.4.0-pr.10", "1.4.0-pr.9", false)]
+    [InlineData("1.4.0-pr.9", "1.4.0-pr.9", "1.4.0-pr.10", true)]
+    [InlineData("1.4.0", "1.4.0", "1.5.0", true)]
+    [InlineData("1.4.0", "1.4.0", "Bootstrap-1.5.0", true)]
+    [InlineData("1.4.0", "1.3.0", "Bootstrap-1.4.0", true)]
+    [InlineData("1.3.0", "1.4.0", "1.4.0", true)]
+    [InlineData("1.4.0", "1.4.0", "unrelated", true)]
+    [InlineData("unknown", "unknown", "1.3.0", true)]
+    public void HealthyWorkerCleanupRemovesOnlyCompletedComponentVersions(
+        string webVersion, string bootstrapVersion, string stagedName, bool retained)
+    {
+        WithRoot(() =>
+        {
+            using var coordinator = new Coordinator(new BootstrapOptions { Version = bootstrapVersion },
+                new ForegroundOptions(true), NullLogger<Coordinator>.Instance);
+            var payload = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), stagedName);
+            Directory.CreateDirectory(Path.Combine(payload, "nested"));
+            File.WriteAllText(Path.Combine(payload, "nested", "payload"), "extracted update");
+            var active = new QuasarActiveReleasePointer
+            {
+                Version = webVersion,
+                WorkingDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(webVersion),
+            };
+            coordinator.CleanupCompletedStagedUpdates(active);
+            coordinator.CleanupCompletedStagedUpdates(active); // Safe to retry on each worker start.
+            Assert.Equal(retained, Directory.Exists(payload));
+        });
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("WebService")]
+    public void HealthyWorkerCleanupPreservesLegacyWorkerRunningFromStaging(string subdirectory)
+    {
+        WithRoot(() =>
+        {
+            using var coordinator = new Coordinator(new BootstrapOptions { Version = "1.4.0" },
+                new ForegroundOptions(true), NullLogger<Coordinator>.Instance);
+            var payload = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), "1.3.0");
+            var activeDirectory = Path.Combine(payload, subdirectory);
+            Directory.CreateDirectory(activeDirectory);
+            var worker = Path.Combine(activeDirectory, "worker");
+            File.WriteAllText(worker, "running worker");
+            coordinator.CleanupCompletedStagedUpdates(new QuasarActiveReleasePointer
+            {
+                Version = "1.3.0", WorkingDirectory = activeDirectory,
+            });
+            Assert.True(File.Exists(worker));
         });
     }
 
