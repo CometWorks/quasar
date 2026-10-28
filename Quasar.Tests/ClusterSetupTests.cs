@@ -119,6 +119,19 @@ public sealed class ClusterSetupTests
             Assert.Equal("0.0.0.0:27016", spec.RootElement.GetProperty("steamListen").GetString());
             Assert.Equal("/runs/two", spec.RootElement.GetProperty("hosts")[1].GetProperty("runRoot").GetString());
             Assert.False(spec.RootElement.TryGetProperty("sharedStorageRoot", out _));
+            Assert.Equal(("Demo", "", ""), (spec.RootElement.GetProperty("worldName").GetString(),
+                spec.RootElement.GetProperty("messageOfTheDay").GetString(), spec.RootElement.GetProperty("messageOfTheDayUrl").GetString()));
+            // SE-755: the players' world name and the profile's MOTD; worldId stays the cluster id.
+            var profile = new QuasarConfigProfile();
+            profile.RootSettings.MessageOfTheDay = "Welcome";
+            profile.RootSettings.MessageOfTheDayUrl = "https://example.invalid/motd";
+            using var named = JsonDocument.Parse(await ClusterConversionService.SpecificationAsync(cluster,
+                new() { DisplayName = "Demo", InGameWorldName = " Octahedron " }, profile, null, request, world, paths, default));
+            Assert.Equal(("demo", "Octahedron", "Welcome", "https://example.invalid/motd"), (named.RootElement.GetProperty("worldId").GetString(),
+                named.RootElement.GetProperty("worldName").GetString(), named.RootElement.GetProperty("messageOfTheDay").GetString(),
+                named.RootElement.GetProperty("messageOfTheDayUrl").GetString()));
+            Assert.Equal("Demo", (Request(new ClusterSetupPlacement("one", 2)) with { InGameWorldName = " " }).WorldName);
+            Assert.Equal("Octahedron", (Request(new ClusterSetupPlacement("one", 2)) with { InGameWorldName = "Octahedron " }).WorldName);
         }
         finally { Directory.Delete(world, true); }
     }

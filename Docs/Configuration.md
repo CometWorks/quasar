@@ -177,6 +177,14 @@ The latter is required for existing saves because Space Engineers loads and
 advertises that file's `SessionName`. Name changes therefore take effect on the
 next server start or restart.
 
+A cluster gets the same names through its deployment specification: `serverName`,
+`worldName` (the world name players and the Steam server browser see; the cluster
+id stays the world's identity) and the profile's `messageOfTheDay` and
+`messageOfTheDayUrl`. Guided setup takes `inGameWorldName`, else the display name.
+A converted server keeps its In-game world name, else its Server name. Clusters
+set up before these fields existed show the cluster id until they are renamed or
+their profile is staged again (below).
+
 ## Online mode defaults and Offline safety
 
 New config profiles default **Online Mode** to **Public**. Profiles created from
@@ -1458,6 +1466,12 @@ from **Maintenance → Pending update**: the update stops the fleet cleanly,
 activates the new inventory and starts the cluster again. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
 `{"hotSpares":2}`, with the same permissions.
+
+`POST /api/v1/clusters/{uniqueName}/names-preparation` with
+`{"serverName":"...","worldName":"..."}` prepares a deployment with new in-game
+names; a blank or missing name stays as it is. Staging the profile again
+(`config-profile-preparation`) picks up its Message of the Day. Both apply from
+**Maintenance → Pending update** like hot spares.
 
 **World files** stage mod configuration that lives in the world's `Storage` folder
 (for example Modular Encounters Systems' `Storage/1521905890.sbm_ModularEncountersSystems/Config-*.xml`)
