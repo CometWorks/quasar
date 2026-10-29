@@ -409,6 +409,10 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 ? id : throw new InvalidDataException($"Administrator '{a.Trim()}' is not a SteamID64; a cluster accepts only numeric Steam IDs."))
         .Distinct().ToArray();
 
+    /// <summary>The world name players see; the cluster's worldId stays its identity.</summary>
+    internal static string WorldName(DedicatedServerDefinition source) =>
+        (string.IsNullOrWhiteSpace(source.InGameWorldName) ? source.DisplayName : source.InGameWorldName).Trim();
+
     internal static int MemberLimit(QuasarConfigProfile profile) => profile.SessionSettings.MaxPlayers >= 2 ? profile.SessionSettings.MaxPlayers
         : throw new InvalidDataException($"Max players is {profile.SessionSettings.MaxPlayers}; a cluster needs at least 2.");
 
@@ -496,6 +500,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         var gateway = new Uri(cluster.GatewayUrl);
         return JsonSerializer.Serialize(new { schemaVersion = 1, clusterId = cluster.UniqueName, worldId = cluster.UniqueName,
             serverName = string.IsNullOrWhiteSpace(source.InGameServerName) ? source.DisplayName : source.InGameServerName,
+            worldName = WorldName(source),
+            messageOfTheDay = profile.RootSettings.MessageOfTheDay ?? "", messageOfTheDayUrl = profile.RootSettings.MessageOfTheDayUrl ?? "",
             binaryVersion = request.BinaryVersion, memberLimit = MemberLimit(profile),
             administrators = Administrators(profile),
             hosts = request.Hosts.Select(h => new { id = h.HostId, runRoot = paths[h.HostId].RuntimeDirectory,

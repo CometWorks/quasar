@@ -53,7 +53,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 string modArchive = Path.Combine(work, "mods.tar");
 
                 string sourceWorld = Path.Combine(work, "profile-source");
-                string patch = await ClusterWorkshopModStager.ProfileSettingsXmlAsync(sourceWorld, effective, cluster.DisplayName, token);
+                // Specifications from before SE-755 have no worldName; their nodes showed the cluster id.
+                string worldName = JsonNode.Parse(request.SpecificationJson)?["worldName"]?.GetValue<string>() ?? cluster.DisplayName;
+                string patch = await ClusterWorkshopModStager.ProfileSettingsXmlAsync(sourceWorld, effective, worldName, token);
                 string exported = Path.Combine(work, "exported");
                 progress?.Report("Preparing pinned plugins and their configuration...");
                 var excluded = await setup.ExportProfilePluginsAsync(cluster.UniqueName, cluster.DisplayName,
@@ -86,6 +88,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 spec["memberLimit"] = ClusterConversionService.MemberLimit(effective);
                 spec["administrators"] = JsonSerializer.SerializeToNode(ClusterConversionService.Administrators(effective), Json);
                 spec["selectedConfigProfileId"] = effective.ConfigProfileId;
+                spec["worldName"] = worldName;
+                spec["messageOfTheDay"] = effective.RootSettings.MessageOfTheDay ?? "";
+                spec["messageOfTheDayUrl"] = effective.RootSettings.MessageOfTheDayUrl ?? "";
                 ClusterWorkshopModStager.AddToSpecification(spec, staged, patch);
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
@@ -258,6 +263,27 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             if (hotSpares > 0) ClusterDeploymentFiles.RequireHotSpares(inputs.PackageDirectory);
             var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
             SetHotSpares(spec, hotSpares);
+            return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
+        }, token);
+
+    /// <summary>Stages a deployment with new in-game server and world names, the cluster's identity unchanged. Applies
+    /// through the stopped-fleet update like any other preparation; a blank name stays as it is.</summary>
+    public Task<ClusterOperation> StageNamesAsync(string clusterId, string? serverName, string? worldName, string actor,
+        CancellationToken token) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException("Finish the current setup, update or activation before renaming.");
+            if (string.IsNullOrWhiteSpace(serverName) && string.IsNullOrWhiteSpace(worldName))
+                throw new ArgumentException("Give a server name, a world name or both.");
+            var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before renaming.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before renaming.");
+            var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+            if (!string.IsNullOrWhiteSpace(serverName)) spec["serverName"] = serverName.Trim();
+            if (!string.IsNullOrWhiteSpace(worldName)) spec["worldName"] = worldName.Trim();
             return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
         }, token);
 

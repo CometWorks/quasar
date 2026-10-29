@@ -244,6 +244,52 @@ public sealed class ClusterDependencyTests
         finally { Environment.SetEnvironmentVariable(credential, null); }
     }
 
+    [LinuxFact]
+    public async Task RenamingStagesNewInGameNamesAndKeepsTheIdentity()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        string credential = "CONFIG_STAGE_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            ClusterPreparationRequest Prepared(string direct) => Preparation(hash, direct) with { Hosts =
+                [new("one", "http://one", credential, credential, "/installation", "/world", "/configuration/original")] };
+            var active = Prepared("192.168.1.80:27116");
+            var restore = Prepared("192.168.1.80:8116");
+            fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active), [], DateTimeOffset.UtcNow,
+                fixture.Cluster.PackageSelection!.Version)
+                { Provenance = new(fixture.Cluster.PackageSelection, candidate.ManifestSha256, active) };
+            fixture.Cluster.Preparation = restore;
+            fixture.Cluster.PreparedDeployment = new(fixture.Cluster.ActiveDeployment.Revision, ClusterDependencyService.DeploymentRevision(restore), []);
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            using var handler = new ConfigurationPreparationHandler();
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            await Assert.ThrowsAsync<ArgumentException>(() => preparation.StageNamesAsync("demo", " ", null, "test", default));
+            var result = await preparation.StageNamesAsync("demo", null, " Octahedron ", "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            using var spec = JsonDocument.Parse(catalog.GetCluster("demo")!.Preparation!.SpecificationJson);
+            // SE-755: only the names change; a blank server name stays as it was.
+            Assert.Equal("Octahedron", spec.RootElement.GetProperty("worldName").GetString());
+            Assert.False(spec.RootElement.TryGetProperty("serverName", out _));
+            Assert.Equal("demo", spec.RootElement.GetProperty("clusterId").GetString());
+            Assert.Equal("192.168.1.80:27116", spec.RootElement.GetProperty("directListen").GetString());
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
     private sealed class ConfigurationPreparationHandler : HttpMessageHandler
     {
         public List<string> Hosts { get; } = [];

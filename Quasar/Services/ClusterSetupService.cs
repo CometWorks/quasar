@@ -17,10 +17,14 @@ public sealed record ClusterSetupPlacement(string HostId, int RegularNodes);
 /// <summary><paramref name="HotSpares"/>: how many hot spares the cluster has (the setup page defaults to 1). Quasar only
 /// configures the count; the cluster promotes a spare when a node crashes and refills it.
 /// <paramref name="DefaultPlugins"/>: add <see cref="QuasarDefaultPlugins"/> (Bugfixes, Performance) to the cluster's
-/// copy of the profile when it lacks them. The source profile is never changed.</summary>
+/// copy of the profile when it lacks them. The source profile is never changed.
+/// <paramref name="InGameWorldName"/>: the world name players see; <paramref name="DisplayName"/> when empty.</summary>
 public sealed record ClusterSetupRequest(string UniqueName, string DisplayName, string WorldTemplateId,
     string ConfigProfileId, string GatewayHost, int PlayerPort, ClusterSetupPlacement[] Machines, int HotSpares = 0,
-    bool DefaultPlugins = true);
+    bool DefaultPlugins = true, string? InGameWorldName = null)
+{
+    public string WorldName => string.IsNullOrWhiteSpace(InGameWorldName) ? DisplayName : InGameWorldName.Trim();
+}
 public sealed record ClusterSetupStatus(ClusterSetupRequest Request, string Phase, string? Error, DateTimeOffset UpdatedAt);
 
 /// <summary>Durable, copy-based creation using the same verified preparation and activation as conversion.</summary>
@@ -123,9 +127,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         {
                             if (Directory.Exists(seed)) Directory.Delete(seed, true); // Unpublished copy; never the template.
                             await ClusterWorldFiles.CopyAsync(worlds.GetWorldDirectory(request.WorldTemplateId), seed, ct);
-                            await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox.sbc"), savedProfile, request.DisplayName, ct);
+                            await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox.sbc"), savedProfile, request.WorldName, ct);
                             if (File.Exists(Path.Combine(seed, "Sandbox_config.sbc")))
-                                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox_config.sbc"), savedProfile, request.DisplayName, ct);
+                                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox_config.sbc"), savedProfile, request.WorldName, ct);
                             await WriteAsync(sourceReceipt, await ClusterDeploymentFiles.InspectAsync(seed, ct), ct);
                         }
                         await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), ct);
@@ -219,11 +223,12 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                                 HostContract.ManagedCredentialReference.Cluster(cluster.UniqueName, "executor:" + machine.Id), remote.Directory, remoteWorld.Directory, remoteWorld.ConfigurationDirectory,
                                 remoteMods.Directory));
                         }
-                        var source = new DedicatedServerDefinition { DisplayName = request.DisplayName, InGameServerName = request.DisplayName };
+                        var source = new DedicatedServerDefinition { DisplayName = request.DisplayName, InGameServerName = request.DisplayName,
+                            InGameWorldName = request.WorldName };
                         var specification = JsonNode.Parse(await ClusterConversionService.SpecificationAsync(cluster, source, savedProfile, null, topology, world, paths, ct))!;
                         specification["pluginConfigurations"] = pluginData["pluginConfigurations"]?.DeepClone() ?? throw new InvalidDataException("Magnetar did not export canonical plugin configurations.");
                         ClusterWorkshopModStager.AddToSpecification(specification.AsObject(), mods,
-                            await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.DisplayName, ct));
+                            await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.WorldName, ct));
                         await StageAsync(request, "Preparing and activating the stopped cluster", null, ct);
                         var preparation = new ClusterPreparationRequest(installed.InputsSha256, specification.ToJsonString(), origin, preparationHosts.ToArray());
                         var result = await deployments.PrepareAsync(cluster.UniqueName, preparation, "setup-prepare-" + key, actor, ct);
