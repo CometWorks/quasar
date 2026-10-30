@@ -442,7 +442,7 @@ public sealed class QuasarUpdateService : BackgroundService
                 throw new InvalidOperationException("Resolve all conflict markers before saving appsettings.json.");
 
             var resolved = ParseJsonObject(resolvedText, "resolved appsettings.json");
-            await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(resolved), cancellationToken).ConfigureAwait(false);
+            await AtomicFileWriter.WritePrivateTextAsync(appSettingsPath, FormatJson(resolved), cancellationToken).ConfigureAwait(false);
 
             var releaseBasePath = Path.Combine(candidate.StagedDirectory, AppSettingsReleaseBaseFileName);
             if (File.Exists(releaseBasePath))
@@ -707,7 +707,7 @@ public sealed class QuasarUpdateService : BackgroundService
         var updates = GetOrCreateObject(quasar, "Updates");
         updates[settingName] = value;
 
-        await AtomicFileWriter.WriteTextAsync(path, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
+        await AtomicFileWriter.WritePrivateTextAsync(path, root.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
     }
 
     private static JsonObject GetOrCreateObject(JsonObject parent, string name)
@@ -741,7 +741,7 @@ public sealed class QuasarUpdateService : BackgroundService
             var conflictRelease = await ReadJsonObjectAsync(releaseBasePath, "release appsettings.json", cancellationToken).ConfigureAwait(false);
             if (forceAppSettingsOverride)
             {
-                await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(conflictRelease), cancellationToken).ConfigureAwait(false);
+                await AtomicFileWriter.WritePrivateTextAsync(appSettingsPath, FormatJson(conflictRelease), cancellationToken).ConfigureAwait(false);
                 await PersistAppSettingsBaseAsync(conflictRelease, cancellationToken).ConfigureAwait(false);
                 TryDeleteFile(releaseBasePath);
                 return AppSettingsResolution.Clean($"Quasar UI {version} is staged with release appsettings.json.", appSettingsPath);
@@ -757,7 +757,7 @@ public sealed class QuasarUpdateService : BackgroundService
 
         if (forceAppSettingsOverride)
         {
-            await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(release), cancellationToken).ConfigureAwait(false);
+            await AtomicFileWriter.WritePrivateTextAsync(appSettingsPath, FormatJson(release), cancellationToken).ConfigureAwait(false);
             await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
             return AppSettingsResolution.Clean($"Quasar UI {version} is staged with release appsettings.json.", appSettingsPath);
         }
@@ -804,7 +804,7 @@ public sealed class QuasarUpdateService : BackgroundService
 
             var overlaid = (JsonObject)release.DeepClone();
             OverlayObject(overlaid, current);
-            await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(overlaid), cancellationToken).ConfigureAwait(false);
+            await AtomicFileWriter.WritePrivateTextAsync(appSettingsPath, FormatJson(overlaid), cancellationToken).ConfigureAwait(false);
             await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
             return AppSettingsResolution.Clean($"Quasar UI {version} is staged with current appsettings.json values.", appSettingsPath);
         }
@@ -826,7 +826,7 @@ public sealed class QuasarUpdateService : BackgroundService
             return AppSettingsResolution.Conflict(message, appSettingsPath);
         }
 
-        await AtomicFileWriter.WriteTextAsync(appSettingsPath, FormatJson(merged), cancellationToken).ConfigureAwait(false);
+        await AtomicFileWriter.WritePrivateTextAsync(appSettingsPath, FormatJson(merged), cancellationToken).ConfigureAwait(false);
         await PersistAppSettingsBaseAsync(release, cancellationToken).ConfigureAwait(false);
         return AppSettingsResolution.Clean($"Quasar UI {version} is staged with current appsettings.json values.", appSettingsPath);
     }
@@ -853,8 +853,8 @@ public sealed class QuasarUpdateService : BackgroundService
             Environment.NewLine +
             "Conflict: " + message + Environment.NewLine;
 
-        await AtomicFileWriter.WriteTextAsync(appSettingsPath, conflictText, cancellationToken).ConfigureAwait(false);
-        await AtomicFileWriter.WriteTextAsync(releaseBasePath, releaseText, cancellationToken).ConfigureAwait(false);
+        await AtomicFileWriter.WritePrivateTextAsync(appSettingsPath, conflictText, cancellationToken).ConfigureAwait(false);
+        await AtomicFileWriter.WritePrivateTextAsync(releaseBasePath, releaseText, cancellationToken).ConfigureAwait(false);
     }
 
     private static JsonObject MergeObjects(JsonObject mergeBase, JsonObject current, JsonObject release, string path, ICollection<string> conflicts)
@@ -1056,7 +1056,8 @@ public sealed class QuasarUpdateService : BackgroundService
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            File.Copy(sourcePath, destinationPath, overwrite: true);
+            AtomicFileWriter.WritePrivateTextAsync(destinationPath, File.ReadAllText(sourcePath))
+                .GetAwaiter().GetResult();
         }
         catch
         {

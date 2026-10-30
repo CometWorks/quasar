@@ -482,10 +482,9 @@ public sealed class PushNotificationService(
         if (Encoding.UTF8.GetByteCount(json) > MaxStateBytes) return false;
         var encrypted = _protector.Protect(json);
         if (Encoding.UTF8.GetByteCount(encrypted) > MaxStateBytes) return false;
-        await AtomicFileWriter.WriteTextAsync(_path, encrypted, token);
+        await AtomicFileWriter.WritePrivateTextAsync(_path, encrypted, token);
         _state = state;
         _receiptStateReadOnly = false;
-        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(_path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
         return true;
     }
 

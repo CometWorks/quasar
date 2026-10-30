@@ -57,7 +57,7 @@ public sealed class QuasarAuthSettingsService
                 proxies.Add(proxy);
             bypass["TrustedProxies"] = proxies;
 
-            await AtomicFileWriter.WriteTextAsync(
+            await AtomicFileWriter.WritePrivateTextAsync(
                     SettingsPath,
                     root.ToJsonString(JsonOptions),
                     cancellationToken)
