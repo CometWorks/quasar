@@ -545,6 +545,7 @@ internal sealed class HostCommandServer : IDisposable
                 || references.Installations.Length + references.Mods.Length + references.Worlds.Length + references.Configurations.Length > 30_000)
                 throw new InvalidDataException("Invalid deployment references.");
             using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.CollectAsync(cancellationToken);
+            long retaining = System.Diagnostics.Stopwatch.GetTimestamp();
             var activeRoots = _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a =>
                 ExecutionBundle.ReadManifest(a.BundleManifestPath!, a.BundleManifestSha256!).ArtifactRoot
                     ?? Path.GetDirectoryName(a.BundleManifestPath!)!).ToArray();
@@ -558,6 +559,7 @@ internal sealed class HostCommandServer : IDisposable
                 clusterId, references.Mods.ToHashSet(StringComparer.Ordinal), cancellationToken);
             await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/worlds"),
                 clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken);
+            ExecutionBundle.LogStep(clusterId, "storage collection", retaining);
             await WriteAsync(context, 200, removed, cancellationToken);
             return;
         }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -90,8 +91,12 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         if (preview) return active;
         var transaction = new Transaction(request, active, false);
         Write(path, transaction); // Intent precedes both writes; restart replays it before any process can start.
+        long started = Stopwatch.GetTimestamp();
         ProfileContentMigration.Apply(bundle, request.BundleManifestPath);
+        ExecutionBundle.LogStep(request.ClusterId, "activation: profile content", started);
+        started = Stopwatch.GetTimestamp();
         WorldFilesMigration.Apply(bundle, request.BundleManifestPath, installedManifest);
+        ExecutionBundle.LogStep(request.ClusterId, "activation: world files", started);
         attachments.Apply(active.Attachment);
         if (active.Gateway is not null) gateways.Apply(active.Gateway);
         bundle.ConfirmRestoreActivation();

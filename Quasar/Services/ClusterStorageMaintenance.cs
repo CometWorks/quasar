@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Quasar.ClusterDeployment;
@@ -62,9 +63,13 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                         c.PreviousDeployment, c.Update, c.PreparedDeployment }).ToArray(), Json);
                     if (identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision)
                     { Volatile.Write(ref deferred, false); continue; }
+                    long started = Stopwatch.GetTimestamp();
                     CleanupWorkspaces(catalog.GetClusters());
                     await dependencies.CollectAsync(retained, stoppingToken);
+                    TimeSpan dependencyTime = Stopwatch.GetElapsedTime(started);
                     await CollectModVersionsAsync(definitions.SelectMany(Preparations), stoppingToken);
+                    TimeSpan localTime = Stopwatch.GetElapsedTime(started);
+                    int hostRequests = 0;
                     foreach (var group in definitions.GroupBy(c => c.UniqueName))
                     {
                         var preparations = group.SelectMany(Preparations).Distinct().ToArray();
@@ -83,6 +88,7 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                             await hosts.RetainDeploymentInputsAsync(target, new(hashes,
                                 HashNames(inputs.Select(h => h.ModDirectory)), HashNames(inputs.Select(h => h.WorldDirectory)),
                                 inputs.Select(h => h.ConfigurationDirectory).Distinct().ToArray()), stoppingToken);
+                            hostRequests++;
                         }
                     }
                     // Deleting a cluster keeps its definition in History only, so nothing above names it and its
@@ -102,7 +108,10 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                     previousReferences = identity;
                     Volatile.Write(ref previousStorageRevision, ClusterStorageActivity.Revision);
                     Volatile.Write(ref deferred, false);
-                    logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned.");
+                    logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned in {Seconds:0.0} s, "
+                        + "while every lifecycle operation waited (dependencies {Dependencies:0.0} s, mods {Mods:0.0} s, {Requests} Host requests {Hosts:0.0} s).",
+                        Stopwatch.GetElapsedTime(started).TotalSeconds, dependencyTime.TotalSeconds, (localTime - dependencyTime).TotalSeconds,
+                        hostRequests, (Stopwatch.GetElapsedTime(started) - localTime).TotalSeconds);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception error)

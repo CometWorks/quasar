@@ -61,6 +61,10 @@ public static class QuasarLoggingConfigurator
         configuration.AddTarget(asyncFile);
         configuration.AddTarget(asyncDiscord);
         configuration.AddRule(minimumLevel, NLog.LogLevel.Fatal, asyncFile);
+        // Cluster update step timings explain a slow deployment afterwards, also at the default Warn level.
+        foreach (string logger in ClusterTimingLoggers)
+            if (minimumLevel > NLog.LogLevel.Info)
+                configuration.LoggingRules.Add(new LoggingRule(logger, NLog.LogLevel.Info, NLog.LogLevel.Info, asyncFile));
         configuration.LoggingRules.Add(new LoggingRule("Quasar.Services.Discord.*", minimumLevel, NLog.LogLevel.Fatal, asyncDiscord));
 
         // Bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true and drains
@@ -81,6 +85,13 @@ public static class QuasarLoggingConfigurator
 
         return configuration;
     }
+
+    private static readonly string[] ClusterTimingLoggers =
+    [
+        "Quasar.Services.ClusterUpdateService",
+        "Quasar.Services.ClusterStorageMaintenance",
+        "Quasar.Services.ClusterReconciler",
+    ];
 
     private static bool IsConsoleLoggingRequested()
     {
