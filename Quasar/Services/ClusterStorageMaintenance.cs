@@ -58,9 +58,7 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                             definitions.AddRange(JsonSerializer.Deserialize<ClusterDefinition[]>(await File.ReadAllBytesAsync(path, stoppingToken), Json)
                                 ?? throw new InvalidDataException("Unreadable recovery references: " + path));
                     var retained = DependencyReferences(definitions);
-                    string identity = JsonSerializer.Serialize(definitions.Select(c => new {
-                        c.UniqueName, c.DependencyManifestSha256, c.Preparation, c.ActiveDeployment,
-                        c.PreviousDeployment, c.Update, c.PreparedDeployment }).ToArray(), Json);
+                    string identity = ReferenceIdentity(definitions);
                     if (identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision)
                     { Volatile.Write(ref deferred, false); continue; }
                     long started = Stopwatch.GetTimestamp();
@@ -123,6 +121,23 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
             }
         }
         finally { catalog.Changed -= Changed; ClusterStorageActivity.Idle -= StorageIdle; }
+    }
+
+    // What collection keeps, and nothing else. Collection holds the storage lease that every lifecycle operation needs,
+    // so the checkpoints of an update, which retain the same content, must not start one: they held back the drain,
+    // the backup, the activation and the Gateway launch by a whole collection each (SE-791).
+    internal static string ReferenceIdentity(IEnumerable<ClusterDefinition> definitions)
+    {
+        var clusters = definitions.ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            Dependencies = DependencyReferences(clusters).Order(StringComparer.Ordinal).ToArray(),
+            Preparations = clusters.Select(c => new
+            {
+                c.UniqueName,
+                Retained = Preparations(c).Select(p => JsonSerializer.Serialize(p, Json)).Distinct().Order(StringComparer.Ordinal).ToArray(),
+            }).ToArray(),
+        }, Json);
     }
 
     internal static HashSet<string> DependencyReferences(IEnumerable<ClusterDefinition> definitions)

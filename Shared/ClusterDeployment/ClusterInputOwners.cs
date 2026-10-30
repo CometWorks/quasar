@@ -21,7 +21,7 @@ internal static class ClusterInputOwners
     }
 
     // Caller owns the exclusive storage lease, including all transfer requests.
-    internal static async Task RetainAsync(string directory, string cluster, IReadOnlySet<string> retained, CancellationToken token)
+    internal static async Task RetainAsync(string directory, string cluster, IReadOnlySet<string> retained, CancellationToken token, bool prune = true)
     {
         foreach (string hash in retained)
         {
@@ -29,7 +29,7 @@ internal static class ClusterInputOwners
             if (!Directory.Exists(Path.Combine(directory, hash))) throw new InvalidDataException("Retained world/mod input is missing.");
         }
         if (!Directory.Exists(directory)) return;
-        using var content = await ClusterContentStore.OpenAsync(directory, token);
+        using var content = await ClusterContentStore.OpenAsync(directory, token, prune);
         lock (Sync)
         {
             foreach (string hash in retained) Track(directory, hash, cluster);

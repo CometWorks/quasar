@@ -265,6 +265,15 @@ internal static partial class ClusterDeploymentFiles
         RefuseLinks(path);
         return path;
     }
+    private static void RefuseLinks(string file, HashSet<string> checkedDirectories)
+    {
+        file = Path.GetFullPath(file);
+        if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("Deployment paths must not contain symbolic links.");
+        for (string? current = Path.GetDirectoryName(file); current is not null && checkedDirectories.Add(current); current = Path.GetDirectoryName(current))
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Deployment paths must not contain symbolic links.");
+    }
     private static void RefuseLinks(string path)
     {
         for (string? current = Path.GetFullPath(path); current is not null; current = Path.GetDirectoryName(current))

@@ -549,16 +549,17 @@ internal sealed class HostCommandServer : IDisposable
             var activeRoots = _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a =>
                 ExecutionBundle.ReadManifest(a.BundleManifestPath!, a.BundleManifestSha256!).ArtifactRoot
                     ?? Path.GetDirectoryName(a.BundleManifestPath!)!).ToArray();
-            using (var content = await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken))
+            using (var content = await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken, prune: false))
                 DeploymentConfigurationReferences.Retain(_config.StateDirectory, clusterId, references.Configurations,
                     _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a => Path.GetDirectoryName(a.BundleManifestPath!)!));
             int removed = await Quasar.ClusterDeployment.ClusterDeploymentFiles.CollectInstallationsAsync(
                 Path.Combine(_config.StateDirectory, "conversions/installations"), clusterId,
-                references.Installations.ToHashSet(StringComparer.Ordinal), activeRoots, cancellationToken);
+                references.Installations.ToHashSet(StringComparer.Ordinal), activeRoots, cancellationToken, prune: false);
             await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/mods"),
-                clusterId, references.Mods.ToHashSet(StringComparer.Ordinal), cancellationToken);
+                clusterId, references.Mods.ToHashSet(StringComparer.Ordinal), cancellationToken, prune: false);
             await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/worlds"),
-                clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken);
+                clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken, prune: false);
+            using (await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken)) { }
             ExecutionBundle.LogStep(clusterId, "storage collection", retaining);
             await WriteAsync(context, 200, removed, cancellationToken);
             return;

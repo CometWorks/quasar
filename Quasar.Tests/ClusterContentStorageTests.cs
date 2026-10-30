@@ -220,6 +220,36 @@ public sealed class ClusterContentStorageTests : IDisposable
         Assert.Empty(references.Installations.Concat(references.Mods).Concat(references.Worlds).Concat(references.Configurations));
     }
 
+    // SE-791: an update's checkpoints keep the same content, so they must not start a collection.
+    [Fact]
+    public void ReferenceIdentityChangesOnlyWithRetainedContent()
+    {
+        ClusterPreparationRequest Preparation(string hash) => new(hash, "{}", "", []);
+        ClusterActiveRevision Revision(string name, string hash) => new(name, [], DateTimeOffset.UtcNow)
+        { Provenance = new(new(1, "v", "package", "commit", "key"), hash, Preparation(hash)) };
+        var active = Revision("active", new string('a', 64));
+        var cluster = new ClusterDefinition
+        {
+            UniqueName = "c", ActiveDeployment = active, PreviousDeployment = Revision("old", new string('b', 64)),
+            Preparation = Preparation(new string('c', 64)),
+        };
+        string before = ClusterStorageMaintenance.ReferenceIdentity([cluster]);
+
+        var update = new ClusterUpdate(Guid.NewGuid(), new("active", "next", []), active, false, ClusterUpdatePhase.Stopping,
+            DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+        cluster.Update = update;
+        Assert.Equal(before, ClusterStorageMaintenance.ReferenceIdentity([cluster]));
+        cluster.Update = update with { Phase = ClusterUpdatePhase.Starting, UpdatedAt = DateTimeOffset.UtcNow.AddSeconds(5) };
+        Assert.Equal(before, ClusterStorageMaintenance.ReferenceIdentity([cluster]));
+        cluster.Update = update with { Phase = ClusterUpdatePhase.Complete };
+        Assert.Equal(before, ClusterStorageMaintenance.ReferenceIdentity([cluster]));
+
+        // Activation releases the oldest revision: that one is worth a collection.
+        cluster.PreviousDeployment = active;
+        cluster.ActiveDeployment = Revision("next", new string('c', 64));
+        Assert.NotEqual(before, ClusterStorageMaintenance.ReferenceIdentity([cluster]));
+    }
+
     [Fact]
     public void ReferencesIncludeActivePreparedRollbackAndInterruptedUpdate()
     {
