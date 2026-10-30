@@ -81,12 +81,15 @@ public sealed class MachineEndpointSecurityTests
         Assert.Throws<ArgumentException>(() => new MachineEndpointPolicy(["127.0.0.1"], [host]));
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
     [InlineData("evil.example:8080")]
     [InlineData("quasar.vpn")]
     [InlineData("quasar.vpn:8081")]
     [InlineData("quasar.vpn.:8080")]
     [InlineData("quasar.vpn:8080,evil.example")]
-    public void HostMustMatchConfiguredAuthority(string host) =>
+    public void HostMustMatchConfiguredAuthority(string? host) =>
         Assert.False(Policy.Allows(IPAddress.Loopback, false, host));
 
     [Theory]
