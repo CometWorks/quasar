@@ -72,7 +72,8 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
     // trusted only while the file keeps the size and modification time it had before it was hashed.
     // That catches replaced, rewritten and partly copied files; it does not stop a writer who resets
     // the modification time on purpose, which needs write access to the Host's own bundle files.
-    // A Host restart verifies everything again.
+    // A Host restart verifies everything again. Keyed on the inode where there is one: a deployment's mods
+    // are hard-linked into the seed folder of the world and of every node, so one file has many paths.
     private static readonly ConcurrentDictionary<string, VerifiedFile> Verified = new(StringComparer.Ordinal);
 
     private sealed record VerifiedFile(string Sha256, long Length, DateTime LastWriteTimeUtc);
@@ -82,14 +83,15 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
     {
         var info = new FileInfo(path);
         var current = new VerifiedFile(expected.ToLowerInvariant(), info.Length, info.LastWriteTimeUtc);
-        if (Verified.TryGetValue(path, out var cached) && cached == current) return current.Sha256;
+        string key = OperatingSystem.IsLinux() ? Quasar.ClusterDeployment.ClusterContentStore.FileIdentity(path) : path;
+        if (Verified.TryGetValue(key, out var cached) && cached == current) return current.Sha256;
         string hash;
         using (var stream = File.OpenRead(path))
             hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
         Interlocked.Add(ref hashedBytes, info.Length);
-        if (hash != current.Sha256) { Verified.TryRemove(path, out _); return null; }
+        if (hash != current.Sha256) { Verified.TryRemove(key, out _); return null; }
         // Stat taken before hashing: a write during hashing changes it, and the next load hashes again.
-        Verified[path] = current;
+        Verified[key] = current;
         return hash;
     }
 

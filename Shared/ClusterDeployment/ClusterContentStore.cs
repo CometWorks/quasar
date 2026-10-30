@@ -44,11 +44,16 @@ internal sealed class ClusterContentStore : IDisposable
         }
     }
 
-    internal async Task ReferenceAsync(string source, string destination, DeploymentFile pin, CancellationToken token)
+    private static string ObjectKey(DeploymentFile pin)
     {
         if (pin.Bytes < 0 || pin.Sha256.Length != 64 || pin.Sha256 != pin.Sha256.ToLowerInvariant()
             || !pin.Sha256.All(Uri.IsHexDigit)) throw new InvalidDataException("Invalid content object pin.");
-        string key = pin.Sha256 + (pin.Executable ? "-x" : "-r");
+        return pin.Sha256 + (pin.Executable ? "-x" : "-r");
+    }
+
+    internal async Task ReferenceAsync(string source, string destination, DeploymentFile pin, CancellationToken token)
+    {
+        string key = ObjectKey(pin);
         string path = Path.Combine(root, key);
         if (!File.Exists(path))
         {
@@ -77,6 +82,14 @@ internal sealed class ClusterContentStore : IDisposable
     // atomically; interruption leaves either the old verified file or its reference.
     internal async Task AdoptAsync(string path, DeploymentFile pin, CancellationToken token)
     {
+        // Already a reference to its object, like the mods of a prepared deployment. Their seven copies hash once.
+        string key = ObjectKey(pin), stored = Path.Combine(root, key);
+        if (File.Exists(stored) && FileIdentity(path) == FileIdentity(stored))
+        {
+            RefuseLink(path);
+            if (verified.Add(key)) await VerifyAsync(stored, pin, token);
+            return;
+        }
         await VerifyAsync(path, pin, token);
         string temporary = path + ".reference-" + Guid.NewGuid().ToString("N");
         try
@@ -121,6 +134,14 @@ internal sealed class ClusterContentStore : IDisposable
         return data.Links;
     }
 
+    // Linux only: the same value for every hard link of a file, and for no other file while it exists.
+    internal static string FileIdentity(string path)
+    {
+        if (Statx(-100, path, 0x100, 0x100, out var data) != 0 || (data.Mask & 0x100) == 0)
+            throw new IOException("Cannot inspect file identity.", new Win32Exception(Marshal.GetLastPInvokeError()));
+        return $"{data.DeviceMajor}:{data.DeviceMinor}:{data.Inode}";
+    }
+
     private static (uint Major, uint Minor) Device(string path)
     {
         if (Statx(-100, path, 0x100, 0x7ff, out var data) != 0)
@@ -146,7 +167,7 @@ internal sealed class ClusterContentStore : IDisposable
     public void Dispose() { try { if (prune) Prune(); } finally { gate.Dispose(); } }
 
     [DllImport("libc", EntryPoint = "link", SetLastError = true)]
-    private static extern int Link(string source, string destination);
+    internal static extern int Link(string source, string destination);
     [DllImport("libc", EntryPoint = "statx", SetLastError = true)]
     private static extern int Statx(int directory, string path, int flags, uint mask, out StatxData data);
     [StructLayout(LayoutKind.Explicit, Size = 256)]
@@ -154,6 +175,7 @@ internal sealed class ClusterContentStore : IDisposable
     {
         [FieldOffset(0)] public uint Mask;
         [FieldOffset(16)] public uint Links;
+        [FieldOffset(32)] public ulong Inode;
         [FieldOffset(136)] public uint DeviceMajor;
         [FieldOffset(140)] public uint DeviceMinor;
     }
