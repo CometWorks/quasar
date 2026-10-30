@@ -860,6 +860,20 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
 
+`Quasar:Auth:RequireHttpsForPublicAccess` defaults to `true`. After applying
+forwarded headers from a trusted proxy, Quasar rejects plain HTTP requests from
+non-loopback clients with HTTP 400. This includes the UI, login, and public
+health/readiness probes. Local Bootstrap and container probes can continue to
+use loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
+keep their separate source/Host/credential policy; use HTTPS/WSS for them when
+they leave the machine. The authentication and Steam correlation cookies are
+always marked Secure while this setting is enabled.
+
+Setting `Quasar:Auth:Enabled=false` is allowed only when every effective listener
+is loopback (`localhost`, `127.0.0.1`, or `::1`). Quasar checks `Quasar:Host`,
+`QUASAR_WEB_HOST`, and every binding in `ASPNETCORE_URLS` before Kestrel starts
+and fails startup if any binding is public. There is no public no-auth override.
+
 Trusted-network roles also require an intended browser destination and same-origin
 context. This check applies to every browser API, including Entity Viewer, before
 issuing a trusted-network principal. It does not replace cookies, service
@@ -1041,9 +1055,11 @@ between UI and headless operation does not convert or duplicate state.
 Enabled UI-plugin package manifests are still read as data so their owned server
 companions remain deployable; their UI assemblies are not loaded.
 
-- `GET /api/health` is process liveness and reports `headless`.
+- `GET /api/health` is process liveness and returns only `{"status":"ok"}`.
 - `GET /api/ready` confirms that the API worker, durable catalogs, and cluster
-  operation store are ready.
+  operation store are ready, returning only `status` with HTTP 200 or 503.
+- `GET /api/discovery` contains worker identity used by the local Bootstrap
+  stale-process guard and is restricted by the machine endpoint policy.
 - `GET /` returns a small JSON discovery document instead of the UI.
 
 Authentication and authorization remain enabled exactly as configured; headless
@@ -1141,9 +1157,9 @@ A local operation that was still running when Quasar stopped is reported as Fail
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
 a human `CanView` role or the scoped service-principal permission described below.
-`/api/health` and `/api/ready` include
-`configuredClusters`; they do not contact Gateway and remain usable if a Gateway
-is down. The readiness payload also reports the durable operation store. Recovery
+`/api/health` and `/api/ready` expose only their `status`; they do not contact
+Gateway and remain usable if a Gateway is down. Readiness is based on the durable
+operation store. Recovery
 readiness is calculated by Gateway from its durable Registry,
 Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
 from node liveness.

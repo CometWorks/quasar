@@ -73,6 +73,9 @@ Any other Quasar setting works too: either a documented `QUASAR_*` variable or t
 | `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN` | `false` | Managed servers stop with the container |
 | `QUASAR_UPDATES_ENABLED` | `false` | In-app Quasar updater off; the image is the release unit |
 
+Because the fixed `ASPNETCORE_URLS` value is public inside the container,
+`Quasar:Auth:Enabled=false` is rejected at startup. Keep authentication enabled.
+
 ## First administrator
 
 When `/data/rbac.json` does not exist, Quasar creates it with one Steam `admin` mapping for `QUASAR_ADMIN_STEAM_ID`. The value must be exactly 17 digits; anything else, including the unedited placeholder, stops startup with `QUASAR_ADMIN_STEAM_ID must be a 17-digit SteamID64.` An existing `rbac.json` always wins, so later role changes are never overwritten. If you delete `rbac.json` while the variable is still set, Quasar recreates the initial mapping. See [Access control](AccessControl.md).

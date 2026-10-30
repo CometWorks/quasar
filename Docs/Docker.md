@@ -114,6 +114,10 @@ Service-principal, Gateway, OIDC, and other secrets may also be supplied through
 `quasar-data/appsettings.json`. Environment variables take precedence over JSON.
 See [Configuration](Configuration.md) for available settings.
 
+The image listens on all container interfaces, so `Quasar:Auth:Enabled=false`
+is rejected at startup. Keep authentication enabled and use the loopback/trusted
+network controls for passwordless local administration.
+
 Container defaults differ from packaged services in three intentional ways:
 
 - console logging is enabled for `docker compose logs`;

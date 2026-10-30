@@ -20,8 +20,8 @@ In headless mode (`--headless`) the `/login` page does not exist. Only the trust
 
 - `/login` redirects to Steam (`https://steamcommunity.com/openid/`) and back. Any Steam account can complete the sign-in. Quasar then gives it the roles mapped to its SteamID64 in `rbac.json`.
 - The top bar shows your Steam profile name beside the sign-out button and in its tooltip. Quasar looks it up from your public Steam Community profile at sign-in without an API key and keeps it in the session cookie. If the lookup fails or takes more than five seconds, it shows `Steam <SteamID64>`. Sign out and back in to refresh the name, including after upgrading. Permissions and audit records still use SteamID64.
-- An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (`/logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
-- The sign-in cookie is `Quasar.Auth`, HTTP-only, valid for 12 hours with sliding renewal. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
+- An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (an antiforgery-protected `POST /logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
+- The sign-in cookie is `Quasar.Auth`, HTTP-only, valid for 12 hours with sliding renewal. With `RequireHttpsForPublicAccess` enabled it is also always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
 - If `Quasar:Auth:Steam:Enabled` is `false`, or `Quasar:Auth:DefaultProvider` is not `Steam`, `/login` shows "Login unavailable. Steam is not enabled as the active Quasar auth provider."
 
@@ -121,6 +121,7 @@ The Viewer follow-up needs both the Quasar shared auth update and the Viewer plu
 ### Behind a reverse proxy
 
 - Quasar accepts `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only from loopback and from `TrustedProxies` entries, one proxy hop deep. The proxy must send all three so Steam returns the browser to the right public URL.
+- `RequireHttpsForPublicAccess` defaults to `true`. Quasar applies trusted forwarding first, then rejects plain HTTP public requests from non-loopback clients with HTTP 400. Loopback health checks still work over HTTP. Auth and Steam correlation cookies are always Secure while this setting is on.
 - Trusted bypass requires a known original socket peer, an accepted original backend Host, one valid `X-Forwarded-For` address and fully consumed `X-Forwarded-*` values. The proxy must replace incoming forwarding values. `Forwarded`, `X-Real-IP`, ambiguous or unconsumed values and client-supplied `X-Original-*` do not establish bypass trust. The user can still sign in with Steam.
 - Behind a trusted proxy, Quasar checks the forwarded client address, so remote browsers have to sign in even when the proxy runs on the same machine.
 
@@ -162,7 +163,7 @@ Send the token as `Authorization: Bearer <token>`. The `Quasar cluster ...` CLI 
 
 ## Turning authentication off
 
-`Quasar:Auth:Enabled` defaults to `true`. Setting it to `false` removes the authorization checks on HTTP endpoints, but the UI still checks roles and Quasar no longer creates trusted-network users. Pages then show "Access denied." and write actions fail. Do not use it to skip sign-in; use the trusted network bypass instead.
+`Quasar:Auth:Enabled` defaults to `true`. Setting it to `false` removes the authorization checks on HTTP endpoints, but Quasar starts only when every effective listener is loopback. It checks `Quasar:Host`, `QUASAR_WEB_HOST`, and every `ASPNETCORE_URLS` binding before Kestrel starts. The UI still checks roles and Quasar no longer creates trusted-network users, so pages show "Access denied." and write actions fail. Do not use it to skip sign-in; use the trusted network bypass instead.
 
 ## Locking yourself out and recovering
 
@@ -179,6 +180,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Enabled` | `true` | See [Turning authentication off](#turning-authentication-off) |
+| `RequireHttpsForPublicAccess` | `true` | Reject non-loopback HTTP public requests; secure auth cookies |
 | `DefaultProvider` | `Steam` | Only `Steam` has a sign-in |
 | `Steam:Enabled` | `true` | `false` disables `/login` |
 | `TrustedNetworkBypass:*` | see above | Also editable on the **Security** page |
@@ -209,6 +211,7 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 - `Quasar/Program.cs`
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
+- `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
 - `Quasar/Services/Auth/QuasarPermissionService.cs`
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
@@ -216,6 +219,8 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
+- `Quasar/Services/MachineEndpointSecurity.cs`
+- `Quasar/Services/PublicProbeEndpoints.cs`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/ClusterApi.cs`

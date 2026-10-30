@@ -175,7 +175,8 @@ therefore appear in the service journal as well as in the configured Quasar log
 files.
 Bootstrap reads the worker's camelCase service discovery manifest to recognize a
 healthy worker. If a service launcher restarts while its previous worker is still
-running, it verifies the worker identity through `/api/discovery`, retires that
+running, it verifies the worker identity through the machine-policy-restricted
+`/api/discovery` endpoint, retires that
 orphan, and starts the active release under its own supervision. A non-service
 launcher invocation leaves an already running worker alone.
 

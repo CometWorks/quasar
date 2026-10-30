@@ -132,8 +132,9 @@ at capacity or on invalid state. See
 
 Health endpoints, available in both modes:
 
-- `GET /api/health`: process liveness, version, `headless`, counts of servers, clusters and agents.
-- `GET /api/ready`: returns 200 with `"status": "ready"` when the cluster operation store is ready, 503 otherwise.
+- `GET /api/health`: process liveness; returns only `{"status":"ok"}`.
+- `GET /api/ready`: returns only `status`, with 200 when the cluster operation store is ready and 503 otherwise.
+- `GET /api/discovery`: worker/process identity for Bootstrap's local stale-worker check; restricted by the machine endpoint policy.
 
 ### Browser launch
 
@@ -289,6 +290,9 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `Quasar/appsettings.Development.json`
 - `Quasar/Program.cs`
 - `Quasar/Services/WebServiceOptions.cs`
+- `Quasar/Services/Auth/PublicAccessSecurity.cs`
+- `Quasar/Services/MachineEndpointSecurity.cs`
+- `Quasar/Services/PublicProbeEndpoints.cs`
 - `Quasar/Services/ManagedRuntimeOptions.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/QuasarLoggingConfigurator.cs`
