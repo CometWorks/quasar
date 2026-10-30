@@ -117,11 +117,16 @@ For multiple Kestrel bindings use the existing `ASPNETCORE_URLS` configuration;
 configure TLS certificates through Kestrel or terminate TLS at a private proxy.
 Machine policy does not change where the browser UI listens.
 
-With `Quasar:Auth:RequireHttpsForPublicAccess=true` (the default), public routes
-accept plain HTTP only from loopback. Quasar evaluates the effective scheme after
-trusted forwarded-header processing, so a trusted TLS proxy can establish HTTPS
-but client-spoofed forwarding headers cannot. Disabling authentication is limited
-to loopback-only effective listeners; Quasar refuses startup if `Quasar:Host`,
+Quasar defaults to private LAN mode: same-subnet trusted access is enabled and
+`Quasar:Auth:RequireHttpsForPublicAccess=false`, so LAN HTTP remains available
+behind the operator's firewall. Before public reverse-proxy exposure, apply the
+Security page's public proxy preset (or set the HTTPS option to `true` while
+leaving both LAN trust options enabled), save, and restart Quasar. Public routes
+then accept plain HTTP only from loopback and same-subnet clients. Quasar evaluates
+the effective scheme after trusted forwarded-header processing, so a trusted TLS
+proxy can establish HTTPS but
+client-spoofed forwarding headers cannot. Disabling authentication is limited to
+loopback-only effective listeners; Quasar refuses startup if `Quasar:Host`,
 `QUASAR_WEB_HOST`, or any `ASPNETCORE_URLS` binding exposes an auth-off worker.
 `/api/discovery` is part of the machine endpoint policy because only local
 Bootstrap worker-identity checks consume its process metadata.

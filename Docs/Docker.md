@@ -114,9 +114,13 @@ Service-principal, Gateway, OIDC, and other secrets may also be supplied through
 `quasar-data/appsettings.json`. Environment variables take precedence over JSON.
 See [Configuration](Configuration.md) for available settings.
 
-The image listens on all container interfaces, so `Quasar:Auth:Enabled=false`
-is rejected at startup. Keep authentication enabled and use the loopback/trusted
-network controls for passwordless local administration.
+The image listens on all container interfaces. Its default private LAN mode keeps
+authentication enabled while permitting HTTP and same-subnet trusted access.
+Keep the published port behind a firewall. Before public reverse-proxy exposure,
+set `Quasar__Auth__RequireHttpsForPublicAccess=true` and restart the container.
+Direct LAN clients stay trusted; forwarded public clients use HTTPS and sign in.
+`Quasar:Auth:Enabled=false` is still rejected because
+the container listener is not loopback-only.
 
 Container defaults differ from packaged services in three intentional ways:
 

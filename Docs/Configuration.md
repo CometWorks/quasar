@@ -841,8 +841,9 @@ use for local control requests does not change proxy settings for downloads.
 
 ## Reverse proxy auth
 
-Quasar can grant a trusted-network session to loopback or explicitly enabled
-same-subnet clients. Same-subnet bypass is disabled by default.
+Quasar starts in private LAN mode: it grants trusted-network sessions to
+loopback and same-subnet clients by default and permits HTTP. This assumes the
+Quasar port stays behind a firewall and is not forwarded from the router.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
@@ -860,14 +861,17 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
 
-`Quasar:Auth:RequireHttpsForPublicAccess` defaults to `true`. After applying
-forwarded headers from a trusted proxy, Quasar rejects plain HTTP requests from
-non-loopback clients with HTTP 400. This includes the UI, login, and public
-health/readiness probes. Local Bootstrap and container probes can continue to
-use loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
+`Quasar:Auth:RequireHttpsForPublicAccess` defaults to `false` for private LAN
+operation. Enable it before exposing Quasar through a public reverse proxy. After
+applying forwarded headers from a trusted proxy, Quasar then rejects plain HTTP
+requests from non-LAN clients with HTTP 400 and marks authentication and
+Steam correlation cookies Secure. This includes the UI, login, and public
+health/readiness probes; local Bootstrap and container probes can continue to use
+loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
 keep their separate source/Host/credential policy; use HTTPS/WSS for them when
-they leave the machine. The authentication and Steam correlation cookies are
-always marked Secure while this setting is enabled.
+they leave the machine. Direct loopback and same-subnet clients continue to bypass
+HTTPS and sign-in. The Security page's public proxy preset enables HTTPS
+enforcement while retaining those LAN exceptions; restart Quasar after saving it.
 
 Setting `Quasar:Auth:Enabled=false` is allowed only when every effective listener
 is loopback (`localhost`, `127.0.0.1`, or `::1`). Quasar checks `Quasar:Host`,
@@ -900,8 +904,10 @@ BaseUrl to that intended URL and give the proxy an accepted backend Host too.
 Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
 longer get automatic roles; use the configured URL or sign in. Signed-in users
 and service principals retain their existing authentication and permissions.
-Local loopback bypass remains on and same-subnet bypass remains off by default.
-No new aliases or auth configuration fields are introduced. See the
+Local loopback and same-subnet bypass remain on by default for private LAN mode.
+The public proxy preset keeps those direct LAN exceptions while requiring HTTPS
+and authentication for forwarded public clients. No new aliases or auth
+configuration fields are introduced. See the
 [Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
 
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
@@ -914,7 +920,7 @@ proxy host, add the proxy container/host address or bridge CIDR:
     "Auth": {
       "TrustedNetworkBypass": {
         "AllowLoopback": true,
-        "AllowSameSubnet": false,
+        "AllowSameSubnet": true,
         "TrustedProxies": [ "172.18.0.0/16" ],
         "Roles": [ "admin" ]
       }
@@ -923,8 +929,9 @@ proxy host, add the proxy container/host address or bridge CIDR:
 }
 ```
 
-Keep same-subnet bypass disabled whenever browser access should be tied to
-Steam/RBAC identity:
+Forwarded public clients are evaluated by their forwarded address, so they still
+use Steam/RBAC while direct LAN clients remain trusted. To opt out of the direct
+LAN exception manually:
 
 ```json
 {

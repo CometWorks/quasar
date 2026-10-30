@@ -4,7 +4,7 @@ namespace Quasar.Services.Auth;
 
 internal static class PublicAccessSecurity
 {
-    internal const string HttpsRequiredMessage = "HTTPS is required for non-loopback Quasar access.";
+    internal const string HttpsRequiredMessage = "HTTPS is required for non-LAN Quasar access.";
 
     internal static void ValidateStartup(
         QuasarAuthOptions auth,
@@ -32,7 +32,9 @@ internal static class PublicAccessSecurity
     {
         if (!auth.RequireHttpsForPublicAccess || context.Request.IsHttps ||
             MachineEndpointSecurity.IsMachinePath(context.Request.Path) ||
-            IsLoopbackAddress(context.Connection.RemoteIpAddress))
+            TrustedNetworkEvaluator.IsTrustedAddress(
+                context.Connection.RemoteIpAddress,
+                auth.TrustedNetworkBypass))
         {
             return next(context);
         }

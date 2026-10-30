@@ -94,8 +94,8 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 **Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has four panels.
 
-- **Auth Provider**: read-only summary of the default provider, Steam login, trusted loopback, trusted same subnet and trusted proxies, and the path of the `appsettings.json` it writes.
-- **Trusted Network and Reverse Proxy**: checkboxes **Trust loopback access** and **Trust same subnet access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback on, same subnet off; you still have to save). It writes `Quasar:Auth:TrustedNetworkBypass` in the data directory's `appsettings.json`. The two checkboxes apply immediately. Trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
+- **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted same subnet and trusted proxies, and the path of the `appsettings.json` it writes.
+- **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust same subnet access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and same subnet on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
@@ -106,7 +106,7 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `AllowLoopback` | `true` | Trust `127.0.0.1` and `::1` |
-| `AllowSameSubnet` | `false` | Trust IPv4 clients on the same subnet as any active network interface of the Quasar machine |
+| `AllowSameSubnet` | `true` | Trust IPv4 clients on the same subnet as any active network interface of the Quasar machine |
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
@@ -121,7 +121,7 @@ The Viewer follow-up needs both the Quasar shared auth update and the Viewer plu
 ### Behind a reverse proxy
 
 - Quasar accepts `X-Forwarded-For`, `X-Forwarded-Proto` and `X-Forwarded-Host` only from loopback and from `TrustedProxies` entries, one proxy hop deep. The proxy must send all three so Steam returns the browser to the right public URL.
-- `RequireHttpsForPublicAccess` defaults to `true`. Quasar applies trusted forwarding first, then rejects plain HTTP public requests from non-loopback clients with HTTP 400. Loopback health checks still work over HTTP. Auth and Steam correlation cookies are always Secure while this setting is on.
+- Quasar defaults to private LAN HTTP mode with `RequireHttpsForPublicAccess=false` and same-subnet bypass enabled. Keep its port behind a firewall. The public proxy preset enables HTTPS enforcement but retains loopback and same-subnet exceptions. After trusted forwarding, non-LAN public clients must use HTTPS and sign in; direct LAN clients retain HTTP and trusted-network access. Auth and Steam correlation cookies are always Secure while HTTPS enforcement is on.
 - Trusted bypass requires a known original socket peer, an accepted original backend Host, one valid `X-Forwarded-For` address and fully consumed `X-Forwarded-*` values. The proxy must replace incoming forwarding values. `Forwarded`, `X-Real-IP`, ambiguous or unconsumed values and client-supplied `X-Original-*` do not establish bypass trust. The user can still sign in with Steam.
 - Behind a trusted proxy, Quasar checks the forwarded client address, so remote browsers have to sign in even when the proxy runs on the same machine.
 
@@ -180,7 +180,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Enabled` | `true` | See [Turning authentication off](#turning-authentication-off) |
-| `RequireHttpsForPublicAccess` | `true` | Reject non-loopback HTTP public requests; secure auth cookies |
+| `RequireHttpsForPublicAccess` | `false` | Private LAN HTTP by default; enable for a public reverse proxy to reject non-LAN HTTP and secure auth cookies |
 | `DefaultProvider` | `Steam` | Only `Steam` has a sign-in |
 | `Steam:Enabled` | `true` | `false` disables `/login` |
 | `TrustedNetworkBypass:*` | see above | Also editable on the **Security** page |
@@ -196,7 +196,7 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | "this account has no Quasar role" after Steam sign-in | No mapping for that SteamID64. Add it on **Security** or in `rbac.json`. |
 | Steam sign-in works locally but remote users land on the wrong URL | The reverse proxy does not send `X-Forwarded-Host`/`X-Forwarded-Proto`, or its address is not in `TrustedProxies` (restart after adding). |
 | Everyone on the LAN can change settings without signing in | `AllowSameSubnet` is on. Turn it off on **Security**. |
-| Local browser is asked to sign in | The request went through a proxy, came from a non-loopback address, or `AllowLoopback` is off. |
+| Local browser is asked to sign in | The request went through a proxy with a non-LAN forwarded address, used an unaccepted destination/context, or its applicable LAN trust option is off. |
 | All Steam users lost access after an edit | `rbac.json` is not valid JSON. Check the Quasar log for "Failed loading RBAC config". |
 | Cluster API returns 401 with a token | Token variable missing in the Quasar service environment, shorter than 32 characters, shared by two principals, or Quasar not restarted after the change. |
 | `Login unavailable` page | `Quasar:Auth:Steam:Enabled` is `false` or `DefaultProvider` is not `Steam`. |

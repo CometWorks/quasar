@@ -1,4 +1,6 @@
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Discovery;
@@ -16,6 +18,29 @@ namespace Quasar.Tests;
 
 public sealed class PublicEndpointSecurityTests
 {
+    [Fact]
+    public void PrivateLanHttpModeIsTheDefault()
+    {
+        var options = new QuasarAuthOptions();
+
+        Assert.False(options.RequireHttpsForPublicAccess);
+        Assert.True(options.TrustedNetworkBypass.AllowSameSubnet);
+    }
+
+    [Fact]
+    public void ActiveSameSubnetAddressIsTrustedByDefault()
+    {
+        var localAddress = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(network => network.OperationalStatus == OperationalStatus.Up &&
+                network.NetworkInterfaceType is not (NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel))
+            .SelectMany(network => network.GetIPProperties().UnicastAddresses)
+            .FirstOrDefault(address => address.Address.AddressFamily == AddressFamily.InterNetwork &&
+                address.IPv4Mask is not null)?.Address;
+
+        Assert.NotNull(localAddress);
+        Assert.True(TrustedNetworkEvaluator.IsTrustedAddress(localAddress, new TrustedNetworkBypassOptions()));
+    }
+
     [Theory]
     [InlineData("127.0.0.1", null, true)]
     [InlineData("::1", null, true)]

@@ -3,7 +3,7 @@ namespace Quasar.Services.Auth;
 public sealed class QuasarAuthOptions
 {
     public bool Enabled { get; set; } = true;
-    public bool RequireHttpsForPublicAccess { get; set; } = true;
+    public bool RequireHttpsForPublicAccess { get; set; }
     public string DefaultProvider { get; set; } = QuasarAuthSchemes.Steam;
     public TrustedNetworkBypassOptions TrustedNetworkBypass { get; set; } = new();
     public SteamAuthOptions Steam { get; set; } = new();
@@ -65,7 +65,7 @@ public sealed class ServicePrincipalOptions
 public sealed class TrustedNetworkBypassOptions
 {
     public bool AllowLoopback { get; set; } = true;
-    public bool AllowSameSubnet { get; set; }
+    public bool AllowSameSubnet { get; set; } = true;
     public List<string> TrustedProxies { get; set; } = [];
     public List<string> Roles { get; set; } = [QuasarRoles.Admin];
 
