@@ -175,6 +175,51 @@ public sealed class ClusterContentStorageTests : IDisposable
         finally { await maintenance.StopAsync(default); }
     }
 
+    private sealed class RecordingHost : HttpMessageHandler
+    {
+        public readonly List<(string Path, string Body)> Requests = [];
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            string body = await request.Content!.ReadAsStringAsync(token);
+            lock (Requests) Requests.Add((request.RequestUri!.AbsolutePath, body));
+            var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+            { Content = new StringContent($"{{\"protocolVersion\":{HostProtocol.Version},\"data\":0}}") };
+            response.Headers.Add(HostProtocol.HeaderName, HostProtocol.Version.ToString());
+            return response;
+        }
+    }
+
+    [Fact]
+    public async Task DeletedClusterReleasesItsHostInputs()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        Environment.SetEnvironmentVariable("SE775_HOST_TOKEN", "token");
+        foreach (string name in new[] { "kept", "gone" })
+        {
+            Directory.CreateDirectory(Path.Combine(root, "clusters", name));
+            await File.WriteAllTextAsync(Path.Combine(root, "clusters", name, "cluster.json"), JsonSerializer.Serialize(new ClusterDefinition
+                { UniqueName = name, GatewayUrl = "http://127.0.0.1:1", HostCommandUrl = "http://host.test:18432",
+                    HostCommandTokenEnvironmentVariable = "SE775_HOST_TOKEN" }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        }
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
+        await catalog.DeleteDefinitionAsync(catalog.GetCluster("gone")!, default);
+        Assert.Equal(["gone"], catalog.GetDeletedClusters().Select(c => c.UniqueName));
+        Assert.Equal([("http://host.test:18432", "SE775_HOST_TOKEN")], ClusterStorageMaintenance.DeletedEndpoints(catalog.GetDeletedClusters()[0]));
+
+        var host = new RecordingHost();
+        using var maintenance = new ClusterStorageMaintenance(catalog, new ClusterDependencyService(() => [], Path.Combine(root, "dependencies"), null!),
+            new ClusterHostClient(new HttpClient(host)), new WebServiceOptions { BackupDirectory = Path.Combine(root, "backups") },
+            NullLogger<ClusterStorageMaintenance>.Instance);
+        await maintenance.StartAsync(default);
+        try { for (int i = 0; i < 50 && host.Requests.Count == 0; i++) await Task.Delay(100); }
+        finally { await maintenance.StopAsync(default); }
+        var (path, body) = Assert.Single(host.Requests);
+        Assert.EndsWith("/deployment-references/gone", path);
+        var references = JsonSerializer.Deserialize<HostDeploymentReferences>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        Assert.Empty(references.Installations.Concat(references.Mods).Concat(references.Worlds).Concat(references.Configurations));
+    }
+
     [Fact]
     public void ReferencesIncludeActivePreparedRollbackAndInterruptedUpdate()
     {

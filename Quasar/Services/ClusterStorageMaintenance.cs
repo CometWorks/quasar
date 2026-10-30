@@ -85,6 +85,20 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                                 inputs.Select(h => h.ConfigurationDirectory).Distinct().ToArray()), stoppingToken);
                         }
                     }
+                    // Deleting a cluster keeps its definition in History only, so nothing above names it and its
+                    // Host kept the cluster's configurations and input claims forever (SE-775). Release them unless
+                    // a backup still references the cluster. Best effort: a gone Host must not block collection.
+                    var named = definitions.Select(c => c.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    foreach (var deleted in catalog.GetDeletedClusters().Where(c => !named.Contains(c.UniqueName)))
+                        foreach (var (url, token) in DeletedEndpoints(deleted))
+                        {
+                            var target = deleted.Clone();
+                            target.HostCommandUrl = url;
+                            target.HostCommandTokenEnvironmentVariable = token;
+                            try { await hosts.RetainDeploymentInputsAsync(target, new([], [], [], []), stoppingToken); }
+                            catch (ClusterHostException error)
+                            { logger.LogWarning(error, "Host inputs of deleted cluster {Cluster} not released.", deleted.UniqueName); }
+                        }
                     previousReferences = identity;
                     Volatile.Write(ref previousStorageRevision, ClusterStorageActivity.Revision);
                     Volatile.Write(ref deferred, false);
@@ -124,6 +138,11 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
 
     internal static IEnumerable<ClusterPreparationRequest> Preparations(ClusterDefinition cluster) =>
         Revisions(cluster).Select(r => r.Provenance?.Preparation).Append(cluster.Preparation).OfType<ClusterPreparationRequest>();
+
+    internal static IEnumerable<(string Url, string Token)> DeletedEndpoints(ClusterDefinition cluster) =>
+        Preparations(cluster).SelectMany(p => p.Hosts).Select(h => (h.CommandUrl, h.TokenEnvironmentVariable))
+            .Append((cluster.HostCommandUrl, cluster.HostCommandTokenEnvironmentVariable))
+            .Where(e => !string.IsNullOrWhiteSpace(e.Item1)).Distinct();
 
     private static async Task CollectModVersionsAsync(IEnumerable<ClusterPreparationRequest> preparations, CancellationToken token)
     {
