@@ -573,6 +573,31 @@ public sealed class ClusterCatalog : IDisposable
         return conventional;
     }
 
+    // The last definition of every deleted cluster ID. IDs are never reused, so nothing
+    // live can still need the Host inputs these prepared.
+    internal IReadOnlyList<ClusterDefinition> GetDeletedClusters()
+    {
+        var result = new List<ClusterDefinition>();
+        if (!Directory.Exists(_directory)) return result;
+        foreach (string history in Directory.EnumerateDirectories(_directory).Select(d => Path.Combine(d, "History")).Where(Directory.Exists))
+        {
+            string? latest = Directory.EnumerateFiles(history, "*-deleted.json").Order(StringComparer.Ordinal).LastOrDefault();
+            if (latest is null) continue;
+            try
+            {
+                ClusterDefinition cluster = JsonSerializer.Deserialize<ClusterDefinition>(File.ReadAllText(latest), JsonOptions)
+                    ?? throw new InvalidDataException("Cluster definition is empty.");
+                Normalize(cluster);
+                if (GetCluster(cluster.UniqueName) is null) result.Add(cluster);
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Failed to load deleted cluster definition from {Path}", latest);
+            }
+        }
+        return result;
+    }
+
     private string RemovedPath(string uniqueName) => Path.Combine(_directory, ".removed", uniqueName.ToLowerInvariant());
 
     private List<ClusterDefinition> Load()
