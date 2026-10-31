@@ -269,11 +269,19 @@
                                                      Max="QuasarBackupSettings.MaxOnlineClusterMiBPerSecond"
                                                      Variant="Variant.Outlined" Disabled="!_settings.Server.Enabled" />
                                 </MudItem>
+                                <MudItem xs="12" sm="6" md="3">
+                                    <MudNumericField T="int" @bind-Value="_settings.DeletedClusterRetentionDays" Label="Keep deleted clusters (days)"
+                                                     Min="QuasarBackupSettings.MinDeletedClusterRetentionDays"
+                                                     Max="QuasarBackupSettings.MaxDeletedClusterRetentionDays"
+                                                     Variant="Variant.Outlined" />
+                                </MudItem>
                             </MudGrid>
                             <p class="quasar-text quasar-type-caption">
                                 Managed clusters follow the same schedule. A stopped cluster gets a clean backup. A running one is
                                 copied without downtime, at most at the copy rate, and restores to the state of a crash at the
-                                start of the copy. The newest clean backup is kept beyond the retention count.
+                                start of the copy. The newest clean backup is kept beyond the retention count. After the days
+                                set above, Quasar removes all backups, the world and the Host data of a deleted cluster,
+                                manual backups included. 0 keeps them forever.
                             </p>
                         </div>
                     </MudExpansionPanel>

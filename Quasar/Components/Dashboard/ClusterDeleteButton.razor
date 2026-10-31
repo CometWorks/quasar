@@ -32,7 +32,7 @@
             if (result is null || result.Canceled || !await AuthorizedAsync()) return;
             if (result.Data is true) await Deployments.ForgetAsync(Cluster.UniqueName, Cluster.UniqueName);
             else await Deployments.DeleteAsync(Cluster.UniqueName);
-            Snackbar.Add("Cluster definition deleted. World files and Host data were retained.", Severity.Success);
+            Snackbar.Add("Cluster definition deleted. Its world, Host data and backups stay until the retention set on the Backup page ends.", Severity.Success);
             if (ReturnToServers) Navigation.NavigateTo("/");
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or KeyNotFoundException or ClusterHostException)

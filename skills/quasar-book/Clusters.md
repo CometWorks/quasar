@@ -275,7 +275,7 @@ The delete icon on the card or page opens a dialog:
 
 After a delete, Quasar asks each host machine's Host executor to detach the cluster, so the Host stops polling and supervising it. Detaching is refused while a node or the Gateway still runs, the Gateway goal is On, an activation or restore is unfinished, or the deployment changed. The Host moves the cluster's attachment, Gateway specification and activation journal to `state/detached/<timestamp>-<Cluster ID>/`. Worlds, run roots and snapshots stay where they are. When a Host is too old or refuses, the deletion still stands and Quasar logs a warning with the `Quasar.Host cluster detach` command to run on that machine (see [Host command line](ClusterHosts.md#host-command-line)). Forget does not detach: run that command once the processes are stopped.
 
-Both keep worlds, Host data and backups. The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history."
+Both keep worlds, Host data and backups for the **Keep deleted clusters (days)** set on the Backup page (default 7, 0 keeps them forever). Then Quasar removes them, manual backups included; see [Cluster storage](https://github.com/CometWorks/quasar/blob/main/Docs/ClusterStorage.md#deleted-clusters). The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history."
 
 ## Register an existing cluster
 
@@ -297,7 +297,7 @@ Both keep worlds, Host data and backups. The definition moves to `Clusters/<Clus
 | `ManagedRuntime/Tools/.objects` | Shared content store. Identical files across packages, snapshots and mods are stored once and hard-linked. Each node's `Mods` folder hard-links the Host's read-only copies too, instead of copying them per node. |
 | `<backup directory>/Clusters/`, `<backup directory>/Conversions/` | Cluster backups and conversion work folders. |
 
-Quasar removes unused package, dependency and mod content once no cluster, prepared update or retained backup refers to it. There is no age-based retention. Completed setup and conversion delete their temporary installation trees and transfer archives.
+Quasar removes unused package, dependency and mod content once no cluster, prepared update or retained backup refers to it. Cached cluster releases keep the newest two as well. Live clusters have no age-based retention; a deleted cluster's data has the limit above. Completed setup and conversion delete their temporary installation trees and transfer archives.
 
 ## Command line
 

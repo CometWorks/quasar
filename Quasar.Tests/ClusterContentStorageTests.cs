@@ -231,7 +231,7 @@ public sealed class ClusterContentStorageTests : IDisposable
             string body = await request.Content!.ReadAsStringAsync(token);
             lock (Requests) Requests.Add((request.RequestUri!.AbsolutePath, body));
             var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
-            { Content = new StringContent($"{{\"protocolVersion\":{HostProtocol.Version},\"data\":0}}") };
+            { Content = new StringContent($"{{\"protocolVersion\":{HostProtocol.Version},\"data\":{(request.RequestUri.AbsolutePath.Contains("/deleted-clusters/") ? "[]" : "0")}}}") };
             response.Headers.Add(HostProtocol.HeaderName, HostProtocol.Version.ToString());
             return response;
         }
@@ -252,8 +252,8 @@ public sealed class ClusterContentStorageTests : IDisposable
         using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
             new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
         await catalog.DeleteDefinitionAsync(catalog.GetCluster("gone")!, default);
-        Assert.Equal(["gone"], catalog.GetDeletedClusters().Select(c => c.UniqueName));
-        Assert.Equal([("http://host.test:18432", "SE775_HOST_TOKEN")], ClusterStorageMaintenance.DeletedEndpoints(catalog.GetDeletedClusters()[0]));
+        Assert.Equal(["gone"], catalog.GetDeletedClusters().Select(c => c.Cluster.UniqueName));
+        Assert.Equal([("http://host.test:18432", "SE775_HOST_TOKEN")], ClusterStorageMaintenance.DeletedEndpoints(catalog.GetDeletedClusters()[0].Cluster));
 
         var host = new RecordingHost();
         using var maintenance = new ClusterStorageMaintenance(catalog, new ClusterDependencyService(() => [], Path.Combine(root, "dependencies"), null!),
@@ -266,6 +266,133 @@ public sealed class ClusterContentStorageTests : IDisposable
         Assert.EndsWith("/deployment-references/gone", path);
         var references = JsonSerializer.Deserialize<HostDeploymentReferences>(body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Assert.Empty(references.Installations.Concat(references.Mods).Concat(references.Worlds).Concat(references.Configurations));
+    }
+
+    // SE-776: the retention of a deleted cluster ends with its backups and Host data, whatever it pinned goes with them.
+    [Fact]
+    public async Task DeletedClusterRetentionEndsWithItsData()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        Environment.SetEnvironmentVariable("SE776_HOST_TOKEN", "token");
+        string Run(string cluster) => $"/state/conversions/{cluster}run/runtime";
+        ClusterDefinition Definition(string name) => new()
+        {
+            UniqueName = name, GatewayUrl = "http://127.0.0.1:1", HostCommandUrl = "http://host.test:18432", HostCommandTokenEnvironmentVariable = "SE776_HOST_TOKEN",
+            Preparation = new(new string('a', 64), JsonSerializer.Serialize(new { hosts = new[] { new { id = "h", runRoot = Run(name) } } }), "",
+                [new("h", "http://host.test:18432", "SE776_HOST_TOKEN", "EXEC", "/i", "/w", $"/state/conversions/{name}cfg/configuration")]),
+        };
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
+        string backups = Path.Combine(root, "backups");
+        foreach (string name in new[] { "kept", "fresh", "expired" })
+        {
+            Directory.CreateDirectory(Path.Combine(root, "clusters", name));
+            await File.WriteAllTextAsync(Path.Combine(root, "clusters", name, "cluster.json"), JsonSerializer.Serialize(Definition(name), json));
+            string backup = Path.Combine(ClusterBackupService.Root(backups, name), Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(backup);
+            await File.WriteAllBytesAsync(Path.Combine(backup, "backup.json"), JsonSerializer.SerializeToUtf8Bytes(new ClusterBackup(Guid.NewGuid(), name, DateTimeOffset.UtcNow,
+                CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.Quiescent, Definition(name), [], false), json));
+        }
+        string setup = Path.Combine(Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarDirectory(), "ClusterSetup", "expired");
+        Directory.CreateDirectory(setup);
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
+        await catalog.DeleteDefinitionAsync(catalog.GetCluster("fresh")!, default);
+        await catalog.DeleteDefinitionAsync(catalog.GetCluster("expired")!, default);
+        string history = Path.Combine(root, "clusters", "expired", "History");
+        string deleted = Directory.GetFiles(history).Single();
+        File.Move(deleted, Path.Combine(history, DateTimeOffset.UtcNow.AddDays(-8).ToString("yyyyMMddHHmmssfff") + Path.GetFileName(deleted)[17..]));
+
+        var host = new RecordingHost();
+        using var maintenance = new ClusterStorageMaintenance(catalog, new ClusterDependencyService(() => [], Path.Combine(root, "dependencies"), null!),
+            new ClusterHostClient(new HttpClient(host)), new WebServiceOptions { BackupDirectory = backups }, NullLogger<ClusterStorageMaintenance>.Instance);
+        await maintenance.StartAsync(default);
+        try { for (int i = 0; i < 50 && !host.Requests.Any(r => r.Path.Contains("/deleted-clusters/")); i++) await Task.Delay(100); }
+        finally { await maintenance.StopAsync(default); }
+
+        Assert.False(Directory.Exists(ClusterBackupService.Root(backups, "expired")));
+        Assert.False(Directory.Exists(setup));
+        Assert.True(Directory.Exists(ClusterBackupService.Root(backups, "fresh")), "the backup of a recently deleted cluster stays");
+        Assert.True(Directory.Exists(ClusterBackupService.Root(backups, "kept")));
+        var requests = host.Requests.Where(r => r.Path.EndsWith("/expired")).ToArray();
+        Assert.DoesNotContain(host.Requests, r => r.Path.EndsWith("/deleted-clusters/fresh"));
+        Assert.Equal(["/host/v1/deployment-references/expired", "/host/v1/deleted-clusters/expired"], requests.Select(r => r.Path));
+        var data = JsonSerializer.Deserialize<HostDeletedClusterData>(requests[1].Body, json)!;
+        Assert.Equal(["/state/conversions/expiredcfg", "/state/conversions/expiredrun"], data.Workspaces.Order(StringComparer.Ordinal));
+    }
+
+    // Nothing but time ends the retention: no catalog or storage change starts this collection.
+    [Fact]
+    public async Task DeletedClusterRetentionEndsWithoutAnyOtherChange()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        Directory.CreateDirectory(Path.Combine(root, "clusters", "aging"));
+        await File.WriteAllTextAsync(Path.Combine(root, "clusters", "aging", "cluster.json"),
+            JsonSerializer.Serialize(new ClusterDefinition { UniqueName = "aging", GatewayUrl = "http://127.0.0.1:1" }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "clusters") }).Build());
+        await catalog.DeleteDefinitionAsync(catalog.GetCluster("aging")!, default);
+        string backups = Path.Combine(root, "backups"), kept = ClusterBackupService.Root(backups, "aging");
+        Directory.CreateDirectory(kept);
+        using var maintenance = new ClusterStorageMaintenance(catalog, new ClusterDependencyService(() => [], Path.Combine(root, "dependencies"), null!),
+            new ClusterHostClient(new HttpClient(new RecordingHost())), new WebServiceOptions { BackupDirectory = backups }, NullLogger<ClusterStorageMaintenance>.Instance)
+        { RetentionCheck = TimeSpan.FromMilliseconds(100) };
+        await maintenance.StartAsync(default);
+        try
+        {
+            await Task.Delay(500);
+            Assert.True(Directory.Exists(kept));
+            string history = Path.Combine(root, "clusters", "aging", "History"), deleted = Directory.GetFiles(history).Single();
+            File.Move(deleted, Path.Combine(history, DateTimeOffset.UtcNow.AddDays(-8).ToString("yyyyMMddHHmmssfff") + Path.GetFileName(deleted)[17..]));
+            for (int i = 0; i < 50 && Directory.Exists(kept); i++) await Task.Delay(100);
+        }
+        finally { await maintenance.StopAsync(default); }
+        Assert.False(Directory.Exists(kept));
+    }
+
+    [Fact]
+    public void StagingSweepRemovesOnlyOldMatchingEntries()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string parent = Path.Combine(root, "sweep");
+        DateTime started = DateTime.UtcNow;
+        string old = Path.Combine(parent, ".stage-old"), locked = Path.Combine(old, "locked"), young = Path.Combine(parent, ".stage-young");
+        string published = Path.Combine(parent, "published"), link = Path.Combine(parent, ".stage-link"), target = Path.Combine(root, "target");
+        foreach (string path in new[] { locked, young, published, target }) Directory.CreateDirectory(path);
+        File.CreateSymbolicLink(link, target);
+        File.WriteAllText(Path.Combine(target, "file"), "");
+        File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+        foreach (string path in new[] { old, published }) Directory.SetLastWriteTimeUtc(path, started.AddHours(-1));
+        Directory.SetLastWriteTimeUtc(young, started.AddHours(1));
+
+        ClusterStagingSweep.Sweep(parent, started, _ => { }, ".stage-*");
+
+        Assert.False(Directory.Exists(old));
+        Assert.True(Directory.Exists(young) && Directory.Exists(published) && File.Exists(Path.Combine(target, "file")));
+        Assert.NotNull(new FileInfo(link).LinkTarget);
+    }
+
+    [Fact]
+    public async Task ReleaseCacheKeepsReferencedAndNewestReleases()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string cache = Path.Combine(root, "releases");
+        string[] versions = ["1.0.1", "1.0.2", "1.0.3", "1.0.4", "1.0.5"];
+        for (int i = 0; i < versions.Length; i++)
+        {
+            Directory.CreateDirectory(Path.Combine(cache, versions[i]));
+            Directory.SetLastWriteTimeUtc(Path.Combine(cache, versions[i]), DateTime.UtcNow.AddHours(i - 10));
+        }
+        Directory.CreateDirectory(Path.Combine(cache, ".objects"));
+        ClusterActiveRevision Revision(string version) => new("r", [], DateTimeOffset.UtcNow, version);
+        var references = ClusterStorageMaintenance.PackageReferences([new ClusterDefinition
+        {
+            UniqueName = "c", PackageSelection = new(1, "1.0.2", "", "", ""), ActiveDeployment = Revision("1.0.1"),
+        }]);
+        Assert.Equal(["1.0.1", "1.0.2"], references.Order());
+
+        await new ClusterPackageService(null!, () => "", cache).CollectAsync(references, default);
+
+        Assert.Equal(["1.0.1", "1.0.2", "1.0.4", "1.0.5"], Directory.GetDirectories(cache).Select(Path.GetFileName).Where(n => !n!.StartsWith('.')).Order());
     }
 
     // SE-791: an update's checkpoints keep the same content, so they must not start a collection.

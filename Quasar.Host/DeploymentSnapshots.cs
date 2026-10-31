@@ -21,11 +21,27 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         string archive = ArchivePath(clusterId, id);
         if (!File.Exists(archive)) return;
         if (HashFile(archive) != hash) throw new InvalidDataException("Snapshot release checksum mismatch.");
-        string journals = Path.Combine(stateDirectory, "restores");
-        if (Directory.Exists(journals) && Directory.EnumerateFiles(journals, "*.json").Any(path =>
-            JsonSerializer.Deserialize<HostContract.HostSnapshotRestore>(File.ReadAllBytes(path), Json)?.SnapshotId == id))
-            throw new InvalidOperationException("Snapshot is required by an interrupted restore.");
+        if (Journaled(id)) throw new InvalidOperationException("Snapshot is required by an interrupted restore.");
         File.Delete(archive);
+    }
+
+    private bool Journaled(Guid id)
+    {
+        string journals = Path.Combine(stateDirectory, "restores");
+        return Directory.Exists(journals) && Directory.EnumerateFiles(journals, "*.json").Any(path =>
+            JsonSerializer.Deserialize<HostContract.HostSnapshotRestore>(File.ReadAllBytes(path), Json)?.SnapshotId == id);
+    }
+
+    // A backup that failed never releases the archives it captured, and a restore keeps the one it received
+    // (SE-217). Nothing needs them later: a retried backup captures again and a restore uploads its own.
+    internal void CollectArchives(TimeSpan minimumAge)
+    {
+        string directory = Path.Combine(stateDirectory, "snapshots");
+        if (!Directory.Exists(directory)) return;
+        foreach (string archive in Directory.EnumerateFiles(directory, "*.tar", SearchOption.AllDirectories))
+            if (DateTime.UtcNow - File.GetLastWriteTimeUtc(archive) >= minimumAge
+                && Guid.TryParseExact(Path.GetFileNameWithoutExtension(archive), "N", out Guid id) && !Journaled(id))
+                File.Delete(archive);
     }
 
     internal void ExportArtifact(string clusterId, string artifactId, Stream output)
@@ -402,9 +418,14 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             { file.Write(JsonSerializer.SerializeToUtf8Bytes(request, Json)); file.Flush(true); }
             File.Move(journal + ".tmp", journal, true);
             if (Directory.Exists(runtime)) Directory.Move(runtime, previous);
-            Directory.Move(staging, runtime); // Keep previous data for explicit recovery; never prune it as a backup.
+            Directory.Move(staging, runtime); // Keep previous data for explicit recovery.
             File.Delete(journal);
             PausedClusters.Resume(request.ClusterId);
+            // One full runtime per restore adds up; only the newest is a useful way back (SE-217).
+            foreach (string older in Directory.EnumerateDirectories(parent, Path.GetFileName(runtime) + ".before-restore-*").Where(p => p != previous))
+                try { Quasar.ClusterDeployment.ClusterStagingSweep.DeleteTree(older); }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                { Console.Error.WriteLine($"cluster={request.ClusterId} older runtime {older} not removed: {error.Message}"); }
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
     }

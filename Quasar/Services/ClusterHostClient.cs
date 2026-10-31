@@ -184,6 +184,10 @@ public sealed partial class ClusterHostClient
         }
     }
 
+    internal async Task<string[]> ReleaseDeletedClusterAsync(ClusterDefinition cluster, HostContract.HostDeletedClusterData data, CancellationToken token) =>
+        (await SendAsync<string[]>(cluster, HttpMethod.Post, HostContract.HostProtocol.RoutePrefix
+            + "/deleted-clusters/" + Uri.EscapeDataString(cluster.UniqueName), data, token, longRunning: true)).Data; // Deleting a whole runtime.
+
     internal async Task RetainDeploymentInputsAsync(ClusterDefinition cluster, HostContract.HostDeploymentReferences references, CancellationToken token)
     {
         try

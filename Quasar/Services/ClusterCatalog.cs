@@ -575,9 +575,9 @@ public sealed class ClusterCatalog : IDisposable
 
     // The last definition of every deleted cluster ID. IDs are never reused, so nothing
     // live can still need the Host inputs these prepared.
-    internal IReadOnlyList<ClusterDefinition> GetDeletedClusters()
+    internal IReadOnlyList<(ClusterDefinition Cluster, DateTimeOffset DeletedAt)> GetDeletedClusters()
     {
-        var result = new List<ClusterDefinition>();
+        var result = new List<(ClusterDefinition, DateTimeOffset)>();
         if (!Directory.Exists(_directory)) return result;
         foreach (string history in Directory.EnumerateDirectories(_directory).Select(d => Path.Combine(d, "History")).Where(Directory.Exists))
         {
@@ -588,7 +588,10 @@ public sealed class ClusterCatalog : IDisposable
                 ClusterDefinition cluster = JsonSerializer.Deserialize<ClusterDefinition>(File.ReadAllText(latest), JsonOptions)
                     ?? throw new InvalidDataException("Cluster definition is empty.");
                 Normalize(cluster);
-                if (GetCluster(cluster.UniqueName) is null) result.Add(cluster);
+                // The file name's UTC stamp: the move keeps the definition's own last write time.
+                var deletedAt = DateTimeOffset.ParseExact(Path.GetFileName(latest)[..17], "yyyyMMddHHmmssfff",
+                    System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal);
+                if (GetCluster(cluster.UniqueName) is null) result.Add((cluster, deletedAt));
             }
             catch (Exception exception)
             {
