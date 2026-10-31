@@ -128,12 +128,15 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
                 if (result.State == ClusterOperationState.Succeeded)
                 {
-                    if (profiles.GetProfile(profileId) is not { } latest || ProfileHash(latest) != selectedHash)
-                        throw new InvalidOperationException("The selected profile changed during preparation. Stage it again.");
                     var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                         ?? throw new InvalidDataException("Host preparation returned no deployment.");
+                    // Recorded also when refused: it holds the earlier staged changes for the next staging. Its profile
+                    // hash keeps it from activating, and the queue stays for that staging.
+                    bool unchanged = profiles.GetProfile(profileId) is { } latest && ProfileHash(latest) == selectedHash;
                     await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId, selectedHash,
-                        preparedContentUpdates: queued);
+                        preparedContentUpdates: unchanged ? queued : null);
+                    if (!unchanged)
+                        throw new InvalidOperationException("The selected profile changed during preparation. Stage it again.");
                 }
                 return result;
             }
@@ -469,9 +472,10 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
     /// <summary>
     /// The preparation a re-prepare builds on. The saved <see cref="ClusterDefinition.Preparation"/> is whatever was
     /// prepared last, so it can be a failed restore's backup specification, a rolled-back update's, or a change that a
-    /// later package or dependency selection discarded. It is the base only while it describes the active deployment or
-    /// the change still pending from Quasar's own staging; otherwise the active deployment's recorded preparation is,
-    /// and the switch is reported with any frontend it keeps. Staged names apply to either.
+    /// later package selection discarded. It is the base only while it describes the active deployment or the change
+    /// from Quasar's own staging, which a dependency selection or a failed staging doesn't discard; otherwise the active
+    /// deployment's recorded preparation is, and the switch is reported with any frontend it keeps. Staged names apply
+    /// to either.
     /// </summary>
     internal ClusterPreparationRequest? BasePreparation(ClusterDefinition cluster, IProgress<string>? progress = null) =>
         WithStagedNames(UnnamedBasePreparation(cluster, progress), cluster.StagedNames);
@@ -491,7 +495,8 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         var saved = cluster.Preparation;
         if (saved is null || cluster.ActiveDeployment?.Provenance?.Preparation is not { } active || saved == active) return saved;
         string revision = ClusterDependencyService.DeploymentRevision(saved);
-        if (revision == cluster.ActiveDeployment.Revision
+        if (revision == cluster.ActiveDeployment.Revision || revision == cluster.StagedRevision
+            // A catalog from before StagedRevision.
             || cluster.PreparedForSelectedRelease && revision == cluster.PreparedDeployment?.Revision) return saved;
         string message = $"The saved preparation (revision {revision[..Math.Min(8, revision.Length)]}) is not the active deployment's, "
             + "for example after a failed restore or a rollback. Building on the active deployment's preparation instead.";

@@ -36,6 +36,9 @@ public sealed class ClusterDefinition
     public bool PreparedForSelectedRelease { get; set; }
     public ClusterPreparedProfile? PreparedProfile { get; set; }
     public ClusterStagedNames? StagedNames { get; set; }
+    // The saved preparation's revision while it is Quasar's own staging. Unlike PreparedDeployment it outlives a
+    // dependency selection, so the next staging still builds on it.
+    public string? StagedRevision { get; set; }
     public ClusterContentUpdateQueue? QueuedContentUpdates { get; set; }
 
     [JsonIgnore]
@@ -87,6 +90,7 @@ public sealed class ClusterDefinition
         PreparedForSelectedRelease = PreparedForSelectedRelease,
         PreparedProfile = PreparedProfile,
         StagedNames = StagedNames,
+        StagedRevision = StagedRevision,
         QueuedContentUpdates = QueuedContentUpdates is { } queued ? queued with { Items = [.. queued.Items] } : null,
     };
 }

@@ -206,7 +206,7 @@ If an update gets stuck, **Abandon update** closes it without rolling anything b
 
 **Advanced deployment tools → Roll back binaries and configuration** reuses the update workflow with the previous installation and keeps the current world and plugin data.
 
-Every staging step (release update, hot spares, plugin settings, profile) builds on the saved preparation only while it belongs to the running deployment or to the change Quasar staged on top of it. A restore that was prepared but failed, a rollback, or a package selection that discarded a staged change leaves an older saved preparation. Staging then builds on the running deployment's own preparation instead and says so, naming any Steam or Direct Transport address that would otherwise have changed back.
+Every staging step (release update, hot spares, plugin settings, profile) builds on the saved preparation only while it belongs to the running deployment or to the change Quasar staged on top of it. A restore that was prepared but failed, a rollback, or a package selection that discarded a staged change leaves an older saved preparation. Staging then builds on the running deployment's own preparation instead and says so, naming any Steam or Direct Transport address that would otherwise have changed back. A profile staging that failed or was refused ("The selected profile changed during preparation") discards nothing: stage again and the earlier staged changes are still there. A candidate from a refused staging can't be applied until then.
 
 ## Backups and restore
 
