@@ -8,6 +8,38 @@ namespace Quasar.Tests;
 public sealed class ClusterOperationStoreTests
 {
     [Fact]
+    public void OldTerminalRecordsArePrunedAtStartupExceptTheNewestOfAKind()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());
+        Directory.CreateDirectory(directory);
+        var old = DateTimeOffset.UtcNow.AddDays(-40);
+        void Record(string id, string kind, ClusterOperationState state, DateTimeOffset updated) => File.WriteAllText(Path.Combine(directory, id + ".json"),
+            System.Text.Json.JsonSerializer.Serialize(new ClusterOperation(id, "demo", kind, id, "hash", "actor", state, updated, updated, null, null),
+                new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web) { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } }));
+        try
+        {
+            Record("oldest", "a", ClusterOperationState.Succeeded, old.AddDays(-1));
+            Record("newest-of-kind", "a", ClusterOperationState.Failed, old);
+            Record("recent", "b", ClusterOperationState.Succeeded, DateTimeOffset.UtcNow);
+            Record("older-than-recent", "b", ClusterOperationState.Failed, old);
+            File.WriteAllText(Path.Combine(directory, "old.json.corrupt"), "");
+            File.SetLastWriteTimeUtc(Path.Combine(directory, "old.json.corrupt"), old.UtcDateTime);
+            File.WriteAllText(Path.Combine(directory, "new.json.corrupt"), "");
+
+            var store = new ClusterOperationStore(directory);
+
+            Assert.Null(store.Get("oldest"));
+            Assert.Null(store.Get("older-than-recent"));
+            Assert.False(File.Exists(Path.Combine(directory, "oldest.json")));
+            Assert.NotNull(store.Get("newest-of-kind"));
+            Assert.NotNull(store.Get("recent"));
+            Assert.False(File.Exists(Path.Combine(directory, "old.json.corrupt")));
+            Assert.True(File.Exists(Path.Combine(directory, "new.json.corrupt")));
+        }
+        finally { Directory.Delete(directory, true); }
+    }
+
+    [Fact]
     public async Task SlowLocalOperationDoesNotBlockOtherCommandsAndSameKeyStillExecutesOnce()
     {
         string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());

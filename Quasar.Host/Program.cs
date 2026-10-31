@@ -117,9 +117,12 @@ internal static class Program
             gateways = new GatewaySpecStore(config.StateDirectory);
             var deployments = new DeploymentActivation(config.StateDirectory, config.HostId,
                 attachments, gateways, actualizer, gatewayActualizer);
-            new DeploymentSnapshots(config.StateDirectory, config.HostId, attachments,
-                actualizer, gatewayActualizer).Recover();
+            var snapshots = new DeploymentSnapshots(config.StateDirectory, config.HostId, attachments,
+                actualizer, gatewayActualizer);
+            snapshots.Recover();
             deployments.Recover();
+            DeploymentActivation.SweepStaging(config.StateDirectory);
+            snapshots.CollectArchives(HostCommandServer.OrphanArchiveAge);
             if (config.Command is not null)
             {
                 commandServer = new HostCommandServer(config.Command, config, attachments,

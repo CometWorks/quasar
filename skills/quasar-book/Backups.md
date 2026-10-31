@@ -73,7 +73,7 @@ How scheduling works:
 
 ### Retention
 
-After each automatic backup, Quasar deletes the oldest automatic backups of that type beyond the rule's count. For Servers and Worlds the count is per server. Retention only touches files whose name ends in `-auto.zip`. Manual backups stay until you delete them.
+After each automatic backup, Quasar deletes the oldest automatic backups of that type beyond the rule's count. For Servers and Worlds the count is per server. Retention only touches files whose name ends in `-auto.zip`. Manual backups stay until you delete them. The exception is a deleted cluster, whose backups all go when its [retention](Clusters.md#delete-or-forget-a-cluster) ends.
 
 ## Where backup files go
 

@@ -45,6 +45,8 @@ internal static class DeploymentConfigurationReferences
                         || bundle.RuntimeRoot == directory || bundle.RuntimeRoot.StartsWith(directory + "/", StringComparison.Ordinal))
                         throw new InvalidDataException("Configuration ownership does not match its reference.");
                     Directory.Delete(directory, true);
+                    string workspace = Path.GetDirectoryName(directory)!;
+                    if (workspace != root && !Directory.EnumerateFileSystemEntries(workspace).Any()) Directory.Delete(workspace);
                 }
                 paths.Remove(directory);
             }

@@ -1,7 +1,7 @@
 <MudDialog>
     <DialogContent>
         <div class="quasar-layout quasar-gap-3">
-            <p class="quasar-text quasar-type-body1">Remove '@Cluster.DisplayName' from Quasar? Its definition will be archived. Worlds, plugins, Host executor data and backups remain on disk.</p>
+            <p class="quasar-text quasar-type-body1">Remove '@Cluster.DisplayName' from Quasar? Its definition will be archived. Worlds, plugins, Host executor data and backups stay on disk for the days set in Keep deleted clusters on the Backup page (default 7). Quasar then removes them, manual backups included, unless that setting is 0.</p>
             <MudCheckBox T="bool" @bind-Value="_forget" Label="Forget registration without checking remote processes" />
             @if (_forget)
             {

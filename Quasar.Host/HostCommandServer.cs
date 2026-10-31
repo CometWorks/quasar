@@ -326,6 +326,8 @@ internal sealed class HostCommandServer : IDisposable
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
+    // Long enough that no capture is still being copied off this Host.
+    internal static readonly TimeSpan OrphanArchiveAge = TimeSpan.FromHours(24);
     private readonly HttpListener _listener = new();
     private readonly byte[] _tokenHash;
     private readonly Quasar.Networking.MachineEndpointPolicy _policy;
@@ -430,7 +432,8 @@ internal sealed class HostCommandServer : IDisposable
             bool preparing = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/", StringComparison.Ordinal) == true || context.Request.HttpMethod == "POST" &&
                 context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
             bool diagnostics = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/diagnostics/", StringComparison.Ordinal) == true;
-            bool collecting = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-references/", StringComparison.Ordinal) == true;
+            bool collecting = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-references/", StringComparison.Ordinal) == true
+                || context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deleted-clusters/", StringComparison.Ordinal) == true;
             // An online snapshot copies for minutes; holding the gate would stop executor heartbeats of a live cluster.
             bool onlineCapture = OnlineCapture(context.Request);
             if (!collecting && !diagnostics)
@@ -560,7 +563,20 @@ internal sealed class HostCommandServer : IDisposable
             await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/worlds"),
                 clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken, prune: false);
             using (await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken)) { }
+            _snapshots.CollectArchives(OrphanArchiveAge);
             ExecutionBundle.LogStep(clusterId, "storage collection", retaining);
+            await WriteAsync(context, 200, removed, cancellationToken);
+            return;
+        }
+        string deletedPrefix = HostContract.HostProtocol.RoutePrefix + "/deleted-clusters/";
+        if (context.Request.HttpMethod == "POST" && path.StartsWith(deletedPrefix, StringComparison.Ordinal))
+        {
+            string clusterId = Uri.UnescapeDataString(path[deletedPrefix.Length..]);
+            var data = await ReadJsonAsync<HostContract.HostDeletedClusterData>(context.Request, cancellationToken);
+            if (data.Workspaces is null || data.Workspaces.Length > 30_000) throw new InvalidDataException("Invalid deleted cluster data.");
+            using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.CollectAsync(cancellationToken);
+            string[] removed = _deployments.ReleaseDeleted(clusterId, data.Workspaces);
+            using (await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken)) { }
             await WriteAsync(context, 200, removed, cancellationToken);
             return;
         }
