@@ -28,7 +28,7 @@ else
         </div>
         <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
         <ClusterConsoleButton Cluster="Cluster" />
-        <MudButton Href="/" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
+        <MudButton Href="./" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
             Servers
         </MudButton>
         </div>
@@ -51,13 +51,13 @@ else
                 {
                     <p class="quasar-text quasar-type-body1">@setup.Phase @setup.Error</p>
                     <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-                        <MudButton Href="@($"/clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")" Variant="Variant.Outlined" Color="Color.Primary">Resume guided setup</MudButton>
+                        <MudButton Href="@($"clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")" Variant="Variant.Outlined" Color="Color.Primary">Resume guided setup</MudButton>
                     </AuthorizeView>
                 }
                 else
                 {
                     <p class="quasar-text quasar-type-body1">This cluster has no active deployment. Use guided setup to create a managed cluster, or remove this registration if it is no longer needed.</p>
-                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="/clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton></AuthorizeView>
+                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton></AuthorizeView>
                 }
             </MudAlert>
         }
@@ -155,7 +155,7 @@ else
         // Blazor's same-page fragment navigation does not notify server LocationChanged listeners.
         _requestedView = view;
         _visited.Add(view);
-        Navigation.NavigateTo($"/clusters/{Uri.EscapeDataString(UniqueName)}#cluster-{view}");
+        Navigation.NavigateTo($"clusters/{Uri.EscapeDataString(UniqueName)}#cluster-{view}");
     }
     private void GatewayAvailabilityChanged(bool available)
     {

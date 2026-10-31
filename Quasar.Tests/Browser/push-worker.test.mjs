@@ -13,7 +13,7 @@ class Events extends EventTarget {
 function worker(state, script = '/push-worker.js') {
     return Object.assign(new Events(), { state, scriptURL: origin + script });
 }
-function harness(active, installing) {
+function harness(active, installing, base = "/") {
     const calls = { reads: 0, subscribes: 0, globalReady: 0 };
     const timers = new Map();
     const subscription = { toJSON: () => ({ endpoint: 'https://push.test/subscription', keys: { p256dh: 'key', auth: 'auth' } }) };
@@ -23,7 +23,7 @@ function harness(active, installing) {
             async getSubscription() { calls.reads++; return null; },
             async subscribe(options) {
                 assert.equal(registration.active.state, 'activated');
-                assert.equal(registration.active.scriptURL, origin + '/push-worker.js');
+                assert.equal(registration.active.scriptURL, origin + base + 'push-worker.js');
                 assert.deepEqual([...options.applicationServerKey], [1, 2, 3]);
                 calls.subscribes++;
                 return subscription;
@@ -32,11 +32,11 @@ function harness(active, installing) {
     });
     const serviceWorker = {
         async getRegistration() { return registration; },
-        async register(url, options) { assert.equal(url, '/push-worker.js'); assert.equal(options.scope, '/'); return registration; },
+        async register(url, options) { assert.equal(url, origin + base + 'push-worker.js'); assert.equal(options.scope, origin + base); return registration; },
         get ready() { calls.globalReady++; throw new Error('Global readiness does not identify Quasar’s registration.'); }
     };
     const context = vm.createContext({ window: { isSecureContext: true, PushManager: {}, Notification: {} },
-        Notification: { permission: 'granted' }, navigator: { serviceWorker }, location: { origin }, URL, atob,
+        document: { baseURI: origin + base }, Notification: { permission: 'granted' }, navigator: { serviceWorker }, location: { origin }, URL, atob,
         setTimeout(fn) { const id = Symbol(); timers.set(id, fn); return id; }, clearTimeout(id) { timers.delete(id); }
     });
     vm.runInContext(script, context);
@@ -130,4 +130,14 @@ test('push-only worker activates updates while tabs are still open', async () =>
     handlers.get('install')({ waitUntil: task => { completed = task; } });
     await completed;
     assert.equal(skipped, true);
+});
+
+test('hosted panels register and inspect only their own service-worker scope', async () => {
+    const h = harness(worker('activated', '/my-server-panel/push-worker.js'), null, '/my-server-panel/');
+    h.serviceWorker.getRegistration = async scope => {
+        assert.equal(scope, origin + '/my-server-panel/');
+        return h.registration;
+    };
+    await h.api.status();
+    assert.equal((await h.api.subscribe('AQID')).endpoint, 'https://push.test/subscription');
 });

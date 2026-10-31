@@ -1,3 +1,4 @@
+@inject NavigationManager PanelNavigation
 @page "/settings/appearance"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageAppearance)]
 @implements IDisposable
@@ -66,7 +67,7 @@
                     <div class="quasar-panel-heading"><h2>Live preview</h2><span>@(_editDark ? "Dark palette" : "Light palette")</span></div>
                     <div class="quasar-preview" style="@PreviewStyle" data-theme="@(_editDark ? "dark" : "light")">
                         <div class="quasar-preview-surface">
-                            <div class="quasar-preview-bar"><img src="@(_editDark ? (_draft.LogoDarkPath ?? "/Quasar.png") : (_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png"))" alt="" /><strong>@_draft.AppName</strong></div>
+                            <div class="quasar-preview-bar"><img src="@(_editDark ? (_draft.LogoDarkPath ?? "Quasar.png") : (_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png"))" alt="" /><strong>@_draft.AppName</strong></div>
                             <p>@_draft.AppSubtitle</p>
                             <div class="quasar-preview-status"><span>Server status</span><span class="quasar-text-success">Running</span></div>
                             <div class="quasar-form-actions">
@@ -80,15 +81,15 @@
                     <div class="quasar-panel-heading"><h2>Logos and favicon</h2></div>
                     <div class="quasar-form-section">
                         <label class="quasar-upload">Light-mode logo
-                            <div class="quasar-asset-preview quasar-asset-light"><img src="@(_draft.LogoLightPath ?? "/Quasar-inverted-transparent.png")" alt="Light-mode logo preview" /></div>
+                            <div class="quasar-asset-preview quasar-asset-light"><img src="@PanelNavigation.PanelUrl(_draft.LogoLightPath ?? "Quasar-inverted-transparent.png")" alt="Light-mode logo preview" /></div>
                             <InputFile OnChange="@(args => UploadLogoAsync(args.File, false))" accept=".png,.jpg,.jpeg,.webp,.svg" aria-label="Upload light-mode logo" />
                         </label>
                         <label class="quasar-upload">Dark-mode logo
-                            <div class="quasar-asset-preview quasar-asset-dark"><img src="@(_draft.LogoDarkPath ?? "/Quasar.png")" alt="Dark-mode logo preview" /></div>
+                            <div class="quasar-asset-preview quasar-asset-dark"><img src="@PanelNavigation.PanelUrl(_draft.LogoDarkPath ?? "Quasar.png")" alt="Dark-mode logo preview" /></div>
                             <InputFile OnChange="@(args => UploadLogoAsync(args.File, true))" accept=".png,.jpg,.jpeg,.webp,.svg" aria-label="Upload dark-mode logo" />
                         </label>
                         <label class="quasar-upload">Favicon
-                            <div class="quasar-asset-preview quasar-favicon-preview"><img src="@(_draft.FaviconPath ?? "/Quasar.ico")" alt="Favicon preview" /></div>
+                            <div class="quasar-asset-preview quasar-favicon-preview"><img src="@PanelNavigation.PanelUrl(_draft.FaviconPath ?? "Quasar.ico")" alt="Favicon preview" /></div>
                             <InputFile OnChange="@(args => UploadFaviconAsync(args.File))" accept=".ico,.png" aria-label="Upload favicon" />
                         </label>
                         <p class="quasar-upload-hint">Uploads persist immediately. Maximum file size: 10 MiB. A cached favicon may need a browser refresh.</p>

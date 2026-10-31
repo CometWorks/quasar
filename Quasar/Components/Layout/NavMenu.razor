@@ -3,34 +3,34 @@
 <nav class="quasar-nav" aria-label="Quasar sections">
     <div class="quasar-nav-label">Control plane</div>
     <div class="quasar-nav-group">
-        <NavLink class="quasar-nav-link" href="/" Match="NavLinkMatch.All"><QuasarIcon Icon="@QuasarIcons.Dashboard" />
+        <NavLink class="quasar-nav-link" href="./" Match="NavLinkMatch.All"><QuasarIcon Icon="@QuasarIcons.Dashboard" />
             Dashboard
         </NavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/configs"><QuasarIcon Icon="@QuasarIcons.Tune" />Configs</NavLink>
-                <NavLink class="quasar-nav-link" href="/world-templates"><QuasarIcon Icon="@QuasarIcons.Public" />Worlds</NavLink>
-                <NavLink class="quasar-nav-link" href="/plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />Plugins</NavLink>
+                <NavLink class="quasar-nav-link" href="configs"><QuasarIcon Icon="@QuasarIcons.Tune" />Configs</NavLink>
+                <NavLink class="quasar-nav-link" href="world-templates"><QuasarIcon Icon="@QuasarIcons.Public" />Worlds</NavLink>
+                <NavLink class="quasar-nav-link" href="plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />Plugins</NavLink>
             </Authorized>
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/players"><QuasarIcon Icon="@QuasarIcons.Groups" />Players</NavLink>
-                <NavLink class="quasar-nav-link" href="/chat"><QuasarIcon Icon="@QuasarIcons.Chat" />Chat</NavLink>
-                <NavLink class="quasar-nav-link" href="/entities"><QuasarIcon Icon="@QuasarIcons.ViewInAr" />Entities</NavLink>
+                <NavLink class="quasar-nav-link" href="players"><QuasarIcon Icon="@QuasarIcons.Groups" />Players</NavLink>
+                <NavLink class="quasar-nav-link" href="chat"><QuasarIcon Icon="@QuasarIcons.Chat" />Chat</NavLink>
+                <NavLink class="quasar-nav-link" href="entities"><QuasarIcon Icon="@QuasarIcons.ViewInAr" />Entities</NavLink>
             </Authorized>
         </AuthorizeView>
-        <NavLink class="quasar-nav-link" href="/analytics"><QuasarIcon Icon="@QuasarIcons.QueryStats" />
+        <NavLink class="quasar-nav-link" href="analytics"><QuasarIcon Icon="@QuasarIcons.QueryStats" />
             Analytics
         </NavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/discord"><QuasarIcon Icon="@QuasarIcons.Forum" />Discord</NavLink>
+                <NavLink class="quasar-nav-link" href="discord"><QuasarIcon Icon="@QuasarIcons.Forum" />Discord</NavLink>
             </Authorized>
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/settings/server-list"><QuasarIcon Icon="@QuasarIcons.Public" />
+                <NavLink class="quasar-nav-link" href="settings/server-list"><QuasarIcon Icon="@QuasarIcons.Public" />
                     Listings
                 </NavLink>
             </Authorized>
@@ -42,18 +42,18 @@
 
     <div class="quasar-nav-label">Infrastructure & tools</div>
     <div class="quasar-nav-group">
-        <NavLink class="quasar-nav-link" href="/hosts"><QuasarIcon Icon="@QuasarIcons.Dns" />
+        <NavLink class="quasar-nav-link" href="hosts"><QuasarIcon Icon="@QuasarIcons.Dns" />
             Hosts
         </NavLink>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/settings/security"><QuasarIcon Icon="@QuasarIcons.Security" />
+                <NavLink class="quasar-nav-link" href="settings/security"><QuasarIcon Icon="@QuasarIcons.Security" />
                     Security
                 </NavLink>
-                <NavLink class="quasar-nav-link" href="/settings/ui-plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />
+                <NavLink class="quasar-nav-link" href="settings/ui-plugins"><QuasarIcon Icon="@QuasarIcons.Extension" />
                     UI Plugins
                 </NavLink>
-                <NavLink class="quasar-nav-link" href="/backup"><QuasarIcon Icon="@QuasarIcons.Backup" />
+                <NavLink class="quasar-nav-link" href="backup"><QuasarIcon Icon="@QuasarIcons.Backup" />
                     Backups
                 </NavLink>
             </Authorized>
@@ -66,19 +66,19 @@
     <div class="quasar-nav-label">Settings</div>
     <div class="quasar-nav-group">
         <AuthorizeView Policy="@QuasarPolicyNames.CanView">
-            <NavLink class="quasar-nav-link" href="/notifications"><QuasarIcon Icon="@QuasarIcons.Notifications" />
+            <NavLink class="quasar-nav-link" href="notifications"><QuasarIcon Icon="@QuasarIcons.Notifications" />
                 Notifications
             </NavLink>
         </AuthorizeView>
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageAppearance">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/settings/appearance"><QuasarIcon Icon="@QuasarIcons.Palette" />Appearance</NavLink>
+                <NavLink class="quasar-nav-link" href="settings/appearance"><QuasarIcon Icon="@QuasarIcons.Palette" />Appearance</NavLink>
             </Authorized>
         </AuthorizeView>
         <PluginNavItems Items="@UiPlugins.NavItems" Zone="@QuasarNavZones.Settings" />
         <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
             <Authorized>
-                <NavLink class="quasar-nav-link" href="/settings/updates"><QuasarIcon Icon="@QuasarIcons.Upgrade" />
+                <NavLink class="quasar-nav-link" href="settings/updates"><QuasarIcon Icon="@QuasarIcons.Upgrade" />
                     Updates
                 </NavLink>
                 <PluginNavItems

@@ -34,7 +34,7 @@
             @if (!HideCreateActions)
             {
                 <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
-                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><a href="/clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a></AuthorizeView>
+                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><a href="clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a></AuthorizeView>
             }
             @HeaderActions
             <button type="button" class="quasar-button" aria-pressed="@(_compactRows ? "true" : "false")" @onclick="@(() => _compactRows = !_compactRows)">@(_compactRows ? "Comfortable rows" : "Compact rows")</button>
@@ -136,7 +136,7 @@
                             <div id="@MenuId(context.UniqueName)" popover="auto" class="quasar-server-menu" style="position-anchor: @MenuAnchor(context.UniqueName)">
                                 <strong>@context.DisplayName</strong>
                             <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="conversionAuth">
-                                <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Convert to cluster" Href="@("/servers/" + Uri.EscapeDataString(server.UniqueName) + "/convert-to-cluster")" Icon="@QuasarIcons.AccountTree" />
+                                <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Convert to cluster" Href="@("servers/" + Uri.EscapeDataString(server.UniqueName) + "/convert-to-cluster")" Icon="@QuasarIcons.AccountTree" />
                             </AuthorizeView>
                             <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Clone server" Icon="@QuasarIcons.ContentCopy" OnClick="@(() => OpenCloneDialogAsync(server))" />
                             <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Create world template" Icon="@QuasarIcons.Public" Disabled="@(!CanCreateWorldTemplate(server))" OnClick="@(() => CreateWorldTemplateAsync(server))" />
@@ -445,7 +445,7 @@
             return;
         }
 
-        Navigation.NavigateTo($"/configs?profileId={Uri.EscapeDataString(configProfileId)}");
+        Navigation.NavigateTo($"configs?profileId={Uri.EscapeDataString(configProfileId)}");
     }
 
     private async Task CopyDirectConnectAsync(DedicatedServerDefinition definition)
@@ -927,7 +927,7 @@
         GetClusterSnapshot(uniqueName)?.Status?.WorldAuthority.Node ?? "-";
 
     private static string ClusterHref(string uniqueName) =>
-        $"/clusters/{Uri.EscapeDataString(uniqueName)}";
+        $"clusters/{Uri.EscapeDataString(uniqueName)}";
 
     private void OpenCluster(string uniqueName) => Navigation.NavigateTo(ClusterHref(uniqueName));
 

@@ -29,7 +29,7 @@
                 </p>
                 <p class="quasar-muted quasar-caption quasar-tone-secondary">
                     Server listings require this consent and working log delivery. When a listing is explicitly enabled, its name, public join address and summary statistics are public; Quasar admin Steam identities are shared privately to authorize description edits. Existing statistics consent does not enable reports or listings.
-                    Until a new decision is accepted, sharing remains off. Memory dumps and public listing visibility are separate opt-ins in <a href="/settings/security">Security</a>; both are off by default.
+                    Until a new decision is accepted, sharing remains off. Memory dumps and public listing visibility are separate opt-ins in <a href="settings/security">Security</a>; both are off by default.
                 </p>
             </div>
             <div class="quasar-row">
@@ -504,7 +504,7 @@ else
 {
     private RenderFragment FleetViewActions => @<text>
         <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-            <a href="/clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a>
+            <a href="clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a>
         </AuthorizeView>
         <div class="quasar-segmented quasar-view-selector" role="group" aria-label="Server view">
             <button type="button" aria-pressed="@(IsCardsView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.Cards))"><QuasarIcon Icon="@QuasarIcons.Dashboard" />Cards</button>
@@ -1093,7 +1093,7 @@ else
     {
         _serverView = view;
         await SaveServerViewPreferenceAsync(view);
-        var target = view == DashboardServerView.List ? "/?view=list" : "/";
+        var target = view == DashboardServerView.List ? "./?view=list" : "./";
         Navigation.NavigateTo(target, replace: true);
     }
 

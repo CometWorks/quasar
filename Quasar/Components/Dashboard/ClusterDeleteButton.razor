@@ -33,7 +33,7 @@
             if (result.Data is true) await Deployments.ForgetAsync(Cluster.UniqueName, Cluster.UniqueName);
             else await Deployments.DeleteAsync(Cluster.UniqueName);
             Snackbar.Add("Cluster definition deleted. Quasar removes its world, Host data and backups, manual ones included, when the retention set on the Backup page ends.", Severity.Success);
-            if (ReturnToServers) Navigation.NavigateTo("/");
+            if (ReturnToServers) Navigation.NavigateTo("./");
         }
         catch (Exception error) when (error is InvalidOperationException or IOException or KeyNotFoundException or ClusterHostException)
         {

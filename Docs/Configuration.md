@@ -2275,3 +2275,10 @@ This account preference controls the notification list, bell, and subscribed bro
 push independently of Quasar/cluster notices. Notices identify installed catalog
 revisions, disappear after installation, and use revision keys to avoid repeated
 push delivery. Automatic application does not require notifications to be enabled.
+
+## Hosted public panel
+
+Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
+access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,
+private state, connector lifetime and current launch gates. Stripe checkout is implemented in Nebula and remains disabled pending provider
+and live integration acceptance.

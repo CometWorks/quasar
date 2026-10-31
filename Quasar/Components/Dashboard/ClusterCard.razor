@@ -17,7 +17,7 @@
         <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" CollapseDetails="true" />
     </div>
     <footer class="quasar-card-actions">
-        <div class="quasar-row"><ClusterConsoleButton Cluster="Cluster" /><a class="quasar-table-link" href="@($"/clusters/{Uri.EscapeDataString(Cluster.UniqueName)}")">Manage cluster <QuasarIcon Icon="@QuasarIcons.OpenInNew" /></a></div>
+        <div class="quasar-row"><ClusterConsoleButton Cluster="Cluster" /><a class="quasar-table-link" href="@($"clusters/{Uri.EscapeDataString(Cluster.UniqueName)}")">Manage cluster <QuasarIcon Icon="@QuasarIcons.OpenInNew" /></a></div>
         <ClusterAdminPanel Cluster="Cluster" Compact="true" />
     </footer>
 </section>

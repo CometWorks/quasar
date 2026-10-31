@@ -268,7 +268,7 @@
                             <MudTd DataLabel="Cluster">@context.DisplayName</MudTd>
                             <MudTd DataLabel="Selected package">@context.PackageSelection!.Version</MudTd>
                             <MudTd DataLabel="Status">@(_clusterReleaseSnapshot.Release is null ? "Release check pending or unavailable" : ClusterReleaseMonitor.IsUpdateAvailable(context, _clusterReleaseSnapshot.Release) ? "Latest release differs" : "Latest release selected")</MudTd>
-                            <MudTd><MudButton Href="@($"/clusters/{Uri.EscapeDataString(context.UniqueName)}")" Variant="Variant.Text">Open cluster</MudButton></MudTd>
+                            <MudTd><MudButton Href="@($"clusters/{Uri.EscapeDataString(context.UniqueName)}")" Variant="Variant.Text">Open cluster</MudButton></MudTd>
                         </RowTemplate>
                     </MudTable>
                     <span class="quasar-text quasar-type-caption">Release checks only notify. Open a cluster to stage and select the release, prepare it on the Hosts, and start its update.</span>

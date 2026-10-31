@@ -84,7 +84,7 @@
                                         </div>
                                     </div>
                                 }
-                                <a class="quasar-button quasar-tone-primary" href="/configs">Manage configuration profiles</a>
+                                <a class="quasar-button quasar-tone-primary" href="configs">Manage configuration profiles</a>
                                 @if (Catalog.GetCluster(Cluster.UniqueName)?.PreparedProfile is { } pendingProfile)
                                 {
                                     <p>Pending profile: @(Profiles.GetProfile(pendingProfile.ProfileId)?.Name ?? pendingProfile.ProfileId). Apply it from Maintenance.</p>

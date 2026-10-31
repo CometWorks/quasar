@@ -50,7 +50,7 @@ public sealed class TrustedNetworkEvaluator
 
     public bool IsTrusted(HttpContext context)
     {
-        if (context.Items[OriginalRequestKey] is not true ||
+        if (HostedPanelRequest.IsHosted(context) || context.Items[OriginalRequestKey] is not true ||
             HasForwardingHeader(context.Request) ||
             !IsAllowedDestination(context) || !HasSameOriginContext(context.Request))
             return false;

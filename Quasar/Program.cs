@@ -1,4 +1,5 @@
 using Quasar.Components;
+using Quasar.Hosting;
 using Quasar.Models;
 using Quasar.Networking;
 using Quasar.Services;
@@ -96,6 +97,7 @@ public class Program
                     options.LogoutPath = "/logout";
                     options.AccessDeniedPath = "/access-denied";
                     options.Cookie.Name = "Quasar.Auth";
+                    options.CookieManager = new HostedPanelCookieManager();
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
                     options.Cookie.SecurePolicy = authOptions.RequireHttpsForPublicAccess
@@ -177,6 +179,12 @@ public class Program
                     };
                 });
             builder.Services.AddAuthorization(ConfigureAuthorizationPolicies);
+            var hostedState = HostedPanelState.Read() ?? new HostedPanelState();
+            builder.Services.AddAntiforgery(options => options.Cookie.Name = ".Quasar.Csrf." + hostedState.LocalProxySecret[..16]);
+            builder.Services.AddHttpClient("Nebula", http => { http.Timeout = TimeSpan.FromSeconds(15); http.MaxResponseContentBufferSize = 64 * 1024; })
+                .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+            builder.Services.AddSingleton<HostedPanelService>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<HostedPanelService>());
             var dataProtectionKeyringDirectory = MagnetarPaths.GetQuasarDataProtectionKeyringDirectory();
             Directory.CreateDirectory(dataProtectionKeyringDirectory);
             builder.Services.AddDataProtection()
@@ -341,6 +349,7 @@ public class Program
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
 
+            app.Use((context, next) => HostedPanelRequest.InvokeAsync(context, next, authOptions));
             app.Use((context, next) => MachineEndpointSecurity.InvokeAsync(context, next, machinePolicy));
             var forwarding = CreateForwardedHeadersOptions(authOptions);
             app.Use((context, next) =>
@@ -350,9 +359,19 @@ public class Program
                 return next(context);
             });
             app.UseForwardedHeaders(forwarding);
+            app.Use((context, next) =>
+            {
+                if (HostedPanelRequest.IsHosted(context))
+                {
+                    context.Request.Scheme = "https";
+                    context.Request.Host = new HostString("dash.se-servers.net");
+                }
+                return next(context);
+            });
             app.Use((context, next) => PublicAccessSecurity.InvokeAsync(context, next, authOptions));
             if (!webServiceOptions.Headless)
                 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
+            app.UseRouting();
             app.UseWebSockets(new WebSocketOptions
             {
                 KeepAliveInterval = TimeSpan.FromSeconds(30),
@@ -365,6 +384,7 @@ public class Program
                 if (authOptions.Enabled && hasBearerAuthorization)
                     servicePrincipals.TryAuthenticate(context);
                 if (authOptions.Enabled &&
+                    !HostedPanelRequest.IsHosted(context) &&
                     !hasBearerAuthorization &&
                     context.User.Identity?.IsAuthenticated != true &&
                     context.RequestServices.GetRequiredService<TrustedNetworkEvaluator>().IsTrusted(context))
@@ -613,11 +633,11 @@ public class Program
         app.MapGet("/login", (HttpContext context) =>
         {
             if (!authOptions.Enabled)
-                return Results.Redirect("/");
+                return Results.Redirect(context.Request.PathBase + "/");
 
             var forceSteam = bool.TryParse(context.Request.Query["forceSteam"], out var parsedForceSteam) && parsedForceSteam;
             if (context.User.Identity?.IsAuthenticated == true && !forceSteam)
-                return Results.Redirect(SanitizeReturnUrl(context.Request.Query["returnUrl"]));
+                return Results.Redirect(HostedReturnUrl(context));
 
             if (!authOptions.Steam.Enabled ||
                 !string.Equals(authOptions.DefaultProvider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase))
@@ -627,7 +647,7 @@ public class Program
 
             return Results.Challenge(new AuthenticationProperties
             {
-                RedirectUri = SanitizeReturnUrl(context.Request.Query["returnUrl"]),
+                RedirectUri = HostedReturnUrl(context),
                 IsPersistent = true,
             }, [SteamAuthenticationDefaults.AuthenticationScheme]);
         }).AllowAnonymous();
@@ -644,14 +664,14 @@ public class Program
             }
 
             await context.SignOutAsync(QuasarAuthSchemes.Cookie);
-            return Results.Redirect("/");
+            return Results.Redirect(context.Request.PathBase + "/");
         }).AllowAnonymous();
 
         app.MapGet("/access-denied", (HttpContext context, IAntiforgery antiforgery) =>
         {
             var tokens = antiforgery.GetAndStoreTokens(context);
             return Results.Content(
-                CreateAccessDeniedHtml(tokens.FormFieldName, tokens.RequestToken),
+                CreateAccessDeniedHtml(tokens.FormFieldName, tokens.RequestToken, context.Request.PathBase.Value),
                 "text/html",
                 statusCode: StatusCodes.Status403Forbidden);
         }).AllowAnonymous();
@@ -823,6 +843,13 @@ public class Program
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
         return Roles(left).SetEquals(Roles(right));
+    }
+
+    private static string HostedReturnUrl(HttpContext context)
+    {
+        var path = SanitizeReturnUrl(context.Request.Query["returnUrl"]);
+        var prefix = context.Request.PathBase.Value ?? "";
+        return prefix.Length > 0 && !new PathString(path.Split('?')[0]).StartsWithSegments(prefix) ? prefix + path : path;
     }
 
     private static bool IsClusterApi(PathString path) => path.StartsWithSegments("/api/v1/clusters");
@@ -1027,8 +1054,9 @@ public class Program
         </html>
         """;
 
-    private static string CreateAccessDeniedHtml(string antiforgeryFieldName, string? antiforgeryToken)
+    private static string CreateAccessDeniedHtml(string antiforgeryFieldName, string? antiforgeryToken, string? pathBase = null)
     {
+        var prefix = WebUtility.HtmlEncode(pathBase ?? string.Empty);
         var field = WebUtility.HtmlEncode(antiforgeryFieldName);
         var token = WebUtility.HtmlEncode(antiforgeryToken ?? string.Empty);
         return $$"""
@@ -1038,7 +1066,7 @@ public class Program
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Access denied - Quasar</title>
-            <link rel="icon" type="image/png" href="/Quasar.png">
+            <link rel="icon" type="image/png" href="{{prefix}}/Quasar.png">
             <style>
                 :root {
                     color-scheme: light dark;
@@ -1246,7 +1274,7 @@ public class Program
         <body>
             <main>
                 <section class="brand" aria-label="Quasar">
-                    <img src="/Quasar.png" alt="Quasar logo">
+                    <img src="{{prefix}}/Quasar.png" alt="Quasar logo">
                     <div>
                         <strong>Quasar</strong>
                         <span>Space Engineers server supervisor</span>
@@ -1265,11 +1293,11 @@ public class Program
                         <li>Sign out, then sign back in after the role has been assigned.</li>
                     </ol>
                     <div class="actions" aria-label="Access denied actions">
-                        <form method="post" action="/logout">
+                        <form method="post" action="{{prefix}}/logout">
                             <input type="hidden" name="{{field}}" value="{{token}}">
                             <button class="button button-primary" type="submit">Sign out</button>
                         </form>
-                        <a class="button button-secondary" href="/login?forceSteam=true">Retry Steam sign-in</a>
+                        <a class="button button-secondary" href="{{prefix}}/login?forceSteam=true">Retry Steam sign-in</a>
                     </div>
                 </section>
             </main>

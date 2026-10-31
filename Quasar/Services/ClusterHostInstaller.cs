@@ -45,7 +45,7 @@ public sealed class ClusterHostInstaller
         var expires = clock.GetUtcNow().AddMinutes(15);
         foreach (var old in _tickets.Where(p => p.Value.Expires <= clock.GetUtcNow() || p.Value.Host == hostId)) _tickets.TryRemove(old.Key, out _);
         _tickets[id] = new(Hash(secret), hostId, origin, expires);
-        string url = new Uri(origin, "/api/v1/host-enrollment/" + id.ToString("N")).AbsoluteUri;
+        string url = Quasar.Networking.QuasarControlAddress.Endpoint(origin, "api/v1/host-enrollment/" + id.ToString("N")).AbsoluteUri;
         // Download completes before execution; a truncated response never runs as a shell script.
         string command = $"(set -e; qsr_script=$(mktemp); trap 'rm -f \"$qsr_script\"' EXIT; curl --fail --silent --show-error --header {Quote("Authorization: Bearer " + secret)} {Quote(url)} --output \"$qsr_script\"; bash \"$qsr_script\")";
         return new(command, expires);
@@ -308,13 +308,7 @@ public sealed class ClusterHostInstaller
             """);
     }
 
-    internal static Uri ValidateOrigin(string value)
-    {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri) || uri.UserInfo.Length != 0 || uri.Query.Length != 0 || uri.Fragment.Length != 0
-            || uri.AbsolutePath != "/" || uri.Scheme != "https" && !(uri.Scheme == "http" && uri.IsLoopback))
-            throw new ArgumentException("Use the Quasar HTTPS origin reachable by the machine, for example https://quasar.example.com. HTTP is permitted only for local loopback setup.");
-        return uri;
-    }
+    internal static Uri ValidateOrigin(string value) => Quasar.Networking.QuasarControlAddress.Parse(value);
     private static string Hash(string value) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
     private static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
     internal static async Task RunAsync(ProcessStartInfo start, byte[] script, CancellationToken token)

@@ -289,6 +289,8 @@ internal static class Program
         try
         {
             await coordinator.StartAsync(shutdown.Token).ConfigureAwait(false);
+            await using var hostedConnector = new HostedPanelConnector(options.Port, loggerFactory.CreateLogger("HostedPanelConnector"));
+            hostedConnector.Start();
 
             if (!quiet)
             {

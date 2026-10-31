@@ -1131,7 +1131,7 @@
 
     private string BuildLogDownloadHref(string logKind, string selection)
     {
-        var href = $"/api/servers/{Uri.EscapeDataString(UniqueName)}/logs/{logKind}/download";
+        var href = $"api/servers/{Uri.EscapeDataString(UniqueName)}/logs/{logKind}/download";
         return IsLatestLogSelection(selection)
             ? href
             : $"{href}?name={Uri.EscapeDataString(selection)}";

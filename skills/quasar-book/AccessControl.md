@@ -201,6 +201,16 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | Cluster API returns 401 with a token | Token variable missing in the Quasar service environment, shorter than 32 characters, shared by two principals, or Quasar not restarted after the change. |
 | `Login unavailable` page | `Quasar:Auth:Steam:Enabled` is `false` or `DefaultProvider` is not `Steam`. |
 
+## Hosted public access
+
+**Security → Manage access setup** lets an admin choose self-deployment or Nebula
+hosted enrollment at `https://dash.se-servers.net/<panel-name>/`. Hosted
+traffic always uses Steam/RBAC and endpoint credentials, even though frpc runs
+on loopback. Platform super-admin/free-hosting rights do not create a local role.
+Stripe billing is implemented in Nebula; checkout remains
+disabled until operator onboarding and acceptance.
+See [Hosted access](HostedPanel.md) for setup, private files and release gates.
+
 ## Sources
 
 - `Quasar/Services/Auth/SteamProfileClient.cs`
