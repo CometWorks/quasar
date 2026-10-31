@@ -1521,8 +1521,9 @@ deployment first. Unsaved imported requests remain in the advanced deployment to
 until prepared. Cluster management permission and cluster access are required to save.
 The API equivalent is `POST /api/v1/clusters/{uniqueName}/plugin-configuration-preparation` with
 `{"pluginId":"...","configType":"...","values":{...}}`, which also needs configuration editing. `values`
-replaces all of that configuration's values, so read the rest from the saved preparation first. The cluster
-can also be stopped right after guided setup, so a new cluster can get its values before its first start.
+replaces all of that configuration's values, so read the rest from the saved preparation first. A cluster that
+has not run since guided setup can get its values before its first start: activate the operation's result with
+`PUT /api/v1/clusters/{uniqueName}/deployment`. The managed update can't, because it has no world to back up yet.
 
 ## Cluster content update observations
 
