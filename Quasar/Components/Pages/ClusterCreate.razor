@@ -99,7 +99,7 @@
                                 }
                                 @if (Catalog.GetCluster(_status.Request.UniqueName) is not null)
                                 {
-                                    <MudButton Href="@($"/clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
+                                    <MudButton Href="@($"clusters/{Uri.EscapeDataString(_status.Request.UniqueName)}")">Open cluster controls</MudButton>
                                 }
                             }
                         </div>
@@ -258,7 +258,7 @@
             _status = Setup.GetStatus(request.UniqueName);
             if (result.State == ClusterOperationState.Succeeded)
             {
-                if (!_disposed) Navigation.NavigateTo("/", replace: true);
+                if (!_disposed) Navigation.NavigateTo("./", replace: true);
                 return;
             }
             _error = result.Error?.Message;
@@ -273,7 +273,7 @@
         _error = null;
         _id = "";
         EnsureNames();
-        Navigation.NavigateTo("/clusters/new", replace: true);
+        Navigation.NavigateTo("clusters/new", replace: true);
     }
     private async Task ImportAsync()
     {
@@ -283,7 +283,7 @@
         try
         {
             await Catalog.CreateAsync(new(_importId, _importName, _url, _credential), default);
-            if (!_disposed) Navigation.NavigateTo("/", replace: true);
+            if (!_disposed) Navigation.NavigateTo("./", replace: true);
         }
         catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException) { _error = error.Message; }
         finally { _busy = false; }

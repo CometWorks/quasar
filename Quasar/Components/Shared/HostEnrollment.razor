@@ -33,7 +33,7 @@
     @if (_host is not null && _method == "manual")
     {
         <p class="quasar-text quasar-type-body2">Download and extract this package on the host machine, then follow its README to start Quasar.Host with your preferred service manager. The package contains this host machine's credentials; keep it private.</p>
-        <MudButton Href="@($"/api/v1/host-enrollment/{Uri.EscapeDataString(_host.Id)}/manual?quasarUrl={Uri.EscapeDataString(_origin)}")" Variant="Variant.Outlined">Download manual host package</MudButton>
+        <MudButton Href="@($"api/v1/host-enrollment/{Uri.EscapeDataString(_host.Id)}/manual?quasarUrl={Uri.EscapeDataString(_origin)}")" Variant="Variant.Outlined">Download manual host package</MudButton>
     }
     @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }

@@ -1,4 +1,5 @@
 ﻿@inject QuasarUiPluginCatalog UiPlugins
+@inject NavigationManager Navigation
 
 <!DOCTYPE html>
 <html lang="en">
@@ -6,14 +7,14 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <base href="/" />
+    <base href="@Navigation.BaseUri" />
     <ResourcePreloader />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet" />
     <!-- Static favicon fallback for the pre-interactive render; the live favicon
          is rendered reactively by BrandingHeadContent via HeadOutlet. -->
-    <link rel="icon" type="image/png" href="/Quasar.png" />
+    <link rel="icon" type="image/png" href="Quasar.png" />
     <link rel="stylesheet" href="_content/MudBlazor/MudBlazor.min.css" />
     <link rel="stylesheet" href="@Assets["lib/uplot/uPlot.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
@@ -21,7 +22,7 @@
     <link rel="stylesheet" href="@Assets["Quasar.styles.css"]" />
     @foreach (var stylesheetHref in UiPlugins.StylesheetHrefs)
     {
-        <link rel="stylesheet" href="@stylesheetHref" />
+        <link rel="stylesheet" href="@Navigation.PanelUrl(stylesheetHref)" />
     }
     <ImportMap />
     <HeadOutlet @rendermode="InteractiveServer" />

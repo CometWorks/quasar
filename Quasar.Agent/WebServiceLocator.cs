@@ -35,7 +35,7 @@ namespace Quasar.Agent
 
         private static async Task<bool> IsHealthyAsync(Uri baseUri, CancellationToken cancellationToken)
         {
-            var healthUri = new Uri(baseUri, "/api/health");
+            var healthUri = Quasar.Networking.QuasarControlAddress.Endpoint(baseUri, "api/health");
             var request = WebRequest.CreateHttp(healthUri);
             request.Method = "GET";
             request.Timeout = 2000;
@@ -95,6 +95,11 @@ namespace Quasar.Agent
             };
 
             var normalized = builder.Uri;
+            if (uri.Host == "dash.se-servers.net" && uri.AbsolutePath != "/")
+            {
+                try { normalized = Quasar.Networking.QuasarControlAddress.Parse(rawBaseUrl.Trim()); }
+                catch (ArgumentException) { return; }
+            }
             var key = normalized.AbsoluteUri.TrimEnd('/');
             if (seen.Add(key))
                 candidates.Add(normalized);

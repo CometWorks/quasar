@@ -1,5 +1,6 @@
 window.quasarPush = (() => {
-    const workerUrl = '/push-worker.js';
+    const appBase = document.baseURI;
+    const workerUrl = new URL('push-worker.js', appBase).href;
 
     function supported() {
         return window.isSecureContext && 'serviceWorker' in navigator &&
@@ -27,14 +28,14 @@ window.quasarPush = (() => {
     }
 
     async function registration() {
-        const worker = await navigator.serviceWorker.getRegistration('/');
+        const worker = await navigator.serviceWorker.getRegistration(appBase);
         return isActive(worker) ? worker : null;
     }
 
     async function activeRegistration() {
         let registration;
         try {
-            registration = await navigator.serviceWorker.register(workerUrl, { scope: '/' });
+            registration = await navigator.serviceWorker.register(workerUrl, { scope: appBase });
         } catch (error) {
             throw new Error(`Quasar push service worker registration failed: ${error.message ?? error}`);
         }

@@ -8,6 +8,14 @@ Quasar prints its URL when it starts. With the shipped `appsettings.json` the UI
 
 The installed services and `Quasar serve` do not open a browser on their own. `Quasar ensure-running --open-browser` opens one when a desktop session is available (see [Configuration](Configuration.md#command-line)).
 
+## Choose public access
+
+A first interactive administrator session shows **Set up administrator access**.
+Choose **Self-deploy**, **Use hosted panel** or **Later**; headless startup is not
+blocked. Reopen it at **Security → Manage access setup**. Configure your Steam
+administrator mapping below before using a public URL. See [Hosted access](HostedPanel.md)
+for automatic enrollment and its current availability limits.
+
 ## Set the first administrator
 
 Quasar access is controlled by roles (`viewer`, `editor`, `admin`) mapped to SteamID64 values in `rbac.json`. A fresh install has no mappings, so a Steam sign-in alone gives no access. There are three ways to get the first admin in place. Details on roles are in [Access control](AccessControl.md).

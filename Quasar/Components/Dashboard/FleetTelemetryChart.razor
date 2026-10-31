@@ -4,7 +4,7 @@
 @inject BrandingService BrandingService
 
 <section class="quasar-panel">
-    <div class="quasar-panel-heading"><h2>Simulation speed</h2><a class="quasar-table-link" href="/analytics">Open analytics ↗</a></div>
+    <div class="quasar-panel-heading"><h2>Simulation speed</h2><a class="quasar-table-link" href="analytics">Open analytics ↗</a></div>
     <div class="quasar-chart-body">
         <div class="quasar-chart-frame">
             <div id="@_containerId" class="quasar-fleet-chart" role="img" aria-label="Simulation speed over the last 30 minutes for configured standalone servers"></div>
@@ -48,7 +48,7 @@
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var result = await JS.InvokeAsync<ChartResult?>("quasarCharts.sync", new
             {
-                endpoint = "/api/analytics/series", from = now - 1800, to = now, maxPoints = 180,
+                endpoint = "api/analytics/series", from = now - 1800, to = now, maxPoints = 180,
                 servers = Servers.Select(server => server.UniqueName).ToArray(),
                 names = Servers.ToDictionary(server => server.UniqueName, server => string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName),
                 metrics = new[] { new { key = "simspeed", containerId = _containerId, height = 220 } },

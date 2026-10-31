@@ -277,7 +277,7 @@ window.quasarCharts = (function () {
 
         let text;
         try {
-            const resp = await fetch(request.endpoint + "?" + params.toString(), {
+            const resp = await fetch(new URL(request.endpoint.replace(/^\//, "") + "?" + params.toString(), document.baseURI), {
                 credentials: "same-origin",
                 cache: "no-store",
                 headers: { "Accept": "application/json" },

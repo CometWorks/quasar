@@ -1,13 +1,14 @@
+@inject NavigationManager PanelNavigation
 @inject BrandingService BrandingService
 @implements IDisposable
 
 <HeadContent>
-    <link rel="icon" type="image/x-icon" href="@FaviconHref" />
+    <link rel="icon" type="image/x-icon" href="@PanelNavigation.PanelUrl(FaviconHref)" />
 </HeadContent>
 
 @code
 {
-    private string FaviconHref => BrandingService.Settings.FaviconPath ?? "/Quasar.ico";
+    private string FaviconHref => BrandingService.Settings.FaviconPath ?? "Quasar.ico";
 
     protected override void OnInitialized()
     {

@@ -35,7 +35,8 @@ internal static class MachineEndpointSecurity
     internal static Task InvokeAsync(HttpContext context, RequestDelegate next, MachineEndpointPolicy policy)
     {
         if (IsMachinePath(context.Request.Path)
-            && !policy.Allows(context.Connection.RemoteIpAddress, context.Request.Headers.ContainsKey("Origin"), context.Request.Host.Value))
+            && !policy.Allows(context.Connection.RemoteIpAddress, context.Request.Headers.ContainsKey("Origin"), HostedPanelRequest.IsHosted(context)
+                ? $"127.0.0.1:{context.Connection.LocalPort}" : context.Request.Host.Value ?? ""))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return Task.CompletedTask;

@@ -139,7 +139,7 @@ namespace Quasar.Agent
                             var socketUri = new UriBuilder(baseUri)
                             {
                                 Scheme = baseUri.Scheme == "https" ? "wss" : "ws",
-                                Path = "/ws/agent",
+                                Path = baseUri.AbsolutePath.TrimEnd('/') + "/ws/agent",
                             }.Uri;
 
                             Log($"Connecting to {socketUri}");

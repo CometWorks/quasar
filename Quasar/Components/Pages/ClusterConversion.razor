@@ -36,7 +36,7 @@
         }
         <h2 class="quasar-text quasar-type-h6 mt-4">2. Choose the destination and verified release</h2>
         <p class="quasar-text quasar-type-body1">Choose an empty registered cluster with its release package and dependency snapshot selected. The snapshot must contain the same common plugins as this server. Its frozen commits determine the deployed versions, including when the source follows a moving version label.</p>
-        <MudButton Href="/clusters/new?register=true" Target="_blank">Register existing cluster</MudButton>
+        <MudButton Href="clusters/new?register=true" Target="_blank">Register existing cluster</MudButton>
         <MudSelect T="string" Label="Destination cluster" @bind-Value="_targetCluster" Disabled="@Locked">
             @foreach (var cluster in Clusters.GetClusters().Where(c => c.ActiveDeployment is null && c.GoalState == DedicatedServerGoalState.Off))
             { <MudSelectItem Value="@cluster.UniqueName">@cluster.DisplayName (@cluster.UniqueName)</MudSelectItem> }
@@ -46,7 +46,7 @@
             <p class="quasar-text quasar-type-body1">Release: @(selected.PackageSelection?.Version ?? "Not selected"). Dependencies: @(selected.DependencyManifestSha256 is null ? "Not selected" : "Pinned").</p>
             <MudButton OnClick="ReviewDestinationAsync" Disabled="@Locked">Review frozen plugin versions</MudButton>
             @foreach (string plugin in _frozenPlugins) { <p class="quasar-text quasar-type-body2">@plugin</p> }
-            <MudButton Href="@("/clusters/" + Uri.EscapeDataString(_targetCluster))" Target="_blank">Review release and dependencies</MudButton>
+            <MudButton Href="@("clusters/" + Uri.EscapeDataString(_targetCluster))" Target="_blank">Review release and dependencies</MudButton>
         }
         <h2 class="quasar-text quasar-type-h6 mt-4">3. Place the cluster</h2>
         <p class="quasar-text quasar-type-body1">The shipped converter requires at least two regular nodes. Each Host executor receives the verified package, frozen dependencies and the same converted world. Enter routable private IP addresses. Credential fields name existing environment variables; do not enter secrets.</p>
@@ -78,7 +78,7 @@
     {
         <h2 class="quasar-text quasar-type-h6">1. Review the source cluster: @ClusterName</h2>
         <p class="quasar-text quasar-type-body1">Shut down the cluster cleanly first. Quasar verifies every Host executor has stopped its cluster processes, captures a native backup, and converts those copies. Shared filesystem access is not required.</p>
-        <MudButton Href="@("/clusters/" + Uri.EscapeDataString(ClusterName ?? ""))">Open source cluster</MudButton>
+        <MudButton Href="@("clusters/" + Uri.EscapeDataString(ClusterName ?? ""))">Open source cluster</MudButton>
         <h2 class="quasar-text quasar-type-h6 mt-4">2. Configure the standalone destination</h2>
         <MudTextField Label="Server ID" @bind-Value="_serverId" Disabled="@Locked" />
         <MudTextField Label="Server name" @bind-Value="_displayName" OnBlur="@(_ => EnsureDestinationName())" Disabled="@Locked" HelperText="A blank name receives an editable generated suggestion." />

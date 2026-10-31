@@ -16,6 +16,12 @@
     <Description>Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.</Description>
 </QuasarPageHeading>
 
+<section class="quasar-panel pa-4 mb-4">
+    <h2 class="quasar-text quasar-type-h6">Public panel access</h2>
+    <p>Use your own reverse proxy, or enroll with Nebula for a public dashboard address.</p>
+    <MudButton OnClick="ManageAccessAsync" Variant="Variant.Outlined">Manage access setup</MudButton>
+</section>
+
 <MudGrid>
     <MudItem xs="12" lg="4">
         <section class="quasar-panel pa-4 summary-card">
@@ -195,7 +201,7 @@
                     Listing visibility is optional and separate from diagnostic reporting. Public listings require current
                     log delivery to CometWorks and a configured public join address. Turning this off withdraws the listings.
                 </p>
-                <MudLink Href="/settings/server-list">Configure public server listings</MudLink>
+                <MudLink Href="settings/server-list">Configure public server listings</MudLink>
                 <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                     Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
                     Offline hosts stop collecting when their two-minute consent lease expires.
@@ -276,6 +282,9 @@
 
 @code
 {
+    private Task<IDialogReference> ManageAccessAsync() => DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access",
+        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
+
     private RbacConfig _config = new();
     private const string OidcProviderName = "Oidc";
     private QuasarTrustedNetworkSettings _trustedNetworkSettings = new();

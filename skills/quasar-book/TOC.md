@@ -14,6 +14,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 
 ## Running Quasar
 
+- [Hosted access](HostedPanel.md): Nebula enrollment, public path URLs, private connector state, Bootstrap and current availability.
 - [Access control](AccessControl.md): Steam sign-in, the trusted-network bypass, the viewer, editor and admin roles, `rbac.json`, the Security page, API tokens, lockout recovery.
 - [Configuration](Configuration.md): `appsettings.json`, where files live, the web UI port, headless mode, logging settings, environment variables, the `Quasar` command line.
 

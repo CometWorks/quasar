@@ -51,8 +51,12 @@ def check_running(unit):
 def origin_url(config):
     value = config["connection"]["quasarUrl"]
     parsed = urlparse(value)
-    if not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in ("", "/"):
-        raise ValueError("Invalid enrolled Quasar origin.")
+    hosted_path = (parsed.scheme == "https" and parsed.hostname == "dash.se-servers.net"
+                   and parsed.port in (None, 443) and bool(re.fullmatch(r"/[a-z0-9]+(?:-[a-z0-9]+)*/", parsed.path))
+                   and 3 <= len(parsed.path.strip("/")) <= 63)
+    if (not parsed.hostname or parsed.username or parsed.password or parsed.query or parsed.fragment
+            or "\\" in value or "%" in value or "/../" in value or "/./" in value or parsed.path not in ("", "/") and not hosted_path):
+        raise ValueError("Invalid enrolled Quasar control address.")
     if parsed.scheme != "https":
         try:
             loopback = ipaddress.ip_address(parsed.hostname).is_loopback

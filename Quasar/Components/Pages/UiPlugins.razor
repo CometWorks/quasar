@@ -207,7 +207,7 @@
                 <a class="quasar-button ui-plugin-hub-open-button" href="https://github.com/CometWorks/quasar-hub" target="_blank" rel="noopener noreferrer"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />Open Hub</a>
             </div>
             <label class="quasar-check"><input type="checkbox" checked="@UpdateOptions.AutoUpdateUiPlugins" disabled="@_savingUpdatePolicy" @onchange="SetAutomaticPluginUpdatesAsync" />Automatically update installed UI plugins and restart Quasar</label>
-            <p class="quasar-muted quasar-caption">Applies to enabled catalog plugins after scheduled checks. Requires Bootstrap; safe boot pauses automatic plugin updates. Running game servers stay online. Configure update notices on the <a href="/notifications">Notifications page</a>.</p>
+            <p class="quasar-muted quasar-caption">Applies to enabled catalog plugins after scheduled checks. Requires Bootstrap; safe boot pauses automatic plugin updates. Running game servers stay online. Configure update notices on the <a href="notifications">Notifications page</a>.</p>
 
             @if (HubEntries.Count == 0)
             {

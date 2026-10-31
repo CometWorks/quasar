@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <Compile Include="../Shared/Hosting/*.cs" Link="Hosting/%(Filename)%(Extension)" />
     <Compile Include="..\Shared\Updates\*.cs" Link="Updates\%(Filename)%(Extension)" />
     <PackageReference Include="CometWorks.Diagnostics" Version="0.1.0" />
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />

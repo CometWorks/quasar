@@ -1,10 +1,12 @@
+function panelStorageKey(key) { return new URL(document.baseURI).pathname === "/" ? key : document.baseURI + key; }
+function panelUrl(url) { return new URL(String(url).replace(/^\/(?!\/)/, ""), document.baseURI).href; }
 window.quasarConfigs = window.quasarConfigs || {
     getSystemDarkMode() {
         return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     },
     getLocalStorage(key) {
         try {
-            return window.localStorage ? window.localStorage.getItem(key) : null;
+            return window.localStorage ? window.localStorage.getItem(panelStorageKey(key)) : null;
         } catch {
             return null;
         }
@@ -15,9 +17,9 @@ window.quasarConfigs = window.quasarConfigs || {
                 return;
             }
             if (value === null || value === undefined) {
-                window.localStorage.removeItem(key);
+                window.localStorage.removeItem(panelStorageKey(key));
             } else {
-                window.localStorage.setItem(key, String(value));
+                window.localStorage.setItem(panelStorageKey(key), String(value));
             }
         } catch {
         }
@@ -56,7 +58,7 @@ window.quasarConfigs = window.quasarConfigs || {
     },
     downloadFile(url, fileName) {
         const link = document.createElement("a");
-        link.href = url;
+        link.href = panelUrl(url);
         if (fileName) {
             link.download = fileName;
         }
@@ -346,7 +348,7 @@ window.quasarConfigs = window.quasarConfigs || {
         window.quasarRestartReloadSession = null;
     },
     getRestartReloadStorageKey() {
-        return "quasar.restartReload";
+        return panelStorageKey("quasar.restartReload");
     },
     readRestartReloadState() {
         try {
@@ -508,7 +510,7 @@ window.quasarConfigs = window.quasarConfigs || {
                 window.setTimeout(() => {
                     if (isCurrentSession()) {
                         window.quasarConfigs.clearRestartReloadState();
-                        window.location.href = url;
+                        window.location.href = panelUrl(url);
                     }
                 }, 500);
                 return;
@@ -532,7 +534,7 @@ window.quasarConfigs = window.quasarConfigs || {
 
             const currentPhase = canAcceptHealthyWorker() ? "health" : "stop";
             updateFeedback(currentPhase, currentPhase === "health" ? pollingMessage : waitingForStopMessage);
-            fetch("/api/health", { cache: "no-store" })
+            fetch(new URL("api/health", document.baseURI), { cache: "no-store" })
                 .then(async (response) => {
                     if (!isCurrentSession()) {
                         return;
@@ -559,7 +561,7 @@ window.quasarConfigs = window.quasarConfigs || {
                         window.setTimeout(() => {
                             if (isCurrentSession()) {
                                 window.quasarConfigs.clearRestartReloadState();
-                                window.location.href = url;
+                                window.location.href = panelUrl(url);
                             }
                         }, 250);
                     } else {
