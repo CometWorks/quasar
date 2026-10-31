@@ -56,6 +56,20 @@ public sealed partial class ClusterHostClient
             HttpMethod.Get, HostContract.HostProtocol.RoutePrefix + "/recovery-readiness/" + Uri.EscapeDataString(cluster.UniqueName)
                 + "?sha256=" + Uri.EscapeDataString(expectedHash), null, token);
 
+    /// <summary>Every Host of the active deployment proves that no node of the cluster runs or is launching. Throws otherwise.</summary>
+    internal async Task RequireNodesStoppedAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        foreach (var host in cluster.ActiveDeployment!.Hosts)
+        {
+            var target = cluster.Clone();
+            target.HostCommandUrl = host.CommandUrl;
+            target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
+            var ready = (await CheckRecoveryAsync(target, host.Deployment.BundleManifestSha256, token)).Data;
+            if (ready.HostId != host.HostId || ready.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
+                throw new InvalidOperationException("Host recovery identity mismatch.");
+        }
+    }
+
     public Task<HostContract.HostEnvelope<HostContract.HostActiveDeployment>> ActivateDeploymentAsync(
         ClusterDefinition cluster, HostContract.HostDeploymentActivation request, CancellationToken cancellationToken) =>
         SendAsync<HostContract.HostActiveDeployment>(cluster, HttpMethod.Put,

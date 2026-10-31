@@ -720,6 +720,7 @@ internal sealed class HostCommandServer : IDisposable
                 && (spec.StartGeneration is null || spec.StartGeneration == Guid.Empty
                     || _attachments.GetAll().Single(item => item.ClusterId == clusterId).BundleManifestSha256 != spec.BundleManifestSha256))
                 throw new InvalidOperationException("Gateway must use the active managed deployment and a nonempty start generation.");
+            _gatewayActualizer.RefuseOffOverLiveProcess(GatewaySpecStore.Validate(spec));
             spec = _gateways.Apply(spec);
             HostContract.GatewayStatus status = await _gatewayActualizer.ReconcileAsync(spec, cancellationToken);
             _gateways.SetStatus(status);

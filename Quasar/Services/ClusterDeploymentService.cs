@@ -32,6 +32,15 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             {
                 if (cluster.ActiveDeployment is not { Hosts.Length: > 0 } active || cluster.Gateway is null)
                     throw new InvalidOperationException("A complete managed deployment is required to verify that every process has stopped.");
+                // A cluster that stopped dirty keeps its Gateway running for an update despite that shutdown, and a
+                // Gateway that keeps failing keeps its goal On. Deleting gives up on both, as long as no node runs.
+                var gateway = (await hosts.GetStatusAsync(cluster, token)).Data.Gateways?.FirstOrDefault(g => g.ClusterId == clusterId);
+                if (gateway is not null && (gateway.Goal != HostContract.GatewayGoal.Off || gateway.Observed != HostContract.GatewayObservedState.Missing))
+                {
+                    logger?.LogWarning("Deleting cluster {Cluster}: stopping its Gateway ({Goal}, {Observed}), which has no clean shutdown.",
+                        clusterId, gateway.Goal, gateway.Observed);
+                    await StopFencedAsync(cluster, token);
+                }
                 foreach (var host in active.Hosts)
                 {
                     var target = cluster.Clone();
@@ -163,21 +172,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             return target;
         }
         // First refuse recovery over any live/unknown node before touching the Gateway.
-        foreach (var host in cluster.ActiveDeployment.Hosts)
-        {
-            var ready = (
-                await hosts.CheckRecoveryAsync(
-                    Target(host),
-                    host.Deployment.BundleManifestSha256,
-                    ct
-                )
-            ).Data;
-            if (
-                ready.HostId != host.HostId
-                || ready.BundleManifestSha256 != host.Deployment.BundleManifestSha256
-            )
-                throw new InvalidOperationException("Host recovery identity mismatch.");
-        }
+        await hosts.RequireNodesStoppedAsync(cluster, ct);
         var status = (await hosts.GetStatusAsync(cluster, ct)).Data;
         var observed = status.Gateways?.SingleOrDefault(g => g.ClusterId == clusterId);
         if (
@@ -191,7 +186,7 @@ public sealed class ClusterDeploymentService(ClusterCatalog catalog, ClusterHost
             || !ClusterReconciler.MatchesSpec(observed, cluster.Gateway)
         )
             throw new InvalidOperationException(
-                "Recovery requires a fenced, known Gateway process state."
+                "A fenced stop needs a Host with fenced stops and a known Gateway process state."
             );
         var off = cluster.Gateway with
         {

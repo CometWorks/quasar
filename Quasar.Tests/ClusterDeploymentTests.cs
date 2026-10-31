@@ -158,6 +158,9 @@ public sealed class ClusterDeploymentTests : IDisposable
     [Theory]
     [InlineData("stopped")]
     [InlineData("gateway-running")]
+    [InlineData("gateway-failed")]
+    [InlineData("gateway-conflict")]
+    [InlineData("gateway-running-node-running")]
     [InlineData("node-running")]
     [InlineData("host-offline")]
     [InlineData("goal-on")]
@@ -173,11 +176,15 @@ public sealed class ClusterDeploymentTests : IDisposable
         handler.Deletion = state;
         if (state == "goal-on") await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
         if (state == "deployment-pending") await catalog.RecordPendingDeploymentAsync(catalog.GetCluster("demo")!, "pending", default);
-        if (state is "stopped" or "detach-refused" or "old-host")
+        handler.RefuseRecovery = state == "gateway-running-node-running";
+        bool stopsGateway = state is "gateway-running" or "gateway-failed";
+        if (state is "stopped" or "detach-refused" or "old-host" || stopsGateway)
         {
             await service.DeleteAsync("demo");
             Assert.Null(catalog.GetCluster("demo"));
-            Assert.Equal(new[] { "one", "two" }, handler.DeletePreviews);
+            // A Gateway left over from an unclean shutdown is stopped exactly once, with the fence of its process.
+            Assert.Equal(stopsGateway ? 1 : 0, handler.GatewayStops);
+            Assert.Equal(stopsGateway ? new[] { "one", "two", "one", "two" } : new[] { "one", "two" }, handler.DeletePreviews);
             // Each Host stops supervising the deleted cluster; one that cannot never undoes the deletion.
             Assert.Equal(state == "old-host" ? [] : new[] { "one", "two" }, handler.Detaches);
         }
@@ -187,6 +194,7 @@ public sealed class ClusterDeploymentTests : IDisposable
             Assert.True(error is InvalidOperationException or ClusterHostException, error?.ToString());
             Assert.NotNull(catalog.GetCluster("demo"));
             Assert.Empty(handler.Detaches);
+            Assert.Equal(0, handler.GatewayStops);
         }
         Assert.Equal(2, handler.Applied.Count); // Deletion never activates or erases Host data.
     }
@@ -1463,11 +1471,20 @@ public sealed class ClusterDeploymentTests : IDisposable
                     throw new HttpRequestException("Every node and the Gateway must be verifiably stopped");
                 data = new HostClusterDetach("demo", ["attachment"], "/state/detached/demo");
             }
-            else if (Deletion is not null && request.Method == HttpMethod.Get)
-                data = new HostStatus(host, host, [], host == "one" ? [new("demo", GatewayGoal.Off,
-                    Deletion == "gateway-running" ? GatewayObservedState.Running : GatewayObservedState.Missing,
-                    active[host], Revision, [29416], "/runs/one/gateway", null, null, null)] : [], true,
+            else if (Deletion is not null && request.Method == HttpMethod.Get && !request.RequestUri.AbsolutePath.Contains("/recovery-readiness/"))
+            {
+                GatewayObservedState? left = GatewayStops > 0 ? null : Deletion switch
+                {
+                    "gateway-running" or "gateway-running-node-running" => GatewayObservedState.Running,
+                    "gateway-failed" => GatewayObservedState.Failed,
+                    "gateway-conflict" => GatewayObservedState.UnmanagedConflict,
+                    _ => null,
+                };
+                data = new HostStatus(host, host, [], host == "one" ? [new("demo", left is null ? GatewayGoal.Off : GatewayGoal.On,
+                    left ?? GatewayObservedState.Missing, active[host], Revision, [29416], "/runs/one/gateway",
+                    left is null ? null : 123, left is null ? null : launched, null, StartGeneration: StartGeneration)] : [], true,
                     ClusterDetach: Deletion != "old-host");
+            }
             else if (request.RequestUri.AbsolutePath.Contains("/recovery-readiness/"))
             {
                 if (host == "two" && RefuseRecovery) throw new HttpRequestException("nodes still running");
