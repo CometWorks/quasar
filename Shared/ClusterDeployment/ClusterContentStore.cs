@@ -15,9 +15,12 @@ internal sealed class ClusterContentStore : IDisposable
     private readonly FileStream gate;
     private readonly HashSet<string> verified = new(StringComparer.Ordinal);
 
-    private ClusterContentStore(string root, FileStream gate) => (this.root, this.gate) = (root, gate);
+    private readonly bool prune;
 
-    internal static async Task<ClusterContentStore> OpenAsync(string snapshots, CancellationToken token)
+    private ClusterContentStore(string root, FileStream gate, bool prune) => (this.root, this.gate, this.prune) = (root, gate, prune);
+
+    // prune: false for a step of a larger collection, whose last step prunes.
+    internal static async Task<ClusterContentStore> OpenAsync(string snapshots, CancellationToken token, bool prune = true)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Cluster content storage requires Linux.");
         snapshots = Path.GetFullPath(snapshots);
@@ -35,7 +38,7 @@ internal sealed class ClusterContentStore : IDisposable
         while (true)
         {
             token.ThrowIfCancellationRequested();
-            try { return new(root, new FileStream(lockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)); }
+            try { return new(root, new FileStream(lockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), prune); }
             catch (IOException error) when ((error.HResult & 0xffff) is 11 or 32 or 33)
             { await Task.Delay(100, token); }
         }
@@ -86,13 +89,16 @@ internal sealed class ClusterContentStore : IDisposable
 
     internal void Prune()
     {
+        // The objects sit directly in the root: a walk up the tree per object took most of a storage collection.
+        RefuseLink(root);
         foreach (string path in Directory.EnumerateFiles(root))
         {
             string name = Path.GetFileName(path);
             if (name.StartsWith(".write-", StringComparison.Ordinal)) { File.Delete(path); continue; }
             if (name.Length != 66 || name[64] != '-' || name[65] is not ('r' or 'x')
                 || !name[..64].All(Uri.IsHexDigit)) continue;
-            RefuseLink(path);
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Content storage must not contain symbolic links.");
             if (ReferenceCount(path) == 1) File.Delete(path);
         }
     }
@@ -137,7 +143,7 @@ internal sealed class ClusterContentStore : IDisposable
                 throw new InvalidDataException("Content storage must not contain symbolic links.");
     }
 
-    public void Dispose() { try { Prune(); } finally { gate.Dispose(); } }
+    public void Dispose() { try { if (prune) Prune(); } finally { gate.Dispose(); } }
 
     [DllImport("libc", EntryPoint = "link", SetLastError = true)]
     private static extern int Link(string source, string destination);

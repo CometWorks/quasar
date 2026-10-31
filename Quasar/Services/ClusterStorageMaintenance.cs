@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Quasar.ClusterDeployment;
@@ -57,14 +58,16 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                             definitions.AddRange(JsonSerializer.Deserialize<ClusterDefinition[]>(await File.ReadAllBytesAsync(path, stoppingToken), Json)
                                 ?? throw new InvalidDataException("Unreadable recovery references: " + path));
                     var retained = DependencyReferences(definitions);
-                    string identity = JsonSerializer.Serialize(definitions.Select(c => new {
-                        c.UniqueName, c.DependencyManifestSha256, c.Preparation, c.ActiveDeployment,
-                        c.PreviousDeployment, c.Update, c.PreparedDeployment }).ToArray(), Json);
+                    string identity = ReferenceIdentity(definitions);
                     if (identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision)
                     { Volatile.Write(ref deferred, false); continue; }
+                    long started = Stopwatch.GetTimestamp();
                     CleanupWorkspaces(catalog.GetClusters());
                     await dependencies.CollectAsync(retained, stoppingToken);
+                    TimeSpan dependencyTime = Stopwatch.GetElapsedTime(started);
                     await CollectModVersionsAsync(definitions.SelectMany(Preparations), stoppingToken);
+                    TimeSpan localTime = Stopwatch.GetElapsedTime(started);
+                    int hostRequests = 0;
                     foreach (var group in definitions.GroupBy(c => c.UniqueName))
                     {
                         var preparations = group.SelectMany(Preparations).Distinct().ToArray();
@@ -83,6 +86,7 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                             await hosts.RetainDeploymentInputsAsync(target, new(hashes,
                                 HashNames(inputs.Select(h => h.ModDirectory)), HashNames(inputs.Select(h => h.WorldDirectory)),
                                 inputs.Select(h => h.ConfigurationDirectory).Distinct().ToArray()), stoppingToken);
+                            hostRequests++;
                         }
                     }
                     // Deleting a cluster keeps its definition in History only, so nothing above names it and its
@@ -102,7 +106,10 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                     previousReferences = identity;
                     Volatile.Write(ref previousStorageRevision, ClusterStorageActivity.Revision);
                     Volatile.Write(ref deferred, false);
-                    logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned.");
+                    logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned in {Seconds:0.0} s, "
+                        + "while every lifecycle operation waited (dependencies {Dependencies:0.0} s, mods {Mods:0.0} s, {Requests} Host requests {Hosts:0.0} s).",
+                        Stopwatch.GetElapsedTime(started).TotalSeconds, dependencyTime.TotalSeconds, (localTime - dependencyTime).TotalSeconds,
+                        hostRequests, (Stopwatch.GetElapsedTime(started) - localTime).TotalSeconds);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception error)
@@ -114,6 +121,23 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
             }
         }
         finally { catalog.Changed -= Changed; ClusterStorageActivity.Idle -= StorageIdle; }
+    }
+
+    // What collection keeps, and nothing else. Collection holds the storage lease that every lifecycle operation needs,
+    // so the checkpoints of an update, which retain the same content, must not start one: they held back the drain,
+    // the backup, the activation and the Gateway launch by a whole collection each (SE-791).
+    internal static string ReferenceIdentity(IEnumerable<ClusterDefinition> definitions)
+    {
+        var clusters = definitions.ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            Dependencies = DependencyReferences(clusters).Order(StringComparer.Ordinal).ToArray(),
+            Preparations = clusters.Select(c => new
+            {
+                c.UniqueName,
+                Retained = Preparations(c).Select(p => JsonSerializer.Serialize(p, Json)).Distinct().Order(StringComparer.Ordinal).ToArray(),
+            }).ToArray(),
+        }, Json);
     }
 
     internal static HashSet<string> DependencyReferences(IEnumerable<ClusterDefinition> definitions)

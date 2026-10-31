@@ -31,6 +31,8 @@ The DS and Magnetar paths are the defaults. A server with **Paths** overrides wr
 
 At the default `Warn`, Info messages such as server exit codes and "recovered after restart" lines are not written. Set `QUASAR_LOG_MIN_LEVEL=Info` (or `Quasar:Logging:MinimumLevel` to `Info`) and restart Quasar while you investigate. An unknown level name falls back to `Info`. The same level applies to the console and journal output.
 
+Cluster update timings are the exception: they are written at every level. To see where an update spent its time, look for `update step` and `references reconciled` in `quasar.log`, and for `step '` in the Host's `host.log`, which also has the bundle load and data seed of each start.
+
 Quasar does not rotate `quasar.log` or `discord.log`. Delete or truncate them yourself if they grow too large.
 
 A fatal startup error is logged as "Quasar terminated unexpectedly." and printed to the console as `[Quasar:FATAL] <type>: <message>`.

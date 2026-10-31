@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -49,9 +50,22 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
             }
             return pins;
         }
+        long started = Stopwatch.GetTimestamp(), hashedBefore = Interlocked.Read(ref hashedBytes);
         var pins = Verify(root, manifest.Files);
         Verify(configRoot, manifest.ConfigFiles ?? []);
+        LogStep(manifest.ClusterId, $"bundle load ({manifest.Files.Length + (manifest.ConfigFiles?.Length ?? 0)} paths, "
+            + $"{(Interlocked.Read(ref hashedBytes) - hashedBefore) / 1_000_000} MB hashed)", started);
         return new(root, manifest, pins) { ConfigRoot = configRoot };
+    }
+
+    private static long hashedBytes;
+
+    // Timestamped: the Host's own lines in its log have no time. Short steps would only fill the log.
+    internal static void LogStep(string? clusterId, string step, long started)
+    {
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
+        if (elapsed >= TimeSpan.FromSeconds(0.1))
+            Console.Error.WriteLine($"{DateTimeOffset.UtcNow:O} cluster={clusterId} step '{step}' took {elapsed.TotalSeconds:0.0} s");
     }
 
     // Files that already matched their pin, so a spawn does not re-hash the whole bundle. An entry is
@@ -72,6 +86,7 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
         string hash;
         using (var stream = File.OpenRead(path))
             hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
+        Interlocked.Add(ref hashedBytes, info.Length);
         if (hash != current.Sha256) { Verified.TryRemove(path, out _); return null; }
         // Stat taken before hashing: a write during hashing changes it, and the next load hashes again.
         Verified[path] = current;
@@ -198,6 +213,7 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
                 throw new InvalidOperationException("Restored data cannot start before deployment activation completes.");
         }
         if (Manifest.InitialDirectories is not { Count: > 0 } seeds) return;
+        long seeding = Stopwatch.GetTimestamp();
         string runtime = Manifest.RuntimeRoot ?? throw new InvalidDataException("Seeded deployments require a runtime root.");
         if (!Path.IsPathFullyQualified(runtime)) throw new InvalidDataException("Runtime root must be absolute.");
         string config = ConfigRoot ?? throw new InvalidDataException("Seeded deployments require a configuration root.");
@@ -250,6 +266,7 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
             }
             finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
         }
+        LogStep(clusterId, "data seed", seeding);
     }
 
     private string? ConfigRoot { get; init; }

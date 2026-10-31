@@ -268,10 +268,12 @@ public sealed class ClusterReconciler : BackgroundService
             // with live nodes can be tried again under a new key.
             Admin.ShutdownRequest request = new(GraceSeconds: cluster.ShutdownGracePeriodSeconds,
                 ForceAfterSeconds: 900);
+            string shutdownKey = _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(),
+                noActiveNodes ? TimeSpan.MaxValue : ShutdownRetryDelay);
+            if (_operations.Find(cluster.UniqueName, "cluster.lifecycle.shutdown", shutdownKey) is null)
+                _logger.LogInformation("Cluster {Cluster} goal is Off: requesting the Gateway shutdown.", cluster.UniqueName);
             ClusterOperation result = await _operations.ExecuteGatewayAsync(cluster,
-                "cluster.lifecycle.shutdown", "POST", "shutdown", request,
-                _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(),
-                    noActiveNodes ? TimeSpan.MaxValue : ShutdownRetryDelay),
+                "cluster.lifecycle.shutdown", "POST", "shutdown", request, shutdownKey,
                 "reconciler", _gatewayClient, cancellationToken);
             if (result.State == ClusterOperationState.Failed)
             {
