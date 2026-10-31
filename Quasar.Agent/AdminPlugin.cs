@@ -35,11 +35,14 @@ namespace Quasar.Agent
         private bool _clusterMode;
         private DateTime _lastDeathSubscriptionRefreshUtc = DateTime.MinValue;
 
+        public CommandAliasConfiguration Config { get; private set; } = new CommandAliasConfiguration();
+
         public void Init(object gameServer)
         {
             var options = AgentOptions.FromEnvironment();
             _clusterMode = options.ClusterMode;
             LogStartupVersions();
+            Config = CommandAliasConfiguration.Load();
             OfflineModeNetworkGuard.Apply();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);

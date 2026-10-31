@@ -50,6 +50,9 @@ public sealed class QuasarConfigProfile
 
     public List<QuasarModSelection> Mods { get; set; } = [];
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public List<QuasarCommandAlias>? CommandAliases { get; set; }
+
     /// <summary>
     /// Default plugin ids (<see cref="Quasar.Services.QuasarDefaultPlugins"/>) Quasar already offered for this
     /// profile, taken or declined. Quasar never offers them again, so an operator's opt-out sticks.
@@ -64,6 +67,12 @@ public sealed class QuasarConfigProfile
         !string.IsNullOrWhiteSpace(SourceWorldTemplateId) &&
         !string.IsNullOrWhiteSpace(worldTemplateId) &&
         string.Equals(SourceWorldTemplateId, worldTemplateId, StringComparison.OrdinalIgnoreCase);
+}
+
+public sealed class QuasarCommandAlias
+{
+    public string Source { get; set; } = string.Empty;
+    public string Target { get; set; } = string.Empty;
 }
 
 public sealed class QuasarDevFolderSelection

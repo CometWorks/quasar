@@ -344,6 +344,14 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - **"Select the release and dependencies used by the active deployment before conversion."** Reselect the active package and dependencies before converting a cluster back.
 - **`cluster-credentials.json` damaged.** Quasar moves an unreadable `cluster-credentials.json` to `cluster-credentials.json.corrupt-<timestamp>` and starts without it. Restore it from a backup together with the Data Protection keys, or re-create the clusters and Host enrollments.
 
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
+
 ## Sources
 - `Docs/ClusterOverview.md`
 - `Quasar/Components/Dashboard/ClusterHealthOverview.razor`
@@ -412,3 +420,5 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `scripts/package-cluster-plugins.py`
 - `Shared/ClusterDeployment/ClusterContentStore.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

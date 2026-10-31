@@ -73,6 +73,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         if (string.IsNullOrWhiteSpace(profile.ConfigProfileId))
             profile.ConfigProfileId = GenerateUniqueProfileId(profile.Name);
 
+        QuasarCommandAliases.Validate(profile.CommandAliases);
         var normalized = Normalize(Clone(profile));
         normalized.UpdatedAtUtc = DateTimeOffset.UtcNow;
 

@@ -177,6 +177,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                         host.ExecutorTokenEnvironmentVariable, installed.Directory, world.Directory, world.ConfigurationDirectory, hostMods.Directory));
                 }
                 var withMods = JsonNode.Parse(await SpecificationAsync(cluster, source, profile, snapshot, request, converted, paths, ct))!.AsObject();
+                QuasarCommandAliases.ApplyToCanonical(withMods["pluginConfigurations"]!.AsObject(), profile);
                 ClusterWorkshopModStager.AddToSpecification(withMods, mods, await ClusterWorkshopModStager.ProfileSettingsXmlAsync(
                     Path.Combine(modWork, "profile-patch"), mods.Profile, source.InGameWorldName, ct));
                 string specification = withMods.ToJsonString(Json);
