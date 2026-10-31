@@ -1870,7 +1870,8 @@ attachment/Gateway transition for restart recovery. It does not start a process.
 the execution gate it checks the active bundle hash, Gateway goal Off, no unfinished activation,
 restore or online backup, and every node and Gateway process verifiably stopped, then moves the
 attachment, Gateway spec and activation journal to `state/detached/<timestamp>-<clusterId>/`, so
-the Host loop no longer polls it. Runtime data, launch records and snapshots stay. Attachments from
+the Host loop no longer polls it. Runtime data, launch records and snapshots stay; `ClusterStorage.md`
+says what the deleted cluster's retention removes later. Attachments from
 `host.json` are refused; remove them there. Repeating it is a no-op. Hosts report the route with
 `clusterDetach: true` in their status; Quasar's cluster deletion calls it on each Host after the
 definition is archived and logs a warning when a Host cannot detach.
