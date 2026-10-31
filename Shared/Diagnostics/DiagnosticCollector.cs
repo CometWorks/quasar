@@ -11,6 +11,7 @@ public sealed class DiagnosticCollector
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const long MaxLocalBytes = 8L << 30;
+    public const string HungNodeKind = "node_hung", ReadyTimeoutKind = "ready_timeout", HangEvidenceFile = "hang-evidence.txt";
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _policySync = new();
     private readonly string _hostId;
@@ -200,7 +201,7 @@ public sealed class DiagnosticCollector
         }
         catch (Exception e) when (CaptureFailure(e)) { Console.Error.WriteLine($"Diagnostic stop capture deferred ({e.GetType().Name})."); }
     }
-    public static void ReportFailure(string? directory, string kind, string message, Exception? exception = null)
+    public static void ReportFailure(string? directory, string kind, string message, Exception? exception = null, string? details = null)
     {
         if (directory is null) return;
         try
@@ -208,7 +209,7 @@ public sealed class DiagnosticCollector
             CaptureRun? run = Read<CaptureRun>(Path.Combine(directory, "run.json"));
             if (run is null || Directory.EnumerateFiles(directory, "*.json").Where(p => DiagnosticsProtocol.IsReportId(Path.GetFileNameWithoutExtension(p))).Take(256).Count() >= 256) return;
             var report = new IncidentReport(1, Guid.NewGuid().ToString("N"), DateTimeOffset.UtcNow, "host", kind, "Error",
-                message[..Math.Min(message.Length, 8192)], exception?.ToString() is { } error ? error[..Math.Min(error.Length, 32768)] : null, new(run.Context));
+                message[..Math.Min(message.Length, 8192)], (details ?? exception?.ToString()) is { } error ? error[..Math.Min(error.Length, 32768)] : null, new(run.Context));
             Write(Path.Combine(directory, report.ReportId + ".json"), report);
         }
         catch (Exception e) when (CaptureFailure(e)) { }
@@ -315,7 +316,10 @@ public sealed class DiagnosticCollector
                         string log = Path.Combine(directory, "process.log");
                         // A log spanning a previous consent window cannot be shared retrospectively.
                         if (report.Kind != "log_batch" && File.Exists(log) && run.CreatedAtUtc >= policy.GrantedSinceUtc) attachments["log-001.txt"] = Snapshot(log, directory);
-                        if (DumpAllowed(run, policy) && run.EndedAtUtc is not null && Path.GetFileName(path) == "exit.json")
+                        // A hang's dump is written before its report, while the process still runs.
+                        bool hang = report.Kind is HungNodeKind or ReadyTimeoutKind;
+                        if (hang && File.Exists(Path.Combine(directory, HangEvidenceFile))) attachments["log-002.txt"] = Path.Combine(directory, HangEvidenceFile);
+                        if (DumpAllowed(run, policy) && (hang || run.EndedAtUtc is not null && Path.GetFileName(path) == "exit.json"))
                         {
                             if (run.Native && NativeDumpCapture.Capability == "systemd-coredump"
                                 && !File.Exists(Path.Combine(directory, "native.dmp"))
@@ -431,6 +435,11 @@ public sealed class DiagnosticCollector
     {
         File.Delete(envelopePath);
         File.Delete(Path.ChangeExtension(envelopePath, ".zip"));
+    }
+    public bool DumpAllowed(string directory)
+    {
+        try { return CurrentPolicy is { } policy && Read<CaptureRun>(Path.Combine(directory, "run.json")) is { } run && DumpAllowed(run, policy); }
+        catch (Exception e) when (CaptureFailure(e)) { return false; }
     }
     private static bool DumpAllowed(CaptureRun run, HostDiagnosticPolicy policy) => policy.DumpsGranted
         && run.Context.GetValueOrDefault("dumpsGrantedAtStart") == "true"

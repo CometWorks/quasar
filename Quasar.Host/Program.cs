@@ -612,6 +612,19 @@ internal static class Program
                 Admin.NodeGoal.Wanted, Admin.NodeObservation.Missing, null, Admin.IncumbentAction.None,
                 null, 0, null, null, null, null, 0, false, true);
 
+            // The first reconcile of a kill that keeps evidence only starts the capture; the kill follows when it ends.
+            static async Task<NodeExecutionObservation> AfterCapture(NodeActualizer actualizer,
+                HostContract.HostAttachmentSpec attachment, Admin.NodePlan plan)
+            {
+                NodeExecutionObservation observation = (await actualizer.ReconcileAsync(attachment, [plan], CancellationToken.None)).Single();
+                for (int poll = 0; poll < 300 && observation.State == Admin.NodeObservation.Spawning; poll++)
+                {
+                    await Task.Delay(100);
+                    observation = (await actualizer.ReconcileAsync(attachment, [plan], CancellationToken.None)).Single();
+                }
+                return observation;
+            }
+
             var actualizer = new NodeActualizer(stateRoot, "host-a");
             NodeExecutionObservation spawning = (await actualizer.ReconcileAsync(
                 attachment, [wanted], CancellationToken.None)).Single();
@@ -635,10 +648,10 @@ internal static class Program
             {
                 LaunchedAt = record.LaunchedAt.AddDays(1), LaunchedAtUptimeMs = record.LaunchedAtUptimeMs - 31_000,
             }, JsonOptions));
-            NodeExecutionObservation timedOut = (await actualizer.ReconcileAsync(
-                attachment, [wanted], CancellationToken.None)).Single();
+            NodeExecutionObservation timedOut = await AfterCapture(actualizer, attachment, wanted);
             if (stillLoading.State != Admin.NodeObservation.Spawning
                 || timedOut.State != Admin.NodeObservation.Failed || timedOut.Failure != "ready_timeout"
+                || !HungNodeEvidence.Captured(record.DiagnosticDirectory!)
                 || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
                 throw new InvalidOperationException($"self-test ready timeout failed: {stillLoading.State}, {timedOut.State} {timedOut.Failure}");
             childProcessId = null;
@@ -672,6 +685,8 @@ internal static class Program
                 attachment, [kill], CancellationToken.None)).Single();
             if (gone.State != Admin.NodeObservation.Gone)
                 throw new InvalidOperationException("self-test exact kill failed");
+            if (HungNodeEvidence.Captured(record.DiagnosticDirectory!))
+                throw new InvalidOperationException("self-test kill of a healthy node collected evidence");
             childProcessId = null;
 
             // A node that exits 0 after a drain or dies with a reboot is Gone; any other exit is a failure.
@@ -731,6 +746,28 @@ internal static class Program
                 || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
                 throw new InvalidOperationException($"self-test slot kill failed: {emergencySpawn.State}, {emergencyReady.State}, "
                     + $"{staleKill.Failure}, {emergencyKill.State} {emergencyKill.Failure}");
+            childProcessId = null;
+
+            // The Registry's kill of a node it declared dead lets the running process be looked at first.
+            await actualizer.ReconcileAsync(attachment, [wanted], CancellationToken.None);
+            record = JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllText(recordPath), JsonOptions)!;
+            childProcessId = record.ProcessId;
+            File.WriteAllBytes(Path.Combine(slotDirectory, ".quasar-node-ready.json"),
+                JsonSerializer.SerializeToUtf8Bytes(receipt with
+                {
+                    AttemptKey = record.AttemptKey, ProcessId = record.ProcessId!.Value,
+                }, JsonOptions));
+            await actualizer.ReconcileAsync(attachment, [wanted], CancellationToken.None);
+            Admin.NodePlan deadNodeKill = kill with { LastFailure = "node_dead:node-a" };
+            NodeExecutionObservation capturing = (await actualizer.ReconcileAsync(attachment, [deadNodeKill], CancellationToken.None)).Single();
+            bool aliveWhileCapturing = Process.GetProcesses().Any(process => process.Id == record.ProcessId);
+            NodeExecutionObservation deadNodeGone = await AfterCapture(actualizer, attachment, deadNodeKill);
+            if (capturing.State != Admin.NodeObservation.Spawning || !aliveWhileCapturing
+                || deadNodeGone.State != Admin.NodeObservation.Gone || deadNodeGone.Node != "node-a"
+                || !HungNodeEvidence.Captured(record.DiagnosticDirectory!)
+                || OperatingSystem.IsLinux() && !File.ReadAllText(Path.Combine(record.DiagnosticDirectory!, Quasar.Diagnostics.DiagnosticCollector.HangEvidenceFile)).Contains("state=", StringComparison.Ordinal)
+                || Process.GetProcesses().Any(process => process.Id == record.ProcessId))
+                throw new InvalidOperationException($"self-test kill of a hung node failed: {capturing.State}, {aliveWhileCapturing}, {deadNodeGone.State} {deadNodeGone.Failure}");
             childProcessId = null;
 
             using var conflict = new TcpListener(IPAddress.Loopback, reservedPort);

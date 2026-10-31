@@ -322,6 +322,34 @@ public sealed class DiagnosticCollectorTests : IDisposable
     }
 
     [Fact]
+    public async Task HangReportCarriesItsEvidenceAndGrantedDumpBeforeTheProcessExits()
+    {
+        var collector = new DiagnosticCollector(root, "host-a");
+        await collector.ApplyPolicyAsync(Policy(true), default);
+        string directory = Configure(collector);
+        Assert.True(collector.DumpAllowed(directory));
+        File.WriteAllBytes(Path.Combine(directory, "hang.dmp"), [1, 2, 3]);
+        File.WriteAllText(Path.Combine(directory, DiagnosticCollector.HangEvidenceFile), "thread 1");
+        DiagnosticCollector.ReportFailure(directory, DiagnosticCollector.HungNodeKind, "Fixture hang.", null, "thread 1");
+        await collector.CollectAsync(default);
+        Assert.True(Assert.Single(collector.GetReports()).ContainsDump);
+    }
+
+    [Fact]
+    public async Task HangReportWithoutDumpGrantHasNoDump()
+    {
+        var collector = new DiagnosticCollector(root, "host-a");
+        await collector.ApplyPolicyAsync(Policy(), default);
+        string directory = Configure(collector);
+        Assert.False(collector.DumpAllowed(directory));
+        File.WriteAllBytes(Path.Combine(directory, "hang.dmp"), [1, 2, 3]);
+        File.WriteAllText(Path.Combine(directory, DiagnosticCollector.HangEvidenceFile), "thread 1");
+        DiagnosticCollector.ReportFailure(directory, DiagnosticCollector.ReadyTimeoutKind, "Fixture hang.", null, "thread 1");
+        await collector.CollectAsync(default);
+        Assert.False(Assert.Single(collector.GetReports()).ContainsDump);
+    }
+
+    [Fact]
     public void CaptureIoFailureDoesNotBlockLaunchOrExit()
     {
         var collector = new DiagnosticCollector(root, "host-a");
