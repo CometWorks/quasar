@@ -16,6 +16,54 @@ public sealed class ClusterContentStorageTests : IDisposable
     public ClusterContentStorageTests() => Directory.CreateDirectory(root);
     public void Dispose() => Directory.Delete(root, true);
 
+    // SE-792: a prepared deployment lists its mods once per seed folder; they are links of one object.
+    [Fact]
+    public async Task AdoptingAReferenceOfItsOwnObjectKeepsTheFileAndHashesOnce()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string source = Path.Combine(root, "source");
+        await File.WriteAllTextAsync(source, "mod payload");
+        var pin = new DeploymentFile(ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(source)), 11, false);
+        string snapshots = Path.Combine(root, "snapshots");
+        string first = Path.Combine(snapshots, "seed-1/mod"), second = Path.Combine(snapshots, "seed-2/mod");
+        using var content = await ClusterContentStore.OpenAsync(snapshots, default);
+        await content.ReferenceAsync(source, first, pin, default);
+        Directory.CreateDirectory(Path.GetDirectoryName(second)!);
+        Assert.Equal(0, ClusterContentStore.Link(first, second));
+        string identity = ClusterContentStore.FileIdentity(first);
+        Assert.Equal(identity, ClusterContentStore.FileIdentity(second));
+
+        await content.AdoptAsync(second, pin, default);
+        Assert.Equal(identity, ClusterContentStore.FileIdentity(second));
+        Assert.Equal(3u, ClusterContentStore.ReferenceCount(second));
+
+        // A separate file is still verified and replaced by a reference.
+        string copy = Path.Combine(snapshots, "seed-3/mod");
+        Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+        await File.WriteAllTextAsync(copy, "mod payload");
+        await content.AdoptAsync(copy, pin, default);
+        Assert.Equal(identity, ClusterContentStore.FileIdentity(copy));
+        await File.WriteAllTextAsync(Path.Combine(snapshots, "wrong"), "not the mod");
+        await Assert.ThrowsAsync<InvalidDataException>(() => content.AdoptAsync(Path.Combine(snapshots, "wrong"), pin, default));
+    }
+
+    [Fact]
+    public async Task InspectHashesHardLinksOnceAndStillPinsEveryPath()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string tree = Path.Combine(root, "tree");
+        Directory.CreateDirectory(Path.Combine(tree, "a"));
+        Directory.CreateDirectory(Path.Combine(tree, "b"));
+        await File.WriteAllTextAsync(Path.Combine(tree, "a/mod"), "payload");
+        Assert.Equal(0, ClusterContentStore.Link(Path.Combine(tree, "a/mod"), Path.Combine(tree, "b/mod")));
+        await File.WriteAllTextAsync(Path.Combine(tree, "b/other"), "other");
+        var pins = await ClusterDeploymentFiles.InspectAsync(tree, default);
+        Assert.Equal(3, pins.Count);
+        Assert.Equal(pins["a/mod"], pins["b/mod"]);
+        Assert.Equal(ClusterDeploymentFiles.Hash("payload"u8.ToArray()), pins["b/mod"].Sha256);
+        Assert.Equal(ClusterDeploymentFiles.Hash("other"u8.ToArray()), pins["b/other"].Sha256);
+    }
+
     [Fact]
     public async Task SnapshotsReferenceOneObjectAndLastReleasePrunesIt()
     {

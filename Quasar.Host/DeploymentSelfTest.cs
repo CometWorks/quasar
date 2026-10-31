@@ -722,6 +722,17 @@ internal static class DeploymentSelfTest
         File.WriteAllText(file, "first!");
         File.SetLastWriteTimeUtc(file, written);
         Assert(ExecutionBundle.VerifiedHash(file, pin) is null, "changed size did not invalidate the cache");
+        if (!OperatingSystem.IsLinux()) return;
+        // A hard link is the same file: verifying one path covers the others.
+        File.WriteAllText(file, "first");
+        Assert(ExecutionBundle.VerifiedHash(file, pin) == pin, "verified hash mismatch before linking");
+        written = File.GetLastWriteTimeUtc(file);
+        string linked = Path.Combine(root, "cached-link.bin");
+        Assert(Quasar.ClusterDeployment.ClusterContentStore.Link(file, linked) == 0, "hard link failed");
+        File.WriteAllText(file, "other");
+        File.SetLastWriteTimeUtc(file, written);
+        Assert(ExecutionBundle.VerifiedHash(linked, pin) == pin, "hard link was hashed again");
+        File.Delete(linked);
     }
 
     // A deleted cluster leaves the Host's supervision loop only through the fenced detach (DF-1451).
