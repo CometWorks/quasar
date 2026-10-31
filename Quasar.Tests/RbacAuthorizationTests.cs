@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Quasar.Services.Auth;
 using Xunit;
 
@@ -8,6 +9,20 @@ namespace Quasar.Tests;
 
 public sealed class RbacAuthorizationTests
 {
+    [Theory]
+    [InlineData(QuasarRoles.Viewer, false)]
+    [InlineData(QuasarRoles.Editor, false)]
+    [InlineData(QuasarRoles.Admin, true)]
+    [InlineData(null, false)]
+    public async Task OfflineMaintenanceRequiresAdministrator(string? role, bool allowed)
+    {
+        using var services = new ServiceCollection().AddLogging()
+            .AddAuthorization(Program.ConfigureAuthorizationPolicies).BuildServiceProvider();
+        var user = new ClaimsPrincipal(new ClaimsIdentity(role is null ? [] : [new Claim(ClaimTypes.Role, role)], "fixture"));
+        Assert.Equal(allowed, (await services.GetRequiredService<IAuthorizationService>()
+            .AuthorizeAsync(user, null, QuasarPolicyNames.ClusterMaintenance)).Succeeded);
+    }
+
     [Fact]
     public void PrivateLanAdminBypassIsOnByDefault()
     {

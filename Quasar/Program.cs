@@ -829,6 +829,7 @@ public class Program
         AddRolePolicy(options, QuasarPolicyNames.CanManageDiscord, QuasarRoles.Editor, QuasarRoles.Admin);
         AddRolePolicy(options, QuasarPolicyNames.CanManageAppearance, QuasarRoles.Editor, QuasarRoles.Admin);
         AddRolePolicy(options, QuasarPolicyNames.CanManageSecurity, QuasarRoles.Admin);
+        options.AddPolicy(QuasarPolicyNames.ClusterMaintenance, policy => policy.RequireAuthenticatedUser().RequireRole(QuasarRoles.Admin));
         AddRolePolicy(options, QuasarPolicyNames.CanShutdownQuasar, QuasarRoles.Admin);
     }
 

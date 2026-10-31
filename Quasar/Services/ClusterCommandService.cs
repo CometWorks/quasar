@@ -210,14 +210,26 @@ public sealed class ClusterCommandService
                         throw Invalid("invalid_config", "Handover settings exceed supported limits.");
                     method = "PUT"; route = "handover-config"; body = values; break;
                 case "trigger":
-                    if (command.Target is not ("balance" or "save" or "split-sweep" or "membership-eval" or "conceal-eval" or "compact" or "catalog-gc" or "rotation-check"))
+                    if (command.Target is not ("balance" or "save" or "split-sweep" or "membership-eval" or "conceal-eval" or "compact" or "catalog-gc" or "rotation-check" or "profile"))
                         throw Invalid("invalid_trigger", "Unknown maintenance task.");
                     var scope = Read(new ClusterMaintenanceScope());
                     if (scope.Node?.Length > 200 || scope.Partition == 0) throw Invalid("invalid_scope", "Invalid maintenance scope.");
+                    if (command.Target == "profile")
+                    {
+                        if (string.IsNullOrWhiteSpace(scope.Node) || scope.Partition is null || scope.Unthrottled)
+                            throw Invalid("invalid_scope", "Profile requires an exact current owner and partition; unthrottled profiling is unsupported.");
+                        await _client.RequireOfflineAsync(cluster, "POST /admin/v1/triggers/{task}", token, manage: true);
+                    }
                     route = "triggers/" + command.Target + "?unthrottled=" + (scope.Unthrottled ? "true" : "false")
                         + (scope.Node is null ? "" : "&node=" + Uri.EscapeDataString(scope.Node))
                         + (scope.Partition is null ? "" : "&partition=" + scope.Partition.Value);
                     body = new { }; break;
+                case "offline-cache-clear":
+                    var clear = Read<Admin.OfflineCacheClearRequest>();
+                    if (string.IsNullOrWhiteSpace(clear.Key) || clear.Key.Length > 4096 || clear.ExpectedEpoch < 0)
+                        throw Invalid("invalid_arguments", "Cache clear requires a key of 1–4096 characters and its current nonnegative epoch.");
+                    await _client.RequireOfflineAsync(cluster, "POST /admin/v1/offline/cache/clear", token, manage: true);
+                    route = "offline/cache/clear"; body = clear; break;
                 default: throw Invalid("unsupported_command", "Unknown cluster command.");
             }
         }
@@ -249,6 +261,9 @@ public sealed record ClusterGoalResult(string ClusterId,
 
 public sealed record ClusterAdminCommand(string Action, JsonElement? Parameters = null, string? Target = null)
 {
+    [JsonIgnore]
+    public bool RequiresAdministrator => Action?.Trim().ToLowerInvariant() == "offline-cache-clear"
+        || Action?.Trim().ToLowerInvariant() == "trigger" && Target == "profile";
     public static ClusterAdminCommand Create(string action, object? parameters = null, string? target = null) =>
         new(action, parameters is null ? null : JsonSerializer.SerializeToElement(parameters,
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } }), target);

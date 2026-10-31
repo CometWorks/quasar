@@ -1,6 +1,7 @@
 using Quasar.Models;
 using Quasar.Services.Auth;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
@@ -132,6 +133,14 @@ internal static class ClusterApi
         MapRead("world-authority", (c, d, t) => c.GetWorldAuthorityAsync(d, t));
         MapRead("snapshots", (c, d, t) => c.GetSnapshotsAsync(d, t));
         MapRead("partitions", (c, d, t) => c.GetPartitionsAsync(d, t));
+        MapRead("offline/partitions", (c, d, t) => c.GetOfflinePartitionsAsync(d, t));
+        MapRead("offline/cache", (c, d, t) => c.GetOfflineCacheAsync(d, t));
+        routes.MapGet("/{uniqueName}/offline/details", (string uniqueName, string node, ulong partition,
+            HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetOfflineDetailsAsync(c, node, partition, t), token));
+        // Deliberate UI/API action. The authenticated Gateway request is prediction-only GET.
+        var predictOffline = routes.MapPost("/{uniqueName}/offline/prediction", PredictOffline);
+        predictOffline.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.ClusterMaintenance);
         MapRead("clients", (c, d, t) => c.GetClientsAsync(d, t));
         MapRead("admission/bans", (c, d, t) => c.GetBansAsync(d, t));
         MapRead("gateway-operations", (c, d, t) => c.GetOperationsAsync(d, t));
@@ -780,6 +789,9 @@ internal static class ClusterApi
             return Error(404, "unknown_cluster", "Cluster was not found.");
         if (!context.User.CanQueryCluster(uniqueName))
             return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        if (command.RequiresAdministrator && !(await context.RequestServices.GetRequiredService<IAuthorizationService>()
+                .AuthorizeAsync(context.User, null, QuasarPolicyNames.ClusterMaintenance)).Succeeded)
+            return Error(403, "administrator_required", "Offline maintenance requires the Administrator role.");
         try
         {
             var operation = await commands.SubmitAsync(uniqueName, command,
@@ -788,7 +800,13 @@ internal static class ClusterApi
         }
         catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
         catch (ClusterOperationStoreUnavailableException error) { return Error(503, "operation_store_unavailable", error.Message); }
+        catch (ClusterGatewayException error) { return Error((int)error.StatusCode, error.Code, error.Message); }
     }
+
+    private static Task<IResult> PredictOffline(string uniqueName, [FromBody] ClusterOfflinePredictionRequest request,
+        HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+        Query(uniqueName, context, catalog,
+            (cluster, ct) => client.GetOfflinePredictionAsync(cluster, request.Node, request.Partition, request.Hours, ct), token);
 
     private static async Task<IResult> Query<T>(string uniqueName, HttpContext context, ClusterCatalog catalog,
         Func<ClusterDefinition, CancellationToken, Task<Admin.AdminEnvelope<T>>> query,

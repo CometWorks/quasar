@@ -115,6 +115,18 @@ point, the panel explains that recovery after a crash is not confirmed; this doe
 not mean no files have been saved. A failed check says recovery information is
 unavailable. Progress since the last save can be lost even when recovery is ready.
 
+### Offline partitions and compensation
+
+Open **Nodes & players → Partitions** to inspect Registry placement, offline Final holders, profile readiness, confidence, unknown reasons and remote users. Refresh and Inspect only read state. Remote users pin ordinary offlining and clientless movement; a `remote-use` conflict means another node is using the partition remotely.
+
+The authenticated Administrator role is required for **Profile**, **Dry run (prediction only)** and per-key cache clear. Viewer and Editor can inspect. Profile deliberately advances profiling on the selected online owner. Dry run reads the exact offline Final from an advertised holder for a finite interval of 0-168 game hours. It does not wake, claim or save the partition. A changed Final or unavailable holder needs refresh; a legacy Final may have no profile.
+
+Results keep source confidence (**Exact**, **Approximate**, **Frozen**, **Creative**), skipped/content-mismatch reasons, modeled interval and cap. Confidence does not claim native game verification. Tables show stored energy and per-block electricity in MWh, fuel and net inventory definition quantities, production recipe units and zone-chip counts. Production and player safe zones share the source model's power budget and producer costs. Zone rows report bubble presence, activation, chip exhaustion and paid-credit timers. Power loss pauses paid credit; recovery requires vanilla activation; chip exhaustion removes the bubble and preserves the block switch/settings. Admin-created zones follow separate rules.
+
+Expand **Shared production rate cache** for measured/formula rates per second, samples, spread, scripted status and key epochs. **Clear this key** submits the displayed epoch. `epoch_mismatch` means the key changed; review the refreshed cache before another deliberate clear. Running operations remain visible. A clear does not measure the group again.
+
+Older cluster packages without the `offlinePartitions=v1` capability keep ordinary cluster controls but show offline administration as unsupported. Missing diagnostics show unavailable, never invented zero costs. Quasar uses the existing authenticated Gateway transport and never exposes node credentials. See [Offline partitions and compensation](https://github.com/CometWorks/quasar/blob/main/Docs/ClusterOfflineCompensation.md) for units, API routes and test limits.
+
 ### Cluster console
 
 On wide screens, Registry event details and their JSON payload share a row to use
@@ -451,6 +463,11 @@ collisions, limits and the required Magnetar version.
 ## Sources
 - `Quasar/Components/Pages/NewServerDialog.razor`
 - `Quasar/Services/ServerManagementActions.cs`
+
+- `Docs/ClusterOfflineCompensation.md`
+- `Quasar/Components/Dashboard/ClusterPartitionsPanel.razor`
+- `Quasar/Components/Dashboard/ClusterOfflineResults.razor`
+- `Contracts/ClusterGateway.AdminContract/OfflineContract.cs`
 - `Docs/ClusterOverview.md`
 - `Quasar/Components/Dashboard/ClusterHealthOverview.razor`
 - `Quasar/Components/Dashboard/ClusterResourceUsage.razor`
