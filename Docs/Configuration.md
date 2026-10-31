@@ -1475,9 +1475,14 @@ activates the new inventory and starts the cluster again. The API equivalent is
 
 `POST /api/v1/clusters/{uniqueName}/names-preparation` with
 `{"serverName":"...","worldName":"..."}` prepares a deployment with new in-game
-names; a blank or missing name stays as it is. Staging the profile again
-(`config-profile-preparation`) picks up its Message of the Day. Both apply from
-**Maintenance → Pending update** like hot spares.
+names; a blank or missing name stays as it is. The update writes the world name
+into the world's `SessionName` as well, and the cluster's profile patch keeps its
+settings and mods, so unstaged profile edits don't come along. The names stay
+staged until the next activation: selecting a cluster package or staging the
+profile afterwards keeps them, also after a failed staging. Only a cluster from
+before profile patches needs a profile staging for `SessionName`. Staging the
+profile again (`config-profile-preparation`) picks up its Message of the Day. Both
+apply from **Maintenance → Pending update** like hot spares.
 
 **World files** stage mod configuration that lives in the world's `Storage` folder
 (for example Modular Encounters Systems' `Storage/1521905890.sbm_ModularEncountersSystems/Config-*.xml`)

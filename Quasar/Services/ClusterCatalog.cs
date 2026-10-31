@@ -148,6 +148,7 @@ public sealed class ClusterCatalog : IDisposable
             if (cluster.PreparedProfile?.DeploymentRevision == active.Revision)
                 cluster.ConfigProfileId = cluster.PreparedProfile.ProfileId;
             cluster.PreparedProfile = null;
+            cluster.StagedNames = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
             cluster.PendingDeploymentHash = null;
@@ -223,7 +224,8 @@ public sealed class ClusterCatalog : IDisposable
 
     internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
         ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null,
-        string? preparedProfileSha256 = null, ClusterContentUpdateQueue? preparedContentUpdates = null)
+        string? preparedProfileSha256 = null, ClusterContentUpdateQueue? preparedContentUpdates = null,
+        ClusterStagedNames? stagedNames = null)
     {
         await _writeGate.WaitAsync(token);
         try
@@ -253,6 +255,7 @@ public sealed class ClusterCatalog : IDisposable
             if (preparedProfileId is not null)
                 current.PreparedProfile = new(preparedProfileId, deployment.Revision, preparedProfileSha256);
             if (preparedContentUpdates is not null) current.QueuedContentUpdates = null;
+            if (stagedNames is not null) current.StagedNames = stagedNames;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
