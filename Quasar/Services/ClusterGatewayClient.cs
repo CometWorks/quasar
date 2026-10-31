@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Quasar.Models;
@@ -66,6 +67,57 @@ public sealed class ClusterGatewayClient
     public Task<Admin.AdminEnvelope<Admin.DiagnosticsSnapshot>> GetClientDiagnosticsAsync(
         ClusterDefinition cluster, string node, CancellationToken token) =>
         GetAsync<Admin.DiagnosticsSnapshot>(cluster, "client-diagnostics?node=" + Uri.EscapeDataString(node), token);
+
+    public Task<Admin.AdminEnvelope<Admin.OfflinePartitionCatalog>> GetOfflinePartitionsAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetOfflineAsync<Admin.OfflinePartitionCatalog>(cluster, "offline/partitions", token);
+    public Task<Admin.AdminEnvelope<Admin.OfflineCacheView>> GetOfflineCacheAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetOfflineAsync<Admin.OfflineCacheView>(cluster, "offline/cache", token);
+    public Task<Admin.AdminEnvelope<Admin.OfflinePartitionDetails>> GetOfflineDetailsAsync(
+        ClusterDefinition cluster, string node, ulong partition, CancellationToken token)
+    {
+        ValidateOfflineTarget(node, partition);
+        return GetOfflineAsync<Admin.OfflinePartitionDetails>(cluster,
+            $"offline/details?node={Uri.EscapeDataString(node)}&partition={partition}", token);
+    }
+    public Task<Admin.AdminEnvelope<Admin.OfflinePrediction>> GetOfflinePredictionAsync(
+        ClusterDefinition cluster, string node, ulong partition, double hours, CancellationToken token)
+    {
+        ValidateOfflineTarget(node, partition);
+        if (!double.IsFinite(hours) || hours is < 0 or > 168)
+            throw new ClusterGatewayException(HttpStatusCode.BadRequest, "invalid_arguments", "Prediction hours must be finite and between 0 and 168.");
+        return GetOfflineAsync<Admin.OfflinePrediction>(cluster,
+            $"offline/prediction?node={Uri.EscapeDataString(node)}&partition={partition}&hours={hours.ToString("R", CultureInfo.InvariantCulture)}", token);
+    }
+
+    internal static void ValidateOfflineTarget(string? node, ulong partition)
+    {
+        if (string.IsNullOrWhiteSpace(node) || node.Length > 200 || partition == 0)
+            throw new ClusterGatewayException(HttpStatusCode.BadRequest, "invalid_arguments", "An exact registered node and positive partition ID are required.");
+    }
+
+    internal async Task RequireOfflineAsync(ClusterDefinition cluster, string operation, CancellationToken token, bool manage = false)
+    {
+        var capabilities = (await GetCapabilitiesAsync(cluster, token)).Data;
+        if (!SupportsOffline(capabilities) || capabilities.Operations?.Contains(operation, StringComparer.Ordinal) != true)
+            throw new ClusterGatewayException(HttpStatusCode.NotImplemented, "offline_unsupported",
+                "Offline compensation administration is unsupported by this cluster package. Ordinary cluster management remains available.");
+        if (manage && capabilities.Scope != Admin.AdminScope.Manage)
+            throw new ClusterGatewayException(HttpStatusCode.Forbidden, "manage_scope_required", "Cluster credentials allow observation only.");
+    }
+
+    internal static bool SupportsOffline(Admin.AdminCapabilities capabilities) =>
+        capabilities.Features?.TryGetValue("offlinePartitions", out string? version) == true && version == "v1";
+
+    private async Task<Admin.AdminEnvelope<T>> GetOfflineAsync<T>(ClusterDefinition cluster, string route, CancellationToken token)
+    {
+        await RequireOfflineAsync(cluster, "GET " + Admin.AdminProtocol.RoutePrefix + "/" + route.Split('?')[0], token);
+        var envelope = await GetAsync<T>(cluster, route, token);
+        if (envelope.Data is Admin.OfflinePartitionCatalog { Partitions: null }
+            or Admin.OfflinePartitionDetails { Groups: null } or Admin.OfflinePartitionDetails { Results: null }
+            or Admin.OfflineCacheView { Entries: null } or Admin.OfflinePrediction { Results: null })
+            throw ProtocolMismatch();
+        return envelope;
+    }
     public Task<Admin.AdminEnvelope<Admin.AdminConfig>> GetPolicyAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdminConfig>(cluster, "config", token);
     public Task<Admin.AdminEnvelope<Admin.ClientSummary[]>> GetClientsAsync(

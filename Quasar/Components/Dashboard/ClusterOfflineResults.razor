@@ -1,0 +1,97 @@
+@using System.Globalization
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+
+<section class="quasar-stack" aria-label="@(Prediction ? "Compensation prediction" : "Last compensation")">
+    <h3>@(Prediction ? "Prediction only" : "Last compensation reported by the node")</h3>
+    <p class="quasar-muted">Offline compensation extrapolates captured rates. Confidence describes the model, not native game verification. Stored energy, producer fuel, production and zone upkeep share the modeled power budget.</p>
+    @if (Results is null)
+    {
+        <p role="status">Compensation results unavailable from this backend.</p>
+    }
+    else if (Results.Length == 0)
+    {
+        <p role="status">No compensation results reported. A legacy Final may have no captured profile.</p>
+    }
+    else
+    {
+        @foreach (var result in Results)
+        {
+            <article class="quasar-panel quasar-card-content quasar-stack" @key="result.Group">
+                <h4>Group @result.Group · @(result.Confidence ?? "Confidence unavailable")</h4>
+                @if (!string.IsNullOrWhiteSpace(result.Skipped))
+                {
+                    <p class="quasar-notice quasar-notice-warning" role="status">Skipped: @result.Skipped</p>
+                }
+                else
+                {
+                    <p>Modeled interval: @Hours(result.Frames) game hours. @(result.Capped == true ? "Capped; excess time receives no compensation." : "Not capped.")</p>
+                    <p class="quasar-muted quasar-caption">Authority clock interval: @(result.FromFrame.ToString(CultureInfo.InvariantCulture)) to @(result.CompensatedTo.ToString(CultureInfo.InvariantCulture)) (16 ms clock units; not wall time). The end marker includes any capped excess time.</p>
+                    <p>Stored energy change: @Number(result.EnergyDelta) MWh</p>
+                    <div class="quasar-table-scroll" tabindex="0" role="region" aria-label="Power, production and upkeep by block; scroll horizontally for more columns"><table class="quasar-server-table">
+                        <caption>Power, production and upkeep by block</caption>
+                        <thead><tr><th scope="col">Block</th><th scope="col">Produced electricity (MWh)</th><th scope="col">Consumed electricity (MWh)</th><th scope="col">Storage input (MWh)</th><th scope="col">Production (recipe units)</th><th scope="col">Zone chips consumed (count)</th></tr></thead>
+                        <tbody>
+                        @foreach (long block in Blocks(result))
+                        {
+                            <tr><th scope="row">@block</th><td>@Value(result.ProducerEnergyMWh, block)</td><td>@Value(result.ConsumerEnergyMWh, block)</td><td>@Value(result.StorageInputEnergyMWh, block)</td><td>@Value(result.ProductionUnits, block)</td><td>@(result.UpkeepConsumed?.TryGetValue(block, out var chips) == true ? chips.ToString("0.######", CultureInfo.InvariantCulture) : "Unavailable")</td></tr>
+                        }
+                        </tbody>
+                    </table></div>
+                    @if (!Blocks(result).Any()) { <p>Per-block accounting unavailable or empty.</p> }
+                    <div class="quasar-table-scroll" tabindex="0" role="region" aria-label="Producer fuel consumed; scroll horizontally for more columns"><table class="quasar-server-table">
+                        <caption>Producer fuel consumed (inventory definition units)</caption>
+                        <thead><tr><th scope="col">Producer block</th><th scope="col">Fuel definition</th><th scope="col">Quantity consumed</th></tr></thead>
+                        <tbody>
+                        @foreach (var producer in result.ProducerFuelConsumed?.AsEnumerable() ?? [])
+                        {
+                            @foreach (var fuel in producer.Value)
+                            {
+                                <tr><th scope="row">@producer.Key</th><td>@fuel.Key</td><td>@fuel.Value.ToString("0.######", CultureInfo.InvariantCulture)</td></tr>
+                            }
+                        }
+                        </tbody>
+                    </table></div>
+                    @if (result.ProducerFuelConsumed is null) { <p>Producer fuel accounting unavailable.</p> }
+                    <div class="quasar-table-scroll" tabindex="0" role="region" aria-label="Net inventory change; scroll horizontally for more columns"><table class="quasar-server-table">
+                        <caption>Net inventory change (inventory definition units; includes inputs and fuel)</caption>
+                        <thead><tr><th scope="col">Item definition</th><th scope="col">Quantity change</th></tr></thead>
+                        <tbody>
+                        @foreach (var item in result.ItemDelta?.AsEnumerable() ?? [])
+                        {
+                            <tr><th scope="row">@item.Key</th><td>@item.Value.ToString("+0.######;-0.######;0", CultureInfo.InvariantCulture)</td></tr>
+                        }
+                        </tbody>
+                    </table></div>
+                    @if (result.ItemDelta is null) { <p>Inventory changes unavailable.</p> }
+                    <h5>Player safe zones</h5>
+                    <p class="quasar-muted">Power loss pauses paid upkeep. Recovery requires vanilla activation. Chip exhaustion removes the bubble while retaining the block switch and settings. Admin-created zones follow separate rules.</p>
+                    @if (result.Zones is null) { <p>Zone state unavailable.</p> }
+                    else if (result.Zones.Length == 0) { <p>No modeled player safe zones.</p> }
+                    else
+                    {
+                        <ul>
+                        @foreach (var zone in result.Zones)
+                        {
+                            <li>Block @zone.Block: @(zone.Exhausted ? "chips exhausted" : zone.Activating ? "activating" : zone.Exists ? "bubble present" : "bubble absent / power paused"); paid upkeep remaining @Number(zone.RemainingFrames / 60) seconds; activation remaining @Number(zone.ActivationRemainingFrames / 60) seconds.</li>
+                        }
+                        </ul>
+                    }
+                }
+            </article>
+        }
+    }
+</section>
+
+@code {
+    [Parameter] public Admin.OfflineCompensationResult[]? Results { get; set; }
+    [Parameter] public bool Prediction { get; set; }
+    private static string Number(double? value) => value is { } n && double.IsFinite(n)
+        ? n.ToString("0.######", CultureInfo.InvariantCulture) : "Unavailable";
+    private static string Hours(long? frames) => Number(frames / 225000d);
+    private static string Value(IReadOnlyDictionary<long, double>? values, long block) =>
+        values?.TryGetValue(block, out double value) == true ? Number(value) : "Unavailable";
+    private static IEnumerable<long> Blocks(Admin.OfflineCompensationResult result) =>
+        (result.ProducerEnergyMWh?.Keys.AsEnumerable() ?? []).Concat(result.ConsumerEnergyMWh?.Keys.AsEnumerable() ?? [])
+        .Concat(result.StorageInputEnergyMWh?.Keys.AsEnumerable() ?? []).Concat(result.ProductionUnits?.Keys.AsEnumerable() ?? [])
+        .Concat(result.UpkeepConsumed?.Keys.AsEnumerable() ?? []).Distinct().Order();
+}

@@ -38,6 +38,7 @@ public static class QuasarPolicyNames
 {
     public const string ClusterQuery = "ClusterQuery";
     public const string ClusterManage = "ClusterManage";
+    public const string ClusterMaintenance = "ClusterMaintenance";
     public const string CanView = "CanView";
     public const string CanEditConfigs = "CanEditConfigs";
     public const string CanEditServers = "CanEditServers";

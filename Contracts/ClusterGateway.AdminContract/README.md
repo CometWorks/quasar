@@ -1,10 +1,15 @@
 # Cluster Registry admin contract
 
-Implementation-free DTOs for the versioned Cluster Registry admin API. Cluster Registry,
-Quasar, `Quasar.Host`, and the packaged CLI consume this package instead of
-referencing Registry implementation types.
+Implementation-free DTOs for the versioned Cluster Registry admin API. Quasar,
+Quasar.Host and the packaged CLI consume this contract without referencing Registry
+implementation types. AdminProtocol exposes the URL prefix and wire version.
 
-The URL prefix and current wire version are exposed by `AdminProtocol`.
+Contract 0.10.0 includes capability-gated offline partition, profile, prediction and
+cache administration, client diagnostics and rotation, recovery readiness,
+executor contracts, deployment readiness and handover capabilities. It retains
+wire protocol v1. All five DTO files are vendored byte-for-byte from the same
+immutable public Cluster draft; see [SOURCE.md](SOURCE.md) for provenance and hashes.
+This is a source pin, not a published package or cluster release.
 
 Package `0.4.0` includes recovery readiness, host-scoped executor contracts,
 deployment revision/readiness and handover capabilities. It retains wire protocol v1.

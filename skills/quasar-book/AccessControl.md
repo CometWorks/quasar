@@ -41,6 +41,7 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | `CanShutdownQuasar` | admin | Power button in the top bar (**Restart Quasar**, **Shutdown Quasar**) |
 | `ClusterQuery` | viewer, editor, admin, or scope `cluster.query`/`cluster.manage` | Viewing clusters and the cluster query API |
 | `ClusterManage` | editor, admin, or scope `cluster.manage` | Changing clusters |
+| `ClusterMaintenance` | authenticated admin | Offline profiling, deliberate compensation prediction and per-key production-rate cache clear |
 
 With authentication on, every UI page requires at least `viewer`.
 
