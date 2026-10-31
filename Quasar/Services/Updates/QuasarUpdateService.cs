@@ -496,6 +496,22 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private async Task ActivateStagedWebUpdateCoreAsync(CancellationToken cancellationToken)
     {
+        if (GetSnapshot().Web is { IsNewer: false, IsCurrent: false } rollback)
+        {
+            if (!string.Equals(Environment.GetEnvironmentVariable("QUASAR_COORDINATED_ROLLBACKS"), "true", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("Update Bootstrap before rolling back. This launcher cannot roll back Bootstrap and the UI together.");
+
+            var releases = await GetReleasesAsync(cancellationToken).ConfigureAwait(false);
+            var bootstrap = BuildCandidates(releases, _options.BootstrapAssetName, _webOptions.BootstrapVersion, requiresPrivilegedInstall: true)
+                .FirstOrDefault(candidate => string.Equals(candidate.Version, rollback.Version, StringComparison.OrdinalIgnoreCase));
+            if (bootstrap is null)
+                throw new InvalidOperationException($"Release {rollback.Version} has no matching Bootstrap installer. Both components are required for rollback.");
+
+            var rollbackPointer = PrepareStagedWebRelease();
+            await WriteBootstrapActivationRequestAsync(bootstrap, rollbackPointer, allowRollback: true, cancellationToken);
+            return;
+        }
+
         var pointer = PrepareStagedWebRelease();
         var path = MagnetarPaths.GetQuasarActiveReleasePath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -553,6 +569,12 @@ public sealed class QuasarUpdateService : BackgroundService
         if (bootstrap is null || !bootstrap.IsNewer)
             throw new InvalidOperationException("No Bootstrap update is available to activate.");
 
+        await WriteBootstrapActivationRequestAsync(bootstrap, webRelease, allowRollback: false, cancellationToken);
+    }
+
+    private async Task WriteBootstrapActivationRequestAsync(QuasarUpdateCandidate bootstrap, QuasarActiveReleasePointer? webRelease,
+        bool allowRollback, CancellationToken cancellationToken)
+    {
         if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
             throw new InvalidOperationException("Quasar is not running under Bootstrap, so the launcher cannot be updated from the UI.");
 
@@ -566,6 +588,7 @@ public sealed class QuasarUpdateService : BackgroundService
             ["assetName"] = bootstrap.AssetName,
             ["workerVersion"] = _webOptions.Version,
             ["webRelease"] = webRelease is null ? null : JsonSerializer.SerializeToNode(webRelease, JsonOptions),
+            ["allowRollback"] = allowRollback,
         };
 
         await AtomicFileWriter.WriteTextAsync(path, request.ToJsonString(JsonOptions), cancellationToken).ConfigureAwait(false);
@@ -573,7 +596,9 @@ public sealed class QuasarUpdateService : BackgroundService
         SetSnapshot(_snapshot with
         {
             Status = QuasarUpdateStatus.Activating,
-            Message = $"Bootstrap {bootstrap.Version} activation requested. Quasar will restart shortly.",
+            Message = allowRollback
+                ? $"Rolling back Bootstrap and Quasar UI to {bootstrap.Version}. Quasar will restart shortly."
+                : $"Bootstrap {bootstrap.Version} activation requested. Quasar will restart shortly.",
         });
     }
 

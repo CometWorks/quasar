@@ -46,9 +46,13 @@ A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new r
 
 Old tokenless agents are refused even on loopback. An adopted server stays disconnected until its agent can authenticate. Automatic attach recovery, health restarts and planned restarts wait for authenticated running telemetry; explicit admin actions remain possible. If you already upgraded with servers running, save in game before restarting because Quasar cannot save through a refused agent. An old standalone agent that had connected can save and stop after its own offline window (one hour by default). Current cluster agents never self-stop for a Quasar outage; Gateway/Host owns their lifecycle.
 
-### Rolling back the UI
+### Rolling back Quasar UI and Bootstrap
 
-Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. Automatic staging never picks an older version. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
+Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. This restores both the UI and Bootstrap to that exact release. Quasar requires its platform installer as well as the staged UI; it does not fall back to a UI-only rollback. The request binds the prepared UI to the selected installer version, and Bootstrap verifies the installer's `SHA256SUMS` before replacing itself and switching the UI pointer. Managed game servers keep running.
+
+The running launcher must support coordinated rollbacks (introduced with Quasar 1.3.2). An older launcher shows "Update Bootstrap before rolling back" instead of silently leaving components on different versions. Upgrade Bootstrap first. Bootstrap keeps the replaced launcher as `Quasar.previous` (`Quasar.exe.previous` on Windows), and keeps the previous UI pointer through the startup health check for recovery. Live Windows/Linux rollback and recovery remain release acceptance checks.
+
+Automatic staging never picks an older version, and automatic activation never downgrades either component. If automatic updates remain enabled, they can upgrade an intentionally rolled-back installation again; turn that policy off first to stay on the older release. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
 
 ### appsettings.json merge during staging
 
@@ -70,11 +74,11 @@ Quasar creates rewritten and merged `appsettings.json` files owner-readable/writ
 
 ## Bootstrap launcher updates
 
-Bootstrap is the small launcher that owns the public port and runs the worker. It installs a new launcher only when the worker asks it to, by writing `<install root>/Updates/bootstrap-update-request.json`. That happens when you press **Force activate** on the Updates page, or through the automatic update policy below. Bootstrap does not apply releases on its own timer.
+Bootstrap is the small launcher that owns the public port and runs the worker. It installs a launcher only when the worker asks it to, by writing `<install root>/Updates/bootstrap-update-request.json`. That happens when you press **Force activate** on the Updates page, activate a staged rollback, or through the automatic update policy below. Bootstrap does not apply releases on its own timer.
 
 When Bootstrap handles a request it:
 
-1. Finds the requested release and the installer asset (`quasar-installer-linux.tar.gz` or `quasar-installer-windows.zip`). It does nothing if that version is not newer than the running launcher.
+1. Finds the requested release and the installer asset (`quasar-installer-linux.tar.gz` or `quasar-installer-windows.zip`). Ordinary updates require a newer version. An explicit rollback can install an older or matching launcher only with a prepared UI pointer bound to the same release.
 2. Downloads it into `ManagedRuntime/Cache/`, verifies `SHA256SUMS`, and extracts it under `Updates/Staged/Bootstrap-<version>/`.
 3. Skips the restart if the new launcher binary is byte-identical to the installed one.
 4. Copies the archive files into the install root. It never overwrites the root `appsettings.json` or anything under `WebService/`. The old launcher binary stays next to it as `Quasar.previous` (`Quasar.exe.previous` on Windows).

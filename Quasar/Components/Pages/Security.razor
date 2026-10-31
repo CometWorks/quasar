@@ -283,7 +283,7 @@
 @code
 {
     private Task<IDialogReference> ManageAccessAsync() => DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access",
-        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
+        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
 
     private RbacConfig _config = new();
     private const string OidcProviderName = "Oidc";

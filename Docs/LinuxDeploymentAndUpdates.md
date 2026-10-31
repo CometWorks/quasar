@@ -201,6 +201,16 @@ and stages it automatically, then shows an in-app notification and the
 are only queued until the operator stages the selected version. Staging requires
 a matching `SHA256SUMS` entry for the downloaded asset.
 
+Selecting an older version marked **rollback**, then **Stage** and **Activate**,
+restores both the UI and Bootstrap to that exact release. Its Linux installer
+must still be available. A launcher supporting coordinated rollback (Quasar 1.3.2
+or newer) prepares the paired cutover, verifies the installer checksum and
+restarts into the selected UI. Older launchers require upgrading Bootstrap
+first; there is no UI-only fallback. The replaced launcher remains
+`Quasar.previous`, and the previous UI pointer is retained through startup health
+checks. Managed servers keep running. Disable automatic updates first if you
+want to remain on the older release; automation never downgrades components.
+
 Staging also resolves `appsettings.json`. Quasar uses the stored release base in
 the install root (`$QUASAR_INSTALL_DIR/Updates/appsettings.base.json`) as the
 merge base, applies local values from the install directory, and writes the
@@ -274,24 +284,27 @@ for a restart to verify or refresh the DS install.
 
 ## Bootstrap Updates
 
-Bootstrap checks the primary Quasar release stream every 15 minutes by default.
-When it finds an actually newer `quasar-installer-linux.tar.gz` asset (semver
-core and prerelease compared against the running launcher's release identity), it
+The UI worker checks the primary Quasar release stream every 15 minutes by
+default. Bootstrap acts on its activation request. For ordinary updates, the
+`quasar-installer-linux.tar.gz` version must be newer than the running launcher
+(semver core and prerelease compared against its release identity). Bootstrap
 verifies the release's `SHA256SUMS` entry, extracts the archive, strips the
 single top-level `Quasar` directory, replaces the installed launcher files,
 drains the UI worker, and exits with a failure code so systemd restarts the
 updated launcher. Existing `appsettings.json` is preserved.
-Bootstrap must not drain the worker for a release whose normalized version is
+An ordinary Bootstrap update must not drain the worker for a release whose normalized version is
 the same as the running launcher; it also skips drain/restart if the downloaded
 launcher is byte-identical to the installed launcher, which prevents a repeated
 self-update loop when a source-built launcher reports stale version metadata.
+An explicit coordinated rollback permits an older or matching launcher and
+still switches the prepared UI, even when the launcher bytes already match.
 
 If `/settings/updates` has already detected a Bootstrap update and Quasar is
 running under Bootstrap, the **Force activate** button writes a
 `Updates/bootstrap-update-request.json` request containing the detected
 version and platform asset. Bootstrap watches for that file, consumes it, and
 runs the same verified self-update path for that requested release immediately
-instead of waiting for the next 15-minute monitor tick. Managed Magnetar servers
+without an independent Bootstrap update timer. Managed Magnetar servers
 stay running; the web UI reconnects after the launcher restarts.
 
 ## Install
