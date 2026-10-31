@@ -14,11 +14,22 @@ A first interactive administrator session shows **Set up administrator access**.
 If no subject or claim mapping grants the admin role, its first step asks for
 your 17-digit **Administrator SteamID64**. **Save administrator and continue**
 saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**.
-Existing administrator mappings skip this step. **Later** closes setup without
+Existing administrator mappings skip this step. The access-method screen uses
+two large choices and a step progress indicator, like the server import wizard.
+Both wizards use the same Large dialog width; the import wizard no longer uses
+ExtraLarge.
+Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back**
+returns from hosted settings and retains the name you entered. **Cancel** closes setup without
 configuring public access; setup returns on the next page load while no admin is
 configured. Headless startup is not blocked. Reopen it at
 **Security → Manage access setup**. See [Hosted access](HostedPanel.md)
 for automatic enrollment and its current availability limits.
+
+Starting hosted enrollment switches the dialog to a progress screen with live
+updates and **Cancel** as its only footer action while connecting. The primary
+**Open Quasar dashboard** button appears after hosting activation and fresh
+tunnel/worker readiness checks succeed. Canceling setup does not cancel a paid
+subscription.
 
 ## Set the first administrator
 

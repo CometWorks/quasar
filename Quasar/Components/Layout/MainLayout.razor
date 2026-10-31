@@ -295,7 +295,7 @@
         if ((!RbacConfigCatalog.HasAdminMapping(RbacConfigCatalog.GetConfig()) || HostedPanel.State.Choice == "") &&
             await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
             await DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access", new DialogOptions
-                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
+                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
         await InvokeAsync(StateHasChanged);
     }
 
