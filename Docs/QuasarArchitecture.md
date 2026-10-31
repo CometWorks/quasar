@@ -728,6 +728,14 @@ Practical guarantee:
    managed worker on the same port
 9. browsers and agents reconnect
 
+After health checks pass, Bootstrap retains the previous healthy UI pointer in
+`Updates/active-release.json.rollback` and keeps its payload alongside the active
+release. `Quasar --rollback` (alias `Quasar rollback`) publishes that pointer under
+the shared maintenance lease and ensures the launcher is running. The normal
+cutover path applies it without a download or stopping game servers. The launcher
+binary and current settings/data stay unchanged. A transient `.previous` pointer
+also protects interrupted cutovers until startup succeeds.
+
 Bootstrap updates normally activate from Bootstrap's own update monitor. When
 the Updates page has detected a newer launcher asset and the worker is running
 under Bootstrap, an admin can force activation from the UI. The worker writes a

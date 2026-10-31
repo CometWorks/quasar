@@ -10,7 +10,7 @@
             </div>
             <div class="quasar-layout quasar-layout-row quasar-gap-1">
                 <MudTooltip Text="Download full Discord log">
-                    <MudIconButton Icon="@Icons.Material.Filled.Download" Href="/api/discord/log/download" Disabled="@(!_loaded || _missing)" Size="Size.Small" />
+                    <MudIconButton Icon="@Icons.Material.Filled.Download" Href="api/discord/log/download" Disabled="@(!_loaded || _missing)" Size="Size.Small" />
                 </MudTooltip>
                 <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Search" OnClick="ShowExceptionsAsync">Exceptions</MudButton>
                 <MudButton Variant="Variant.Text" Size="Size.Small" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">Refresh</MudButton>

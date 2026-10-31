@@ -94,8 +94,8 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 **Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has four panels.
 
-- **Auth Provider**: read-only summary of the default provider, Steam login, trusted loopback, trusted same subnet and trusted proxies, and the path of the `appsettings.json` it writes.
-- **Trusted Network and Reverse Proxy**: checkboxes **Trust loopback access** and **Trust same subnet access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback on, same subnet off; you still have to save). It writes `Quasar:Auth:TrustedNetworkBypass` in the data directory's `appsettings.json`. The two checkboxes apply immediately. Trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
+- **Auth Provider**: read-only summary of the default provider, Steam login, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
+- **Trusted Network and Reverse Proxy**: checkboxes **Trust loopback access** and **Trust private LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback on, private LAN off; you still have to save). It writes `Quasar:Auth:TrustedNetworkBypass` in the data directory's `appsettings.json`. The two checkboxes apply immediately. Trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
@@ -106,11 +106,11 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `AllowLoopback` | `true` | Trust `127.0.0.1` and `::1` |
-| `AllowSameSubnet` | `false` | Trust IPv4 clients on the same subnet as any active network interface of the Quasar machine |
+| `AllowSameSubnet` | `true` | Trust RFC 1918 private IPv4 ranges, IPv6 ULA (`fc00::/7`), and IPv4 clients on an active local interface subnet |
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
-Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on, LAN users at an accepted destination can manage Quasar without signing in.
+Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Trust private LAN access** to opt out; an explicit `AllowSameSubnet: false` disables LAN bypass. Browser push still requires HTTPS or localhost.
 
 Quasar checks the original Host and scheme before proxy forwarding and checks the effective destination again before granting roles. Accepted destinations are the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or localhost, loopback or the actual socket destination IP at its local port. A wildcard listener does not authorize arbitrary DNS aliases. Set the public BaseUrl to the URL browsers should use.
 
@@ -198,6 +198,16 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | All Steam users lost access after an edit | `rbac.json` is not valid JSON. Check the Quasar log for "Failed loading RBAC config". |
 | Cluster API returns 401 with a token | Token variable missing in the Quasar service environment, shorter than 32 characters, shared by two principals, or Quasar not restarted after the change. |
 | `Login unavailable` page | `Quasar:Auth:Steam:Enabled` is `false` or `DefaultProvider` is not `Steam`. |
+
+## Hosted public access
+
+**Security → Manage access setup** lets an admin choose self-deployment or Nebula
+hosted enrollment at `https://dash.se-servers.net/<panel-name>/`. Hosted
+traffic always uses Steam/RBAC and endpoint credentials, even though frpc runs
+on loopback. Platform super-admin/free-hosting rights do not create a local role.
+Stripe Managed Payments billing is implemented in Nebula; checkout remains
+disabled until operator onboarding and acceptance.
+See [Hosted access](HostedPanel.md) for setup, private files and release gates.
 
 ## Sources
 

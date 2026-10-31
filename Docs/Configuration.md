@@ -833,8 +833,15 @@ use for local control requests does not change proxy settings for downloads.
 
 ## Reverse proxy auth
 
-Quasar can grant a trusted-network session to loopback or explicitly enabled
-same-subnet clients. Same-subnet bypass is disabled by default.
+Quasar grants a trusted-network session to loopback and private LAN clients by
+default. Turn off **Trust private LAN access** on **Settings → Security** to opt
+out (`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`). An explicit saved
+`false` value disables LAN bypass. The existing setting now accepts
+all RFC 1918 IPv4 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`),
+IPv6 unique-local addresses (`fc00::/7`), and directly attached IPv4 subnets.
+For example, a browser at `192.168.1.10` can use `http://192.168.1.80:8080`
+without HTTPS or sign-in when LAN bypass is enabled. Browser push notifications
+still require HTTPS or localhost.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
@@ -878,7 +885,7 @@ BaseUrl to that intended URL and give the proxy an accepted backend Host too.
 Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
 longer get automatic roles; use the configured URL or sign in. Signed-in users
 and service principals retain their existing authentication and permissions.
-Local loopback bypass remains on and same-subnet bypass remains off by default.
+Loopback and private LAN bypass are on by default; explicit `AllowSameSubnet: false` settings disable LAN bypass.
 No new aliases or auth configuration fields are introduced. See the
 [Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
 
@@ -901,7 +908,7 @@ proxy host, add the proxy container/host address or bridge CIDR:
 }
 ```
 
-Keep same-subnet bypass disabled whenever browser access should be tied to
+Keep private LAN bypass disabled whenever browser access should be tied to
 Steam/RBAC identity:
 
 ```json
@@ -2218,3 +2225,10 @@ This account preference controls the notification list, bell, and subscribed bro
 push independently of Quasar/cluster notices. Notices identify installed catalog
 revisions, disappear after installation, and use revision keys to avoid repeated
 push delivery. Automatic application does not require notifications to be enabled.
+
+## Hosted public panel
+
+Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
+access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,
+private state, connector lifetime and current launch gates. Paid checkout remains
+a disabled placeholder; no payment provider is integrated.

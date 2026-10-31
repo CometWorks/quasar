@@ -1,3 +1,4 @@
+@inject NavigationManager PanelNavigation
 <section class="pa-4 quasar-panel quasar-section @(Notice.IsAnnouncement ? $"quasar-notice quasar-notice-{Notice.Tone}" : null)">
     <div class="quasar-stack">
         <h2>@Notice.Title</h2>
@@ -13,7 +14,7 @@
         @if (!Notice.IsAnnouncement || Notice.Url != "/notifications")
         {
             <div>
-                <a rel="noopener noreferrer" class="quasar-button quasar-tone-primary" aria-label="@($"Open {Notice.Title}: {Notice.Body}")" href="@Notice.Url"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />Open details</a>
+                <a rel="noopener noreferrer" class="quasar-button quasar-tone-primary" aria-label="@($"Open {Notice.Title}: {Notice.Body}")" href="@PanelNavigation.PanelUrl(Notice.Url)"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />Open details</a>
             </div>
         }
     </div>

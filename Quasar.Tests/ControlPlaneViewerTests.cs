@@ -63,18 +63,28 @@ public sealed class ControlPlaneViewerTests : IDisposable
     private static T Registered<T>(BunitContext context) where T : class =>
         (T)context.Services.Last(service => service.ServiceType == typeof(T)).ImplementationInstance!;
 
-    [Fact]
-    public void ViewerNavigationIncludesEveryBuiltInControlPlanePage()
+    [Theory]
+    [InlineData("/")]
+    [InlineData("/my-server-panel/")]
+    public void ViewerNavigationIncludesEveryBuiltInControlPlanePage(string prefix)
     {
         using var context = Context();
         context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
             new HostingEnvironment { ContentRootPath = _root }, loadPluginAssemblies: false));
+        var navigation = new PrefixNavigation("https://dash.test" + prefix);
+        context.Services.AddSingleton<Microsoft.AspNetCore.Components.NavigationManager>(navigation);
         var page = context.Render<NavMenu>();
-        var links = page.FindAll("a").Select(a => a.GetAttribute("href")).ToArray();
+        var links = page.FindAll("a").Select(a => new Uri(new Uri(navigation.BaseUri), a.GetAttribute("href")!).AbsolutePath).ToArray();
         foreach (var route in new[] { "/", "/configs", "/world-templates", "/plugins", "/players", "/chat", "/entities", "/analytics", "/discord", "/settings/server-list", "/hosts", "/notifications" })
-            Assert.Contains(route, links);
+            Assert.Contains(prefix + route.TrimStart('/'), links);
         foreach (var route in new[] { "/settings/security", "/settings/ui-plugins", "/backup", "/settings/updates", "/settings/appearance" })
-            Assert.DoesNotContain(route, links);
+            Assert.DoesNotContain(prefix + route.TrimStart('/'), links);
+    }
+
+    private sealed class PrefixNavigation : Microsoft.AspNetCore.Components.NavigationManager
+    {
+        public PrefixNavigation(string origin) => Initialize(origin, origin);
+        protected override void NavigateToCore(string uri, bool forceLoad) { }
     }
 
     [Theory]

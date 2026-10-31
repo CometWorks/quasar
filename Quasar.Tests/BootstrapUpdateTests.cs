@@ -8,12 +8,117 @@ using Xunit;
 using BootstrapOptions = Bootstrap::Quasar.Bootstrap.BootstrapOptions;
 using ForegroundOptions = Bootstrap::Quasar.Bootstrap.LauncherForegroundOptions;
 using Coordinator = Bootstrap::Quasar.Bootstrap.LauncherCoordinator;
+using BootstrapProgram = Bootstrap::Quasar.Bootstrap.Program;
 
 namespace Quasar.Tests;
 
 [Collection("Exact server creation")]
 public sealed class BootstrapUpdateTests
 {
+    [Theory]
+    [InlineData("--rollback")]
+    [InlineData("rollback")]
+    public async Task RollbackWithoutRetainedReleaseFailsWithoutStartingProcesses(string argument)
+    {
+        await WithRootAsync(async () =>
+        {
+            Assert.Null(BootstrapProgram.FindInvalidLauncherArgument([argument]));
+            Assert.Equal(1, await BootstrapProgram.Main([argument, "--quiet"]));
+            Assert.False(File.Exists(MagnetarPaths.GetQuasarActiveReleasePath()));
+        });
+    }
+
+    [Fact]
+    public void HealthyCutoverRetainsOnePreviousReleaseAndSupportsRollbackWithoutDownload()
+    {
+        WithRoot(() =>
+        {
+            var first = CreateRelease("1.2.0");
+            var previous = CreateRelease("1.3.0");
+            var active = CreateRelease("1.4.0");
+            Coordinator.RetainPreviousRelease(previous, first);
+            Coordinator.RetainPreviousRelease(active, previous);
+            Coordinator.RetainPreviousRelease(active, active); // Ordinary restarts must not erase history.
+            Coordinator.RetainPreviousRelease(active, null); // A cold start has no in-memory predecessor.
+            Publish(active);
+            Coordinator.CleanupInactiveManagedWebReleases(active.WorkingDirectory);
+            Assert.False(Directory.Exists(first.WorkingDirectory));
+            Assert.True(File.Exists(previous.FileName));
+            Assert.True(File.Exists(active.FileName));
+            Coordinator.RequestRollback();
+            Assert.Equal(previous.Version, ReadPointer().Version);
+            Assert.Throws<InvalidOperationException>(Coordinator.RequestRollback);
+            Coordinator.RetainPreviousRelease(previous, active); // Successful rollback can be reversed too.
+            Coordinator.CleanupInactiveManagedWebReleases(previous.WorkingDirectory);
+            Coordinator.RequestRollback();
+            Assert.Equal(active.Version, ReadPointer().Version);
+            Assert.Empty(Directory.GetFiles(Path.GetDirectoryName(MagnetarPaths.GetQuasarActiveReleasePath())!, "*.tmp"));
+        });
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("corrupt")]
+    [InlineData("deleted-worker")]
+    public void UnusableRollbackLeavesActiveReleaseUntouched(string failure)
+    {
+        WithRoot(() =>
+        {
+            var active = CreateRelease("1.4.0");
+            Publish(active);
+            var path = MagnetarPaths.GetQuasarActiveReleasePath() + ".rollback";
+            if (failure == "corrupt") File.WriteAllText(path, "{");
+            if (failure == "deleted-worker")
+            {
+                var previous = CreateRelease("1.3.0");
+                Coordinator.RetainPreviousRelease(active, previous);
+                File.Delete(previous.FileName);
+            }
+            Assert.Throws<InvalidOperationException>(Coordinator.RequestRollback);
+            Assert.Equal(active.Version, ReadPointer().Version);
+        });
+    }
+
+    [Fact]
+    public void CleanupKeepsStartupRecoveryAndLegacyStagedRollbackTargets()
+    {
+        WithRoot(() =>
+        {
+            var active = CreateRelease("1.4.0");
+            var previous = CreateRelease("1.3.0");
+            Publish(previous, MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
+            Publish(active);
+            Coordinator.CleanupInactiveManagedWebReleases(active.WorkingDirectory);
+            Assert.True(File.Exists(previous.FileName));
+            Coordinator.RequestRollback();
+            Assert.Equal(previous.Version, ReadPointer().Version);
+
+            using var coordinator = new Coordinator(new BootstrapOptions { Version = "1.4.0" },
+                new ForegroundOptions(true), NullLogger<Coordinator>.Instance);
+            var staged = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), "1.2.0", "WebService");
+            Directory.CreateDirectory(staged);
+            previous.WorkingDirectory = staged;
+            Coordinator.RetainPreviousRelease(active, previous);
+            coordinator.CleanupCompletedStagedUpdates(active);
+            Assert.True(Directory.Exists(staged));
+        });
+    }
+
+    private static QuasarActiveReleasePointer CreateRelease(string version)
+    {
+        var directory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(version);
+        Directory.CreateDirectory(directory);
+        var worker = Path.Combine(directory, QuasarWebReleaseLayout.WorkerExecutableFileName);
+        File.WriteAllText(worker, "worker placeholder, never executed");
+        return new() { Version = version, WorkingDirectory = directory, FileName = worker };
+    }
+
+    private static QuasarActiveReleasePointer ReadPointer() => JsonSerializer.Deserialize<QuasarActiveReleasePointer>(
+        File.ReadAllText(MagnetarPaths.GetQuasarActiveReleasePath()), new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+
+    private static void Publish(QuasarActiveReleasePointer pointer, string? path = null) =>
+        typeof(Coordinator).GetMethod("WriteActiveReleasePointer", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [pointer, path]);
+
     [Theory]
     [InlineData("{", false)]
     [InlineData("null", false)]
@@ -136,12 +241,21 @@ public sealed class BootstrapUpdateTests
     }
 
     private static void WithRoot(Action action)
+        => WithRootAsync(() => { action(); return Task.CompletedTask; }).GetAwaiter().GetResult();
+
+    private static async Task WithRootAsync(Func<Task> action)
     {
+        var installDirectory = Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR");
         var cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.Static | BindingFlags.NonPublic)!;
         var previous = cache.GetValue(null);
         var directory = Path.Combine(Path.GetTempPath(), "quasar-bootstrap-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory); cache.SetValue(null, directory);
-        try { action(); }
-        finally { cache.SetValue(null, previous); Directory.Delete(directory, true); }
+        try { await action(); }
+        finally
+        {
+            Environment.SetEnvironmentVariable("QUASAR_INSTALL_DIR", installDirectory);
+            cache.SetValue(null, previous);
+            Directory.Delete(directory, true);
+        }
     }
 }

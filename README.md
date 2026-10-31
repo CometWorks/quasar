@@ -31,6 +31,14 @@ Viewers have read-only access to every built-in Control Plane page. Editing,
 server commands, and administration retain separate permissions; credentials and
 raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration.md#rbac-enforcement).
 
+Private LAN access bypasses sign-in by default, including `192.168.x.x`, `10.x.x.x`,
+`172.16.x.x` through `172.31.x.x`, and IPv6 ULA addresses. Turn off **Trust private
+LAN access** on Security to opt out; an explicit `AllowSameSubnet: false` disables it.
+See [trusted-network configuration](Docs/Configuration.md#reverse-proxy-auth).
+
+Run `Quasar --rollback` from the install directory to restore the previous healthy
+UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
+
 ## Documentation
 
 | Page | What it covers |
@@ -38,6 +46,7 @@ raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration
 | [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
 | [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
+| [Hosted panel](Docs/HostedPanel.md) | Optional Nebula enrollment, public path URLs, connector lifecycle and current launch gates. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, headless mode, browser behavior, and optional instance health notifications. |
 | [Server directory uplink](Docs/ServerList.md) | Consent, diagnostics availability, public statistics, admin authority and directory rollout requirements. |
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |

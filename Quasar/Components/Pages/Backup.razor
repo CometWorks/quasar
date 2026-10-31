@@ -32,7 +32,7 @@
                         non-cache Dedicated Server and Magnetar app data.</b>
                 </p>
 
-                <MudButton Href="/api/backup/download"
+                <MudButton Href="api/backup/download"
                            Variant="Variant.Filled"
                            Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.Download">
@@ -411,7 +411,7 @@
                             <MudTd DataLabel="" Class="quasar-actions-column">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
-                                                   Href="@($"/api/backup/download/{context.Name}")"
+                                                   Href="@($"api/backup/download/{context.Name}")"
                                                    Size="Size.Small" />
                                 </MudTooltip>
                                 <MudTooltip Text="@(IsBackupRestoreBlocked(context) ? "Stop the server before restoring." : "Restore")">

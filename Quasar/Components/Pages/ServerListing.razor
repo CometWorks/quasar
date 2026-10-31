@@ -16,11 +16,11 @@
     <label class="quasar-check"><input name="listing-visibility" type="checkbox" @bind:get="Consent.GetSettings().ListingGranted" @bind:set="SaveVisibilityAsync" disabled="@(_saving || !_canManage)" />Show configured servers on se-servers.net</label>
     @if (!Consent.GetSettings().DiagnosticsGranted)
     {
-        <p class="quasar-notice quasar-notice-warning" role="status">Accept diagnostic data handling in <a href="/settings/security">Security</a> before publishing.</p>
+        <p class="quasar-notice quasar-notice-warning" role="status">Accept diagnostic data handling in <a href="settings/security">Security</a> before publishing.</p>
     }
     @if (ServerListProtocol.GetAdmins(Rbac.GetConfig()).Length == 0)
     {
-        <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="/settings/security">Security</a> to publish and manage your listings.</p>
+        <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="settings/security">Security</a> to publish and manage your listings.</p>
     }
     @if (Settings.LoadError is { } error) { <p class="quasar-notice quasar-notice-error" role="status">@error</p> }
     <p>Listings become visible when the backoffice confirms current Quasar log delivery. No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.</p>

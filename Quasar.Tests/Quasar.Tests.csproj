@@ -19,7 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Quasar\Quasar.csproj" />
+    <ProjectReference Include="..\Quasar\Quasar.csproj" Aliases="global,Core" />
     <ProjectReference Include="..\Quasar.Host\Quasar.Host.csproj" Aliases="Host" />
     <ProjectReference Include="..\Quasar.Agent\Quasar.Agent.csproj" />
     <Reference Include="PluginSdk" HintPath="$(MagnetarBin)/PluginSdk.dll" />

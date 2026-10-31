@@ -25,6 +25,7 @@ internal static class Program
     private const string EnsureRunningCommand = "ensure-running";
     private const string ServeCommand = "serve";
     private const string ActivateReleaseCommand = "activate-release";
+    private const string RollbackCommand = "rollback";
     private const string ClusterCommand = "cluster";
     private const string SpawnMutexName = "Quasar.Bootstrap";
     // Local worker discovery must bypass outbound proxy settings.
@@ -47,7 +48,13 @@ internal static class Program
         var explicitForeground = args.Any(static arg =>
             string.Equals(arg, "--foreground", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(arg, "--console", StringComparison.OrdinalIgnoreCase));
-        var command = args.FirstOrDefault(arg => !arg.StartsWith("-", StringComparison.Ordinal)) ?? EnsureRunningCommand;
+        var command = (args.FirstOrDefault(arg => !arg.StartsWith("-", StringComparison.Ordinal)) ?? EnsureRunningCommand).ToLowerInvariant();
+        if (args.Any(static arg => string.Equals(arg, "--rollback", StringComparison.OrdinalIgnoreCase)))
+        {
+            if (command is not (EnsureRunningCommand or RollbackCommand))
+                return InvalidUsage(quiet, "--rollback");
+            command = RollbackCommand;
+        }
         if (IsHelpRequest(command, args))
         {
             WriteUsage(Console.Out);
@@ -61,11 +68,12 @@ internal static class Program
 
         return command.ToLowerInvariant() switch
         {
-            EnsureRunningCommand or ServeCommand when FindInvalidLauncherArgument(args) is { } invalid =>
+            EnsureRunningCommand or ServeCommand or RollbackCommand when FindInvalidLauncherArgument(args) is { } invalid =>
                 InvalidUsage(quiet, invalid),
             EnsureRunningCommand => await EnsureRunningAsync(quiet, openBrowser, force, foreground, headless),
             ServeCommand => await ServeAsync(quiet, foreground, service, headless),
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet, headless),
+            RollbackCommand => await RollbackAsync(quiet, openBrowser, foreground, headless),
             ClusterCommand => await ClusterCli.RunAsync(args),
             _ => InvalidUsage(quiet),
         };
@@ -289,6 +297,8 @@ internal static class Program
         try
         {
             await coordinator.StartAsync(shutdown.Token).ConfigureAwait(false);
+            await using var hostedConnector = new HostedPanelConnector(options.Port, loggerFactory.CreateLogger("HostedPanelConnector"));
+            hostedConnector.Start();
 
             if (!quiet)
             {
@@ -400,6 +410,23 @@ internal static class Program
         return 0;
     }
 
+    private static async Task<int> RollbackAsync(bool quiet, bool openBrowser, bool foreground, bool headless)
+    {
+        try
+        {
+            using (await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(CancellationToken.None))
+                LauncherCoordinator.RequestRollback();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidOperationException or JsonException)
+        {
+            if (!quiet) Console.Error.WriteLine($"Cannot roll back Quasar: {exception.Message}");
+            return 1;
+        }
+
+        if (!quiet) Console.WriteLine("Quasar UI rollback requested. Bootstrap and application data are unchanged.");
+        return await EnsureRunningAsync(quiet, openBrowser, foreground: foreground, headless: headless);
+    }
+
     private static int Complete(Uri uri, bool quiet, bool openBrowser = false, bool headless = false)
     {
         if (!quiet)
@@ -468,11 +495,11 @@ internal static class Program
     }
 
     private static readonly string[] LauncherFlags =
-        ["--quiet", "--open-browser", "--force", "--service", "--headless", "--foreground", "--console"];
+        ["--quiet", "--open-browser", "--force", "--service", "--headless", "--foreground", "--console", "--rollback"];
 
     internal static bool IsHelpRequest(string command, string[] args) =>
         command.Equals("help", StringComparison.OrdinalIgnoreCase)
-        || command is EnsureRunningCommand or ServeCommand
+        || command is EnsureRunningCommand or ServeCommand or RollbackCommand
         && args.Any(static arg => arg is "--help" or "-h");
 
     // Returns the first argument that ensure-running and serve don't accept, or null.
@@ -506,6 +533,7 @@ internal static class Program
           ensure-running    Reuse a healthy Quasar or start one (default). Runs in the
                             foreground from a terminal, detached from a script.
           serve             Run the launcher and supervise the web worker in this process.
+          rollback          Restore the previous healthy UI release and ensure Quasar is running.
           cluster ...       Cluster command line tools. See "Quasar cluster --help".
           activate-release  Internal, used during updates.
           help              Print this help.
@@ -515,6 +543,7 @@ internal static class Program
           --foreground      Stay in the foreground even without a terminal (alias --console).
           --headless        API-only mode without the web UI.
           --force           ensure-running: stop the running Quasar worker first.
+          --rollback        ensure-running: restore the previous healthy UI release (alias: rollback).
           --open-browser    ensure-running: open the UI in a browser.
           --service         serve: running as the Windows Scheduled Task.
           -h, --help        Print this help.
@@ -526,7 +555,7 @@ internal static class Program
         {
             if (invalidArgument is not null)
                 Console.Error.WriteLine($"Unknown argument: {invalidArgument}");
-            Console.Error.WriteLine("Usage: Quasar [ensure-running|serve|activate-release|cluster|help] [options]. Run \"Quasar --help\" for details.");
+            Console.Error.WriteLine("Usage: Quasar [ensure-running|serve|rollback|activate-release|cluster|help] [options]. Run \"Quasar --help\" for details.");
         }
 
         return 2;
@@ -1103,8 +1132,16 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 await ActivateCurrentReleaseAsync(force: false, cancellationToken);
             }
         }
-        if (_currentWorker is not null) TryDeleteFile(previousPath);
+        if (_currentWorker is not null)
+        {
+            using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            RetainPreviousRelease(_currentWorker.Release, ReadActiveReleasePointer(previousPath));
+            TryDeleteFile(previousPath);
+            CleanupInactiveManagedWebReleases(_currentWorker.Release.WorkingDirectory);
+        }
         StartWatchingReleasePointer();
+        // Catch pointer requests published between the first activation and watcher startup.
+        await ActivateCurrentReleaseAsync(force: false, cancellationToken);
         StartWatchingWorkerRestartRequests();
         StartWatchingBootstrapUpdateRequests();
     }
@@ -1867,16 +1904,14 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (IsDrained())
             return;
 
-        var pointer = ReadActiveReleasePointer();
-        if (pointer is null)
-            return;
-
-        pointer = Normalize(pointer);
-
         await _activationLock.WaitAsync(cancellationToken);
         try
         {
             using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            var pointer = ReadActiveReleasePointer();
+            if (pointer is null)
+                return;
+            pointer = Normalize(pointer);
             WorkerProcessHandle? current;
             lock (_sync)
             {
@@ -1892,6 +1927,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     return;
                 }
             }
+
+            if (current is not null && !IsSameRelease(current.Release, pointer))
+                WriteActiveReleasePointer(current.Release, MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
 
             if (current is not null && !current.Process.HasExited)
             {
@@ -1925,8 +1963,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 _currentWorker = nextWorker;
             }
 
-            if (!File.Exists(MagnetarPaths.GetQuasarActiveReleasePath() + ".previous"))
-                CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
+            RetainPreviousRelease(pointer, current?.Release);
+            if (current is not null) TryDeleteFile(MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
+            CleanupCompletedStagedUpdates(pointer);
+            CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
             _logger.LogInformation("Activated Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
         }
         finally
@@ -1985,6 +2025,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 _currentWorker = nextWorker;
             }
 
+            CleanupCompletedStagedUpdates(pointer);
             CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
             _logger.LogInformation("Restarted Quasar worker version {Version} at {BaseUri}.", pointer.Version, nextWorker.BaseUri);
         }
@@ -2016,6 +2057,9 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             }
 
             WriteActiveReleasePointer(pointer);
+            TryDeleteFile(MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
+            CleanupCompletedStagedUpdates(pointer);
+            CleanupInactiveManagedWebReleases(pointer.WorkingDirectory);
             _logger.LogInformation("Rolled Quasar worker back to version {Version}.", pointer.Version);
         }
         finally
@@ -2104,7 +2148,6 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (healthy)
         {
             ClearWorkerStartupFailures();
-            CleanupCompletedStagedUpdates(pointer);
             return worker;
         }
 
@@ -2452,11 +2495,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                && string.Equals(left.WorkingDirectory, right.WorkingDirectory, StringComparison.OrdinalIgnoreCase);
     }
 
-    private static QuasarActiveReleasePointer? ReadActiveReleasePointer()
+    private static QuasarActiveReleasePointer? ReadActiveReleasePointer(string? source = null)
     {
         try
         {
-            var path = MagnetarPaths.GetQuasarActiveReleasePath();
+            var path = source ?? MagnetarPaths.GetQuasarActiveReleasePath();
             if (!File.Exists(path))
                 return null;
 
@@ -2481,6 +2524,44 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
+    // All callers hold the cross-process maintenance lease. The previous pointer
+    // remains available until its replacement has passed startup health checks.
+    internal static void RequestRollback()
+    {
+        var path = MagnetarPaths.GetQuasarActiveReleasePath();
+        var previous = ReadActiveReleasePointer(path + ".previous") ?? ReadActiveReleasePointer(path + ".rollback")
+            ?? throw new InvalidOperationException("No previous healthy UI release is retained. Stage an older version from Updates instead.");
+        if (string.IsNullOrWhiteSpace(previous.FileName) || string.IsNullOrWhiteSpace(previous.WorkingDirectory) ||
+            previous.Version is null || previous.Arguments is null ||
+            !IsReleasePointerUsable(previous, allowExternalPointer: false) || !Directory.Exists(previous.WorkingDirectory))
+            throw new InvalidOperationException("The previous UI release is missing or unusable. Stage an older version from Updates instead.");
+        var current = ReadActiveReleasePointer();
+        if (current is not null && IsSameRelease(current, previous))
+            throw new InvalidOperationException("The retained UI release is already selected.");
+        WriteActiveReleasePointer(previous);
+    }
+
+    internal static void RetainPreviousRelease(QuasarActiveReleasePointer active, QuasarActiveReleasePointer? previous)
+    {
+        if (previous is not null && !IsSameRelease(active, previous))
+            WriteActiveReleasePointer(previous, MagnetarPaths.GetQuasarActiveReleasePath() + ".rollback");
+    }
+
+    private static bool IsRetainedReleaseDirectory(string directory)
+    {
+        var path = MagnetarPaths.GetQuasarActiveReleasePath();
+        return new[] { path + ".rollback", path + ".previous" }
+            .Select(ReadActiveReleasePointer)
+            .Any(release => release is not null && IsDirectoryWithin(release.WorkingDirectory, directory));
+    }
+
+    private static bool IsDirectoryWithin(string directory, string parent)
+    {
+        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+        return IsSamePath(directory, parent) || Path.GetFullPath(directory).StartsWith(
+            Path.GetFullPath(parent).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, comparison);
+    }
+
     // Called only after worker health succeeds, while holding the maintenance lease.
     internal void CleanupCompletedStagedUpdates(QuasarActiveReleasePointer activeRelease)
     {
@@ -2502,10 +2583,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                       QuasarReleaseVersion.IsNewer(installedVersion, version)))
                     continue;
 
-                var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-                var activeDirectory = Path.GetFullPath(activeRelease.WorkingDirectory);
-                if (IsSamePath(directory, activeDirectory) ||
-                    activeDirectory.StartsWith(Path.GetFullPath(directory) + Path.DirectorySeparatorChar, comparison))
+                if (IsDirectoryWithin(activeRelease.WorkingDirectory, directory) ||
+                    IsRetainedReleaseDirectory(directory))
                     continue;
 
                 try
@@ -2525,7 +2604,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         }
     }
 
-    private static void CleanupInactiveManagedWebReleases(string activeWorkingDirectory)
+    internal static void CleanupInactiveManagedWebReleases(string activeWorkingDirectory)
     {
         var releasesDirectory = MagnetarPaths.GetQuasarManagedWebServiceDirectory();
         if (!Directory.Exists(releasesDirectory))
@@ -2533,7 +2612,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
         foreach (var directory in Directory.EnumerateDirectories(releasesDirectory))
         {
-            if (IsSamePath(directory, activeWorkingDirectory))
+            if (IsDirectoryWithin(activeWorkingDirectory, directory) || IsRetainedReleaseDirectory(directory))
                 continue;
 
             TryDeleteDirectory(directory);

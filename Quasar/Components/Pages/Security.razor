@@ -16,6 +16,12 @@
     <Description>Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.</Description>
 </QuasarPageHeading>
 
+<section class="quasar-panel pa-4 mb-4">
+    <h2 class="quasar-text quasar-type-h6">Public panel access</h2>
+    <p>Use your own reverse proxy, or enroll with Nebula for a public dashboard address.</p>
+    <MudButton OnClick="ManageAccessAsync" Variant="Variant.Outlined">Manage access setup</MudButton>
+</section>
+
 <MudGrid>
     <MudItem xs="12" lg="4">
         <section class="quasar-panel pa-4 summary-card">
@@ -24,7 +30,7 @@
                 <p class="quasar-text quasar-type-body2">Default provider: <strong>@AuthOptions.DefaultProvider</strong></p>
                 <p class="quasar-text quasar-type-body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></p>
-                <p class="quasar-text quasar-type-body2">Trusted same subnet: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted private LAN: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted proxies: <strong>@TrustedProxySummary</strong></p>
                 <span class="quasar-text quasar-type-caption">
                     Settings are saved to <CopyablePath Value="@AuthSettingsService.SettingsPath" Inline="true" TextClass="" />
@@ -41,14 +47,14 @@
                     <MudChip T="string"
                              Color="@(_trustedNetworkSettings.AllowSameSubnet ? Color.Warning : Color.Success)"
                              Variant="Variant.Outlined">
-                        @(_trustedNetworkSettings.AllowSameSubnet ? "LAN bypass enabled" : "Same-subnet disabled")
+                        @(_trustedNetworkSettings.AllowSameSubnet ? "LAN bypass enabled" : "LAN bypass disabled")
                     </MudChip>
                 </div>
 
                 @if (_trustedNetworkSettings.AllowSameSubnet)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                        Same-subnet bypass is convenient on a private LAN, but it is not safe for an internet-facing reverse proxy. Disable it before exposing Quasar publicly.
+                        Private LAN bypass is enabled by default and grants trusted-network roles without signing in. Disable it before exposing Quasar through a public reverse proxy.
                     </MudAlert>
                 }
 
@@ -64,9 +70,9 @@
                     <MudItem xs="12" md="6">
                         <MudCheckBox T="bool"
                                      @bind-Value="_trustedNetworkSettings.AllowSameSubnet"
-                                     Label="Trust same subnet access" />
+                                     Label="Trust private LAN access" />
                         <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                            Disable this when Quasar is reachable through a public reverse proxy.
+                            Accepts 192.168.x.x, 10.x.x.x, 172.16–31.x.x, IPv6 private addresses (fc00::/7), and directly attached IPv4 subnets. Disable this for a public reverse proxy.
                         </span>
                     </MudItem>
                     <MudItem xs="12">
@@ -81,7 +87,7 @@
                 @if (TrustedProxyRestartRequired)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                        Restart Quasar after changing trusted proxies. Loopback and same-subnet toggles apply immediately.
+                        Restart Quasar after changing trusted proxies. Loopback and private LAN toggles apply immediately.
                     </MudAlert>
                 }
 
@@ -106,7 +112,7 @@
                         <ol>
                             <li>Put Quasar behind a reverse proxy with HTTPS enabled, such as NGINX Proxy Manager.</li>
                             <li>Keep the Quasar port private. Do not forward the Quasar port directly from the router.</li>
-                            <li>Click <strong>Apply Public Proxy Preset</strong> so same-subnet bypass is disabled.</li>
+                            <li>Click <strong>Apply Public Proxy Preset</strong> so private LAN bypass is disabled.</li>
                             <li>If the proxy is not on the same machine, add its IP address or Docker bridge CIDR to Trusted reverse proxies.</li>
                             <li>Make sure the proxy sends <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code>, and <code>X-Forwarded-Host</code>.</li>
                             <li>Restart Quasar after changing trusted proxies, then test from a phone or other external network. You should see the Steam sign-in flow.</li>
@@ -182,7 +188,7 @@
                     Listing visibility is optional and separate from diagnostic reporting. Public listings require current
                     log delivery to CometWorks and a configured public join address. Turning this off withdraws the listings.
                 </p>
-                <MudLink Href="/settings/server-list">Configure public server listings</MudLink>
+                <MudLink Href="settings/server-list">Configure public server listings</MudLink>
                 <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
                     Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
                     Offline hosts stop collecting when their two-minute consent lease expires.
@@ -263,6 +269,9 @@
 
 @code
 {
+    private Task<IDialogReference> ManageAccessAsync() => DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access",
+        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
+
     private RbacConfig _config = new();
     private const string OidcProviderName = "Oidc";
     private QuasarTrustedNetworkSettings _trustedNetworkSettings = new();

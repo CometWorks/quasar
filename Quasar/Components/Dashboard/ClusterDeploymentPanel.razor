@@ -148,7 +148,7 @@
             <MudExpansionPanel Text="Convert to a standalone server">
                 <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
                     <p class="quasar-text quasar-type-body2">Back up and convert a cleanly stopped cluster into a standalone server.</p>
-                    <MudButton Href="@("/clusters/" + Uri.EscapeDataString(Cluster.UniqueName) + "/convert-to-server")"
+                    <MudButton Href="@("clusters/" + Uri.EscapeDataString(Cluster.UniqueName) + "/convert-to-server")"
                                Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Dns">Open conversion wizard</MudButton>
                 </div>
             </MudExpansionPanel>

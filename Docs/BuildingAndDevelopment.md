@@ -91,8 +91,28 @@ checksum. No neighboring Gateway checkout or private contract package is needed.
 After publishing, the release workflow retains the two highest versions in each
 managed release stream (full releases, each PR, manual builds, and other
 prereleases), always preserving the current release. Older releases and their
-existing tags are deleted. Closing a PR removes its draft releases and existing
-tags.
+existing tags are deleted. Only published, non-prerelease version tags without a
+PR prefix or prerelease suffix count as full releases. Publishing a PR or manual
+build without the prerelease flag does not let it displace a full rollback release.
+
+Closing a PR removes its draft releases and existing tags. Each publish also
+checks the state of PRs with remaining drafts and removes drafts of closed PRs,
+including the current build if its PR closed during publication. This catches
+missed close events and drafts left by earlier cleanup runs. Published PR builds
+remain in their own review stream; the closed-PR sweep only deletes drafts.
+
+Both jobs use `scripts/cleanup-releases.py`. Release-list and PR-state API errors
+fail cleanup before any deletion. The workflow token needs `contents: write` and
+`pull-requests: read`. To inspect the cleanup plan without changing GitHub, set
+`GH_TOKEN` and `GITHUB_REPOSITORY`, then run:
+
+```sh
+python3 scripts/cleanup-releases.py --current-tag v1.3.1.75 --dry-run
+python3 -m unittest discover -s scripts -p test_cleanup_releases.py
+```
+
+Use the tag of the build to preserve in place of the example. For a single closed
+PR, use `--closed-pr <number>` instead of `--current-tag`.
 
 GitHub's tag API uses `GET /repos/{owner}/{repo}/git/ref/tags/{tag}` to check
 whether a tag exists and `DELETE /repos/{owner}/{repo}/git/refs/tags/{tag}` to

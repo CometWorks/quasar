@@ -1,4 +1,5 @@
-<a class="quasar-icon-button quasar-update-bell @Tone" href="@(Notice is { IsAnnouncement: false } notice ? notice.Url : "/notifications")"
+@inject NavigationManager PanelNavigation
+<a class="quasar-icon-button quasar-update-bell @Tone" href="@PanelNavigation.PanelUrl(Notice is { IsAnnouncement: false } notice ? notice.Url : "/notifications")"
    title="@Tooltip" aria-label="Open current notification">
     <QuasarIcon Icon="@(PushEnabled ? QuasarIcons.Notifications : QuasarIcons.NotificationsOutlined)" />
     @if (Notice is not null) { <span class="quasar-notification-dot" aria-hidden="true"></span> }

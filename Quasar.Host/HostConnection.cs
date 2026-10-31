@@ -12,10 +12,10 @@ internal static class HostConnection
     internal static async Task RunAsync(HostExecutorConfig config, CancellationToken token)
     {
         var connection = config.Connection!;
-        var origin = new Uri(connection.QuasarUrl);
-        if (config.Command is null || origin.UserInfo.Length != 0 || origin.Query.Length != 0 || origin.Fragment.Length != 0
-            || origin.AbsolutePath != "/" || origin.Scheme != "https" && !(origin.Scheme == "http" && origin.IsLoopback))
-            throw new InvalidDataException("Remote enrollment requires an HTTPS Quasar URL.");
+        if (config.Command is null) throw new InvalidDataException("A local Host command endpoint is required.");
+        Uri origin;
+        try { origin = Quasar.Networking.QuasarControlAddress.Parse(connection.QuasarUrl); }
+        catch (ArgumentException e) { throw new InvalidDataException("Invalid Quasar control address.", e); }
         string credential = Environment.GetEnvironmentVariable(connection.TokenEnvironmentVariable)
             ?? throw new InvalidDataException("Enrollment credential is unavailable.");
         var endpoint = new Uri(config.Command!.Url);
@@ -78,6 +78,6 @@ internal static class HostConnection
         if (control) socket.Options.KeepAliveTimeout = TimeSpan.FromSeconds(20);
         return socket;
     }
-    private static Uri Url(Uri origin, string host, string route) => new UriBuilder(new Uri(origin,
-        "/api/v1/hosts/" + Uri.EscapeDataString(host) + "/" + route)) { Scheme = origin.Scheme == "https" ? "wss" : "ws" }.Uri;
+    internal static Uri Url(Uri origin, string host, string route) => new UriBuilder(Quasar.Networking.QuasarControlAddress.Endpoint(origin,
+        "api/v1/hosts/" + Uri.EscapeDataString(host) + "/" + route)) { Scheme = origin.Scheme == "https" ? "wss" : "ws" }.Uri;
 }

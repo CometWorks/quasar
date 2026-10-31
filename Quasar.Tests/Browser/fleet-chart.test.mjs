@@ -18,10 +18,10 @@ test('fleet chart reuses analytics data, leaves gaps, follows custom palettes, a
     }
     const context = vm.createContext({
         window: { addEventListener() {} },
-        document: { getElementById: () => ({ clientWidth: 700, clientHeight: 220, getBoundingClientRect: () => ({ width: 700, height: 220 }) }) },
+        document: { baseURI: 'https://dash.test/my-server-panel/', getElementById: () => ({ clientWidth: 700, clientHeight: 220, getBoundingClientRect: () => ({ width: 700, height: 220 }) }) },
         getComputedStyle: () => ({ getPropertyValue: key => styles.get(key.replace('--quasar-palette-', '')) || '' }),
-        uPlot: Plot, URLSearchParams, ResizeObserver: class { observe() {} disconnect() {} },
-        fetch: async url => { assert.match(url, /metrics=simspeed/); return { ok: true, text: async () => JSON.stringify(payload) }; },
+        uPlot: Plot, URLSearchParams, URL, ResizeObserver: class { observe() {} disconnect() {} },
+        fetch: async url => { assert.match(String(url), /metrics=simspeed/); assert.equal(url.pathname, '/my-server-panel/api/analytics/series'); return { ok: true, text: async () => JSON.stringify(payload) }; },
     });
     vm.runInContext(source, context);
     const charts = context.window.quasarCharts;

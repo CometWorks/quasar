@@ -1,10 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <ItemGroup>
+    <Compile Include="../Shared/Hosting/*.cs" Link="Hosting/%(Filename)%(Extension)" />
     <Compile Include="..\Shared\Updates\*.cs" Link="Updates\%(Filename)%(Extension)" />
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
+    <Compile Include="../Shared/Networking/QuasarControlAddress.cs" Link="Networking/QuasarControlAddress.cs" />
     <Compile Include="..\Shared\Networking\MachineEndpointPolicy.cs" Link="Networking\MachineEndpointPolicy.cs" />
     <Compile Include="..\Shared\Diagnostics\*.cs" Link="Diagnostics\%(Filename)%(Extension)" />
     <Compile Include="..\Shared\Networking\GitHubRetryHandler.cs" Link="Networking\GitHubRetryHandler.cs" />

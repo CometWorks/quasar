@@ -1,4 +1,5 @@
-﻿@inherits LayoutComponentBase
+@inject NavigationManager PanelNavigation
+@inherits LayoutComponentBase
 @implements IAsyncDisposable
 @inject ThemePreferenceService ThemePreference
 @inject QuasarShutdownService ShutdownService
@@ -16,6 +17,8 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
+@inject HostedPanelService HostedPanel
+@inject QuasarPermissionService Permissions
 
 @* Temporary compatibility providers for pages and UI plugins still being migrated. *@
 <MudThemeProvider Theme="@BrandingService.BuildMudTheme()" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
@@ -25,8 +28,8 @@
 <div class="quasar-shell @(!_drawerOpen ? "quasar-nav-collapsed" : null) @(_mobileDrawerOpen ? "quasar-nav-open" : null)"
      style="@PaletteStyle" data-theme="@(_isDarkMode ? "dark" : "light")" @onkeydown="HandleShellKeyDownAsync">
     <aside id="quasar-navigation" class="quasar-sidebar" aria-label="Main navigation" inert="@(_isShuttingDown ? string.Empty : null)">
-        <a class="quasar-brand" href="/" @onclick="CloseMobileDrawer">
-            <img class="quasar-brand-mark" src="@LogoSrc" alt="@($"{BrandingService.Settings.AppName} logo")" />
+        <a class="quasar-brand" href="./" @onclick="CloseMobileDrawer">
+            <img class="quasar-brand-mark" src="@PanelNavigation.PanelUrl(LogoSrc)" alt="@($"{BrandingService.Settings.AppName} logo")" />
             <div><strong title="@BrandingService.Settings.AppName">@BrandingService.Settings.AppName</strong><span title="@BrandingService.Settings.AppSubtitle">@BrandingService.Settings.AppSubtitle</span></div>
         </a>
         <div @onclick="CloseMobileDrawer"><NavMenu /></div>
@@ -47,7 +50,7 @@
                     <QuasarIcon Icon="@QuasarIcons.Menu" />
                 </button>
                 <nav class="quasar-breadcrumb" aria-label="Breadcrumb">
-                    <a href="/">@BrandingService.Settings.AppName</a>
+                    <a href="./">@BrandingService.Settings.AppName</a>
                     <span aria-hidden="true">/</span><span aria-current="page">@CurrentPageLabel</span>
                 </nav>
             </div>
@@ -64,10 +67,10 @@
                 <AuthorizeView>
                     <Authorized Context="authContext">
                         <span class="quasar-user-name">@authContext.User.GetQuasarDisplayName()</span>
-                        <a class="quasar-icon-button" href="/logout" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></a>
+                        <a class="quasar-icon-button" href="logout" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></a>
                     </Authorized>
                     <NotAuthorized>
-                        <a class="quasar-icon-button" href="/login" title="Sign in" aria-label="Sign in"><QuasarIcon Icon="@QuasarIcons.Login" /></a>
+                        <a class="quasar-icon-button" href="login" title="Sign in" aria-label="Sign in"><QuasarIcon Icon="@QuasarIcons.Login" /></a>
                     </NotAuthorized>
                 </AuthorizeView>
                 <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
@@ -121,8 +124,8 @@
     private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebServiceOptions.LauncherToken);
 
     private string LogoSrc => _isDarkMode
-        ? (BrandingService.Settings.LogoDarkPath ?? "/Quasar.png")
-        : (BrandingService.Settings.LogoLightPath ?? "/Quasar-inverted-transparent.png");
+        ? (BrandingService.Settings.LogoDarkPath ?? "Quasar.png")
+        : (BrandingService.Settings.LogoLightPath ?? "Quasar-inverted-transparent.png");
 
     private bool _mobileDrawerOpen;
     private IJSObjectReference? _themeModule;
@@ -286,6 +289,9 @@
         _themeCallback = DotNetObjectReference.Create(this);
         _themeSubscription = await _themeModule.InvokeAsync<IJSObjectReference>("observeSystemTheme", _themeCallback);
         await BrowserPush.RefreshAsync();
+        if (HostedPanel.State.Choice == "" && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            await DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access", new DialogOptions
+                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
         await InvokeAsync(StateHasChanged);
     }
 

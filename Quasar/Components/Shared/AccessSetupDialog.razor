@@ -1,0 +1,89 @@
+@using Quasar.Hosting
+@inject HostedPanelService Hosted
+@inject QuasarPermissionService Permissions
+@inject QuasarAuthOptions Auth
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IDisposable
+
+<MudDialog>
+    <DialogContent>
+        <p>Choose how administrators reach this Quasar installation. Local access and your game servers keep working independently.</p>
+        @if (_hosted)
+        {
+            <MudTextField T="string" @bind-Value="_panelId" Label="Public panel name" HelperText="3–63 lowercase letters and digits, separated by single dashes." Immediate="true" />
+            <p><strong>Public address:</strong> https://dash.se-servers.net/@(_panelId)/</p>
+            <p>Hosted access uses your existing Quasar Steam permissions. Paid hosting is €2.99 per month or €29.99 per year in EUR, including applicable taxes, for one panel/tunnel. Choose monthly or yearly billing when available and complete your subscription on Nebula. Your dashboard connects automatically after activation. Configured Nebula super admins can enroll free.</p>
+            <p>Your subscription provides hosted access to your Quasar panel and also supports ongoing development and future CometWorks projects.</p>
+            @if (!Auth.Enabled || !Auth.Steam.Enabled)
+            {
+                <MudAlert Severity="Severity.Warning">Enable Steam authentication in Quasar before enrolling a public panel.</MudAlert>
+            }
+            @if (Hosted.State.BrowserUrl is { } browserUrl)
+            {
+                <p><a href="@browserUrl" target="_blank" rel="noopener noreferrer">Continue enrollment with Steam</a></p>
+                <p role="status">@Hosted.Status</p>
+                <p>After linking, this Quasar automatically retrieves its connector credentials. Keep Bootstrap running to maintain the hosted connection.</p>
+            }
+            @if (Hosted.State.Credential is not null)
+            {
+                <p><a href="@Hosted.State.DashboardUrl" target="_blank" rel="noopener noreferrer">Open hosted dashboard</a></p>
+            }
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="SelfDeployAsync" Disabled="@_busy">Self-deploy</MudButton>
+        <MudButton OnClick="HostedAsync" Disabled="@(_busy || (_hosted && (!Auth.Enabled || !Auth.Steam.Enabled || !HostedPanelState.IsPanelId(_panelId))))" Variant="Variant.Filled" Color="Color.Primary">@(_hosted ? "Start hosted enrollment" : "Use hosted panel")</MudButton>
+        <MudButton OnClick="DismissAsync" Disabled="@_busy">Later</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    private bool _hosted, _busy;
+    private string _panelId = "";
+    private string? _error;
+    protected override void OnInitialized()
+    {
+        _panelId = Hosted.State.PanelId;
+        _hosted = Hosted.State.Choice == "hosted";
+        Hosted.Changed += Changed;
+    }
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    private async Task SelfDeployAsync() => await RunAsync(async () =>
+    {
+        await Hosted.ChooseAsync("self");
+        Dialog.Close();
+        Navigation.NavigateTo("settings/security");
+    });
+    private async Task DismissAsync() => await RunAsync(async () =>
+    {
+        // Dismissal records a decision without disconnecting an existing enrollment.
+        if (Hosted.State.Choice == "") await Hosted.ChooseAsync("dismissed");
+        Dialog.Close();
+    });
+    private async Task HostedAsync()
+    {
+        if (!_hosted) { _hosted = true; return; }
+        await RunAsync(async () =>
+        {
+            var url = await Hosted.EnrollAsync(_panelId);
+            // The persistent link also remains visible when a browser blocks new tabs.
+            await JS.InvokeVoidAsync("open", url, "_blank", "noopener,noreferrer");
+        });
+    }
+    private async Task RunAsync(Func<Task> action)
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) { _error = "Administrator permission is required."; return; }
+        _busy = true; _error = null;
+        try { await action(); }
+        catch (Exception e) when (e is ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        { _error = e.Message; }
+        finally { _busy = false; }
+    }
+    public void Dispose() => Hosted.Changed -= Changed;
+}

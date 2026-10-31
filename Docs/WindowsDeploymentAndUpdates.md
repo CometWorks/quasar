@@ -107,6 +107,17 @@ A failed or rate-limited download is retried as described in
 [First Start](LinuxDeploymentAndUpdates.md#first-start); the Scheduled Task has
 no visible console, so run `Quasar.exe serve` in a terminal to see the waits.
 
+## Command-line UI rollback
+
+From the install directory, run `.\Quasar.exe --rollback` (or
+`.\Quasar.exe rollback`). Bootstrap selects the previous healthy UI release
+retained locally and ensures Quasar is running. A running launcher applies the
+request asynchronously through the normal health-checked cutover; managed game
+servers stay running. No download is required. Bootstrap itself, current settings,
+worlds and plugin data are unchanged. Retention starts after the first successful
+cutover with this Bootstrap version. A missing or unusable rollback target fails
+without changing the active selection. See [rollback details](LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
+
 ## UI Worker Updates
 
 Identical to Linux: the running UI checks GitHub releases every 15 minutes by

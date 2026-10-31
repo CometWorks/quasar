@@ -7,6 +7,14 @@ namespace Quasar.Services.Auth;
 
 public sealed class TrustedNetworkEvaluator
 {
+    private static readonly System.Net.IPNetwork[] PrivateNetworks =
+    [
+        System.Net.IPNetwork.Parse("10.0.0.0/8"),
+        System.Net.IPNetwork.Parse("172.16.0.0/12"),
+        System.Net.IPNetwork.Parse("192.168.0.0/16"),
+        System.Net.IPNetwork.Parse("fc00::/7"),
+    ];
+
     private static readonly string[] ForwardingHeaders =
     [
         "Forwarded",
@@ -50,7 +58,7 @@ public sealed class TrustedNetworkEvaluator
 
     public bool IsTrusted(HttpContext context)
     {
-        if (context.Items[OriginalRequestKey] is not true ||
+        if (HostedPanelRequest.IsHosted(context) || context.Items[OriginalRequestKey] is not true ||
             HasForwardingHeader(context.Request) ||
             !IsAllowedDestination(context) || !HasSameOriginContext(context.Request))
             return false;
@@ -65,7 +73,8 @@ public sealed class TrustedNetworkEvaluator
         if (_options.TrustedNetworkBypass.AllowLoopback && IPAddress.IsLoopback(remoteIp))
             return true;
 
-        return _options.TrustedNetworkBypass.AllowSameSubnet && IsOnLocalSubnet(remoteIp);
+        return _options.TrustedNetworkBypass.AllowSameSubnet &&
+            (PrivateNetworks.Any(network => network.Contains(remoteIp)) || IsOnLocalSubnet(remoteIp));
     }
 
     private bool IsAllowedDestination(HttpContext context)

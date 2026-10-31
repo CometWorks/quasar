@@ -9,6 +9,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Quasar.Tests" />
     <PackageReference Include="CometWorks.Diagnostics" Version="0.1.0" />
+    <Compile Include="../Shared/Networking/QuasarControlAddress.cs" Link="Networking/QuasarControlAddress.cs" />
     <Compile Include="..\Shared\Networking\MachineEndpointPolicy.cs" Link="Networking\MachineEndpointPolicy.cs" />
     <Compile Include="..\Shared\Diagnostics\*.cs" Link="Diagnostics\%(Filename)%(Extension)" />
     <Compile Include="..\Shared\ClusterDeployment\*.cs" Link="ClusterDeployment\%(Filename)%(Extension)" />
