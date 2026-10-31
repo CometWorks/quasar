@@ -580,6 +580,56 @@ public sealed class ClusterDependencyTests
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.StageAsync(fixture.Cluster, request, default));
     }
 
+    // SE-820: a DS running from the installed folder rewrites its JIT profile at exit, mid-freeze on a shared install.
+    [LinuxFact]
+    public async Task WhatARunningServerWritesIsNotFrozenAndAnOldSnapshotPinningItStillVerifies()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        string ds = fixture.Sources["DedicatedServer/DedicatedServer64"], content = fixture.Sources["DedicatedServer/Content"];
+        string profile = Path.Combine(ds, "ProfileOptimization/Startup.profile"), workshop = Path.Combine(content, "Workshop/appworkshop_244850.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(profile)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(workshop)!);
+        File.WriteAllText(profile, "written at exit");
+        File.WriteAllText(workshop, "downloaded");
+        Assert.Equal(candidate, await fixture.Service.InspectAsync(fixture.Cluster, default));
+        var request = new ClusterDependencyRequest(candidate.ManifestSha256, 1, null);
+        Assert.Equal(candidate, await fixture.Service.StageAsync(fixture.Cluster, request, default));
+        string payload = Path.Combine(fixture.Store, candidate.ManifestSha256, "payload");
+        Assert.False(Directory.Exists(Path.Combine(payload, "DedicatedServer/DedicatedServer64/ProfileOptimization")));
+        Assert.False(Directory.Exists(Path.Combine(payload, "DedicatedServer/Content/Workshop")));
+
+        // Only those exact folders: the same names elsewhere in the release are still pinned.
+        string kept = Path.Combine(content, "ProfileOptimization/data.sbc");
+        Directory.CreateDirectory(Path.GetDirectoryName(kept)!);
+        File.WriteAllText(kept, "game content");
+        Assert.NotEqual(candidate.ManifestSha256, (await fixture.Service.InspectAsync(fixture.Cluster, default)).ManifestSha256);
+        File.Delete(kept);
+
+        // A snapshot frozen before this rule pinned the profile, and it stays valid until an update replaces it.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var manifest = JsonSerializer.Deserialize<ClusterDependencyManifest>(
+            File.ReadAllBytes(Path.Combine(fixture.Store, candidate.ManifestSha256, "manifest.json")), options)!;
+        manifest.Files["DedicatedServer/DedicatedServer64/ProfileOptimization/Startup.profile"] =
+            new(ClusterDeploymentFiles.Hash("written at exit"u8.ToArray()), 15, false);
+        byte[] oldBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, options);
+        string oldHash = ClusterDeploymentFiles.Hash(oldBytes);
+        string old = Path.Combine(fixture.Store, oldHash);
+        foreach (string file in Directory.EnumerateFiles(payload, "*", SearchOption.AllDirectories))
+        {
+            string target = Path.Combine(old, "payload", Path.GetRelativePath(payload, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+        Directory.CreateDirectory(Path.Combine(old, "payload/DedicatedServer/DedicatedServer64/ProfileOptimization"));
+        File.WriteAllText(Path.Combine(old, "payload/DedicatedServer/DedicatedServer64/ProfileOptimization/Startup.profile"), "written at exit");
+        File.WriteAllBytes(Path.Combine(old, "manifest.json"), oldBytes);
+        Assert.Equal(oldHash, (await fixture.Service.VerifyAsync(fixture.Cluster, oldHash, default)).ManifestSha256);
+        fixture.Cluster.DependencyManifestSha256 = oldHash;
+        var reused = await fixture.Service.ReusableSourcesAsync(fixture.Cluster, default);
+        Assert.Equal(candidate, await fixture.Service.InspectAsync(fixture.Cluster, reused, default));
+    }
+
     [LinuxFact]
     public async Task ChangedInputsCannotBeProvisionedUnderAnOldApproval()
     {

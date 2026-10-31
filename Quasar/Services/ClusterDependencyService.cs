@@ -347,6 +347,13 @@ public sealed class ClusterDependencyService
         return commit!;
     }
 
+    // Not part of the release: a DS running from an installed folder writes these. Its app data path is empty, so the JIT
+    // profile the runtime rewrites in place at exit lands in the working directory, DedicatedServer64, and its Workshop
+    // downloads go to Content. Frozen, they could change under the copy (SE-820). Nodes load mods from the staged payload.
+    // Only source roots have a prefix, so a snapshot that already pinned these still verifies.
+    private static bool IsRuntimeOutput(string prefix, string relative) => (prefix, relative) is
+        ("DedicatedServer/DedicatedServer64", "ProfileOptimization") or ("DedicatedServer/Content", "Workshop");
+
     private static async Task<Dictionary<string, ClusterDependencyFile>> ScanAsync(Dictionary<string, string> roots,
         CancellationToken token)
     {
@@ -359,6 +366,7 @@ public sealed class ClusterDependencyService
             while (pending.TryPop(out string? current))
             {
                 token.ThrowIfCancellationRequested();
+                if (IsRuntimeOutput(prefix, Path.GetRelativePath(root, current))) continue;
                 RefuseLink(current);
                 if (Directory.Exists(current))
                 {
