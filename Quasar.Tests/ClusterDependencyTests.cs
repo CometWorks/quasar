@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Quasar.ClusterDeployment;
 using CometWorks.ClusterGateway.AdminContract.V1;
 using Microsoft.AspNetCore.Http;
@@ -199,6 +200,58 @@ public sealed class ClusterDependencyTests
         Assert.Single(messages);
     }
 
+    private const string ProfilePatch = "<MyObjectBuilder_Checkpoint><SessionName>Old</SessionName><Settings><MaxPlayers>7</MaxPlayers></Settings><Mods /></MyObjectBuilder_Checkpoint>";
+
+    // SE-799: a rename reaches the world's SessionName without a profile staging, and nothing else in the patch changes.
+    [Fact]
+    public void RenamingSetsTheSessionNameInTheProfilePatchOnly()
+    {
+        var spec = new JsonObject { ["profileSettingsXml"] = ProfilePatch };
+        ClusterUpdatePreparationService.SetNames(spec, null, "A & B");
+        Assert.Equal("A & B", spec["worldName"]!.GetValue<string>());
+        Assert.False(spec.ContainsKey("serverName"));
+        Assert.Equal(ProfilePatch.Replace("Old", "A &amp; B"), spec["profileSettingsXml"]!.GetValue<string>());
+
+        ClusterUpdatePreparationService.SetNames(spec, "Server", null);
+        Assert.Equal("Server", spec["serverName"]!.GetValue<string>());
+        Assert.Contains("A &amp; B", spec["profileSettingsXml"]!.GetValue<string>());
+
+        spec["profileSettingsXml"] = "<MyObjectBuilder_Checkpoint><Settings /><Mods /></MyObjectBuilder_Checkpoint>";
+        ClusterUpdatePreparationService.SetNames(spec, null, "New");
+        Assert.Equal("<MyObjectBuilder_Checkpoint><SessionName>New</SessionName><Settings /><Mods /></MyObjectBuilder_Checkpoint>",
+            spec["profileSettingsXml"]!.GetValue<string>());
+
+        var unpatched = new JsonObject();
+        ClusterUpdatePreparationService.SetNames(unpatched, null, "New");
+        Assert.False(unpatched.ContainsKey("profileSettingsXml"));
+    }
+
+    // SE-799: a package selection or a failed staging falls back to the active preparation, and the rename stays.
+    [Fact]
+    public void StagedNamesApplyToWhicheverPreparationIsTheBase()
+    {
+        var active = Preparation(new string('a', 64), "192.168.1.80:27116");
+        var activeSpec = JsonNode.Parse(active.SpecificationJson)!.AsObject();
+        activeSpec["profileSettingsXml"] = ProfilePatch;
+        active = active with { SpecificationJson = activeSpec.ToJsonString() };
+        var selection = new ClusterPackageSelection(1, "0.1.1296", new string('b', 64), new string('c', 40), "package");
+        var cluster = new ClusterDefinition { UniqueName = "demo", Preparation = Preparation(new string('a', 64), "192.168.1.80:8116"),
+            ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active), [], DateTimeOffset.UtcNow)
+            { Provenance = new(selection, new string('d', 64), active) }, StagedNames = new("Server", "World") };
+        var service = new ClusterUpdatePreparationService(null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            NullLogger<ClusterUpdatePreparationService>.Instance);
+
+        var based = service.BasePreparation(cluster)!;
+        var spec = JsonNode.Parse(based.SpecificationJson)!;
+        Assert.Equal("192.168.1.80:27116", spec["directListen"]!.GetValue<string>());
+        Assert.Equal(("Server", "World"), (spec["serverName"]!.GetValue<string>(), spec["worldName"]!.GetValue<string>()));
+        Assert.Contains("<SessionName>World</SessionName>", spec["profileSettingsXml"]!.GetValue<string>());
+        // Unchanged bytes when the base has the names already: the same specification keeps its deployment revision.
+        cluster.Preparation = based;
+        cluster.ActiveDeployment = cluster.ActiveDeployment with { Revision = ClusterDependencyService.DeploymentRevision(based) };
+        Assert.Same(based, service.BasePreparation(cluster));
+    }
+
     private sealed class SynchronousProgress(Action<string> report) : IProgress<string>
     { public void Report(string value) => report(value); }
 
@@ -287,6 +340,10 @@ public sealed class ClusterDependencyTests
             Assert.False(spec.RootElement.TryGetProperty("serverName", out _));
             Assert.Equal("demo", spec.RootElement.GetProperty("clusterId").GetString());
             Assert.Equal("192.168.1.80:27116", spec.RootElement.GetProperty("directListen").GetString());
+            // SE-799: the names stay staged, and a later rename keeps the other name.
+            Assert.Equal(new(null, "Octahedron"), catalog.GetCluster("demo")!.StagedNames);
+            await preparation.StageNamesAsync("demo", "Server", null, "test", default);
+            Assert.Equal(new("Server", "Octahedron"), catalog.GetCluster("demo")!.StagedNames);
         }
         finally { Environment.SetEnvironmentVariable(credential, null); }
     }

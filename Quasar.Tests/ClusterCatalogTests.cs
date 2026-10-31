@@ -181,6 +181,30 @@ public sealed class ClusterCatalogTests : IDisposable
         Assert.False(activated.IsProvenStopped());
     }
 
+    // SE-799: the names are in the active deployment now, or gone with a rollback or restore.
+    [Fact]
+    public async Task ActivationEndsStagedNames()
+    {
+        Directory.CreateDirectory(Path.Combine(_directory, "demo"));
+        File.WriteAllText(
+            Path.Combine(_directory, "demo", "cluster.json"),
+            """
+            { "uniqueName": "demo", "gatewayUrl": "http://gateway.test", "updatedAtUtc": "2026-09-19T12:00:00Z",
+              "stagedNames": { "worldName": "Renamed" } }
+            """
+        );
+        using var catalog = CreateCatalog();
+        Assert.Equal("Renamed", catalog.GetCluster("demo")!.StagedNames?.WorldName);
+
+        var activated = await catalog.RecordActiveDeploymentAsync(
+            catalog.GetCluster("demo")!,
+            Revision("first"),
+            default
+        );
+
+        Assert.Null(activated.StagedNames);
+    }
+
     [Fact]
     public async Task RestoreUsesSavedActiveProvenanceAfterCandidateStaging()
     {

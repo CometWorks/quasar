@@ -35,6 +35,7 @@ public sealed class ClusterDefinition
     public Quasar.Services.ClusterDeploymentRequest? PreparedDeployment { get; set; }
     public bool PreparedForSelectedRelease { get; set; }
     public ClusterPreparedProfile? PreparedProfile { get; set; }
+    public ClusterStagedNames? StagedNames { get; set; }
     public ClusterContentUpdateQueue? QueuedContentUpdates { get; set; }
 
     [JsonIgnore]
@@ -85,6 +86,7 @@ public sealed class ClusterDefinition
         PreparedDeployment = PreparedDeployment,
         PreparedForSelectedRelease = PreparedForSelectedRelease,
         PreparedProfile = PreparedProfile,
+        StagedNames = StagedNames,
         QueuedContentUpdates = QueuedContentUpdates is { } queued ? queued with { Items = [.. queued.Items] } : null,
     };
 }
@@ -98,6 +100,8 @@ public sealed record ClusterContentUpdateTarget(string Kind, string Id, string N
 public sealed record ClusterPackageSelection(long Revision, string Version, string Sha256,
     string Commit, string IdempotencyKey);
 public sealed record ClusterPreparedProfile(string ProfileId, string DeploymentRevision, string? ProfileSha256 = null);
+/// <summary>In-game names waiting for the next activation. Every staging builds on them, whichever preparation it starts from.</summary>
+public sealed record ClusterStagedNames(string? ServerName, string? WorldName);
 
 // Recorded before Gateway teardown, so a lost Host response does not erase the
 // authoritative clean-Down observation. Valid only for the exact lifecycle identity.
