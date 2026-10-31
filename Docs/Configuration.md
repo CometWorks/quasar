@@ -1522,8 +1522,8 @@ until prepared. Cluster management permission and cluster access are required to
 The API equivalent is `POST /api/v1/clusters/{uniqueName}/plugin-configuration-preparation` with
 `{"pluginId":"...","configType":"...","values":{...}}`, which also needs configuration editing. `values`
 replaces all of that configuration's values, so read the rest from the saved preparation first. A cluster that
-has not run since guided setup can get its values before its first start: activate the operation's result with
-`PUT /api/v1/clusters/{uniqueName}/deployment`. The managed update can't, because it has no world to back up yet.
+has not run since guided setup can get its values before its first start: apply the update as usual. It takes no
+backup, because there is no world yet, and it starts the cluster.
 
 ## Cluster content update observations
 

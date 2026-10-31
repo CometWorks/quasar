@@ -604,7 +604,10 @@ public sealed class ClusterDeploymentTests : IDisposable
             new ClusterGatewayClient(new HttpClient(new GatewayHandler())),
             client,
             operations,
-            NullLogger<ClusterUpdateService>.Instance
+            NullLogger<ClusterUpdateService>.Instance,
+            // SE-783: it has no world to back up, so a capture would hold the update back
+            new ClusterBackupService(catalog, client, operations, null!,
+                new WebServiceOptions { BackupDirectory = Path.Combine(root, "never-ran-backups") }, null!, null!)
         );
         handler.Revision = "candidate";
 
@@ -624,6 +627,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
         Assert.Null(cluster.ActivationProof);
         Assert.Equal(0, handler.GatewayStops);
+        Assert.Null(cluster.Update.Backup);
     }
 
     [Fact]
