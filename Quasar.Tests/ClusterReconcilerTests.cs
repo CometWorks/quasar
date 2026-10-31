@@ -533,6 +533,143 @@ public sealed class ClusterReconcilerTests : IDisposable
         Assert.Equal(ClusterReconcileState.ConfigurationRequired, reconciler.GetStatus("demo").State);
     }
 
+    [Theory]
+    [InlineData(null)] // an older Host, without the Off guard
+    [InlineData(1)] // one crash: this Gateway may come back for the graceful shutdown
+    [InlineData(ClusterReconciler.HaltAfterLaunchAttempts - 1)]
+    public async Task OffKeepsRespawningAGatewayThatMayComeBack(int? attempts)
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            Assert.DoesNotContain("recovery-readiness", request.RequestUri!.AbsolutePath);
+            return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Failed) with { LaunchAttempts = attempts }]));
+        });
+        var reconciler = CreateReconciler(catalog, new ContractHandler((_, _) => throw new InvalidOperationException("must not contact Gateway")), host);
+        await reconciler.ReconcileAllAsync(default);
+        Assert.Equal("gateway_recovery_required", reconciler.GetStatus("demo").ErrorCode);
+    }
+
+    [Fact]
+    public async Task OffHaltsTheRespawnOfAGatewayThatKeepsFailingWhenNoNodeRuns()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        var writes = new List<GatewaySpec>();
+        int readinessChecks = 0;
+        var host = new ContractHandler((request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath.Contains("recovery-readiness"))
+            {
+                readinessChecks++;
+                return HostResponse(new HostRecoveryReadiness("host", new string('a', 64)));
+            }
+            if (request.Method == HttpMethod.Put)
+            {
+                writes.Add(JsonSerializer.Deserialize<GatewaySpec>(request.Content!.ReadAsStringAsync().Result, JsonOptions)!);
+                return HostResponse(GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing) with { CompletedStopFence = null });
+            }
+            return HostResponse(Host([writes.Count == 0
+                ? GatewayStatus(GatewayGoal.On, GatewayObservedState.Failed) with
+                {
+                    LaunchAttempts = ClusterReconciler.HaltAfterLaunchAttempts,
+                    Failure = "process_exited:exit_code=3;respawn_in_seconds=9",
+                }
+                : GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing) with { CompletedStopFence = null }]));
+        });
+        var reconciler = CreateReconciler(catalog, new ContractHandler((_, _) => throw new InvalidOperationException("must not contact Gateway")), host);
+
+        await reconciler.ReconcileAllAsync(default);
+        ClusterReconcileStatus halted = reconciler.GetStatus("demo");
+        Assert.Equal("shutdown_unverified", halted.ErrorCode);
+        Assert.Equal(ClusterReconcileState.ConfigurationRequired, halted.State);
+        Assert.Contains("process_exited:exit_code=3)", halted.Message);
+        GatewaySpec off = Assert.Single(writes);
+        Assert.Equal(GatewayGoal.Off, off.Goal);
+        Assert.Null(off.StopFence);
+        Assert.Equal(1, readinessChecks);
+
+        await reconciler.ReconcileAllAsync(default);
+        Assert.Equal("shutdown_unverified", reconciler.GetStatus("demo").ErrorCode);
+        Assert.Single(writes); // No clean stop is claimed and nothing more is written.
+        Assert.Null(catalog.GetCluster("demo")!.ShutdownProof);
+    }
+
+    [Fact]
+    public async Task OffKeepsRespawningAFailedGatewayWhileANodeRuns()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return request.RequestUri!.AbsolutePath.Contains("recovery-readiness")
+                ? HostError("All node processes must be verifiably stopped before activation.")
+                : HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Failed) with { LaunchAttempts = 5 }]));
+        });
+        var reconciler = CreateReconciler(catalog, new ContractHandler((_, _) => throw new InvalidOperationException("must not contact Gateway")), host);
+        await reconciler.ReconcileAllAsync(default);
+        Assert.Equal("gateway_recovery_required", reconciler.GetStatus("demo").ErrorCode);
+    }
+
+    [Fact]
+    public async Task OffHaltLosingARaceToARespawnFallsBackToGracefulShutdown()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        int writes = 0;
+        var host = new ContractHandler((request, _) =>
+        {
+            if (request.RequestUri!.AbsolutePath.Contains("recovery-readiness"))
+                return HostResponse(new HostRecoveryReadiness("host", new string('a', 64)));
+            if (request.Method == HttpMethod.Put)
+            {
+                writes++;
+                return HostError("The Gateway process is alive and this Off goal does not name it.");
+            }
+            return HostResponse(Host([writes == 0
+                ? GatewayStatus(GatewayGoal.On, GatewayObservedState.Failed) with { LaunchAttempts = 3 }
+                : GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
+        });
+        int shutdowns = 0;
+        var gateway = new ContractHandler((request, _) =>
+        {
+            if (request.Method != HttpMethod.Post) return GatewayResponse(Status(Admin.ClusterPhase.Serving));
+            shutdowns++;
+            return GatewayResponse(new Admin.AdminOperation("shutdown-1", "shutdown", Admin.AdminOperationState.Running, "test",
+                request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null, null));
+        });
+        var reconciler = CreateReconciler(catalog, gateway, host);
+
+        await reconciler.ReconcileAllAsync(default);
+        Assert.Equal("gateway_recovery_required", reconciler.GetStatus("demo").ErrorCode);
+        Assert.Equal(1, writes);
+        Assert.Equal(0, shutdowns);
+
+        await reconciler.ReconcileAllAsync(default);
+        Assert.Equal(1, writes);
+        Assert.Equal(1, shutdowns);
+        Assert.Equal(ClusterReconcileState.Converging, reconciler.GetStatus("demo").State);
+    }
+
+    [Fact]
+    public async Task OffLeavesARunningGatewayUpAfterADirtyShutdown()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using ClusterCatalog catalog = CreateCatalog(DedicatedServerGoalState.Off, managed: true);
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method); // An update despite the dirty shutdown reads its list from this Gateway.
+            return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
+        });
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down))) { Snapshots = [Snapshot("global")] };
+        var reconciler = CreateReconciler(catalog, gateway, host);
+        await reconciler.ReconcileAllAsync(default);
+        Assert.Equal("shutdown_recovery_required", reconciler.GetStatus("demo").ErrorCode);
+    }
+
     [Fact]
     public async Task OnWaitsForPendingShutdownRecoveredFromJournal()
     {
@@ -713,7 +850,7 @@ public sealed class ClusterReconcilerTests : IDisposable
     }
 
     private ClusterCatalog CreateCatalog(DedicatedServerGoalState goal, bool observeOnly = false,
-        Func<ClusterDefinition, ClusterActivationProof>? activation = null)
+        Func<ClusterDefinition, ClusterActivationProof>? activation = null, bool managed = false)
     {
         string directory = Path.Combine(_directory, "demo");
         Directory.CreateDirectory(directory);
@@ -730,6 +867,10 @@ public sealed class ClusterReconcilerTests : IDisposable
             UpdatedAtUtc = DateTimeOffset.UnixEpoch,
         };
         cluster.ActivationProof = activation?.Invoke(cluster);
+        if (managed)
+            cluster.ActiveDeployment = new("r1", [new("host", "http://host.test", _tokenVariable, new HostActiveDeployment("demo", "r1",
+                new string('a', 64), new("demo", "http://gateway.test", "token", "/bundle/manifest.json", new string('a', 64), "/runs/demo"),
+                Spec(), ["host"]))], DateTimeOffset.UnixEpoch);
         File.WriteAllText(Path.Combine(directory, "cluster.json"), JsonSerializer.Serialize(cluster, JsonOptions));
         return OpenCatalog();
     }
@@ -769,6 +910,14 @@ public sealed class ClusterReconcilerTests : IDisposable
     private static HttpResponseMessage HostResponse<T>(T value) => Response(
         new HostEnvelope<T>(HostProtocol.Version, DateTimeOffset.UtcNow, value),
         HostProtocol.HeaderName, HostProtocol.Version);
+
+    private static HttpResponseMessage HostError(string message)
+    {
+        var response = Response(new HostErrorEnvelope(HostProtocol.Version, DateTimeOffset.UtcNow,
+            new global::Quasar.Host.Contract.V1.HostError("host_state_conflict", message)), HostProtocol.HeaderName, HostProtocol.Version);
+        response.StatusCode = HttpStatusCode.Conflict;
+        return response;
+    }
 
     private static HttpResponseMessage GatewayResponse<T>(T value) => Response(
         new Admin.AdminEnvelope<T>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow, value),

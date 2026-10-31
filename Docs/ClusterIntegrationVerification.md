@@ -307,6 +307,9 @@ keeps running, no shutdown proof is recorded and the status is `shutdown_recover
 may be retried while nodes remain live. Once no active nodes remain, a failed request
 cannot produce missing final saves, so Quasar retains the failed operation for that
 lifecycle and reports `shutdown_recovery_required` instead of submitting it forever.
+That running Gateway is what names the Dirty list for an update despite the dirty
+shutdown, so it keeps its ports until Recovery, such an update or a delete. A delete stops
+it with a fence once every Host proves its nodes stopped.
 The cluster detail status becomes **Recovery required** with a visible error; the cluster
 is not marked cleanly stopped. The error includes Gateway's reason and points
 to Maintenance → Recovery → **Recover stopped cluster after an unclean shutdown**. That

@@ -1171,7 +1171,13 @@ counts as cleanly stopped for another activation, an update, a rollback and back
 the status reads "Deployment activated; the Gateway has not run since". A restore writes
 no record. Do not hand-edit this evidence. An absent Gateway without matching evidence reports
 `shutdown_unverified`; a mismatched or uncertain process reports
-`gateway_recovery_required`. An Off goal never starts a Gateway for recovery.
+`gateway_recovery_required`. An Off goal never starts a Gateway for recovery. It does
+stop a respawn loop: when the Host reports the Gateway Failed after three launches in a
+row that did not stay up, and every Host proves no node runs, Quasar sends the same spec
+with goal Off and no stop fence. That launches and stops nothing and the status stays
+`shutdown_unverified`. A Host refuses an Off goal over a live process its fence does not
+name before persisting it, so a respawn racing the write changes nothing. One crash does
+not qualify: that Gateway comes back for the graceful shutdown.
 The reconciler is a hosted service in normal and headless mode.
 
 Every mutation requires an `Idempotency-Key` header. Quasar writes the operation

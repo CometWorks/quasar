@@ -130,7 +130,10 @@ public sealed record GatewayStatus(
     string? Failure,
     GatewayStopFence? CompletedStopFence = null, Guid? StartGeneration = null,
     // The last lines the failed Gateway wrote to stdout or stderr, oldest first. Null when the Host did not capture them.
-    string[]? Output = null, GatewayProcessMetrics? Metrics = null);
+    string[]? Output = null, GatewayProcessMetrics? Metrics = null,
+    // Failed under goal On: launches in a row that did not stay up. A Host that reports this also refuses
+    // to persist an Off goal over a live process that the goal's fence does not name. Null otherwise.
+    int? LaunchAttempts = null);
 
 /// <summary>Process totals; CPU 100% equals one logical CPU. Null CPU until two samples exist.</summary>
 public sealed record GatewayProcessMetrics(DateTimeOffset CapturedAt, double? CpuPercent, long MemoryWorkingSetBytes);

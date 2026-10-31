@@ -522,6 +522,17 @@ internal static class Program
                 || new GatewaySpecStore(stateRoot).GetAll().Single().ConfigRevision != "config-self-test")
                 throw new InvalidOperationException("self-test Gateway start/re-adoption failed");
             var stopFence = new HostContract.GatewayStopFence(gatewayRunning.ProcessId!.Value, gatewayRunning.LaunchedAt!.Value);
+            var offGuard = new GatewayActualizer(stateRoot, "host-a");
+            offGuard.RefuseOffOverLiveProcess(gatewaySpec);
+            offGuard.RefuseOffOverLiveProcess(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence });
+            foreach (HostContract.GatewayStopFence? refused in new HostContract.GatewayStopFence?[] { null, stopFence with { ProcessId = stopFence.ProcessId + 1 } })
+            {
+                bool refusedOff = false;
+                try { offGuard.RefuseOffOverLiveProcess(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = refused }); }
+                catch (InvalidOperationException) { refusedOff = true; }
+                if (!refusedOff)
+                    throw new InvalidOperationException("self-test Off goal over a live Gateway was not refused");
+            }
             HostContract.GatewayStatus wrongStop = await new GatewayActualizer(stateRoot, "host-a")
                 .ReconcileAsync(gatewaySpec with { Goal = HostContract.GatewayGoal.Off, StopFence = stopFence, ConfigRevision = "other" }, CancellationToken.None);
             HostContract.GatewayStatus staleStop = await new GatewayActualizer(stateRoot, "host-a")
@@ -580,6 +591,8 @@ internal static class Program
                 exited = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
             }
             HostContract.GatewayStatus respawnWait = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
+            if (exited.LaunchAttempts != 1 || respawnWait.LaunchAttempts != 1)
+                throw new InvalidOperationException("self-test Gateway launch attempts were not reported");
             string[] lastLines = exited.Output ?? [];
             if (exited.Observed != HostContract.GatewayObservedState.Failed
                 || exited.Failure != "process_exited:exit_code=3"

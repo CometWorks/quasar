@@ -110,7 +110,7 @@ It needs the stopped Gateway to still answer in phase Down, and a cluster releas
 | Code | Meaning and action |
 | --- | --- |
 | `shutdown_pending` | A shutdown is still running. "Waiting for clean Down before starting the next generation." Wait. |
-| `shutdown_unverified` | The Gateway is gone but Quasar has no matching clean-shutdown proof. Use Recovery. |
+| `shutdown_unverified` | The Gateway is gone but Quasar has no matching clean-shutdown proof, also after goal Off stopped the respawn of a Gateway that did not stay up (three launches in a row, no node running). Use Recovery. |
 | `gateway_recovery_required` | Gateway process identity does not match the record. Use Recovery. |
 | `shutdown_recovery_required` | The shutdown left something dirty or failed with no active nodes. "In Maintenance → Recovery, recover the stopped cluster after an unclean shutdown." |
 | `cluster_down` | Goal On but the cluster is Down and Quasar cannot prove a clean restart. Stop and start it, or recover it. |
@@ -270,7 +270,7 @@ The conversion page shows the phase and a **Conversion ID**, also in the page UR
 
 The delete icon on the card or page opens a dialog:
 
-- **Delete definition** archives the cluster definition. Managed processes must be stopped and all operations complete; Quasar checks each Host executor first. API: `DELETE /api/v1/clusters/{name}` (204, or 409 when blocked).
+- **Delete definition** archives the cluster definition. Nodes must be stopped and all operations complete; Quasar checks each Host executor first. A Gateway still running or being respawned, such as after an unclean shutdown, is stopped once every Host proves its nodes stopped; nothing is saved. Delete refuses while a node runs or the Gateway's process state is unknown. API: `DELETE /api/v1/clusters/{name}` (204, or 409 when blocked).
 - **Forget registration without checking remote processes** needs the Cluster ID typed exactly. Running processes keep running. API: `DELETE /api/v1/clusters/{name}/registration?confirmation={name}`.
 
 After a delete, Quasar asks each host machine's Host executor to detach the cluster, so the Host stops polling and supervising it. Detaching is refused while a node or the Gateway still runs, the Gateway goal is On, an activation or restore is unfinished, or the deployment changed. The Host moves the cluster's attachment, Gateway specification and activation journal to `state/detached/<timestamp>-<Cluster ID>/`. Worlds, run roots and snapshots stay where they are. When a Host is too old or refuses, the deletion still stands and Quasar logs a warning with the `Quasar.Host cluster detach` command to run on that machine (see [Host command line](ClusterHosts.md#host-command-line)). Forget does not detach: run that command once the processes are stopped.
