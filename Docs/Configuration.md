@@ -1447,7 +1447,10 @@ for the pending deployment. Apply it from **Maintenance → Pending update**
 during full downtime. Until activation finishes, the active profile and content
 checks remain unchanged. Quasar records a hash of the selected profile at
 preparation time and refuses to begin activation if that profile is changed or deleted;
-stage the selection again after editing it. The API equivalent is
+stage the selection again after editing it. A staging that fails or is refused because
+the profile changed during it keeps the changes staged before it (hot spares, plugin
+configuration, world files, names), and the next staging builds on them. Only selecting
+a cluster package discards them. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
 config editing permissions. A profile's plugin selection can be read and replaced with

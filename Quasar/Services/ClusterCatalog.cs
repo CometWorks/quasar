@@ -149,6 +149,7 @@ public sealed class ClusterCatalog : IDisposable
                 cluster.ConfigProfileId = cluster.PreparedProfile.ProfileId;
             cluster.PreparedProfile = null;
             cluster.StagedNames = null;
+            cluster.StagedRevision = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
             cluster.PendingDeploymentHash = null;
@@ -191,6 +192,7 @@ public sealed class ClusterCatalog : IDisposable
             current.PreparedDeployment = deployment;
             current.PreparedForSelectedRelease = false;
             current.PreparedProfile = null;
+            current.StagedRevision = null;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
@@ -252,6 +254,7 @@ public sealed class ClusterCatalog : IDisposable
                     throw new InvalidOperationException("Prepared profile does not match the deployment specification.");
             }
             current.PreparedForSelectedRelease = true;
+            current.StagedRevision = deployment.Revision;
             if (preparedProfileId is not null)
                 current.PreparedProfile = new(preparedProfileId, deployment.Revision, preparedProfileSha256);
             if (preparedContentUpdates is not null) current.QueuedContentUpdates = null;
@@ -445,6 +448,7 @@ public sealed class ClusterCatalog : IDisposable
             cluster.DependencyManifestSha256 = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
+            cluster.StagedRevision = null;
             Normalize(cluster);
             // UpdatedAtUtc participates in lifecycle request identity. Package staging must not change it.
             await SaveAsync(cluster, cancellationToken);

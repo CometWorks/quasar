@@ -193,6 +193,15 @@ public sealed class ClusterDependencyTests
         cluster.Preparation = active with { Hosts = [.. active.Hosts] };
         cluster.PreparedForSelectedRelease = false;
         Assert.Same(cluster.Preparation, service.BasePreparation(cluster, progress));
+        // SE-822: a dependency selection cleared the prepared deployment, and the staged change stays the base.
+        cluster.Preparation = stale;
+        cluster.PreparedDeployment = null;
+        cluster.StagedRevision = ClusterDependencyService.DeploymentRevision(stale);
+        Assert.Same(stale, service.BasePreparation(cluster, progress));
+        // Another preparation saved since then isn't that staging.
+        cluster.Preparation = stale with { InputsSha256 = new string('e', 64) };
+        Assert.Same(active, service.BasePreparation(cluster));
+        cluster.StagedRevision = null;
         // A catalog from before provenance keeps its saved preparation.
         cluster.Preparation = stale;
         cluster.ActiveDeployment = cluster.ActiveDeployment with { Provenance = null };
