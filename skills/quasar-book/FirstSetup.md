@@ -11,9 +11,13 @@ The installed services and `Quasar serve` do not open a browser on their own. `Q
 ## Choose public access
 
 A first interactive administrator session shows **Set up administrator access**.
-Choose **Self-deploy**, **Use hosted panel** or **Later**; headless startup is not
-blocked. Reopen it at **Security → Manage access setup**. Configure your Steam
-administrator mapping below before using a public URL. See [Hosted access](HostedPanel.md)
+If no subject or claim mapping grants the admin role, its first step asks for
+your 17-digit **Administrator SteamID64**. **Save administrator and continue**
+saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**.
+Existing administrator mappings skip this step. **Later** closes setup without
+configuring public access; setup returns on the next page load while no admin is
+configured. Headless startup is not blocked. Reopen it at
+**Security → Manage access setup**. See [Hosted access](HostedPanel.md)
 for automatic enrollment and its current availability limits.
 
 ## Set the first administrator
@@ -22,7 +26,7 @@ Quasar access is controlled by roles (`viewer`, `editor`, `admin`) mapped to Ste
 
 ### Option 1: open the UI on the Quasar machine itself
 
-By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar, go to **Security** in the navigation, and add your SteamID with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode.
+By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar and enter your SteamID64 in the administrator setup step. You can also go to **Security** and add your SteamID with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode. Setup rechecks security-management permission before saving; a remote Steam sign-in alone cannot claim an unconfigured panel.
 
 This does not work when the request comes through a reverse proxy, from another machine, or when `Quasar:Auth:TrustedNetworkBypass:AllowLoopback` is `false`.
 
@@ -175,6 +179,7 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Components/Pages/WorldTemplateConfigProfileDialog.razor`
 - `Quasar/Components/Pages/Security.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Services/ExistingServerImportService.cs`
 - `Quasar/Services/QuasarWorldTemplateCatalog.cs`
 - `Quasar/Services/WorldSandboxConfigEditor.cs`

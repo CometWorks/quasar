@@ -41,9 +41,14 @@ existing release acceptance. See [Nebula billing setup](https://github.com/Comet
 
 ## Setup
 
-1. Configure your normal Quasar Steam administrator mapping on **Security**.
-   A platform super-admin entitlement supplies free hosting; it does not grant a
-   role in local Quasar. Steam must be enabled before public enrollment.
+1. Open Quasar through an existing administrator session (normally trusted local
+   access for a fresh installation). If no subject or claim mapping grants the
+   admin role, setup first asks for a 17-digit **Administrator SteamID64**.
+   **Save administrator and continue** persists the admin mapping to `rbac.json`.
+   Existing admin mappings skip this step. A remote Steam sign-in alone cannot
+   claim an unconfigured panel. A platform super-admin entitlement supplies free
+   hosting; it does not grant a role in local Quasar. Steam must be enabled before
+   public enrollment.
 2. The first interactive administrator session shows **Set up administrator
    access**. Choose **Self-deploy**, **Use hosted panel** or **Later**. Existing
    network/security settings are preserved. Headless startup does not wait for a

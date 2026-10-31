@@ -292,7 +292,8 @@
         _themeCallback = DotNetObjectReference.Create(this);
         _themeSubscription = await _themeModule.InvokeAsync<IJSObjectReference>("observeSystemTheme", _themeCallback);
         await BrowserPush.RefreshAsync();
-        if (HostedPanel.State.Choice == "" && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+        if ((!RbacConfigCatalog.HasAdminMapping(RbacConfigCatalog.GetConfig()) || HostedPanel.State.Choice == "") &&
+            await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
             await DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access", new DialogOptions
                 { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
         await InvokeAsync(StateHasChanged);

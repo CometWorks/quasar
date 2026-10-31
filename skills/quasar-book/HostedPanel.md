@@ -4,8 +4,12 @@ Nebula exposes the complete local Quasar at
 `https://dash.se-servers.net/my-server-panel/`. Servers and worlds remain
 local. You need no per-panel DNS entry, inbound router port or certificate.
 
-Configure your normal Steam admin mapping, then open **Security → Manage access
-setup**. The same dialog appears in the first interactive admin session. Choose
+Open **Security → Manage access setup**. The same dialog appears in the first
+interactive admin session. When no administrator mapping exists, first enter your
+17-digit SteamID64 and choose **Save administrator and continue**. Existing
+subject or claim admin mappings skip that step. Setup requires security-management
+permission, normally through the existing trusted-network session on a fresh
+installation; a remote Steam sign-in alone cannot claim it. Then choose
 Self-deploy, Use hosted panel or Later. Headless startup remains unattended.
 For hosted access choose a globally unique 3 to 63 character lowercase name using
 letters/digits separated by single dashes, then follow the Steam enrollment link.
@@ -83,6 +87,7 @@ See [the detailed deployment and recovery guide](https://github.com/CometWorks/q
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
+- `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Pages/Security.razor`
