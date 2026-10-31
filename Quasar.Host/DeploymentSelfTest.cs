@@ -19,6 +19,8 @@ internal static class DeploymentSelfTest
         OnlineSnapshot();
         ModLinksAndLeanSnapshots();
         ClusterDetach();
+        DeletedClusterRelease();
+        StagingSweepAndOrphanArchives();
         Assert(HostShutdown.ParseSystemdSeconds("2min") == 120 && HostShutdown.ParseSystemdSeconds("1min 30s") == 90
             && HostShutdown.ParseSystemdSeconds("500ms\n") == 0.5 && HostShutdown.ParseSystemdSeconds("infinity") is null
             && HostShutdown.ParseSystemdSeconds("5s junk") is null, "systemd time span parsing");
@@ -144,7 +146,11 @@ internal static class DeploymentSelfTest
                 Assert(File.ReadAllText(privateFile) == "new state after backup", "rejected restore mutated runtime data");
                 snapshots.Restore(restore, preview: true);
                 Assert(File.ReadAllText(privateFile) == "new state after backup", "restore preview mutated runtime data");
+                string older = runtime + ".before-restore-" + Guid.NewGuid().ToString("N");
+                Directory.CreateDirectory(Path.Combine(older, "locked"));
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(Path.Combine(older, "locked"), UnixFileMode.UserRead | UnixFileMode.UserExecute);
                 snapshots.Restore(restore);
+                Assert(!Directory.Exists(older), "restore kept an older previous runtime");
                 Assert(File.ReadAllText(privateFile) == "durable plugin state", "restore lost private plugin state");
                 Assert(Directory.Exists(Path.Combine(slot, "config/empty-private")), "restore lost empty plugin directory");
                 if (!OperatingSystem.IsWindows()) Assert(File.GetUnixFileMode(privateFile) == (UnixFileMode.UserRead | UnixFileMode.UserWrite), "restore changed private file permissions");
@@ -722,9 +728,113 @@ internal static class DeploymentSelfTest
         File.WriteAllText(file, "first!");
         File.SetLastWriteTimeUtc(file, written);
         Assert(ExecutionBundle.VerifiedHash(file, pin) is null, "changed size did not invalidate the cache");
+        if (!OperatingSystem.IsLinux()) return;
+        // A hard link is the same file: verifying one path covers the others.
+        File.WriteAllText(file, "first");
+        Assert(ExecutionBundle.VerifiedHash(file, pin) == pin, "verified hash mismatch before linking");
+        written = File.GetLastWriteTimeUtc(file);
+        string linked = Path.Combine(root, "cached-link.bin");
+        Assert(Quasar.ClusterDeployment.ClusterContentStore.Link(file, linked) == 0, "hard link failed");
+        File.WriteAllText(file, "other");
+        File.SetLastWriteTimeUtc(file, written);
+        Assert(ExecutionBundle.VerifiedHash(linked, pin) == pin, "hard link was hashed again");
+        File.Delete(linked);
     }
 
     // A deleted cluster leaves the Host's supervision loop only through the fenced detach (DF-1451).
+    private static void DeletedClusterRelease()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-release-" + Guid.NewGuid());
+        try
+        {
+            string state = Path.Combine(root, "state"), conversions = Path.Combine(state, "conversions");
+            string Workspace() => Path.Combine(conversions, Guid.NewGuid().ToString("N"));
+            string deleted = Workspace(), attached = Workspace(), foreign = Path.Combine(root, "operator-directory");
+            string locked = Path.Combine(deleted, "runtime/nodes/one");
+            Directory.CreateDirectory(locked);
+            File.WriteAllText(Path.Combine(locked, "world.dat"), "world");
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(locked, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            Directory.CreateDirectory(foreign);
+            Directory.CreateDirectory(Path.Combine(attached, "runtime"));
+            Directory.CreateDirectory(Path.Combine(root, "config"));
+            string path = Path.Combine(root, "config/bundle.json");
+            File.WriteAllBytes(path, JsonSerializer.SerializeToUtf8Bytes(new BundleManifest(1, "revision-1", [], [],
+                RuntimeRoot: Path.Combine(attached, "runtime"), ClusterId: "live", HostId: "host",
+                StorageFormats: new() { ["world"] = "test-v1", ["registry"] = "test-v1", ["plugins"] = "test-v1" }),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            string hash = ExecutionBundle.Hash(File.ReadAllBytes(path));
+            var attachments = new AttachmentStore(state, []);
+            var activation = new DeploymentActivation(state, "host", attachments, new GatewaySpecStore(state),
+                new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
+            activation.Apply(new("live", null, path, hash, "http://127.0.0.1:29416", "EXECUTOR_TOKEN"));
+
+            AssertThrows(() => activation.ReleaseDeleted("LIVE", [])); // Still supervised.
+            AssertThrows(() => activation.ReleaseDeleted("gone", [attached])); // Serves another cluster.
+            Assert(Directory.Exists(Path.Combine(attached, "runtime")), "refused release touched the attached runtime");
+            try { activation.ReleaseDeleted("../gone", []); throw new InvalidOperationException("release accepted a path as cluster ID"); }
+            catch (ArgumentException) { }
+
+            string snapshots = Path.Combine(state, "snapshots", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes("gone")));
+            Directory.CreateDirectory(snapshots);
+            string record = Path.Combine(state, "detached/20261031000000000-gone"), other = Path.Combine(state, "detached/20261031000000000-not-gone");
+            Directory.CreateDirectory(record);
+            Directory.CreateDirectory(other);
+            string[] removed = activation.ReleaseDeleted("gone", [deleted, foreign, Path.Combine(deleted, "runtime"), conversions]);
+            Assert(removed.SequenceEqual([deleted]) && !Directory.Exists(deleted), "release did not remove the workspace, read-only directories included");
+            Assert(Directory.Exists(foreign) && Directory.Exists(conversions), "release touched a directory that is no workspace");
+            Assert(!Directory.Exists(snapshots) && !Directory.Exists(record) && Directory.Exists(other), "release removed the wrong records");
+            Assert(activation.ReleaseDeleted("gone", [deleted]).Length == 0, "repeated release was not a no-op");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) ClusterDeployment.ClusterStagingSweep.DeleteTree(root);
+        }
+    }
+
+    private static void StagingSweepAndOrphanArchives()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "host-sweep-" + Guid.NewGuid());
+        try
+        {
+            string state = Path.Combine(root, "state"), conversions = Path.Combine(state, "conversions");
+            string workspace = Path.Combine(conversions, Guid.NewGuid().ToString("N")), empty = Path.Combine(conversions, Guid.NewGuid().ToString("N"));
+            string[] leftovers = [Path.Combine(conversions, "installations/.transfer-a"), Path.Combine(conversions, "installations/.stage-b"),
+                Path.Combine(conversions, "mods/.world-c"), Path.Combine(conversions, "worlds/.world-d"), Path.Combine(workspace, ".restore-e")];
+            foreach (string leftover in leftovers.Append(empty)) Directory.CreateDirectory(leftover);
+            string keep = Path.Combine(conversions, "worlds", new string('a', 64)), runtime = Path.Combine(workspace, "runtime");
+            Directory.CreateDirectory(keep);
+            Directory.CreateDirectory(runtime);
+            string snapshots = Path.Combine(state, "snapshots/cluster");
+            Directory.CreateDirectory(snapshots);
+            Guid young = Guid.NewGuid(), old = Guid.NewGuid(), journaled = Guid.NewGuid();
+            foreach (string file in new[] { young + ".tar.upload-x", old + ".tar.tmp" }) File.WriteAllText(Path.Combine(snapshots, file), "");
+            foreach (Guid id in new[] { young, old, journaled }) File.WriteAllText(Path.Combine(snapshots, id.ToString("N") + ".tar"), "");
+            foreach (Guid id in new[] { old, journaled })
+                File.SetLastWriteTimeUtc(Path.Combine(snapshots, id.ToString("N") + ".tar"), DateTime.UtcNow.AddDays(-2));
+            string restores = Path.Combine(state, "restores");
+            Directory.CreateDirectory(restores);
+            File.WriteAllBytes(Path.Combine(restores, Guid.NewGuid().ToString("N") + ".json"), JsonSerializer.SerializeToUtf8Bytes(new HostContract.HostSnapshotRestore(
+                "cluster", Guid.NewGuid(), journaled, "", "", "", ""), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+            System.Threading.Thread.Sleep(20); // The sweep compares against its own start.
+
+            DeploymentActivation.SweepStaging(state);
+            Assert(leftovers.All(p => !Directory.Exists(p)) && !Directory.Exists(empty), "startup left staging behind");
+            Assert(Directory.Exists(keep) && Directory.Exists(runtime), "startup removed published data");
+            Assert(Directory.GetFiles(snapshots).Length == 3, "startup left unfinished snapshot files behind");
+
+            var attachments = new AttachmentStore(state, []);
+            new DeploymentSnapshots(state, "host", attachments, new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"))
+                .CollectArchives(TimeSpan.FromHours(24));
+            Assert(File.Exists(Path.Combine(snapshots, young.ToString("N") + ".tar")), "collection removed a young archive");
+            Assert(!File.Exists(Path.Combine(snapshots, old.ToString("N") + ".tar")), "collection kept an orphaned archive");
+            Assert(File.Exists(Path.Combine(snapshots, journaled.ToString("N") + ".tar")), "collection removed the archive of an interrupted restore");
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, true);
+        }
+    }
+
     private static void ClusterDetach()
     {
         string root = Path.Combine(Path.GetTempPath(), "host-detach-" + Guid.NewGuid());

@@ -940,6 +940,12 @@ security, backup, update, UI-plugin, and Quasar shutdown controls require admin.
 Runtime RBAC saves reject removal of the last administrator mapping; direct file
 edits remain an explicit operator recovery path.
 
+Secret-bearing atomic files are created owner-readable/writable only on Unix, and
+ordinary atomic rewrites preserve an existing Unix mode. Discord bot tokens are
+Data Protection payloads in `discord.json`; legacy plaintext tokens migrate on
+load. Config-profile history and backup archives remain sensitive because they can
+contain plaintext server passwords or other private state.
+
 The agent and launcher remain separate trust boundaries:
 
 - per-server tokens

@@ -67,7 +67,10 @@
                 <AuthorizeView>
                     <Authorized Context="authContext">
                         <span class="quasar-user-name">@authContext.User.GetQuasarDisplayName()</span>
-                        <a class="quasar-icon-button" href="logout" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></a>
+                        <form class="quasar-inline-form" method="post" action="logout">
+                            <AntiforgeryToken />
+                            <button class="quasar-icon-button" type="submit" title="@GetAuthTooltip(authContext.User)" aria-label="@GetAuthTooltip(authContext.User)"><QuasarIcon Icon="@QuasarIcons.Logout" /></button>
+                        </form>
                     </Authorized>
                     <NotAuthorized>
                         <a class="quasar-icon-button" href="login" title="Sign in" aria-label="Sign in"><QuasarIcon Icon="@QuasarIcons.Login" /></a>
@@ -289,9 +292,10 @@
         _themeCallback = DotNetObjectReference.Create(this);
         _themeSubscription = await _themeModule.InvokeAsync<IJSObjectReference>("observeSystemTheme", _themeCallback);
         await BrowserPush.RefreshAsync();
-        if (HostedPanel.State.Choice == "" && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+        if ((!RbacConfigCatalog.HasAdminMapping(RbacConfigCatalog.GetConfig()) || HostedPanel.State.Choice == "") &&
+            await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
             await DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access", new DialogOptions
-                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
+                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
         await InvokeAsync(StateHasChanged);
     }
 

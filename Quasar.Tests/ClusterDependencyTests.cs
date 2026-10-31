@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Quasar.ClusterDeployment;
 using CometWorks.ClusterGateway.AdminContract.V1;
 using Microsoft.AspNetCore.Http;
@@ -132,6 +133,7 @@ public sealed class ClusterDependencyTests
             var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
             var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
                 null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            await Assert.ThrowsAsync<InvalidDataException>(() => preparation.StagePluginConfigurationAsync("demo", "other", "Primary", "{}", "test", default));
             var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
             Assert.Equal(ClusterOperationState.Succeeded, result.State);
             var saved = catalog.GetCluster("demo")!;
@@ -191,11 +193,72 @@ public sealed class ClusterDependencyTests
         cluster.Preparation = active with { Hosts = [.. active.Hosts] };
         cluster.PreparedForSelectedRelease = false;
         Assert.Same(cluster.Preparation, service.BasePreparation(cluster, progress));
+        // SE-822: a dependency selection cleared the prepared deployment, and the staged change stays the base.
+        cluster.Preparation = stale;
+        cluster.PreparedDeployment = null;
+        cluster.StagedRevision = ClusterDependencyService.DeploymentRevision(stale);
+        Assert.Same(stale, service.BasePreparation(cluster, progress));
+        // Another preparation saved since then isn't that staging.
+        cluster.Preparation = stale with { InputsSha256 = new string('e', 64) };
+        Assert.Same(active, service.BasePreparation(cluster));
+        cluster.StagedRevision = null;
         // A catalog from before provenance keeps its saved preparation.
         cluster.Preparation = stale;
         cluster.ActiveDeployment = cluster.ActiveDeployment with { Provenance = null };
         Assert.Same(stale, service.BasePreparation(cluster, progress));
         Assert.Single(messages);
+    }
+
+    private const string ProfilePatch = "<MyObjectBuilder_Checkpoint><SessionName>Old</SessionName><Settings><MaxPlayers>7</MaxPlayers></Settings><Mods /></MyObjectBuilder_Checkpoint>";
+
+    // SE-799: a rename reaches the world's SessionName without a profile staging, and nothing else in the patch changes.
+    [Fact]
+    public void RenamingSetsTheSessionNameInTheProfilePatchOnly()
+    {
+        var spec = new JsonObject { ["profileSettingsXml"] = ProfilePatch };
+        ClusterUpdatePreparationService.SetNames(spec, null, "A & B");
+        Assert.Equal("A & B", spec["worldName"]!.GetValue<string>());
+        Assert.False(spec.ContainsKey("serverName"));
+        Assert.Equal(ProfilePatch.Replace("Old", "A &amp; B"), spec["profileSettingsXml"]!.GetValue<string>());
+
+        ClusterUpdatePreparationService.SetNames(spec, "Server", null);
+        Assert.Equal("Server", spec["serverName"]!.GetValue<string>());
+        Assert.Contains("A &amp; B", spec["profileSettingsXml"]!.GetValue<string>());
+
+        spec["profileSettingsXml"] = "<MyObjectBuilder_Checkpoint><Settings /><Mods /></MyObjectBuilder_Checkpoint>";
+        ClusterUpdatePreparationService.SetNames(spec, null, "New");
+        Assert.Equal("<MyObjectBuilder_Checkpoint><SessionName>New</SessionName><Settings /><Mods /></MyObjectBuilder_Checkpoint>",
+            spec["profileSettingsXml"]!.GetValue<string>());
+
+        var unpatched = new JsonObject();
+        ClusterUpdatePreparationService.SetNames(unpatched, null, "New");
+        Assert.False(unpatched.ContainsKey("profileSettingsXml"));
+    }
+
+    // SE-799: a package selection or a failed staging falls back to the active preparation, and the rename stays.
+    [Fact]
+    public void StagedNamesApplyToWhicheverPreparationIsTheBase()
+    {
+        var active = Preparation(new string('a', 64), "192.168.1.80:27116");
+        var activeSpec = JsonNode.Parse(active.SpecificationJson)!.AsObject();
+        activeSpec["profileSettingsXml"] = ProfilePatch;
+        active = active with { SpecificationJson = activeSpec.ToJsonString() };
+        var selection = new ClusterPackageSelection(1, "0.1.1296", new string('b', 64), new string('c', 40), "package");
+        var cluster = new ClusterDefinition { UniqueName = "demo", Preparation = Preparation(new string('a', 64), "192.168.1.80:8116"),
+            ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active), [], DateTimeOffset.UtcNow)
+            { Provenance = new(selection, new string('d', 64), active) }, StagedNames = new("Server", "World") };
+        var service = new ClusterUpdatePreparationService(null!, null!, null!, null!, null!, null!, null!, null!, null!,
+            NullLogger<ClusterUpdatePreparationService>.Instance);
+
+        var based = service.BasePreparation(cluster)!;
+        var spec = JsonNode.Parse(based.SpecificationJson)!;
+        Assert.Equal("192.168.1.80:27116", spec["directListen"]!.GetValue<string>());
+        Assert.Equal(("Server", "World"), (spec["serverName"]!.GetValue<string>(), spec["worldName"]!.GetValue<string>()));
+        Assert.Contains("<SessionName>World</SessionName>", spec["profileSettingsXml"]!.GetValue<string>());
+        // Unchanged bytes when the base has the names already: the same specification keeps its deployment revision.
+        cluster.Preparation = based;
+        cluster.ActiveDeployment = cluster.ActiveDeployment with { Revision = ClusterDependencyService.DeploymentRevision(based) };
+        Assert.Same(based, service.BasePreparation(cluster));
     }
 
     private sealed class SynchronousProgress(Action<string> report) : IProgress<string>
@@ -242,6 +305,130 @@ public sealed class ClusterDependencyTests
                 .GetProperty("configuration").GetProperty("values").GetProperty("limit").GetInt32());
         }
         finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    [LinuxFact]
+    public async Task RenamingStagesNewInGameNamesAndKeepsTheIdentity()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        string credential = "CONFIG_STAGE_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            ClusterPreparationRequest Prepared(string direct) => Preparation(hash, direct) with { Hosts =
+                [new("one", "http://one", credential, credential, "/installation", "/world", "/configuration/original")] };
+            var active = Prepared("192.168.1.80:27116");
+            var restore = Prepared("192.168.1.80:8116");
+            fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active), [], DateTimeOffset.UtcNow,
+                fixture.Cluster.PackageSelection!.Version)
+                { Provenance = new(fixture.Cluster.PackageSelection, candidate.ManifestSha256, active) };
+            fixture.Cluster.Preparation = restore;
+            fixture.Cluster.PreparedDeployment = new(fixture.Cluster.ActiveDeployment.Revision, ClusterDependencyService.DeploymentRevision(restore), []);
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            using var handler = new ConfigurationPreparationHandler();
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            await Assert.ThrowsAsync<ArgumentException>(() => preparation.StageNamesAsync("demo", " ", null, "test", default));
+            var result = await preparation.StageNamesAsync("demo", null, " Octahedron ", "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            using var spec = JsonDocument.Parse(catalog.GetCluster("demo")!.Preparation!.SpecificationJson);
+            // SE-755: only the names change; a blank server name stays as it was.
+            Assert.Equal("Octahedron", spec.RootElement.GetProperty("worldName").GetString());
+            Assert.False(spec.RootElement.TryGetProperty("serverName", out _));
+            Assert.Equal("demo", spec.RootElement.GetProperty("clusterId").GetString());
+            Assert.Equal("192.168.1.80:27116", spec.RootElement.GetProperty("directListen").GetString());
+            // SE-799: the names stay staged, and a later rename keeps the other name.
+            Assert.Equal(new(null, "Octahedron"), catalog.GetCluster("demo")!.StagedNames);
+            await preparation.StageNamesAsync("demo", "Server", null, "test", default);
+            Assert.Equal(new("Server", "Octahedron"), catalog.GetCluster("demo")!.StagedNames);
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    // SE-845: a package selection discards a staged profile, so the next preparation builds on the active profile.
+    [LinuxFact]
+    public async Task PreparingAfterAPackageSelectionDropsTheStagedProfile()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        string credential = "PACKAGE_SELECT_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            ClusterPreparationRequest Selecting(string profile) => new(hash, $$"""
+                {"clusterId":"demo","hosts":[{"id":"one","runRoot":"/run"}],"selectedConfigProfileId":"{{profile}}"}
+                """, "http://gateway.test", [new("one", "http://one", credential, credential, "/installation", "/world", "/configuration/original")]);
+            var active = Selecting("active");
+            var staged = Selecting("staged");
+            string stagedRevision = ClusterDependencyService.DeploymentRevision(staged);
+            fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active),
+                [new("one", "http://one", credential, new("demo", "active", new string('a', 64), null!, null))], DateTimeOffset.UtcNow,
+                fixture.Cluster.PackageSelection!.Version)
+                { Provenance = new(fixture.Cluster.PackageSelection, candidate.ManifestSha256, active) };
+            fixture.Cluster.ConfigProfileId = "active";
+            fixture.Cluster.Preparation = staged;
+            fixture.Cluster.PreparedDeployment = new(fixture.Cluster.ActiveDeployment.Revision, stagedRevision, []);
+            fixture.Cluster.PreparedForSelectedRelease = true;
+            fixture.Cluster.StagedRevision = stagedRevision;
+            fixture.Cluster.PreparedProfile = new("staged", stagedRevision, new string('e', 64));
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            var installed = await fixture.Packages.Service.GetInstalledAsync(fixture.Packages.Request, default);
+            await catalog.SelectPackageAsync("demo", 1, installed, "next-package", default);
+            await catalog.SelectDependenciesAsync("demo", new(candidate.ManifestSha256, 2, null), default);
+
+            using var handler = new ReleasePreparationHandler();
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            var result = await preparation.PrepareAsync("demo", "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            var saved = catalog.GetCluster("demo")!;
+            Assert.True(saved.PreparedForSelectedRelease);
+            Assert.Null(saved.PreparedProfile);
+            using var spec = JsonDocument.Parse(saved.Preparation!.SpecificationJson);
+            Assert.Equal("active", spec.RootElement.GetProperty("selectedConfigProfileId").GetString());
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    /// <summary>The Host routes of a release preparation, for a Host that retains no earlier inputs.</summary>
+    private sealed class ReleasePreparationHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            string host = request.RequestUri!.Host, path = request.RequestUri.AbsolutePath;
+            var response = path.Contains("/deployment-inputs/")
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.NotFound) { Content = System.Net.Http.Json.JsonContent.Create(
+                    new Quasar.Host.Contract.V1.HostErrorEnvelope(1, DateTimeOffset.UtcNow, new("not_found", "No inputs."))) }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create<object>(
+                    path.Contains("/conversion-inputs/")
+                        ? new Quasar.Host.Contract.V1.HostEnvelope<Quasar.Host.Contract.V1.HostConversionPaths>(1, DateTimeOffset.UtcNow, new(host, "/installation", "/c", "/r"))
+                        : new Quasar.Host.Contract.V1.HostEnvelope<Quasar.Host.Contract.V1.HostPreparedConfiguration>(1, DateTimeOffset.UtcNow, new(host, "candidate", "/manifest.json", new string('c', 64)))) };
+            response.Headers.Add(Quasar.Host.Contract.V1.HostProtocol.HeaderName, "1");
+            return Task.FromResult(response);
+        }
     }
 
     private sealed class ConfigurationPreparationHandler : HttpMessageHandler
@@ -474,6 +661,56 @@ public sealed class ClusterDependencyTests
         File.WriteAllText(ds, "tampered");
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.VerifyAsync(fixture.Cluster, candidate.ManifestSha256, default));
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.StageAsync(fixture.Cluster, request, default));
+    }
+
+    // SE-820: a DS running from the installed folder rewrites its JIT profile at exit, mid-freeze on a shared install.
+    [LinuxFact]
+    public async Task WhatARunningServerWritesIsNotFrozenAndAnOldSnapshotPinningItStillVerifies()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        string ds = fixture.Sources["DedicatedServer/DedicatedServer64"], content = fixture.Sources["DedicatedServer/Content"];
+        string profile = Path.Combine(ds, "ProfileOptimization/Startup.profile"), workshop = Path.Combine(content, "Workshop/appworkshop_244850.acf");
+        Directory.CreateDirectory(Path.GetDirectoryName(profile)!);
+        Directory.CreateDirectory(Path.GetDirectoryName(workshop)!);
+        File.WriteAllText(profile, "written at exit");
+        File.WriteAllText(workshop, "downloaded");
+        Assert.Equal(candidate, await fixture.Service.InspectAsync(fixture.Cluster, default));
+        var request = new ClusterDependencyRequest(candidate.ManifestSha256, 1, null);
+        Assert.Equal(candidate, await fixture.Service.StageAsync(fixture.Cluster, request, default));
+        string payload = Path.Combine(fixture.Store, candidate.ManifestSha256, "payload");
+        Assert.False(Directory.Exists(Path.Combine(payload, "DedicatedServer/DedicatedServer64/ProfileOptimization")));
+        Assert.False(Directory.Exists(Path.Combine(payload, "DedicatedServer/Content/Workshop")));
+
+        // Only those exact folders: the same names elsewhere in the release are still pinned.
+        string kept = Path.Combine(content, "ProfileOptimization/data.sbc");
+        Directory.CreateDirectory(Path.GetDirectoryName(kept)!);
+        File.WriteAllText(kept, "game content");
+        Assert.NotEqual(candidate.ManifestSha256, (await fixture.Service.InspectAsync(fixture.Cluster, default)).ManifestSha256);
+        File.Delete(kept);
+
+        // A snapshot frozen before this rule pinned the profile, and it stays valid until an update replaces it.
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        var manifest = JsonSerializer.Deserialize<ClusterDependencyManifest>(
+            File.ReadAllBytes(Path.Combine(fixture.Store, candidate.ManifestSha256, "manifest.json")), options)!;
+        manifest.Files["DedicatedServer/DedicatedServer64/ProfileOptimization/Startup.profile"] =
+            new(ClusterDeploymentFiles.Hash("written at exit"u8.ToArray()), 15, false);
+        byte[] oldBytes = JsonSerializer.SerializeToUtf8Bytes(manifest, options);
+        string oldHash = ClusterDeploymentFiles.Hash(oldBytes);
+        string old = Path.Combine(fixture.Store, oldHash);
+        foreach (string file in Directory.EnumerateFiles(payload, "*", SearchOption.AllDirectories))
+        {
+            string target = Path.Combine(old, "payload", Path.GetRelativePath(payload, file));
+            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+            File.Copy(file, target);
+        }
+        Directory.CreateDirectory(Path.Combine(old, "payload/DedicatedServer/DedicatedServer64/ProfileOptimization"));
+        File.WriteAllText(Path.Combine(old, "payload/DedicatedServer/DedicatedServer64/ProfileOptimization/Startup.profile"), "written at exit");
+        File.WriteAllBytes(Path.Combine(old, "manifest.json"), oldBytes);
+        Assert.Equal(oldHash, (await fixture.Service.VerifyAsync(fixture.Cluster, oldHash, default)).ManifestSha256);
+        fixture.Cluster.DependencyManifestSha256 = oldHash;
+        var reused = await fixture.Service.ReusableSourcesAsync(fixture.Cluster, default);
+        Assert.Equal(candidate, await fixture.Service.InspectAsync(fixture.Cluster, reused, default));
     }
 
     [LinuxFact]

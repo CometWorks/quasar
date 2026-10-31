@@ -200,7 +200,9 @@ If the `Agent` folder is missing, Quasar logs "Quasar.Agent.dll could not be loc
 
 The agent connects to Quasar's `/ws/agent` WebSocket. It finds Quasar through `QUASAR_BASE_URL` (Quasar sets it when launching the server), `QUASAR_PUBLIC_BASE_URL`, `MAGNETAR_WEB_BASE_URL`, or the `service-manifest.json` in the Quasar install directory, and checks `/api/health` before connecting.
 
-Quasar accepts the connection only with an agent token in the `X-Quasar-Agent-Token` header. The agent reads it from `QUASAR_AGENT_TOKEN`. For a standalone server, Quasar derives the token from the server's unique name and a key it keeps in `cluster-credentials.json` in the Quasar install directory, and sets it when it launches the server. For a cluster node, the Host executor derives the token from its enrollment credential (see [Cluster hosts](ClusterHosts.md)). The first message on the socket has to be the agent's Hello, and its server name, or its Host, cluster, slot, node, role and launch attempt for a cluster node, has to match the token. Quasar also refuses a second connection for a server whose agent is still connected and sent data in the last 30 seconds. A server that Quasar did not launch has no token, so its agent can't connect.
+Quasar accepts the connection only with an agent token in the `X-Quasar-Agent-Token` header. The agent reads it from `QUASAR_AGENT_TOKEN`. For a standalone server, Quasar derives the token from the server's unique name and a key it keeps in `cluster-credentials.json` in the Quasar install directory, and sets it when it launches the server. For a cluster node, the Host executor derives the token from its enrollment credential (see [Cluster hosts](ClusterHosts.md)). The first message on the socket has to be the agent's Hello, and its server name, or its Host, cluster, slot, node, role and launch attempt for a cluster node, has to match the token. A cluster Host is accepted only while it belongs to that cluster's active deployment, and live telemetry must come from the Host the Gateway assigned to the node. Quasar also refuses a second connection for a server whose agent is still connected and sent data in the last 30 seconds. A server that Quasar did not launch has no token, so its agent can't connect.
+
+Messages from Quasar to the agent must be text WebSocket messages and may be at most 64 MiB across all fragments. The agent closes the connection on a binary, mixed-type, or oversized message and reconnects normally.
 
 Every 2 seconds it sends:
 
@@ -264,6 +266,14 @@ Quasar's shared catalog is MagnetarHub. To make a plugin selectable for everyone
 
 Agent/control traffic additionally requires explicit socket peer and Host restrictions and rejects any Origin header. Cluster node tokens bind Host, cluster, slot and node. Follow the [DIS-0042 save, Host update and cluster re-pin instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) when upgrading older agents.
 
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
+
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/QuasarDefaultPlugins.cs`
@@ -315,3 +325,5 @@ Agent/control traffic additionally requires explicit socket peer and Host restri
 - `Quasar.Tests/DevFolderRuntimePreparationTests.cs`
 - `Quasar.Tests/PluginHubTests.cs`
 - `Quasar.Tests/PluginConfigSnapshotPersistenceTests.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

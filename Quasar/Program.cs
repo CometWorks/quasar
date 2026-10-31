@@ -14,6 +14,7 @@ using Quasar.Services.Updates;
 using Quasar.Plugin.Abstractions.Companion;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
@@ -49,6 +50,10 @@ public class Program
             var managedRuntimeOptions = ManagedRuntimeOptions.Create(builder.Configuration);
             var updateOptions = QuasarUpdateOptions.Create(builder.Configuration);
             var authOptions = QuasarAuthOptions.Create(builder.Configuration);
+            PublicAccessSecurity.ValidateStartup(
+                authOptions,
+                webServiceOptions,
+                Environment.GetEnvironmentVariable("ASPNETCORE_URLS"));
             var machinePolicy = MachineEndpointSecurity.Create(builder.Configuration, webServiceOptions);
             var analyticsStoreOptions = AnalyticsStoreOptions.Create(builder.Configuration);
             var runtimePluginCatalog = QuasarUiPluginCatalog.Create(
@@ -95,6 +100,9 @@ public class Program
                     options.CookieManager = new HostedPanelCookieManager();
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
+                    options.Cookie.SecurePolicy = authOptions.RequireHttpsForPublicAccess
+                        ? CookieSecurePolicy.Always
+                        : CookieSecurePolicy.SameAsRequest;
                     options.SlidingExpiration = true;
                     options.ExpireTimeSpan = TimeSpan.FromHours(12);
                     options.Events.OnRedirectToLogin = context =>
@@ -127,7 +135,9 @@ public class Program
                 {
                     options.SignInScheme = QuasarAuthSchemes.Cookie;
                     options.CorrelationCookie.SameSite = SameSiteMode.Lax;
-                    options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                    options.CorrelationCookie.SecurePolicy = authOptions.RequireHttpsForPublicAccess
+                        ? CookieSecurePolicy.Always
+                        : CookieSecurePolicy.SameAsRequest;
 
                     options.Events.OnAuthenticated = async context =>
                     {
@@ -358,6 +368,7 @@ public class Program
                 }
                 return next(context);
             });
+            app.Use((context, next) => PublicAccessSecurity.InvokeAsync(context, next, authOptions));
             if (!webServiceOptions.Headless)
                 app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
             app.UseRouting();
@@ -388,43 +399,7 @@ public class Program
             if (!webServiceOptions.Headless)
                 app.UseAntiforgery();
 
-            app.MapGet("/api/health", (WebServiceState state, DedicatedServerCatalog catalog,
-                ClusterCatalog clusterCatalog) => Results.Json(new
-            {
-                status = "ok",
-                state.Options.WorkerId,
-                state.Options.HostId,
-                state.Options.HostName,
-                state.Options.Version,
-                headless = state.Options.Headless,
-                baseUrl = string.IsNullOrWhiteSpace(state.CurrentManifest.BaseUrl)
-                    ? state.Options.BaseUrl
-                    : state.CurrentManifest.BaseUrl,
-                connectedAgents = state.Registry.GetAgents().Count(agent => agent.IsConnected),
-                configuredServers = catalog.GetServers().Count,
-                configuredClusters = clusterCatalog.GetClusters().Count,
-                runningServers = state.Supervisor.GetSnapshots().Count(snapshot =>
-                    snapshot.State is DedicatedServerProcessState.Starting
-                        or DedicatedServerProcessState.Running
-                        or DedicatedServerProcessState.Restarting
-                        or DedicatedServerProcessState.Stopping),
-            }));
-
-            app.MapGet("/api/ready", (WebServiceState state, DedicatedServerCatalog catalog,
-                ClusterCatalog clusterCatalog, ClusterOperationStore operations) => Results.Json(new
-                {
-                    status = operations.IsReady ? "ready" : "not-ready",
-                    state.Options.WorkerId,
-                    state.Options.Version,
-                    headless = state.Options.Headless,
-                    configuredServers = catalog.GetServers().Count,
-                    configuredClusters = clusterCatalog.GetClusters().Count,
-                    operationStore = operations.IsReady,
-                }, statusCode: operations.IsReady
-                    ? StatusCodes.Status200OK : StatusCodes.Status503ServiceUnavailable));
-
-            app.MapGet("/api/discovery", (WebServiceState state) =>
-                Results.Json(state.CurrentManifest));
+            app.MapPublicProbes();
             app.MapClusterApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 
@@ -498,42 +473,7 @@ public class Program
             }
 
             if (!webServiceOptions.Headless)
-            {
-                app.MapGet("/login", (HttpContext context) =>
-                {
-                    if (!authOptions.Enabled)
-                        return Results.Redirect(context.Request.PathBase + "/");
-
-                    var forceSteam = bool.TryParse(context.Request.Query["forceSteam"], out var parsedForceSteam) && parsedForceSteam;
-                    if (context.User.Identity?.IsAuthenticated == true && !forceSteam)
-                        return Results.Redirect(HostedReturnUrl(context));
-
-                    if (!authOptions.Steam.Enabled ||
-                        !string.Equals(authOptions.DefaultProvider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase))
-                    {
-                        return Results.Content(CreateLoginUnavailableHtml(), "text/html");
-                    }
-
-                    return Results.Challenge(new AuthenticationProperties
-                    {
-                        RedirectUri = HostedReturnUrl(context),
-                        IsPersistent = true,
-                    }, [SteamAuthenticationDefaults.AuthenticationScheme]);
-                }).AllowAnonymous();
-
-                app.MapGet("/logout", async (HttpContext context) =>
-                {
-                    await context.SignOutAsync(QuasarAuthSchemes.Cookie);
-                    return Results.Redirect(context.Request.PathBase + "/");
-                }).AllowAnonymous();
-
-                app.MapGet("/access-denied", (HttpContext context) => Results.Content(
-                        CreateAccessDeniedHtml().Replace("href=\"/", "href=\"" + context.Request.PathBase + "/", StringComparison.Ordinal)
-                            .Replace("src=\"/", "src=\"" + context.Request.PathBase + "/", StringComparison.Ordinal),
-                        "text/html",
-                        statusCode: StatusCodes.Status403Forbidden))
-                    .AllowAnonymous();
-            }
+                MapAuthenticationEndpoints(app, authOptions);
 
             app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime) =>
             {
@@ -686,6 +626,55 @@ public class Program
         services.AddSingleton<PushNotificationService>();
         services.AddScoped<BrowserPushState>();
         services.AddHostedService(provider => provider.GetRequiredService<PushNotificationService>());
+    }
+
+    internal static void MapAuthenticationEndpoints(WebApplication app, QuasarAuthOptions authOptions)
+    {
+        app.MapGet("/login", (HttpContext context) =>
+        {
+            if (!authOptions.Enabled)
+                return Results.Redirect(context.Request.PathBase + "/");
+
+            var forceSteam = bool.TryParse(context.Request.Query["forceSteam"], out var parsedForceSteam) && parsedForceSteam;
+            if (context.User.Identity?.IsAuthenticated == true && !forceSteam)
+                return Results.Redirect(HostedReturnUrl(context));
+
+            if (!authOptions.Steam.Enabled ||
+                !string.Equals(authOptions.DefaultProvider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase))
+            {
+                return Results.Content(CreateLoginUnavailableHtml(), "text/html");
+            }
+
+            return Results.Challenge(new AuthenticationProperties
+            {
+                RedirectUri = HostedReturnUrl(context),
+                IsPersistent = true,
+            }, [SteamAuthenticationDefaults.AuthenticationScheme]);
+        }).AllowAnonymous();
+
+        app.MapPost("/logout", async (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            try
+            {
+                await antiforgery.ValidateRequestAsync(context);
+            }
+            catch (AntiforgeryValidationException)
+            {
+                return Results.BadRequest();
+            }
+
+            await context.SignOutAsync(QuasarAuthSchemes.Cookie);
+            return Results.Redirect(context.Request.PathBase + "/");
+        }).AllowAnonymous();
+
+        app.MapGet("/access-denied", (HttpContext context, IAntiforgery antiforgery) =>
+        {
+            var tokens = antiforgery.GetAndStoreTokens(context);
+            return Results.Content(
+                CreateAccessDeniedHtml(tokens.FormFieldName, tokens.RequestToken, context.Request.PathBase.Value),
+                "text/html",
+                statusCode: StatusCodes.Status403Forbidden);
+        }).AllowAnonymous();
     }
 
     internal static readonly TimeSpan WebServerDrainTimeout = TimeSpan.FromSeconds(5);
@@ -1065,14 +1054,19 @@ public class Program
         </html>
         """;
 
-    private static string CreateAccessDeniedHtml() => """
+    private static string CreateAccessDeniedHtml(string antiforgeryFieldName, string? antiforgeryToken, string? pathBase = null)
+    {
+        var prefix = WebUtility.HtmlEncode(pathBase ?? string.Empty);
+        var field = WebUtility.HtmlEncode(antiforgeryFieldName);
+        var token = WebUtility.HtmlEncode(antiforgeryToken ?? string.Empty);
+        return $$"""
         <!doctype html>
         <html lang="en">
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1">
             <title>Access denied - Quasar</title>
-            <link rel="icon" type="image/png" href="/Quasar.png">
+            <link rel="icon" type="image/png" href="{{prefix}}/Quasar.png">
             <style>
                 :root {
                     color-scheme: light dark;
@@ -1280,7 +1274,7 @@ public class Program
         <body>
             <main>
                 <section class="brand" aria-label="Quasar">
-                    <img src="/Quasar.png" alt="Quasar logo">
+                    <img src="{{prefix}}/Quasar.png" alt="Quasar logo">
                     <div>
                         <strong>Quasar</strong>
                         <span>Space Engineers server supervisor</span>
@@ -1299,12 +1293,16 @@ public class Program
                         <li>Sign out, then sign back in after the role has been assigned.</li>
                     </ol>
                     <div class="actions" aria-label="Access denied actions">
-                        <a class="button button-primary" href="/logout">Sign out</a>
-                        <a class="button button-secondary" href="/login?forceSteam=true">Retry Steam sign-in</a>
+                        <form method="post" action="{{prefix}}/logout">
+                            <input type="hidden" name="{{field}}" value="{{token}}">
+                            <button class="button button-primary" type="submit">Sign out</button>
+                        </form>
+                        <a class="button button-secondary" href="{{prefix}}/login?forceSteam=true">Retry Steam sign-in</a>
                     </div>
                 </section>
             </main>
         </body>
         </html>
         """;
+    }
 }

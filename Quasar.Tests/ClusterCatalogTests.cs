@@ -181,6 +181,70 @@ public sealed class ClusterCatalogTests : IDisposable
         Assert.False(activated.IsProvenStopped());
     }
 
+    // SE-799: the names are in the active deployment now, or gone with a rollback or restore.
+    [Fact]
+    public async Task ActivationEndsStagedNames()
+    {
+        Directory.CreateDirectory(Path.Combine(_directory, "demo"));
+        File.WriteAllText(
+            Path.Combine(_directory, "demo", "cluster.json"),
+            """
+            { "uniqueName": "demo", "gatewayUrl": "http://gateway.test", "updatedAtUtc": "2026-09-19T12:00:00Z",
+              "stagedNames": { "worldName": "Renamed" }, "stagedRevision": "staged" }
+            """
+        );
+        using var catalog = CreateCatalog();
+        Assert.Equal("Renamed", catalog.GetCluster("demo")!.StagedNames?.WorldName);
+        Assert.Equal("staged", catalog.GetCluster("demo")!.StagedRevision);
+
+        var activated = await catalog.RecordActiveDeploymentAsync(
+            catalog.GetCluster("demo")!,
+            Revision("first"),
+            default
+        );
+
+        Assert.Null(activated.StagedNames);
+        Assert.Null(activated.StagedRevision);
+    }
+
+    // SE-822: a dependency selection keeps Quasar's staging as the next base. A new preparation, a package
+    // selection or an activation end it.
+    [Fact]
+    public async Task StagedRevisionOutlivesOnlyADependencySelection()
+    {
+        var selection = new ClusterPackageSelection(1, "1.0.3", new string('a', 64), new string('b', 40), "select");
+        Directory.CreateDirectory(Path.Combine(_directory, "demo"));
+        File.WriteAllText(
+            Path.Combine(_directory, "demo", "cluster.json"),
+            JsonSerializer.Serialize(new ClusterDefinition { UniqueName = "demo", GatewayUrl = "http://gateway.test",
+                PackageSelection = selection, DependencyManifestSha256 = new string('c', 64) },
+                new JsonSerializerOptions(JsonSerializerDefaults.Web))
+        );
+        using var catalog = CreateCatalog();
+        var preparation = new ClusterPreparationRequest(new string('a', 64), "{}", "http://gateway.test", []);
+        async Task StageAsync(string revision)
+        {
+            var deployment = new ClusterDeploymentRequest(null, revision, []);
+            await catalog.RecordPreparationAsync(catalog.GetCluster("demo")!, preparation, deployment, default);
+            Assert.Null(catalog.GetCluster("demo")!.StagedRevision);
+            await catalog.RecordSelectedReleasePreparationAsync(catalog.GetCluster("demo")!, deployment, default);
+            Assert.Equal(revision, catalog.GetCluster("demo")!.StagedRevision);
+        }
+
+        await StageAsync("staged");
+        await catalog.SelectDependenciesAsync("demo", new(new string('d', 64), 1, new string('c', 64)), default);
+        var selected = catalog.GetCluster("demo")!;
+        Assert.Null(selected.PreparedDeployment);
+        Assert.False(selected.PreparedForSelectedRelease);
+        Assert.Equal("staged", selected.StagedRevision);
+        Assert.Equal("staged", selected.Clone().StagedRevision);
+
+        await StageAsync("staged");
+        await catalog.SelectPackageAsync("demo", 1, new ClusterPackageInstallation(new("1.0.4", 1, 0, 4, new string('e', 64)),
+            new string('f', 40), "/staged", []), "select-2", default);
+        Assert.Null(catalog.GetCluster("demo")!.StagedRevision);
+    }
+
     [Fact]
     public async Task RestoreUsesSavedActiveProvenanceAfterCandidateStaging()
     {

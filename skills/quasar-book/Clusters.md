@@ -110,7 +110,7 @@ It needs the stopped Gateway to still answer in phase Down, and a cluster releas
 | Code | Meaning and action |
 | --- | --- |
 | `shutdown_pending` | A shutdown is still running. "Waiting for clean Down before starting the next generation." Wait. |
-| `shutdown_unverified` | The Gateway is gone but Quasar has no matching clean-shutdown proof. Use Recovery. |
+| `shutdown_unverified` | The Gateway is gone but Quasar has no matching clean-shutdown proof, also after goal Off stopped the respawn of a Gateway that did not stay up (three launches in a row, no node running). Use Recovery. |
 | `gateway_recovery_required` | Gateway process identity does not match the record. Use Recovery. |
 | `shutdown_recovery_required` | The shutdown left something dirty or failed with no active nodes. "In Maintenance → Recovery, recover the stopped cluster after an unclean shutdown." |
 | `cluster_down` | Goal On but the cluster is Down and Quasar cannot prove a clean restart. Stop and start it, or recover it. |
@@ -206,7 +206,7 @@ If an update gets stuck, **Abandon update** closes it without rolling anything b
 
 **Advanced deployment tools → Roll back binaries and configuration** reuses the update workflow with the previous installation and keeps the current world and plugin data.
 
-Every staging step (release update, hot spares, plugin settings, profile) builds on the saved preparation only while it belongs to the running deployment or to the change Quasar staged on top of it. A restore that was prepared but failed, a rollback, or a package selection that discarded a staged change leaves an older saved preparation. Staging then builds on the running deployment's own preparation instead and says so, naming any Steam or Direct Transport address that would otherwise have changed back.
+Every staging step (release update, hot spares, plugin settings, profile) builds on the saved preparation only while it belongs to the running deployment or to the change Quasar staged on top of it. A restore that was prepared but failed, a rollback, or a package selection that discarded a staged change leaves an older saved preparation. Staging then builds on the running deployment's own preparation instead and says so, naming any Steam or Direct Transport address that would otherwise have changed back. A package selection also discards a staged profile: the cluster keeps its active profile until you stage the other one again. A profile staging that failed or was refused ("The selected profile changed during preparation") discards nothing: stage again and the earlier staged changes are still there. A candidate from a refused staging can't be applied until then.
 
 ## Backups and restore
 
@@ -214,7 +214,7 @@ Cluster backups are native snapshots taken by every Host executor.
 
 - **Back up stopped cluster** makes a clean (`Quiescent`) backup. It needs clean-shutdown proof.
 - **Back up running cluster** makes an online (`CrashConsistent`) backup without downtime. Quasar runs `save-all`, the Gateway copies its registry database, then each Host streams its runtime into the snapshot at most at the **Running cluster copy rate** (Backups page, default 32 MiB/s, range 1 to 4096). The cluster package must support online registry copies, otherwise "This cluster's Gateway cannot copy its registry while it runs. Update the cluster to get online backups."
-- Scheduled server backups on the **Backups** page cover clusters too: a cleanly stopped cluster gets a `Quiescent` backup, a running one a `CrashConsistent` backup. Retention keeps the newest **Keep last N per server** automatic backups plus the newest `Quiescent` one. A failed scheduled capture is retried after an hour. Manual backups are kept.
+- Scheduled server backups on the **Backups** page cover clusters too: a cleanly stopped cluster gets a `Quiescent` backup, a running one a `CrashConsistent` backup. Retention keeps the newest **Keep last N per server** automatic backups plus the newest `Quiescent` one. A failed scheduled capture is retried after an hour. Manual backups are kept while the cluster exists.
 - The pre-update backup of each managed update and the backup a conversion takes are kept per purpose: Quasar keeps the newest 3 pre-update and the newest 3 pre-conversion backups of a cluster and deletes older ones of that kind. Older backups that don't record a purpose are kept.
 - A backup leaves out each node's mods (activating the restored deployment writes them again from the profile) and the cluster plugin's handover diagnostic dumps (`data/cluster/handover-diff`). Restoring it needs a deployment whose profile pins the mods; otherwise the restore stops with "The snapshot left out node mods that the candidate deployment does not pin".
 
@@ -270,12 +270,12 @@ The conversion page shows the phase and a **Conversion ID**, also in the page UR
 
 The delete icon on the card or page opens a dialog:
 
-- **Delete definition** archives the cluster definition. Managed processes must be stopped and all operations complete; Quasar checks each Host executor first. API: `DELETE /api/v1/clusters/{name}` (204, or 409 when blocked).
+- **Delete definition** archives the cluster definition. Nodes must be stopped and all operations complete; Quasar checks each Host executor first. A Gateway still running or being respawned, such as after an unclean shutdown, is stopped once every Host proves its nodes stopped; nothing is saved. Delete refuses while a node runs or the Gateway's process state is unknown. API: `DELETE /api/v1/clusters/{name}` (204, or 409 when blocked).
 - **Forget registration without checking remote processes** needs the Cluster ID typed exactly. Running processes keep running. API: `DELETE /api/v1/clusters/{name}/registration?confirmation={name}`.
 
-After a delete, Quasar asks each host machine's Host executor to detach the cluster, so the Host stops polling and supervising it. Detaching is refused while a node or the Gateway still runs, the Gateway goal is On, an activation or restore is unfinished, or the deployment changed. The Host moves the cluster's attachment, Gateway specification and activation journal to `state/detached/<timestamp>-<Cluster ID>/`. Worlds, run roots and snapshots stay where they are. When a Host is too old or refuses, the deletion still stands and Quasar logs a warning with the `Quasar.Host cluster detach` command to run on that machine (see [Host command line](ClusterHosts.md#host-command-line)). Forget does not detach: run that command once the processes are stopped.
+After a delete, Quasar asks each host machine's Host executor to detach the cluster, so the Host stops polling and supervising it. Detaching is refused while a node or the Gateway still runs, the Gateway goal is On, an activation or restore is unfinished, or the deployment changed. The Host moves the cluster's attachment, Gateway specification and activation journal to `state/detached/<timestamp>-<Cluster ID>/`. Worlds, run roots and snapshots stay where they are until the retention below ends. When a Host is too old or refuses, the deletion still stands and Quasar logs a warning with the `Quasar.Host cluster detach` command to run on that machine (see [Host command line](ClusterHosts.md#host-command-line)). Forget does not detach: run that command once the processes are stopped.
 
-Both keep worlds, Host data and backups. The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history."
+Both keep worlds, Host data and backups for the **Keep deleted clusters (days)** set on the Backup page (default 7, 0 keeps them forever). Then Quasar removes them, manual backups included; see [Cluster storage](https://github.com/CometWorks/quasar/blob/main/Docs/ClusterStorage.md#deleted-clusters). A run root you chose outside the Host's `state/conversions` stays, and after a forget a Host keeps the cluster's data until you detach it. The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history."
 
 ## Register an existing cluster
 
@@ -297,7 +297,7 @@ Both keep worlds, Host data and backups. The definition moves to `Clusters/<Clus
 | `ManagedRuntime/Tools/.objects` | Shared content store. Identical files across packages, snapshots and mods are stored once and hard-linked. Each node's `Mods` folder hard-links the Host's read-only copies too, instead of copying them per node. |
 | `<backup directory>/Clusters/`, `<backup directory>/Conversions/` | Cluster backups and conversion work folders. |
 
-Quasar removes unused package, dependency and mod content once no cluster, prepared update or retained backup refers to it. There is no age-based retention. Completed setup and conversion delete their temporary installation trees and transfer archives.
+Quasar removes unused package, dependency and mod content once no cluster, prepared update or retained backup refers to it. Cached cluster releases keep the newest two as well. Live clusters have no age-based retention; a deleted cluster's data has the limit above. Completed setup and conversion delete their temporary installation trees and transfer archives.
 
 ## Command line
 
@@ -343,6 +343,14 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - **"Magnetar's plugin exporter and the selected dependency snapshot use different PluginSdk builds."** Managed Magnetar was updated after the snapshot was frozen, and the cluster release or the new Magnetar declares no PluginSdk contract, or the new Magnetar's contract doesn't fit the release. In the last case the error names both contracts and says whether a newer Magnetar or another cluster release is needed. Otherwise stage a matching cluster release.
 - **"Select the release and dependencies used by the active deployment before conversion."** Reselect the active package and dependencies before converting a cluster back.
 - **`cluster-credentials.json` damaged.** Quasar moves an unreadable `cluster-credentials.json` to `cluster-credentials.json.corrupt-<timestamp>` and starts without it. Restore it from a backup together with the Data Protection keys, or re-create the clusters and Host enrollments.
+
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
 
 ## Sources
 - `Docs/ClusterOverview.md`
@@ -412,3 +420,5 @@ Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` h
 - `scripts/package-cluster-plugins.py`
 - `Shared/ClusterDeployment/ClusterContentStore.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

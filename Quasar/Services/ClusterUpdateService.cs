@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Quasar.Models;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using HostContract = Quasar.Host.Contract.V1;
@@ -11,8 +12,28 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
 {
     public Task<ClusterOperation> BeginAsync(string clusterId, ClusterUpdateRequest request, string key, string actor, CancellationToken token) =>
         operations.ExecuteAsync(clusterId, "cluster.update.begin", key, actor, request,
-            async ct => new Admin.AdminEnvelope<ClusterUpdate>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
-                await catalog.WithLifecycleAsync(clusterId, cluster => BeginCoreAsync(cluster, request, actor, ct), ct)), token);
+            async ct =>
+            {
+                long requested = Stopwatch.GetTimestamp();
+                return new Admin.AdminEnvelope<ClusterUpdate>(Admin.AdminProtocol.Version, DateTimeOffset.UtcNow,
+                    await catalog.WithLifecycleAsync(clusterId, cluster =>
+                    {
+                        LogStep(cluster, "begin: wait for the lifecycle gate", requested);
+                        return BeginCoreAsync(cluster, request, actor, ct);
+                    }, ct));
+            }, token);
+
+    // At Information, which the logging configuration keeps for this class at every minimum level.
+    private void LogStep(ClusterDefinition cluster, string step, long started) =>
+        logger.LogInformation("Cluster {Cluster} update step '{Step}' took {Seconds:0.0} s.", cluster.UniqueName, step,
+            Stopwatch.GetElapsedTime(started).TotalSeconds);
+
+    private async Task TimedAsync(ClusterDefinition cluster, string step, Func<Task> action)
+    {
+        long started = Stopwatch.GetTimestamp();
+        await action();
+        LogStep(cluster, step, started);
+    }
 
     /// <summary>What the last shutdown left unsaved, as the stopped Gateway records it, sorted. The operator reviews this list
     /// before an update despite a dirty shutdown and passes it back as <see cref="ClusterUpdateRequest.AcceptDirtyShutdown"/>.</summary>
@@ -87,7 +108,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                     + (accepted.Length == 0 ? "nothing" : string.Join(", ", accepted)) + ". Review it and try again.");
             await RequireRecoveryUpdateAsync(cluster, candidate, token);
         }
-        await deployments.ActivateCoreAsync(cluster, candidate, token, dryRun: true, preflight: true, update: true);
+        await TimedAsync(cluster, "begin: online dry run", () =>
+            deployments.ActivateCoreAsync(cluster, candidate, token, dryRun: true, preflight: true, update: true));
         bool backupRequired = ClusterUpdatePreparationService.RequiresProfileMigration(cluster, candidate.Revision);
         if (backupRequired && backups is null)
             throw new InvalidOperationException("Profile migration needs cluster backup service.");
@@ -229,18 +251,22 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                             // The stopped cut taken here is the way back to the previous version and world
                             // if the new deployment fails after it ran. Begin refuses a migration without it.
                             // After a dirty shutdown it is crash-consistent: it holds what the Dirty list names as unsaved.
-                            if (backups is not null)
-                                await backups.CaptureCoreAsync(cluster, new(workflow.Id, AllowCrashConsistent: dirtyShutdown), token,
-                                    updateId: workflow.Id);
-                            await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, dryRun: true, update: true,
-                                dirtyShutdown: dirtyShutdown);
+                            logger.LogInformation("Cluster {Cluster} update stopped {Seconds:0.0} s after it began.", cluster.UniqueName,
+                                (DateTimeOffset.UtcNow - workflow.StartedAt).TotalSeconds);
+                            // A first deployment that never ran has no world to back up yet.
+                            bool backUp = backups is not null && (dirtyShutdown || cluster.IsProvenStopped(requireRun: true));
+                            if (backUp)
+                                await TimedAsync(cluster, "backup", () => backups!.CaptureCoreAsync(cluster,
+                                    new(workflow.Id, AllowCrashConsistent: dirtyShutdown), token, updateId: workflow.Id));
+                            await TimedAsync(cluster, "dry run", () => deployments.ActivateCoreAsync(cluster, workflow.Deployment, token,
+                                dryRun: true, update: true, dirtyShutdown: dirtyShutdown));
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Activating,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow,
-                                Backup = backups is null ? null : workflow.Id }, token);
+                                Backup = backUp ? workflow.Id : null }, token);
                             break;
                         case ClusterUpdatePhase.Activating:
-                            await deployments.ActivateCoreAsync(cluster, workflow.Deployment, token, update: true,
-                                dirtyShutdown: workflow.DirtyShutdown is not null);
+                            await TimedAsync(cluster, "activation", () => deployments.ActivateCoreAsync(cluster, workflow.Deployment, token,
+                                update: true, dirtyShutdown: workflow.DirtyShutdown is not null));
                             cluster = catalog.GetCluster(cluster.UniqueName)!; // Activation changed lifecycle identity.
                             // After a dirty shutdown the new deployment's first start is a recovery start.
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Starting,
@@ -252,6 +278,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                                 return await OverdueAsync(cluster, workflow, StartingDeadline, awaited);
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Complete,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow }, token);
+                            logger.LogInformation("Cluster {Cluster} update served {Seconds:0.0} s after activation, {Total:0.0} s after it began.",
+                                cluster.UniqueName, PhaseAge(workflow).TotalSeconds, (DateTimeOffset.UtcNow - workflow.StartedAt).TotalSeconds);
                             break;
                         case ClusterUpdatePhase.Reverting:
                             return await RevertAsync(cluster, workflow);

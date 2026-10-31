@@ -13,6 +13,43 @@ section separator, such as `QUASAR__AUTH__ENABLED=false`. Quasar's shorter
 `QUASAR_*` deployment overrides take precedence where documented. Docker users
 should also see [Docker Deployment](Docker.md).
 
+## Command aliases per configuration profile
+
+Open **Configs**, select a profile, then open **Command aliases**. Add a source
+such as `!grids list` and target `!ess grids list`, then **Save Profile**. Each
+profile keeps its own aliases, including when cloned. Remove rows and save to
+clear them. Restart assigned standalone servers to apply the profile. For a
+cluster, stage and apply the selected profile so the pinned Agent configuration
+reaches every node; saving alone does not change a running server.
+
+An alias matches a whole command-word prefix, ignoring case. The longest source
+wins and intentionally overrides a registered command with the same path.
+Remaining arguments keep their quoted or escaped grouping. For example,
+`!grids list "Big Ship"` becomes `!ess grids list "Big Ship"`. Expansion happens
+once; aliases do not chain. An unavailable target produces a private error and
+the command text is suppressed from normal chat. Target plugins must be enabled.
+
+The original player's identity and target-command permissions still apply.
+Aliases do not grant console or admin access. Quasar's Chat console can also use
+aliases with its existing console permissions. Generated `!help` continues to list
+the registered targets rather than aliases.
+
+Sources and targets start with `!` and contain ASCII letters, digits, underscores
+or hyphens separated by spaces or tabs. A profile supports 64 aliases, with up to
+512 characters per path. Duplicate sources, exact self aliases and sources
+starting with `!help` are rejected. Fixed quoted arguments in configured paths
+are not supported; players can still quote arguments when invoking them.
+
+Aliases need the matching Quasar.Agent and Magnetar with PluginSdk contract 1.1
+(or a later 1.x contract). Quasar refuses to start or stage a profile with aliases
+on an older runtime. Profiles without aliases continue to work on older Magnetar.
+Standalone preparation replaces `CommandAliases.json` under the server's Magnetar
+data directory, including an empty snapshot when aliases are cleared. Clusters
+carry the same values in their existing canonical plugin configuration. Profile
+staging overrides any previous Agent alias values. Edit this setting in the profile
+for persistence; temporary plugin-config edits are replaced by the next profile
+application.
+
 ## Managed runtime startup check
 
 When Quasar starts, it immediately checks the managed SteamCMD install and the
@@ -176,6 +213,14 @@ configuration and the selected save's `Sandbox_config.sbc` before each start.
 The latter is required for existing saves because Space Engineers loads and
 advertises that file's `SessionName`. Name changes therefore take effect on the
 next server start or restart.
+
+A cluster gets the same names through its deployment specification: `serverName`,
+`worldName` (the world name players and the Steam server browser see; the cluster
+id stays the world's identity) and the profile's `messageOfTheDay` and
+`messageOfTheDayUrl`. Guided setup takes `inGameWorldName`, else the display name.
+A converted server keeps its In-game world name, else its Server name. Clusters
+set up before these fields existed show the cluster id until they are renamed or
+their profile is staged again (below).
 
 ## Online mode defaults and Offline safety
 
@@ -833,15 +878,16 @@ use for local control requests does not change proxy settings for downloads.
 
 ## Reverse proxy auth
 
-Quasar grants a trusted-network session to loopback and private LAN clients by
-default. Turn off **Trust private LAN access** on **Settings → Security** to opt
-out (`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`). An explicit saved
-`false` value disables LAN bypass. The existing setting now accepts
-all RFC 1918 IPv4 ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`),
-IPv6 unique-local addresses (`fc00::/7`), and directly attached IPv4 subnets.
-For example, a browser at `192.168.1.10` can use `http://192.168.1.80:8080`
-without HTTPS or sign-in when LAN bypass is enabled. Browser push notifications
-still require HTTPS or localhost.
+Quasar starts in private LAN mode: it grants trusted-network sessions to
+loopback and private LAN clients by default and permits HTTP. This assumes the
+Quasar port stays behind a firewall and is not forwarded from the router.
+The LAN exception accepts all RFC 1918 IPv4 ranges (`10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`), IPv6 unique-local addresses (`fc00::/7`),
+and directly attached IPv4 subnets. A client at `192.168.1.10` can therefore
+use `http://192.168.1.80:8080` without HTTPS or sign-in at an accepted destination.
+Turn off **Trust private LAN access** on Security
+(`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`) to opt out.
+Browser push notifications still require HTTPS or localhost.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
@@ -858,6 +904,23 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
   `Quasar:Auth:TrustedNetworkBypass:TrustedProxies`
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
+
+`Quasar:Auth:RequireHttpsForPublicAccess` defaults to `false` for private LAN
+operation. Enable it before exposing Quasar through a public reverse proxy. After
+applying forwarded headers from a trusted proxy, Quasar then rejects plain HTTP
+requests from non-LAN clients with HTTP 400 and marks authentication and
+Steam correlation cookies Secure. This includes the UI, login, and public
+health/readiness probes; local Bootstrap and container probes can continue to use
+loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
+keep their separate source/Host/credential policy; use HTTPS/WSS for them when
+they leave the machine. Direct loopback and private LAN clients continue to bypass
+HTTPS and sign-in. The Security page's public proxy preset enables HTTPS
+enforcement while retaining those LAN exceptions; restart Quasar after saving it.
+
+Setting `Quasar:Auth:Enabled=false` is allowed only when every effective listener
+is loopback (`localhost`, `127.0.0.1`, or `::1`). Quasar checks `Quasar:Host`,
+`QUASAR_WEB_HOST`, and every binding in `ASPNETCORE_URLS` before Kestrel starts
+and fails startup if any binding is public. There is no public no-auth override.
 
 Trusted-network roles also require an intended browser destination and same-origin
 context. This check applies to every browser API, including Entity Viewer, before
@@ -885,8 +948,10 @@ BaseUrl to that intended URL and give the proxy an accepted backend Host too.
 Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
 longer get automatic roles; use the configured URL or sign in. Signed-in users
 and service principals retain their existing authentication and permissions.
-Loopback and private LAN bypass are on by default; explicit `AllowSameSubnet: false` settings disable LAN bypass.
-No new aliases or auth configuration fields are introduced. See the
+Local loopback and private LAN bypass remain on by default for private LAN mode.
+The public proxy preset keeps those direct LAN exceptions while requiring HTTPS
+and authentication for forwarded public clients. No new aliases or auth
+configuration fields are introduced. See the
 [Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
 
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
@@ -899,7 +964,7 @@ proxy host, add the proxy container/host address or bridge CIDR:
     "Auth": {
       "TrustedNetworkBypass": {
         "AllowLoopback": true,
-        "AllowSameSubnet": false,
+        "AllowSameSubnet": true,
         "TrustedProxies": [ "172.18.0.0/16" ],
         "Roles": [ "admin" ]
       }
@@ -908,8 +973,9 @@ proxy host, add the proxy container/host address or bridge CIDR:
 }
 ```
 
-Keep private LAN bypass disabled whenever browser access should be tied to
-Steam/RBAC identity:
+Forwarded public clients are evaluated by their forwarded address, so they still
+use Steam/RBAC while direct LAN clients remain trusted. To opt out of the direct
+LAN exception manually:
 
 ```json
 {
@@ -1040,9 +1106,11 @@ between UI and headless operation does not convert or duplicate state.
 Enabled UI-plugin package manifests are still read as data so their owned server
 companions remain deployable; their UI assemblies are not loaded.
 
-- `GET /api/health` is process liveness and reports `headless`.
+- `GET /api/health` is process liveness and returns only `{"status":"ok"}`.
 - `GET /api/ready` confirms that the API worker, durable catalogs, and cluster
-  operation store are ready.
+  operation store are ready, returning only `status` with HTTP 200 or 503.
+- `GET /api/discovery` contains worker identity used by the local Bootstrap
+  stale-process guard and is restricted by the machine endpoint policy.
 - `GET /` returns a small JSON discovery document instead of the UI.
 
 Authentication and authorization remain enabled exactly as configured; headless
@@ -1140,9 +1208,9 @@ A local operation that was still running when Quasar stopped is reported as Fail
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
 a human `CanView` role or the scoped service-principal permission described below.
-`/api/health` and `/api/ready` include
-`configuredClusters`; they do not contact Gateway and remain usable if a Gateway
-is down. The readiness payload also reports the durable operation store. Recovery
+`/api/health` and `/api/ready` expose only their `status`; they do not contact
+Gateway and remain usable if a Gateway is down. Readiness is based on the durable
+operation store. Recovery
 readiness is calculated by Gateway from its durable Registry,
 Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
 from node liveness.
@@ -1170,7 +1238,13 @@ counts as cleanly stopped for another activation, an update, a rollback and back
 the status reads "Deployment activated; the Gateway has not run since". A restore writes
 no record. Do not hand-edit this evidence. An absent Gateway without matching evidence reports
 `shutdown_unverified`; a mismatched or uncertain process reports
-`gateway_recovery_required`. An Off goal never starts a Gateway for recovery.
+`gateway_recovery_required`. An Off goal never starts a Gateway for recovery. It does
+stop a respawn loop: when the Host reports the Gateway Failed after three launches in a
+row that did not stay up, and every Host proves no node runs, Quasar sends the same spec
+with goal Off and no stop fence. That launches and stops nothing and the status stays
+`shutdown_unverified`. A Host refuses an Off goal over a live process its fence does not
+name before persisting it, so a respawn racing the write changes nothing. One crash does
+not qualify: that Gateway comes back for the graceful shutdown.
 The reconciler is a hosted service in normal and headless mode.
 
 Every mutation requires an `Idempotency-Key` header. Quasar writes the operation
@@ -1440,7 +1514,10 @@ for the pending deployment. Apply it from **Maintenance → Pending update**
 during full downtime. Until activation finishes, the active profile and content
 checks remain unchanged. Quasar records a hash of the selected profile at
 preparation time and refuses to begin activation if that profile is changed or deleted;
-stage the selection again after editing it. The API equivalent is
+stage the selection again after editing it. A staging that fails or is refused because
+the profile changed during it keeps the changes staged before it (hot spares, plugin
+configuration, world files, names), and the next staging builds on them. Only selecting
+a cluster package discards them. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/config-profile-preparation` with
 `{"configProfileId":"..."}`. Both endpoints require cluster management and
 config editing permissions. A profile's plugin selection can be read and replaced with
@@ -1465,6 +1542,17 @@ from **Maintenance → Pending update**: the update stops the fleet cleanly,
 activates the new inventory and starts the cluster again. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
 `{"hotSpares":2}`, with the same permissions.
+
+`POST /api/v1/clusters/{uniqueName}/names-preparation` with
+`{"serverName":"...","worldName":"..."}` prepares a deployment with new in-game
+names; a blank or missing name stays as it is. The update writes the world name
+into the world's `SessionName` as well, and the cluster's profile patch keeps its
+settings and mods, so unstaged profile edits don't come along. The names stay
+staged until the next activation: selecting a cluster package or staging the
+profile afterwards keeps them, also after a failed staging. Only a cluster from
+before profile patches needs a profile staging for `SessionName`. Staging the
+profile again (`config-profile-preparation`) picks up its Message of the Day. Both
+apply from **Maintenance → Pending update** like hot spares.
 
 **World files** stage mod configuration that lives in the world's `Storage` folder
 (for example Modular Encounters Systems' `Storage/1521905890.sbm_ModularEncountersSystems/Config-*.xml`)
@@ -1512,6 +1600,11 @@ tools pick up the newly saved preparation and activation request automatically.
 If no editable schemas are available, complete guided setup or prepare an imported
 deployment first. Unsaved imported requests remain in the advanced deployment tools
 until prepared. Cluster management permission and cluster access are required to save.
+The API equivalent is `POST /api/v1/clusters/{uniqueName}/plugin-configuration-preparation` with
+`{"pluginId":"...","configType":"...","values":{...}}`, which also needs configuration editing. `values`
+replaces all of that configuration's values, so read the rest from the saved preparation first. A cluster that
+has not run since guided setup can get its values before its first start: apply the update as usual. It takes no
+backup, because there is no world yet, and it starts the cluster.
 
 ## Cluster content update observations
 
@@ -1858,7 +1951,8 @@ attachment/Gateway transition for restart recovery. It does not start a process.
 the execution gate it checks the active bundle hash, Gateway goal Off, no unfinished activation,
 restore or online backup, and every node and Gateway process verifiably stopped, then moves the
 attachment, Gateway spec and activation journal to `state/detached/<timestamp>-<clusterId>/`, so
-the Host loop no longer polls it. Runtime data, launch records and snapshots stay. Attachments from
+the Host loop no longer polls it. Runtime data, launch records and snapshots stay; `ClusterStorage.md`
+says what the deleted cluster's retention removes later. Attachments from
 `host.json` are refused; remove them there. Repeating it is a no-op. Hosts report the route with
 `clusterDetach: true` in their status; Quasar's cluster deletion calls it on each Host after the
 definition is archived and logs a warning when a Host cannot detach.
@@ -2230,5 +2324,5 @@ push delivery. Automatic application does not require notifications to be enable
 
 Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
 access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,
-private state, connector lifetime and current launch gates. Paid checkout remains
-a disabled placeholder; no payment provider is integrated.
+private state, connector lifetime and current launch gates. Stripe checkout is implemented in Nebula and remains disabled pending provider
+and live integration acceptance.

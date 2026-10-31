@@ -69,7 +69,7 @@ public sealed class TrustedNetworkEvaluatorTests
         var context = Request("localhost:8080");
         Assert.False(await Evaluate(context, auth: new() { TrustedNetworkBypass = new() { AllowLoopback = false } }));
         context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.5");
-        Assert.False(await Evaluate(context)); // Public clients do not get LAN bypass.
+        Assert.False(await Evaluate(context)); // A public address is not on the trusted LAN.
         context.Connection.RemoteIpAddress = IPAddress.Parse("::ffff:127.0.0.1");
         Assert.True(await Evaluate(context));
     }

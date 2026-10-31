@@ -23,6 +23,12 @@
     <ProjectReference Include="..\Quasar.Host\Quasar.Host.csproj" Aliases="Host" />
     <ProjectReference Include="..\Quasar.Agent\Quasar.Agent.csproj" />
     <Reference Include="PluginSdk" HintPath="$(MagnetarBin)/PluginSdk.dll" />
+    <!-- Command alias tests exercise the real SDK config serializer and dispatcher without a game process. -->
+    <Reference Include="VRage.Math" HintPath="$(DS64)/VRage.Math.dll" Private="True" />
+    <Reference Include="VRage" HintPath="$(DS64)/VRage.dll" Private="True" />
+    <Reference Include="VRage.Library" HintPath="$(DS64)/VRage.Library.dll" Private="True" />
+    <Reference Include="VRage.Game" HintPath="$(DS64)/VRage.Game.dll" Private="True" />
+    <Reference Include="Sandbox.Common" HintPath="$(DS64)/Sandbox.Common.dll" Private="True" />
     <!-- Bootstrap and worker both compile the shared networking types. -->
     <ProjectReference Include="..\Quasar.Bootstrap\Quasar.Bootstrap.csproj" Aliases="Bootstrap" />
   </ItemGroup>

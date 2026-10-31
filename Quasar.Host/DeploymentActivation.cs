@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -90,8 +91,12 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         if (preview) return active;
         var transaction = new Transaction(request, active, false);
         Write(path, transaction); // Intent precedes both writes; restart replays it before any process can start.
+        long started = Stopwatch.GetTimestamp();
         ProfileContentMigration.Apply(bundle, request.BundleManifestPath);
+        ExecutionBundle.LogStep(request.ClusterId, "activation: profile content", started);
+        started = Stopwatch.GetTimestamp();
         WorldFilesMigration.Apply(bundle, request.BundleManifestPath, installedManifest);
+        ExecutionBundle.LogStep(request.ClusterId, "activation: world files", started);
         attachments.Apply(active.Attachment);
         if (active.Gateway is not null) gateways.Apply(active.Gateway);
         bundle.ConfirmRestoreActivation();
@@ -147,6 +152,72 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         }
         Console.Error.WriteLine($"cluster={clusterId} detached {string.Join(", ", detached)} to {archive}");
         return new(clusterId, detached.ToArray(), archive);
+    }
+
+    /// <summary>Removes what the Host keeps of a deleted cluster once its retention has ended: the named
+    /// preparation workspaces with their runtime, and its snapshots and detached records. Refused while the
+    /// Host still supervises the cluster or a workspace serves an attachment. Paths that are not preparation
+    /// workspaces are an operator's directories and stay. Returns the workspaces removed.</summary>
+    internal string[] ReleaseDeleted(string clusterId, string[] workspaces)
+    {
+        if (clusterId.Length == 0 || clusterId.Any(c => !char.IsAsciiLetterOrDigit(c) && c is not ('-' or '_')))
+            throw new ArgumentException("Cluster ID must contain only letters, digits, underscores, and hyphens");
+        if (attachments.GetAll().Any(a => a.ClusterId.Equals(clusterId, StringComparison.OrdinalIgnoreCase))
+            || gateways.GetAll().Any(g => g.ClusterId.Equals(clusterId, StringComparison.OrdinalIgnoreCase)) || IsManaged(clusterId))
+            throw new InvalidOperationException("Detach the deleted cluster before releasing its data.");
+        nodes.EnsureStopped(clusterId);
+        gateway.EnsureStopped(clusterId);
+        string conversions = Path.GetFullPath(Path.Combine(stateDirectory, "conversions"));
+        var used = attachments.GetAll().Where(a => a.BundleManifestPath is not null).SelectMany(a =>
+        {
+            var manifest = ExecutionBundle.ReadManifest(a.BundleManifestPath!, a.BundleManifestSha256!);
+            return new[] { a.BundleManifestPath!, manifest.ArtifactRoot, manifest.RuntimeRoot };
+        }).OfType<string>().ToArray();
+        var removed = new List<string>();
+        foreach (string workspace in workspaces.Distinct())
+        {
+            if (!Path.IsPathFullyQualified(workspace) || Path.GetFullPath(workspace) != workspace || Path.GetDirectoryName(workspace) != conversions
+                || !Guid.TryParseExact(Path.GetFileName(workspace), "N", out _) || !Directory.Exists(workspace)
+                || (File.GetAttributes(workspace) & FileAttributes.ReparsePoint) != 0) continue;
+            if (used.Any(p => p == workspace || p.StartsWith(workspace + "/", StringComparison.Ordinal)))
+                throw new InvalidOperationException($"Workspace {workspace} serves an attached cluster.");
+            Quasar.ClusterDeployment.ClusterStagingSweep.DeleteTree(workspace);
+            removed.Add(workspace);
+        }
+        string snapshots = Path.Combine(stateDirectory, "snapshots", ExecutionBundle.Hash(Encoding.UTF8.GetBytes(clusterId)));
+        if (Directory.Exists(snapshots)) Quasar.ClusterDeployment.ClusterStagingSweep.DeleteTree(snapshots);
+        string detached = Path.Combine(stateDirectory, "detached");
+        if (Directory.Exists(detached))
+            foreach (string record in Directory.EnumerateDirectories(detached, "*-" + clusterId))
+                if (Path.GetFileName(record).Split('-', 2)[1] == clusterId) Directory.Delete(record, true);
+        Console.Error.WriteLine($"cluster={clusterId} released {removed.Count} workspaces of the deleted cluster");
+        return removed.ToArray();
+    }
+
+    // Starting a process means nothing of this Host is in flight. Called before the command server starts.
+    internal static void SweepStaging(string stateDirectory)
+    {
+        static void Report(string message) => Console.Error.WriteLine("storage: " + message);
+        DateTime now = DateTime.UtcNow;
+        try
+        {
+            string conversions = Path.Combine(stateDirectory, "conversions");
+            string[] staging = [".stage-*", ".transfer-*", ".world-*"];
+            foreach (string inputs in new[] { "installations", "mods", "worlds" })
+                Quasar.ClusterDeployment.ClusterStagingSweep.Sweep(Path.Combine(conversions, inputs), now, Report, staging);
+            if (Directory.Exists(conversions))
+                foreach (string workspace in Directory.EnumerateDirectories(conversions).Where(p => Guid.TryParseExact(Path.GetFileName(p), "N", out _)))
+                {
+                    // Recover has already run: a resumed restore finished or paused, and staging starts over on a retry.
+                    Quasar.ClusterDeployment.ClusterStagingSweep.Sweep(workspace, now, Report, ".restore-*");
+                    if (!Directory.EnumerateFileSystemEntries(workspace).Any()) Directory.Delete(workspace);
+                }
+            string snapshots = Path.Combine(stateDirectory, "snapshots");
+            if (Directory.Exists(snapshots))
+                foreach (string cluster in Directory.EnumerateDirectories(snapshots))
+                    Quasar.ClusterDeployment.ClusterStagingSweep.Sweep(cluster, now, Report, "*.upload-*", "*.tmp");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { Report("sweep stopped: " + error.Message); }
     }
 
     internal bool IsManaged(string clusterId) => File.Exists(Path.Combine(DirectoryPath,

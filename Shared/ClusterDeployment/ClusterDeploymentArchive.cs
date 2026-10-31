@@ -7,7 +7,7 @@ namespace Quasar.ClusterDeployment;
 internal static partial class ClusterDeploymentFiles
 {
     internal static async Task<int> CollectInstallationsAsync(string directory, string clusterId,
-        IReadOnlySet<string> retained, IEnumerable<string> activeRoots, CancellationToken token)
+        IReadOnlySet<string> retained, IEnumerable<string> activeRoots, CancellationToken token, bool prune = true)
     {
         foreach (string hash in retained)
             if (hash.Length != 64 || hash != hash.ToLowerInvariant() || !hash.All(Uri.IsHexDigit))
@@ -25,8 +25,10 @@ internal static partial class ClusterDeploymentFiles
         // Missing/foreign retained metadata is not permission to remove other inputs.
         if (retained.Any(hash => !installations.Any(i => i.Hash == hash)))
             throw new InvalidDataException("A retained deployment installation is missing or belongs to another cluster.");
-        using var content = await ClusterContentStore.OpenAsync(directory, token);
+        using var content = await ClusterContentStore.OpenAsync(directory, token, prune);
         int removed = 0;
+        // Collection scales with installations times files: walking the tree per file took 1 s per installation (SE-791).
+        var checkedDirectories = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (path, hash, inputs) in installations)
         {
             if (!retained.Contains(hash) && !protectedRoots.Any(root => root == path || root.StartsWith(path + "/", StringComparison.Ordinal)))
@@ -37,7 +39,9 @@ internal static partial class ClusterDeploymentFiles
             else
                 foreach (var (relative, pin) in inputs.Files)
                 {
-                    string file = Resolve(path, relative);
+                    ValidateRelative(relative);
+                    string file = Path.Combine(path, relative);
+                    RefuseLinks(file, checkedDirectories);
                     if (ClusterContentStore.ReferenceCount(file) == 1)
                         await content.AdoptAsync(file, pin, token);
                 }

@@ -83,6 +83,9 @@ public sealed class QuasarBackupSettings
     public const int MinOnlineClusterMiBPerSecond = 1;
     public const int MaxOnlineClusterMiBPerSecond = 4096;
     public const int DefaultOnlineClusterMiBPerSecond = 32;
+    public const int MinDeletedClusterRetentionDays = 0;
+    public const int MaxDeletedClusterRetentionDays = 3650;
+    public const int DefaultDeletedClusterRetentionDays = 7;
 
     public QuasarBackupRuleSettings Configuration { get; set; } = new();
 
@@ -96,6 +99,11 @@ public sealed class QuasarBackupSettings
     /// </summary>
     public int OnlineClusterMiBPerSecond { get; set; } = DefaultOnlineClusterMiBPerSecond;
 
+    /// <summary>
+    /// How long a deleted cluster's backups, world and Host data stay before Quasar removes them. 0 keeps them forever.
+    /// </summary>
+    public int DeletedClusterRetentionDays { get; set; } = DefaultDeletedClusterRetentionDays;
+
     public QuasarBackupSettings Clone()
     {
         return new QuasarBackupSettings
@@ -104,6 +112,7 @@ public sealed class QuasarBackupSettings
             Server = Server.Clone(),
             World = World.Clone(),
             OnlineClusterMiBPerSecond = OnlineClusterMiBPerSecond,
+            DeletedClusterRetentionDays = DeletedClusterRetentionDays,
         };
     }
 
@@ -121,6 +130,11 @@ public sealed class QuasarBackupSettings
                 settings.OnlineClusterMiBPerSecond,
                 MinOnlineClusterMiBPerSecond,
                 MaxOnlineClusterMiBPerSecond
+            ),
+            DeletedClusterRetentionDays = Math.Clamp(
+                settings.DeletedClusterRetentionDays,
+                MinDeletedClusterRetentionDays,
+                MaxDeletedClusterRetentionDays
             ),
         };
     }

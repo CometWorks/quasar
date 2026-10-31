@@ -86,6 +86,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-topbar-identity, .quasar-topbar-actions { display: flex; align-items: center; gap: 8px; }
 .quasar-topbar-identity { min-width: 0; font-size: 11px; }
 .quasar-topbar-actions, .quasar-topbar-identity .quasar-icon-button { flex-shrink: 0; }
+.quasar-inline-form { display: inline-flex; margin: 0; }
 .quasar-topbar-subtitle { opacity: .75; }
 .quasar-main { padding: 24px 28px 32px; min-width: 0; width: 100%; }
 .quasar-icon { display: inline-block; width: 18px; height: 18px; fill: currentColor; flex-shrink: 0; vertical-align: middle; }

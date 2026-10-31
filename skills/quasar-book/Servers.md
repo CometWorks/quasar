@@ -338,6 +338,14 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 - **High priority does nothing on Linux**: install `quasar-renice` (see above). If the server says the helper may be outdated, install it again and restart the server.
 - **Server deleted but disk still full**: delete `<quasar-root>/Magnetars/<Server ID>/` yourself.
 
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
+
 ## Sources
 - `Docs/StateMachines/DedicatedServerLifecycle.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
@@ -389,3 +397,5 @@ Quasar.Agent runs a built-in profiler in each server. Its mode is chosen per ser
 - `Dockerfile`
 - `install.sh`
 - `tools/quasar-renice.c`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

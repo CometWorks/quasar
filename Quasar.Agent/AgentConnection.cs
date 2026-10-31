@@ -496,8 +496,14 @@ namespace Quasar.Agent
             return Encoding.UTF8.GetBytes(json);
         }
 
-        private static async Task<AgentWireMessage> ReceiveAsync(ClientWebSocket socket, CancellationToken cancellationToken)
+        internal static async Task<AgentWireMessage> ReceiveAsync(
+            WebSocket socket,
+            CancellationToken cancellationToken,
+            int maximumBytes = AgentMessageLimits.MessageBytes)
         {
+            if (maximumBytes <= 0)
+                throw new ArgumentOutOfRangeException(nameof(maximumBytes));
+
             var buffer = new byte[16 * 1024];
             using (var stream = new MemoryStream())
             {
@@ -508,12 +514,30 @@ namespace Quasar.Agent
                     if (result.MessageType == WebSocketMessageType.Close)
                         return null;
 
+                    if (result.MessageType != WebSocketMessageType.Text)
+                    {
+                        await socket.CloseOutputAsync(
+                            WebSocketCloseStatus.InvalidMessageType,
+                            "Quasar messages must use text frames.",
+                            cancellationToken).ConfigureAwait(false);
+                        throw new InvalidDataException("Quasar sent a non-text WebSocket message.");
+                    }
+
+                    if (result.Count > maximumBytes - stream.Length)
+                    {
+                        await socket.CloseOutputAsync(
+                            WebSocketCloseStatus.MessageTooBig,
+                            $"Quasar message exceeds {maximumBytes}-byte limit.",
+                            cancellationToken).ConfigureAwait(false);
+                        throw new InvalidDataException($"Quasar message exceeds {maximumBytes}-byte limit.");
+                    }
+
                     stream.Write(buffer, 0, result.Count);
                     if (result.EndOfMessage)
                         break;
                 }
 
-                var json = Encoding.UTF8.GetString(stream.ToArray());
+                var json = Encoding.UTF8.GetString(stream.GetBuffer(), 0, checked((int)stream.Length));
                 return JsonConvert.DeserializeObject<AgentWireMessage>(json, JsonSettings);
             }
         }

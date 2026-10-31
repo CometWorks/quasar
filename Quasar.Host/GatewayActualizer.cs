@@ -48,12 +48,39 @@ internal sealed class GatewayActualizer
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            return await ReconcileCoreAsync(spec, cancellationToken);
+            HostContract.GatewayStatus status = await ReconcileCoreAsync(spec, cancellationToken);
+            if (status.Observed == HostContract.GatewayObservedState.Failed && spec.Goal == HostContract.GatewayGoal.On)
+                lock (_respawns)
+                    if (_respawns.TryGetValue(spec.ClusterId, out Respawn? respawn) && respawn.SpecKey == SpecKey(spec))
+                        status = status with { LaunchAttempts = respawn.Attempts };
+            return status;
         }
         finally
         {
             _gate.Release();
         }
+    }
+
+    /// <summary>An Off goal stops only the process its fence names. Persisted over any other live process, it would
+    /// leave that Gateway unsupervised. Callers hold the Host execution gate, so no respawn can come between this
+    /// check and persisting the goal. A record that cannot be read is left to reconcile, which reports the conflict.</summary>
+    internal void RefuseOffOverLiveProcess(HostContract.GatewaySpec spec)
+    {
+        if (spec.Goal != HostContract.GatewayGoal.Off) return;
+        GatewayLaunchRecord? record;
+        try
+        {
+            record = ReadRecord(spec.ClusterId);
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException)
+        {
+            return;
+        }
+        ProcessMatch match = Inspect(record);
+        match.Process?.Dispose();
+        if (match.State == ProcessMatchState.Alive
+            && (spec.StopFence?.ProcessId != record!.ProcessId || spec.StopFence.LaunchedAt != record.LaunchedAt))
+            throw new InvalidOperationException("The Gateway process is alive and this Off goal does not name it.");
     }
 
     private async Task<HostContract.GatewayStatus> ReconcileCoreAsync(
@@ -118,7 +145,7 @@ internal sealed class GatewayActualizer
 
         // A Gateway that keeps failing is respawned with a growing delay: every attempt verifies
         // the whole bundle. A changed spec (a new start generation from goal On included) retries at once.
-        string specKey = spec.BundleManifestSha256 + "/" + spec.ConfigRevision + "/" + spec.StartGeneration;
+        string specKey = SpecKey(spec);
         lock (_respawns)
         {
             long now = Environment.TickCount64;
@@ -204,6 +231,9 @@ internal sealed class GatewayActualizer
         }
     }
     private sealed record Respawn(string SpecKey, int Attempts, long NotBefore);
+
+    private static string SpecKey(HostContract.GatewaySpec spec) =>
+        spec.BundleManifestSha256 + "/" + spec.ConfigRevision + "/" + spec.StartGeneration;
 
     private void DropOutput(string clusterId)
     {

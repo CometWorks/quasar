@@ -53,7 +53,9 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 string modArchive = Path.Combine(work, "mods.tar");
 
                 string sourceWorld = Path.Combine(work, "profile-source");
-                string patch = await ClusterWorkshopModStager.ProfileSettingsXmlAsync(sourceWorld, effective, cluster.DisplayName, token);
+                // Specifications from before SE-755 have no worldName; their nodes showed the cluster id.
+                string worldName = JsonNode.Parse(request.SpecificationJson)?["worldName"]?.GetValue<string>() ?? cluster.DisplayName;
+                string patch = await ClusterWorkshopModStager.ProfileSettingsXmlAsync(sourceWorld, effective, worldName, token);
                 string exported = Path.Combine(work, "exported");
                 progress?.Report("Preparing pinned plugins and their configuration...");
                 var excluded = await setup.ExportProfilePluginsAsync(cluster.UniqueName, cluster.DisplayName,
@@ -86,10 +88,14 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 spec["memberLimit"] = ClusterConversionService.MemberLimit(effective);
                 spec["administrators"] = JsonSerializer.SerializeToNode(ClusterConversionService.Administrators(effective), Json);
                 spec["selectedConfigProfileId"] = effective.ConfigProfileId;
+                spec["worldName"] = worldName;
+                spec["messageOfTheDay"] = effective.RootSettings.MessageOfTheDay ?? "";
+                spec["messageOfTheDayUrl"] = effective.RootSettings.MessageOfTheDayUrl ?? "";
                 ClusterWorkshopModStager.AddToSpecification(spec, staged, patch);
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);
+                QuasarCommandAliases.ApplyToCanonical(canonical, effective);
                 spec["pluginConfigurations"] = canonical;
                 string json = spec.ToJsonString();
                 var transfer = Guid.NewGuid();
@@ -123,12 +129,15 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var result = await deployments.PrepareAsync(clusterId, request, Guid.NewGuid().ToString("N"), actor, token);
                 if (result.State == ClusterOperationState.Succeeded)
                 {
-                    if (profiles.GetProfile(profileId) is not { } latest || ProfileHash(latest) != selectedHash)
-                        throw new InvalidOperationException("The selected profile changed during preparation. Stage it again.");
                     var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                         ?? throw new InvalidDataException("Host preparation returned no deployment.");
+                    // Recorded also when refused: it holds the earlier staged changes for the next staging. Its profile
+                    // hash keeps it from activating, and the queue stays for that staging.
+                    bool unchanged = profiles.GetProfile(profileId) is { } latest && ProfileHash(latest) == selectedHash;
                     await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token, selected.ConfigProfileId, selectedHash,
-                        preparedContentUpdates: queued);
+                        preparedContentUpdates: unchanged ? queued : null);
+                    if (!unchanged)
+                        throw new InvalidOperationException("The selected profile changed during preparation. Stage it again.");
                 }
                 return result;
             }
@@ -261,6 +270,41 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
         }, token);
 
+    /// <summary>Stages a deployment with new in-game server and world names, the cluster's identity unchanged. Applies
+    /// through the stopped-fleet update like any other preparation; a blank name stays as it is. The names stay staged
+    /// until the next activation, whatever is selected or staged before it.</summary>
+    public Task<ClusterOperation> StageNamesAsync(string clusterId, string? serverName, string? worldName, string actor,
+        CancellationToken token) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException("Finish the current setup, update or activation before renaming.");
+            if (string.IsNullOrWhiteSpace(serverName) && string.IsNullOrWhiteSpace(worldName))
+                throw new ArgumentException("Give a server name, a world name or both.");
+            var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before renaming.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before renaming.");
+            var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+            string? server = string.IsNullOrWhiteSpace(serverName) ? null : serverName.Trim();
+            string? world = string.IsNullOrWhiteSpace(worldName) ? null : worldName.Trim();
+            SetNames(spec, server, world);
+            return await PrepareSpecificationAsync(cluster, request, spec, actor, token,
+                new(server ?? cluster.StagedNames?.ServerName, world ?? cluster.StagedNames?.WorldName));
+        }, token);
+
+    /// <summary>Sets the names in a specification, including the world's SessionName in its profile patch. A specification
+    /// from before profile patches has none, so its world keeps the old name until the profile is staged.</summary>
+    internal static void SetNames(JsonObject specification, string? serverName, string? worldName)
+    {
+        if (serverName is not null) specification["serverName"] = serverName;
+        if (worldName is null) return;
+        specification["worldName"] = worldName;
+        if (specification["profileSettingsXml"]?.GetValue<string>() is { } patch)
+            specification["profileSettingsXml"] = ClusterWorkshopModStager.RenameProfileSettingsXml(patch, worldName);
+    }
+
     internal const int MaxWorldFiles = 1000;
     internal const long MaxWorldFileBytes = 16L * 1024 * 1024;
 
@@ -389,7 +433,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
     }
 
     private async Task<ClusterOperation> PrepareSpecificationAsync(ClusterDefinition cluster, ClusterPreparationRequest request,
-        JsonNode spec, string actor, CancellationToken token)
+        JsonNode spec, string actor, CancellationToken token, ClusterStagedNames? stagedNames = null)
     {
         string json = spec.ToJsonString();
         request = request with { SpecificationJson = json, Hosts = request.Hosts.Select(h => h with {
@@ -400,7 +444,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             var deployment = result.Result!.Value.Deserialize<ClusterDeploymentRequest>(Json)
                 ?? throw new InvalidDataException("Host preparation returned no deployment.");
             await catalog.RecordSelectedReleasePreparationAsync(cluster, deployment, token,
-                cluster.PreparedProfile?.ProfileId, cluster.PreparedProfile?.ProfileSha256);
+                cluster.PreparedProfile?.ProfileId, cluster.PreparedProfile?.ProfileSha256, stagedNames: stagedNames);
         }
         return result;
     }
@@ -417,9 +461,11 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
 
     internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
     {
-        var plugin = specification["pluginConfigurations"]![pluginId]!;
+        var plugin = specification["pluginConfigurations"]?[pluginId]
+            ?? throw new InvalidDataException($"The saved preparation has no configuration for plugin {pluginId}.");
         var config = plugin["configurations"] is System.Text.Json.Nodes.JsonArray configs
-            ? configs.Single(c => c?["configType"]?.GetValue<string>() == configType)! : plugin;
+            ? configs.SingleOrDefault(c => c?["configType"]?.GetValue<string>() == configType)
+                ?? throw new InvalidDataException($"Plugin {pluginId} has no configuration of type {configType}.") : plugin;
         config["configuration"]!["values"] = JsonNode.Parse(values) as JsonObject
             ?? throw new InvalidDataException("Plugin settings must be a JSON object.");
     }
@@ -427,16 +473,31 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
     /// <summary>
     /// The preparation a re-prepare builds on. The saved <see cref="ClusterDefinition.Preparation"/> is whatever was
     /// prepared last, so it can be a failed restore's backup specification, a rolled-back update's, or a change that a
-    /// later package or dependency selection discarded. It is the base only while it describes the active deployment or
-    /// the change still pending from Quasar's own staging; otherwise the active deployment's recorded preparation is,
-    /// and the switch is reported with any frontend it keeps.
+    /// later package selection discarded. It is the base only while it describes the active deployment or the change
+    /// from Quasar's own staging, which a dependency selection or a failed staging doesn't discard; otherwise the active
+    /// deployment's recorded preparation is, and the switch is reported with any frontend it keeps. Staged names apply
+    /// to either.
     /// </summary>
-    internal ClusterPreparationRequest? BasePreparation(ClusterDefinition cluster, IProgress<string>? progress = null)
+    internal ClusterPreparationRequest? BasePreparation(ClusterDefinition cluster, IProgress<string>? progress = null) =>
+        WithStagedNames(UnnamedBasePreparation(cluster, progress), cluster.StagedNames);
+
+    private static ClusterPreparationRequest? WithStagedNames(ClusterPreparationRequest? request, ClusterStagedNames? names)
+    {
+        if (request is null || names is null) return request;
+        var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+        if ((names.ServerName is null || spec["serverName"]?.GetValue<string>() == names.ServerName)
+            && (names.WorldName is null || spec["worldName"]?.GetValue<string>() == names.WorldName)) return request;
+        SetNames(spec, names.ServerName, names.WorldName);
+        return request with { SpecificationJson = spec.ToJsonString() };
+    }
+
+    private ClusterPreparationRequest? UnnamedBasePreparation(ClusterDefinition cluster, IProgress<string>? progress)
     {
         var saved = cluster.Preparation;
         if (saved is null || cluster.ActiveDeployment?.Provenance?.Preparation is not { } active || saved == active) return saved;
         string revision = ClusterDependencyService.DeploymentRevision(saved);
-        if (revision == cluster.ActiveDeployment.Revision
+        if (revision == cluster.ActiveDeployment.Revision || revision == cluster.StagedRevision
+            // A catalog from before StagedRevision.
             || cluster.PreparedForSelectedRelease && revision == cluster.PreparedDeployment?.Revision) return saved;
         string message = $"The saved preparation (revision {revision[..Math.Min(8, revision.Length)]}) is not the active deployment's, "
             + "for example after a failed restore or a rollback. Building on the active deployment's preparation instead.";

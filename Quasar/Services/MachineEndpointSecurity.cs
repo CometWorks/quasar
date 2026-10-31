@@ -26,6 +26,7 @@ internal static class MachineEndpointSecurity
     internal static bool IsMachinePath(PathString path) =>
         path.StartsWithSegments("/ws/agent", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/api/internal", StringComparison.OrdinalIgnoreCase)
+        || path.StartsWithSegments("/api/discovery", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/api/v1/hosts", StringComparison.OrdinalIgnoreCase)
         || path.StartsWithSegments("/api/v1/host-enrollment", out var remaining)
             && Guid.TryParse(remaining.Value?.Trim('/'), out _);

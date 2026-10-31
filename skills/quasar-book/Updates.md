@@ -46,25 +46,31 @@ A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new r
 
 Old tokenless agents are refused even on loopback. An adopted server stays disconnected until its agent can authenticate. Automatic attach recovery, health restarts and planned restarts wait for authenticated running telemetry; explicit admin actions remain possible. If you already upgraded with servers running, save in game before restarting because Quasar cannot save through a refused agent. An old standalone agent that had connected can save and stop after its own offline window (one hour by default). Current cluster agents never self-stop for a Quasar outage; Gateway/Host owns their lifecycle.
 
-### Rolling back the UI
+### Rolling back Quasar UI and Bootstrap
+
+Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. This restores both the UI and Bootstrap to that exact release. Quasar requires its platform installer as well as the staged UI; it does not fall back to a UI-only rollback. The request binds the prepared UI to the selected installer version, and Bootstrap verifies the installer's `SHA256SUMS` before replacing itself and switching the UI pointer. Managed game servers keep running.
+
+The running launcher must support coordinated rollbacks (introduced with Quasar 1.3.2). An older launcher shows "Update Bootstrap before rolling back" instead of silently leaving components on different versions. Upgrade Bootstrap first. Bootstrap keeps the replaced launcher as `Quasar.previous` (`Quasar.exe.previous` on Windows), and keeps the previous UI pointer through the startup health check for recovery. Live Windows/Linux rollback and recovery remain release acceptance checks.
+
+Automatic staging never picks an older version, and automatic activation never downgrades either component. If automatic updates remain enabled, they can upgrade an intentionally rolled-back installation again; turn that policy off first to stay on the older release. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
+
+### Command-line UI recovery
 
 From the install directory, run `./Quasar --rollback` on Linux or
 `.\Quasar.exe --rollback` on Windows. `rollback` is also accepted as a command.
-Bootstrap selects the previous healthy UI retained locally and ensures Quasar is
-running. A running launcher applies the request asynchronously. The normal cutover
-health checks still apply, and game servers stay running. No download is needed.
-This restores UI binaries only; Bootstrap, current settings, worlds and plugin
-data are unchanged. Disable automatic application if you want to stay on an older UI.
+This local recovery command restores the previous healthy UI without downloading
+an installer or changing Bootstrap. It differs from the coordinated rollback on
+the Updates page above: current settings, worlds and plugin data stay unchanged,
+and managed game servers keep running. A running launcher applies the request
+asynchronously through its normal health-checked cutover.
 
-The previous healthy pointer is `Updates/active-release.json.rollback`. It survives
-ordinary restarts and combined updates. Retention starts at the first successful
-cutover using a Bootstrap version with this feature. Missing or unusable previous
-files cause an error without changing the active selection. If there is no retained
-release, use the Updates page instead.
+Bootstrap retains the previous healthy UI pointer as
+`Updates/active-release.json.rollback` across ordinary restarts and combined
+updates, starting with its first successful cutover using this feature.
 If a cutover was interrupted, `Updates/active-release.json.previous` takes
-precedence as the most recent healthy recovery target.
-
-Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. Automatic staging never picks an older version. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets. PR and manual builds do not count toward those two releases, even if published without the prerelease flag. Closing a PR removes its draft builds; each later publish also removes drafts left over from closed PRs. Cleanup cannot restore a release already deleted by an earlier run.
+precedence as the most recent healthy recovery target. A missing or unusable
+target fails without changing the active selection; stage an older version on
+Updates instead. Disable automatic application if you want to stay on the older UI.
 
 ### appsettings.json merge during staging
 
@@ -82,13 +88,15 @@ Settings that only you changed, or only the release changed, merge on their own.
 
 Automatic activation never proceeds past an unresolved conflict.
 
+Quasar creates rewritten and merged `appsettings.json` files owner-readable/writable only on Unix because operator settings can contain credentials. Existing custom Unix modes are preserved by other atomic file rewrites.
+
 ## Bootstrap launcher updates
 
-Bootstrap is the small launcher that owns the public port and runs the worker. It installs a new launcher only when the worker asks it to, by writing `<install root>/Updates/bootstrap-update-request.json`. That happens when you press **Force activate** on the Updates page, or through the automatic update policy below. Bootstrap does not apply releases on its own timer.
+Bootstrap is the small launcher that owns the public port and runs the worker. It installs a launcher only when the worker asks it to, by writing `<install root>/Updates/bootstrap-update-request.json`. That happens when you press **Force activate** on the Updates page, activate a staged rollback, or through the automatic update policy below. Bootstrap does not apply releases on its own timer.
 
 When Bootstrap handles a request it:
 
-1. Finds the requested release and the installer asset (`quasar-installer-linux.tar.gz` or `quasar-installer-windows.zip`). It does nothing if that version is not newer than the running launcher.
+1. Finds the requested release and the installer asset (`quasar-installer-linux.tar.gz` or `quasar-installer-windows.zip`). Ordinary updates require a newer version. An explicit rollback can install an older or matching launcher only with a prepared UI pointer bound to the same release.
 2. Downloads it into `ManagedRuntime/Cache/`, verifies `SHA256SUMS`, and extracts it under `Updates/Staged/Bootstrap-<version>/`.
 3. Skips the restart if the new launcher binary is byte-identical to the installed one.
 4. Copies the archive files into the install root. It never overwrites the root `appsettings.json` or anything under `WebService/`. The old launcher binary stays next to it as `Quasar.previous` (`Quasar.exe.previous` on Windows).

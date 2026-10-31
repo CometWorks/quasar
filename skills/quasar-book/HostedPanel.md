@@ -4,13 +4,30 @@ Nebula exposes the complete local Quasar at
 `https://dash.se-servers.net/my-server-panel/`. Servers and worlds remain
 local. You need no per-panel DNS entry, inbound router port or certificate.
 
-Configure your normal Steam admin mapping, then open **Security → Manage access
-setup**. The same dialog appears in the first interactive admin session. Choose
-Self-deploy, Use hosted panel or Later. Headless startup remains unattended.
+Open **Security → Manage access setup**. The same dialog appears in the first
+interactive admin session. When no administrator mapping exists, first enter your
+17-digit SteamID64 and choose **Save administrator and continue**. Existing
+subject or claim admin mappings skip that step. Setup requires security-management
+permission, normally through the existing trusted-network session on a fresh
+installation; a remote Steam sign-in alone cannot claim it. Then choose
+**Self-deploy** or **Use hosted panel** from the two large choices, then **Next**.
+The layout and step progress indicator follow the server import wizard. **Back**
+returns from hosted settings without clearing your panel name; **Cancel** closes
+setup. Headless startup remains unattended.
 For hosted access choose a globally unique 3 to 63 character lowercase name using
 letters/digits separated by single dashes, then follow the Steam enrollment link.
 The reference expires after 15 minutes; retry locally if it expires or the name
 is taken. Quasar retrieves its private connector credential automatically.
+
+After **Start hosted enrollment**, the larger dialog shows a progress bar, live
+status and stages for enrollment, activation, tunnel connection and dashboard
+verification. Use **Continue enrollment with Steam** if the new tab is blocked.
+While connecting, **Cancel** is the only footer action. It stops hosted setup and
+the connection, preserves the private identity and does not cancel an existing
+subscription. **Open Quasar dashboard** becomes a primary button only after active
+hosting and fresh health for this panel confirm both the tunnel and local worker
+are ready. **Done** closes setup; **Self-deploy** disconnects hosting and opens
+Security. Expired or disconnected enrollments return to the setup form to retry.
 
 **Current availability:** Nebula's configured platform super admins can enroll
 free. Stripe billing is implemented; checkout stays disabled
@@ -83,7 +100,9 @@ See [the detailed deployment and recovery guide](https://github.com/CometWorks/q
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
+- `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar/Components/Shared/AccessSetupDialog.razor.css`
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Pages/Security.razor`
 - `Quasar.Bootstrap/HostedPanelConnector.cs`

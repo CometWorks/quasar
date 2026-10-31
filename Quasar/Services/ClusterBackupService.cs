@@ -20,7 +20,8 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _unreadable = new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
         { Converters = { new JsonStringEnumConverter() } };
-    private string Root(string cluster) => Path.Combine(options.BackupDirectory, "Clusters", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster))));
+    private string Root(string cluster) => Root(options.BackupDirectory, cluster);
+    internal static string Root(string backupDirectory, string cluster) => Path.Combine(backupDirectory, "Clusters", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster))));
     public ClusterBackup[] List(string cluster) => !Directory.Exists(Root(cluster)) ? []
         : Directory.EnumerateFiles(Root(cluster), "backup.json", SearchOption.AllDirectories)
             .Where(p => !Path.GetFileName(Path.GetDirectoryName(p)!).StartsWith('.'))

@@ -15,6 +15,8 @@ internal static partial class ClusterDeploymentFiles
         var pending = new Stack<string>();
         pending.Push(Path.GetFullPath(root));
         long bytes = 0;
+        // Hard links of one file hash once: a deployment's mods have one path per seed folder.
+        var hashed = new Dictionary<string, string>(StringComparer.Ordinal);
         while (pending.TryPop(out string? path))
         {
             token.ThrowIfCancellationRequested();
@@ -30,9 +32,14 @@ internal static partial class ClusterDeploymentFiles
             if (size > 100L * 1024 * 1024 * 1024 - bytes || files.Count >= 200_000)
                 throw new InvalidDataException("Deployment exceeds supported limits.");
             bytes += size;
-            await using var stream = File.OpenRead(path);
-            string hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, token)).ToLowerInvariant();
-            if (stream.Length != size) throw new InvalidDataException("Deployment input changed.");
+            string? identity = OperatingSystem.IsLinux() ? ClusterContentStore.FileIdentity(path) : null;
+            if (identity is null || !hashed.TryGetValue(identity, out string? hash))
+            {
+                await using var stream = File.OpenRead(path);
+                hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, token)).ToLowerInvariant();
+                if (stream.Length != size) throw new InvalidDataException("Deployment input changed.");
+                if (identity is not null) hashed[identity] = hash;
+            }
             files.Add(relative, new(hash, size, !OperatingSystem.IsWindows()
                 && (File.GetUnixFileMode(path) & UnixFileMode.UserExecute) != 0));
         }
@@ -264,6 +271,15 @@ internal static partial class ClusterDeploymentFiles
         string path = Path.Combine(root, relative);
         RefuseLinks(path);
         return path;
+    }
+    private static void RefuseLinks(string file, HashSet<string> checkedDirectories)
+    {
+        file = Path.GetFullPath(file);
+        if ((File.GetAttributes(file) & FileAttributes.ReparsePoint) != 0)
+            throw new InvalidDataException("Deployment paths must not contain symbolic links.");
+        for (string? current = Path.GetDirectoryName(file); current is not null && checkedDirectories.Add(current); current = Path.GetDirectoryName(current))
+            if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Deployment paths must not contain symbolic links.");
     }
     private static void RefuseLinks(string path)
     {

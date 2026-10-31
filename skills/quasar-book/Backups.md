@@ -73,7 +73,7 @@ How scheduling works:
 
 ### Retention
 
-After each automatic backup, Quasar deletes the oldest automatic backups of that type beyond the rule's count. For Servers and Worlds the count is per server. Retention only touches files whose name ends in `-auto.zip`. Manual backups stay until you delete them.
+After each automatic backup, Quasar deletes the oldest automatic backups of that type beyond the rule's count. For Servers and Worlds the count is per server. Retention only touches files whose name ends in `-auto.zip`. Manual backups stay until you delete them. The exception is a deleted cluster, whose backups all go when its [retention](Clusters.md#delete-or-forget-a-cluster) ends.
 
 ## Where backup files go
 
@@ -95,7 +95,7 @@ In Docker, the documented example sets `QUASAR_BACKUP_DIR=/data/Backups`, inside
 | Server | `quasar-server-<unique name>-yyyyMMdd-HHmmss.zip` |
 | World | `quasar-world-<unique name>-yyyyMMdd-HHmmss.zip` |
 
-Automatic backups add `-auto` before `.zip`. If the name already exists, Quasar appends `-2`, `-3` and so on. The timestamp is local time. Quasar writes each ZIP as `<name>.zip.tmp` first and renames it when done. At startup it deletes leftover `*.tmp` files from interrupted backups.
+Automatic backups add `-auto` before `.zip`. If the name already exists, Quasar appends `-2`, `-3` and so on. The timestamp is local time. Quasar creates each ZIP as an owner-readable/writable `<name>.zip.tmp` on Unix and renames it when done; the completed ZIP keeps that mode. At startup it deletes leftover `*.tmp` files from interrupted backups. Uploaded restore archives use an owner-only temporary staging file too. Backups can contain tokens, server passwords, and private plugin state, so protect the backup directory on every platform.
 
 The **Stored backups** table lists only `*.zip` files directly in the backup folder. Its Type column shows "Quasar config", "Server" or "World", with "(auto)" for automatic ones.
 

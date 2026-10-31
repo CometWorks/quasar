@@ -95,6 +95,7 @@ public sealed class AutomaticUpdateTests
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(MagnetarPaths.GetQuasarBootstrapUpdateRequestPath()));
             Assert.Equal("1.4.0", document.RootElement.GetProperty("webRelease").GetProperty("version").GetString());
             Assert.Equal("1.4.0", document.RootElement.GetProperty("version").GetString());
+            Assert.False(document.RootElement.GetProperty("allowRollback").GetBoolean());
         }
         finally { cache.SetValue(null, previous); Directory.Delete(directory, true); }
     }

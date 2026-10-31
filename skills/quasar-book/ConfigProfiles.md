@@ -31,14 +31,52 @@ Editing profiles needs the config edit permission (see [Access control](AccessCo
 
 ### What a profile holds
 
-The profile editor has three tabs plus a **Developer** panel:
+The profile editor has four tabs plus a **Developer** panel:
 
 - **World**: all DS world options, grouped into Server, Automation, Moderation, General, Survival, Multipliers, Player & Progression, Blocks & Combat, NPCs & World, Trash & Cleanup, Economy & Contracts and Advanced, plus the **Access** section. **Search world options** filters them.
 - **Plugins**: Magnetar plugins to load. See [Plugins](Plugins.md).
 - **Mods**: the Steam Workshop mod list in load order. Disabled while **Cross Platform** is on ("Mods are disabled while Cross Platform is enabled. Turn off Cross Platform to add or edit mods.").
+- **Command aliases**: shortcuts for in-game commands, with the target command's permissions. See [Command aliases](#command-aliases).
 - **Developer**: local plugin dev folders and extra plugin hubs. See [Plugins](Plugins.md).
 
 The profile does not hold the game port, listen IP, server and world names, restart or health policy. Those belong to the server definition (see [Servers](Servers.md#creating-a-server)).
+
+### Command aliases
+
+Open **Configs**, select a profile, then open **Command aliases**. Add a source
+such as `!grids list` and target `!ess grids list`, then **Save Profile**. Each
+profile keeps its own aliases, including when cloned. Remove rows and save to
+clear them. Restart assigned standalone servers to apply the profile. For a
+cluster, stage and apply the selected profile so the pinned Agent configuration
+reaches every node; saving alone does not change a running server.
+
+An alias matches a whole command-word prefix, ignoring case. The longest source
+wins and intentionally overrides a registered command with the same path.
+Remaining arguments keep their quoted or escaped grouping. For example,
+`!grids list "Big Ship"` becomes `!ess grids list "Big Ship"`. Expansion happens
+once; aliases do not chain. An unavailable target produces a private error and
+the command text is suppressed from normal chat. Target plugins must be enabled.
+
+The original player's identity and target-command permissions still apply.
+Aliases do not grant console or admin access. Quasar's Chat console can also use
+aliases with its existing console permissions. Generated `!help` continues to list
+the registered targets rather than aliases.
+
+Sources and targets start with `!` and contain ASCII letters, digits, underscores
+or hyphens separated by spaces or tabs. A profile supports 64 aliases, with up to
+512 characters per path. Duplicate sources, exact self aliases and sources
+starting with `!help` are rejected. Fixed quoted arguments in configured paths
+are not supported; players can still quote arguments when invoking them.
+
+Aliases need the matching Quasar.Agent and Magnetar with PluginSdk contract 1.1
+(or a later 1.x contract). Quasar refuses to start or stage a profile with aliases
+on an older runtime. Profiles without aliases continue to work on older Magnetar.
+Standalone preparation replaces `CommandAliases.json` under the server's Magnetar
+data directory, including an empty snapshot when aliases are cleared. Clusters
+carry the same values in their existing canonical plugin configuration. Profile
+staging overrides any previous Agent alias values. Edit this setting in the profile
+for persistence; temporary plugin-config edits are replaced by the next profile
+application.
 
 ### Where profiles are stored
 
@@ -47,7 +85,7 @@ The profile does not hold the game port, listen IP, server and world names, rest
 | `<quasar-root>/ConfigProfiles/<profile id>/profile.json` | The profile. |
 | `<quasar-root>/ConfigProfiles/<profile id>/History/<timestamp>.json` | A copy on every save. Delete writes `<timestamp>-deleted.json` here and removes `profile.json`. |
 
-The profile id is a slug made from the name when the profile is created. Quasar writes files atomically and checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
+The profile id is a slug made from the name when the profile is created. Quasar writes profiles and their history atomically and owner-readable/writable only on Unix, then checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
 
 ### Unsaved changes
 
@@ -76,7 +114,7 @@ On every start Quasar replaces the `Administrators`, `Reserved` and `Banned` lis
 
 ### Server password
 
-**Server Password** is in the World tab, Server group. Quasar stores it as plain text in `profile.json`. When rendering `SpaceEngineers-Dedicated.cfg` it writes only `ServerPasswordHash` and `ServerPasswordSalt` (a new random salt on every start). An empty password clears both, so the server has no password.
+**Server Password** is in the World tab, Server group. Quasar stores it as plain text in the owner-only `profile.json` and history files; treat configuration backups as secrets too. When rendering `SpaceEngineers-Dedicated.cfg` it writes only `ServerPasswordHash` and `ServerPasswordSalt` (a new random salt on every start). An empty password clears both, so the server has no password.
 
 ### Online mode and Offline safety
 
@@ -166,7 +204,7 @@ Before each launch Quasar prepares the server's files in this order:
 
 1. Repairs the Steam Workshop cache if needed (see [Servers](Servers.md#workshop-cache-repair)).
 2. Renders `SpaceEngineers-Dedicated.cfg` in the DS app-data folder. It starts from the existing file (or an empty one) and sets: `IgnoreLastSession` false, `ServerPort`, `SteamPort` (game port + 1000), `RemoteApiPort` (game port + 2000), `IP` (`127.0.0.1` when Offline), every World-tab option, block type limits, `GroupID`, `Administrators`, `Reserved`, `Banned`, the password hash and salt, `ServerName` and `WorldName`.
-3. Writes Magnetar's `Sources/sources.xml` and `Profiles/Current.xml` from the profile's plugin selection and deploys Quasar.Agent into `Local/`.
+3. Writes the profile's `CommandAliases.json` snapshot, then Magnetar's `Sources/sources.xml` and `Profiles/Current.xml` from the profile's plugin selection and deploys Quasar.Agent into `Local/`.
 4. Rewrites the save's `Sandbox_config.sbc`: `SessionName` (the in-game world name), every session setting from the profile, and the `Mods` list in the profile's order. If the save has no `Sandbox_config.sbc`, Quasar skips this step and logs a warning.
 5. Writes `Saves/LastSession.sbl` pointing at the selected save.
 
@@ -217,3 +255,11 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Components/Pages/CreateWorldSaveFromTemplateDialog.razor`
 - `Quasar/Components/Pages/ServerEditorDialog.razor`
 - `Quasar.Agent/OfflineModeNetworkGuard.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar/Components/CommandAliasesEditor.razor`
+- `Quasar/Components/ConfigProfileReadOnly.razor`
+- `Quasar.Agent/CommandAliasConfiguration.cs`
+- `Quasar.Agent/AdminPlugin.cs`
+- `Quasar/Services/ClusterSetupService.cs`
+- `Quasar/Services/ClusterConversionService.cs`
+- `Quasar/Services/ClusterUpdatePreparationService.cs`

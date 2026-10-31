@@ -14,6 +14,7 @@ public sealed class RbacConfigCatalog : IDisposable
     };
 
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _saveLock = new(1, 1);
     private readonly ILogger<RbacConfigCatalog> _logger;
     private RbacConfig _config;
     private string _snapshot;
@@ -43,6 +44,44 @@ public sealed class RbacConfigCatalog : IDisposable
     }
 
     public async Task SaveAsync(RbacConfig config, CancellationToken cancellationToken = default)
+    {
+        await _saveLock.WaitAsync(cancellationToken);
+        try { await SaveCoreAsync(config, cancellationToken); }
+        finally { _saveLock.Release(); }
+    }
+
+    public async Task AddFirstSteamAdminAsync(string? steamId, CancellationToken cancellationToken = default)
+    {
+        steamId = steamId?.Trim() ?? string.Empty;
+        if (!IsSteamId64(steamId))
+            throw new ArgumentException("Enter a 17-digit SteamID64.", nameof(steamId));
+
+        await _saveLock.WaitAsync(cancellationToken);
+        try
+        {
+            var config = GetConfig();
+            if (HasAdminMapping(config))
+                throw new InvalidOperationException("An administrator is already configured. Manage administrators on the Security page.");
+
+            var mapping = config.SubjectRoleMappings.FirstOrDefault(mapping =>
+                string.Equals(mapping.Provider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase) &&
+                mapping.Subject == steamId);
+            if (mapping is null)
+                config.SubjectRoleMappings.Add(new SubjectRoleMapping
+                {
+                    Provider = QuasarAuthSchemes.Steam,
+                    Subject = steamId,
+                    Roles = [QuasarRoles.Admin],
+                });
+            else
+                mapping.Roles.Add(QuasarRoles.Admin);
+
+            await SaveCoreAsync(config, cancellationToken);
+        }
+        finally { _saveLock.Release(); }
+    }
+
+    private async Task SaveCoreAsync(RbacConfig config, CancellationToken cancellationToken)
     {
         var normalized = RbacConfig.Normalize(config);
         lock (_sync)
@@ -166,8 +205,7 @@ public sealed class RbacConfigCatalog : IDisposable
             return null;
 
         var normalizedSteamId = steamId.Trim();
-        if (normalizedSteamId.Length != 17 ||
-            normalizedSteamId.Any(character => !char.IsAsciiDigit(character)))
+        if (!IsSteamId64(normalizedSteamId))
         {
             throw new InvalidOperationException(
                 "QUASAR_ADMIN_STEAM_ID must be a 17-digit SteamID64.");
@@ -186,6 +224,9 @@ public sealed class RbacConfigCatalog : IDisposable
             ],
         });
     }
+
+    internal static bool IsSteamId64(string? steamId) =>
+        steamId is { Length: 17 } && steamId.All(char.IsAsciiDigit);
 
     private static string GetPath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "rbac.json");

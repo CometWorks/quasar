@@ -326,6 +326,8 @@ internal sealed class HostCommandServer : IDisposable
     {
         Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() },
     };
+    // Long enough that no capture is still being copied off this Host.
+    internal static readonly TimeSpan OrphanArchiveAge = TimeSpan.FromHours(24);
     private readonly HttpListener _listener = new();
     private readonly byte[] _tokenHash;
     private readonly Quasar.Networking.MachineEndpointPolicy _policy;
@@ -430,7 +432,8 @@ internal sealed class HostCommandServer : IDisposable
             bool preparing = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/conversion-inputs/", StringComparison.Ordinal) == true || context.Request.HttpMethod == "POST" &&
                 context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-preparations/", StringComparison.Ordinal) == true;
             bool diagnostics = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/diagnostics/", StringComparison.Ordinal) == true;
-            bool collecting = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-references/", StringComparison.Ordinal) == true;
+            bool collecting = context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deployment-references/", StringComparison.Ordinal) == true
+                || context.Request.Url?.AbsolutePath.StartsWith(HostContract.HostProtocol.RoutePrefix + "/deleted-clusters/", StringComparison.Ordinal) == true;
             // An online snapshot copies for minutes; holding the gate would stop executor heartbeats of a live cluster.
             bool onlineCapture = OnlineCapture(context.Request);
             if (!collecting && !diagnostics)
@@ -545,19 +548,35 @@ internal sealed class HostCommandServer : IDisposable
                 || references.Installations.Length + references.Mods.Length + references.Worlds.Length + references.Configurations.Length > 30_000)
                 throw new InvalidDataException("Invalid deployment references.");
             using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.CollectAsync(cancellationToken);
+            long retaining = System.Diagnostics.Stopwatch.GetTimestamp();
             var activeRoots = _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a =>
                 ExecutionBundle.ReadManifest(a.BundleManifestPath!, a.BundleManifestSha256!).ArtifactRoot
                     ?? Path.GetDirectoryName(a.BundleManifestPath!)!).ToArray();
-            using (var content = await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken))
+            using (var content = await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken, prune: false))
                 DeploymentConfigurationReferences.Retain(_config.StateDirectory, clusterId, references.Configurations,
                     _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a => Path.GetDirectoryName(a.BundleManifestPath!)!));
             int removed = await Quasar.ClusterDeployment.ClusterDeploymentFiles.CollectInstallationsAsync(
                 Path.Combine(_config.StateDirectory, "conversions/installations"), clusterId,
-                references.Installations.ToHashSet(StringComparer.Ordinal), activeRoots, cancellationToken);
+                references.Installations.ToHashSet(StringComparer.Ordinal), activeRoots, cancellationToken, prune: false);
             await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/mods"),
-                clusterId, references.Mods.ToHashSet(StringComparer.Ordinal), cancellationToken);
+                clusterId, references.Mods.ToHashSet(StringComparer.Ordinal), cancellationToken, prune: false);
             await Quasar.ClusterDeployment.ClusterInputOwners.RetainAsync(Path.Combine(_config.StateDirectory, "conversions/worlds"),
-                clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken);
+                clusterId, references.Worlds.ToHashSet(StringComparer.Ordinal), cancellationToken, prune: false);
+            using (await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken)) { }
+            _snapshots.CollectArchives(OrphanArchiveAge);
+            ExecutionBundle.LogStep(clusterId, "storage collection", retaining);
+            await WriteAsync(context, 200, removed, cancellationToken);
+            return;
+        }
+        string deletedPrefix = HostContract.HostProtocol.RoutePrefix + "/deleted-clusters/";
+        if (context.Request.HttpMethod == "POST" && path.StartsWith(deletedPrefix, StringComparison.Ordinal))
+        {
+            string clusterId = Uri.UnescapeDataString(path[deletedPrefix.Length..]);
+            var data = await ReadJsonAsync<HostContract.HostDeletedClusterData>(context.Request, cancellationToken);
+            if (data.Workspaces is null || data.Workspaces.Length > 30_000) throw new InvalidDataException("Invalid deleted cluster data.");
+            using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.CollectAsync(cancellationToken);
+            string[] removed = _deployments.ReleaseDeleted(clusterId, data.Workspaces);
+            using (await Quasar.ClusterDeployment.ClusterContentStore.OpenAsync(Path.Combine(_config.StateDirectory, "conversions"), cancellationToken)) { }
             await WriteAsync(context, 200, removed, cancellationToken);
             return;
         }
@@ -717,6 +736,7 @@ internal sealed class HostCommandServer : IDisposable
                 && (spec.StartGeneration is null || spec.StartGeneration == Guid.Empty
                     || _attachments.GetAll().Single(item => item.ClusterId == clusterId).BundleManifestSha256 != spec.BundleManifestSha256))
                 throw new InvalidOperationException("Gateway must use the active managed deployment and a nonempty start generation.");
+            _gatewayActualizer.RefuseOffOverLiveProcess(GatewaySpecStore.Validate(spec));
             spec = _gateways.Apply(spec);
             HostContract.GatewayStatus status = await _gatewayActualizer.ReconcileAsync(spec, cancellationToken);
             _gateways.SetStatus(status);

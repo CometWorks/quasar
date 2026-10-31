@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Channels;
 using Quasar.ClusterDeployment;
@@ -5,10 +6,18 @@ using Quasar.Models;
 
 namespace Quasar.Services;
 
-// Catalog and retained backup manifests own liveness. Operation history does not.
+// Catalog and retained backup manifests own liveness, and a deleted cluster's retention ends both.
+// Operation history does not.
 public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDependencyService dependencies,
-    ClusterHostClient hosts, WebServiceOptions options, ILogger<ClusterStorageMaintenance> logger) : BackgroundService
+    ClusterHostClient hosts, WebServiceOptions options, ILogger<ClusterStorageMaintenance> logger,
+    Backup.QuasarBackupSettingsService? settings = null, ClusterPackageService? packages = null) : BackgroundService
 {
+    // Time alone ends a deleted cluster's retention, so nothing else would start the collection that applies it.
+    internal TimeSpan RetentionCheck { get; init; } = TimeSpan.FromHours(1);
+    // A Host that is gone must not cost every hourly check its request timeouts, under the collection lease.
+    private static readonly TimeSpan ReleaseRetry = TimeSpan.FromDays(1);
+    private readonly Dictionary<string, DateTimeOffset> nextRelease = new(StringComparer.OrdinalIgnoreCase);
+    private bool swept;
     private readonly Channel<bool> changes = Channel.CreateBounded<bool>(new BoundedChannelOptions(1)
         { FullMode = BoundedChannelFullMode.DropWrite });
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
@@ -32,6 +41,7 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
         catalog.Changed += Changed;
         ClusterStorageActivity.Idle += StorageIdle;
         Changed();
+        using var retentionCheck = new Timer(_ => Changed(), null, RetentionCheck, RetentionCheck);
         try
         {
             await foreach (var _ in changes.Reader.ReadAllAsync(stoppingToken))
@@ -40,6 +50,10 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                 try
                 {
                     using var collection = await ClusterStorageActivity.CollectAsync(stoppingToken);
+                    if (!swept) { SweepStaging(); swept = true; }
+                    // Before the backups are read: what they pinned goes in this same pass.
+                    var expired = ExpiredDeletedClusters();
+                    foreach (var cluster in expired) RemoveLocalData(cluster);
                     var definitions = catalog.GetClusters().ToList();
                     string backups = Path.Combine(options.BackupDirectory, "Clusters");
                     if (Directory.Exists(backups))
@@ -57,14 +71,19 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                             definitions.AddRange(JsonSerializer.Deserialize<ClusterDefinition[]>(await File.ReadAllBytesAsync(path, stoppingToken), Json)
                                 ?? throw new InvalidDataException("Unreadable recovery references: " + path));
                     var retained = DependencyReferences(definitions);
-                    string identity = JsonSerializer.Serialize(definitions.Select(c => new {
-                        c.UniqueName, c.DependencyManifestSha256, c.Preparation, c.ActiveDeployment,
-                        c.PreviousDeployment, c.Update, c.PreparedDeployment }).ToArray(), Json);
-                    if (identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision)
+                    string identity = ReferenceIdentity(definitions);
+                    var named = definitions.Select(c => c.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var releasing = expired.Select(c => c.UniqueName).Where(n => !named.Contains(n)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    if (releasing.Count == 0 && identity == previousReferences && previousStorageRevision == ClusterStorageActivity.Revision)
                     { Volatile.Write(ref deferred, false); continue; }
+                    long started = Stopwatch.GetTimestamp();
                     CleanupWorkspaces(catalog.GetClusters());
+                    if (packages is not null) await packages.CollectAsync(PackageReferences(definitions), stoppingToken);
                     await dependencies.CollectAsync(retained, stoppingToken);
+                    TimeSpan dependencyTime = Stopwatch.GetElapsedTime(started);
                     await CollectModVersionsAsync(definitions.SelectMany(Preparations), stoppingToken);
+                    TimeSpan localTime = Stopwatch.GetElapsedTime(started);
+                    int hostRequests = 0;
                     foreach (var group in definitions.GroupBy(c => c.UniqueName))
                     {
                         var preparations = group.SelectMany(Preparations).Distinct().ToArray();
@@ -83,12 +102,44 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                             await hosts.RetainDeploymentInputsAsync(target, new(hashes,
                                 HashNames(inputs.Select(h => h.ModDirectory)), HashNames(inputs.Select(h => h.WorldDirectory)),
                                 inputs.Select(h => h.ConfigurationDirectory).Distinct().ToArray()), stoppingToken);
+                            hostRequests++;
                         }
+                    }
+                    // Deleting a cluster keeps its definition in History only, so nothing above names it and its
+                    // Host kept the cluster's configurations and input claims forever (SE-775). Release them unless
+                    // a backup still references the cluster. Best effort: a gone Host must not block collection.
+                    var kept = definitions.SelectMany(Preparations).SelectMany(p => Workspaces(p)).ToHashSet(StringComparer.Ordinal);
+                    foreach (var (deleted, _) in catalog.GetDeletedClusters().Where(c => !named.Contains(c.Cluster.UniqueName)))
+                    {
+                        bool release = releasing.Contains(deleted.UniqueName), released = true;
+                        foreach (var (url, token) in DeletedEndpoints(deleted))
+                        {
+                            var target = deleted.Clone();
+                            target.HostCommandUrl = url;
+                            target.HostCommandTokenEnvironmentVariable = token;
+                            try
+                            {
+                                await hosts.RetainDeploymentInputsAsync(target, new([], [], [], []), stoppingToken);
+                                if (!release) continue;
+                                string[] workspaces = Preparations(deleted).SelectMany(p => Workspaces(p, url)).Distinct().Where(w => !kept.Contains(w)).ToArray();
+                                string[] removed = await hosts.ReleaseDeletedClusterAsync(target, new(workspaces), stoppingToken);
+                                logger.LogInformation("Retention of deleted cluster {Cluster} ended; {Host} removed {Count} workspaces.", deleted.UniqueName, url, removed.Length);
+                            }
+                            catch (Exception error) when (error is ClusterHostException or JsonException)
+                            {
+                                released = false;
+                                logger.LogWarning(error, "Host inputs of deleted cluster {Cluster} not released.", deleted.UniqueName);
+                            }
+                        }
+                        if (release) nextRelease[deleted.UniqueName] = released ? DateTimeOffset.MaxValue : DateTimeOffset.UtcNow + ReleaseRetry;
                     }
                     previousReferences = identity;
                     Volatile.Write(ref previousStorageRevision, ClusterStorageActivity.Revision);
                     Volatile.Write(ref deferred, false);
-                    logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned.");
+                    logger.LogInformation("Cluster content references reconciled; unused snapshot content pruned in {Seconds:0.0} s, "
+                        + "while every lifecycle operation waited (dependencies {Dependencies:0.0} s, mods {Mods:0.0} s, {Requests} Host requests {Hosts:0.0} s).",
+                        Stopwatch.GetElapsedTime(started).TotalSeconds, dependencyTime.TotalSeconds, (localTime - dependencyTime).TotalSeconds,
+                        hostRequests, (Stopwatch.GetElapsedTime(started) - localTime).TotalSeconds);
                 }
                 catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
                 catch (Exception error)
@@ -100,6 +151,94 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
             }
         }
         finally { catalog.Changed -= Changed; ClusterStorageActivity.Idle -= StorageIdle; }
+    }
+
+    // Deleted clusters whose retention has ended and whose data was not released yet in this process.
+    // Measured from the deletion, not from the backups' age: a backup of a long-lived cluster may be old already.
+    private ClusterDefinition[] ExpiredDeletedClusters()
+    {
+        int days = settings?.GetSettings().DeletedClusterRetentionDays ?? Models.QuasarBackupSettings.DefaultDeletedClusterRetentionDays;
+        if (days == 0) return [];
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        return catalog.GetDeletedClusters().Where(d => d.DeletedAt + TimeSpan.FromDays(days) <= now
+            && (!nextRelease.TryGetValue(d.Cluster.UniqueName, out var next) || next <= now)).Select(d => d.Cluster).ToArray();
+    }
+
+    private void RemoveLocalData(ClusterDefinition cluster)
+    {
+        string quasar = Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarDirectory();
+        foreach (string directory in new[] { ClusterBackupService.Root(options.BackupDirectory, cluster.UniqueName), Path.Combine(quasar, "ClusterSetup", cluster.UniqueName) })
+            if (Directory.Exists(directory))
+                try
+                {
+                    ClusterStagingSweep.DeleteTree(directory);
+                    logger.LogInformation("Retention of deleted cluster {Cluster} ended; removed {Directory}.", cluster.UniqueName, directory);
+                }
+                catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                { logger.LogWarning(error, "Data of deleted cluster {Cluster} in {Directory} not removed.", cluster.UniqueName, directory); }
+    }
+
+    // Startup only, against the process start: captures run without a storage lease, so a pass can overlap one.
+    private void SweepStaging()
+    {
+        void Report(string message) => logger.LogWarning("Cluster storage: {Message}", message);
+        DateTime started = Process.GetCurrentProcess().StartTime.ToUniversalTime();
+        string tools = Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory();
+        ClusterStagingSweep.Sweep(Path.Combine(tools, "Cluster"), started, Report, ".stage-*");
+        ClusterStagingSweep.Sweep(ClusterWorkshopModStager.StorageDirectory, started, Report, "*.stage-*");
+        string backups = Path.Combine(options.BackupDirectory, "Clusters");
+        if (!Directory.Exists(backups)) return;
+        foreach (string cluster in Directory.EnumerateDirectories(backups))
+        {
+            ClusterStagingSweep.Sweep(cluster, started, Report, ".capture-*");
+            ClusterStagingSweep.Sweep(Path.Combine(cluster, "exports"), started, Report, "*.partial");
+        }
+    }
+
+    internal static HashSet<string> PackageReferences(IEnumerable<ClusterDefinition> definitions)
+    {
+        var result = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var cluster in definitions)
+        {
+            if (cluster.PackageSelection is { } selected) result.Add(selected.Version);
+            foreach (var revision in Revisions(cluster))
+            {
+                if (revision.PackageVersion is { } version) result.Add(version);
+                if (revision.Provenance is { } provenance) result.Add(provenance.PackageSelection.Version);
+            }
+        }
+        return result;
+    }
+
+    // The preparation workspaces under the Hosts' state/conversions: the parents of each Host's configuration
+    // and run root, which an update keeps from the first preparation. With a URL, only that Host's.
+    internal static IEnumerable<string> Workspaces(ClusterPreparationRequest preparation, string? hostUrl = null)
+    {
+        var hosts = preparation.Hosts.Where(h => hostUrl is null || h.CommandUrl == hostUrl).ToArray();
+        var result = hosts.Select(h => Path.GetDirectoryName(h.ConfigurationDirectory)).ToList();
+        using var specification = JsonDocument.Parse(preparation.SpecificationJson);
+        if (specification.RootElement.TryGetProperty("hosts", out var entries))
+            foreach (var entry in entries.EnumerateArray())
+                if (entry.TryGetProperty("runRoot", out var runRoot) && entry.TryGetProperty("id", out var id) && hosts.Any(h => h.HostId == id.GetString()))
+                    result.Add(Path.GetDirectoryName(runRoot.GetString()));
+        return result.OfType<string>().Distinct();
+    }
+
+    // What collection keeps, and nothing else. Collection holds the storage lease that every lifecycle operation needs,
+    // so the checkpoints of an update, which retain the same content, must not start one: they held back the drain,
+    // the backup, the activation and the Gateway launch by a whole collection each (SE-791).
+    internal static string ReferenceIdentity(IEnumerable<ClusterDefinition> definitions)
+    {
+        var clusters = definitions.ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            Dependencies = DependencyReferences(clusters).Order(StringComparer.Ordinal).ToArray(),
+            Preparations = clusters.Select(c => new
+            {
+                c.UniqueName,
+                Retained = Preparations(c).Select(p => JsonSerializer.Serialize(p, Json)).Distinct().Order(StringComparer.Ordinal).ToArray(),
+            }).ToArray(),
+        }, Json);
     }
 
     internal static HashSet<string> DependencyReferences(IEnumerable<ClusterDefinition> definitions)
@@ -124,6 +263,11 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
 
     internal static IEnumerable<ClusterPreparationRequest> Preparations(ClusterDefinition cluster) =>
         Revisions(cluster).Select(r => r.Provenance?.Preparation).Append(cluster.Preparation).OfType<ClusterPreparationRequest>();
+
+    internal static IEnumerable<(string Url, string Token)> DeletedEndpoints(ClusterDefinition cluster) =>
+        Preparations(cluster).SelectMany(p => p.Hosts).Select(h => (h.CommandUrl, h.TokenEnvironmentVariable))
+            .Append((cluster.HostCommandUrl, cluster.HostCommandTokenEnvironmentVariable))
+            .Where(e => !string.IsNullOrWhiteSpace(e.Item1)).Distinct();
 
     private static async Task CollectModVersionsAsync(IEnumerable<ClusterPreparationRequest> preparations, CancellationToken token)
     {

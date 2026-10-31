@@ -148,6 +148,8 @@ public sealed class ClusterCatalog : IDisposable
             if (cluster.PreparedProfile?.DeploymentRevision == active.Revision)
                 cluster.ConfigProfileId = cluster.PreparedProfile.ProfileId;
             cluster.PreparedProfile = null;
+            cluster.StagedNames = null;
+            cluster.StagedRevision = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
             cluster.PendingDeploymentHash = null;
@@ -190,6 +192,7 @@ public sealed class ClusterCatalog : IDisposable
             current.PreparedDeployment = deployment;
             current.PreparedForSelectedRelease = false;
             current.PreparedProfile = null;
+            current.StagedRevision = null;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
@@ -223,7 +226,8 @@ public sealed class ClusterCatalog : IDisposable
 
     internal async Task RecordSelectedReleasePreparationAsync(ClusterDefinition expected,
         ClusterDeploymentRequest deployment, CancellationToken token, string? preparedProfileId = null,
-        string? preparedProfileSha256 = null, ClusterContentUpdateQueue? preparedContentUpdates = null)
+        string? preparedProfileSha256 = null, ClusterContentUpdateQueue? preparedContentUpdates = null,
+        ClusterStagedNames? stagedNames = null)
     {
         await _writeGate.WaitAsync(token);
         try
@@ -250,9 +254,11 @@ public sealed class ClusterCatalog : IDisposable
                     throw new InvalidOperationException("Prepared profile does not match the deployment specification.");
             }
             current.PreparedForSelectedRelease = true;
+            current.StagedRevision = deployment.Revision;
             if (preparedProfileId is not null)
                 current.PreparedProfile = new(preparedProfileId, deployment.Revision, preparedProfileSha256);
             if (preparedContentUpdates is not null) current.QueuedContentUpdates = null;
+            if (stagedNames is not null) current.StagedNames = stagedNames;
             await SaveAsync(current, token);
         }
         finally { _writeGate.Release(); }
@@ -442,6 +448,8 @@ public sealed class ClusterCatalog : IDisposable
             cluster.DependencyManifestSha256 = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
+            cluster.PreparedProfile = null;
+            cluster.StagedRevision = null;
             Normalize(cluster);
             // UpdatedAtUtc participates in lifecycle request identity. Package staging must not change it.
             await SaveAsync(cluster, cancellationToken);
@@ -571,6 +579,34 @@ public sealed class ClusterCatalog : IDisposable
             catch (JsonException) { }
         }
         return conventional;
+    }
+
+    // The last definition of every deleted cluster ID. IDs are never reused, so nothing
+    // live can still need the Host inputs these prepared.
+    internal IReadOnlyList<(ClusterDefinition Cluster, DateTimeOffset DeletedAt)> GetDeletedClusters()
+    {
+        var result = new List<(ClusterDefinition, DateTimeOffset)>();
+        if (!Directory.Exists(_directory)) return result;
+        foreach (string history in Directory.EnumerateDirectories(_directory).Select(d => Path.Combine(d, "History")).Where(Directory.Exists))
+        {
+            string? latest = Directory.EnumerateFiles(history, "*-deleted.json").Order(StringComparer.Ordinal).LastOrDefault();
+            if (latest is null) continue;
+            try
+            {
+                ClusterDefinition cluster = JsonSerializer.Deserialize<ClusterDefinition>(File.ReadAllText(latest), JsonOptions)
+                    ?? throw new InvalidDataException("Cluster definition is empty.");
+                Normalize(cluster);
+                // The file name's UTC stamp: the move keeps the definition's own last write time.
+                var deletedAt = DateTimeOffset.ParseExact(Path.GetFileName(latest)[..17], "yyyyMMddHHmmssfff",
+                    System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal);
+                if (GetCluster(cluster.UniqueName) is null) result.Add((cluster, deletedAt));
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Failed to load deleted cluster definition from {Path}", latest);
+            }
+        }
+        return result;
     }
 
     private string RemovedPath(string uniqueName) => Path.Combine(_directory, ".removed", uniqueName.ToLowerInvariant());

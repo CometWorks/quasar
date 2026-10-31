@@ -29,6 +29,7 @@
                 <h2 class="quasar-text quasar-type-h6">Auth Provider</h2>
                 <p class="quasar-text quasar-type-body2">Default provider: <strong>@AuthOptions.DefaultProvider</strong></p>
                 <p class="quasar-text quasar-type-body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Access mode: <strong>@(_trustedNetworkSettings.RequireHttpsForPublicAccess ? "Public HTTPS" : "Private LAN HTTP")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted private LAN: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted proxies: <strong>@TrustedProxySummary</strong></p>
@@ -43,18 +44,25 @@
         <section class="quasar-panel pa-4">
             <div class="quasar-layout quasar-gap-3">
                 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
-                    <h2 class="quasar-text quasar-type-h6">Trusted Network and Reverse Proxy</h2>
+                    <h2 class="quasar-text quasar-type-h6">Private LAN and Reverse Proxy</h2>
                     <MudChip T="string"
-                             Color="@(_trustedNetworkSettings.AllowSameSubnet ? Color.Warning : Color.Success)"
+                             Color="@(_trustedNetworkSettings.RequireHttpsForPublicAccess ? Color.Success : Color.Warning)"
                              Variant="Variant.Outlined">
-                        @(_trustedNetworkSettings.AllowSameSubnet ? "LAN bypass enabled" : "LAN bypass disabled")
+                        @(_trustedNetworkSettings.RequireHttpsForPublicAccess ? "Public HTTPS mode" : "Private LAN HTTP mode")
                     </MudChip>
                 </div>
+
+                @if (!_trustedNetworkSettings.RequireHttpsForPublicAccess)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Private LAN mode permits plain HTTP and non-Secure cookies. Keep the Quasar port behind your firewall and do not forward it from the router.
+                    </MudAlert>
+                }
 
                 @if (_trustedNetworkSettings.AllowSameSubnet)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                        Private LAN bypass is enabled by default and grants trusted-network roles without signing in. Disable it before exposing Quasar through a public reverse proxy.
+                        Direct private LAN clients bypass HTTPS and sign-in even in public HTTPS mode. Keep the Quasar backend port private when using a reverse proxy.
                     </MudAlert>
                 }
 
@@ -72,7 +80,15 @@
                                      @bind-Value="_trustedNetworkSettings.AllowSameSubnet"
                                      Label="Trust private LAN access" />
                         <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                            Accepts 192.168.x.x, 10.x.x.x, 172.16–31.x.x, IPv6 private addresses (fc00::/7), and directly attached IPv4 subnets. Disable this for a public reverse proxy.
+                            Accepts 192.168.x.x, 10.x.x.x, 172.16–31.x.x, IPv6 private addresses (fc00::/7), and directly attached IPv4 subnets. Correctly forwarded public clients still use HTTPS and sign in.
+                        </span>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudCheckBox T="bool"
+                                     @bind-Value="_trustedNetworkSettings.RequireHttpsForPublicAccess"
+                                     Label="Require HTTPS for non-LAN access" />
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                            Enable this for a public reverse proxy. It rejects remote HTTP and marks authentication cookies Secure after Quasar restarts.
                         </span>
                     </MudItem>
                     <MudItem xs="12">
@@ -84,12 +100,9 @@
                     </MudItem>
                 </MudGrid>
 
-                @if (TrustedProxyRestartRequired)
-                {
-                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                        Restart Quasar after changing trusted proxies. Loopback and private LAN toggles apply immediately.
-                    </MudAlert>
-                }
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Restart Quasar after changing HTTPS mode or trusted proxies. Loopback and private LAN toggles apply immediately.
+                </MudAlert>
 
                 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
                     <MudButton StartIcon="@Icons.Material.Filled.Save"
@@ -112,7 +125,7 @@
                         <ol>
                             <li>Put Quasar behind a reverse proxy with HTTPS enabled, such as NGINX Proxy Manager.</li>
                             <li>Keep the Quasar port private. Do not forward the Quasar port directly from the router.</li>
-                            <li>Click <strong>Apply Public Proxy Preset</strong> so private LAN bypass is disabled.</li>
+                            <li>Click <strong>Apply Public Proxy Preset</strong> so non-LAN HTTPS is required while direct LAN access stays trusted.</li>
                             <li>If the proxy is not on the same machine, add its IP address or Docker bridge CIDR to Trusted reverse proxies.</li>
                             <li>Make sure the proxy sends <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code>, and <code>X-Forwarded-Host</code>.</li>
                             <li>Restart Quasar after changing trusted proxies, then test from a phone or other external network. You should see the Steam sign-in flow.</li>
@@ -270,13 +283,12 @@
 @code
 {
     private Task<IDialogReference> ManageAccessAsync() => DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access",
-        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Small });
+        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
 
     private RbacConfig _config = new();
     private const string OidcProviderName = "Oidc";
     private QuasarTrustedNetworkSettings _trustedNetworkSettings = new();
     private string _trustedProxiesText = string.Empty;
-    private string _trustedProxiesSavedText = string.Empty;
     private bool _savingAuthSettings;
     private string _newProvider = QuasarAuthSchemes.Steam;
     private string _newSubject = string.Empty;
@@ -309,9 +321,6 @@
         _trustedNetworkSettings.TrustedProxies.Count == 0
             ? "Loopback only"
             : string.Join(", ", _trustedNetworkSettings.TrustedProxies);
-
-    private bool TrustedProxyRestartRequired =>
-        !string.Equals(_trustedProxiesText.Trim(), _trustedProxiesSavedText.Trim(), StringComparison.Ordinal);
 
     private bool CanAddMapping =>
         !string.IsNullOrWhiteSpace(_newSubject) &&
@@ -354,13 +363,13 @@
     {
         _trustedNetworkSettings = AuthSettingsService.GetTrustedNetworkSettings();
         _trustedProxiesText = FormatTrustedProxies(_trustedNetworkSettings.TrustedProxies);
-        _trustedProxiesSavedText = _trustedProxiesText;
     }
 
     private void ApplyPublicReverseProxyPreset()
     {
         _trustedNetworkSettings.AllowLoopback = true;
-        _trustedNetworkSettings.AllowSameSubnet = false;
+        _trustedNetworkSettings.AllowSameSubnet = true;
+        _trustedNetworkSettings.RequireHttpsForPublicAccess = true;
         Snackbar.Add("Public reverse proxy preset applied. Save to persist it.", Severity.Info);
     }
 

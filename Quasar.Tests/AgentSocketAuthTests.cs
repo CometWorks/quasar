@@ -9,10 +9,12 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Agent;
 using Quasar.Host.Contract.V1;
+using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.PluginSdk;
 using Xunit;
@@ -27,6 +29,7 @@ public sealed class AgentSocketAuthTests : IDisposable
     );
     private readonly ClusterCredentialStore _credentials;
     private readonly ClusterHostCatalog _hosts;
+    private readonly ClusterCatalog _clusters;
     private readonly AgentSocketAuthenticator _authenticator;
     private readonly AgentRegistry _registry = new(null!, null!, null!, null!);
 
@@ -38,10 +41,20 @@ public sealed class AgentSocketAuthTests : IDisposable
             Path.Combine(_root, "credentials.json")
         );
         _hosts = new(_credentials, Path.Combine(_root, "hosts"));
-        _authenticator = new(_credentials, _hosts);
+        _clusters = new(
+            NullLogger<ClusterCatalog>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Quasar:ClusterCatalogPath"] = Path.Combine(_root, "clusters"),
+            }).Build());
+        _authenticator = new(_credentials, _hosts, _clusters);
     }
 
-    public void Dispose() => Directory.Delete(_root, true);
+    public void Dispose()
+    {
+        _clusters.Dispose();
+        Directory.Delete(_root, true);
+    }
 
     private static AgentHello Standalone(string name, string agentId = "agent-a") =>
         new() { UniqueName = name, ServerId = name, AgentId = agentId };
@@ -62,6 +75,21 @@ public sealed class AgentSocketAuthTests : IDisposable
     private static Task Sender(AgentWireMessage message, CancellationToken token) =>
         Task.CompletedTask;
 
+    private async Task ActivateFleetAsync(EnrolledClusterHost host)
+    {
+        const string hash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        var cluster = await _clusters.CreateAsync(
+            new("fleet", "Fleet", "http://gateway.test", "ADMIN"), default);
+        var active = new ClusterActiveRevision("revision",
+        [
+            new(host.Id, host.CommandUrl, host.CredentialReference,
+                new("fleet", "revision", hash,
+                    new("fleet", "http://gateway.test", "EXECUTOR", "/bundle.json", hash, "/runs/one"),
+                    new("fleet", GatewayGoal.Off, "/bundle.json", hash, "revision", [28000], "/runs/gateway"))),
+        ], DateTimeOffset.UtcNow);
+        await _clusters.RecordActiveDeploymentAsync(cluster, active, default);
+    }
+
     [Fact]
     public void StandaloneTokenIsBoundToItsServer()
     {
@@ -75,7 +103,7 @@ public sealed class AgentSocketAuthTests : IDisposable
         // A standalone token does not open the cluster path for a Host of the same name.
         Assert.False(_authenticator.IsValid(ClusterNode("alpha"), token));
         // The key survives a Quasar restart, so servers that outlive Quasar can reconnect.
-        Assert.Equal(token, new AgentSocketAuthenticator(_credentials, _hosts).ForServer("alpha"));
+        Assert.Equal(token, new AgentSocketAuthenticator(_credentials, _hosts, _clusters).ForServer("alpha"));
     }
 
     [Fact]
@@ -84,9 +112,9 @@ public sealed class AgentSocketAuthTests : IDisposable
         string keyring = Path.Combine(_root, "keyring");
         string path = Path.Combine(_root, "persistent-credentials.json");
         var firstStore = new ClusterCredentialStore(DataProtectionProvider.Create(new DirectoryInfo(keyring)), path);
-        string token = new AgentSocketAuthenticator(firstStore, _hosts).ForServer("alpha");
+        string token = new AgentSocketAuthenticator(firstStore, _hosts, _clusters).ForServer("alpha");
         var restoredStore = new ClusterCredentialStore(DataProtectionProvider.Create(new DirectoryInfo(keyring)), path);
-        var restored = new AgentSocketAuthenticator(restoredStore, _hosts);
+        var restored = new AgentSocketAuthenticator(restoredStore, _hosts, _clusters);
         Assert.True(restored.IsValid(Standalone("alpha"), token));
         Assert.False(restored.IsValid(Standalone("beta"), token));
         Assert.DoesNotContain(token, File.ReadAllText(path));
@@ -94,17 +122,22 @@ public sealed class AgentSocketAuthTests : IDisposable
         var lostKeyring = new ClusterCredentialStore(
             DataProtectionProvider.Create(new DirectoryInfo(Path.Combine(_root, "wrong-keyring"))), path);
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() =>
-            new AgentSocketAuthenticator(lostKeyring, _hosts).ForServer("alpha"));
+            new AgentSocketAuthenticator(lostKeyring, _hosts, _clusters).ForServer("alpha"));
     }
 
     [Fact]
     public async Task ClusterTokenIsDerivedFromTheEnrolledHostCredential()
     {
         var host = await _hosts.RegisterAsync("one", "One", "10.0.0.1", 18400, default);
-        await _hosts.RegisterAsync("two", "Two", "10.0.0.2", 18400, default);
+        var unassigned = await _hosts.RegisterAsync("two", "Two", "10.0.0.2", 18400, default);
+        await ActivateFleetAsync(host);
         string token = AgentSocketToken.ForNode(AgentSocketToken.ForHost(_credentials.Resolve(host.CredentialReference)!), "fleet", "slot-a", "node-a", "Regular", "node-a");
         Assert.True(_authenticator.IsValid(ClusterNode("one"), token));
         Assert.False(_authenticator.IsValid(ClusterNode("two"), token));
+        string unassignedToken = AgentSocketToken.ForNode(
+            AgentSocketToken.ForHost(_credentials.Resolve(unassigned.CredentialReference)!),
+            "fleet", "slot-a", "node-a", "Regular", "node-a");
+        Assert.False(_authenticator.IsValid(ClusterNode("two"), unassignedToken));
         Assert.False(_authenticator.IsValid(ClusterNode("missing"), token));
         var changed = ClusterNode("one");
         changed.ClusterId = "other";
@@ -294,6 +327,7 @@ public sealed class AgentSocketAuthTests : IDisposable
         Assert.True(registered.IsConnected);
         Assert.Equal("alpha:1", registered.AgentId);
         var host = await _hosts.RegisterAsync("one", "One", "10.42.0.12", 18400, deadline.Token);
+        await ActivateFleetAsync(host);
         var node = ClusterNode("one");
         string clusterToken = AgentSocketToken.ForNode(
             AgentSocketToken.ForHost(_credentials.Resolve(host.CredentialReference)!), "fleet", "slot-a", "node-a", "Regular", "node-a");
@@ -312,6 +346,7 @@ public sealed class AgentSocketAuthTests : IDisposable
         await using var app = await StartAppAsync();
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var host = await _hosts.RegisterAsync("one", "One", "10.42.0.12", 18400, deadline.Token);
+        await ActivateFleetAsync(host);
         var hello = ClusterNode("one");
         var token = AgentSocketToken.ForNode(AgentSocketToken.ForHost(_credentials.Resolve(host.CredentialReference)!),
             hello.ClusterId, hello.ClusterSlot, hello.ClusterNodeId, hello.ClusterNodeRole, hello.ClusterLaunchAttempt);

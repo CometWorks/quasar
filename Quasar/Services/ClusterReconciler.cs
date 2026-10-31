@@ -45,6 +45,7 @@ public sealed class ClusterReconciler : BackgroundService
     }
 
     internal static readonly TimeSpan ShutdownRetryDelay = TimeSpan.FromSeconds(60);
+    internal const int HaltAfterLaunchAttempts = 3;
 
     internal async Task ReconcileAllAsync(CancellationToken cancellationToken)
     {
@@ -148,6 +149,7 @@ public sealed class ClusterReconciler : BackgroundService
         if (cluster.GoalState == DedicatedServerGoalState.Off
             && (current!.Observed != HostContract.GatewayObservedState.Running || !MatchesSpec(current, on)))
         {
+            if (await HaltRespawnAsync(cluster, on, current, cancellationToken)) return;
             Set(cluster, ClusterReconcileState.ConfigurationRequired, current.Observed, null,
                 "gateway_recovery_required", "Gateway identity or process state requires explicit recovery before shutdown.");
             return;
@@ -268,10 +270,12 @@ public sealed class ClusterReconciler : BackgroundService
             // with live nodes can be tried again under a new key.
             Admin.ShutdownRequest request = new(GraceSeconds: cluster.ShutdownGracePeriodSeconds,
                 ForceAfterSeconds: 900);
+            string shutdownKey = _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(),
+                noActiveNodes ? TimeSpan.MaxValue : ShutdownRetryDelay);
+            if (_operations.Find(cluster.UniqueName, "cluster.lifecycle.shutdown", shutdownKey) is null)
+                _logger.LogInformation("Cluster {Cluster} goal is Off: requesting the Gateway shutdown.", cluster.UniqueName);
             ClusterOperation result = await _operations.ExecuteGatewayAsync(cluster,
-                "cluster.lifecycle.shutdown", "POST", "shutdown", request,
-                _operations.AttemptKey(cluster.UniqueName, "cluster.lifecycle.shutdown", cluster.GetLifecycleId(),
-                    noActiveNodes ? TimeSpan.MaxValue : ShutdownRetryDelay),
+                "cluster.lifecycle.shutdown", "POST", "shutdown", request, shutdownKey,
                 "reconciler", _gatewayClient, cancellationToken);
             if (result.State == ClusterOperationState.Failed)
             {
@@ -329,6 +333,40 @@ public sealed class ClusterReconciler : BackgroundService
             stopped.Failure ?? (complete
                 ? "Cluster is cleanly down and the Gateway process is stopped."
                 : "Waiting for a matching fenced Gateway stop confirmation."));
+    }
+
+    // A Gateway that does not stay up is respawned forever under the Host's goal On, although the operator
+    // turned the cluster off. This Off launches and replaces nothing and claims no clean stop: recovery stays
+    // required. One crash does not qualify: that Gateway comes back for the graceful shutdown or, stopped dirty,
+    // for an update despite that shutdown. Neither does a Gateway with a node still running. The Host refuses
+    // this Off over a live process, so a respawn racing it changes nothing and the next pass sees it Running.
+    private async Task<bool> HaltRespawnAsync(ClusterDefinition cluster, HostContract.GatewaySpec on,
+        HostContract.GatewayStatus current, CancellationToken cancellationToken)
+    {
+        if (current is not { Goal: HostContract.GatewayGoal.On, Observed: HostContract.GatewayObservedState.Failed }
+            || current.LaunchAttempts is not >= HaltAfterLaunchAttempts
+            || !MatchesSpec(current, on) || cluster.ActiveDeployment is null)
+            return false;
+        HostContract.GatewayStatus halted;
+        try
+        {
+            await _hostClient.RequireNodesStoppedAsync(cluster, cancellationToken);
+            halted = (await _hostClient.ApplyGatewayAsync(cluster,
+                on with { Goal = HostContract.GatewayGoal.Off, StopFence = null }, cancellationToken)).Data;
+        }
+        catch (Exception exception) when (exception is ClusterHostException or InvalidOperationException)
+        {
+            return false;
+        }
+        if (halted is not { Observed: HostContract.GatewayObservedState.Missing, Goal: HostContract.GatewayGoal.Off })
+            return false;
+        string failure = current.Failure?.Split(';')[0] ?? "unknown";
+        _logger.LogWarning("Cluster {Cluster} goal is Off and no node runs: the Host stopped respawning its Gateway after {Attempts} failed launches ({Failure}).",
+            cluster.UniqueName, current.LaunchAttempts, failure);
+        Set(cluster, ClusterReconcileState.ConfigurationRequired, halted.Observed, null, "shutdown_unverified",
+            $"The Gateway did not stay up ({failure}) and no node runs, so the Host stopped respawning it; explicit recovery is required.",
+            current.Output);
+        return true;
     }
 
     private async Task<HostContract.GatewayStatus> EnsureGatewayRunningAsync(ClusterDefinition cluster,

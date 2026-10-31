@@ -1126,7 +1126,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         SetRuntimeMessage(state.UniqueName, "Preparing dedicated server runtime.");
         try
         {
-            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, launchArgumentStyle, cancellationToken);
+            launch = await _runtimePreparer.PrepareAsync(definition, runtime.DedicatedServer64Path, launchArgumentStyle, cancellationToken, magnetarExecutablePath: executablePath);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {

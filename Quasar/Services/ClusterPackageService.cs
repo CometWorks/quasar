@@ -155,6 +155,22 @@ public sealed class ClusterPackageService
         return hashes[0][0].ToLowerInvariant();
     }
 
+    // Keeps every release a retained deployment names, plus the newest staged ones, which a selection may be about to use.
+    internal const int KeptNewestReleases = 2;
+
+    internal async Task CollectAsync(IReadOnlySet<string> retained, CancellationToken token)
+    {
+        if (!Directory.Exists(_directory)) return;
+        await _gate.WaitAsync(token);
+        try
+        {
+            foreach (string path in Directory.EnumerateDirectories(_directory).Where(p => !Path.GetFileName(p).StartsWith('.'))
+                .OrderByDescending(Directory.GetLastWriteTimeUtc).Skip(KeptNewestReleases).Where(p => !retained.Contains(Path.GetFileName(p))))
+                Quasar.ClusterDeployment.ClusterStagingSweep.DeleteTree(path);
+        }
+        finally { _gate.Release(); }
+    }
+
     public async Task<ClusterPackageInstallation> StageAsync(ClusterPackageRequest request, CancellationToken token)
     {
         if (!OperatingSystem.IsLinux())

@@ -71,6 +71,16 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
         return XDocument.Load(checkpoint).ToString(SaveOptions.DisableFormatting);
     }
 
+    /// <summary>The profile patch with another world name, its settings and mod list unchanged.</summary>
+    internal static string RenameProfileSettingsXml(string profileSettingsXml, string name)
+    {
+        var patch = XDocument.Parse(profileSettingsXml);
+        var root = patch.Root ?? throw new InvalidDataException("The profile patch has no root element.");
+        if (root.Elements().FirstOrDefault(e => e.Name.LocalName == "SessionName") is { } session) session.Value = name;
+        else root.AddFirst(new XElement("SessionName", name));
+        return patch.ToString(SaveOptions.DisableFormatting);
+    }
+
     /// <summary>Puts the staged mods and the profile patch listing them into a deployment specification. Every Host
     /// preparation then needs <see cref="StagedProfileMods.Directory"/> as its mod input, or the generator refuses the world.</summary>
     internal static void AddToSpecification(JsonObject specification, StagedProfileMods mods, string profileSettingsXml)

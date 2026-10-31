@@ -34,8 +34,9 @@ cluster-definition storage roots: `uniqueName`, `dependencyManifestSha256`, and 
 backup also releases these roots. Unreadable backup/reference metadata or missing
 provenance blocks collection rather than being interpreted as an empty reference set.
 
-Catalog changes and completion of storage work trigger collection. There is no age-based
-retention window for unused versions. Collection waits for in-progress workflows, including
+Catalog changes and completion of storage work trigger collection, and an hourly check applies
+the retention of deleted clusters. There is no age-based retention window for unused versions
+of live clusters. Collection waits for in-progress workflows, including
 the interval between uploading files and committing the prepared deployment. Once a
 snapshot is released, its hard links are removed; an object whose last snapshot reference
 has disappeared is unlinked immediately. Multiple clusters can retain the same world/mod
@@ -50,8 +51,42 @@ for old unregistered conversion/configuration directories.
 
 Completed setup/conversion deletes temporary installation trees and transfer archives.
 Abandoned `ClusterUpdates` work directories are removed when no storage workflow is active.
-Published package download caches and deliberately retained runtime recovery copies have
-separate lifetimes; this collector does not delete them.
+Cached cluster releases are kept when a retained deployment names them, plus the newest two
+staged. A restore keeps the newest `runtime.before-restore-<id>` of a runtime and removes older
+ones.
+
+## Deleted clusters
+
+Deleting a cluster keeps its data for `DeletedClusterRetentionDays` (default 7, Backup page,
+0 keeps it forever), counted from the deletion. Then Quasar removes the cluster's backups, manual
+ones and exports included, and `ClusterSetup/<Cluster ID>`. The next collection pass releases what
+they pinned, and each Host removes the cluster's preparation workspaces under `state/conversions`
+with the runtime in them, its snapshots and its `state/detached` records.
+
+A Host refuses while it still supervises the cluster or a process of it runs. It leaves any path
+that is not a `state/conversions/<id>` workspace alone, so a run root an operator chose stays. A
+Host that refuses or can't be reached is tried again a day later. A cluster named by a
+`deployment-references.json` keeps its Host data until that file is removed.
+
+## Leftovers and records
+
+Workflows remove their staging in `finally` blocks, so only a killed process leaves any.
+
+- The Host sweeps at startup, before its command server opens: `.stage-*`, `.transfer-*` and
+  `.world-*` of its inputs, `.restore-*` of its workspaces, `*.upload-*` and `*.tmp` of its
+  snapshots, and empty workspaces. `.seed-*` inside a runtime goes with that runtime.
+- Quasar sweeps once after startup: `.stage-*` of cached releases and mod versions, `.capture-*`
+  and `exports/*.partial` of backups. It only touches entries older than the process.
+- Host snapshot archives are copies. A successful backup releases them. Those of a failed backup
+  or a finished restore go after 24 hours, at Host startup and with each collection, unless the
+  journal of an interrupted restore names them. A retried backup captures again and a restore
+  uploads its own.
+- Operation records in `Operations/Clusters` that ended over 30 days ago are removed at Quasar
+  startup, except the newest of each kind per cluster, which keeps a failed attempt terminal for
+  its lifecycle. An idempotent replay of a removed record runs the request again. Quarantined
+  `.corrupt` records follow the same age.
+
+Windows has no collection: cluster deployments require Linux.
 
 ## Cluster backups
 
@@ -65,7 +100,7 @@ pin mods for those nodes.
 Scheduled backups follow the Servers backup rule's retention. The pre-update backup of each
 managed update and the backup a conversion takes are recorded with their purpose
 (`purpose`: `update` or `conversion`) and Quasar keeps the newest 3 of each per cluster.
-Backups taken before this, and manual backups, are never pruned.
+Backups taken before this, and manual backups, stay for as long as the cluster exists.
 
 ## Combined updates and transfer
 

@@ -183,6 +183,25 @@ public sealed class BootstrapUpdateTests
         });
     }
 
+    [Fact]
+    public void BootstrapRollbackKeepsTheReplacedLauncherForRecovery()
+    {
+        WithRoot(() =>
+        {
+            var root = MagnetarPaths.GetQuasarDirectory();
+            var source = Path.Combine(root, "payload");
+            var install = Path.Combine(root, "install");
+            Directory.CreateDirectory(source);
+            Directory.CreateDirectory(install);
+            var launcher = OperatingSystem.IsWindows() ? "Quasar.exe" : "Quasar";
+            File.WriteAllText(Path.Combine(source, launcher), "older launcher");
+            File.WriteAllText(Path.Combine(install, launcher), "current launcher");
+            typeof(Coordinator).GetMethod("ApplyBootstrapUpdate", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [source, install]);
+            Assert.Equal("older launcher", File.ReadAllText(Path.Combine(install, launcher)));
+            Assert.Equal("current launcher", File.ReadAllText(Path.Combine(install, launcher + ".previous")));
+        });
+    }
+
     [Theory]
     [InlineData("1.4.0", "1.4.0", "1.4.0", false)]
     [InlineData("1.4.0", "1.4.0", "Bootstrap-1.4.0", false)]

@@ -1360,7 +1360,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             }
 
             var version = QuasarReleaseVersion.Normalize(release.TagName);
-            if (!IsNewerVersion(version, _options.Version))
+            if (!CanActivateBootstrapVersion(version, _options.Version, request.AllowRollback, request.WebRelease))
             {
                 if (!string.IsNullOrWhiteSpace(requestedVersion))
                 {
@@ -1448,6 +1448,16 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         {
             _bootstrapUpdateLock.Release();
         }
+    }
+
+    // Downgrades require an explicit manual request bound to the same prepared UI.
+    internal static bool CanActivateBootstrapVersion(string target, string current, bool allowRollback, QuasarActiveReleasePointer? webRelease)
+    {
+        if (allowRollback && (webRelease is null || string.IsNullOrWhiteSpace(target) ||
+            !string.Equals(QuasarReleaseVersion.Normalize(webRelease.Version), QuasarReleaseVersion.Normalize(target), StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidDataException("Bootstrap rollback requires a matching prepared UI release.");
+
+        return allowRollback || IsNewerVersion(target, current);
     }
 
     // Worker and launcher are both named Quasar (Linux/macOS) or Quasar.exe (Windows).
@@ -2110,6 +2120,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
         startInfo.Environment["QUASAR_COORDINATED_UPDATES"] = "true";
+        startInfo.Environment["QUASAR_COORDINATED_ROLLBACKS"] = "true";
         startInfo.Environment["QUASAR_INSTALL_DIR"] = ResolveInstallDirectoryForWorker();
         startInfo.Environment["QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN"] = _options.PreserveServersOnShutdown ? "true" : "false";
         startInfo.Environment["QUASAR_CONSOLE_LOGGING"] = "true";
@@ -2978,6 +2989,8 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         public string WorkerVersion { get; set; } = string.Empty;
 
         public QuasarActiveReleasePointer? WebRelease { get; set; }
+
+        public bool AllowRollback { get; set; }
 
         public DateTimeOffset? RequestedAtUtc { get; set; }
     }

@@ -41,18 +41,32 @@ existing release acceptance. See [Nebula billing setup](https://github.com/Comet
 
 ## Setup
 
-1. Configure your normal Quasar Steam administrator mapping on **Security**.
-   A platform super-admin entitlement supplies free hosting; it does not grant a
-   role in local Quasar. Steam must be enabled before public enrollment.
+1. Open Quasar through an existing administrator session (normally trusted local
+   access for a fresh installation). If no subject or claim mapping grants the
+   admin role, setup first asks for a 17-digit **Administrator SteamID64**.
+   **Save administrator and continue** persists the admin mapping to `rbac.json`.
+   Existing admin mappings skip this step. A remote Steam sign-in alone cannot
+   claim an unconfigured panel. A platform super-admin entitlement supplies free
+   hosting; it does not grant a role in local Quasar. Steam must be enabled before
+   public enrollment.
 2. The first interactive administrator session shows **Set up administrator
-   access**. Choose **Self-deploy**, **Use hosted panel** or **Later**. Existing
+   access**. Like the server import wizard, it shows a step progress indicator and
+   two large choices: **Self-deploy** and **Use hosted panel**. Select one, then
+   choose **Next**. **Cancel** closes setup; **Back** returns from hosted settings
+   without discarding the name you entered. Existing
    network/security settings are preserved. Headless startup does not wait for a
    browser decision. Reopen the dialog using **Security → Manage access setup**.
 3. For hosted access, enter a name of 3–63 lowercase letters/digits separated by
    single dashes. No underscores, leading/trailing/doubled dashes or reserved
    portal route names. The dialog previews the public address.
 4. Choose **Start hosted enrollment**, then sign into Steam on Nebula and confirm
-   the installation you just configured. A name collision is reported before
+   the installation you just configured. The larger setup dialog switches to a
+   connection screen with an indeterminate progress bar, live status and stages
+   for enrollment, activation, tunnel connection and dashboard verification.
+   **Continue enrollment with Steam** remains available if the new tab is blocked.
+   While connecting, **Cancel** is the only footer action: it stops the local
+   hosted setup/connection without canceling an existing subscription or deleting
+   the private identity. A name collision is reported before
    activation; return to Quasar and choose another name. The browser link expires
    after 15 minutes; Quasar notices an unclaimed expiry and permits a new attempt.
 5. Quasar automatically retrieves the bound installation credential after
@@ -60,6 +74,9 @@ existing release acceptance. See [Nebula billing setup](https://github.com/Comet
    maintain the hosted connection. Direct worker development runs do not start a
    connector. Readiness requires fresh confirmation of both frpc registration and
    local worker readiness. Enrollment alone does not confirm connectivity.
+   **Open Quasar dashboard** appears as a primary button only after active hosting
+   and fresh health for this panel confirm both are ready. **Done** closes setup;
+   **Self-deploy** disconnects hosted access and opens Security.
 
 There are no customer frp commands or pasted credentials. Selecting Self-deploy
 later stops the connector without deleting the private identity; selecting the

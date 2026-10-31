@@ -411,3 +411,12 @@ commands use the existing Gateway control services.
 
 See [Discord clusters and multiple Hosts](Configuration.md#discord-clusters-and-multiple-hosts)
 for setup, monitoring coverage and bounded-history delivery limits.
+
+## Profile command aliases
+
+The configuration profile's command aliases travel as Quasar.Agent SDK configuration
+through the existing pinned canonical plugin-config contract. Guided setup, conversion
+and profile staging replace the Agent's alias values from the profile, including an
+empty dictionary when aliases are removed. Normal plugin settings remain preserved.
+No Host or cluster protocol extension is required. See
+[alias configuration and runtime requirements](Configuration.md#command-aliases-per-configuration-profile).

@@ -35,11 +35,14 @@ namespace Quasar.Agent
         private bool _clusterMode;
         private DateTime _lastDeathSubscriptionRefreshUtc = DateTime.MinValue;
 
+        public CommandAliasConfiguration Config { get; private set; } = new CommandAliasConfiguration();
+
         public void Init(object gameServer)
         {
             var options = AgentOptions.FromEnvironment();
             _clusterMode = options.ClusterMode;
             LogStartupVersions();
+            Config = CommandAliasConfiguration.Load();
             OfflineModeNetworkGuard.Apply();
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
@@ -246,6 +249,13 @@ namespace Quasar.Agent
 
         private void OnPlayerDied(long identityId)
         {
+            // The game raises PlayerDied for wildlife agents too (wolves, spiders):
+            // their identities are not registered as NPCs, so filter like the
+            // CharacterDied path does.
+            var session = MySession.Static;
+            if (!IsRealPlayer(session, session?.Players?.TryGetPlayer(identityId)))
+                return;
+
             RecordDeath(identityId, ResolveVictimName(identityId, null, null));
         }
 
@@ -265,14 +275,10 @@ namespace Quasar.Agent
             {
                 foreach (var player in session.Players.GetOnlinePlayers())
                 {
-                    if (player == null || player.IsBot || player.Id.SteamId == 0)
+                    if (!IsRealPlayer(session, player) || player.Character == null)
                         continue;
 
-                    var identityId = player.Identity?.IdentityId ?? 0;
-                    if (identityId == 0 || session.Players.IdentityIsNpc(identityId) || player.Character == null)
-                        continue;
-
-                    HookCharacterDeath(player.Character, identityId, player.DisplayName);
+                    HookCharacterDeath(player.Character, player.Identity.IdentityId, player.DisplayName);
                 }
 
                 CleanupDeathDedup(now);
@@ -282,6 +288,15 @@ namespace Quasar.Agent
                 // Death subscriptions are best-effort; snapshots and command handling
                 // must keep running if the session mutates while we scan players.
             }
+        }
+
+        private static bool IsRealPlayer(MySession session, MyPlayer player)
+        {
+            if (player == null || player.IsBot || player.Id.SteamId == 0)
+                return false;
+
+            var identityId = player.Identity?.IdentityId ?? 0;
+            return identityId != 0 && !session.Players.IdentityIsNpc(identityId);
         }
 
         private void HookCharacterDeath(IMyCharacter character, long identityId, string playerName)

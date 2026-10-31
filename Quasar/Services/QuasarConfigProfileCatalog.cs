@@ -73,6 +73,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         if (string.IsNullOrWhiteSpace(profile.ConfigProfileId))
             profile.ConfigProfileId = GenerateUniqueProfileId(profile.Name);
 
+        QuasarCommandAliases.Validate(profile.CommandAliases);
         var normalized = Normalize(Clone(profile));
         normalized.UpdatedAtUtc = DateTimeOffset.UtcNow;
 
@@ -163,11 +164,11 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
         var historyDirectory = GetProfileHistoryDirectory(profile.ConfigProfileId);
         var json = JsonSerializer.Serialize(profile, JsonOptions);
 
-        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
+        await AtomicFileWriter.WritePrivateTextAsync(path, json, cancellationToken);
 
         Directory.CreateDirectory(historyDirectory);
         var historyPath = Path.Combine(historyDirectory, $"{profile.UpdatedAtUtc:yyyyMMddHHmmssfff}.json");
-        await AtomicFileWriter.WriteTextAsync(historyPath, json, cancellationToken);
+        await AtomicFileWriter.WritePrivateTextAsync(historyPath, json, cancellationToken);
 
         _logger.LogInformation("Saved Quasar config profile to {Path}", path);
     }
@@ -183,7 +184,7 @@ public sealed class QuasarConfigProfileCatalog : IDisposable
 
         var deletedContents = await File.ReadAllTextAsync(currentPath, cancellationToken);
         var historyPath = Path.Combine(historyDirectory, $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-deleted.json");
-        await AtomicFileWriter.WriteTextAsync(historyPath, deletedContents, cancellationToken);
+        await AtomicFileWriter.WritePrivateTextAsync(historyPath, deletedContents, cancellationToken);
 
         File.Delete(currentPath);
         _logger.LogInformation("Deleted active Quasar config profile at {Path}", currentPath);

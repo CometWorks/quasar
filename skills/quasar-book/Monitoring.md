@@ -320,7 +320,7 @@ Alerts go to the SimSpeed alert channel, or the analytics channel when that is e
 
 ### Settings file
 
-Everything on the Discord page, including the bot token, is saved in `<data dir>/discord.json` as plain JSON. Protect that file. Quasar watches it and applies edits made on disk without a restart. Bot messages are logged to `discord.log` as well as `quasar.log` (see [Troubleshooting](Troubleshooting.md#where-the-logs-are)).
+Everything on the Discord page is saved in `<data dir>/discord.json`. Quasar protects the bot token with its ASP.NET Core Data Protection keyring and creates the file owner-readable/writable only on Unix; the other settings remain ordinary JSON. Keep `DataProtection-Keys/` when moving or restoring the install, or enter the token again. On first load, Quasar migrates a legacy plaintext `botToken` immediately. Quasar watches the file and applies edits made on disk without a restart. Bot messages are logged to `discord.log` as well as `quasar.log` (see [Troubleshooting](Troubleshooting.md#where-the-logs-are)).
 
 ## Appearance
 
@@ -346,6 +346,14 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **`/faction-channel` fails**: the bot lacks Manage Channels.
 - **Push button disabled**: open the UI over HTTPS or on `localhost`, or remove an old subscription when at 16.
 - **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
+
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
 
 ## Sources
 - `Quasar/wwwroot/app.css`
@@ -408,3 +416,5 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar.Tests/AnnouncementTests.cs`
 - `Quasar/Components/Shared/NotificationBell.razor`
 - `Quasar.Tests/AnnouncementBrowserReceiptTests.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

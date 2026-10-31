@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -49,16 +50,30 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
             }
             return pins;
         }
+        long started = Stopwatch.GetTimestamp(), hashedBefore = Interlocked.Read(ref hashedBytes);
         var pins = Verify(root, manifest.Files);
         Verify(configRoot, manifest.ConfigFiles ?? []);
+        LogStep(manifest.ClusterId, $"bundle load ({manifest.Files.Length + (manifest.ConfigFiles?.Length ?? 0)} paths, "
+            + $"{(Interlocked.Read(ref hashedBytes) - hashedBefore) / 1_000_000} MB hashed)", started);
         return new(root, manifest, pins) { ConfigRoot = configRoot };
+    }
+
+    private static long hashedBytes;
+
+    // Timestamped: the Host's own lines in its log have no time. Short steps would only fill the log.
+    internal static void LogStep(string? clusterId, string step, long started)
+    {
+        TimeSpan elapsed = Stopwatch.GetElapsedTime(started);
+        if (elapsed >= TimeSpan.FromSeconds(0.1))
+            Console.Error.WriteLine($"{DateTimeOffset.UtcNow:O} cluster={clusterId} step '{step}' took {elapsed.TotalSeconds:0.0} s");
     }
 
     // Files that already matched their pin, so a spawn does not re-hash the whole bundle. An entry is
     // trusted only while the file keeps the size and modification time it had before it was hashed.
     // That catches replaced, rewritten and partly copied files; it does not stop a writer who resets
     // the modification time on purpose, which needs write access to the Host's own bundle files.
-    // A Host restart verifies everything again.
+    // A Host restart verifies everything again. Keyed on the inode where there is one: a deployment's mods
+    // are hard-linked into the seed folder of the world and of every node, so one file has many paths.
     private static readonly ConcurrentDictionary<string, VerifiedFile> Verified = new(StringComparer.Ordinal);
 
     private sealed record VerifiedFile(string Sha256, long Length, DateTime LastWriteTimeUtc);
@@ -68,13 +83,15 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
     {
         var info = new FileInfo(path);
         var current = new VerifiedFile(expected.ToLowerInvariant(), info.Length, info.LastWriteTimeUtc);
-        if (Verified.TryGetValue(path, out var cached) && cached == current) return current.Sha256;
+        string key = OperatingSystem.IsLinux() ? Quasar.ClusterDeployment.ClusterContentStore.FileIdentity(path) : path;
+        if (Verified.TryGetValue(key, out var cached) && cached == current) return current.Sha256;
         string hash;
         using (var stream = File.OpenRead(path))
             hash = Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
-        if (hash != current.Sha256) { Verified.TryRemove(path, out _); return null; }
+        Interlocked.Add(ref hashedBytes, info.Length);
+        if (hash != current.Sha256) { Verified.TryRemove(key, out _); return null; }
         // Stat taken before hashing: a write during hashing changes it, and the next load hashes again.
-        Verified[path] = current;
+        Verified[key] = current;
         return hash;
     }
 
@@ -198,6 +215,7 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
                 throw new InvalidOperationException("Restored data cannot start before deployment activation completes.");
         }
         if (Manifest.InitialDirectories is not { Count: > 0 } seeds) return;
+        long seeding = Stopwatch.GetTimestamp();
         string runtime = Manifest.RuntimeRoot ?? throw new InvalidDataException("Seeded deployments require a runtime root.");
         if (!Path.IsPathFullyQualified(runtime)) throw new InvalidDataException("Runtime root must be absolute.");
         string config = ConfigRoot ?? throw new InvalidDataException("Seeded deployments require a configuration root.");
@@ -250,6 +268,7 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
             }
             finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
         }
+        LogStep(clusterId, "data seed", seeding);
     }
 
     private string? ConfigRoot { get; init; }

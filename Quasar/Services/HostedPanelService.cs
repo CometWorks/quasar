@@ -10,6 +10,18 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
     private readonly SemaphoreSlim gate = new(1, 1);
     public HostedPanelState State => HostedPanelState.Read() ?? new();
     public string Status { get; private set; } = "Not enrolled";
+    public bool AccessActive { get; private set; }
+    public HostedConnectorHealth? ConnectorHealth
+    {
+        get
+        {
+            var state = State;
+            var health = HostedConnectorHealth.Read();
+            return AccessActive && state is { Choice: "hosted", Credential: not null } && health is not null && health.PanelId == state.PanelId &&
+                health.UpdatedAt >= DateTimeOffset.UtcNow.AddSeconds(-35).ToUnixTimeSeconds() ? health : null;
+        }
+    }
+    public bool IsReady => ConnectorHealth?.Ready == true;
     public event Action? Changed;
 
     public async Task ChooseAsync(string choice)
@@ -20,6 +32,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
         {
             CheckWritableState();
             await HostedPanelState.SaveAsync(State with { Choice = choice });
+            AccessActive = false;
         }
         finally { gate.Release(); }
         Changed?.Invoke();
@@ -38,9 +51,12 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             if (state.PanelId == panelId && state.BrowserUrl is not null && state.EnrollmentId is not null)
             {
                 await HostedPanelState.SaveAsync(state with { Choice = "hosted" }, ct);
+                Status = "Checking hosted access and the secure tunnel";
+                Changed?.Invoke();
                 return state.BrowserUrl;
             }
             state = new HostedPanelState { Choice = "hosted", PanelId = panelId };
+            AccessActive = false;
             // Save proof before contacting Nebula: a crash must not lose the installation key.
             await HostedPanelState.SaveAsync(state, ct);
             using var http = clients.CreateClient("Nebula");
@@ -76,6 +92,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             catch (Exception e) when (!stoppingToken.IsCancellationRequested)
             {
                 Status = "Hosting service unavailable; local Quasar continues working";
+                AccessActive = false;
                 logger.LogDebug("Hosted enrollment refresh failed ({Type}).", e.GetType().Name);
                 Changed?.Invoke();
             }
@@ -90,6 +107,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             var state = HostedPanelState.Read();
             if (state is not { Choice: "hosted", EnrollmentId: not null })
             {
+                AccessActive = false;
                 if (File.Exists(HostedPanelState.StatePath) && state is null)
                 {
                     Status = "Hosted enrollment state is unreadable; local Quasar continues working";
@@ -105,6 +123,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             {
                 await HostedPanelState.SaveAsync(state with { Credential = null, EnrollmentId = null, BrowserUrl = null }, ct);
                 Status = "Installation disconnected. Restart hosted setup to relink your panel.";
+                AccessActive = false;
                 Changed?.Invoke();
                 return;
             }
@@ -115,6 +134,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             {
                 await HostedPanelState.SaveAsync(state with { EnrollmentId = null, BrowserUrl = null }, ct);
                 Status = "Enrollment link expired. Choose hosted setup again.";
+                AccessActive = false;
             }
             else if (result.GetProperty("active").GetBoolean() && result.GetProperty("credential").GetString() is { } credential)
             {
@@ -122,12 +142,17 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
                     throw new InvalidDataException("Invalid connector credential.");
                 if (state.Credential != credential)
                     await HostedPanelState.SaveAsync(state with { Credential = credential, OwnerSteamId = result.GetProperty("ownerSteamId").GetString(), BrowserUrl = HostedPanelState.Origin + "/account" }, ct);
-                var health = HostedConnectorHealth.Read();
-                Status = health is { Ready: true } && health.PanelId == state.PanelId ? "Hosted dashboard ready"
-                    : health is { TunnelRegistered: true, WorkerReady: false } && health.UpdatedAt >= DateTimeOffset.UtcNow.AddSeconds(-35).ToUnixTimeSeconds() ? "Tunnel connected; local Quasar is restarting"
+                AccessActive = true;
+                var health = ConnectorHealth;
+                Status = health is { Ready: true } ? "Hosted dashboard ready"
+                    : health is { TunnelRegistered: true, WorkerReady: false } ? "Tunnel connected; local Quasar is restarting"
                     : "Enrolled; Bootstrap is connecting the hosted tunnel";
             }
-            else Status = "Waiting for hosted access activation. Continue on the Nebula account page.";
+            else
+            {
+                AccessActive = false;
+                Status = "Waiting for hosted access activation. Continue on the Nebula account page.";
+            }
             Changed?.Invoke();
         }
         finally { gate.Release(); }

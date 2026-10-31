@@ -11,10 +11,25 @@ The installed services and `Quasar serve` do not open a browser on their own. `Q
 ## Choose public access
 
 A first interactive administrator session shows **Set up administrator access**.
-Choose **Self-deploy**, **Use hosted panel** or **Later**; headless startup is not
-blocked. Reopen it at **Security → Manage access setup**. Configure your Steam
-administrator mapping below before using a public URL. See [Hosted access](HostedPanel.md)
+If no subject or claim mapping grants the admin role, its first step asks for
+your 17-digit **Administrator SteamID64**. **Save administrator and continue**
+saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**.
+Existing administrator mappings skip this step. The access-method screen uses
+two large choices and a step progress indicator, like the server import wizard.
+Both wizards use the same Large dialog width; the import wizard no longer uses
+ExtraLarge.
+Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back**
+returns from hosted settings and retains the name you entered. **Cancel** closes setup without
+configuring public access; setup returns on the next page load while no admin is
+configured. Headless startup is not blocked. Reopen it at
+**Security → Manage access setup**. See [Hosted access](HostedPanel.md)
 for automatic enrollment and its current availability limits.
+
+Starting hosted enrollment switches the dialog to a progress screen with live
+updates and **Cancel** as its only footer action while connecting. The primary
+**Open Quasar dashboard** button appears after hosting activation and fresh
+tunnel/worker readiness checks succeed. Canceling setup does not cancel a paid
+subscription.
 
 ## Set the first administrator
 
@@ -22,7 +37,7 @@ Quasar access is controlled by roles (`viewer`, `editor`, `admin`) mapped to Ste
 
 ### Option 1: open the UI on the Quasar machine itself
 
-By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar, go to **Security** in the navigation, and add your SteamID with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode.
+By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar and enter your SteamID64 in the administrator setup step. You can also go to **Security** and add your SteamID with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode. Setup rechecks security-management permission before saving; a remote Steam sign-in alone cannot claim an unconfigured panel.
 
 Private LAN clients are also trusted by default. For example, a browser on
 `192.168.1.10` can open `http://192.168.1.80:8080` when Quasar runs at
@@ -69,7 +84,7 @@ The Quasar admin role controls access to Quasar only. It is separate from the `A
 
 ## Sign in with Steam
 
-Click the sign-in icon in the top bar (or open `/login`). Quasar sends you to the Steam OpenID login page and back. After sign-in the top bar shows your SteamID64 next to the sign-out icon (tooltip "Sign out Steam <SteamID>"). The sign-out icon goes to `/logout`.
+Click the sign-in icon in the top bar (or open `/login`). Quasar sends you to the Steam OpenID login page and back. After sign-in the top bar shows your SteamID64 next to the sign-out icon (tooltip "Sign out Steam <SteamID>"). The sign-out button submits an antiforgery-protected logout request.
 
 - The session cookie is `Quasar.Auth`. It lasts 12 hours and renews while you use the UI.
 - A Steam account without a role mapping gets the page "You are signed in, but this account has no Quasar role." It has **Sign out** and **Retry Steam sign-in** buttons. Ask an admin to add your SteamID, then sign in again.
@@ -184,6 +199,7 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Components/Pages/WorldTemplateConfigProfileDialog.razor`
 - `Quasar/Components/Pages/Security.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Services/ExistingServerImportService.cs`
 - `Quasar/Services/QuasarWorldTemplateCatalog.cs`
 - `Quasar/Services/WorldSandboxConfigEditor.cs`

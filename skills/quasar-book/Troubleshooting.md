@@ -31,6 +31,8 @@ The DS and Magnetar paths are the defaults. A server with **Paths** overrides wr
 
 At the default `Warn`, Info messages such as server exit codes and "recovered after restart" lines are not written. Set `QUASAR_LOG_MIN_LEVEL=Info` (or `Quasar:Logging:MinimumLevel` to `Info`) and restart Quasar while you investigate. An unknown level name falls back to `Info`. The same level applies to the console and journal output.
 
+Cluster update timings are the exception: they are written at every level. To see where an update spent its time, look for `update step` and `references reconciled` in `quasar.log`, and for `step '` in the Host's `host.log`, which also has the bundle load and data seed of each start.
+
 Quasar does not rotate `quasar.log` or `discord.log`. Delete or truncate them yourself if they grow too large.
 
 A fatal startup error is logged as "Quasar terminated unexpectedly." and printed to the console as `[Quasar:FATAL] <type>: <message>`.
@@ -143,7 +145,8 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 - The shipped `Quasar:Host` is `0.0.0.0` (all interfaces) on port `8080`. If it is `127.0.0.1`, only local browsers can connect. Remote access also needs a firewall rule for the TCP port.
 - A fresh install starts the UI only after Bootstrap has downloaded the first UI release from GitHub. Until then it retries and logs "Failed downloading the Quasar web UI; retrying at <time> ...", or "GitHub's API rate limit is used up, ..." when the anonymous limit of the public IP address is spent, in which case it waits for GitHub's reset time, unless a token is set in `QUASAR_GITHUB_TOKEN` or `GITHUB_TOKEN`. `QUASAR_UPDATES_ENABLED=false` blocks this first download; a foreground run then prints "Quasar has no running worker, so the web UI is not available." See [Install on Linux](InstallLinux.md#common-problems).
 - After 3 worker start failures within 5 minutes, Bootstrap starts the UI once more with UI plugins disabled. See [UI plugins](UiPlugins.md#safe-boot).
-- `Quasar:Auth:RequireHttpsForPublicAccess` is in `appsettings.json` but the current code does not act on it. Put an HTTPS reverse proxy in front of Quasar yourself for access from untrusted networks; see [Access control](AccessControl.md#behind-a-reverse-proxy).
+- Quasar defaults to private LAN HTTP mode. If `Quasar:Auth:RequireHttpsForPublicAccess=true`, remote plain-HTTP requests return HTTP 400. Use that setting with an HTTPS reverse proxy that sends trusted `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` headers; loopback HTTP remains available for local checks. See [Access control](AccessControl.md#behind-a-reverse-proxy).
+- `Quasar authentication can be disabled only on loopback listeners.` means `Auth:Enabled=false` was combined with a public `Quasar:Host`, `QUASAR_WEB_HOST`, or `ASPNETCORE_URLS` binding. Restore authentication or bind every listener to localhost/`127.0.0.1`/`::1`.
 
 ### "Rejoining the server..."
 
@@ -222,6 +225,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
+- `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Models/DedicatedServerDefinition.cs`
 - `Quasar/Components/Pages/ServerConsoleDialog.razor`
 - `Quasar/Components/Pages/ServerEditorDialog.razor`

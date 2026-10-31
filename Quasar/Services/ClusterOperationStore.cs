@@ -46,6 +46,7 @@ public sealed class ClusterOperationStore
                 _logger?.LogWarning("Cluster operation {OperationId} ({Kind}) of {Cluster} was interrupted by a restart and is now Failed.",
                     failed.OperationId, failed.Kind, failed.Cluster);
             }
+            PruneRecords();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -53,6 +54,32 @@ public sealed class ClusterOperationStore
             _ready = false;
         }
     }
+
+    // Every record is loaded at startup and some hold whole cluster definitions (SE-217). The newest of a
+    // kind stays for each cluster: AttemptKey keeps a failed attempt terminal for its lifecycle, however old.
+    private void PruneRecords()
+    {
+        DateTimeOffset cutoff = DateTimeOffset.UtcNow - RecordRetention;
+        try
+        {
+            foreach (var old in _operations.Values.GroupBy(o => (Cluster: o.Cluster.ToLowerInvariant(), o.Kind))
+                .SelectMany(kind => kind.OrderByDescending(o => o.UpdatedAt).Skip(1))
+                .Where(o => o.State != ClusterOperationState.Running && o.UpdatedAt < cutoff).ToArray())
+            {
+                File.Delete(Path.Combine(_directory, old.OperationId + ".json"));
+                _operations.TryRemove(old.OperationId, out _);
+            }
+            foreach (string corrupt in Directory.EnumerateFiles(_directory, "*.json.corrupt"))
+                if (File.GetLastWriteTimeUtc(corrupt) < cutoff.UtcDateTime) File.Delete(corrupt);
+        }
+        // Old records only cost space; they must not disable cluster management.
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            _logger?.LogWarning(exception, "Old cluster operation records in {Directory} were not removed.", _directory);
+        }
+    }
+
+    internal static readonly TimeSpan RecordRetention = TimeSpan.FromDays(30);
 
     // One unreadable record (for example a zero-length file after power loss) must not
     // disable cluster management; it is set aside and named in the log instead.

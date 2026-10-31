@@ -15,9 +15,12 @@ internal sealed class ClusterContentStore : IDisposable
     private readonly FileStream gate;
     private readonly HashSet<string> verified = new(StringComparer.Ordinal);
 
-    private ClusterContentStore(string root, FileStream gate) => (this.root, this.gate) = (root, gate);
+    private readonly bool prune;
 
-    internal static async Task<ClusterContentStore> OpenAsync(string snapshots, CancellationToken token)
+    private ClusterContentStore(string root, FileStream gate, bool prune) => (this.root, this.gate, this.prune) = (root, gate, prune);
+
+    // prune: false for a step of a larger collection, whose last step prunes.
+    internal static async Task<ClusterContentStore> OpenAsync(string snapshots, CancellationToken token, bool prune = true)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Cluster content storage requires Linux.");
         snapshots = Path.GetFullPath(snapshots);
@@ -35,17 +38,22 @@ internal sealed class ClusterContentStore : IDisposable
         while (true)
         {
             token.ThrowIfCancellationRequested();
-            try { return new(root, new FileStream(lockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None)); }
+            try { return new(root, new FileStream(lockFile, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None), prune); }
             catch (IOException error) when ((error.HResult & 0xffff) is 11 or 32 or 33)
             { await Task.Delay(100, token); }
         }
     }
 
-    internal async Task ReferenceAsync(string source, string destination, DeploymentFile pin, CancellationToken token)
+    private static string ObjectKey(DeploymentFile pin)
     {
         if (pin.Bytes < 0 || pin.Sha256.Length != 64 || pin.Sha256 != pin.Sha256.ToLowerInvariant()
             || !pin.Sha256.All(Uri.IsHexDigit)) throw new InvalidDataException("Invalid content object pin.");
-        string key = pin.Sha256 + (pin.Executable ? "-x" : "-r");
+        return pin.Sha256 + (pin.Executable ? "-x" : "-r");
+    }
+
+    internal async Task ReferenceAsync(string source, string destination, DeploymentFile pin, CancellationToken token)
+    {
+        string key = ObjectKey(pin);
         string path = Path.Combine(root, key);
         if (!File.Exists(path))
         {
@@ -54,7 +62,7 @@ internal sealed class ClusterContentStore : IDisposable
             try
             {
                 File.Copy(source, temporary);
-                await VerifyAsync(temporary, pin, token);
+                await VerifyAsync(temporary, pin, token, source);
                 File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.OtherRead
                     | (pin.Executable ? UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute : 0));
                 File.Move(temporary, path);
@@ -74,6 +82,14 @@ internal sealed class ClusterContentStore : IDisposable
     // atomically; interruption leaves either the old verified file or its reference.
     internal async Task AdoptAsync(string path, DeploymentFile pin, CancellationToken token)
     {
+        // Already a reference to its object, like the mods of a prepared deployment. Their seven copies hash once.
+        string key = ObjectKey(pin), stored = Path.Combine(root, key);
+        if (File.Exists(stored) && FileIdentity(path) == FileIdentity(stored))
+        {
+            RefuseLink(path);
+            if (verified.Add(key)) await VerifyAsync(stored, pin, token);
+            return;
+        }
         await VerifyAsync(path, pin, token);
         string temporary = path + ".reference-" + Guid.NewGuid().ToString("N");
         try
@@ -86,13 +102,16 @@ internal sealed class ClusterContentStore : IDisposable
 
     internal void Prune()
     {
+        // The objects sit directly in the root: a walk up the tree per object took most of a storage collection.
+        RefuseLink(root);
         foreach (string path in Directory.EnumerateFiles(root))
         {
             string name = Path.GetFileName(path);
             if (name.StartsWith(".write-", StringComparison.Ordinal)) { File.Delete(path); continue; }
             if (name.Length != 66 || name[64] != '-' || name[65] is not ('r' or 'x')
                 || !name[..64].All(Uri.IsHexDigit)) continue;
-            RefuseLink(path);
+            if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
+                throw new InvalidDataException("Content storage must not contain symbolic links.");
             if (ReferenceCount(path) == 1) File.Delete(path);
         }
     }
@@ -115,6 +134,14 @@ internal sealed class ClusterContentStore : IDisposable
         return data.Links;
     }
 
+    // Linux only: the same value for every hard link of a file, and for no other file while it exists.
+    internal static string FileIdentity(string path)
+    {
+        if (Statx(-100, path, 0x100, 0x100, out var data) != 0 || (data.Mask & 0x100) == 0)
+            throw new IOException("Cannot inspect file identity.", new Win32Exception(Marshal.GetLastPInvokeError()));
+        return $"{data.DeviceMajor}:{data.DeviceMinor}:{data.Inode}";
+    }
+
     private static (uint Major, uint Minor) Device(string path)
     {
         if (Statx(-100, path, 0x100, 0x7ff, out var data) != 0)
@@ -122,12 +149,17 @@ internal sealed class ClusterContentStore : IDisposable
         return (data.DeviceMajor, data.DeviceMinor);
     }
 
-    private static async Task VerifyAsync(string path, DeploymentFile pin, CancellationToken token)
+    // source: the file a temporary copy came from. A mismatch there is a file that changed, not damaged storage.
+    private static async Task VerifyAsync(string path, DeploymentFile pin, CancellationToken token, string? source = null)
     {
         RefuseLink(path);
         await using var file = File.OpenRead(path);
-        if (file.Length != pin.Bytes || Convert.ToHexString(await SHA256.HashDataAsync(file, token)).ToLowerInvariant() != pin.Sha256)
-            throw new InvalidDataException("Content object does not match its verified pin.");
+        string hash = Convert.ToHexString(await SHA256.HashDataAsync(file, token)).ToLowerInvariant();
+        if (file.Length == pin.Bytes && hash == pin.Sha256) return;
+        string found = $"is {file.Length} bytes with SHA-256 {hash}, its pin is {pin.Bytes} bytes with SHA-256 {pin.Sha256}.";
+        throw new InvalidDataException(source is null
+            ? $"Content object does not match its verified pin: {path} {found}"
+            : $"A file changed while it was copied into content storage, nothing was stored: {source} {found}");
     }
 
     private static void RefuseLink(string path)
@@ -137,10 +169,10 @@ internal sealed class ClusterContentStore : IDisposable
                 throw new InvalidDataException("Content storage must not contain symbolic links.");
     }
 
-    public void Dispose() { try { Prune(); } finally { gate.Dispose(); } }
+    public void Dispose() { try { if (prune) Prune(); } finally { gate.Dispose(); } }
 
     [DllImport("libc", EntryPoint = "link", SetLastError = true)]
-    private static extern int Link(string source, string destination);
+    internal static extern int Link(string source, string destination);
     [DllImport("libc", EntryPoint = "statx", SetLastError = true)]
     private static extern int Statx(int directory, string path, int flags, uint mask, out StatxData data);
     [StructLayout(LayoutKind.Explicit, Size = 256)]
@@ -148,6 +180,7 @@ internal sealed class ClusterContentStore : IDisposable
     {
         [FieldOffset(0)] public uint Mask;
         [FieldOffset(16)] public uint Links;
+        [FieldOffset(32)] public ulong Inode;
         [FieldOffset(136)] public uint DeviceMajor;
         [FieldOffset(140)] public uint DeviceMinor;
     }

@@ -292,6 +292,8 @@ internal static class ClusterApi
         RouteHandlerBuilder setAdministration = routes.MapPut("/{uniqueName}/administration", SetAdministration);
         RouteHandlerBuilder stageProfile = routes.MapPost("/{uniqueName}/config-profile-preparation", StageProfile);
         RouteHandlerBuilder stageHotSpares = routes.MapPost("/{uniqueName}/hot-spares-preparation", StageHotSpares);
+        RouteHandlerBuilder stageNames = routes.MapPost("/{uniqueName}/names-preparation", StageNames);
+        RouteHandlerBuilder stagePluginConfiguration = routes.MapPost("/{uniqueName}/plugin-configuration-preparation", StagePluginConfiguration);
         RouteHandlerBuilder stageLatestRelease = routes.MapPost("/{uniqueName}/release-update-preparation", StageLatestRelease);
         routes.MapGet("/{uniqueName}/world-files", GetWorldFiles);
         RouteHandlerBuilder stageWorldFiles = routes.MapPost("/{uniqueName}/world-files-preparation", StageWorldFiles);
@@ -333,6 +335,8 @@ internal static class ClusterApi
             setAdministration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageHotSpares.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+            stageNames.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
+            stagePluginConfiguration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageLatestRelease.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageWorldFiles.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             setGoal.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -843,6 +847,32 @@ internal static class ClusterApi
         { return Error(409, "hot_spares_preparation_conflict", error.Message); }
     }
 
+    private static async Task<IResult> StageNames(string uniqueName, ClusterNamesSelection request,
+        HttpContext context, ClusterUpdatePreparationService preparation, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return AcceptedOperation(uniqueName, context, await preparation.StageNamesAsync(uniqueName,
+            request.ServerName, request.WorldName, context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException)
+        { return Error(409, "names_preparation_conflict", error.Message); }
+    }
+
+    private static async Task<IResult> StagePluginConfiguration(string uniqueName, ClusterPluginConfigurationSelection request,
+        HttpContext context, ClusterUpdatePreparationService preparation, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName))
+            return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        try { return AcceptedOperation(uniqueName, context, await preparation.StagePluginConfigurationAsync(uniqueName,
+            request.PluginId, request.ConfigType, request.Values.ToJsonString(), context.User.Identity?.Name ?? "anonymous", token)); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
+        catch (Exception error) when (error is InvalidDataException or InvalidOperationException or ArgumentException)
+        { return Error(409, "plugin_configuration_preparation_conflict", error.Message); }
+    }
+
     private static IResult GetWorldFiles(string uniqueName, HttpContext context, ClusterUpdatePreparationService preparation)
     {
         SetProtocolHeader(context);
@@ -1115,6 +1145,9 @@ internal static class ClusterApi
 public sealed record ClusterRecoveryRequest(Guid Generation);
 public sealed record ClusterProfileSelection(string ConfigProfileId);
 public sealed record ClusterHotSparesSelection(int HotSpares);
+/// <summary>The in-game server and world names; a null or blank one stays as it is.</summary>
+public sealed record ClusterNamesSelection(string? ServerName, string? WorldName);
+public sealed record ClusterPluginConfigurationSelection(string PluginId, string ConfigType, System.Text.Json.Nodes.JsonObject Values);
 /// <summary>World files to stage: paths under <c>Storage/</c> of the world, contents base64 in JSON.</summary>
 public sealed record ClusterWorldFilesSelection(ClusterWorldFile[] Files);
 public sealed record ClusterWorldFile(string Path, byte[] Content);

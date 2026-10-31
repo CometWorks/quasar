@@ -143,7 +143,7 @@ The status line shows each phase:
 3. "Downloading a cluster release compatible with Magnetar": downloads and selects the latest cluster release if the selected one cannot run on the installed PluginSdk.
 4. "Staging the profile's Workshop mods": resolves the mods' dependencies and downloads the current version of each mod with the managed SteamCMD, the same way **Stage profile changes** does (see [Mods and content updates](Clusters.md#mods-and-content-updates)). Magnetar's companion mod is always pinned with them, also for a profile without mods or with crossplay enabled, because Magnetar adds it to every node.
 5. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
-6. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot.
+6. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot. It leaves out what a server running from the installed DS writes itself: `DedicatedServer64/ProfileOptimization` (the .NET runtime's JIT profile) and `Content/Workshop`.
 7. "Converting a copy of the world": splits the world with the release's converter.
 8. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation, the world and the staged mods.
 9. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
@@ -160,6 +160,8 @@ The Gateway's Steam frontend needs Valve's `steamclient.so` in `~/.steam/sdk64` 
 Setup is durable. Its files live in `<install root>/ClusterSetup/<Cluster ID>/` (`request.json`, `status.json`, copied profile and world, plugin export, activation receipt).
 
 - After a failure the status shows "Setup interrupted: <error>" and the inputs stay locked. Fix the cause (for example reconnect a Host) and choose **Resume setup**.
+- "A file changed while it was copied into content storage, nothing was stored: <path> ..." means something rewrote that file during the freeze, for example a DS or Magnetar update. Storage is not damaged. **Resume setup** pins the file again.
+- "Content object does not match its verified pin: <path> ..." means a file already in content storage changed, which Quasar never does. Check the disk and anything else that writes there before you resume.
 - The cluster page of an unfinished setup shows **Resume guided setup**, which opens `/clusters/new?resume=<Cluster ID>`.
 - **Start a new setup** clears the bound request so you can change the inputs under a new Cluster ID.
 - Submitting a finished setup again only re-checks the Hosts.
@@ -193,7 +195,7 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between and the 
 
 ## API
 
-- `POST /api/v1/clusters/setup` with an `Idempotency-Key` header and `{ "uniqueName", "displayName", "worldTemplateId", "configProfileId", "gatewayHost", "playerPort", "machines": [ { "hostId", "regularNodes" } ], "hotSpares", "defaultPlugins" }`. `hotSpares` defaults to 0 here; `defaultPlugins` defaults to `true` (Bugfixes and Performance, as the checkbox above). Needs cluster manage and configuration editing. After a failure, retry with a new key; reusing a key returns the earlier result.
+- `POST /api/v1/clusters/setup` with an `Idempotency-Key` header and `{ "uniqueName", "displayName", "worldTemplateId", "configProfileId", "gatewayHost", "playerPort", "machines": [ { "hostId", "regularNodes" } ], "hotSpares", "defaultPlugins", "inGameWorldName" }`. `inGameWorldName` is the world name players see, `displayName` when left out. `hotSpares` defaults to 0 here; `defaultPlugins` defaults to `true` (Bugfixes and Performance, as the checkbox above). Needs cluster manage and configuration editing. After a failure, retry with a new key; reusing a key returns the earlier result.
 - `GET` and `PUT /api/v1/config-profiles/{profileId}/plugins` read and replace a profile's plugin selection, `[ { "pluginId", "displayName", "selectedVersion" } ]`, where an empty `selectedVersion` means the hub's current commit. Reading needs view access, changing needs configuration editing. A cluster runs the new selection only after **Stage profile changes** (`config-profile-preparation`) and **Apply pending update**.
 - `GET /api/v1/clusters/{id}/setup` returns the stored request and status.
 - `GET /api/v1/host-enrollment` lists enrollments with `connected`. `POST /api/v1/host-enrollment` registers `{ "id", "name", "address", "commandPort" }` (default 18400).

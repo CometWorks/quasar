@@ -135,13 +135,14 @@ public sealed class HostedPanelTests : IDisposable
         await HostedPanelState.SaveAsync(state);
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddAuthentication("fixture").AddCookie("fixture", options =>
+        builder.Services.AddAuthentication(QuasarAuthSchemes.Cookie).AddCookie(QuasarAuthSchemes.Cookie, options =>
         {
             options.Cookie.Name = "Quasar.Auth";
             options.CookieManager = new HostedPanelCookieManager();
             options.LoginPath = "/login";
-        }).AddSteam(options => options.SignInScheme = "fixture");
+        }).AddSteam(options => options.SignInScheme = QuasarAuthSchemes.Cookie);
         builder.Services.AddAuthorization();
+        builder.Services.AddAntiforgery();
         await using var app = builder.Build();
         app.Use((context, next) =>
         {
@@ -153,9 +154,9 @@ public sealed class HostedPanelTests : IDisposable
         app.UseAuthentication();
         app.UseAuthorization();
         app.MapGet("/api/plugin/download", (HttpContext context) => Results.Json(new { pathBase = context.Request.PathBase.Value })).RequireAuthorization();
-        app.MapGet("/login", () => Results.Challenge(new AuthenticationProperties(), [SteamAuthenticationDefaults.AuthenticationScheme]));
+        Quasar.Program.MapAuthenticationEndpoints(app, new());
         app.MapGet("/fixture-signin", async context =>
-            await context.SignInAsync("fixture", new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "verified-steam-fixture")], "Steam"))));
+            await context.SignInAsync(QuasarAuthSchemes.Cookie, new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "verified-steam-fixture")], "Steam"))));
         await app.StartAsync();
         using var client = app.GetTestClient();
         client.BaseAddress = new Uri("https://dash.se-servers.net");
@@ -170,6 +171,25 @@ public sealed class HostedPanelTests : IDisposable
         client.DefaultRequestHeaders.Add("Cookie", signin.Headers.GetValues("Set-Cookie").First(x => x.StartsWith("Quasar.Auth.")).Split(';')[0]);
         var data = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/my-server-panel/api/plugin/download");
         Assert.Equal("/my-server-panel", data.GetProperty("pathBase").GetString());
+        using var logoutGet = await client.GetAsync("/my-server-panel/logout");
+        Assert.Equal(HttpStatusCode.MethodNotAllowed, logoutGet.StatusCode);
+        using var missingToken = await client.PostAsync("/my-server-panel/logout", new FormUrlEncodedContent([]));
+        Assert.Equal(HttpStatusCode.BadRequest, missingToken.StatusCode);
+        using var denied = await client.GetAsync("/my-server-panel/access-denied");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        string html = await denied.Content.ReadAsStringAsync();
+        Assert.Contains("action=\"/my-server-panel/logout\"", html);
+        Assert.Contains("href=\"/my-server-panel/Quasar.png\"", html);
+        var token = System.Text.RegularExpressions.Regex.Match(html, "name=\"(?<name>__RequestVerificationToken)\" value=\"(?<token>[^\"]+)\"");
+        Assert.True(token.Success);
+        string cookie = client.DefaultRequestHeaders.GetValues("Cookie").Single() + "; "
+            + denied.Headers.GetValues("Set-Cookie").Single(value => value.Contains("Antiforgery", StringComparison.Ordinal)).Split(';')[0];
+        client.DefaultRequestHeaders.Remove("Cookie"); client.DefaultRequestHeaders.Add("Cookie", cookie);
+        using var logout = await client.PostAsync("/my-server-panel/logout", new FormUrlEncodedContent([
+            new(token.Groups["name"].Value, WebUtility.HtmlDecode(token.Groups["token"].Value))]));
+        Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
+        Assert.Equal("/my-server-panel/", new Uri(client.BaseAddress, logout.Headers.Location!).AbsolutePath);
+
     }
 
     [Fact]

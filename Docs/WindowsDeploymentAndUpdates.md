@@ -133,6 +133,16 @@ and Bootstrap drains the old worker, starts the managed
 browser shows a restart progress overlay, polls `/api/health` until the
 activated UI version is serving, then reloads the Updates page.
 
+Selecting an older version marked **rollback**, then **Stage** and **Activate**,
+restores both UI and Bootstrap to that exact release. Its Windows installer must
+still be available. Coordinated rollback requires a supporting launcher (Quasar
+1.3.2 or newer); older launchers require upgrading Bootstrap first instead of
+falling back to UI-only rollback. Bootstrap verifies the installer checksum,
+retains `Quasar.exe.previous` and the previous UI pointer for startup recovery,
+and restarts into the prepared UI while managed servers remain running. Disable
+automatic updates first to remain on the older release; automation never
+downgrades either component.
+
 After a worker passes its startup health check, Bootstrap removes completed
 UI and Bootstrap payloads from `Updates\Staged\`. It removes versions at or
 below the running version of each component, including leftovers from earlier
@@ -169,21 +179,24 @@ for a restart to verify or refresh the DS install.
 
 ## Bootstrap Updates
 
-Bootstrap checks the primary Quasar release stream every 15 minutes. When it
-finds a genuinely newer `quasar-installer-windows.zip`, it verifies the
+The UI worker checks the primary Quasar release stream every 15 minutes.
+Bootstrap acts on its activation request. Ordinary updates require a genuinely
+newer `quasar-installer-windows.zip`; Bootstrap verifies the
 `SHA256SUMS` entry, extracts the archive, strips the single top-level `Quasar`
 directory, and replaces the installed launcher files (renaming a running `.exe`
 is permitted on Windows). Existing `appsettings.json` is preserved.
 If the downloaded launcher is byte-identical to the installed launcher, Bootstrap
 skips the worker drain and launcher restart even if the running process reports
 stale version metadata.
+An explicit coordinated rollback permits an older or matching launcher and
+still switches the prepared UI even when the launcher bytes already match.
 
 If `/settings/updates` has already detected a Bootstrap update and Quasar is
 running under Bootstrap, the **Force activate** button writes a
 `Updates\bootstrap-update-request.json` request containing the detected version
 and platform asset. Bootstrap watches for that file, consumes it, and runs the
-same verified self-update path for that requested release immediately instead of
-waiting for the next 15-minute monitor tick. Managed Magnetar servers stay
+same verified self-update path for that requested release immediately.
+There is no independent Bootstrap update timer. Managed Magnetar servers stay
 running; the web UI shows restart progress and reconnects after the launcher
 restarts.
 

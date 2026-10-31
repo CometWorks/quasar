@@ -59,7 +59,7 @@ Compose refuses to start with `Set QUASAR_ADMIN_STEAM_ID in .env` when that vari
 | `Quasar__Diagnostics__UploadToken` | empty | Installation upload token |
 | `QUASAR_UPDATES_AUTO_APPLY`, `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS` | commented out | Opt-in automatic updates. See [Updates](Updates.md). |
 
-Any other Quasar setting works too: either a documented `QUASAR_*` variable or the .NET form with double underscores, for example `QUASAR__AUTH__REQUIREHTTPSFORPUBLICACCESS=true` for `Quasar:Auth:RequireHttpsForPublicAccess`. Environment variables override `appsettings.json`. To use JSON instead, create `quasar-data/appsettings.json`. See [Configuration](Configuration.md). Keep `.env` out of version control when it holds secrets.
+Any other Quasar setting works too: either a documented `QUASAR_*` variable or the .NET form with double underscores. Quasar defaults to private LAN HTTP mode; set `QUASAR__AUTH__REQUIREHTTPSFORPUBLICACCESS=true` before public reverse-proxy exposure. Direct LAN clients remain trusted while correctly forwarded public clients use HTTPS and sign in. Environment variables override `appsettings.json`. To use JSON instead, create `quasar-data/appsettings.json`. See [Configuration](Configuration.md). Keep `.env` out of version control when it holds secrets.
 
 ### Variables fixed by the image
 
@@ -72,6 +72,9 @@ Any other Quasar setting works too: either a documented `QUASAR_*` variable or t
 | `QUASAR_OPEN_BROWSER_ON_START` | `false` | |
 | `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN` | `false` | Managed servers stop with the container |
 | `QUASAR_UPDATES_ENABLED` | `false` | In-app Quasar updater off; the image is the release unit |
+
+Because the fixed `ASPNETCORE_URLS` value is public inside the container,
+`Quasar:Auth:Enabled=false` is rejected at startup. Keep authentication enabled.
 
 ## First administrator
 
