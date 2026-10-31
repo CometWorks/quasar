@@ -448,6 +448,7 @@ public sealed class ClusterCatalog : IDisposable
             cluster.DependencyManifestSha256 = null;
             cluster.PreparedDeployment = null;
             cluster.PreparedForSelectedRelease = false;
+            cluster.PreparedProfile = null;
             cluster.StagedRevision = null;
             Normalize(cluster);
             // UpdatedAtUtc participates in lifecycle request identity. Package staging must not change it.
