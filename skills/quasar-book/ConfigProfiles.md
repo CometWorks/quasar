@@ -47,7 +47,7 @@ The profile does not hold the game port, listen IP, server and world names, rest
 | `<quasar-root>/ConfigProfiles/<profile id>/profile.json` | The profile. |
 | `<quasar-root>/ConfigProfiles/<profile id>/History/<timestamp>.json` | A copy on every save. Delete writes `<timestamp>-deleted.json` here and removes `profile.json`. |
 
-The profile id is a slug made from the name when the profile is created. Quasar writes files atomically and checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
+The profile id is a slug made from the name when the profile is created. Quasar writes profiles and their history atomically and owner-readable/writable only on Unix, then checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
 
 ### Unsaved changes
 
@@ -76,7 +76,7 @@ On every start Quasar replaces the `Administrators`, `Reserved` and `Banned` lis
 
 ### Server password
 
-**Server Password** is in the World tab, Server group. Quasar stores it as plain text in `profile.json`. When rendering `SpaceEngineers-Dedicated.cfg` it writes only `ServerPasswordHash` and `ServerPasswordSalt` (a new random salt on every start). An empty password clears both, so the server has no password.
+**Server Password** is in the World tab, Server group. Quasar stores it as plain text in the owner-only `profile.json` and history files; treat configuration backups as secrets too. When rendering `SpaceEngineers-Dedicated.cfg` it writes only `ServerPasswordHash` and `ServerPasswordSalt` (a new random salt on every start). An empty password clears both, so the server has no password.
 
 ### Online mode and Offline safety
 

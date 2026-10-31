@@ -41,8 +41,12 @@ public sealed class ClusterFleetService(ClusterGatewayClient gateway, AgentRegis
 
     public static AgentRuntimeState? MatchAgent(string clusterId, Admin.NodeStatus node, IReadOnlyList<AgentRuntimeState> agents)
     {
+        if (string.IsNullOrWhiteSpace(node.Host))
+            return null;
+
         var matches = agents.Where(a => a.HasClusterIdentity && a.ClusterId == clusterId
-            && a.ClusterSlot == node.SlotKey && a.ClusterNodeId == node.Node && a.ClusterEpoch == node.Epoch).ToArray();
+            && a.ClusterSlot == node.SlotKey && a.ClusterNodeId == node.Node && a.ClusterEpoch == node.Epoch
+            && string.Equals(a.HostKey, node.Host, StringComparison.OrdinalIgnoreCase)).ToArray();
         // Multiple claimants are ambiguous, even if one arrived more recently.
         return matches.Length == 1 ? matches[0] : null;
     }

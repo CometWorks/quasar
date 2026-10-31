@@ -66,6 +66,8 @@ Settings that only you changed, or only the release changed, merge on their own.
 
 Automatic activation never proceeds past an unresolved conflict.
 
+Quasar creates rewritten and merged `appsettings.json` files owner-readable/writable only on Unix because operator settings can contain credentials. Existing custom Unix modes are preserved by other atomic file rewrites.
+
 ## Bootstrap launcher updates
 
 Bootstrap is the small launcher that owns the public port and runs the worker. It installs a new launcher only when the worker asks it to, by writing `<install root>/Updates/bootstrap-update-request.json`. That happens when you press **Force activate** on the Updates page, or through the automatic update policy below. Bootstrap does not apply releases on its own timer.

@@ -841,8 +841,9 @@ use for local control requests does not change proxy settings for downloads.
 
 ## Reverse proxy auth
 
-Quasar can grant a trusted-network session to loopback or explicitly enabled
-same-subnet clients. Same-subnet bypass is disabled by default.
+Quasar starts in private LAN mode: it grants trusted-network sessions to
+loopback and same-subnet clients by default and permits HTTP. This assumes the
+Quasar port stays behind a firewall and is not forwarded from the router.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
@@ -859,6 +860,23 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
   `Quasar:Auth:TrustedNetworkBypass:TrustedProxies`
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
+
+`Quasar:Auth:RequireHttpsForPublicAccess` defaults to `false` for private LAN
+operation. Enable it before exposing Quasar through a public reverse proxy. After
+applying forwarded headers from a trusted proxy, Quasar then rejects plain HTTP
+requests from non-LAN clients with HTTP 400 and marks authentication and
+Steam correlation cookies Secure. This includes the UI, login, and public
+health/readiness probes; local Bootstrap and container probes can continue to use
+loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
+keep their separate source/Host/credential policy; use HTTPS/WSS for them when
+they leave the machine. Direct loopback and same-subnet clients continue to bypass
+HTTPS and sign-in. The Security page's public proxy preset enables HTTPS
+enforcement while retaining those LAN exceptions; restart Quasar after saving it.
+
+Setting `Quasar:Auth:Enabled=false` is allowed only when every effective listener
+is loopback (`localhost`, `127.0.0.1`, or `::1`). Quasar checks `Quasar:Host`,
+`QUASAR_WEB_HOST`, and every binding in `ASPNETCORE_URLS` before Kestrel starts
+and fails startup if any binding is public. There is no public no-auth override.
 
 Trusted-network roles also require an intended browser destination and same-origin
 context. This check applies to every browser API, including Entity Viewer, before
@@ -886,8 +904,10 @@ BaseUrl to that intended URL and give the proxy an accepted backend Host too.
 Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
 longer get automatic roles; use the configured URL or sign in. Signed-in users
 and service principals retain their existing authentication and permissions.
-Local loopback bypass remains on and same-subnet bypass remains off by default.
-No new aliases or auth configuration fields are introduced. See the
+Local loopback and same-subnet bypass remain on by default for private LAN mode.
+The public proxy preset keeps those direct LAN exceptions while requiring HTTPS
+and authentication for forwarded public clients. No new aliases or auth
+configuration fields are introduced. See the
 [Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
 
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
@@ -900,7 +920,7 @@ proxy host, add the proxy container/host address or bridge CIDR:
     "Auth": {
       "TrustedNetworkBypass": {
         "AllowLoopback": true,
-        "AllowSameSubnet": false,
+        "AllowSameSubnet": true,
         "TrustedProxies": [ "172.18.0.0/16" ],
         "Roles": [ "admin" ]
       }
@@ -909,8 +929,9 @@ proxy host, add the proxy container/host address or bridge CIDR:
 }
 ```
 
-Keep same-subnet bypass disabled whenever browser access should be tied to
-Steam/RBAC identity:
+Forwarded public clients are evaluated by their forwarded address, so they still
+use Steam/RBAC while direct LAN clients remain trusted. To opt out of the direct
+LAN exception manually:
 
 ```json
 {
@@ -1041,9 +1062,11 @@ between UI and headless operation does not convert or duplicate state.
 Enabled UI-plugin package manifests are still read as data so their owned server
 companions remain deployable; their UI assemblies are not loaded.
 
-- `GET /api/health` is process liveness and reports `headless`.
+- `GET /api/health` is process liveness and returns only `{"status":"ok"}`.
 - `GET /api/ready` confirms that the API worker, durable catalogs, and cluster
-  operation store are ready.
+  operation store are ready, returning only `status` with HTTP 200 or 503.
+- `GET /api/discovery` contains worker identity used by the local Bootstrap
+  stale-process guard and is restricted by the machine endpoint policy.
 - `GET /` returns a small JSON discovery document instead of the UI.
 
 Authentication and authorization remain enabled exactly as configured; headless
@@ -1141,9 +1164,9 @@ A local operation that was still running when Quasar stopped is reported as Fail
 Responses preserve the Gateway envelope, capture time, string enum values, and
 stable error codes. When Quasar authentication is enabled, these routes require
 a human `CanView` role or the scoped service-principal permission described below.
-`/api/health` and `/api/ready` include
-`configuredClusters`; they do not contact Gateway and remain usable if a Gateway
-is down. The readiness payload also reports the durable operation store. Recovery
+`/api/health` and `/api/ready` expose only their `status`; they do not contact
+Gateway and remain usable if a Gateway is down. Readiness is based on the durable
+operation store. Recovery
 readiness is calculated by Gateway from its durable Registry,
 Save Catalog, snapshot, WAL, and artifact-holder records; Quasar does not infer it
 from node liveness.

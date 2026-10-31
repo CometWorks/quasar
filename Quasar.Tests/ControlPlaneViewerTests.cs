@@ -121,7 +121,9 @@ public sealed class ControlPlaneViewerTests : IDisposable
     public async Task DiscordViewerGetsStatusAndBindingsWithoutCredentialsOrActions(bool editor)
     {
         await using var context = Context(editor);
-        var options = new DiscordOptionsCatalog(NullLogger<DiscordOptionsCatalog>.Instance);
+        var options = new DiscordOptionsCatalog(
+            NullLogger<DiscordOptionsCatalog>.Instance,
+            new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
         await options.SaveAsync(new() { BotToken = "secret-discord-token", Enabled = true, GuildId = 12345 });
         context.Services.AddSingleton(options);
         context.Services.AddSingleton(new DeathMessagesCatalog(NullLogger<DeathMessagesCatalog>.Instance));

@@ -15,9 +15,9 @@ public sealed class ClusterAgentIdentityTests : IDisposable
     private readonly MetricsStoreService _metrics = new(null!, new AnalyticsStoreOptions(), NullLogger<MetricsStoreService>.Instance);
     private AgentRegistry Registry() => new(null!, _metrics, new ProfilerStoreService(), new PluginStatsStoreService());
     private static AgentHello Hello(long epoch = 300, string id = "process-a") => new()
-    { AgentId = id, UniqueName = "slot-server", ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a", ClusterNodeId = "node-a", ClusterEpoch = epoch };
+    { AgentId = id, UniqueName = "slot-server", HostId = "host", ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a", ClusterNodeId = "node-a", ClusterEpoch = epoch };
     private static AgentSnapshot Snapshot(long epoch = 300, string id = "process-a") => new()
-    { AgentId = id, UniqueName = "slot-server", ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a", ClusterNodeId = "node-a", ClusterEpoch = epoch };
+    { AgentId = id, UniqueName = "slot-server", HostId = "host", ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a", ClusterNodeId = "node-a", ClusterEpoch = epoch };
     private static Task Sender(AgentWireMessage message, CancellationToken token) => Task.CompletedTask;
 
     [Fact]
@@ -51,6 +51,8 @@ public sealed class ClusterAgentIdentityTests : IDisposable
         var node = new Admin.NodeStatus("node-a", "slot-a", 301, Admin.NodeRole.Regular, Admin.NodeState.Active,
             "endpoint", null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1), 0, 0, "host", true);
         Assert.Same(current, ClusterFleetService.MatchAgent("cluster-a", node, [old, current]));
+        Assert.Null(ClusterFleetService.MatchAgent("cluster-a", node with { Host = "other-host" }, [current]));
+        Assert.Null(ClusterFleetService.MatchAgent("cluster-a", node with { Host = null }, [current]));
         Assert.Null(ClusterFleetService.MatchAgent("other-cluster", node, [current]));
         Assert.Null(ClusterFleetService.MatchAgent("cluster-a", node with { SlotKey = "other-slot" }, [current]));
         Assert.Null(ClusterFleetService.MatchAgent("cluster-a", node, [current, current.Clone()]));

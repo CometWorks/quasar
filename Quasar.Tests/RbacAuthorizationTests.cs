@@ -8,12 +8,12 @@ namespace Quasar.Tests;
 public sealed class RbacAuthorizationTests
 {
     [Fact]
-    public void SameSubnetAdminBypassIsOffByDefault()
+    public void PrivateLanAdminBypassIsOnByDefault()
     {
         var options = new TrustedNetworkBypassOptions();
 
         Assert.True(options.AllowLoopback);
-        Assert.False(options.AllowSameSubnet);
+        Assert.True(options.AllowSameSubnet);
         Assert.Contains(QuasarRoles.Admin, options.Roles);
     }
 

@@ -941,7 +941,7 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         var managedRuntime = GetOrCreateJsonObject(quasar, "ManagedRuntime");
         managedRuntime[settingName] = value;
 
-        await AtomicFileWriter.WriteTextAsync(path, root.ToJsonString(AppSettingsJsonOptions), cancellationToken);
+        await AtomicFileWriter.WritePrivateTextAsync(path, root.ToJsonString(AppSettingsJsonOptions), cancellationToken);
     }
 
     private static JsonObject GetOrCreateJsonObject(JsonObject parent, string name)

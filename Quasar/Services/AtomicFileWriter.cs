@@ -4,7 +4,29 @@ namespace Quasar.Services;
 
 public static class AtomicFileWriter
 {
+    private static readonly UnixFileMode PrivateUnixFileMode =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite;
+
     public static async Task WriteTextAsync(string path, string content, CancellationToken cancellationToken = default)
+    {
+        UnixFileMode? unixCreateMode = null;
+        if (!OperatingSystem.IsWindows() && File.Exists(path))
+            unixCreateMode = File.GetUnixFileMode(path);
+
+        await WriteTextAsync(path, content, unixCreateMode, cancellationToken);
+    }
+
+    public static Task WritePrivateTextAsync(
+        string path,
+        string content,
+        CancellationToken cancellationToken = default) =>
+        WriteTextAsync(path, content, PrivateUnixFileMode, cancellationToken);
+
+    private static async Task WriteTextAsync(
+        string path,
+        string content,
+        UnixFileMode? unixCreateMode,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
 
@@ -18,7 +40,16 @@ public static class AtomicFileWriter
 
         try
         {
-            await using (var stream = new FileStream(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            var options = new FileStreamOptions
+            {
+                Mode = FileMode.CreateNew,
+                Access = FileAccess.Write,
+                Share = FileShare.None,
+            };
+            if (unixCreateMode.HasValue && !OperatingSystem.IsWindows())
+                options.UnixCreateMode = unixCreateMode.Value;
+
+            await using (var stream = new FileStream(tempPath, options))
             await using (var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)))
             {
                 await writer.WriteAsync(content.AsMemory(), cancellationToken);
