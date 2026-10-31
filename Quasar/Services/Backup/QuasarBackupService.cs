@@ -47,6 +47,8 @@ public sealed class QuasarBackupService
     private const string MagnetarSourcesDirectory = "Sources";
     private const string MagnetarSourcesPluginsDirectory = "Plugins";
     private const string MagnetarLocalDirectory = "Local";
+    private static readonly UnixFileMode PrivateUnixFileMode =
+        UnixFileMode.UserRead | UnixFileMode.UserWrite;
 
     private static readonly HashSet<string> ExcludedMagnetarLocalFiles = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -139,7 +141,11 @@ public sealed class QuasarBackupService
         var tempPath = CreateTempBackupPath(path);
         try
         {
-            await File.WriteAllBytesAsync(tempPath, content, cancellationToken);
+            await using (var stream = OpenPrivateWrite(tempPath))
+            {
+                await stream.WriteAsync(content, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
             File.Move(tempPath, path);
         }
         finally
@@ -338,7 +344,7 @@ public sealed class QuasarBackupService
         var tempPath = Path.Combine(Path.GetTempPath(), $"quasar-restore-{Guid.NewGuid():N}.zip");
         try
         {
-            await using (var tempWrite = File.Open(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            await using (var tempWrite = OpenPrivateWrite(tempPath))
                 await zipStream.CopyToAsync(tempWrite, cancellationToken);
 
             await using var tempRead = File.Open(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read);
@@ -562,7 +568,7 @@ public sealed class QuasarBackupService
         var tempPath = CreateTempBackupPath(path);
         try
         {
-            await using (var stream = File.Open(tempPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            await using (var stream = OpenPrivateWrite(tempPath))
             {
                 using (var archive = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: true))
                     buildArchive(archive);
@@ -1139,6 +1145,19 @@ public sealed class QuasarBackupService
 
     private static string CreateTempBackupPath(string finalPath) =>
         $"{finalPath}.tmp";
+
+    internal static FileStream OpenPrivateWrite(string path)
+    {
+        var options = new FileStreamOptions
+        {
+            Mode = FileMode.CreateNew,
+            Access = FileAccess.Write,
+            Share = FileShare.None,
+        };
+        if (!OperatingSystem.IsWindows())
+            options.UnixCreateMode = PrivateUnixFileMode;
+        return new FileStream(path, options);
+    }
 
     private static string ToEntryPath(string relativePath) =>
         relativePath.Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/');

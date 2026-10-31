@@ -55,17 +55,7 @@ public sealed class TrustedNetworkEvaluator
             !IsAllowedDestination(context) || !HasSameOriginContext(context.Request))
             return false;
 
-        var remoteIp = context.Connection.RemoteIpAddress;
-        if (remoteIp is null)
-            return false;
-
-        if (remoteIp.IsIPv4MappedToIPv6)
-            remoteIp = remoteIp.MapToIPv4();
-
-        if (_options.TrustedNetworkBypass.AllowLoopback && IPAddress.IsLoopback(remoteIp))
-            return true;
-
-        return _options.TrustedNetworkBypass.AllowSameSubnet && IsOnLocalSubnet(remoteIp);
+        return IsTrustedAddress(context.Connection.RemoteIpAddress, _options.TrustedNetworkBypass);
     }
 
     private bool IsAllowedDestination(HttpContext context)
@@ -129,6 +119,16 @@ public sealed class TrustedNetworkEvaluator
 
     private static bool HasForwardingHeader(HttpRequest request) =>
         ForwardingHeaders.Any(request.Headers.ContainsKey);
+
+    internal static bool IsTrustedAddress(IPAddress? remoteIp, TrustedNetworkBypassOptions options)
+    {
+        if (remoteIp is null)
+            return false;
+        if (remoteIp.IsIPv4MappedToIPv6)
+            remoteIp = remoteIp.MapToIPv4();
+        return options.AllowLoopback && IPAddress.IsLoopback(remoteIp) ||
+            options.AllowSameSubnet && IsOnLocalSubnet(remoteIp);
+    }
 
     private static bool IsOnLocalSubnet(IPAddress remoteIp)
     {

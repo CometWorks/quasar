@@ -141,7 +141,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
             else
             {
                 key.KeySize = 3072;
-                await AtomicFileWriter.WriteTextAsync(path, key.ExportPkcs8PrivateKeyPem(), token);
+                await AtomicFileWriter.WritePrivateTextAsync(path, key.ExportPkcs8PrivateKeyPem(), token);
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
             }
             if (key.KeySize != 3072) throw new InvalidDataException("Invalid diagnostic machine key.");

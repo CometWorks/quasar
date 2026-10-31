@@ -18,9 +18,9 @@ public sealed class MachineEndpointPolicy
             throw new ArgumentException("Machine endpoints require explicit sources and destination authorities.");
     }
 
-    public bool Allows(IPAddress? socketPeer, bool hasOrigin, string authority)
+    public bool Allows(IPAddress? socketPeer, bool hasOrigin, string? authority)
     {
-        if (hasOrigin || socketPeer is null || !_hosts.Contains(authority)) return false;
+        if (hasOrigin || socketPeer is null || string.IsNullOrWhiteSpace(authority) || !_hosts.Contains(authority)) return false;
         if (socketPeer.IsIPv4MappedToIPv6) socketPeer = socketPeer.MapToIPv4();
         return _sources.Any(network => network.Contains(socketPeer));
     }

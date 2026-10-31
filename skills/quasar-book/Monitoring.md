@@ -320,7 +320,7 @@ Alerts go to the SimSpeed alert channel, or the analytics channel when that is e
 
 ### Settings file
 
-Everything on the Discord page, including the bot token, is saved in `<data dir>/discord.json` as plain JSON. Protect that file. Quasar watches it and applies edits made on disk without a restart. Bot messages are logged to `discord.log` as well as `quasar.log` (see [Troubleshooting](Troubleshooting.md#where-the-logs-are)).
+Everything on the Discord page is saved in `<data dir>/discord.json`. Quasar protects the bot token with its ASP.NET Core Data Protection keyring and creates the file owner-readable/writable only on Unix; the other settings remain ordinary JSON. Keep `DataProtection-Keys/` when moving or restoring the install, or enter the token again. On first load, Quasar migrates a legacy plaintext `botToken` immediately. Quasar watches the file and applies edits made on disk without a restart. Bot messages are logged to `discord.log` as well as `quasar.log` (see [Troubleshooting](Troubleshooting.md#where-the-logs-are)).
 
 ## Appearance
 

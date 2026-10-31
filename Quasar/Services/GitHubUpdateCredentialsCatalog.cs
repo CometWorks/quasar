@@ -11,9 +11,6 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
     public const string QuasarTokenVariableName = "QUASAR_GITHUB_TOKEN";
     public const string GenericTokenVariableName = "GITHUB_TOKEN";
 
-    private static readonly UnixFileMode CredentialUnixFileMode =
-        UnixFileMode.UserRead | UnixFileMode.UserWrite;
-
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -106,8 +103,7 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
         var json = JsonSerializer.Serialize(persisted, JsonOptions);
         var path = MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath();
 
-        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
-        RestrictCredentialFileAccess(path);
+        await AtomicFileWriter.WritePrivateTextAsync(path, json, cancellationToken);
 
         lock (_sync)
         {
@@ -181,24 +177,6 @@ public sealed class GitHubUpdateCredentialsCatalog : IDisposable
 
     private static string CreateSnapshot(GitHubUpdateCredentials credentials) =>
         JsonSerializer.Serialize(GitHubUpdateCredentials.Normalize(credentials), JsonOptions);
-
-    private void RestrictCredentialFileAccess(string path)
-    {
-        if (OperatingSystem.IsWindows())
-            return;
-
-        try
-        {
-            File.SetUnixFileMode(path, CredentialUnixFileMode);
-        }
-        catch (Exception exception) when (exception is IOException or NotSupportedException or UnauthorizedAccessException)
-        {
-            _logger.LogWarning(exception,
-                "Failed setting owner-only permissions on GitHub update credentials file {Path}. " +
-                "The token remains encrypted, but the host filesystem permissions should be checked.",
-                path);
-        }
-    }
 
     private sealed class PersistedCredentials
     {

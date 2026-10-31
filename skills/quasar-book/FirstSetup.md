@@ -52,7 +52,7 @@ The Quasar admin role controls access to Quasar only. It is separate from the `A
 
 ## Sign in with Steam
 
-Click the sign-in icon in the top bar (or open `/login`). Quasar sends you to the Steam OpenID login page and back. After sign-in the top bar shows your SteamID64 next to the sign-out icon (tooltip "Sign out Steam <SteamID>"). The sign-out icon goes to `/logout`.
+Click the sign-in icon in the top bar (or open `/login`). Quasar sends you to the Steam OpenID login page and back. After sign-in the top bar shows your SteamID64 next to the sign-out icon (tooltip "Sign out Steam <SteamID>"). The sign-out button submits an antiforgery-protected logout request.
 
 - The session cookie is `Quasar.Auth`. It lasts 12 hours and renews while you use the UI.
 - A Steam account without a role mapping gets the page "You are signed in, but this account has no Quasar role." It has **Sign out** and **Retry Steam sign-in** buttons. Ask an admin to add your SteamID, then sign in again.

@@ -81,12 +81,15 @@ public sealed class MachineEndpointSecurityTests
         Assert.Throws<ArgumentException>(() => new MachineEndpointPolicy(["127.0.0.1"], [host]));
 
     [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" ")]
     [InlineData("evil.example:8080")]
     [InlineData("quasar.vpn")]
     [InlineData("quasar.vpn:8081")]
     [InlineData("quasar.vpn.:8080")]
     [InlineData("quasar.vpn:8080,evil.example")]
-    public void HostMustMatchConfiguredAuthority(string host) =>
+    public void HostMustMatchConfiguredAuthority(string? host) =>
         Assert.False(Policy.Allows(IPAddress.Loopback, false, host));
 
     [Theory]
@@ -108,6 +111,7 @@ public sealed class MachineEndpointSecurityTests
     [InlineData("/ws/agent", true)]
     [InlineData("/WS/AGENT/", true)]
     [InlineData("/api/internal/drain", true)]
+    [InlineData("/api/discovery", true)]
     [InlineData("/api/v1/hosts/one/connect", true)]
     [InlineData("/api/v1/hosts/one/tunnels/30f6736c675c430ba37a03375e64fb8c", true)]
     [InlineData("/api/v1/hosts/one/update/binary", true)]
@@ -119,6 +123,25 @@ public sealed class MachineEndpointSecurityTests
     [InlineData("/login", false)]
     public void MachineRoutesAreSeparateFromBrowserFlows(string path, bool machine) =>
         Assert.Equal(machine, MachineEndpointSecurity.IsMachinePath(path));
+
+    [Fact]
+    public async Task DiscoveryRejectsNonMachineSource()
+    {
+        var context = new DefaultHttpContext();
+        context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.2");
+        context.Request.Path = "/api/discovery";
+        context.Request.Host = new("127.0.0.1:8080");
+        var reachedEndpoint = false;
+
+        await MachineEndpointSecurity.InvokeAsync(context, _ =>
+        {
+            reachedEndpoint = true;
+            return Task.CompletedTask;
+        }, Policy);
+
+        Assert.Equal(StatusCodes.Status403Forbidden, context.Response.StatusCode);
+        Assert.False(reachedEndpoint);
+    }
 
     [Theory]
     [InlineData("203.0.113.2", "quasar.vpn:8080", "127.0.0.1", "quasar.vpn:8080", 403)]
