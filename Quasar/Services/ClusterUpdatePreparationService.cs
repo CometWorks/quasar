@@ -443,9 +443,11 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
 
     internal static void SetPluginValues(System.Text.Json.Nodes.JsonNode specification, string pluginId, string configType, string values)
     {
-        var plugin = specification["pluginConfigurations"]![pluginId]!;
+        var plugin = specification["pluginConfigurations"]?[pluginId]
+            ?? throw new InvalidDataException($"The saved preparation has no configuration for plugin {pluginId}.");
         var config = plugin["configurations"] is System.Text.Json.Nodes.JsonArray configs
-            ? configs.Single(c => c?["configType"]?.GetValue<string>() == configType)! : plugin;
+            ? configs.SingleOrDefault(c => c?["configType"]?.GetValue<string>() == configType)
+                ?? throw new InvalidDataException($"Plugin {pluginId} has no configuration of type {configType}.") : plugin;
         config["configuration"]!["values"] = JsonNode.Parse(values) as JsonObject
             ?? throw new InvalidDataException("Plugin settings must be a JSON object.");
     }

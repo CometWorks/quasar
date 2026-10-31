@@ -132,6 +132,7 @@ public sealed class ClusterDependencyTests
             var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
             var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
                 null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            await Assert.ThrowsAsync<InvalidDataException>(() => preparation.StagePluginConfigurationAsync("demo", "other", "Primary", "{}", "test", default));
             var result = await preparation.StagePluginConfigurationAsync("demo", "plugin", "Primary", "{\"limit\":9}", "test", default);
             Assert.Equal(ClusterOperationState.Succeeded, result.State);
             var saved = catalog.GetCluster("demo")!;

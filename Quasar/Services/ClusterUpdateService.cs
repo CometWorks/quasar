@@ -253,14 +253,16 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                             // After a dirty shutdown it is crash-consistent: it holds what the Dirty list names as unsaved.
                             logger.LogInformation("Cluster {Cluster} update stopped {Seconds:0.0} s after it began.", cluster.UniqueName,
                                 (DateTimeOffset.UtcNow - workflow.StartedAt).TotalSeconds);
-                            if (backups is not null)
-                                await TimedAsync(cluster, "backup", () => backups.CaptureCoreAsync(cluster,
+                            // A first deployment that never ran has no world to back up yet.
+                            bool backUp = backups is not null && (dirtyShutdown || cluster.IsProvenStopped(requireRun: true));
+                            if (backUp)
+                                await TimedAsync(cluster, "backup", () => backups!.CaptureCoreAsync(cluster,
                                     new(workflow.Id, AllowCrashConsistent: dirtyShutdown), token, updateId: workflow.Id));
                             await TimedAsync(cluster, "dry run", () => deployments.ActivateCoreAsync(cluster, workflow.Deployment, token,
                                 dryRun: true, update: true, dirtyShutdown: dirtyShutdown));
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Activating,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow,
-                                Backup = backups is null ? null : workflow.Id }, token);
+                                Backup = backUp ? workflow.Id : null }, token);
                             break;
                         case ClusterUpdatePhase.Activating:
                             await TimedAsync(cluster, "activation", () => deployments.ActivateCoreAsync(cluster, workflow.Deployment, token,

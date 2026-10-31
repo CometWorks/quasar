@@ -1519,6 +1519,11 @@ tools pick up the newly saved preparation and activation request automatically.
 If no editable schemas are available, complete guided setup or prepare an imported
 deployment first. Unsaved imported requests remain in the advanced deployment tools
 until prepared. Cluster management permission and cluster access are required to save.
+The API equivalent is `POST /api/v1/clusters/{uniqueName}/plugin-configuration-preparation` with
+`{"pluginId":"...","configType":"...","values":{...}}`, which also needs configuration editing. `values`
+replaces all of that configuration's values, so read the rest from the saved preparation first. A cluster that
+has not run since guided setup can get its values before its first start: apply the update as usual. It takes no
+backup, because there is no world yet, and it starts the cluster.
 
 ## Cluster content update observations
 
