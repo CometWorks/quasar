@@ -34,6 +34,10 @@
         <ul>@foreach (var mod in Profile.Mods) { <li>@mod.DisplayName · @mod.WorkshopId @(mod.IsDependency ? "(dependency)" : "")</li> }</ul>
     </details>
     <details>
+        <summary>Command aliases (@(Profile.CommandAliases?.Count ?? 0))</summary>
+        <ul>@foreach (var alias in Profile.CommandAliases ?? []) { <li><code>@alias.Source</code> → <code>@alias.Target</code></li> }</ul>
+    </details>
+    <details>
         <summary>Plugins (@Profile.Plugins.Count)</summary>
         <ul>@foreach (var plugin in Profile.Plugins) { <li>@plugin.DisplayName · @plugin.PluginId · @plugin.SelectedVersion</li> }</ul>
     </details>

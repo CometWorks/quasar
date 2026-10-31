@@ -266,6 +266,14 @@ Quasar's shared catalog is MagnetarHub. To make a plugin selectable for everyone
 
 Agent/control traffic additionally requires explicit socket peer and Host restrictions and rejects any Origin header. Cluster node tokens bind Host, cluster, slot and node. Follow the [DIS-0042 save, Host update and cluster re-pin instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) when upgrading older agents.
 
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
+
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/QuasarDefaultPlugins.cs`
@@ -317,3 +325,5 @@ Agent/control traffic additionally requires explicit socket peer and Host restri
 - `Quasar.Tests/DevFolderRuntimePreparationTests.cs`
 - `Quasar.Tests/PluginHubTests.cs`
 - `Quasar.Tests/PluginConfigSnapshotPersistenceTests.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

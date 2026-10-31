@@ -95,6 +95,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
                 var canonical = exportedData["pluginConfigurations"]?.DeepClone() as JsonObject
                     ?? throw new InvalidDataException("Magnetar did not export plugin configuration.");
                 PreservePluginValues(spec["pluginConfigurations"] as JsonObject, canonical);
+                QuasarCommandAliases.ApplyToCanonical(canonical, effective);
                 spec["pluginConfigurations"] = canonical;
                 string json = spec.ToJsonString();
                 var transfer = Guid.NewGuid();

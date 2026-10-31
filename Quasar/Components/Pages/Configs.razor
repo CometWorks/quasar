@@ -921,6 +921,12 @@
                         </section>
                         }
                     </MudTabPanel>
+                    <MudTabPanel Text="Command aliases">
+                        @if (IsConfigTabActive(CommandAliasesTabIndex))
+                        {
+                            <CommandAliasesEditor Profile="_editor" />
+                        }
+                    </MudTabPanel>
                 </MudTabs>
 
                 <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mt-4">
@@ -1081,6 +1087,7 @@
     private const int WorldTabIndex = 0;
     private const int PluginsTabIndex = 1;
     private const int ModsTabIndex = 2;
+    private const int CommandAliasesTabIndex = 3;
     private const int PluginDescriptionFallbackMaxLength = 50;
     private const string ConfigOptionTooltipStyle = "white-space: pre-line; max-width: 34rem; text-align: left; line-height: 1.35; font-size: 0.78rem;";
     private const string CrossplayModsDisabledWarning = "Mods are disabled while Cross Platform is enabled. Turn off Cross Platform to add or edit mods.";
@@ -1309,6 +1316,8 @@
             return false;
         }
 
+        if (!ValidateCommandAliases()) return false;
+
         await ResolveProfileModDependenciesAsync(_editor);
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
         await ConfigProfiles.UpsertAsync(_editor);
@@ -1496,6 +1505,20 @@
         profile.RootSettings.AutodetectDependencies = true;
     }
 
+    private bool ValidateCommandAliases()
+    {
+        try
+        {
+            QuasarCommandAliases.Validate(_editor?.CommandAliases);
+            return true;
+        }
+        catch (ArgumentException error)
+        {
+            Snackbar.Add(error.Message, Severity.Warning);
+            return false;
+        }
+    }
+
     private async Task CloneCurrentProfileForCrossplayAsync()
     {
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
@@ -1507,6 +1530,8 @@
             Snackbar.Add("Fix the SteamID64 values in Access before cloning this profile.", Severity.Warning);
             return;
         }
+
+        if (!ValidateCommandAliases()) return;
 
         var sourceName = string.IsNullOrWhiteSpace(_editor.Name)
             ? "current profile"

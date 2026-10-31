@@ -13,6 +13,43 @@ section separator, such as `QUASAR__AUTH__ENABLED=false`. Quasar's shorter
 `QUASAR_*` deployment overrides take precedence where documented. Docker users
 should also see [Docker Deployment](Docker.md).
 
+## Command aliases per configuration profile
+
+Open **Configs**, select a profile, then open **Command aliases**. Add a source
+such as `!grids list` and target `!ess grids list`, then **Save Profile**. Each
+profile keeps its own aliases, including when cloned. Remove rows and save to
+clear them. Restart assigned standalone servers to apply the profile. For a
+cluster, stage and apply the selected profile so the pinned Agent configuration
+reaches every node; saving alone does not change a running server.
+
+An alias matches a whole command-word prefix, ignoring case. The longest source
+wins and intentionally overrides a registered command with the same path.
+Remaining arguments keep their quoted or escaped grouping. For example,
+`!grids list "Big Ship"` becomes `!ess grids list "Big Ship"`. Expansion happens
+once; aliases do not chain. An unavailable target produces a private error and
+the command text is suppressed from normal chat. Target plugins must be enabled.
+
+The original player's identity and target-command permissions still apply.
+Aliases do not grant console or admin access. Quasar's Chat console can also use
+aliases with its existing console permissions. Generated `!help` continues to list
+the registered targets rather than aliases.
+
+Sources and targets start with `!` and contain ASCII letters, digits, underscores
+or hyphens separated by spaces or tabs. A profile supports 64 aliases, with up to
+512 characters per path. Duplicate sources, exact self aliases and sources
+starting with `!help` are rejected. Fixed quoted arguments in configured paths
+are not supported; players can still quote arguments when invoking them.
+
+Aliases need the matching Quasar.Agent and Magnetar with PluginSdk contract 1.1
+(or a later 1.x contract). Quasar refuses to start or stage a profile with aliases
+on an older runtime. Profiles without aliases continue to work on older Magnetar.
+Standalone preparation replaces `CommandAliases.json` under the server's Magnetar
+data directory, including an empty snapshot when aliases are cleared. Clusters
+carry the same values in their existing canonical plugin configuration. Profile
+staging overrides any previous Agent alias values. Edit this setting in the profile
+for persistence; temporary plugin-config edits are replaced by the next profile
+application.
+
 ## Managed runtime startup check
 
 When Quasar starts, it immediately checks the managed SteamCMD install and the

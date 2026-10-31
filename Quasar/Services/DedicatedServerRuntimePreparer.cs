@@ -70,7 +70,7 @@ public sealed class DedicatedServerRuntimePreparer
         DedicatedServerDefinition definition,
         string dedicatedServer64Path,
         MagnetarLaunchArgumentStyle launchArgumentStyle,
-        CancellationToken cancellationToken = default, QuasarConfigProfile? profileOverride = null)
+        CancellationToken cancellationToken = default, QuasarConfigProfile? profileOverride = null, string? magnetarExecutablePath = null)
     {
         ArgumentNullException.ThrowIfNull(definition);
 
@@ -78,6 +78,7 @@ public sealed class DedicatedServerRuntimePreparer
         var dedicatedServerAppDataPath = paths.DedicatedServerAppDataPath;
         var magnetarAppDataPath = paths.MagnetarAppDataPath;
         var configProfile = profileOverride ?? ResolveConfigProfile(definition);
+        QuasarCommandAliases.RequireRuntime(configProfile, magnetarExecutablePath ?? definition.ExecutablePath);
         var worldPath = ResolveConfiguredWorldPath(paths);
         var runtimeConfigPath = Path.Combine(dedicatedServerAppDataPath, "SpaceEngineers-Dedicated.cfg");
         var lastSessionPath = Path.Combine(dedicatedServerAppDataPath, "Saves", "LastSession.sbl");
@@ -108,6 +109,8 @@ public sealed class DedicatedServerRuntimePreparer
             }
         }
 
+        await AtomicFileWriter.WriteTextAsync(Path.Combine(magnetarAppDataPath, QuasarCommandAliases.FileName),
+            QuasarCommandAliases.Serialize(configProfile), cancellationToken);
         await PrepareRuntimeConfigAsync(definition, configProfile, worldPath, runtimeConfigPath, cancellationToken);
         var unresolvedPluginIds = await PrepareMagnetarConfigAsync(definition, configProfile, magnetarAppDataPath, launchArgumentStyle, cancellationToken);
         await PrepareWorldConfigAsync(definition, configProfile, worldPath, cancellationToken);

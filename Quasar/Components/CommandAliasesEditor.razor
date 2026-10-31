@@ -1,0 +1,25 @@
+<section class="quasar-panel pa-4">
+    <h2>Command aliases</h2>
+    <p>Add shortcuts such as <code>!grids list</code> to <code>!ess grids list</code>. Save the profile, then restart the server or stage and apply the cluster profile.</p>
+    <p>Paths start with ! and contain letters, digits, underscores or hyphens separated by spaces. Longest matching path wins, ignoring case. Remaining arguments keep their quoted grouping. Aliases override matching command paths, expand once, and retain the player's identity and target permissions. You cannot replace !help.</p>
+    <p>Requires Magnetar with PluginSdk contract 1.1. Keep target plugins enabled in this profile.</p>
+    @foreach (var alias in Profile.CommandAliases ?? [])
+    {
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-2 mb-2" @key="alias">
+            <label class="quasar-field">Alias<input @bind="alias.Source" @bind:event="oninput" placeholder="!grids list" maxlength="512" /></label>
+            <label class="quasar-field">Target command<input @bind="alias.Target" @bind:event="oninput" placeholder="!ess grids list" maxlength="512" /></label>
+            <button type="button" class="quasar-btn" @onclick="() => Remove(alias)">Remove alias</button>
+        </div>
+    }
+    <button type="button" class="quasar-btn" disabled="@(Profile.CommandAliases?.Count >= 64)" @onclick="Add">Add alias</button>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public QuasarConfigProfile Profile { get; set; } = default!;
+    private void Add() => (Profile.CommandAliases ??= []).Add(new());
+    private void Remove(QuasarCommandAlias alias)
+    {
+        Profile.CommandAliases?.Remove(alias);
+        if (Profile.CommandAliases?.Count == 0) Profile.CommandAliases = null;
+    }
+}

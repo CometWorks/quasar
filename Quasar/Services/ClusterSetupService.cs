@@ -227,6 +227,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                             InGameWorldName = request.WorldName };
                         var specification = JsonNode.Parse(await ClusterConversionService.SpecificationAsync(cluster, source, savedProfile, null, topology, world, paths, ct))!;
                         specification["pluginConfigurations"] = pluginData["pluginConfigurations"]?.DeepClone() ?? throw new InvalidDataException("Magnetar did not export canonical plugin configurations.");
+                        QuasarCommandAliases.ApplyToCanonical(specification["pluginConfigurations"]!.AsObject(), savedProfile);
                         ClusterWorkshopModStager.AddToSpecification(specification.AsObject(), mods,
                             await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.WorldName, ct));
                         await StageAsync(request, "Preparing and activating the stopped cluster", null, ct);
@@ -407,7 +408,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
             InGameServerName = displayName, ConfigProfileId = profileId,
             DedicatedServerAppDataPath = Path.Combine(work, "preparation/DedicatedServer"), MagnetarAppDataPath = Path.Combine(work, "preparation/Magnetar"),
             WorldPath = Path.Combine(work, "preparation"), WorldSaveName = "world" };
-        var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile);
+        var prepared = await preparer.PrepareAsync(source, runtime.ResolveInstalledDedicatedServer64Path(), MagnetarLaunchArgumentStyle.Current, token, selectedProfile, magnetar);
         if (prepared.UnresolvedPluginIds is { Count: > 0 } unresolved)
             throw new InvalidOperationException("No plugin hub or dev folder lists the selected plugins " + string.Join(", ", unresolved)
                 + ". Register the hub that lists them in Configs → Developer, or remove them from the profile.");

@@ -347,6 +347,14 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **Push button disabled**: open the UI over HTTPS or on `localhost`, or remove an old subscription when at 16.
 - **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
 
+## Profile command aliases
+
+Admins can add per-profile shortcuts such as `!grids list` to `!ess grids list`
+in **Configs > Command aliases**. Aliases retain the player's permissions. Save
+and restart the standalone server, or stage and apply the cluster profile.
+See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
+collisions, limits and the required Magnetar version.
+
 ## Sources
 - `Quasar/wwwroot/app.css`
 - `Docs/AnalyticsCpuLoad.md`
@@ -408,3 +416,5 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - `Quasar.Tests/AnnouncementTests.cs`
 - `Quasar/Components/Shared/NotificationBell.razor`
 - `Quasar.Tests/AnnouncementBrowserReceiptTests.cs`
+- `Quasar/Services/QuasarCommandAliases.cs`
+- `Quasar.Agent/CommandAliasConfiguration.cs`

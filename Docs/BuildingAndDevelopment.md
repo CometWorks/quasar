@@ -524,3 +524,15 @@ Build their adapters and preview hosts without launching Quasar. Viewer checks
 include `dotnet test tests/UiChecks/UiChecks.csproj`, `npm test`, and
 `npm run check` from the viewer checkout. The renderer and companion plugin are
 unchanged; native UI tests do not establish real asset-streaming acceptance.
+
+### Profile command alias regression tests
+
+Build Magnetar's PluginSdk with contract 1.1 and set `MagnetarBin` to its output
+when running `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~CommandAliasProfileTests|FullyQualifiedName~AgentCommandAliasTests|FullyQualifiedName~QuasarConfigProfileTests|FullyQualifiedName~DevFolderRuntimePreparationTests'`.
+Tests cover profile save/reload/clone/isolation, validation, actual standalone
+preparation/removal, SDK configuration serialization, canonical cluster overlay,
+editor interaction, and the Agent-to-dispatcher handoff with player identity and
+permission checks. Test output includes game reference DLLs for the SDK serializer;
+no Quasar or game process starts. The Agent still builds against older SDKs using
+reflection, and empty profiles remain supported. Configured aliases require
+contract 1.1 at runtime. Windows live player/cluster acceptance is a separate check.
