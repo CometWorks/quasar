@@ -357,6 +357,80 @@ public sealed class ClusterDependencyTests
         finally { Environment.SetEnvironmentVariable(credential, null); }
     }
 
+    // SE-845: a package selection discards a staged profile, so the next preparation builds on the active profile.
+    [LinuxFact]
+    public async Task PreparingAfterAPackageSelectionDropsTheStagedProfile()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        string hash = ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions));
+        string credential = "PACKAGE_SELECT_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(credential, "token");
+        try
+        {
+            ClusterPreparationRequest Selecting(string profile) => new(hash, $$"""
+                {"clusterId":"demo","hosts":[{"id":"one","runRoot":"/run"}],"selectedConfigProfileId":"{{profile}}"}
+                """, "http://gateway.test", [new("one", "http://one", credential, credential, "/installation", "/world", "/configuration/original")]);
+            var active = Selecting("active");
+            var staged = Selecting("staged");
+            string stagedRevision = ClusterDependencyService.DeploymentRevision(staged);
+            fixture.Cluster.ActiveDeployment = new(ClusterDependencyService.DeploymentRevision(active),
+                [new("one", "http://one", credential, new("demo", "active", new string('a', 64), null!, null))], DateTimeOffset.UtcNow,
+                fixture.Cluster.PackageSelection!.Version)
+                { Provenance = new(fixture.Cluster.PackageSelection, candidate.ManifestSha256, active) };
+            fixture.Cluster.ConfigProfileId = "active";
+            fixture.Cluster.Preparation = staged;
+            fixture.Cluster.PreparedDeployment = new(fixture.Cluster.ActiveDeployment.Revision, stagedRevision, []);
+            fixture.Cluster.PreparedForSelectedRelease = true;
+            fixture.Cluster.StagedRevision = stagedRevision;
+            fixture.Cluster.PreparedProfile = new("staged", stagedRevision, new string('e', 64));
+            string directory = Path.Combine(fixture.Root, "clusters");
+            Directory.CreateDirectory(Path.Combine(directory, "demo"));
+            File.WriteAllText(Path.Combine(directory, "demo", "cluster.json"), JsonSerializer.Serialize(fixture.Cluster, ClusterDeploymentFiles.JsonOptions));
+            using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = directory }).Build());
+            var installed = await fixture.Packages.Service.GetInstalledAsync(fixture.Packages.Request, default);
+            await catalog.SelectPackageAsync("demo", 1, installed, "next-package", default);
+            await catalog.SelectDependenciesAsync("demo", new(candidate.ManifestSha256, 2, null), default);
+
+            using var handler = new ReleasePreparationHandler();
+            using var http = new HttpClient(handler);
+            var hosts = new ClusterHostClient(http);
+            var deployments = new ClusterDeploymentService(catalog, hosts, new ClusterOperationStore(Path.Combine(fixture.Root, "operations")));
+            var preparation = new ClusterUpdatePreparationService(catalog, fixture.Service, hosts, deployments,
+                null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance);
+            var result = await preparation.PrepareAsync("demo", "test", default);
+            Assert.Equal(ClusterOperationState.Succeeded, result.State);
+            var saved = catalog.GetCluster("demo")!;
+            Assert.True(saved.PreparedForSelectedRelease);
+            Assert.Null(saved.PreparedProfile);
+            using var spec = JsonDocument.Parse(saved.Preparation!.SpecificationJson);
+            Assert.Equal("active", spec.RootElement.GetProperty("selectedConfigProfileId").GetString());
+        }
+        finally { Environment.SetEnvironmentVariable(credential, null); }
+    }
+
+    /// <summary>The Host routes of a release preparation, for a Host that retains no earlier inputs.</summary>
+    private sealed class ReleasePreparationHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            string host = request.RequestUri!.Host, path = request.RequestUri.AbsolutePath;
+            var response = path.Contains("/deployment-inputs/")
+                ? new HttpResponseMessage(System.Net.HttpStatusCode.NotFound) { Content = System.Net.Http.Json.JsonContent.Create(
+                    new Quasar.Host.Contract.V1.HostErrorEnvelope(1, DateTimeOffset.UtcNow, new("not_found", "No inputs."))) }
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = System.Net.Http.Json.JsonContent.Create<object>(
+                    path.Contains("/conversion-inputs/")
+                        ? new Quasar.Host.Contract.V1.HostEnvelope<Quasar.Host.Contract.V1.HostConversionPaths>(1, DateTimeOffset.UtcNow, new(host, "/installation", "/c", "/r"))
+                        : new Quasar.Host.Contract.V1.HostEnvelope<Quasar.Host.Contract.V1.HostPreparedConfiguration>(1, DateTimeOffset.UtcNow, new(host, "candidate", "/manifest.json", new string('c', 64)))) };
+            response.Headers.Add(Quasar.Host.Contract.V1.HostProtocol.HeaderName, "1");
+            return Task.FromResult(response);
+        }
+    }
+
     private sealed class ConfigurationPreparationHandler : HttpMessageHandler
     {
         public List<string> Hosts { get; } = [];
