@@ -62,7 +62,7 @@ internal sealed class ClusterContentStore : IDisposable
             try
             {
                 File.Copy(source, temporary);
-                await VerifyAsync(temporary, pin, token);
+                await VerifyAsync(temporary, pin, token, source);
                 File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.GroupRead | UnixFileMode.OtherRead
                     | (pin.Executable ? UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute : 0));
                 File.Move(temporary, path);
@@ -149,12 +149,17 @@ internal sealed class ClusterContentStore : IDisposable
         return (data.DeviceMajor, data.DeviceMinor);
     }
 
-    private static async Task VerifyAsync(string path, DeploymentFile pin, CancellationToken token)
+    // source: the file a temporary copy came from. A mismatch there is a file that changed, not damaged storage.
+    private static async Task VerifyAsync(string path, DeploymentFile pin, CancellationToken token, string? source = null)
     {
         RefuseLink(path);
         await using var file = File.OpenRead(path);
-        if (file.Length != pin.Bytes || Convert.ToHexString(await SHA256.HashDataAsync(file, token)).ToLowerInvariant() != pin.Sha256)
-            throw new InvalidDataException("Content object does not match its verified pin.");
+        string hash = Convert.ToHexString(await SHA256.HashDataAsync(file, token)).ToLowerInvariant();
+        if (file.Length == pin.Bytes && hash == pin.Sha256) return;
+        string found = $"is {file.Length} bytes with SHA-256 {hash}, its pin is {pin.Bytes} bytes with SHA-256 {pin.Sha256}.";
+        throw new InvalidDataException(source is null
+            ? $"Content object does not match its verified pin: {path} {found}"
+            : $"A file changed while it was copied into content storage, nothing was stored: {source} {found}");
     }
 
     private static void RefuseLink(string path)

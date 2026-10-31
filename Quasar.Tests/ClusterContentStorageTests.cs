@@ -47,6 +47,37 @@ public sealed class ClusterContentStorageTests : IDisposable
         await Assert.ThrowsAsync<InvalidDataException>(() => content.AdoptAsync(Path.Combine(snapshots, "wrong"), pin, default));
     }
 
+    // SE-820: the message tells a file that changed from damaged storage, and names the file.
+    [Fact]
+    public async Task AMismatchNamesTheFileAndTellsAChangedSourceFromADamagedObject()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string source = Path.Combine(root, "source");
+        await File.WriteAllTextAsync(source, "pinned");
+        var pin = new DeploymentFile(ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(source)), 6, false);
+        string snapshots = Path.Combine(root, "snapshots"), objects = Path.Combine(snapshots, ".objects"), stored = Path.Combine(objects, pin.Sha256 + "-r");
+        string changedHash = ClusterDeploymentFiles.Hash("rewritten"u8.ToArray());
+        using var content = await ClusterContentStore.OpenAsync(snapshots, default);
+
+        await File.WriteAllTextAsync(source, "rewritten");
+        var changed = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            content.ReferenceAsync(source, Path.Combine(snapshots, "one/file"), pin, default));
+        Assert.StartsWith("A file changed while it was copied", changed.Message);
+        Assert.Contains(source, changed.Message);
+        Assert.Contains(changedHash, changed.Message);
+        Assert.Contains(pin.Sha256, changed.Message);
+        Assert.False(File.Exists(stored));
+        Assert.Empty(Directory.GetFiles(objects, ".write-*"));
+        Assert.False(File.Exists(Path.Combine(snapshots, "one/file")));
+
+        await File.WriteAllTextAsync(stored, "rewritten");
+        var damaged = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            content.ReferenceAsync(source, Path.Combine(snapshots, "one/file"), pin, default));
+        Assert.StartsWith("Content object does not match its verified pin", damaged.Message);
+        Assert.Contains(stored, damaged.Message);
+        Assert.False(File.Exists(Path.Combine(snapshots, "one/file")));
+    }
+
     [Fact]
     public async Task InspectHashesHardLinksOnceAndStillPinsEveryPath()
     {
