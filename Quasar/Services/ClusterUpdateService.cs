@@ -132,6 +132,10 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
     internal static readonly TimeSpan StoppingTimeout = TimeSpan.FromMinutes(60), ActivatingTimeout = TimeSpan.FromMinutes(30),
         StartingTimeout = TimeSpan.FromMinutes(60);
 
+    // Once every node fails at startup, the Registry halts all spawns and tries again after its 10 minute failure
+    // window. Past this that one retry failed as well, so waiting longer only keeps the cluster down.
+    internal static readonly TimeSpan NodesFailingTimeout = TimeSpan.FromMinutes(12);
+
     // A revert first lets the reconciler stop the failed deployment cleanly; its data is replaced by the
     // backup anyway, so after this grace a fenced stop is enough. Restores move whole worlds, hence the long timeout.
     internal static readonly TimeSpan RevertStopGrace = TimeSpan.FromMinutes(10),
@@ -275,7 +279,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                             break;
                         case ClusterUpdatePhase.Starting:
                             if (await NotServingAsync(cluster, workflow.Deployment.Revision, "the new deployment") is { } awaited)
-                                return await OverdueAsync(cluster, workflow, StartingDeadline, awaited);
+                                return await NodesFailingAsync(cluster, workflow) || await OverdueAsync(cluster, workflow, StartingDeadline, awaited);
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Complete,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow }, token);
                             logger.LogInformation("Cluster {Cluster} update served {Seconds:0.0} s after activation, {Total:0.0} s after it began.",
@@ -300,9 +304,9 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
 
         // Past the phase timeout the update gives up by itself. Before any Host switched, the previous
         // version simply carries on; afterwards the pre-update backup is the way back.
-        async Task<bool> TimedOutAsync(ClusterDefinition cluster, ClusterUpdate workflow, string awaited)
+        async Task<bool> TimedOutAsync(ClusterDefinition cluster, ClusterUpdate workflow, string awaited, TimeSpan? limit = null)
         {
-            var timeout = Timeout(workflow.Phase);
+            var timeout = limit ?? Timeout(workflow.Phase);
             // A half-applied activation can only be reverted from the backup; without one it keeps retrying.
             bool halfApplied =
                 workflow.Phase == ClusterUpdatePhase.Activating
@@ -537,6 +541,50 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             {
                 return "its Gateway Host cannot be checked (" + error.Message.TrimEnd('.') + ")";
             }
+        }
+
+        // Nodes that keep failing at startup won't serve however long the update waits. Says why as soon as the Gateway
+        // gives up on them; when all of them fail, the update then fails as a timeout does, without the long wait.
+        async Task<bool> NodesFailingAsync(ClusterDefinition cluster, ClusterUpdate workflow)
+        {
+            bool halted = (await gateway.GetStatusAsync(cluster, token)).Data.GlobalSpawnHalted;
+            var wanted = (await gateway.GetPlanAsync(cluster, token)).Data.Where(slot => slot.Goal == Admin.NodeGoal.Wanted).ToArray();
+            var failing = wanted.Where(slot => slot.Observed != Admin.NodeObservation.Ready && slot.LastFailure is not null
+                && (halted || slot.FailureAlert)).ToArray();
+            if (failing.Length == 0) return false;
+            string why = await DescribeNodeFailuresAsync(cluster, failing);
+            bool allFailing = failing.Length == wanted.Length;
+            if (allFailing && await TimedOutAsync(cluster, workflow, why, NodesFailingTimeout)) return true;
+            string message = why + (allFailing
+                ? $" Unless a retry succeeds, Quasar gives this update up {NodesFailingTimeout.TotalMinutes:0} minutes after it reached Starting. Abandon it to stage a fixed build now."
+                : " Abandon this update to stage a fixed build.");
+            if (workflow.LastError == message) return true;
+            logger.LogWarning("Cluster {Cluster} update {Update} is not starting: {Reason}", cluster.UniqueName, workflow.Id, why);
+            await catalog.RecordUpdateAsync(cluster, workflow with { LastError = message, UpdatedAt = DateTimeOffset.UtcNow }, token);
+            return true;
+        }
+
+        // The Gateway knows which slots fail, the Host that ran them why. A Host that can't answer only costs the detail.
+        async Task<string> DescribeNodeFailuresAsync(ClusterDefinition cluster, Admin.NodePlan[] failing)
+        {
+            var reported = new List<HostContract.HostNodeFailure>();
+            foreach (var host in cluster.ActiveDeployment!.Hosts)
+            {
+                var target = cluster.Clone();
+                target.HostCommandUrl = host.CommandUrl;
+                target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable;
+                try { reported.AddRange((await hosts.GetStatusAsync(target, token)).Data.NodeFailures ?? []); }
+                catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested)
+                { logger.LogDebug(error, "Host {Host} did not say why its nodes failed.", host.HostId); }
+            }
+            var details = failing.Select(slot => (slot.SlotKey, slot.LastFailure, Reported: reported.FirstOrDefault(
+                failure => failure.ClusterId == cluster.UniqueName && failure.SlotKey == slot.SlotKey)));
+            return "Nodes do not start. " + string.Join(" ", details
+                .GroupBy(detail => (detail.LastFailure, detail.Reported?.Cause))
+                .OrderBy(group => group.Min(detail => detail.SlotKey), StringComparer.Ordinal)
+                .Select(group => string.Join(", ", group.Select(detail => detail.SlotKey).Order(StringComparer.Ordinal)) + ": " + group.Key.LastFailure
+                    + (group.Key.Cause is null ? "." : $" ({group.Key.Cause}).")))
+                + (details.Select(detail => detail.Reported?.LogPath).FirstOrDefault(path => path is not null) is { } log ? $" Node log: {log}." : "");
         }
 
         // Still waiting: past the deadline the reason is recorded once so the UI and API show it.

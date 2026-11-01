@@ -58,6 +58,17 @@ public sealed class ClusterDefinition
 
     // Nothing of this lifecycle runs: it shut down cleanly, or was activated and has not started since.
     // requireRun also refuses a first deployment that never ran, so there is no saved cluster state yet.
+    /// <summary>Why lifecycle changes are refused while an operation runs: the update and what it waits for, and the way out of it.</summary>
+    internal string BusyMessage(string action)
+    {
+        string message = $"Finish the current setup, update or activation before {action}.";
+        if (Update is not { Phase: not ClusterUpdatePhase.Complete } update) return message;
+        message += $" Update {update.Id} is in {update.Phase}" + (update.LastError is null ? "." : ": " + update.LastError);
+        return PendingDeploymentHash is null && PendingRestoreHash is null
+            ? message + " To stop waiting, use cluster update-abandon or Abandon update in Maintenance."
+            : message;
+    }
+
     internal bool IsProvenStopped(bool requireRun = false) => HasCleanShutdownProof()
         || HasActivationProof() && (!requireRun || ActivationProof!.CleanShutdownAt is not null);
 

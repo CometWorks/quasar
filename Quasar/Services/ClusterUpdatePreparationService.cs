@@ -21,7 +21,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         {
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-                throw new InvalidOperationException("Finish the current setup, update or activation before changing profiles.");
+                throw new InvalidOperationException(cluster.BusyMessage("changing profiles"));
             var activeDeployment = cluster.ActiveDeployment;
             var queued = cluster.QueuedContentUpdates;
             if (queued is not null && queued.DeploymentRevision != activeDeployment.Revision)
@@ -242,7 +242,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         {
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-                throw new InvalidOperationException("Finish the current setup, update or activation before changing configuration.");
+                throw new InvalidOperationException(cluster.BusyMessage("changing configuration"));
             var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing plugin configuration.");
             var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
             if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
@@ -259,7 +259,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         {
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-                throw new InvalidOperationException("Finish the current setup, update or activation before changing hot spares.");
+                throw new InvalidOperationException(cluster.BusyMessage("changing hot spares"));
             var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing hot spares.");
             var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
             if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
@@ -279,7 +279,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         {
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-                throw new InvalidOperationException("Finish the current setup, update or activation before renaming.");
+                throw new InvalidOperationException(cluster.BusyMessage("renaming"));
             if (string.IsNullOrWhiteSpace(serverName) && string.IsNullOrWhiteSpace(worldName))
                 throw new ArgumentException("Give a server name, a world name or both.");
             var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before renaming.");
@@ -330,7 +330,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         {
             if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
                 || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-                throw new InvalidOperationException("Finish the current setup, update or activation before changing world files.");
+                throw new InvalidOperationException(cluster.BusyMessage("changing world files"));
             ValidateWorldFiles(files);
             var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing world files.");
             var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);

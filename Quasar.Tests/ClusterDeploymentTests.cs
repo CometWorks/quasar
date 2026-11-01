@@ -1286,6 +1286,93 @@ public sealed class ClusterDeploymentTests : IDisposable
     }
 
     [Fact]
+    public async Task NodesFailingAtStartupSayWhyAndEndTheUpdateEarly()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "failing-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        await new ClusterDeploymentService(catalog, client, operations).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gateway = new GatewayHandler();
+        var update = new ClusterUpdateService(catalog, new ClusterDeploymentService(catalog, client, operations),
+            new ClusterGatewayClient(new HttpClient(gateway)), client, operations, NullLogger<ClusterUpdateService>.Instance);
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest("revision", "candidate", Request().Hosts.Select(h => h with {
+            Activation = h.Activation with { ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                BundleManifestSha256 = new string('b', 64) } }).ToArray());
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin", "test", default);
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(124, DateTimeOffset.UtcNow)), default);
+        await update.AdvanceAllAsync(default);
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
+
+        // Nothing failed yet: a slow start is only waited for.
+        NodePlan Slot(string key, NodeObservation observed, string? failure, bool alert = false) => new(key, "one", NodeRole.Regular,
+            NodeGoal.Wanted, observed, null, IncumbentAction.None, null, 0, null, null, failure, null, 1, alert, false);
+        gateway.Plan = [Slot("a", NodeObservation.Spawning, null), Slot("b", NodeObservation.Spawning, null)];
+        await update.AdvanceAllAsync(default);
+        Assert.Null(catalog.GetCluster("demo")!.Update!.LastError);
+
+        // One slot alerts, the other runs: it is named, but the cluster may still come up, so the long timeout holds.
+        gateway.Plan = [Slot("a", NodeObservation.Failed, "ready_timeout", alert: true), Slot("b", NodeObservation.Ready, null)];
+        await update.AdvanceAllAsync(default);
+        Assert.Contains("a: ready_timeout.", catalog.GetCluster("demo")!.Update!.LastError);
+        async Task Backdate(TimeSpan age)
+        {
+            var current = catalog.GetCluster("demo")!;
+            await catalog.RecordUpdateAsync(current, current.Update! with { PhaseStartedAt = DateTimeOffset.UtcNow - age - TimeSpan.FromSeconds(1) }, default);
+        }
+        await Backdate(ClusterUpdateService.NodesFailingTimeout);
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(ClusterUpdatePhase.Starting, catalog.GetCluster("demo")!.Update!.Phase);
+
+        // Every node failed the same way: the Registry halts spawns. The operator reads why, and how to get out.
+        await Backdate(TimeSpan.Zero);
+        gateway.SpawnHalted = true;
+        gateway.Plan = [Slot("a", NodeObservation.Failed, "process_exited"), Slot("b", NodeObservation.Failed, "process_exited")];
+        handler.NodeFailures = [new("demo", "a", "process_exited", "System.InvalidOperationException: boom at Preloader.Fail()", "/run/a/config/info.log"),
+            new("demo", "b", "process_exited", "System.InvalidOperationException: boom at Preloader.Fail()", "/run/b/config/info.log"),
+            new("other", "a", "process_exited", "not this cluster", null)];
+        await update.AdvanceAllAsync(default);
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Starting, cluster.Update!.Phase);
+        Assert.StartsWith("Nodes do not start. a, b: process_exited (System.InvalidOperationException: boom at Preloader.Fail()). Node log: /run/a/config/info.log.",
+            cluster.Update.LastError);
+        string refused = cluster.BusyMessage("changing profiles");
+        Assert.StartsWith("Finish the current setup, update or activation before changing profiles.", refused);
+        Assert.Contains("boom", refused);
+        Assert.Contains("cluster update-abandon", refused);
+        DateTimeOffset recorded = cluster.Update.UpdatedAt;
+        await update.AdvanceAllAsync(default);
+        Assert.Equal(recorded, catalog.GetCluster("demo")!.Update!.UpdatedAt);
+
+        // The retry failed too. Without a backup there is nothing to revert to, so the cluster keeps the new deployment.
+        await Backdate(ClusterUpdateService.NodesFailingTimeout);
+        await update.AdvanceAllAsync(default);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.StartsWith("Update failed after 12 minutes in Starting: Nodes do not start. a, b: process_exited (System.InvalidOperationException: boom",
+            cluster.Update.LastError);
+        Assert.EndsWith("The cluster keeps the new deployment. Start a rollback update if it cannot serve.", cluster.Update.LastError);
+    }
+
+    [Fact]
+    public void NodeFailureCauseIsTheInnermostException()
+    {
+        Exception thrown;
+        try { try { throw new InvalidOperationException("boom"); } catch (Exception inner) { throw new TypeInitializationException("Preloader", inner); } }
+        catch (Exception outer) { thrown = outer; }
+        string summary = Quasar.Diagnostics.DiagnosticCollector.Summarize(thrown.ToString());
+        Assert.StartsWith("System.InvalidOperationException: boom at ", summary);
+        Assert.Contains(nameof(NodeFailureCauseIsTheInnermostException), summary);
+        Assert.Equal("System.Exception: plain", Quasar.Diagnostics.DiagnosticCollector.Summarize("System.Exception: plain"));
+        Assert.EndsWith("…", Quasar.Diagnostics.DiagnosticCollector.Summarize(new string('x', 900)));
+    }
+
+    [Fact]
     public async Task EmergencyShutdownEndsAnUpdateOnlyWhileItStopsOrStarts()
     {
         using var catalog = Catalog();
@@ -1387,14 +1474,23 @@ public sealed class ClusterDeploymentTests : IDisposable
     {
         internal bool Ready;
         internal string Revision = "candidate";
+        internal bool SpawnHalted;
+        internal NodePlan[] Plan = [];
         internal readonly List<(string Path, string Body)> Posts = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             if (request.Method == HttpMethod.Post)
                 Posts.Add((request.RequestUri!.AbsolutePath, request.Content?.ReadAsStringAsync(token).GetAwaiter().GetResult() ?? ""));
+            if (request.RequestUri!.AbsolutePath.EndsWith("/plan", StringComparison.Ordinal))
+            {
+                var planned = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(
+                    new AdminEnvelope<NodePlan[]>(1, DateTimeOffset.UtcNow, Plan)) };
+                planned.Headers.Add("X-Cluster-Gateway-Protocol", "1");
+                return Task.FromResult(planned);
+            }
             var status = new CometWorks.ClusterGateway.AdminContract.V1.ClusterStatus("demo", "world",
                 CometWorks.ClusterGateway.AdminContract.V1.ClusterPhase.Serving, CometWorks.ClusterGateway.AdminContract.V1.StartupKind.Warm,
-                null, null, false, false, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,
+                null, null, false, SpawnHalted, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,
                 CometWorks.ClusterGateway.AdminContract.V1.AdminHealth.Healthy, [], DateTimeOffset.UtcNow,
                 Ready ? Revision : "revision", Ready);
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(
@@ -1434,6 +1530,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal bool GatewayStopped; // GET reports the Gateway Off and Missing, as after a fresh activation
         internal string Revision = "revision";
         internal string? Deletion;
+        internal HostNodeFailure[]? NodeFailures;
         internal readonly List<string> DeletePreviews = [];
         internal readonly List<string> Detaches = [];
         private readonly Dictionary<string, string> active = [];
@@ -1506,7 +1603,7 @@ public sealed class ClusterDeploymentTests : IDisposable
             else if (request.Method == HttpMethod.Get) data = new HostStatus(host, host, active.TryGetValue(host, out var hash)
                 ? [new("demo", "http://gateway.test", true, hash, "/runs/" + host)] : [],
                 GatewayStopped && host == "one" ? [new("demo", GatewayGoal.Off, GatewayObservedState.Missing, active[host], Revision,
-                    [29416], "/runs/one/gateway", null, null, null, StartGeneration: StartGeneration)] : null, GatewayStopped);
+                    [29416], "/runs/one/gateway", null, null, null, StartGeneration: StartGeneration)] : null, GatewayStopped, NodeFailures: NodeFailures);
             else
             {
                 if (Deletion is not null && request.Method == HttpMethod.Post)

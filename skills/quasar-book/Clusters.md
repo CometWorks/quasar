@@ -199,7 +199,11 @@ To update:
 
 While an update runs, goal changes, commands, backups, restores and deletion are locked. The only command allowed is an emergency shutdown while the update stops or starts the cluster; it closes the update.
 
-If an update gets stuck, **Abandon update** closes it without rolling anything back. Quasar gives up by itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in Starting, and writes the reason to the update's last error:
+If an update gets stuck, **Abandon update** (`./Quasar cluster update-abandon NAME --idempotency-key KEY`) closes it without rolling anything back. While an update runs, staging is refused with `profile_preparation_conflict` or the like; the message names the update, what it waits for and this way out. Quasar gives up by itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in Starting, and writes the reason to the update's last error.
+
+If nodes keep failing at startup, for example because a plugin throws in its preload hook, the update's last error says so as soon as the Gateway stops respawning them: which nodes, the exception they reported and where the node log is on the Host. When all of them fail, Quasar gives up 12 minutes after Starting began, once the Gateway's retry has failed too. Abandon sooner to stage a fixed build at once; it applies as an ordinary update.
+
+When Quasar gives up:
 
 - Before any Host switched, the previous version carries on, and Quasar restores the On goal if the cluster was On before.
 - After activation, Quasar reverts from the pre-update backup (phase Reverting) and starts the previous version again if it was On. A revert that cannot finish in 3 hours is given up, with the backup named in the error.
