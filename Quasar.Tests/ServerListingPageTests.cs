@@ -84,6 +84,67 @@ public sealed class ServerListingPageTests : IDisposable
     }
 
     [Fact]
+    public async Task SourceChangesRefreshAutomaticallyWithoutLosingEdits()
+    {
+        await using var context = await ContextAsync();
+        var page = context.Render<ServerListing>();
+        Assert.DoesNotContain(page.FindAll("button"), button => button.TextContent == "Reload");
+        var host = page.FindAll("input[name='public-host']")[0];
+        host.Input("draft.example.org");
+        await context.Services.GetRequiredService<ClusterCatalog>()
+            .CreateAsync(new("new-fleet", "New fleet", "http://private-admin:28017", "TEST_ADMIN"), default);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Equal(3, page.FindAll("input[name='public-name']").Count);
+            Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "draft.example.org");
+        });
+        await context.Services.GetRequiredService<DedicatedServerCatalog>().DeleteAsync("solo");
+        page.WaitForAssertion(() => Assert.Contains("This source no longer exists", page.Markup));
+        Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "draft.example.org");
+    }
+
+    [Fact]
+    public async Task SavedSettingsRefreshAutomaticallyWhenThereAreNoEdits()
+    {
+        await using var context = await ContextAsync();
+        var page = context.Render<ServerListing>();
+        var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
+        await settings.SaveAsync(new() { Enabled = true, Listings = [new()
+        {
+            Kind = "server", UniqueName = "solo", Name = "Updated public name", PublicHost = "saved.example.org"
+        }] }, 0);
+        page.WaitForAssertion(() =>
+        {
+            Assert.Contains(page.FindAll("input[name='public-name']"), input => input.GetAttribute("value") == "Updated public name");
+            Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "saved.example.org");
+        });
+        await page.Find("form").SubmitAsync();
+        Assert.Equal(2, settings.GetSnapshot().Revision);
+    }
+
+    [Fact]
+    public async Task ConcurrentSettingsChangesPreserveEditsAndPreventOverwritingUntilDiscarded()
+    {
+        await using var context = await ContextAsync();
+        var page = context.Render<ServerListing>();
+        page.FindAll("input[name='public-host']")[0].Input("draft.example.org");
+        var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
+        await settings.SaveAsync(new() { Enabled = true, Listings = [new()
+        {
+            Kind = "server", UniqueName = "solo", Name = "Saved elsewhere", PublicHost = "saved.example.org"
+        }] }, 0);
+        page.WaitForAssertion(() => Assert.Contains("Your unsaved edits are preserved", page.Markup));
+        Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "draft.example.org");
+        Assert.True(page.Find("button[type='submit']").HasAttribute("disabled"));
+        await page.Find("form").SubmitAsync();
+        Assert.Equal(1, settings.GetSnapshot().Revision);
+        page.FindAll("button").Single(button => button.TextContent == "Discard edits").Click();
+        Assert.DoesNotContain("Your unsaved edits are preserved", page.Markup);
+        Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "saved.example.org");
+        Assert.False(page.Find("button[type='submit']").HasAttribute("disabled"));
+    }
+
+    [Fact]
     public async Task SavingRechecksPermissionAfterThePageHasOpened()
     {
         await using var context = await ContextAsync();

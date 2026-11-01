@@ -180,7 +180,9 @@ If any of 1 to 3 is missing, Quasar sends a withdrawal instead.
 3. For each server to publish, tick **Publish this server**, check **Public server name** (max 128 characters), enter **Public hostname or IP address** (no scheme, no port) and confirm **Public game port**. For a cluster use the Steam gateway address and port, not the Cluster Registry admin endpoint.
 4. Click **Save listings**. Changes apply without a restart. The page says delivery may take up to two minutes.
 
-**Reload** refreshes the source list and discards unsaved edits. Unticking a server removes it from the next publication. Unticking all servers withdraws the installation's listings. Names, addresses and listing IDs stay saved.
+The page refreshes automatically as servers, clusters, saved settings, consent or Steam-admin mappings change. Source changes preserve unsaved edits. If another session saves settings while you have edits, a warning preserves your draft and blocks saving over the newer settings. Choose **Discard edits** in that warning to load the latest settings. There is no Reload button. **Save listings** sits in a separate action bar below the cards.
+
+Unticking a server removes it from the next publication. Unticking all servers withdraws the installation's listings. Names, addresses and listing IDs stay saved.
 
 The page warns when diagnostic consent or a Steam admin mapping is missing, and when a saved source no longer exists ("This source no longer exists. Its listing will be omitted from publication.").
 

@@ -1,5 +1,6 @@
 @page "/settings/server-list"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+@implements IDisposable
 @using Quasar.Services.ServerList
 @inject ServerListSettingsCatalog Settings
 @inject DedicatedServerCatalog Servers
@@ -29,8 +30,15 @@
 {
     <p class="quasar-notice">Create a standalone server or cluster first. It will appear here automatically.</p>
 }
-<form @onsubmit="SaveAsync" @onsubmit:preventDefault>
-    <fieldset class="quasar-fieldset" disabled="@(_saving || !_canManage)">
+@if (_settingsChanged)
+{
+    <div class="quasar-notice quasar-notice-warning" role="status">
+        <p>Listing settings changed in another session. Your unsaved edits are preserved. Discard them to load the latest settings before saving.</p>
+        <button type="button" class="quasar-button" @onclick="Reload">Discard edits</button>
+    </div>
+}
+<form class="quasar-section" @onsubmit="SaveAsync" @onsubmit:preventDefault @oninput="MarkDirty" @onchange="MarkDirty">
+    <fieldset class="quasar-fieldset quasar-stack" disabled="@(_saving || !_canManage)">
         <div class="quasar-card-grid">
             @foreach (var entry in _entries)
             {
@@ -48,26 +56,56 @@
         @if (_canManage)
         {
             <div class="quasar-row quasar-form-actions">
-                <button type="submit" class="quasar-button quasar-button-primary"><QuasarIcon Icon="@QuasarIcons.Save" />Save listings</button>
+                <button type="submit" class="quasar-button quasar-button-primary" disabled="@_settingsChanged"><QuasarIcon Icon="@QuasarIcons.Save" />Save listings</button>
             </div>
         }
     </fieldset>
 </form>
-
-<button type="button" class="quasar-button" @onclick="Reload">Reload</button>
 
 @code {
     private List<ServerListEntry> _entries = [];
     private HashSet<(string Kind, string UniqueName)> _savedSources = [];
     private long _revision;
     private bool _saving;
+    private bool _dirty;
+    private bool _settingsChanged;
+    private bool _disposed;
 
     private bool _canManage;
 
     protected override async Task OnInitializedAsync()
     {
+        Settings.Changed += HandleChanged;
+        Servers.Changed += HandleChanged;
+        Clusters.Changed += HandleChanged;
+        Consent.Changed += HandleChanged;
+        Rbac.Changed += HandleChanged;
         _canManage = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity);
         Reload();
+    }
+
+    private void MarkDirty() => _dirty = true;
+
+    private void HandleChanged() => _ = InvokeAsync(() =>
+    {
+        if (_disposed) return;
+        if (!_dirty) Reload();
+        else
+        {
+            _settingsChanged = Settings.GetSnapshot().Revision != _revision;
+            _entries = ServerListSettingsCatalog.CreateDrafts(new() { Listings = _entries }, Servers.GetServers(), Clusters.GetClusters());
+        }
+        StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        _disposed = true;
+        Settings.Changed -= HandleChanged;
+        Servers.Changed -= HandleChanged;
+        Clusters.Changed -= HandleChanged;
+        Consent.Changed -= HandleChanged;
+        Rbac.Changed -= HandleChanged;
     }
 
     private void Reload()
@@ -77,6 +115,8 @@
         _savedSources = options.Listings.Select(e => (e.Kind, e.UniqueName.ToLowerInvariant())).ToHashSet();
         if (!options.Enabled) foreach (var entry in options.Listings) entry.Enabled = false;
         _entries = ServerListSettingsCatalog.CreateDrafts(options, Servers.GetServers(), Clusters.GetClusters());
+        _dirty = false;
+        _settingsChanged = false;
     }
 
     private bool SourceExists(ServerListEntry entry) => entry.Kind == "server"
@@ -88,7 +128,7 @@
 
     private async Task SaveAsync()
     {
-        if (_saving) return;
+        if (_saving || _settingsChanged) return;
         _saving = true;
         try
         {
