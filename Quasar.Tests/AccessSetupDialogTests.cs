@@ -273,6 +273,8 @@ public sealed class AccessSetupDialogTests : IDisposable
         public bool HoldCreation, FailCreation, Active, CreationCanceled;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/administration", StringComparison.Ordinal))
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { notices = Array.Empty<object>() }) };
             if (request.Method == HttpMethod.Post)
             {
                 if (HoldCreation)
