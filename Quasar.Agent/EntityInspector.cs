@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
+using PluginSdk.Clustering;
 using Magnetar.Protocol.Model;
 using Sandbox.Game.Entities;
 using Sandbox.Game.Entities.Character;
@@ -20,7 +22,7 @@ namespace Quasar.Agent
         private const int DefaultLimit = 500;
         private const int MaxLimit = 2000;
 
-        public static EntityListResult Query(EntityListFilter filter)
+        public static EntityListResult Query(EntityListFilter filter, bool clusterMode = false)
         {
             filter = filter ?? new EntityListFilter();
 
@@ -45,6 +47,9 @@ namespace Quasar.Agent
                     if (summary == null)
                         continue;
 
+                    if (clusterMode)
+                        summary.ClusterResidence = ClusterResidence(summary.EntityId);
+
                     if (!MatchesType(summary, filter.TypeTag))
                         continue;
 
@@ -56,7 +61,11 @@ namespace Quasar.Agent
             }
 
             // Largest first — the entities an admin most likely cares about float to the top.
-            matches.Sort((left, right) => right.SizeMeters.CompareTo(left.SizeMeters));
+            matches.Sort((left, right) =>
+            {
+                var sizeOrder = right.SizeMeters.CompareTo(left.SizeMeters);
+                return sizeOrder != 0 ? sizeOrder : left.EntityId.CompareTo(right.EntityId);
+            });
 
             var offset = Math.Max(0, filter.Offset);
             var limit = filter.Limit <= 0 ? DefaultLimit : Math.Min(filter.Limit, MaxLimit);
@@ -85,9 +94,25 @@ namespace Quasar.Agent
             return true;
         }
 
+        internal static string ClusterResidence(long entityId)
+        {
+            try { return ReadClusterResidence(entityId); }
+            catch { return "Unknown"; }
+        }
+
+        // Keep missing/older SDK capabilities inside the guarded call. Never guess ownership.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static string ReadClusterResidence(long entityId)
+        {
+            var provider = PluginCluster.Current;
+            if (provider?.Context?.Available != true || !(provider is IPluginClusterViewProvider views))
+                return "Unknown";
+            return views.LocateEntity(entityId)?.Residence.ToString() ?? "Unknown";
+        }
+
         private static EntitySummary TryMap(MyEntity entity)
         {
-            if (entity == null)
+            if (entity == null || entity.MarkedForClose)
                 return null;
 
             switch (entity)
@@ -165,9 +190,9 @@ namespace Quasar.Agent
             var itemName = "Item";
             try
             {
-                var subtype = floating.Item.Content?.SubtypeName;
-                if (!string.IsNullOrEmpty(subtype))
-                    itemName = subtype;
+                summary.SubType = floating.Item.Content?.SubtypeName ?? string.Empty;
+                itemName = FirstNonEmpty(floating.ItemDefinition?.DisplayNameText,
+                    FirstNonEmpty(summary.SubType, itemName));
             }
             catch
             {
@@ -177,12 +202,10 @@ namespace Quasar.Agent
 
             try
             {
-                var amount = (float)floating.Amount.Value;
-                summary.SubType = "x" + amount.ToString("0.##");
+                summary.ItemAmount = (decimal)floating.Amount.Value;
             }
             catch
             {
-                summary.SubType = "Item";
             }
 
             return summary;

@@ -98,7 +98,21 @@
     }
     @if (_isShuttingDown)
     {
-        <div class="quasar-shutdown-overlay" role="alert" aria-busy="true"><span class="quasar-spinner" aria-hidden="true"></span><p>@_shutdownStatus</p></div>
+        <div class="quasar-shutdown-overlay">
+            @if (_shutdownFailed)
+            {
+                <section class="quasar-panel pa-4" role="alert">
+                    <h2 class="quasar-text quasar-type-h6">Some servers could not be stopped</h2>
+                    <p>@_shutdownStatus</p>
+                    <p>Quasar remains running. Check the affected servers or clusters before retrying.</p>
+                    <MudButton Variant="Variant.Outlined" OnClick="CloseShutdownError">Close</MudButton>
+                </section>
+            }
+            else
+            {
+                <QuasarOperationLoader Title="@_shutdownTitle" Message="@_shutdownStatus" />
+            }
+        </div>
     }
 </div>
 
@@ -115,6 +129,9 @@
     private ThemeMode _themeMode = ThemeMode.System;
     private bool _isShuttingDown = false;
     private string _shutdownStatus = string.Empty;
+    private string _shutdownTitle = "Quasar service control";
+    private bool _shutdownFailed;
+    private bool _disposed;
     private string _lastUpdateNotice = string.Empty;
     private string _lastClusterNotice = string.Empty;
     private QuasarUpdateSnapshot _updateSnapshot = new();
@@ -178,6 +195,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         Navigation.LocationChanged -= OnLocationChanged;
         BrandingService.Changed -= OnBrandingChanged;
         UpdateService.Changed -= OnUpdatesChanged;
@@ -355,6 +373,8 @@
 
     private async Task HandlePowerClickAsync()
     {
+        if (_isShuttingDown || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanShutdownQuasar))
+            return;
         var parameters = new DialogParameters
         {
             [nameof(QuasarControlDialog.IsRestartAvailable)] = IsUnderBootstrap,
@@ -364,6 +384,8 @@
         var dialog = await DialogService.ShowAsync<QuasarControlDialog>("Quasar power", parameters, options);
         var result = await dialog.Result;
         if (result is null || result.Canceled || result.Data is not QuasarControlAction action)
+            return;
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanShutdownQuasar))
             return;
 
         switch (action)
@@ -375,13 +397,14 @@
                 await ShutdownQuasarAsync();
                 break;
             case QuasarControlAction.ShutdownAllServers:
-                ShutdownAllServers();
+                await ShutdownAllServersAsync();
                 break;
         }
     }
 
     private async Task RestartQuasarAsync()
     {
+        _shutdownTitle = "Restarting Quasar";
         _isShuttingDown = true;
         _shutdownStatus = "Restarting Quasar… the page will reload when it is back.";
         await InvokeAsync(StateHasChanged);
@@ -407,6 +430,7 @@
 
     private async Task ShutdownQuasarAsync()
     {
+        _shutdownTitle = "Shutting down Quasar";
         _isShuttingDown = true;
         _shutdownStatus = "Shutting down Quasar… start Quasar again to bring the UI back.";
         await InvokeAsync(StateHasChanged);
@@ -421,12 +445,46 @@
         }
     }
 
-    private void ShutdownAllServers()
+    private async Task ShutdownAllServersAsync()
     {
-        // Issue a stop on every running server — exactly as if Stop had been pressed on
-        // each card. The servers wind down in the background and the Dashboard / Servers
-        // list reflect their status, so there is no blocking overlay or status readout here.
-        _ = ShutdownService.StopAllServersAsync(setGoalStateOff: true);
-        Snackbar.Add("Server shutdown queued.", Severity.Info);
+        if (_isShuttingDown || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanShutdownQuasar))
+            return;
+        _isShuttingDown = true;
+        _shutdownFailed = false;
+        _shutdownTitle = "Saving and stopping all servers";
+        _shutdownStatus = "Preparing standalone servers and managed clusters for shutdown…";
+        await InvokeAsync(StateHasChanged);
+        var progress = new Progress<string>(message =>
+        {
+            if (_disposed)
+                return;
+            _ = InvokeAsync(() =>
+            {
+                if (_disposed || !_isShuttingDown || _shutdownFailed)
+                    return;
+                _shutdownStatus = message;
+                StateHasChanged();
+            });
+        });
+        try
+        {
+            await ShutdownService.StopAllServersAsync(progress, setGoalStateOff: true);
+            _isShuttingDown = false;
+            if (!_disposed)
+                Snackbar.Add("All managed servers and clusters have stopped.", Severity.Success);
+        }
+        catch (Exception error)
+        {
+            _shutdownFailed = true;
+            _shutdownStatus = error.Message;
+        }
+        if (!_disposed)
+            await InvokeAsync(StateHasChanged);
+    }
+
+    private void CloseShutdownError()
+    {
+        _isShuttingDown = false;
+        _shutdownFailed = false;
     }
 }

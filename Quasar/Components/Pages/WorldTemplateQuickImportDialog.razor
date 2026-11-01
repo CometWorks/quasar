@@ -1,6 +1,18 @@
+@implements IDisposable
+@inject ManagedRuntimeWarmupService RuntimeWarmup
+
 <MudDialog>
     <DialogContent>
-        @if (_step == ImportStep.Details)
+        @if (_importing)
+        {
+            <QuasarOperationLoader Title="@($"Preparing '{_name}'")" Message="@_importMessage" Percent="@_importPercent" />
+            <p class="quasar-text quasar-type-body2">Quasar copies the world into its own storage and leaves the original unchanged. Keep this dialog open until it finishes.</p>
+        }
+        @if (_importError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_importError Check available disk space and folder access, then try again.</MudAlert>
+        }
+        @if (!_importing && _step == ImportStep.Details)
         {
             <MudTabs Elevation="0"
                      Rounded="true"
@@ -15,8 +27,9 @@
                             <div>
                                 <h3 class="quasar-text quasar-type-subtitle1">Predefined Worlds</h3>
                                 <p class="quasar-text quasar-type-body2">
-                                    Add a template from Dedicated Server content without entering a name or path.
+                                    Choose your starting world. Quasar copies it into a reusable template; your server's name, settings and mods come next.
                                 </p>
+                                <p class="quasar-text quasar-type-body2">Custom Worlds are starting maps, Quick Starts are ready-made starts, and Scenarios contain scenario-specific gameplay. Pick the world you want your players to start in.</p>
                             </div>
                             <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
                         </div>
@@ -30,18 +43,38 @@
                                 Adornment="Adornment.Start"
                                 AdornmentIcon="@Icons.Material.Filled.Search"
                                 Class="flex-grow-1" />
-                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplatesAsync" Disabled="_discovering">
                                 Refresh
                             </MudButton>
                         </div>
 
-                        @if (_installedTemplates.Count == 0)
+                        @if (_discovering)
                         {
-                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                                No installed Dedicated Server world or scenario templates found.
-                            </MudAlert>
+                            <QuasarOperationLoader Title="Finding starting worlds" Message="Checking installed Dedicated Server content for worlds and scenarios. Results will appear here automatically." />
                         }
-                        else
+                        @if (_discoveryError is not null)
+                        {
+                            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_discoveryError Check folder access, then use Refresh to try again.</MudAlert>
+                        }
+                        @foreach (var warning in _discoveryWarnings)
+                        {
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@warning</MudAlert>
+                        }
+                        @if (!_discovering && _installedTemplates.Count == 0)
+                        {
+                            @if (!IsDedicatedServerReady)
+                            {
+                                <DedicatedServerSetupStatus />
+                                <p>Waiting for the server's starting worlds. Quasar will check again automatically when the Dedicated Server is ready. You can also use Custom import if you already have a save folder on this machine.</p>
+                            }
+                            else if (_discoveryError is null)
+                            {
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                    Server files are ready, but no starting worlds were found. Use Updates to check or repair the Dedicated Server installation, then Refresh here. Or use Custom import to choose an existing save folder containing Sandbox.sbc.
+                                </MudAlert>
+                            }
+                        }
+                        @if (_installedTemplates.Count > 0)
                         {
                             <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
                                 <ColGroup>
@@ -65,21 +98,28 @@
                                         </div>
                                     </MudTd>
                                     <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
-                                        <MudTooltip Text="Add template">
-                                            <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                                           Color="Color.Primary"
-                                                           Size="Size.Small"
-                                                           Disabled="_importing"
-                                                           OnClick="@(() => ImportPredefinedTemplateAsync(context))" />
-                                        </MudTooltip>
+                                        <MudButton Color="Color.Primary" Variant="Variant.Outlined" Size="Size.Small"
+                                                   OnClick="@(() => ImportPredefinedTemplateAsync(context))">Use this world</MudButton>
                                     </MudTd>
                                 </RowTemplate>
                                 <NoRecordsContent>
                                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
                                         No installed templates match current search.
+                                        <MudButton OnClick="@(() => _installedTemplateSearch = string.Empty)">Clear search</MudButton>
                                     </MudAlert>
                                 </NoRecordsContent>
                             </MudTable>
+                        }
+                        @if (_discoveryLocations.Count > 0)
+                        {
+                            <details>
+                                <summary>Where Quasar looked</summary>
+                                <p>Folders on the machine running Quasar, including its detected Dedicated Server installation.</p>
+                                @foreach (var location in _discoveryLocations)
+                                {
+                                    <p class="quasar-text quasar-type-caption mono" style="overflow-wrap:anywhere">@location</p>
+                                }
+                            </details>
                         }
                     </div>
                 </MudTabPanel>
@@ -132,7 +172,7 @@
                 </MudTabPanel>
             </MudTabs>
         }
-        else
+        else if (!_importing)
         {
             <div class="quasar-layout quasar-gap-3">
                 <h3 class="quasar-text quasar-type-subtitle2">Template config profile</h3>
@@ -278,6 +318,20 @@
     private int _activeDetailsTabIndex;
     private WorldImportModAction _modAction = WorldImportModAction.CreateProfile;
     private bool _importing;
+    private string? _importError;
+    private string _importMessage = string.Empty;
+    private double? _importPercent;
+    private bool _copyComplete;
+    private bool _discovering;
+    private bool _rescanRequested;
+    private bool _disposed;
+    private bool _wasDedicatedServerReady;
+    private string? _discoveryError;
+    private IReadOnlyList<string> _discoveryLocations = [];
+    private IReadOnlyList<string> _discoveryWarnings = [];
+    private readonly CancellationTokenSource _stop = new();
+    private bool IsDedicatedServerReady => RuntimeWarmup.GetSnapshot().Components.Any(c =>
+        c.Component == ManagedRuntimeInstallComponent.DedicatedServer && c.State == ManagedRuntimeComponentState.Ready);
 
     private bool IsCustomImportTabActive => _activeDetailsTabIndex == CustomImportTabIndex;
 
@@ -292,15 +346,17 @@
             .Where(MatchesInstalledTemplateSearch)
             .ToList();
 
-    protected override void OnInitialized()
+    protected override async Task OnInitializedAsync()
     {
-        RefreshInstalledTemplates();
-        if (TemplateOnly)
-            return;
-
-        _selectedConfigProfileId = GetInitialConfigProfileId();
-        if (!string.IsNullOrWhiteSpace(_selectedConfigProfileId))
-            _modAction = WorldImportModAction.ExistingProfile;
+        RuntimeWarmup.Changed += RuntimeChanged;
+        _wasDedicatedServerReady = IsDedicatedServerReady;
+        if (!TemplateOnly)
+        {
+            _selectedConfigProfileId = GetInitialConfigProfileId();
+            if (!string.IsNullOrWhiteSpace(_selectedConfigProfileId))
+                _modAction = WorldImportModAction.ExistingProfile;
+        }
+        await RefreshInstalledTemplatesAsync();
     }
 
     private void Cancel()
@@ -358,6 +414,7 @@
 
     private async Task ImportPredefinedTemplateAsync(InstalledWorldTemplateSource source)
     {
+        if (_importing) return;
         _name = source.DisplayName;
         _description = source.Description;
         _sourcePath = source.SourcePath;
@@ -390,9 +447,48 @@
         _step = ImportStep.ConfigProfile;
     }
 
-    private void RefreshInstalledTemplates()
+    private async Task RefreshInstalledTemplatesAsync()
     {
-        _installedTemplates = ImportLocations.GetInstalledWorldTemplates();
+        if (_disposed) return;
+        if (_discovering) { _rescanRequested = true; return; }
+        do
+        {
+            _rescanRequested = false;
+            _discovering = true;
+            _discoveryError = null;
+            StateHasChanged();
+            try
+            {
+                var token = _stop.Token;
+                var result = await Task.Run(() => ImportLocations.DiscoverInstalledWorldTemplates(token), token);
+                if (_disposed) return;
+                _installedTemplates = result.Templates;
+                _discoveryLocations = result.Locations;
+                _discoveryWarnings = result.Warnings;
+            }
+            catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+            catch (Exception exception) { if (!_disposed) _discoveryError = $"World discovery failed: {exception.Message}"; }
+            finally { _discovering = false; }
+        } while (_rescanRequested && !_disposed);
+        if (!_disposed) StateHasChanged();
+    }
+
+    private void RuntimeChanged() => _ = InvokeAsync(async () =>
+    {
+        if (_disposed) return;
+        bool ready = IsDedicatedServerReady;
+        bool becameReady = ready && !_wasDedicatedServerReady;
+        _wasDedicatedServerReady = ready;
+        if (becameReady) await RefreshInstalledTemplatesAsync();
+        if (!_disposed) StateHasChanged();
+    });
+
+    public void Dispose()
+    {
+        _disposed = true;
+        RuntimeWarmup.Changed -= RuntimeChanged;
+        _stop.Cancel();
+        _stop.Dispose();
     }
 
     private bool MatchesInstalledTemplateSearch(InstalledWorldTemplateSource template)
@@ -413,6 +509,7 @@
 
     private async Task ImportAsync()
     {
+        if (_importing) return;
         if (_modAction == WorldImportModAction.CreateProfile && _step == ImportStep.ConfigProfile && string.IsNullOrWhiteSpace(_newProfileName))
         {
             Snackbar.Add("Profile name required.", Severity.Warning);
@@ -442,15 +539,36 @@
         }
 
         _importing = true;
+        _importError = null;
+        _importPercent = null;
+        _copyComplete = false;
+        _importMessage = "Finding files to copy. Large worlds can take several minutes.";
+        StateHasChanged();
         try
         {
-            var template = await WorldTemplates.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim());
+            var progress = new Progress<WorldTemplateImportProgress>(update =>
+            {
+                _ = InvokeAsync(() =>
+                {
+                    if (_disposed || !_importing || _copyComplete) return;
+                    _importMessage = $"Copying world files: {update.CompletedFiles} of {update.TotalFiles}.";
+                    _importPercent = update.TotalFiles > 0 ? 100d * update.CompletedFiles / update.TotalFiles : null;
+                    StateHasChanged();
+                });
+            });
+            var template = await WorldTemplates.ImportAsync(_name.Trim(), _description?.Trim() ?? string.Empty, _sourcePath.Trim(), _stop.Token, progress);
+            _copyComplete = true;
+            if (_disposed) return;
+            _importMessage = "World copied. Preparing the selected configuration and checking mod dependencies.";
+            _importPercent = null;
+            StateHasChanged();
             var configProfileId = await ApplyModActionAsync(template.WorldTemplateId);
-            MudDialog.Close(DialogResult.Ok(new WorldTemplateQuickImportResult(template, configProfileId)));
+            if (!_disposed) MudDialog.Close(DialogResult.Ok(new WorldTemplateQuickImportResult(template, configProfileId)));
         }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            Snackbar.Add(exception.Message, Severity.Error);
+            if (!_disposed) _importError = $"Could not finish preparing this world: {exception.Message}";
         }
         finally
         {

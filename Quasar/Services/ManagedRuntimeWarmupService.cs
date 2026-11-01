@@ -88,7 +88,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
         {
             SetState(ManagedRuntimeWarmupState.Running, "Preparing managed SteamCMD, Magnetar, and Dedicated Server runtime.");
 
-            var progress = new Progress<ManagedRuntimeInstallProgress>(ApplyProgress);
+            var progress = new RuntimeProgress(this);
             var readiness = await _runtimeResolver.EnsureManagedRuntimeReadyAsync(progress, stoppingToken);
             if (!readiness.IsReady)
             {
@@ -123,7 +123,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
 
         try
         {
-            var progress = new Progress<ManagedRuntimeInstallProgress>(ApplyProgress);
+            var progress = new RuntimeProgress(this);
             await _runtimeResolver.EnsureManagedMagnetarCurrentAsync(progress, stoppingToken);
         }
         catch (OperationCanceledException)
@@ -150,7 +150,7 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
 
         try
         {
-            var progress = new Progress<ManagedRuntimeInstallProgress>(ApplyProgress);
+            var progress = new RuntimeProgress(this);
             await _runtimeResolver.EnsureManagedDedicatedServerCurrentAsync(progress, stoppingToken);
         }
         catch (OperationCanceledException)
@@ -232,6 +232,11 @@ public sealed class ManagedRuntimeWarmupService : BackgroundService
         }
 
         Changed?.Invoke();
+    }
+
+    private sealed class RuntimeProgress(ManagedRuntimeWarmupService owner) : IProgress<ManagedRuntimeInstallProgress>
+    {
+        public void Report(ManagedRuntimeInstallProgress value) => owner.ApplyProgress(value);
     }
 
     private static ManagedRuntimeWarmupSnapshot ApplyInstalledVersions(

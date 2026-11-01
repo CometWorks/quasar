@@ -105,11 +105,13 @@
                 </AuthorizeView>
                 <ClusterPluginConfigurationPanel Cluster="Cluster" />
                 <details class="quasar-details"><summary>Advanced cluster controls</summary>
+                <div class="quasar-stack">
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Cluster.Gateway is not null)
                 {
-                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" @onclick="RestartAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Restart Cluster Gateway</button>
+                    <div class="quasar-row">
+                        <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" @onclick="RestartAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Restart Cluster Gateway</button>
+                    </div>
                 }
-                <div class="quasar-stack">
                 <details class="quasar-details"><summary>Diagnostics, maintenance and exports</summary>
                     <div class="py-2 cluster-form-section quasar-stack">
                     <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadDiagnosticsAsync">Load diagnostics</button>
@@ -126,6 +128,7 @@
                     </div>
                 </details>
                 <details class="quasar-details"><summary>Client diagnostics and rotation publication</summary>
+                    <div class="py-2 cluster-form-section quasar-stack">
                     <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadRotationAsync">Load rotation publication</button>
                     @if (_rotation is not null)
                     {
@@ -136,8 +139,10 @@
                         <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("PUT /admin/v1/rotation"))" @onclick="PublishRotationAsync">Publish rotation assignments</button>
                         <p class="quasar-muted quasar-caption">Matching cluster clients receive F11 diagnostics over the mod channel. Only in-game Admin and Owner ranks receive the fleet and Cluster Registry fields.</p>
                     }
+                    </div>
                 </details>
                 <details class="quasar-details"><summary>Advanced capacity configuration</summary>
+                    <div class="py-2 cluster-form-section quasar-stack">
                     <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadConfigAsync">Load current configuration</button>
                     @if (_config is not null)
                     {
@@ -150,6 +155,7 @@
                         </tbody></table></div>
                         <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("PUT /admin/v1/config"))" @onclick="ApplyConfigAsync">Apply configuration</button>
                     }
+                    </div>
                 </details>
                 </div>
                 </details>

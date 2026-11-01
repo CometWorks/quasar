@@ -83,8 +83,17 @@ backup; they are not automatically merged into standalone plugin storage.
 
 ## Progress, interruption and API/CLI
 
+**Convert to cluster**, **Back up and convert**, or **Resume conversion** becomes a loader as soon as it is clicked, before permission
+checks and validation. Errors appear beside the conversion controls, and failed
+attempts restore the button. A running attempt cannot be submitted again.
+While conversion runs, its loader shows the current phase and elapsed time. It
+does not estimate a percentage from elapsed time. After 30 seconds it explains
+that the operation is still running.
+
 The page shows progress and places a conversion UUID in its URL. Reopen that URL to
-resume the immutable request and its generated placement. Failed attempts retain source/backup data and verified
+resume an unfinished immutable request and its generated placement. Completed conversions
+show **Review destination** without a **Resume conversion** action, including after
+reopening the URL. Failed attempts retain source/backup data and verified
 intermediate outputs. A new operation key retries the same UUID/request; an existing
 operation key replays its recorded result. Changed inputs require **Edit as a new
 conversion**, which creates a new UUID. If Host executor activation partially succeeded,

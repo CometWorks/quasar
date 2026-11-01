@@ -7,20 +7,38 @@
     <div class="quasar-panel-heading"><h2>Simulation speed</h2><a class="quasar-table-link" href="analytics">Open analytics ↗</a></div>
     <div class="quasar-chart-body">
         <div class="quasar-chart-frame">
-            <div id="@_containerId" class="quasar-fleet-chart" role="img" aria-label="Simulation speed over the last 30 minutes for configured standalone servers"></div>
+            <div id="@_containerId" class="quasar-fleet-chart" role="img" aria-label="Simulation speed over the last 30 minutes for standalone servers and cluster nodes"></div>
             @if (_status is not null) { <div class="quasar-chart-state" role="status">@_status</div> }
         </div>
     </div>
-    <div class="quasar-table-footer"><span>Last 30 minutes · Standalone servers</span><span>1.00× = real time</span></div>
+    <div class="quasar-table-footer"><span>Last 30 minutes · Standalone servers and cluster nodes</span><span>1.00× = real time</span></div>
 </section>
 
 @code {
     [Parameter] public IReadOnlyList<DedicatedServerDefinition> Servers { get; set; } = [];
+    [Parameter] public IReadOnlyList<ClusterDefinition> Clusters { get; set; } = [];
+    [Parameter] public IReadOnlyList<AgentRuntimeState> Agents { get; set; } = [];
+    private Dictionary<string, string> _sources = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _containerId = "fleet-simspeed-" + Guid.NewGuid().ToString("N");
     private DateTimeOffset _nextSync;
     private bool _syncing;
     private bool _disposed;
     private string? _status = "Waiting for recorded telemetry…";
+
+    protected override void OnParametersSet()
+    {
+        var sources = Servers.ToDictionary(server => server.UniqueName,
+            server => string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName,
+            StringComparer.OrdinalIgnoreCase);
+        var clusters = Clusters.ToDictionary(cluster => cluster.UniqueName, StringComparer.OrdinalIgnoreCase);
+        // Reuse Analytics' stable slot key so restarts and node moves keep one history line.
+        foreach (var agent in Agents.Where(agent => agent.HasClusterIdentity).DistinctBy(agent => agent.AnalyticsKey))
+            if (clusters.TryGetValue(agent.ClusterId, out var cluster))
+                sources.TryAdd(agent.AnalyticsKey, $"{(string.IsNullOrWhiteSpace(cluster.DisplayName) ? cluster.UniqueName : cluster.DisplayName)} / {agent.ClusterSlot}");
+        if (_sources.Count != sources.Count || sources.Any(pair => _sources.GetValueOrDefault(pair.Key) != pair.Value))
+            _nextSync = DateTimeOffset.MinValue;
+        _sources = sources;
+    }
 
     protected override void OnInitialized()
     {
@@ -49,13 +67,13 @@
             var result = await JS.InvokeAsync<ChartResult?>("quasarCharts.sync", new
             {
                 endpoint = "api/analytics/series", from = now - 1800, to = now, maxPoints = 180,
-                servers = Servers.Select(server => server.UniqueName).ToArray(),
-                names = Servers.ToDictionary(server => server.UniqueName, server => string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName),
+                servers = _sources.Keys.ToArray(),
+                names = _sources,
                 metrics = new[] { new { key = "simspeed", containerId = _containerId, height = 220 } },
                 dark = ThemePreference.IsDarkMode, lines = true, selectable = false,
             });
             _status = result is { Ok: false } ? "Telemetry could not be loaded. Open analytics to retry."
-                : result is { HasData: true } ? null : "No recorded telemetry yet. Start a server to see its simulation history.";
+                : result is { HasData: true } ? null : "No recorded telemetry yet. Start a server or cluster to see its simulation history.";
         }
         catch (JSDisconnectedException) { }
         catch (InvalidOperationException) { }

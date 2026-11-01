@@ -21,11 +21,14 @@
                     <MudItem xs="12" md="6">
                         <MudButton Variant="Variant.Filled" Color="Color.Secondary"
                                    StartIcon="@Icons.Material.Filled.AccountTree"
+                                   Disabled="@(!OperatingSystem.IsLinux())"
                                    Style="width: 100%; min-height: 88px;"
                                    OnClick="@(() => Choose(ServerKind.Cluster))">
                             Cluster
                         </MudButton>
-                        <p class="quasar-text quasar-type-body2 mt-2">One shared world across multiple nodes. Continue to guided cluster setup.</p>
+                        <p class="quasar-text quasar-type-body2 mt-2">@(OperatingSystem.IsLinux()
+                            ? "One shared world across multiple nodes. Continue to guided cluster setup."
+                            : "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows.")</p>
                     </MudItem>
                 </AuthorizeView>
             </MudGrid>
@@ -42,6 +45,10 @@
 
     public enum ServerKind { SingleMagnetar, Cluster }
 
-    private void Choose(ServerKind kind) => MudDialog.Close(DialogResult.Ok(kind));
+    private void Choose(ServerKind kind)
+    {
+        if (kind == ServerKind.Cluster && !OperatingSystem.IsLinux()) return;
+        MudDialog.Close(DialogResult.Ok(kind));
+    }
     private void Cancel() => MudDialog.Cancel();
 }

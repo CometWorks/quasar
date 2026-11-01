@@ -134,6 +134,15 @@ public sealed class ClusterOperationStore
     public ClusterOperation? Get(string operationId) =>
         _operations.GetValueOrDefault(operationId);
 
+    public event Action? Changed;
+
+    public IReadOnlyList<ClusterOperation> GetRecent(IEnumerable<string> clusters, int count)
+    {
+        var included = clusters.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _operations.Values.Where(operation => included.Contains(operation.Cluster))
+            .OrderByDescending(operation => operation.UpdatedAt).Take(count).ToArray();
+    }
+
     internal ClusterOperation? Find(string cluster, string kind, string idempotencyKey) => _operations.Values.FirstOrDefault(o =>
         o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind && o.IdempotencyKey == idempotencyKey);
 
@@ -236,6 +245,7 @@ public sealed class ClusterOperationStore
                     requestHash, actor, ClusterOperationState.Running, now, now, null, null);
                 await PersistAsync(existing, cancellationToken);
                 _operations[existing.OperationId] = existing;
+                Changed?.Invoke();
             }
 
             try
@@ -300,10 +310,12 @@ public sealed class ClusterOperationStore
                 };
                 _operations[existing.OperationId] = existing;
                 await PersistAsync(existing, CancellationToken.None);
+                Changed?.Invoke();
                 throw;
             }
             _operations[existing.OperationId] = existing;
             await PersistAsync(existing, CancellationToken.None);
+            Changed?.Invoke();
             return existing;
         }
         finally
@@ -443,6 +455,7 @@ public sealed class ClusterOperationStore
     {
         await PersistAsync(operation, token);
         _operations[operation.OperationId] = operation;
+        Changed?.Invoke();
         return operation;
     }
 

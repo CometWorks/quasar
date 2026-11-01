@@ -29,11 +29,12 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     public void Dispose() => Directory.Delete(root, true);
 
     private ClusterLocalHost LocalHost(string binary, string installRoot, ClusterHostCatalog? catalog = null,
-        ClusterCredentialStore? store = null, bool preserve = true)
+        ClusterCredentialStore? store = null, bool preserve = true, ClusterHostTunnels? tunnels = null,
+        WebServiceOptions? options = null)
     {
         store ??= credentials; catalog ??= hosts;
-        return new(catalog, store, new ClusterHostInstaller(catalog, store, binary, TimeProvider.System), new ClusterHostTunnels(),
-            new WebServiceOptions { PreserveManagedServersOnShutdown = preserve },
+        return new(catalog, store, new ClusterHostInstaller(catalog, store, binary, TimeProvider.System), tunnels ?? new ClusterHostTunnels(),
+            options ?? new WebServiceOptions { PreserveManagedServersOnShutdown = preserve },
             Microsoft.Extensions.Logging.Abstractions.NullLogger<ClusterLocalHost>.Instance, Path.Combine(installRoot, "LocalHost"), supported: true);
     }
 
@@ -70,6 +71,133 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
         Assert.Contains(ClusterHostInstaller.BinaryVariable, local.Error);
         Assert.Equal("Local Host executor is not available.", local.Status);
         Assert.False(Directory.Exists(Path.Combine(root, "install", "LocalHost")));
+    }
+
+    [Fact]
+    public async Task LocalHostCommandReportsLaunchFailureWithoutAnUnhandledException()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var tunnels = new ClusterHostTunnels();
+        using var local = LocalHost(Path.Combine(root, "missing-host"), Path.Combine(root, "install"), tunnels: tunnels);
+        using var http = new HttpClient(new SocketsHttpHandler { ConnectCallback = tunnels.OpenAsync, UseProxy = false });
+        var host = await hosts.RegisterAsync("local", "Local", "127.0.0.1", 18400, default);
+        var client = new ClusterHostClient(http, credentials);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var error = await Assert.ThrowsAsync<ClusterHostException>(() => client.GetStatusAsync(new()
+        {
+            HostCommandUrl = host.CommandUrl, HostCommandTokenEnvironmentVariable = host.CredentialReference,
+        }, deadline.Token));
+
+        Assert.Equal("host_unavailable", error.Code);
+        Assert.Contains("does not include the Host executor", error.ToString());
+        Assert.Null(local.ReadPid());
+    }
+
+    [Fact]
+    public async Task LocalHostConnectionWaitHonorsCallerCancellationAndShutdown()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var tunnels = new ClusterHostTunnels();
+        string binary = FakeHost(Path.Combine(root, "release"));
+        using var local = LocalHost(binary, Path.Combine(root, "install"), tunnels: tunnels);
+        using var cancelled = new CancellationTokenSource();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var first = tunnels.EnsureLocalHostConnectedAsync!(cancelled.Token);
+            var second = tunnels.EnsureLocalHostConnectedAsync!(deadline.Token);
+            await WaitForCallsAsync(binary, 1);
+            Assert.False(first.IsCompleted);
+            Assert.False(second.IsCompleted);
+            cancelled.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => first);
+            Assert.False(second.IsCompleted);
+            Assert.Single(await WaitForCallsAsync(binary, 1));
+
+            await local.StopAsync(deadline.Token);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => second);
+        }
+        finally { await local.StopAsync(default); }
+    }
+
+    [Fact]
+    public async Task LocalHostCommandWaitsForItsAuthenticatedConnection()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var host = await hosts.RegisterAsync("local", "Local", "127.0.0.1", 18400, default);
+        var tunnels = new ClusterHostTunnels();
+        string binary = FakeHost(Path.Combine(root, "release"));
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization();
+        builder.Services.AddSingleton(hosts); builder.Services.AddSingleton(tunnels);
+        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System));
+        await using var app = builder.Build();
+        app.UseWebSockets(); app.MapClusterHostEnrollmentApi();
+        await app.StartAsync();
+        string origin = app.Urls.Single();
+        using var local = LocalHost(binary, Path.Combine(root, "install"), tunnels: tunnels,
+            options: new WebServiceOptions { ListenUrl = origin });
+        using var http = new HttpClient(new SocketsHttpHandler { ConnectCallback = tunnels.OpenAsync, UseProxy = false });
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        try
+        {
+            var responseTask = http.GetStringAsync(host.CommandUrl + "/host/v1/status", deadline.Token);
+            await WaitForCallsAsync(binary, 1);
+            Assert.False(responseTask.IsCompleted);
+            using var control = new ClientWebSocket();
+            control.Options.SetRequestHeader("Authorization", "Bearer " + credentials.Resolve(host.CredentialReference));
+            await control.ConnectAsync(new UriBuilder(origin) { Scheme = "ws", Path = "/api/v1/hosts/local/connect" }.Uri, deadline.Token);
+            byte[] signal = new byte[64];
+            var message = await control.ReceiveAsync(signal.AsMemory(), deadline.Token);
+            string id = Encoding.UTF8.GetString(signal, 0, message.Count);
+            using var tunnel = new ClientWebSocket();
+            tunnel.Options.SetRequestHeader("Authorization", "Bearer " + credentials.Resolve(host.CredentialReference));
+            await tunnel.ConnectAsync(new UriBuilder(origin) { Scheme = "ws", Path = "/api/v1/hosts/local/tunnels/" + id }.Uri, deadline.Token);
+            await tunnel.ReceiveAsync(new byte[4096].AsMemory(), deadline.Token);
+            await tunnel.SendAsync(Encoding.ASCII.GetBytes("HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\nready"),
+                WebSocketMessageType.Binary, true, deadline.Token);
+            Assert.Equal("ready", await responseTask);
+            await control.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, "done", deadline.Token);
+        }
+        finally
+        {
+            await local.StopAsync(default);
+            await app.StopAsync(deadline.Token);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LocalHostRestartsWhenItsConnectionConfigurationChangesOrIsUnknown(bool legacyPid)
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string install = Path.Combine(root, "install");
+        string binary = FakeHost(Path.Combine(root, "release"));
+        using var local = LocalHost(binary, install);
+        try
+        {
+            await local.EnsureRunningAsync(default);
+            await WaitForCallsAsync(binary, 1);
+            var previous = local.ReadPid()!;
+            if (legacyPid)
+                File.WriteAllText(Path.Combine(install, "LocalHost", "host.pid"), JsonSerializer.Serialize(new
+                { previous.Pid, previous.Identity, previous.Binary, previous.Sha256 }));
+            using var restarted = LocalHost(binary, install, options: new WebServiceOptions
+                { ListenUrl = legacyPid ? "http://0.0.0.0:8080" : "http://0.0.0.0:9080" });
+            await restarted.EnsureRunningAsync(default);
+            Assert.Null(restarted.Error);
+            Assert.NotEqual(previous.Pid, restarted.ReadPid()!.Pid);
+            Assert.Null(ClusterLocalHost.ProcessIdentity(previous.Pid));
+            Assert.Equal(2, (await WaitForCallsAsync(binary, 2)).Length);
+            using var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(install, "LocalHost", "host.json")));
+            Assert.Equal(legacyPid ? "http://127.0.0.1:8080/" : "http://127.0.0.1:9080/",
+                config.RootElement.GetProperty("connection").GetProperty("quasarUrl").GetString());
+            await restarted.StopAsync(default);
+        }
+        finally { await local.StopAsync(default); }
     }
 
     [Fact]

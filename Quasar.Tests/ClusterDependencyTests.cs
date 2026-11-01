@@ -803,6 +803,105 @@ public sealed class ClusterDependencyTests
     private static T Data<T>(IResult result) => Assert.IsType<AdminEnvelope<T>>(((IValueHttpResult)result).Value).Data;
 
     [LinuxFact]
+    public async Task DeploymentMismatchReportsPathsPinsAndAllKindsOfChanges()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        byte[] bytes = JsonSerializer.SerializeToUtf8Bytes(inputs, ClusterDeploymentFiles.JsonOptions);
+        string hash = ClusterDeploymentFiles.Hash(bytes), destination = Path.Combine(fixture.Root, "host");
+        var installed = await ClusterDeploymentFiles.PrepareAsync(bytes, hash, destination, default);
+        const string changed = "Package/README.md", missing = "Package/cli/cluster.py", mode = "Package/cli/cluster";
+        // Replace a reference instead of changing the content object shared with the source.
+        File.Delete(Path.Combine(installed.Directory, changed));
+        File.WriteAllText(Path.Combine(installed.Directory, changed), "different bytes");
+        File.Delete(Path.Combine(installed.Directory, missing));
+        byte[] modeBytes = File.ReadAllBytes(Path.Combine(installed.Directory, mode));
+        File.Delete(Path.Combine(installed.Directory, mode));
+        File.WriteAllBytes(Path.Combine(installed.Directory, mode), modeBytes);
+        File.SetUnixFileMode(Path.Combine(installed.Directory, mode), UnixFileMode.UserRead);
+        File.WriteAllText(Path.Combine(installed.Directory, "Package/unexpected.txt"), "extra");
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() =>
+            ClusterDeploymentFiles.PrepareAsync(bytes, hash, destination, default));
+        Assert.Contains("1 missing, 1 unexpected, 2 changed", error.Message);
+        Assert.Contains("Missing: " + missing, error.Message);
+        Assert.Contains("Unexpected: Package/unexpected.txt", error.Message);
+        Assert.Contains("Changed: " + changed, error.Message);
+        Assert.Contains("Changed: " + mode, error.Message);
+        Assert.Contains(inputs.Files[changed].Sha256, error.Message);
+        Assert.Contains(ClusterDeploymentFiles.Hash("different bytes"u8.ToArray()), error.Message);
+        Assert.Contains("executable=True", error.Message);
+        Assert.Contains("executable=False", error.Message);
+        Assert.Contains(installed.Directory, error.Message);
+    }
+
+    [Fact]
+    public void DeploymentMismatchDetailsAreBoundedButCountsAreComplete()
+    {
+        var actual = Enumerable.Range(0, 15).ToDictionary(i => $"Package/{i:D2}.txt",
+            _ => new Quasar.Host.Contract.V1.DeploymentFile(new string('a', 64), 1, false));
+        var error = Assert.Throws<InvalidDataException>(() => ClusterDeploymentFiles.VerifyFiles([], actual, "/snapshot"));
+        Assert.Contains("15 unexpected", error.Message);
+        Assert.Contains("5 more mismatches omitted", error.Message);
+        Assert.Contains("Package/09.txt", error.Message);
+        Assert.DoesNotContain("Package/10.txt", error.Message);
+        ClusterDeploymentFiles.VerifyFiles(actual, actual, "/snapshot");
+    }
+
+    [LinuxFact]
+    public async Task SetupCheckpointResumesOfflineAndRejectsChangedInputsWithoutRestaging()
+    {
+        using var fixture = await Fixture.CreateAsync();
+        var candidate = await fixture.Service.InspectAsync(fixture.Cluster, default);
+        await fixture.Service.StageAsync(fixture.Cluster, new(candidate.ManifestSha256, 1, null), default);
+        fixture.Cluster.DependencyManifestSha256 = candidate.ManifestSha256;
+        var inputs = await fixture.Service.GetDeploymentInputsAsync(fixture.Cluster, default);
+        var cache = typeof(Magnetar.Protocol.Runtime.MagnetarPaths).GetField("_cachedQuasarDirectory",
+            System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!;
+        var previous = cache.GetValue(null);
+        cache.SetValue(null, fixture.Root);
+        try
+        {
+            string work = Path.Combine(fixture.Root, "ClusterSetup/demo"), mods = Path.Combine(work, "mod-stage/mods");
+            Directory.CreateDirectory(mods);
+            File.WriteAllText(Path.Combine(mods, "mod.sbc"), "pinned mod");
+            byte[] profile = JsonSerializer.SerializeToUtf8Bytes(new QuasarConfigProfile(), ClusterDeploymentFiles.JsonOptions);
+            File.WriteAllBytes(Path.Combine(work, "profile.json"), profile);
+            var prepared = new ClusterSetupService.PreparedSetupInputs(inputs, new(), new() { ["123"] = 42 },
+                await ClusterDeploymentFiles.InspectAsync(mods, default), new() { ["plugin"] = new JsonObject() }, ClusterDeploymentFiles.Hash(profile));
+            string receipt = Path.Combine(work, "prepared-inputs.json");
+            File.WriteAllBytes(receipt, JsonSerializer.SerializeToUtf8Bytes(prepared, ClusterDeploymentFiles.JsonOptions));
+            var setup = new ClusterSetupService(null!, null!, null!, null!, null!, fixture.Service,
+                null!, null!, null!, null!, null!, null!, null!, null!);
+            var request = new ClusterSetupRequest("demo", "Demo", "world", "profile", "one", 28000, [new("one", 2)]);
+            // Live runtime, Workshop and plugin exporter are unavailable. Only the frozen inputs may be used.
+            Directory.Delete(Path.Combine(fixture.Root, "inputs"), true);
+            var resumed = await setup.PrepareInputsAsync(fixture.Cluster, request, work, null, default);
+            Assert.Equal(42, resumed.ModVersions["123"]);
+            Assert.Equal("Verifying prepared setup inputs", setup.GetStatus("demo")!.Phase);
+
+            fixture.Cluster.PackageSelection = fixture.Cluster.PackageSelection! with { Revision = 2 };
+            Assert.Contains("no longer match", (await Assert.ThrowsAsync<InvalidDataException>(() =>
+                setup.PrepareInputsAsync(fixture.Cluster, request, work, null, default))).Message);
+            fixture.Cluster.PackageSelection = fixture.Cluster.PackageSelection with { Revision = 1 };
+            File.AppendAllText(Path.Combine(work, "profile.json"), " ");
+            await Assert.ThrowsAsync<InvalidDataException>(() => setup.PrepareInputsAsync(fixture.Cluster, request, work, null, default));
+            File.WriteAllBytes(Path.Combine(work, "profile.json"), profile);
+            File.WriteAllText(Path.Combine(mods, "mod.sbc"), "changed mod");
+            Assert.Contains("Changed: mod.sbc", (await Assert.ThrowsAsync<InvalidDataException>(() =>
+                setup.PrepareInputsAsync(fixture.Cluster, request, work, null, default))).Message);
+            Assert.True(File.Exists(receipt));
+            Assert.Equal("changed mod", File.ReadAllText(Path.Combine(mods, "mod.sbc")));
+            ClusterSetupService.CleanupTransferFiles(work);
+            Assert.False(File.Exists(receipt));
+        }
+        finally { cache.SetValue(null, previous); }
+    }
+
+    [LinuxFact]
     public async Task HostPreparationCopiesPinnedInputsAndCanVerifyOffline()
     {
         using var fixture = await Fixture.CreateAsync();

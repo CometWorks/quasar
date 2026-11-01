@@ -25,7 +25,8 @@ public sealed class ClusterFleetService(ClusterGatewayClient gateway, AgentRegis
                 agent.IsConnected && snapshot is not null && DateTimeOffset.UtcNow - agent.LastSnapshotReceivedUtc < TimeSpan.FromSeconds(15),
                 snapshot?.CapturedAtUtc, snapshot?.Metrics, snapshot?.Profiler, snapshot?.PluginStats,
                 snapshot?.Plugins.ToArray() ?? [], logs.GetEntries(agent.TelemetryKey).TakeLast(25).ToArray(),
-                snapshot?.DeploymentRevision, snapshot?.ReadinessVerified, snapshot?.DeploymentFailure);
+                snapshot?.DeploymentRevision, snapshot?.ReadinessVerified, snapshot?.DeploymentFailure,
+                TelemetryPaused: snapshot?.TelemetryPaused ?? false);
             return new ClusterFleetNode(node, telemetry);
         }).ToArray();
         return new(status.ClusterId, nodes);
@@ -58,4 +59,5 @@ internal sealed record ClusterNodeRow(Admin.NodePlan? Plan, ClusterFleetNode? Fl
 public sealed record ClusterNodeTelemetry(string AgentId, string TelemetryKey, bool Connected,
     DateTimeOffset? CapturedAt, ServerMetrics? Metrics, ProfilerSnapshot? Profiler,
     PluginStatsSnapshot? PluginStats, PluginRuntimeInfo[] Plugins, PluginLogEntry[] Logs,
-    string? DeploymentRevision = null, bool? ReadinessVerified = null, string? DeploymentFailure = null);
+    string? DeploymentRevision = null, bool? ReadinessVerified = null, string? DeploymentFailure = null,
+    bool TelemetryPaused = false);

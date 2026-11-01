@@ -26,8 +26,11 @@ While connecting, **Cancel** is the only footer action. It stops hosted setup an
 the connection, preserves the private identity and does not cancel an existing
 subscription. **Open Quasar dashboard** becomes a primary button only after active
 hosting and fresh health for this panel confirm both the tunnel and local worker
-are ready. **Done** closes setup; **Self-deploy** disconnects hosting and opens
-Security. Expired or disconnected enrollments return to the setup form to retry.
+are ready. It opens the dashboard in the current browser tab. **Done** closes
+setup; **Manage Nebula hosting and billing** opens your
+Nebula account. **Self-deploy** appears only on the access-method selection screen,
+never on later hosted steps or when reopening a completed enrollment. Expired or
+disconnected enrollments return to the setup form to retry.
 
 **Current availability:** Nebula's configured platform super admins can enroll
 free. Stripe billing is implemented; checkout stays disabled
@@ -80,7 +83,7 @@ connector download. Unix uses owner-only permissions; Windows grants the service
 identity, SYSTEM and Administrators. Protect backups and run only one restored
 connector for a copied enrollment identity. Corrupt state preserves its file and
 disables hosting while local Quasar remains available. Restore a private backup
-before editing enrollment. Self-deploy disconnects hosting and retains the local
+before editing enrollment. Canceling an incomplete connection retains the local
 identity; selecting the same hosted name resumes it. Renaming is not implemented.
 
 All configured Steam administrators share this panel in Nebula. Quasar sends

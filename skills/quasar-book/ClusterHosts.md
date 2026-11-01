@@ -2,6 +2,9 @@
 
 The Host executor (`Quasar.Host`) is the service that runs on every cluster host machine. It starts and supervises the Cluster Gateway and the cluster nodes, keeps them running while Quasar is down, and takes orders from Quasar over an outbound connection. This page covers its packages, files, configuration, credentials, connection to Quasar, command line, updates, shutdown behavior and connection troubleshooting. Enrollment steps are in [Guided cluster setup](ClusterSetup.md#enroll-host-machines).
 
+The Hosts page focuses on available machines, connection status and configured
+clusters. Automatic local setup details are kept out of its introduction.
+
 ## Packages and binary
 
 - Each Linux Quasar release ships the Host executor as a self-contained single-file executable at `Host/Quasar.Host` next to the web worker. Quasar's installer, the enrollment command, SSH installation, the manual package and the automatic updater all use this same file, so the Host version always follows the Quasar web release, not the cluster package.
@@ -49,12 +52,13 @@ On Linux x64 every Quasar install runs its own Host executor, ID `local`, withou
 | `LocalHost/host.json` | Host configuration. Quasar rewrites it before each start, so a changed Quasar port reaches the Host. |
 | `LocalHost/state/` | State directory, laid out as on any host machine (credentials, deployments, cluster saves). |
 | `LocalHost/host.log` | The Host's output, moved to `host.log.1` at a start once it passes 10 MB. |
-| `LocalHost/host.pid` | PID, process identity and binary hash of the running Host. |
+| `LocalHost/host.pid` | PID, process identity, binary hash and configuration hash of the running Host. |
 | `LocalHost/stop-clusters` | Runs `Quasar.Host stop-clusters` for this Host. The clusters unit calls it. |
 
 - The binary is the running web worker's `Host/Quasar.Host` (`QUASAR_HOST_BINARY` overrides it). It is not copied.
 - Quasar starts the Host when the Hosts page or cluster setup is opened, when Quasar needs it for a cluster, and at Quasar start when a cluster is deployed on this PC. It runs in its own session (`setsid`), so `Ctrl+C` on a foreground Quasar doesn't reach it. If it exits, Quasar starts it again within 15 seconds.
-- A restarted or updated web worker adopts the running Host by its PID and process identity. When the binary of the new release differs, Quasar restarts the Host from it. The Gateway and nodes keep running, as with any Host restart.
+- Commands to the local Host wait for its authenticated connection within a 30-second connection deadline, including commands from startup storage maintenance. A launch failure or timeout fails the operation without stopping Quasar; storage maintenance defers collection and applies a one-minute retry backoff. Caller cancellation and Quasar shutdown cancel the wait.
+- A restarted or updated web worker adopts the running Host by its PID and process identity when its binary and configuration hashes match. A changed binary or configuration, including Quasar's address or port, restarts the Host. The first update from a version without a configuration hash restarts it once. The Gateway and nodes keep running, as with any Host restart.
 - When Quasar stops, it stops the Host unless a Gateway with goal On runs on it, or this PC takes part in a cluster whose Gateway runs elsewhere. Then the Host keeps running, like managed servers do, and the next Quasar start adopts it. With `Quasar:PreserveManagedServersOnShutdown` set to `false`, Quasar saves and stops those clusters with `stop-clusters` first, then stops the Host.
 - The Docker image has no local Host.
 - A local Host that an older Quasar installed in `~/.local/share/Quasar/Hosts/<id>` with its own `quasar-host-<id>*` units stays an ordinary enrolled host machine next to the new one. Quasar doesn't touch it. [Install on Linux](InstallLinux.md#uninstall) shows how `uninstall.sh` reports it.

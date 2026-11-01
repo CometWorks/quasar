@@ -17,8 +17,8 @@ public sealed class ClusterHostTunnels
     private sealed record Pending(string Host, Connection Connection, TaskCompletionSource<WebSocket> Socket, TaskCompletionSource Closed);
     private readonly ConcurrentDictionary<string, Connection> _hosts = new();
     private readonly ConcurrentDictionary<Guid, Pending> _pending = new();
-    /// <summary>Raised when Quasar needs a Host that isn't connected, so the local Host can be started.</summary>
-    public event Action<string>? OfflineHostRequested;
+    // Assigned by the local Host owner to avoid a dependency cycle. Remote Hosts cannot be started here.
+    internal Func<CancellationToken, Task>? EnsureLocalHostConnectedAsync { get; set; }
     public bool IsConnected(string host) => _hosts.TryGetValue(host, out var connection) && connection.Socket.State == WebSocketState.Open;
 
     internal async Task ConnectAsync(string host, HttpContext context)
@@ -73,15 +73,17 @@ public sealed class ClusterHostTunnels
             catch { tcp.Dispose(); throw; }
         }
         string host = context.DnsEndPoint.Host[..^suffix.Length];
-        if (!_hosts.TryGetValue(host, out var connection))
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token, _stopping);
+        deadline.CancelAfter(TimeSpan.FromSeconds(30));
+        if (!_hosts.TryGetValue(host, out var connection) || connection.Socket.State != WebSocketState.Open)
         {
-            OfflineHostRequested?.Invoke(host);
-            throw new IOException("Enrolled Host is offline.");
+            if (host == ClusterLocalHost.HostId && EnsureLocalHostConnectedAsync is { } ensureConnected)
+                await ensureConnected(deadline.Token);
+            if (!_hosts.TryGetValue(host, out connection) || connection.Socket.State != WebSocketState.Open)
+                throw new IOException("Enrolled Host is offline.");
         }
         var id = Guid.NewGuid();
         var pending = new Pending(host, connection, new(TaskCreationOptions.RunContinuationsAsynchronously), new(TaskCreationOptions.RunContinuationsAsynchronously));
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
-        deadline.CancelAfter(TimeSpan.FromSeconds(30));
         try
         {
             await connection.Send.WaitAsync(deadline.Token);

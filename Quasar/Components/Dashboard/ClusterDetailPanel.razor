@@ -66,7 +66,7 @@
         </div>
         <div class="quasar-detail-metric">
             <div>
-                <p class="quasar-eyebrow">Recovery</p>
+                <p class="quasar-eyebrow">Crash recovery readiness</p>
                 <h2 class="quasar-tone-@(RecoveryColor.ToString().ToLowerInvariant())">@RecoveryText</h2>
                 <p class="quasar-muted quasar-caption">@RecoveryDetail</p>
             </div>
@@ -116,14 +116,14 @@
     <table class="cluster-details-table quasar-server-table quasar-runtime-table">
         <tbody>
             <tr><th>Desired state</th><td>@Cluster.GoalState</td></tr>
-            <tr><th>Reconciler</th><td>@ReconcileText</td></tr>
+            <tr><th><MudTooltip Text="Quasar checks whether the cluster is running or stopped as requested and starts or stops its services when needed."><span tabindex="0">Automatic cluster control</span></MudTooltip></th><td>@ReconcileText</td></tr>
             @if (GatewayOutput is { Length: > 0 } output)
             {
                 <tr><th>Last Cluster Registry process output</th><td><pre class="cluster-gateway-output">@string.Join('\n', output)</pre></td></tr>
             }
-            <tr><th>Host executor</th><td>@HostText</td></tr>
+            <tr><th><MudTooltip Text="Quasar.Host is the management service on the host machine. It starts, stops and monitors the cluster's processes."><span tabindex="0">Host management service</span></MudTooltip></th><td>@HostText</td></tr>
             <tr><th>Cluster Registry process</th><td>@GatewayExecutorText</td></tr>
-            <tr><th>Cluster Registry WAL</th><td>@RegistryText</td></tr>
+            <tr><th><MudTooltip Text="The Cluster Registry saves its coordination data as a snapshot and a log of later updates. This is separate from a world backup."><span tabindex="0">Saved coordination state</span></MudTooltip></th><td>@RegistryText</td></tr>
         </tbody>
     </table>    </div>;
 
@@ -292,7 +292,13 @@
         : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting; "
             + $"{ClusterConversionService.HotSpares(Cluster.Preparation?.SpecificationJson)} hot spare(s) configured.";
     private string WorldAuthorityText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.WorldAuthority.Node ?? "Unavailable";
-    private string RecoveryText => _recovery?.State.ToString() ?? "Unknown";
+    private string RecoveryText => _recovery?.State switch
+    {
+        Admin.RecoveryReadinessState.Ready => "Ready to recover",
+        Admin.RecoveryReadinessState.AtRisk => "Recovery at risk",
+        Admin.RecoveryReadinessState.NotReconstructible => "Complete recovery unavailable",
+        _ => "Recovery status unavailable",
+    };
     private Color RecoveryColor => _recovery?.State switch
     {
         Admin.RecoveryReadinessState.Ready => Color.Success,
@@ -300,11 +306,21 @@
         Admin.RecoveryReadinessState.NotReconstructible => Color.Error,
         _ => Color.Default,
     };
-    private string RecoveryDetail => _recovery?.LatestPoint is null
-        ? "No reconstructible cut reported."
-        : $"{_recovery.LatestPoint.Consistency} · cluster time {_recovery.LatestPoint.ClusterTime}";
+    private string RecoveryDetail => _recovery switch
+    {
+        null => "Quasar could not check whether the saved world data can be restored after a crash.",
+        { State: Admin.RecoveryReadinessState.NotReconstructible } =>
+            "The reported saved data cannot currently restore the whole cluster after a crash.",
+        { LatestPoint: null } =>
+            "No complete recovery point has been reported. Recovery after a crash is not confirmed.",
+        { State: Admin.RecoveryReadinessState.AtRisk } =>
+            "A recovery point exists, but the Cluster Registry reports risks that could prevent a complete restore after a crash.",
+        { State: Admin.RecoveryReadinessState.Ready } =>
+            "The Cluster Registry reports a usable recovery point. Progress since the last save may be lost after a crash.",
+        _ => "The Cluster Registry has not provided a recognized recovery status.",
+    };
     private string HostText => _host is null ? (string.IsNullOrWhiteSpace(Cluster.HostCommandUrl) ? "Not configured (observation only)" : "Unavailable")
-        : $"{_host.HostId} · {_host.Attachments.Length} attachment(s)";
+        : $"{_host.HostId} · {_host.Attachments.Length} configured {(_host.Attachments.Length == 1 ? "cluster" : "clusters")}";
     private string GatewayExecutorText => _host?.Gateways?.FirstOrDefault(gateway =>
             gateway.ClusterId.Equals(Cluster.UniqueName, StringComparison.OrdinalIgnoreCase)) is { } gateway
         ? $"{gateway.Observed} · PID {gateway.ProcessId?.ToString() ?? "-"} · {gateway.ConfigRevision}"
@@ -314,14 +330,24 @@
         get
         {
             ClusterReconcileStatus status = Reconciler.GetStatus(Cluster.UniqueName);
+            var state = status.State switch
+            {
+                ClusterReconcileState.Pending => "Waiting for first check",
+                ClusterReconcileState.Observing => "Monitoring only",
+                ClusterReconcileState.ConfigurationRequired => "Setup needed",
+                ClusterReconcileState.Converging => "Applying requested state",
+                ClusterReconcileState.Converged => "Requested state reached",
+                ClusterReconcileState.Failed => "Needs attention",
+                _ => "Unknown",
+            };
             return status.ErrorCode is null
-                ? $"{status.State} · {status.Message}"
-                : $"{status.State} · {status.ErrorCode}: {status.Message}";
+                ? $"{state} · {status.Message}"
+                : $"{state} · {status.ErrorCode}: {status.Message}";
         }
     }
     private string[]? GatewayOutput => Reconciler.GetStatus(Cluster.UniqueName).GatewayOutput;
     private string RegistryText => _recovery is null ? "-"
-        : $"{(_recovery.Registry.SnapshotPresent ? "snapshot present" : "no snapshot")} · {_recovery.Registry.WalRecords} WAL records";
+        : $"{(_recovery.Registry.SnapshotPresent ? "Saved snapshot available" : "No saved snapshot")} · {_recovery.Registry.WalRecords} logged updates";
 
     private static string ValueOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
     public async ValueTask DisposeAsync()

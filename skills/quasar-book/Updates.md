@@ -17,6 +17,9 @@ The Quasar release checks need Linux or Windows. On other platforms the Updates 
 
 ## The Updates page
 
+The source base version is `1.4.0`. Stable builds use `1.4.0.x`, where the final
+number counts commits since the base-version bump and starts at zero.
+
 Open **Updates** in the nav menu (Settings group). The URL is `/settings/updates`. Only the Admin role can open it.
 
 The page has these panels:
@@ -149,6 +152,8 @@ Prerelease builds are for testing. The page shows a red warning while they are e
 
 ## GitHub token for update checks
 
+Cluster release discovery also works without a token for public `CometWorks/cluster` releases. The cluster page shows the result of the actual GitHub request; a missing token alone does not make the latest version unavailable. Private releases still require repository read access.
+
 Quasar works without a token, but GitHub rate-limits unauthenticated API calls per IP address, which shared hosts and cloud IPs can hit. On a fresh install the limit can block the first UI download before there is a page to save a token on; Bootstrap then waits for GitHub's reset and continues, see [Install on Linux](InstallLinux.md#common-problems). To add one:
 
 1. Open <https://github.com/settings/tokens/new> and create a classic personal access token. Give it a note such as `Quasar update checks`, pick an expiration you will renew, and select no scopes at all.
@@ -185,7 +190,17 @@ The bell in the app bar and the **Notifications** page (`/notifications`) list u
 
 Under **Notification preferences**, **Quasar and cluster updates** is on by default. **Quasar UI plugin updates** is off by default and only shown to admins. Preferences are per account. Browser push uses the same choices. Push and the instance alerts on that page are covered in [Monitoring](Monitoring.md).
 
+During a planned restart, the restart progress panel replaces the normal lost-
+connection popup and owns health/version checks and page reload. Clearing a failed
+restart restores normal reconnection handling. Unexpected connection loss keeps
+the usual Retry and Resume controls.
+
 ## Managed runtime warmup
+
+Active runtime tasks on Dashboard and Updates show the current activity, elapsed
+time and reported download percentages. Checks and installation steps without a
+percentage use an indeterminate bar. A note appears after 30 seconds; elapsed
+time is not a completion estimate.
 
 At startup Quasar prepares SteamCMD, the Dedicated Server and Magnetar under `<install root>/ManagedRuntime/Tools/`:
 
@@ -278,6 +293,10 @@ What to do:
 - **"SteamCMD is not installed and could not be downloaded."** Quasar could not fetch SteamCMD from Valve's CDN.
 - **A server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL..."** Restart that server after a Quasar update.
 
+Dedicated Server downloads and validation report SteamCMD percentages as they happen.
+When SteamCMD provides no percentage, the operation loader shows the current stage
+and elapsed time. First-time preparation can take several minutes.
+
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
@@ -321,3 +340,7 @@ What to do:
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar.Tests/AutomaticUpdateTests.cs`
 - `Quasar.Tests/BootstrapUpdateTests.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
+- `Quasar/Components/Layout/ReconnectModal.razor.js`
+- `Directory.Build.props`

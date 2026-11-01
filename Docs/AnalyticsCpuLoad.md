@@ -33,7 +33,9 @@ Quasar restarts. Historical entries without simulation CPU appear as gaps, not
 zeroes. Averages ignore missing simulation samples while preserving real zeroes.
 The existing process CPU series keeps its key and meaning.
 
-Summary chips show the latest values averaged across selected servers. Discord
+Summary chips label process averages explicitly. With clusters selected, the
+process CPU chip sums the selected processes; each node retains a separate
+colored line in the shared CPU chart. Simulation CPU remains an average. Discord
 analytics reports show separate averages for both CPU metrics. The synthetic
 analytics generator also emits both fields, including process usage above 100%.
 

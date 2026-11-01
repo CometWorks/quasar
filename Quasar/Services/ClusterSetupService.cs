@@ -25,7 +25,7 @@ public sealed record ClusterSetupRequest(string UniqueName, string DisplayName, 
 {
     public string WorldName => string.IsNullOrWhiteSpace(InGameWorldName) ? DisplayName : InGameWorldName.Trim();
 }
-public sealed record ClusterSetupStatus(ClusterSetupRequest Request, string Phase, string? Error, DateTimeOffset UpdatedAt);
+public sealed record ClusterSetupStatus(ClusterSetupRequest Request, string Phase, string? Error, DateTimeOffset UpdatedAt, string? FailedPhase = null);
 
 /// <summary>Durable, copy-based creation using the same verified preparation and activation as conversion.</summary>
 public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatalog machines, ClusterHostClient hosts,
@@ -36,6 +36,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     ILogger<ClusterSetupService>? logger = null, ClusterLocalHost? localHost = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    public const string RuntimeProvisioningPhase = "Provisioning Dedicated Server and Magnetar";
     internal TimeSpan HostStartWait { get; init; } = TimeSpan.FromSeconds(60);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
     private static string Workspace(string id)
@@ -48,7 +49,8 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         string path = Path.Combine(Workspace(id), "status.json");
         return File.Exists(path) ? JsonSerializer.Deserialize<ClusterSetupStatus>(File.ReadAllBytes(path), Json) : null;
     }
-    public async Task<ClusterOperation> RunAsync(ClusterSetupRequest request, string key, string actor, CancellationToken token)
+    public async Task<ClusterOperation> RunAsync(ClusterSetupRequest request, string key, string actor, CancellationToken token,
+        IProgress<ManagedRuntimeInstallProgress>? runtimeProgress = null)
     {
         ValidateId(request.UniqueName);
         var gate = gates.GetOrAdd(request.UniqueName, _ => new(1, 1));
@@ -111,74 +113,24 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         }
                         if (cluster.ActiveDeployment is not null || cluster.Gateway is not null)
                             throw new InvalidOperationException("This registration already has a deployment. Use its update controls.");
-                        await StageAsync(request, "Provisioning Dedicated Server and Magnetar", null, ct);
-                        var ready = await runtime.EnsureManagedRuntimeReadyAsync(cancellationToken: ct);
-                        if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
-                        string installedSdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
-                        string installedSdkHash = ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, ct));
-                        cluster = await EnsureCompatiblePackageAsync(cluster, installedSdk,
-                            phase => StageAsync(request, phase, null, ct), ct);
-                        if (request.HotSpares > 0)
-                            ClusterDeploymentFiles.RequireHotSpares((await packages.GetInstalledAsync(
-                                new(cluster.PackageSelection!.Version, cluster.PackageSelection.Sha256), ct)).PackagePath);
                         var savedProfile = Read<QuasarConfigProfile>(Path.Combine(work, "profile.json"));
                         ClusterConversionService.ValidateAdmission(savedProfile);
+                        var prepared = await PrepareInputsAsync(cluster, request, work, runtimeProgress, ct);
+                        cluster = catalog.GetCluster(cluster.UniqueName)!;
                         string seed = Path.Combine(work, "source-world");
-                        string sourceReceipt = Path.Combine(work, "source-world.json");
-                        if (!File.Exists(sourceReceipt))
-                        {
-                            if (Directory.Exists(seed)) Directory.Delete(seed, true); // Unpublished copy; never the template.
-                            await ClusterWorldFiles.CopyAsync(worlds.GetWorldDirectory(request.WorldTemplateId), seed, ct);
-                            await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox.sbc"), savedProfile, request.WorldName, ct);
-                            if (File.Exists(Path.Combine(seed, "Sandbox_config.sbc")))
-                                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox_config.sbc"), savedProfile, request.WorldName, ct);
-                            await WriteAsync(sourceReceipt, await ClusterDeploymentFiles.InspectAsync(seed, ct), ct);
-                        }
-                        await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), ct);
-                        // The packaged generator refuses a world whose mods have no verified payload, and nodes never
-                        // download mods. Stage the exact Workshop versions as the guided profile update does, MagnetarMod
-                        // included even when the profile has no mods.
+                        await ClusterWorldFiles.VerifyAsync(seed,
+                            Read<Dictionary<string, HostContract.DeploymentFile>>(Path.Combine(work, "source-world.json")), ct);
                         string modWork = Path.Combine(work, "mod-stage");
-                        DeleteModStage(work);
-                        await StageAsync(request, "Staging the profile's Workshop mods", null, ct);
-                        Directory.CreateDirectory(modWork); ClusterWorldFiles.Private(modWork);
-                        var mods = await modStager.StageProfileAsync(savedProfile, modWork, ct, null);
-                        string exported = Path.Combine(work, "plugins");
-                        string exportReceipt = Path.Combine(work, "plugin-export.json");
-                        if (File.Exists(exportReceipt))
-                        {
-                            await ClusterWorldFiles.VerifyAsync(exported, Read<Dictionary<string, HostContract.DeploymentFile>>(exportReceipt), ct);
-                            var previous = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), ct))!.AsObject();
-                            if (previous["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
-                            if (previous["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
-                                File.Delete(exportReceipt); // The export is unpublished; retry prepares it with the current SDK.
-                        }
-                        // A snapshot frozen before this export holds plugins another Magnetar built. The PluginSdk
-                        // contract can keep the package selected across a Magnetar update, so freeze again.
-                        bool refreeze = false;
-                        if (!File.Exists(exportReceipt))
-                        {
-                            refreeze = cluster.DependencyManifestSha256 is not null;
-                            await StageAsync(request, "Preparing identical plugins and canonical configuration", null, ct);
-                            await ExportPluginsAsync(request, savedProfile, work, exported, ct);
-                            await WriteAsync(exportReceipt, await ClusterDeploymentFiles.InspectAsync(exported, ct), ct);
-                        }
-                        await ClusterWorldFiles.VerifyAsync(exported, Read<Dictionary<string, HostContract.DeploymentFile>>(exportReceipt), ct);
-                        var pluginData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), ct))!.AsObject();
-                        if (pluginData["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
-                        if (pluginData["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
-                            throw new InvalidDataException("Magnetar changed during plugin preparation. Resume setup to select a matching release and prepare again.");
-                        if (cluster.DependencyManifestSha256 is null || refreeze)
-                        {
-                            await StageAsync(request, "Freezing the common runtime snapshot", null, ct);
-                            cluster = await FreezeDependenciesAsync(cluster, exported, installedSdk, installedSdkHash, ct);
-                        }
-                        var inputs = await dependencies.GetDeploymentInputsAsync(cluster, ct);
+                        var mods = new ClusterWorkshopModStager.StagedProfileMods(prepared.ModProfile, Path.Combine(modWork, "mods"),
+                            prepared.ModFiles.ToDictionary(p => p.Key, p => p.Value.Sha256), prepared.ModVersions);
+                        var inputs = prepared.Inputs;
+                        await StageAsync(request, "Verifying the pinned deployment installation", null, ct);
                         byte[] inputBytes = JsonSerializer.SerializeToUtf8Bytes(inputs, Json);
                         var installed = await ClusterDeploymentFiles.PrepareAsync(inputBytes, ClusterDeploymentFiles.Hash(inputBytes), Path.Combine(work, "installation"), ct);
                         await StageAsync(request, "Converting a copy of the world", null, ct);
                         string world = Path.Combine(work, "split-world");
                         await ClusterConversionService.ConvertOnceAsync(installed.Directory, "to-split", seed, world, [], ct);
+                        await StageAsync(request, "Packaging verified setup inputs", null, ct);
                         string worldArchive = Path.Combine(work, "world.tar"), installationArchive = Path.Combine(work, "installation.tar");
                         string worldHash = await ClusterWorldFiles.PackAsync(world, worldArchive, ct);
                         using (var output = File.Create(installationArchive)) await ClusterDeploymentFiles.ExportAsync(installed.Directory, output, ct);
@@ -217,7 +169,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         var source = new DedicatedServerDefinition { DisplayName = request.DisplayName, InGameServerName = request.DisplayName,
                             InGameWorldName = request.WorldName };
                         var specification = JsonNode.Parse(await ClusterConversionService.SpecificationAsync(cluster, source, savedProfile, null, topology, world, paths, ct))!;
-                        specification["pluginConfigurations"] = pluginData["pluginConfigurations"]?.DeepClone() ?? throw new InvalidDataException("Magnetar did not export canonical plugin configurations.");
+                        specification["pluginConfigurations"] = prepared.PluginConfigurations.DeepClone();
                         QuasarCommandAliases.ApplyToCanonical(specification["pluginConfigurations"]!.AsObject(), savedProfile);
                         ClusterWorkshopModStager.AddToSpecification(specification.AsObject(), mods,
                             await ClusterWorkshopModStager.ProfileSettingsXmlAsync(Path.Combine(modWork, "profile-patch"), mods.Profile, request.WorldName, ct));
@@ -242,20 +194,123 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                 catch (Exception error) when (error is IOException or InvalidDataException or InvalidOperationException or ArgumentException or KeyNotFoundException or HttpRequestException or OperationCanceledException
                     or ClusterHostException or ClusterPackageException or JsonException or System.Xml.XmlException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                 {
-                    if (bound) await StageAsync(request, "Setup interrupted", error.Message, CancellationToken.None);
+                    var previous = GetStatus(request.UniqueName);
+                    string? failedPhase = previous?.FailedPhase ?? previous?.Phase;
+                    if (bound) await StageAsync(request, "Setup interrupted", error.Message, CancellationToken.None, failedPhase);
+                    logger?.LogError(error, "Cluster {Cluster} setup failed during {Phase}. Resume setup to reuse verified inputs.",
+                        request.UniqueName, failedPhase);
                     throw new ClusterOperationConflictException(409, "setup_failed", error.Message);
                 }
             }, token);
         }
         finally { gate.Release(); }
     }
+    internal sealed record PreparedSetupInputs(HostContract.ClusterDeploymentInputs Inputs,
+        QuasarConfigProfile ModProfile, Dictionary<string, long> ModVersions,
+        Dictionary<string, HostContract.DeploymentFile> ModFiles, JsonObject PluginConfigurations, string ProfileSha256);
+
+    internal async Task<PreparedSetupInputs> PrepareInputsAsync(ClusterDefinition cluster, ClusterSetupRequest request,
+        string work, IProgress<ManagedRuntimeInstallProgress>? runtimeProgress, CancellationToken token)
+    {
+        string receipt = Path.Combine(work, "prepared-inputs.json");
+        if (File.Exists(receipt))
+        {
+            await StageAsync(request, "Verifying prepared setup inputs", null, token);
+            var prepared = Read<PreparedSetupInputs>(receipt);
+            var current = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            await VerifyPreparedInputsAsync(prepared, current, work, token);
+            return prepared;
+        }
+        await StageAsync(request, RuntimeProvisioningPhase, null, token);
+        var ready = await runtime.EnsureManagedRuntimeReadyAsync(runtimeProgress, token);
+        if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
+        string installedSdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
+        string installedSdkHash = ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, token));
+        cluster = await EnsureCompatiblePackageAsync(cluster, installedSdk,
+            phase => StageAsync(request, phase, null, token), token);
+        if (request.HotSpares > 0)
+            ClusterDeploymentFiles.RequireHotSpares((await packages.GetInstalledAsync(
+                new(cluster.PackageSelection!.Version, cluster.PackageSelection.Sha256), token)).PackagePath);
+        var savedProfile = Read<QuasarConfigProfile>(Path.Combine(work, "profile.json"));
+        ClusterConversionService.ValidateAdmission(savedProfile);
+        string seed = Path.Combine(work, "source-world");
+        string sourceReceipt = Path.Combine(work, "source-world.json");
+        if (!File.Exists(sourceReceipt))
+        {
+            if (Directory.Exists(seed)) Directory.Delete(seed, true); // Unpublished copy; never the template.
+            await ClusterWorldFiles.CopyAsync(worlds.GetWorldDirectory(request.WorldTemplateId), seed, token);
+            await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox.sbc"), savedProfile, request.WorldName, token);
+            if (File.Exists(Path.Combine(seed, "Sandbox_config.sbc")))
+                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox_config.sbc"), savedProfile, request.WorldName, token);
+            await WriteAsync(sourceReceipt, await ClusterDeploymentFiles.InspectAsync(seed, token), token);
+        }
+        await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), token);
+        // The packaged generator refuses a world whose mods have no verified payload, and nodes never
+        // download mods. Stage the exact Workshop versions as the guided profile update does, MagnetarMod
+        // included even when the profile has no mods.
+        string modWork = Path.Combine(work, "mod-stage");
+        DeleteModStage(work);
+        await StageAsync(request, "Staging the profile's Workshop mods", null, token);
+        Directory.CreateDirectory(modWork); ClusterWorldFiles.Private(modWork);
+        var mods = await modStager.StageProfileAsync(savedProfile, modWork, token, null);
+        string exported = Path.Combine(work, "plugins");
+        string exportReceipt = Path.Combine(work, "plugin-export.json");
+        if (File.Exists(exportReceipt))
+        {
+            await ClusterWorldFiles.VerifyAsync(exported, Read<Dictionary<string, HostContract.DeploymentFile>>(exportReceipt), token);
+            var previous = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), token))!.AsObject();
+            if (previous["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
+            if (previous["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
+                File.Delete(exportReceipt); // The export is unpublished; retry prepares it with the current SDK.
+        }
+        // A snapshot frozen before this export holds plugins another Magnetar built. The PluginSdk
+        // contract can keep the package selected across a Magnetar update, so freeze again.
+        bool refreeze = false;
+        if (!File.Exists(exportReceipt))
+        {
+            refreeze = cluster.DependencyManifestSha256 is not null;
+            await StageAsync(request, "Preparing identical plugins and canonical configuration", null, token);
+            await ExportPluginsAsync(request, savedProfile, work, exported, token);
+            await WriteAsync(exportReceipt, await ClusterDeploymentFiles.InspectAsync(exported, token), token);
+        }
+        await ClusterWorldFiles.VerifyAsync(exported, Read<Dictionary<string, HostContract.DeploymentFile>>(exportReceipt), token);
+        var pluginData = JsonNode.Parse(await File.ReadAllTextAsync(Path.Combine(exported, "preparation.json"), token))!.AsObject();
+        if (pluginData["schemaVersion"]?.GetValue<int>() != 1) throw new InvalidDataException("Unsupported Magnetar preparation format.");
+        if (pluginData["pluginSdkSha256"]?.GetValue<string>() != installedSdkHash)
+            throw new InvalidDataException("Magnetar changed during plugin preparation. Resume setup to select a matching release and prepare again.");
+        if (cluster.DependencyManifestSha256 is null || refreeze)
+        {
+            await StageAsync(request, "Freezing the common runtime snapshot", null, token);
+            cluster = await FreezeDependenciesAsync(cluster, exported, installedSdk, installedSdkHash, token);
+        }
+        var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+        var result = new PreparedSetupInputs(inputs, mods.Profile, mods.Versions,
+            await ClusterDeploymentFiles.InspectAsync(mods.Directory, token),
+            pluginData["pluginConfigurations"]?.DeepClone()?.AsObject()
+                ?? throw new InvalidDataException("Magnetar did not export canonical plugin configurations."),
+            ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(Path.Combine(work, "profile.json"), token)));
+        await WriteAsync(receipt, result, token);
+        return result;
+    }
+
+    private static async Task VerifyPreparedInputsAsync(PreparedSetupInputs prepared,
+        HostContract.ClusterDeploymentInputs current, string work, CancellationToken token)
+    {
+        if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(current, Json))
+                != ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(prepared.Inputs, Json))
+            || ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(Path.Combine(work, "profile.json"), token)) != prepared.ProfileSha256)
+            throw new InvalidDataException("Prepared setup inputs no longer match the selected release, dependencies or copied profile. Restore the original setup inputs before resuming.");
+        string mods = Path.Combine(work, "mod-stage", "mods");
+        ClusterDeploymentFiles.VerifyFiles(prepared.ModFiles, await ClusterDeploymentFiles.InspectAsync(mods, token), mods);
+    }
+
     private static Admin.AdminEnvelope<ClusterSetupStatus> Envelope(ClusterSetupStatus state) => new(1, DateTimeOffset.UtcNow, state);
     private static Task WriteAsync<T>(string path, T value, CancellationToken token) => AtomicFileWriter.WriteTextAsync(path, JsonSerializer.Serialize(value, Json), token);
     private static T Read<T>(string path) => JsonSerializer.Deserialize<T>(File.ReadAllBytes(path), Json)!;
     private static Guid GuidFrom(string id) => new(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes("setup:" + id)).AsSpan(0, 16));
-    private async Task<ClusterSetupStatus> StageAsync(ClusterSetupRequest request, string phase, string? error, CancellationToken token)
+    private async Task<ClusterSetupStatus> StageAsync(ClusterSetupRequest request, string phase, string? error, CancellationToken token, string? failedPhase = null)
     {
-        var state = new ClusterSetupStatus(request, phase, error, DateTimeOffset.UtcNow);
+        var state = new ClusterSetupStatus(request, phase, error, DateTimeOffset.UtcNow, failedPhase);
         await WriteAsync(Path.Combine(Workspace(request.UniqueName), "status.json"), state, token);
         if (phase == "Ready to start") CleanupTransferFiles(Workspace(request.UniqueName));
         return state;
@@ -266,6 +321,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         string installation = Path.Combine(work, "installation");
         if (Directory.Exists(installation)) { ClusterWorldFiles.Private(installation); Directory.Delete(installation, true); }
         DeleteModStage(work);
+        File.Delete(Path.Combine(work, "prepared-inputs.json"));
     }
     internal static void DeleteModStage(string work)
     {

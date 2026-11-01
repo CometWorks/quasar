@@ -120,6 +120,49 @@ public sealed class AutomaticUpdateTests
         finally { cache.SetValue(null, previous); Directory.Delete(directory, true); }
     }
 
+    [Fact]
+    public async Task PluginRestartRequiresAppliedChangesAndResetsForTheNextWorker()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "quasar-plugin-restart-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        var cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.Static | BindingFlags.NonPublic)!;
+        var previous = cache.GetValue(null);
+        cache.SetValue(null, directory);
+        try
+        {
+            using var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
+            var options = new QuasarUpdateOptions();
+            var web = new WebServiceOptions();
+            using var updater = new QuasarUpdateService(new NoNetwork(), options, web, credentials, NullLogger<QuasarUpdateService>.Instance);
+            var states = new QuasarUiPluginStateStore();
+            QuasarUiPluginHubCatalogService CreateHub() => new(
+                NullLogger<QuasarUiPluginHubCatalogService>.Instance, new NoNetwork(), null!, null!, states,
+                null!, null!, null!, options, web, updater);
+            var hub = CreateHub();
+            Assert.False(hub.RestartRequired);
+            await states.SetEnabledAsync("example", true);
+            Assert.False(hub.RestartRequired);
+            await states.SetEnabledAsync("example", false);
+            Assert.True(hub.RestartRequired);
+            await states.SetEnabledAsync("example", true);
+            Assert.False(hub.RestartRequired);
+
+            await File.WriteAllTextAsync(QuasarUiPluginCatalog.SafeModeMarkerPath, "safe boot");
+            Assert.True(hub.RestartRequired);
+            File.Delete(QuasarUiPluginCatalog.SafeModeMarkerPath);
+            Assert.False(hub.RestartRequired);
+
+            var entry = new QuasarUiPluginHubEntry { CatalogId = "example" };
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => hub.RemoveAsync(entry, new CancellationToken(true)));
+            Assert.False(hub.RestartRequired);
+            Directory.CreateDirectory(hub.GetInstallDirectory(entry));
+            await hub.RemoveAsync(entry);
+            Assert.True(hub.RestartRequired);
+            Assert.False(CreateHub().RestartRequired);
+        }
+        finally { cache.SetValue(null, previous); Directory.Delete(directory, true); }
+    }
+
     private sealed class NoNetwork : IHttpClientFactory
     {
         public HttpClient CreateClient(string name) => throw new InvalidOperationException("No network expected.");

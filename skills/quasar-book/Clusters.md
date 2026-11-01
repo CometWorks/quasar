@@ -2,7 +2,7 @@
 
 A Quasar cluster runs one Space Engineers 1 world across several Magnetar server processes (nodes) on one or more Linux machines, with one public server port for players. This page covers the cluster terms, the cluster pages, start/stop, plugins, mods, updates, backups, conversion to and from a standalone server, storage and the `Quasar cluster` command line. Creating a cluster is in [Guided cluster setup](ClusterSetup.md), the per-machine service in [Cluster hosts](ClusterHosts.md).
 
-Managed clusters are in beta. The setup, conversion and cluster pages show "Managed clusters are still in beta. Review your backups before changing worlds, mods, or plugins." Each signed-in user can dismiss it once; Quasar remembers the dismissal per account in `<install root>/cluster-beta-dismissals.json`.
+Managed clusters are in beta. The setup, conversion and cluster pages show "Managed clusters are still in beta. Review your backups before changing worlds, mods, or plugins." Each signed-in user can dismiss it with the outlined close button at the right edge; Quasar remembers the dismissal per account in `<install root>/cluster-beta-dismissals.json`.
 
 ## Terms
 
@@ -43,7 +43,7 @@ Publication reports rotation eligibility and does not rotate a node. See
 ## Requirements and permissions
 
 - Cluster package staging, dependency provisioning and guided setup need Quasar on Linux x64. On other platforms Quasar reports "Cluster release staging requires Linux." or "Guided cluster setup currently requires Linux x64."
-- Cluster packages come from GitHub releases of `CometWorks/cluster` (asset `ClusterForLinux-<version>.tar.gz` plus `SHA256SUMS`). Only published, non-prerelease releases can be staged. The release check needs a GitHub token in **Updates → GitHub token** with access to that repository; without one the cluster page shows "A GitHub token with access to CometWorks/cluster is required."
+- Cluster packages come from GitHub releases of `CometWorks/cluster` (asset `ClusterForLinux-<version>.tar.gz` plus `SHA256SUMS`). Only published, non-prerelease releases can be staged. Public releases are checked without a token. An optional token in **Updates → GitHub token** raises rate limits; private releases require repository read access.
 - Roles: Viewer can open cluster pages and the console (cluster query). Editor and Admin can start, stop and change clusters (cluster manage). Guided setup, profile staging and conversion also need configuration editing (Editor or Admin). Enrolling host machines needs security administration (Admin only). See [Access control](AccessControl.md).
 - Service principals with the `cluster.query` or `cluster.manage` scope can use the cluster API and CLI, limited to the cluster IDs in their `Clusters` list. See [Access control](AccessControl.md).
 
@@ -57,8 +57,8 @@ The cluster page is `/clusters/<Cluster ID>`. It opens on **Overview** and group
 
 | View | What it holds |
 | --- | --- |
-| Overview | Status, Capacity, Players, Recovery and a live map of Gateway, game nodes, hot spares and World Authority. Service addresses and expandable world/configuration/runtime details, including the last failed Gateway output. |
-| Nodes | Slots, registered nodes and performance. Node actions **Drain** and **Force remove node…**, plugin statistics and recent plugin logs. |
+| Overview | Status, Capacity, Players, Crash recovery readiness and a live map of Gateway, game nodes, hot spares and World Authority. Service addresses and expandable world/configuration/runtime details, including the last failed Gateway output. |
+| Nodes | Slots, registered nodes and performance. The **Drain** action, plugin statistics and recent plugin logs. |
 | Events | Cluster Registry event history, with sequence, time, actor and target. |
 | Mods & plugins | Content update checks and queues, with an active deployment. |
 | Maintenance | Deployed/latest versions, release staging, pending updates, **Backups**, **Recovery**, **Convert to a standalone server**, **Advanced deployment tools**. |
@@ -68,17 +68,57 @@ Live and historical cluster players appear in the top-level [Players page](Monit
 
 A resume banner appears when there is no active deployment: **Resume guided setup** if a setup exists, otherwise **Set up a new cluster**. Views have bookmarkable fragments. `#cluster-nodes` opens Nodes; `#cluster-events` opens Events; existing `#cluster-content` links open Mods & plugins; `#cluster-configuration` opens Maintenance; `#cluster-settings` opens Settings.
 
-The map shows connected players, routed players per node, hosted partitions, simulation speed, RAM in GB and process CPU. Hot spares are marked. Nodes show their host name when the cluster has at least two configured hosts. Configured empty slots remain visible. Solid links show player routing over Direct Transport; dashed links show partition synchronization. Internal node links show Registry lease status. Counts describe player routing and partition ownership, not transport socket counts, which the current Registry contract does not expose.
+The map shows connected players, routed players per node, hosted partitions, simulation speed, RAM in GB and process CPU. Hot spares are marked. Nodes show their host name when the cluster has at least two configured hosts. Configured empty slots remain visible. Solid links show player routing; dashed links show partition synchronization. Internal node links show Registry lease status. Counts describe player routing and partition ownership, not transport socket counts, which the current Registry contract does not expose.
+
+Empty regular nodes and hot spares show **Idle** and **Waiting for work** when their live agent reports paused simulation telemetry.
+Their CPU bars and raw sim-speed reading are hidden, with **CPU chart paused
+while idle** in their place. RAM stays visible, and fresh background CPU/RAM
+usage still contributes to resource totals. The **Nodes** table also marks them
+idle. Readings return when work resumes. Low sim speed alone does not mean idle;
+active slow nodes and World Authority keep their normal diagnostics. Missing or
+stale telemetry does not establish an idle state.
 
 CPU 100% means one logical CPU. Four bars each hold one core equivalent; they do not measure individual cores. The numeric total can exceed 400%. Totals sum available resource readings and state their coverage. Missing or stale readings are excluded and unavailable player/partition counts show a dash. Gateway resources need an updated Quasar.Host; older Hosts remain compatible but cannot supply them. Gateway CPU needs two samples of the same process, and Gateway readings older than 15 seconds are excluded. Node resources use the existing incarnation-matched agent telemetry and freshness checks.
 
-**Service addresses** lists Steam and optional Direct Transport player ports, internal Direct Transport and node management ports, Registry administration and Host executor management. It uses the active deployment's specification, not a staged update, plus current registered endpoints. Wildcard player binds use the enrolled host address when known and also show the original bind. These are configured addresses, not proof that a port is listening or reachable through a firewall. Older deployments without a recorded specification show the known endpoints only. See [Cluster health overview](https://github.com/CometWorks/Quasar/blob/main/Docs/ClusterOverview.md).
+Connected players and per-node routes come from separate Registry observations.
+When assignments are missing, the map says routing data is incomplete. A dash is
+unknown; `1+` means at least one confirmed routed player. Counts and link widths
+update when assignments appear or change, and clear on disconnect. A player who
+is already in-world but stays unassigned can indicate an older cluster package
+that exports the connection's cached join route instead of its current placement.
+That needs a cluster package fix; a Quasar UI update cannot manufacture the route.
+
+**Service addresses** lists Steam and optional additional player ports, internal cluster connections and node management ports, Registry administration and Host executor management. It uses the active deployment's specification, not a staged update, plus current registered endpoints. Wildcard player binds use the enrolled host address when known and also show the original bind. These are configured addresses, not proof that a port is listening or reachable through a firewall. Older deployments without a recorded specification show the known endpoints only. See [Cluster health overview](https://github.com/CometWorks/Quasar/blob/main/Docs/ClusterOverview.md).
 
 The cluster page refreshes status every five seconds. When a managed cluster is stopped, Quasar does not show Cluster Registry connection failures as warnings.
 
+For history, open **Analytics** and select the cluster once under **Servers and
+clusters**. Each metric has one graph with colored, named node series, including
+World Authority. New slots join the selection automatically, and replacements
+continue the same slot history. Shared player and world readings stay per node
+instead of being added into a cluster total. See [Analytics](Monitoring.md#analytics).
+
+**Entities** also selects the whole cluster by name. It combines live entities
+from every responding active node, merges shared copies and routes viewer
+buttons to the entity's node. Partial coverage is marked. Cluster deletion needs
+updated agents and one verified owner; shared or moving entities cannot be
+deleted from an arbitrary node. See [Entities](Monitoring.md#entities).
+
 Overview, Maintenance and Settings stay available while the Gateway admin connection is being checked or is unavailable. Recovery, backups and local settings use the same tabs online and offline. Nodes, Events and Mods & plugins are greyed out until the authenticated capabilities endpoint responds, regardless of desired On/Off state. A selected live-only view falls back to Overview during an outage; reconnect restores its requested view and bookmark. Opened panels retain their state. The five-second poll checks availability again. Every action retains its permissions, confirmations and safety checks.
 
+The **Crash recovery readiness** metric reports whether the Registry can reconstruct
+saved cluster state after a crash. Its status comes from the recovery-readiness
+endpoint. The labels are **Ready to recover**, **Recovery at risk**, **Complete
+recovery unavailable** and **Recovery status unavailable**. A recovery point is a
+complete set of saved world data that can be restored together. With no reported
+point, the panel explains that recovery after a crash is not confirmed; this does
+not mean no files have been saved. A failed check says recovery information is
+unavailable. Progress since the last save can be lost even when recovery is ready.
+
 ### Cluster console
+
+On wide screens, Registry event details and their JSON payload share a row to use
+the console width. On narrow screens they stack; payloads wrap without clipping.
 
 The terminal icon on the card or page opens the cluster console. It has two tabs, **Cluster Registry events** and **Node plugin logs** (up to 1000 most recent entries), and refreshes every five seconds. If the Registry cannot be reached it keeps the shown entries and says "Live feed unavailable. Retained entries may be stale." Full Gateway and node process logs stay on the host machines; see [Cluster hosts](ClusterHosts.md#logs).
 
@@ -95,8 +135,14 @@ Other controls:
 
 - **Save world** runs the cluster-wide `save-all` command. It is disabled during another operation, when the Gateway admin connection is unavailable, or when the Gateway credential lacks management scope or save support. The tooltip explains why. The same checks apply to both button styles on every tab, including Maintenance, and the click handler checks again before submitting.
 - **Restart Cluster Gateway** (Advanced cluster controls, while running) restarts only the Gateway: "Clients will reconnect; nodes keep simulating."
-- **Drain** asks the Registry to move a node's work to another node. **Force remove node…** removes a node by its exact epoch ("Unsaved simulation state may be lost.").
+- **Drain** asks the Registry to move a node's work to another node. The web UI has no force-remove action. If a process needs to be killed manually, use operating-system tools on its host machine.
 - Running clusters do not depend on Quasar. If Quasar stops, the Host executors keep the Gateway and nodes running.
+
+The admin power dialog's **Save and stop all servers** includes managed clusters.
+It sets their goals to Off and shows a loader with elapsed time and per-target
+progress. It waits for the regular save/drain shutdown and the Host's fenced
+Gateway stop confirmation. A failed or dirty cluster is reported, not
+force-killed; Quasar remains running. Observed-only clusters are excluded.
 
 ### Machine reboot and logout
 
@@ -121,7 +167,20 @@ Recovery restarts the same build. If every stop of that build ends dirty, for ex
 
 It needs the stopped Gateway to still answer in phase Down, and a cluster release that declares `managedRecoveryUpdate: 1`. It refuses a rollback (restore a backup instead) and refuses when the Gateway lists something else than what was accepted. API callers send the list in `acceptDirtyShutdown` of the update request.
 
-### Reconciler status codes
+### Automatic cluster control
+
+In **Runtime details**, **Automatic cluster control** means Quasar's background
+check that the cluster is running or stopped as requested. It shows **Waiting for
+first check**, **Monitoring only**, **Setup needed**, **Applying requested state**,
+**Requested state reached** or **Needs attention**, followed by the current reason.
+The API calls this component the reconciler.
+
+**Host management service** means `Quasar.Host`, which starts, stops and monitors
+processes on the host machine. Its count shows configured clusters, not nodes.
+**Saved coordination state** shows the Cluster Registry snapshot and logged
+updates, separate from world backups. Hover or focus these labels for explanations.
+
+### Automatic cluster control status codes
 
 | Code | Meaning and action |
 | --- | --- |
@@ -151,6 +210,12 @@ Guided setup copies the chosen profile to a new profile named "<Server name> (cl
 
 ### Bugfixes and Performance by default
 
+These defaults protect against known game crashes and reduce CPU overhead and
+simulation pauses. Node crashes or prolonged stalls can interrupt players, trigger
+partition recovery and lose unsaved progress. Guided setup explains the risks and
+asks for confirmation before skipping missing defaults. Existing profile plugins
+stay selected. Keep both plugins enabled for production clusters.
+
 New clusters get the MagnetarHub server plugins Bugfixes and Performance with their default settings, unless the operator unticks **Enable the Bugfixes and Performance server plugins** in guided setup (see [Guided cluster setup](ClusterSetup.md#create-the-cluster)). Quasar records in the profile that it offered them (`offeredDefaultPlugins` in `profile.json`), whether they were taken or not, and never adds them to that profile again: removing either one from the cluster's profile sticks.
 
 Quasar does not add them to existing clusters by itself. When the profile selected under **Cluster settings** lacks one of them and was never offered them, a notice offers **Add to profile**, which saves the profile with the missing plugins (then stage the profile changes and apply the update as usual), and **Don't offer again**. Other servers and clusters that use the same profile get the added plugins at their next restart or profile update.
@@ -169,7 +234,7 @@ Every node (regular nodes, the World Authority, spares and replacements) runs th
 
 ### Plugin settings
 
-**Settings → Plugin configuration** shows the normal plugin settings editor for each plugin in the saved preparation. **Save and stage update** prepares a new deployment for all nodes; it does not change running nodes. Apply it from **Maintenance → Pending update → Apply pending update** (full downtime). The individual Agent editor on the Plugins page cannot change cluster-owned configuration. If no editor appears, the page says "No editable plugin configurations are available in the saved preparation. Complete guided setup or prepare an imported deployment first."
+**Settings → Plugin configuration** shows the normal plugin settings editor for each plugin in the saved preparation. **Save and stage update** prepares a new deployment for all nodes; it does not change running nodes. Apply it from **Maintenance → Pending update → Apply pending update** (full downtime). The individual Agent editor on the Plugins page cannot change cluster-owned configuration. Generated plugin sections use padded bodies; advanced controls keep spacing between the restart action and nested panels. If no editor appears, the page says "No editable plugin configurations are available in the saved preparation. Complete guided setup or prepare an imported deployment first."
 
 New clusters start with each plugin's SDK default values. A converted server keeps the plugin settings the Agent recorded before you stopped it.
 
@@ -282,7 +347,20 @@ Session settings and mods come from the converted world. Quasar copies the base 
 
 ### Progress and resume
 
-The conversion page shows the phase and a **Conversion ID**, also in the page URL (`?conversion=<uuid>`). Reopen that URL to resume. **Edit as a new conversion** starts over with a new ID. Work files are in `<backup directory>/Conversions/<uuid>/`. The world converter and large transfers have a 2-hour limit; ordinary Host executor requests time out after 30 seconds.
+The cluster-to-standalone wizard asks you to confirm that you reviewed the source,
+destination, frozen plugin versions and plugin settings. Standalone-to-cluster
+conversion needs only a destination choice and **Convert to cluster**.
+
+Clicking **Convert to cluster**, **Back up and convert** or **Resume conversion** immediately replaces
+the button with a loader, including while Quasar checks permissions and validates
+the request. Repeated clicks cannot start another attempt. Errors appear beside
+the conversion controls, and the button returns after a failed attempt.
+The conversion loader shows its current phase and elapsed time. Maintenance
+actions use the same loader, with live transfer and preparation messages while
+staging. After 30 seconds, a note explains that work is still running. No
+percentage is guessed for steps without measured progress.
+
+The conversion page shows the phase and a **Conversion ID**, also in the page URL (`?conversion=<uuid>`). Reopen that URL to resume an unfinished conversion. Completed conversions offer **Review destination** and no longer show **Resume conversion**, including when reopened. **Edit as a new conversion** starts over with a new ID. Work files are in `<backup directory>/Conversions/<uuid>/`. The world converter and large transfers have a 2-hour limit; ordinary Host executor requests time out after 30 seconds.
 
 ## Delete or forget a cluster
 
@@ -448,3 +526,6 @@ collisions, limits and the required Magnetar version.
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
+- `Quasar/Components/Pages/ClusterConsoleDialog.razor.css`

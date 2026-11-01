@@ -156,7 +156,7 @@ The unit waits for `network-online.target`. Use `Restart=on-failure` in any cust
 - `systemctl stop` sends SIGINT. Bootstrap drains the web worker and exits. A SIGTERM to Bootstrap, from `kill` or a process manager, does the same. Managed servers keep running by default (`Quasar:PreserveManagedServersOnShutdown` is `true`) and Quasar adopts them again on the next start. The same goes for the local Host executor while it has running clusters; otherwise it stops with Quasar.
 - The power button in the top bar opens **Quasar power** (admin role). **Shutdown Quasar** saves the managed server state, stops the web worker and Bootstrap with exit code 0. systemd leaves the service inactive. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Start the service again to bring the UI back: `systemctl --user start quasar.service` or `sudo systemctl start quasar.service`.
 - **Restart Quasar** in the same dialog restarts only the web worker under Bootstrap. Servers keep running.
-- **Save and stop all servers** stops every server and leaves Quasar running.
+- **Save and stop all servers** saves and stops standalone servers and managed clusters, setting their goals to Off. Quasar stays online with a loader, elapsed time, per-target progress and a stopped count. A cluster is complete only after its normal save/drain sequence and verified Gateway stop. Failures stay visible until closed; processes are not force-killed. Observed-only clusters are excluded.
 - If Bootstrap exits unexpectedly, systemd restarts it after 5 seconds. If the web worker crashes, Bootstrap restarts it.
 
 ### Raising game server priority
@@ -303,3 +303,6 @@ Cluster nodes run Quasar.Host from `quasar-host-linux-x64.tar.gz` in its own fol
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Layout/QuasarControlDialog.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterReconciler.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`

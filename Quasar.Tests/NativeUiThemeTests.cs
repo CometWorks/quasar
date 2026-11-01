@@ -240,6 +240,8 @@ public sealed class NativeAppearanceTests : IDisposable
         await catalog.UpsertAsync(new() { UniqueName = "alpha", DisplayName = "Alpha", WorldSaveName = "World", ServerPort = 27016 });
         using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build());
         await clusters.CreateAsync(new("cluster", "Beta Cluster", "http://gateway.invalid:27017", "QUASAR_TEST_MISSING_GATEWAY_TOKEN"), default);
+        await clusters.RecordPreparationAsync(clusters.GetCluster("cluster")!,
+            new("hash", """{"steamListen":"0.0.0.0:18000"}""", "", []), new(null, "prepared", []), default);
         var registry = new AgentRegistry(null!, null!, null!, null!);
         // Nodes use slot/process names, even before their incarnation receipt is ready.
         foreach (var epoch in new long[] { 0, 42 })
@@ -281,11 +283,16 @@ public sealed class NativeAppearanceTests : IDisposable
             Assert.DoesNotContain("slot-42", string.Join(" ", page.FindAll(".quasar-agent-details").Select(x => x.TextContent)));
             Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
             Assert.Empty(page.FindAll("a[title='Convert to cluster']")); // Existing ClusterManage policy still applies.
-            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
-            Assert.Equal(new[] { "zulu", "alpha", "cluster" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
+            Assert.Contains("18000", page.FindAll(".quasar-server-name-cell").Single(c => c.GetAttribute("title") == "cluster").ParentElement!.Children[3].TextContent);
+            Assert.DoesNotContain("gateway.invalid:27017", page.Markup);
+            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
+            Assert.Equal(new[] { "zulu", "cluster", "alpha" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
             Assert.Equal("ascending", page.FindAll("th")[3].GetAttribute("aria-sort"));
-            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Endpoint")).Click();
+            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
             Assert.Equal("descending", page.FindAll("th")[3].GetAttribute("aria-sort"));
+            page.Find("input[type=search]").Input("18000");
+            Assert.Equal("cluster", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
+            page.Find("input[type=search]").Input("");
             Assert.True(page.Find("button[title='Runtime preparing']").HasAttribute("disabled"));
             Assert.True(page.Find("button[title^='Wait for a stable']").HasAttribute("disabled"));
             foreach (var label in new[] { "Show console output", "Clone server", "Create world template", "Edit server", "Delete server", "Open cluster details" })
@@ -313,8 +320,10 @@ public sealed class NativeAppearanceTests : IDisposable
         });
     }
 
-    [Fact]
-    public async Task AnalyticsMergesNodeIncarnationsIntoOneSlotOption()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AnalyticsSelectsWholeClustersAndIncludesEverySlot(bool migrateLegacySelection)
     {
         await using var context = new BunitContext();
         context.Services.AddMudServices();
@@ -334,6 +343,19 @@ public sealed class NativeAppearanceTests : IDisposable
         registry.UpsertHello(new() { AgentId = "other", UniqueName = "same-slot-name", ClusterMode = true,
             ClusterId = "cluster", ClusterSlot = "other-slot", ClusterNodeId = "node-9", ClusterEpoch = 1 },
             "connection-other", (_, _) => Task.CompletedTask);
+        foreach (var agent in registry.GetAgents())
+        {
+            var sample = new MetricSample(DateTimeOffset.UtcNow.AddSeconds(-5).ToUnixTimeSeconds(), 1, 20, 1024, 16.67f, 7, 100, 10, 20);
+            metrics.Enqueue(agent.TelemetryKey, sample);
+            metrics.GetStore(agent.TelemetryKey)!.Ingest(sample);
+        }
+        using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")) }).Build());
+        await clusters.CreateAsync(new("cluster", "Survival cluster", "http://gateway.test", "ADMIN"), default);
+        context.Services.AddSingleton(clusters);
+        if (migrateLegacySelection)
+            context.JSInterop.Setup<string?>("quasarConfigs.getLocalStorage", "quasar.analytics.view.v2")
+                .SetResult(JsonSerializer.Serialize(new AnalyticsViewConfig { SelectedUniqueNames = [registry.GetAgents()[0].AnalyticsKey] }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         context.Services.AddSingleton(catalog);
         context.Services.AddSingleton(metrics);
         context.Services.AddSingleton(profiler);
@@ -346,9 +368,14 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Render<MudPopoverProvider>();
         var page = context.Render<Quasar.Components.Pages.Analytics>();
         var labels = page.FindComponents<MudCheckBox<bool>>().Select(box => box.Instance.Label).ToList();
-        Assert.Equal(["cluster / other-slot", "cluster / slot"], labels);
+        Assert.Equal(["Survival cluster"], labels);
+        Assert.Contains("other-slot", page.Find(".analytics-node-legend").TextContent);
+        Assert.Contains("slot", page.Find(".analytics-node-legend").TextContent);
         Assert.DoesNotContain("epoch", page.Markup);
         Assert.DoesNotContain("same-slot-name", page.Markup);
+        Assert.Contains("Total process CPU: 40.0%", page.Find(".analytics-chip-row").TextContent);
+        Assert.Contains("Total process memory: 2048 MB", page.Find(".analytics-chip-row").TextContent);
+        Assert.DoesNotContain("Players:", page.Find(".analytics-chip-row").TextContent);
         // Check the actual browser request, which also drives the analytics HTTP endpoints.
         await page.WaitForAssertionAsync(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarCharts.sync"]));
         var request = JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
@@ -360,6 +387,23 @@ public sealed class NativeAppearanceTests : IDisposable
             Assert.DoesNotContain(agent.TelemetryKey, request);
         }
         Assert.DoesNotContain("same-slot-name", request);
+        Assert.True(JsonDocument.Parse(request).RootElement.GetProperty("lines").GetBoolean());
+
+        // Selecting none is persistent; toggling the single cluster selects every node again.
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Select none").ClickAsync();
+        request = JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
+        Assert.Empty(JsonDocument.Parse(request).RootElement.GetProperty("servers").EnumerateArray());
+        await page.FindComponent<MudCheckBox<bool>>().InvokeAsync(() => page.FindComponent<MudCheckBox<bool>>().Instance.ValueChanged.InvokeAsync(true));
+        request = JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
+        Assert.Equal(2, JsonDocument.Parse(request).RootElement.GetProperty("servers").GetArrayLength());
+
+        // A newly discovered slot joins the selected cluster automatically.
+        registry.UpsertHello(new() { AgentId = "new-slot", UniqueName = "same-slot-name", ClusterMode = true,
+            ClusterId = "cluster", ClusterSlot = "slot-new", ClusterNodeId = "new-node", ClusterEpoch = 1 },
+            "connection-new", (_, _) => Task.CompletedTask);
+        await page.FindAll("button").Single(button => button.TextContent.Trim() == "Refresh").ClickAsync();
+        request = JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
+        Assert.Equal(3, JsonDocument.Parse(request).RootElement.GetProperty("servers").GetArrayLength());
     }
 
     [Fact]
@@ -500,7 +544,8 @@ public sealed class NativeAppearanceTests : IDisposable
             var definition = new DedicatedServerDefinition { UniqueName = name, DisplayName = names[i], WorldSaveName = worlds[i], ServerPort = 27016 + i };
             await catalog.UpsertAsync(definition);
             agents[name] = new AgentRuntimeState { AgentId = name, IsConnected = i < 5, LastSeenUtc = DateTimeOffset.UtcNow,
-                Snapshot = new() { UniqueName = name, ServerName = names[i], WorldName = worlds[i], HostName = i < 3 ? "eu-01" : "eu-02",
+                LastSnapshotReceivedUtc = DateTimeOffset.UtcNow,
+                Snapshot = new() { UniqueName = name, IsRunning = true, ServerName = names[i], WorldName = worlds[i], HostName = i < 3 ? "eu-01" : "eu-02",
                     Metrics = new() { PlayersOnline = players[i], MaxPlayers = slots[i], SimSpeed = i == 1 ? .92f : 1f, ServerCpuLoadPercent = 62 + i * 25, MemoryWorkingSetMb = memory[i] } } };
             var state = Activator.CreateInstance(stateType)!;
             stateType.GetProperty("UniqueName")!.SetValue(state, name);
@@ -510,6 +555,8 @@ public sealed class NativeAppearanceTests : IDisposable
             states[name] = state;
         }
         context.Services.AddSingleton(catalog); context.Services.AddSingleton(clusters);
+        context.Services.AddSingleton(new ClusterOperationStore(NullLogger<ClusterOperationStore>.Instance));
+        context.Services.AddSingleton(new ClusterPlayerService(null!, null!, null!, NullLogger<ClusterPlayerService>.Instance));
         context.Services.AddSingleton(profiles); context.Services.AddSingleton(templates);
         context.Services.AddSingleton(consent); context.Services.AddSingleton(registry);
         context.Services.AddSingleton(supervisor); context.Services.AddSingleton(warmup);

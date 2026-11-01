@@ -13,6 +13,41 @@ namespace Quasar.Tests;
 public sealed class ClusterHealthOverviewTests
 {
     [Fact]
+    public async Task PlayerRoutesUpdateOnAssignmentMovesAndDisconnectsWithoutGuessingMissingRoutes()
+    {
+        await using var context = new BunitContext();
+        var fixture = Sample();
+        var status = fixture.Status with { Counts = fixture.Status.Counts with { ConnectedClients = 1 } };
+        var player = fixture.Clients[0] with { Node = null };
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Cluster, fixture.Cluster)
+            .Add(c => c.Status, status).Add(c => c.Fleet, fixture.Fleet).Add(c => c.Clients, [player]));
+        string Routed(string node) => panel.Find($"article[data-node='{node}']").ParentElement!
+            .QuerySelector(".cluster-edge-label strong")!.TextContent;
+        Assert.Equal("— routed players", Routed("node-1"));
+        Assert.Contains("not reported for 1 connected player", panel.Markup);
+
+        panel.Render(p => p.Add(c => c.Clients, [player with { Node = "node-1" }]));
+        Assert.Equal("1 routed players", Routed("node-1"));
+        Assert.Equal("0 routed players", Routed("node-2"));
+        Assert.Empty(panel.FindAll(".cluster-routing-status"));
+        panel.Render(p => p.Add(c => c.Clients, [player with { Node = "node-2" }]));
+        Assert.Equal("0 routed players", Routed("node-1"));
+        Assert.Equal("1 routed players", Routed("node-2"));
+        Assert.Contains("stroke-width:1.1", panel.FindAll(".cluster-player-links path")[1].GetAttribute("style"));
+
+        // One known route and one missing route: report a minimum, never a misleading exact zero.
+        var known = player with { Node = "node-2" };
+        panel.Render(p => p.Add(c => c.Status, status with { Counts = status.Counts with { ConnectedClients = 2 } })
+            .Add(c => c.Clients, [known, known, player with { ClientId = 9999 }]));
+        Assert.Equal("1+ routed players", Routed("node-2"));
+        Assert.Equal("— routed players", Routed("node-1"));
+        panel.Render(p => p.Add(c => c.Status, status with { Counts = status.Counts with { ConnectedClients = 0 } })
+            .Add(c => c.Clients, []));
+        Assert.Equal("0 routed players", Routed("node-2"));
+        Assert.Empty(panel.FindAll(".cluster-routing-status"));
+    }
+
+    [Fact]
     public async Task LiveMapShowsRoutingSparesResourcesAndPhysicalServiceAddresses()
     {
         await using var context = new BunitContext();
@@ -38,7 +73,10 @@ public sealed class ClusterHealthOverviewTests
         Assert.Contains("192.168.1.10:27016", panel.Markup);
         Assert.Contains("192.168.1.11:18400", panel.Markup);
         Assert.Contains("192.168.1.10:28417", panel.Markup);
-        Assert.Contains("Direct Transport player connections", panel.Markup);
+        Assert.Contains("Additional player connections", panel.Markup);
+        Assert.Contains("Internal cluster connection", panel.Markup);
+        Assert.Contains("Internal node link · registered", panel.Markup);
+        Assert.DoesNotContain("Direct Transport", panel.Markup);
         Assert.DoesNotContain(" DT", panel.Markup);
 
         // Export actual component markup for offline layout checks, without launching Quasar.
@@ -73,6 +111,69 @@ public sealed class ClusterHealthOverviewTests
     }
 
     [Fact]
+    public async Task IdleNodesHideCpuAndSimSpeedUntilTheyResumeWithoutMisclassifyingSlowActiveNodes()
+    {
+        await using var context = new BunitContext();
+        var fixture = Sample();
+        var nodes = fixture.Fleet.Nodes.ToArray();
+        foreach (var index in new[] { 1, 4 })
+            nodes[index] = nodes[index] with { Telemetry = nodes[index].Telemetry! with {
+                TelemetryPaused = true, Metrics = new ServerMetrics { SimSpeed = .07f,
+                    ServerCpuLoadPercent = index == 1 ? 63 : 4, MemoryWorkingSetMb = 1024 } } };
+        // Low sim speed alone is a performance reading, not an idle/sleep signal.
+        nodes[0] = nodes[0] with { Telemetry = nodes[0].Telemetry! with {
+            Metrics = new ServerMetrics { SimSpeed = .07f, ServerCpuLoadPercent = 142, MemoryWorkingSetMb = 2048 } } };
+        // World Authority has no regular-node partition workload and must not become "Idle".
+        nodes[5] = nodes[5] with { Telemetry = nodes[5].Telemetry! with { TelemetryPaused = true } };
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Cluster, fixture.Cluster)
+            .Add(c => c.Status, fixture.Status).Add(c => c.Fleet, fixture.Fleet with { Nodes = nodes }).Add(c => c.Host, fixture.Host));
+        var ordinary = panel.Find("article[data-node='node-2']");
+        var spare = panel.Find("article[data-node='node-5']");
+        foreach (var card in new[] { ordinary, spare })
+        {
+            Assert.Equal("Idle", card.QuerySelector(".cluster-health-badge")!.TextContent);
+            Assert.Contains("Waiting for work", card.TextContent);
+            Assert.Contains("1.0 GB RAM", card.TextContent);
+            Assert.Contains("CPU chart paused while idle", card.TextContent);
+            Assert.DoesNotContain("Simulation speed", card.TextContent);
+            Assert.Empty(card.QuerySelectorAll(".cluster-cpu-bars"));
+        }
+        Assert.Contains("Hot spare", spare.TextContent);
+        var slowActive = panel.Find("article[data-node='node-1']");
+        Assert.Equal("Active", slowActive.QuerySelector(".cluster-health-badge")!.TextContent);
+        Assert.Contains("Simulation speed 0.07", slowActive.TextContent);
+        Assert.Single(slowActive.QuerySelectorAll(".cluster-cpu-bars"));
+        Assert.Single(panel.Find("article[data-node='world-authority']").QuerySelectorAll(".cluster-cpu-bars"));
+        Assert.Contains("553%", panel.Find(".cluster-health-totals").TextContent); // Real idle overhead still costs CPU.
+
+        nodes[1] = nodes[1] with { Telemetry = nodes[1].Telemetry! with { TelemetryPaused = false } };
+        panel.Render(p => p.Add(c => c.Fleet, fixture.Fleet with { Nodes = nodes }));
+        ordinary = panel.Find("article[data-node='node-2']");
+        Assert.Equal("Active", ordinary.QuerySelector(".cluster-health-badge")!.TextContent);
+        Assert.Single(ordinary.QuerySelectorAll(".cluster-cpu-bars"));
+        Assert.Contains("Simulation speed", ordinary.TextContent);
+
+        nodes[4] = nodes[4] with { Telemetry = nodes[4].Telemetry! with { Connected = false } };
+        panel.Render(p => p.Add(c => c.Fleet, fixture.Fleet with { Nodes = nodes }));
+        Assert.Empty(panel.FindAll("article[data-activity='idle']"));
+        Assert.Contains("Live process telemetry unavailable", panel.Find("article[data-node='node-5']").TextContent);
+    }
+
+    [Fact]
+    public void IdleNeedsCurrentRegularNodeTelemetryAndAValidLease()
+    {
+        var node = Sample().Fleet.Nodes[0];
+        Assert.False(ClusterOverview.IsIdle(node));
+        node = node with { Telemetry = node.Telemetry! with { TelemetryPaused = true } };
+        Assert.True(ClusterOverview.IsIdle(node));
+        Assert.False(ClusterOverview.IsIdle(node with { Registry = node.Registry with { LeaseFresh = false } }));
+        Assert.False(ClusterOverview.IsIdle(node with { Registry = node.Registry with { LeaseExpires = DateTimeOffset.UtcNow.AddSeconds(-1) } }));
+        Assert.False(ClusterOverview.IsIdle(node with { Registry = node.Registry with { State = Admin.NodeState.Dead } }));
+        Assert.False(ClusterOverview.IsIdle(node with { Telemetry = node.Telemetry with { Connected = false } }));
+        Assert.False(ClusterOverview.IsIdle(node with { Registry = node.Registry with { Role = Admin.NodeRole.WorldAuthority } }));
+    }
+
+    [Fact]
     public void ServicesUseActiveSpecificationAndStripCredentialsFromUrls()
     {
         var fixture = Sample();
@@ -82,6 +183,7 @@ public sealed class ClusterHealthOverviewTests
         cluster.GatewayUrl = "https://user:password@registry.example:27032/admin?token=secret";
         var nodes = ClusterOverview.Nodes(cluster, [], fixture.Fleet.Nodes);
         var endpoints = ClusterOverview.Endpoints(cluster, nodes, fixture.Hosts);
+        Assert.Equal(27016, ClusterOverview.GamePort(cluster));
         Assert.Contains(endpoints, e => e.Address == "192.168.1.10:27016");
         Assert.DoesNotContain(endpoints, e => e.Address.Contains("49000"));
         Assert.Contains(endpoints, e => e.Address == "registry.example:27032");
@@ -103,6 +205,20 @@ public sealed class ClusterHealthOverviewTests
         Assert.Single(empty.Where(n => n.Spare));
         var promoted = fixture.Fleet.Nodes[^2] with { Registry = fixture.Fleet.Nodes[^2].Registry with { Spare = false } };
         Assert.DoesNotContain(ClusterOverview.Nodes(fixture.Cluster, [], [promoted]), n => n.Spare);
+    }
+
+    [Theory]
+    [InlineData("not json")]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    [InlineData("{\"steamListen\":\"0.0.0.0:0\"}")]
+    [InlineData("{\"steamListen\":\"bad address\"}")]
+    public void UnknownGamePortNeverFallsBackToTheRegistryAdministrationPort(string specification)
+    {
+        var cluster = new ClusterDefinition { GatewayUrl = "http://registry:28016", Preparation = new("hash", specification, "", []) };
+        Assert.Null(ClusterOverview.GamePort(cluster));
+        cluster.Preparation = null;
+        Assert.Null(ClusterOverview.GamePort(cluster));
     }
 
     [Theory]

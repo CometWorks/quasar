@@ -20,10 +20,7 @@
         <h2 class="quasar-text quasar-type-h6">Maintenance</h2>
         @if (_busy)
         {
-            <div role="status" aria-live="polite">
-                <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
-                <p class="quasar-text quasar-type-body1">@_message</p>
-            </div>
+            <QuasarOperationLoader Title="Cluster maintenance" Message="@_message" />
         }
         <p class="quasar-text quasar-type-body1 cluster-long-value">Active revision: @(Current.ActiveDeployment?.Revision ?? "None")</p>
         @if (Current.ActiveDeployment is not null && !ClusterReleaseMonitor.IsOnLatestRelease(Current, Releases.GetSnapshot().Release))
@@ -225,6 +222,7 @@
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) return;
         _busy = true;
+        _message = "Reading and validating the imported preparation request.";
         try
         {
             await using var stream = args.File.OpenReadStream(24 * 1024 * 1024);
@@ -249,11 +247,11 @@
     private void ListBackups() => _backups = JsonSerializer.Serialize(Backups.List(Cluster.UniqueName)
         .Select(b => new { b.SnapshotId, b.CreatedAt, b.Consistency, b.Online }), Json);
     private Task ArchiveExportAsync() => ExecuteAsync(actor => Backups.ArchiveExportAsync(Cluster.UniqueName,
-        _artifactId, Guid.NewGuid().ToString("N"), actor, default));
+        _artifactId, Guid.NewGuid().ToString("N"), actor, default), "Verifying and archiving the world export.");
     private Task BackupAsync() => ExecuteAsync(actor => Backups.CaptureAsync(Cluster.UniqueName,
-        new(Guid.NewGuid()), Guid.NewGuid().ToString("N"), actor, default));
+        new(Guid.NewGuid()), Guid.NewGuid().ToString("N"), actor, default), "Capturing and verifying the stopped cluster's backup.");
     private Task OnlineBackupAsync() => ExecuteAsync(actor => Backups.CaptureAsync(Cluster.UniqueName,
-        new(Guid.NewGuid(), AllowCrashConsistent: true, Online: true), Guid.NewGuid().ToString("N"), actor, default));
+        new(Guid.NewGuid(), AllowCrashConsistent: true, Online: true), Guid.NewGuid().ToString("N"), actor, default), "Capturing and verifying a backup while the cluster stays online.");
     private async Task RestoreAsync()
     {
         if (string.IsNullOrWhiteSpace(_restore)) return;
@@ -262,7 +260,7 @@
             yesText: "Restore", cancelText: "Cancel") != true) return;
         await ExecuteAsync(actor => Backups.RestoreAsync(Cluster.UniqueName,
             JsonSerializer.Deserialize<ClusterRestoreRequest>(_restore, Json) ?? throw new InvalidDataException("Restore request is required."),
-            Guid.NewGuid().ToString("N"), actor, default));
+            Guid.NewGuid().ToString("N"), actor, default), "Restoring world, plugin data and deployment from the selected backup.");
     }
     private Task PrepareRestoreAsync() => ExecuteAsync(async actor =>
     {
@@ -271,7 +269,7 @@
         if (result.State == ClusterOperationState.Succeeded)
             _restore = JsonSerializer.Serialize(result.Result!.Value.Deserialize<ClusterRestoreRequest>(Json), Json);
         return result;
-    });
+    }, "Preparing the selected backup with fresh runtime credentials.");
     private Task PrepareAsync() => ExecuteAsync(async actor =>
     {
         var request = _preparationRequest ?? throw new InvalidDataException("Preparation request is required.");
@@ -300,7 +298,7 @@
     {
         await UpdatePreparation.FreezeDependenciesAsync(Cluster.UniqueName, null, default);
         return null;
-    });
+    }, "Freezing and verifying the runtime dependency snapshot.");
     private Task PrepareSelectedAsync() => ExecuteAsync(async actor =>
     {
         bool allowContent = await EnsureQueuedContentPermissionAsync();
@@ -359,17 +357,18 @@
     private Task AbandonUpdateAsync() => ExecuteAsync(actor => Updates.AbandonAsync(Cluster.UniqueName, Guid.NewGuid().ToString("N"), actor, default));
     private Task ActivateAsync() => ExecuteAsync(actor => Deployments.ActivateAsync(Cluster.UniqueName,
         JsonSerializer.Deserialize<ClusterDeploymentRequest>(_activation, Json) ?? throw new InvalidDataException("Activation request is required."),
-        Guid.NewGuid().ToString("N"), actor, default));
+        Guid.NewGuid().ToString("N"), actor, default), "Activating the prepared deployment on every Host.");
     private Task RecoverStoppedAsync() => ExecuteAsync(actor => Deployments.RecoverClusterAsync(Cluster.UniqueName,
-        Guid.NewGuid(), Guid.NewGuid().ToString("N"), actor, default));
+        Guid.NewGuid(), Guid.NewGuid().ToString("N"), actor, default), "Recovering the stopped cluster from retained saves and plugin data.");
     private Task RecoverAsync() => ExecuteAsync(actor => Deployments.RecoverGatewayAsync(Cluster.UniqueName,
-        Guid.NewGuid().ToString("N"), actor, default));
-    private async Task ExecuteAsync<T>(Func<string, Task<T>> run)
+        Guid.NewGuid().ToString("N"), actor, default), "Recovering missing cluster services.");
+    private async Task ExecuteAsync<T>(Func<string, Task<T>> run, string message = "Running cluster maintenance.")
     {
         if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) return;
         _busy = true;
+        _message = message;
         try
         {
             var result = await run(user.Identity?.Name ?? "web-ui");

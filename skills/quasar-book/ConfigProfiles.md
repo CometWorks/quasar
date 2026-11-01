@@ -41,6 +41,9 @@ The profile editor has four tabs plus a **Developer** panel:
 
 The profile does not hold the game port, listen IP, server and world names, restart or health policy. Those belong to the server definition (see [Servers](Servers.md#creating-a-server)).
 
+Expanded sections keep space below the final field and its help text, including
+**Solar Radiation Intensity** and its oxygen pressurization and radiation requirements.
+
 ### Command aliases
 
 Open **Configs**, select a profile, then open **Command aliases**. Add a source
@@ -89,13 +92,18 @@ The profile id is a slug made from the name when the profile is created. Quasar 
 
 ### Unsaved changes
 
-When you switch to another profile in the list, or close the **Config Profiles** dialog with **Done** or the back arrow, while the editor has unsaved changes, Quasar shows **Unsaved config changes** with:
+When you switch to another profile in the list, navigate to another Quasar page
+(including browser Back and Forward), or close the **Config Profiles** dialog with
+**Done** or the back arrow while the editor has unsaved changes, Quasar shows
+**Unsaved config changes** with:
 
 - **Cancel**: stay and keep the edits.
 - **Discard**: drop the edits and continue.
 - **Save**: save the profile, then continue.
 
-This dialog is only about unsaved edits in the editor. It does not appear when you leave the page through the navigation menu.
+If saving fails or the profile has invalid values, you stay in the editor with
+your changes. Refreshing, closing the browser tab or leaving Quasar shows the
+browser's standard unsaved-changes warning instead. Saved profiles do not prompt.
 
 ### When profile changes take effect
 
@@ -159,10 +167,14 @@ When Quasar copies a world into a template, it skips the world's `Backup` subfol
 
 Ways to create a template:
 
-- **Predefined worlds** tab: lists the worlds shipped with the installed Dedicated Server (`Content/CustomWorlds`, `Content/QuickStarts` and `Content/Scenarios`, shown as DS Custom Worlds, DS Quick Starts and DS Scenarios). **Add template** copies one and then offers to create a config profile from it.
+- **Predefined worlds** tab: lists the worlds shipped with the installed Dedicated Server (`Content/CustomWorlds`, `Content/QuickStarts` and `Content/Scenarios`, shown as DS Custom Worlds, DS Quick Starts and DS Scenarios). **Use this world** selects one and then offers to create a config profile from it.
 - **Custom import** tab: enter **Template name**, **Description** and **Source world path** (an absolute path to a Space Engineers save folder; **Browse** opens a folder picker), then click **Import**.
 - **Create world template** in a server's menu on the Dashboard: copies the server's current save. The server must be stopped with goal Off ("Stop the server before creating a world template from its current state."). The default name is "<server name> Snapshot <date time>".
 - **New Template** in the **Create World Save** dialog opens a quick import dialog with the same two tabs (see [Quick import](#quick-import)). The Dashboard setup guide uses the same dialog, titled **Choose Dedicated Server World**.
+
+Discovery runs in the background and uses the runtime-selected Dedicated Server installation as well as configured and managed locations. The chooser checks again automatically when server files become ready. **Where Quasar looked** lists searched folders; unreadable folders show warnings. **Refresh** retries discovery, and **Clear search** removes a filter with no matches. If no worlds are found after preparation, use **Updates > Check Dedicated Server**, then refresh, or choose **Custom import**.
+
+Import progress shows the number of copied files. The source stays unchanged; a cancelled or failed copy removes the incomplete template and publishes no template entry.
 
 The **World Templates** table lists templates with size, update time, name and description. Row actions:
 
@@ -225,6 +237,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - **"Selected world save is missing Sandbox.sbc."**: the folder is not a valid save. Create a save from a template or copy a complete save folder.
 
 ## Sources
+- `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
 - `Quasar/Services/QuasarDefaultPlugins.cs`
 - `Docs/StateMachines/ConfigProfileChanges.md`
 - `Docs/Configuration.md`
@@ -244,6 +257,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Services/ServerManagementActions.cs`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Components/Pages/Configs.razor`
+- `Quasar/Components/Pages/Configs.razor.css`
 - `Quasar/Components/Pages/ConfigsPageDialog.razor`
 - `Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor`
 - `Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor`

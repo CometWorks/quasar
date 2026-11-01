@@ -99,6 +99,8 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
+The Provider, SteamID/Subject and Role controls use matching single-line field heights.
+
 ## Trusted network bypass
 
 When a request has no bearer token and no signed-in user, Quasar checks whether it comes from a trusted address. If so, it treats the caller as the user "Trusted network" with the roles in `Quasar:Auth:TrustedNetworkBypass:Roles` (default `admin`).
@@ -217,6 +219,9 @@ Stripe billing is implemented in Nebula; checkout remains
 disabled until operator onboarding and acceptance.
 See [Hosted access](HostedPanel.md) for setup, private files and release gates.
 
+Public panel access places its setup and billing buttons in a spaced row below
+the description. The buttons wrap on narrow screens, with billing details below.
+
 ## Sources
 
 - `Quasar/Services/Auth/SteamProfileClient.cs`
@@ -262,3 +267,4 @@ See [Hosted access](HostedPanel.md) for setup, private files and release gates.
 - `Quasar/Components/Pages/Appearance.razor`
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/wwwroot/quasar-ui.css`

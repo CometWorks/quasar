@@ -72,7 +72,7 @@ public sealed class ClusterDetailPageTests
             context.Services.AddSingleton(new ClusterGatewayClient(http));
             context.Services.AddSingleton(new ClusterCommandService(null!, null!, null!, null!));
             context.Services.AddSingleton(new ClusterUpdatePreparationService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
-            context.Services.AddSingleton(new ClusterReleaseMonitor(catalog, null!, null!, new(), NullLogger<ClusterReleaseMonitor>.Instance));
+            context.Services.AddSingleton(new ClusterReleaseMonitor(catalog, null!, new(), NullLogger<ClusterReleaseMonitor>.Instance));
             context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
             context.ComponentFactories.AddStub<ClusterBetaNotice>();
             context.ComponentFactories.AddStub<ClusterConsoleButton>();

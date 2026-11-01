@@ -1697,8 +1697,9 @@ Quasar checks the latest published cluster release on the configured update inte
 are enabled and at least one cluster has a selected package. A different release
 identity from that selected pin lights the top-bar update bell, opens the affected cluster page,
 and appears under **Settings → Updates → Cluster packages** for users with access
-to that page. This check uses the GitHub token with access to the
-private `CometWorks/cluster` repository. The Updates page also has a manual
+to that page. Public `CometWorks/cluster` releases are checked without a token.
+When configured, the shared GitHub update token is used for higher rate limits
+and access to private releases. The Updates page also has a manual
 **Check cluster release** button with the same refresh icon as **Check Magnetar**. Release checks only notify; they never stage,
 select, prepare, or activate a cluster package. The comparison is against the
 selected package, which may differ from the active deployment.
@@ -1716,8 +1717,9 @@ Equivalent API: `GET /api/v1/clusters/{name}/package-release`, then
 `PUT /api/v1/clusters/{name}/package` with `{ "version": "1.0.3", "sha256": "..." }`
 and `Idempotency-Key`. Discovery needs cluster-query access; staging needs
 cluster-manage access. Both enforce the principal's cluster allow-list. The existing
-GitHub update credential must have read access to the private `CometWorks/cluster`
-repository. Asset downloads use GitHub's authenticated release-asset API.
+GitHub update credential is optional for public `CometWorks/cluster` releases;
+private releases require repository read access. Asset downloads use GitHub's
+release-asset API, with authentication when a token is configured.
 
 Staging waits for verification and returns a durable operation record, including the
 installation receipt on success. Allow a longer HTTP timeout for cold downloads.

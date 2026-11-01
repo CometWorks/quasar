@@ -21,7 +21,6 @@
     <Title>@Title</Title>
 </QuasarPageHeading>
     <p class="quasar-text quasar-type-body1 my-2">Conversion creates a separate destination. The source and backup remain intact. The destination stays stopped until you review it and start it.</p>
-    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     @if (ToCluster)
     {
         <p class="quasar-text quasar-type-body1">Choose a new cluster or an empty existing cluster, then convert. Quasar saves and stops the source, selects a host and free ports, prepares the release and plugins, generates credentials, and backs up and converts the world.</p>
@@ -53,12 +52,22 @@
     }
     @if (!ToCluster)
     {
-        <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="@Locked" Label="I reviewed the source, destination, frozen plugin versions and plugin settings. Keep the source and backup; leave the new destination stopped." />
+        <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="@Locked" Label="I reviewed the source, destination, frozen plugin versions and plugin settings." />
     }
-    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RunAsync" Disabled="@(_busy || (!ToCluster && !_confirmed) || (ToCluster && _review?.Warnings.Length > 0))">@(_request is null ? (ToCluster ? "Convert to cluster" : "Back up and convert") : "Resume conversion")</MudButton>
+    @if (_busy)
+    {
+        <QuasarOperationLoader Title="Backing up and converting" Message="@(_status?.Phase ?? "Validating the source and destination before backup.")" />
+    }
+    else if (!IsComplete)
+    {
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RunAsync" Disabled="@((!ToCluster && !_confirmed) || (ToCluster && _review?.Warnings.Length > 0))">@(_request is null ? (ToCluster ? "Convert to cluster" : "Back up and convert") : "Resume conversion")</MudButton>
+    }
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-3" role="alert">@_error</MudAlert>
+    }
     @if (_request is not null && !_busy)
     { <MudButton OnClick="NewConversion">Edit as a new conversion</MudButton> }
-    @if (_busy) { <MudProgressLinear Indeterminate="true" Class="my-2" /> }
     @if (_status is not null)
     {
         <p class="quasar-text quasar-type-body1 mt-3">@_status.Phase</p>
@@ -74,6 +83,7 @@
     [SupplyParameterFromQuery(Name = "conversion")] public Guid? ConversionId { get; set; }
     private bool ToCluster => !string.IsNullOrWhiteSpace(ServerName);
     private string Title => ToCluster ? "Convert server to cluster" : "Convert cluster to standalone server";
+    private bool IsComplete => _status?.Destination is not null;
     private bool Locked => _busy || _request is not null;
     private string _targetCluster = "", _conversionCluster = "";
     private string _serverId = "", _displayName = "", _profileId = "";
@@ -138,18 +148,25 @@
     private void Changed() => _ = InvokeAsync(() => { if (_id != Guid.Empty) _status = Conversions.GetStatus(_id); StateHasChanged(); });
     private async Task RunAsync()
     {
+        if (_busy || (!ToCluster && !_confirmed) || (ToCluster && _review?.Warnings.Length > 0) || IsComplete) return;
         EnsureDestinationName();
-        if (_busy || (!ToCluster && !_confirmed) || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
-            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
-            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
-        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
-        if (_request is null) _id = Guid.NewGuid();
-        string clusterId = _request is not null ? _conversionCluster
-            : ToCluster ? (string.IsNullOrWhiteSpace(_targetCluster) ? "cluster-" + _id.ToString("N") : _targetCluster) : ClusterName!;
-        if (!user.CanQueryCluster(clusterId)) { _error = "Cluster access denied."; return; }
-        _busy = true; _error = null;
+        _busy = true; _error = null; _status = null;
+        StateHasChanged();
+        await Task.Yield();
         try
         {
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+                || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
+                || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
+            {
+                _error = "You do not have permission to convert servers.";
+                return;
+            }
+            var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            if (_request is null) _id = Guid.NewGuid();
+            string clusterId = _request is not null ? _conversionCluster
+                : ToCluster ? (string.IsNullOrWhiteSpace(_targetCluster) ? "cluster-" + _id.ToString("N") : _targetCluster) : ClusterName!;
+            if (!user.CanQueryCluster(clusterId)) { _error = "Cluster access denied."; return; }
             if (_request is null)
             {
                 _conversionCluster = clusterId;

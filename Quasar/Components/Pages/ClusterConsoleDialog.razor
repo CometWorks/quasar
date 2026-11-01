@@ -23,7 +23,7 @@
                         @if (_events.Length == 0) { <p class="quasar-text quasar-type-body1">No Cluster Registry events available.</p> }
                         @foreach (var entry in _events.OrderByDescending(e => e.Seq))
                         {
-                            <div class="cluster-console-line">
+                            <div class="cluster-console-line cluster-console-event">
                                 <div>@string.Join(" · ", new[] { entry.At.ToString("u"), entry.Type, entry.Actor, entry.Target }.Where(value => !string.IsNullOrWhiteSpace(value)))</div>
                                 @if (entry.Data is { Count: > 0 }) { <div>@System.Text.Json.JsonSerializer.Serialize(entry.Data)</div> }
                             </div>
