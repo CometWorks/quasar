@@ -1,7 +1,11 @@
 # Offline partitions and compensation
 
-Open a cluster, then **Nodes & players → Partitions**. Refresh reads Registry placement,
-offline rows and the shared rate cache. Inspect reads a profile from the selected owner or
+Open a cluster, then select the **Partitions** view. You can bookmark
+`clusters/{name}#cluster-partitions`. The view becomes available when the Gateway
+admin connection responds; Maintenance and Settings stay available during an outage. Refresh reads Registry placement,
+offline rows and the shared rate cache. Switching views keeps the selected partition
+and prediction mounted; opening the cluster does not read offline diagnostics until
+you first visit Partitions. Inspect reads a profile from the selected owner or
 an advertised live holder of the exact offline Final. Browsing, scanning, refresh and
 prediction do not wake, claim, load or save a partition.
 
@@ -27,7 +31,13 @@ empty, nonfinite, negative and oversized intervals. The Gateway resolves the sel
 registered node ID, verifies ownership or the exact Final and rechecks it after reading.
 The caller cannot supply a file path or node URL. A missing holder, changed Final, legacy
 save without profiles or unsupported node produces an unavailable, empty or conflict
-state. Refresh before retrying a changed selection.
+state. Refresh before retrying a changed selection. Progress shows elapsed time while
+reading profiles or calculating predictions. A running prediction disables its submit
+button; changing the selected partition cancels and discards the old response.
+
+The server caps the compensated interval at its configured limit, 72 game hours by
+default. A longer prediction request still reports only that capped modeled interval;
+excess time receives no later compensation.
 
 Results remain predictions. **Exact**, **Approximate**, **Frozen** and **Creative** are
 the source model's confidence labels, not proof of a native game differential. Unknown

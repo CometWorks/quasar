@@ -8,11 +8,13 @@
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
 
-<section class="quasar-stack" aria-label="Partitions and offline compensation">
-    <h2>Partitions and offline compensation</h2>
-    <p>Browsing and refreshing only read state. Profile deliberately advances profiling. Dry run predicts from an exact offline Final without waking, claiming or saving the partition.</p>
-    <button type="button" class="quasar-button" @onclick="RefreshAsync" disabled="@_mutating">Refresh partitions</button>
-    @if (_loading) { <p role="status">Reading partition state…</p> }
+<section class="quasar-panel quasar-card-content quasar-stack" aria-label="Partitions and offline compensation">
+    <div class="quasar-row quasar-between quasar-wrap-wrap">
+        <h2 class="quasar-text quasar-type-h6">Partitions</h2>
+        <button type="button" class="quasar-button" @onclick="RefreshAsync" disabled="@_mutating">Refresh partitions</button>
+    </div>
+    <p>Review partition placement, offline production and power costs. Browsing, refreshing and predictions do not wake partitions.</p>
+    @if (_loading) { <QuasarOperationLoader Title="Reading partitions" Message="Reading partition placement and offline accounting from the Cluster Registry." /> }
     @if (_error is not null) { <p class="quasar-notice quasar-notice-warning" role="status">@_error</p> }
     @if (_offlineError is not null) { <p class="quasar-notice quasar-notice-warning" role="status">@_offlineError</p> }
     @if (_supported == false)
@@ -66,7 +68,8 @@
                 @if (offline.Holders.Length == 0) { <p role="status">No live exact Final holder is available. Refresh after a holder reconnects.</p> }
             }
             else { <p>Current owner: @(selected.Node ?? "unavailable")</p> }
-            @if (_detailsLoading) { <p role="status">Reading selected partition profile…</p> }
+            @if (_detailsLoading) { <QuasarOperationLoader Title="Reading partition profile" Message="Reading the selected owner's or saved snapshot holder's accounting data." /> }
+            @if (_predicting) { <QuasarOperationLoader Title="Calculating compensation prediction" Message="Estimating production and shared power costs from the saved offline snapshot. The partition stays offline." /> }
             @if (_details is { } details)
             {
                 @if (details.Groups.Length == 0) { <p>No captured groups. The Final may predate compensation, or profiling has not completed.</p> }
@@ -82,7 +85,7 @@
                     <div class="quasar-row">
                         <button type="button" class="quasar-button" disabled="@(!CanRun("POST /admin/v1/triggers/{task}") || selected.Offline || string.IsNullOrWhiteSpace(_node))" @onclick="ProfileAsync">Profile</button>
                         <label class="quasar-field"><span>Prediction interval (game hours, 0–168)</span><input type="number" min="0" max="168" step="any" @bind="_hours" disabled="@_mutating" /></label>
-                        <button type="button" class="quasar-button" disabled="@(!CanPredict || _mutating || !selected.Offline || string.IsNullOrWhiteSpace(_node) || !ValidHours(out _))" @onclick="PredictAsync">Dry run (prediction only)</button>
+                        <button type="button" class="quasar-button quasar-tone-primary" disabled="@(!CanPredict || _mutating || _predicting || !selected.Offline || string.IsNullOrWhiteSpace(_node) || !ValidHours(out _))" @onclick="PredictAsync">Dry run (prediction only)</button>
                     </div>
                     <p class="quasar-muted">Profile needs the current online owner. Dry run needs a live exact Final holder. Neither action requests a wake.</p>
                 </Authorized>
@@ -128,7 +131,7 @@
     private string? _clusterKey, _error, _offlineError;
     private CancellationTokenSource? _read;
     private CancellationTokenSource? _selectionRead;
-    private bool _disposed, _loading, _detailsLoading, _mutating;
+    private bool _disposed, _loading, _detailsLoading, _mutating, _predicting;
     private bool? _supported;
     private Admin.AdminCapabilities? _capabilities;
     private Admin.PartitionSummary[]? _partitions;
@@ -158,7 +161,7 @@
     private void CancelSelection()
     {
         _selectionRead?.Cancel(); _selectionRead?.Dispose(); _selectionRead = null;
-        _selected = null; _details = null; _prediction = null; _detailsLoading = false; _node = "";
+        _selected = null; _details = null; _prediction = null; _detailsLoading = false; _predicting = false; _node = "";
     }
     private async Task RefreshAsync()
     {
@@ -216,7 +219,7 @@
         _selectionRead?.Cancel(); _selectionRead?.Dispose();
         var read = new CancellationTokenSource(); _selectionRead = read;
         var row = _selected; string node = _node; string? save = row is null ? null : Offline(row.Partition)?.SaveId;
-        _details = null; _prediction = null; _error = null;
+        _details = null; _prediction = null; _predicting = false; _error = null;
         if (row is null || string.IsNullOrWhiteSpace(node)) return;
         _detailsLoading = true;
         try
@@ -246,11 +249,11 @@
     }
     private async Task PredictAsync()
     {
-        if (_mutating || !CanPredict || !await AuthorizedAsync() || _selected is not { Offline: true } row || !ValidHours(out double hours) || string.IsNullOrWhiteSpace(_node)) return;
+        if (_mutating || _predicting || !CanPredict || !await AuthorizedAsync() || _selected is not { Offline: true } row || !ValidHours(out double hours) || string.IsNullOrWhiteSpace(_node)) return;
         _selectionRead?.Cancel(); _selectionRead?.Dispose();
         var read = new CancellationTokenSource(); _selectionRead = read;
         string node = _node; string? save = Offline(row.Partition)?.SaveId;
-        _detailsLoading = false;
+        _detailsLoading = false; _predicting = true;
         _prediction = null; _error = null;
         try
         {
@@ -262,6 +265,7 @@
         }
         catch (OperationCanceledException) when (read.IsCancellationRequested) { }
         catch (ClusterGatewayException e) { if (CurrentSelection(read)) _error = e.Code + ": " + e.Message; }
+        finally { if (CurrentSelection(read)) _predicting = false; }
     }
     private async Task ClearAsync(Admin.OfflineRateEntry entry)
     {

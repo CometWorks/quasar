@@ -14,7 +14,7 @@ Managed clusters are in beta. The setup, conversion and cluster pages show "Mana
 | Cluster Registry | Runs in the same process as the Cluster Gateway. It owns coordination, placement, drain and administration. Quasar talks to its HTTP admin endpoint (the "Cluster Registry admin URL"). |
 | World Authority (WA) | A special node that owns world-wide state. It runs on the Cluster Gateway host machine. |
 | Regular node | A Magnetar process that simulates part of the world (a partition). |
-| Hot spare | A regular node that runs warm and holds nothing until a node crashes; then it takes over that node's partitions, and the crashed node restarts as the new spare. Shown as **Hot spare** in **Nodes and players**. |
+| Hot spare | A regular node that runs warm and holds nothing until a node crashes; then it takes over that node's partitions, and the crashed node restarts as the new spare. Shown as **Hot spare** in **Nodes**. |
 | Cluster Gateway and World Authority host machine | The placement choice for the machine that runs the Gateway, Registry and World Authority. |
 | Public server port | The UDP port players connect to. Separate from the internal node ports and the Registry admin port. |
 | Host machine ID / Cluster ID / Server ID | Permanent IDs. Server name and Host machine name are the editable display names. |
@@ -117,7 +117,7 @@ unavailable. Progress since the last save can be lost even when recovery is read
 
 ### Offline partitions and compensation
 
-Open **Nodes & players → Partitions** to inspect Registry placement, offline Final holders, profile readiness, confidence, unknown reasons and remote users. Refresh and Inspect only read state. Remote users pin ordinary offlining and clientless movement; a `remote-use` conflict means another node is using the partition remotely.
+Open the cluster’s **Partitions** view to inspect Registry placement, offline Final holders, profile readiness, confidence, unknown reasons and remote users. Bookmark it with `#cluster-partitions`. It becomes available when the Gateway responds, and switching views preserves the selection. Profile reads and predictions show progress and elapsed time. Refresh and Inspect only read state. Remote users pin ordinary offlining and clientless movement; a `remote-use` conflict means another node is using the partition remotely.
 
 The authenticated Administrator role is required for **Profile**, **Dry run (prediction only)** and per-key cache clear. Viewer and Editor can inspect. Profile deliberately advances profiling on the selected online owner. Dry run reads the exact offline Final from an advertised holder for a finite interval of 0-168 game hours. It does not wake, claim or save the partition. A changed Final or unavailable holder needs refresh; a legacy Final may have no profile.
 
