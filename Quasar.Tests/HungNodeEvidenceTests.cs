@@ -13,32 +13,80 @@ public sealed class HungNodeEvidenceTests : IDisposable
     [Fact]
     public async Task StuckToolStillLeavesThreadStatesWithinTheLimit()
     {
-        if (!OperatingSystem.IsLinux()) return;
+        if (!OperatingSystem.IsLinux())
+            return;
         string tool = Path.Combine(root, "stuck-tool");
         File.WriteAllText(tool, "#!/bin/sh\nexec sleep 60\n");
-        File.SetUnixFileMode(tool, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        File.SetUnixFileMode(
+            tool,
+            UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+        );
         using var hung = Process.Start("sleep", "60");
         var clock = Stopwatch.StartNew();
         try
         {
-            await HostApp.HungNodeEvidence.CaptureAsync(root, hung.Id, false, "node_hung", "Fixture hang.", TimeSpan.FromSeconds(2), tool);
+            await HostApp.HungNodeEvidence.CaptureAsync(
+                root,
+                hung.Id,
+                false,
+                "node_hung",
+                "Fixture hang.",
+                TimeSpan.FromSeconds(2),
+                tool
+            );
             Assert.InRange(clock.Elapsed.TotalSeconds, 2, 10);
             Assert.Contains("\"sleep\" state=S", Evidence);
             Assert.Contains("createdump: timed out", Evidence);
             Assert.False(hung.HasExited);
         }
-        finally { hung.Kill(); }
+        finally
+        {
+            hung.Kill();
+        }
     }
 
     [Fact]
     public async Task RuntimeWritesTheStacksWhenTheToolIsRefused()
     {
-        if (!OperatingSystem.IsLinux()
-            || !Directory.EnumerateFiles(Path.GetTempPath(), $"dotnet-diagnostic-{Environment.ProcessId}-*-socket").Any()) return;
-        await HostApp.HungNodeEvidence.CaptureAsync(root, Environment.ProcessId, false, "node_hung", "Fixture hang.", TimeSpan.FromSeconds(15), "/bin/false");
+        if (
+            !OperatingSystem.IsLinux()
+            || !Directory
+                .EnumerateFiles(
+                    Path.GetTempPath(),
+                    $"dotnet-diagnostic-{Environment.ProcessId}-*-socket"
+                )
+                .Any()
+        )
+            return;
+        await HostApp.HungNodeEvidence.CaptureAsync(
+            root,
+            Environment.ProcessId,
+            false,
+            "node_hung",
+            "Fixture hang.",
+            TimeSpan.FromSeconds(15),
+            "/bin/false"
+        );
         Assert.Contains("Stacks: from createdump. Minidump: none.", Evidence);
         Assert.Contains("  System.", Evidence);
         Assert.False(File.Exists(Path.Combine(root, "hang.dmp")));
+    }
+
+    [Fact]
+    public async Task DumpGrantKeepsAMinidump()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+        await HostApp.HungNodeEvidence.CaptureAsync(
+            root,
+            Environment.ProcessId,
+            true,
+            "node_hung",
+            "Fixture hang.",
+            TimeSpan.FromSeconds(15)
+        );
+        Assert.Contains("Stacks: from createdump. Minidump: hang.dmp.", Evidence);
+        Assert.True(new FileInfo(Path.Combine(root, "hang.dmp")).Length > 0);
     }
 
     public void Dispose() => Directory.Delete(root, true);
