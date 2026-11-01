@@ -13,7 +13,10 @@ public sealed class QuasarAuthOptions
 
     public static QuasarAuthOptions Create(IConfiguration configuration)
     {
-        var options = configuration.GetSection("Quasar:Auth").Get<QuasarAuthOptions>() ?? new QuasarAuthOptions();
+        var options = new QuasarAuthOptions();
+        // Binding appends to existing lists. Apply the admin fallback only after reading explicit roles.
+        options.TrustedNetworkBypass.Roles.Clear();
+        configuration.GetSection("Quasar:Auth").Bind(options);
         options.Normalize();
         return options;
     }
