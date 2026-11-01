@@ -72,8 +72,8 @@ else
         @if (_gatewayAvailable != true)
         {
             <p id="cluster-gateway-connection" class="quasar-muted" role="status">@(_gatewayAvailable is null
-                ? "Checking Gateway admin connection. Nodes, Events and Mods & plugins will be available when it responds."
-                : "Gateway admin connection unavailable. Nodes, Events and Mods & plugins will be available when it reconnects. Maintenance and Settings remain available.")</p>
+                ? "Checking Gateway admin connection. Nodes, Partitions, Events and Mods & plugins will be available when it responds."
+                : "Gateway admin connection unavailable. Nodes, Partitions, Events and Mods & plugins will be available when it reconnects. Maintenance and Settings remain available.")</p>
         }
         <section id="cluster-settings" aria-label="Cluster controls and settings">
             <ClusterAdminPanel @ref="_admin" Cluster="Cluster" Compact="@(_view != "settings")" GatewayAvailable="@(_gatewayAvailable == true)" />
@@ -92,6 +92,12 @@ else
             @if (_visited.Contains("nodes"))
             {
                 <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" ShowEvents="false" />
+            }
+        </section>
+        <section id="cluster-partitions" aria-label="Cluster partitions" hidden="@(_view != "partitions")">
+            @if (_visited.Contains("partitions"))
+            {
+                <ClusterPartitionsPanel Cluster="Cluster" @key="Cluster.UniqueName" />
             }
         </section>
         <section id="cluster-events" aria-label="Cluster events" hidden="@(_view != "events")">
@@ -147,7 +153,7 @@ else
 
     private ClusterDefinition? Cluster { get; set; }
     private ClusterAdminPanel? _admin;
-    private static readonly (string Key, string Label)[] Views = [("overview", "Overview"), ("nodes", "Nodes"), ("events", "Events"), ("content", "Mods & plugins"), ("configuration", "Maintenance"), ("settings", "Settings")];
+    private static readonly (string Key, string Label)[] Views = [("overview", "Overview"), ("nodes", "Nodes"), ("partitions", "Partitions"), ("events", "Events"), ("content", "Mods & plugins"), ("configuration", "Maintenance"), ("settings", "Settings")];
     private string _requestedView = "overview";
     private string _view => CanSelectView(_requestedView) ? _requestedView : "overview";
     private bool? _gatewayAvailable;

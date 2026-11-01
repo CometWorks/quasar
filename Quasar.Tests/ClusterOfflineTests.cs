@@ -147,6 +147,8 @@ public sealed class ClusterOfflineTests
             await panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).ClickAsync(new());
             Assert.Contains("Prediction only", panel.Markup);
             Assert.Contains("chips exhausted", panel.Markup);
+            Assert.DoesNotContain("Calculating compensation prediction", panel.Markup);
+            Assert.False(panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).HasAttribute("disabled"));
         }
         Assert.All(fixture.Requests, r => Assert.Equal("GET", r.Method));
         if (Environment.GetEnvironmentVariable("QUASAR_OFFLINE_RENDER_DIR") is { Length: > 0 } path)
@@ -202,6 +204,7 @@ public sealed class ClusterOfflineTests
         };
         var old = panel.Find("button[aria-label='Inspect partition 17']").ClickAsync(new());
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("Reading partition profile", panel.Markup);
         await panel.Find("button[aria-label='Inspect partition 7']").ClickAsync(new());
         release.SetResult();
         await old;
@@ -216,9 +219,30 @@ public sealed class ClusterOfflineTests
         { if (request.Uri.AbsolutePath.EndsWith("/prediction")) { entered.TrySetResult(); await release.Task; } };
         var prediction = panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).ClickAsync(new());
         await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Contains("Calculating compensation prediction", panel.Markup);
+        Assert.True(panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).HasAttribute("disabled"));
         await panel.Find("button[aria-label='Inspect partition 7']").ClickAsync(new());
         release.SetResult(); await prediction;
         Assert.DoesNotContain("Prediction only", panel.Markup);
+        Assert.DoesNotContain("Calculating compensation prediction", panel.Markup);
+    }
+
+    [Fact]
+    public async Task PredictionFailureStopsProgressAndAllowsRetry()
+    {
+        using var fixture = new OfflineGatewayFixture();
+        await using var context = Context(fixture, QuasarRoles.Admin);
+        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        await panel.Find("button[aria-label='Inspect partition 17']").ClickAsync(new());
+        fixture.QueryError = "node_unavailable";
+        await panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).ClickAsync(new());
+        Assert.Contains("node_unavailable", panel.Markup);
+        Assert.DoesNotContain("Calculating compensation prediction", panel.Markup);
+        Assert.False(panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).HasAttribute("disabled"));
+        fixture.QueryError = null;
+        await panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).ClickAsync(new());
+        Assert.Contains("Prediction only", panel.Markup);
+        Assert.All(fixture.Requests, r => Assert.Equal("GET", r.Method));
     }
 
     [Fact]
@@ -286,7 +310,7 @@ internal sealed class OfflineGatewayFixture : HttpMessageHandler
             message.Headers.Authorization?.ToString(), message.Headers.TryGetValues("Idempotency-Key", out var keys) ? keys.Single() : null);
         lock (_requests) _requests.Add(request);
         if (Delay is not null) await Delay(request);
-        if (QueryError is not null && request.Uri.AbsolutePath.EndsWith("/details"))
+        if (QueryError is not null && (request.Uri.AbsolutePath.EndsWith("/details") || request.Uri.AbsolutePath.EndsWith("/prediction")))
         {
             var failure = new HttpResponseMessage(HttpStatusCode.NotImplemented)
             { Content = JsonContent.Create(new AdminErrorEnvelope(1, DateTimeOffset.UtcNow, new(QueryError, "Node diagnostics unavailable.")), options: Json) };
