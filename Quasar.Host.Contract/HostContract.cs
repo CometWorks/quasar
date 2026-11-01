@@ -73,7 +73,12 @@ public sealed record HostStatus(
     bool SteamClientLibrary = false,
     DateTimeOffset? StartedAt = null,
     string[]? Warnings = null,
-    bool ClusterDetach = false);
+    bool ClusterDetach = false,
+    HostNodeFailure[]? NodeFailures = null);
+
+/// <summary>Why a node slot's last launch on this Host failed. <c>Cause</c> is the exception the node reported, when it
+/// reported one; <c>LogPath</c> is the node's own log on this Host. Null when there is none.</summary>
+public sealed record HostNodeFailure(string ClusterId, string SlotKey, string Failure, string? Cause, string? LogPath);
 
 /// <summary>What the Host stopped supervising: the state files it moved (attachment, gateway,
 /// deployment) and where they went. Runtime data, launch records and snapshots stay in place.</summary>

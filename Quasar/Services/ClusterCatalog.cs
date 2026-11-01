@@ -514,7 +514,7 @@ public sealed class ClusterCatalog : IDisposable
     {
         if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
             || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-            throw new InvalidOperationException("Finish the current setup, update or activation before changing queued content.");
+            throw new InvalidOperationException(cluster.BusyMessage("changing queued content"));
     }
 
     private Task<ClusterDefinition> UpdateAsync(string uniqueName, Action<ClusterDefinition> update,

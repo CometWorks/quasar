@@ -197,9 +197,15 @@ To update:
 1. **Maintenance → Release update → Stage latest release** selects the release, freezes matching dependencies and prepares every host machine from the saved world seed and topology. Queued mod and plugin changes are staged together with it. The cluster keeps running. The same step without the web UI is `./Quasar cluster release-update-prepare NAME --idempotency-key KEY` (API `POST /api/v1/clusters/{name}/release-update-preparation`, needs cluster manage and configuration editing). Like the button, it reuses the current dependency snapshot's DS, Magnetar, Direct Transport and common plugins when they fit the new release, so a cluster from guided setup needs no configured dependency sources. `package-select` on its own clears the dependency snapshot.
 2. **Maintenance → Pending update → Apply pending update** starts the full-downtime update: Stopping, Activating, Starting, Complete. Quasar checks every Host first, then stops the cluster, takes a backup under the update ID, activates the new deployment on every Host and starts it.
 
-While an update runs, goal changes, commands, backups, restores and deletion are locked. The only command allowed is an emergency shutdown while the update stops or starts the cluster; it closes the update.
+While an update runs, goal changes, commands, backups, restores, deletion and staging are locked. The only command allowed is an emergency shutdown while the update stops or starts the cluster; it closes the update.
 
-If an update gets stuck, **Abandon update** closes it without rolling anything back. Quasar gives up by itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in Starting, and writes the reason to the update's last error:
+If an update gets stuck, **Abandon update** (`./Quasar cluster update-abandon NAME --idempotency-key KEY`) closes it without rolling anything back. A refused staging (`profile_preparation_conflict`, or the same for hot spares, names and other stagings) names the update, what it waits for and this way out. Quasar gives up by itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in Starting, and writes the reason to the update's last error.
+
+If nodes keep failing at startup, for example because a plugin throws in its preload hook, the update's last error says so as soon as the Gateway stops respawning them: which nodes, the exception they reported and where the node log is on the Host. When all of them fail, Quasar gives up 12 minutes after Starting began, once the Gateway's retry has failed too, and reverts from the pre-update backup. Then stage the fixed build and apply it as usual.
+
+To stage a fixed build sooner, abandon the update. Applying the fixed build then stops in Stopping, because a Gateway whose World Authority never ran lists `global` as unsaved, and the update's last error says so at once. Abandon that update too and apply the build with **Update despite the recorded dirty shutdown**. Nothing is lost: the failed deployment never ran, and the world comes from its newest catalogued saves.
+
+When Quasar gives up:
 
 - Before any Host switched, the previous version carries on, and Quasar restores the On goal if the cluster was On before.
 - After activation, Quasar reverts from the pre-update backup (phase Reverting) and starts the previous version again if it was On. A revert that cannot finish in 3 hours is given up, with the backup named in the error.

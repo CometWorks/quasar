@@ -232,6 +232,33 @@ public sealed class DiagnosticCollector
         catch (Exception e) when (CaptureFailure(e)) { }
     }
 
+    /// <summary>What the process itself reported as its fatal exception in this run, for a person to read: the innermost
+    /// exception of the chain and the frame that threw it. Null when it reported none.</summary>
+    public static string? ReportedException(string? directory)
+    {
+        if (directory is null || !Directory.Exists(directory)) return null;
+        var reports = new List<IncidentReport>();
+        foreach (string path in Directory.EnumerateFiles(directory, "*.json").Where(p => DiagnosticsProtocol.IsReportId(Path.GetFileNameWithoutExtension(p))).Take(256))
+        {
+            try { if (Read<IncidentReport>(path) is { Source: not "host", Exception.Length: > 0 } report) reports.Add(report); }
+            catch (Exception e) when (CaptureFailure(e)) { }
+        }
+        // A run may also have reported errors it survived. The last words are the unhandled exception, if there is one.
+        var fatal = reports.OrderByDescending(r => r.Kind == "unhandled_exception").ThenByDescending(r => r.CapturedAtUtc).FirstOrDefault();
+        return fatal is null ? null : Summarize(fatal.Exception!);
+    }
+
+    internal static string Summarize(string exception)
+    {
+        string[] lines = exception.Split('\n', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        // ToString() lists the chain outermost first, each inner one as " ---> Type: message", then the innermost's stack.
+        int cause = Array.FindLastIndex(lines, line => line.StartsWith("---> ", StringComparison.Ordinal));
+        string summary = cause < 0 ? lines[0] : lines[cause][5..];
+        if (Math.Max(cause, 0) + 1 < lines.Length && lines[Math.Max(cause, 0) + 1].StartsWith("at ", StringComparison.Ordinal))
+            summary += " " + lines[Math.Max(cause, 0) + 1];
+        return summary.Length > 500 ? summary[..500] + "…" : summary;
+    }
+
     public static void RecordOutput(string? directory, string line)
     {
         if (directory is null) return;

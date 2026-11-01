@@ -11,6 +11,47 @@ namespace Quasar.Tests;
 public sealed class HostMachineSecurityTests
 {
     [Fact]
+    public void HostReportsWhyNodesFailed()
+    {
+        string state = Path.Combine(Path.GetTempPath(), "node-failures-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            string diagnostics = Path.Combine(state, "run");
+            string run = Path.Combine(state, "node");
+            Directory.CreateDirectory(diagnostics);
+            Directory.CreateDirectory(Path.Combine(run, "config"));
+            File.WriteAllText(Path.Combine(run, "config", "info.log"), "log");
+            string Report(string kind, string source, string exception, string at) => System.Text.Json.JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1, reportId = Guid.NewGuid().ToString("N"), capturedAtUtc = at, source, kind, severity = "Error",
+                message = "m", exception, context = new Dictionary<string, string>(),
+            });
+            void Write(string report) => File.WriteAllText(Path.Combine(diagnostics, Guid.NewGuid().ToString("N") + ".json"), report);
+            Write(Report("unhandled_exception", "Magnetar", "System.Exception: outer\n ---> System.InvalidOperationException: boom\n   at Preloader.Fail()", "2026-11-01T00:00:00Z"));
+            Write(Report("log", "plugin", "System.Exception: survived, and later", "2026-11-01T00:00:09Z"));
+            Write(Report("unexpected_exit", "host", "System.Exception: from the Host", "2026-11-01T00:00:10Z"));
+            string records = Path.Combine(state, "launch-records");
+            Directory.CreateDirectory(records);
+            string Record(string slot, string status, string? failure, string? directory) => System.Text.Json.JsonSerializer.Serialize(new
+            {
+                schemaVersion = 1, clusterId = "demo", slotKey = slot, attemptKey = "attempt", bundleRevision = "r", bundleManifestSha256 = "s",
+                executablePath = "e", executableSha256 = "h", runDirectory = run, launchedAt = DateTimeOffset.UtcNow, status, failure,
+                diagnosticDirectory = directory,
+            });
+            File.WriteAllText(Path.Combine(records, "failed.json"), Record("a", "Failed", "process_exited", diagnostics));
+            File.WriteAllText(Path.Combine(records, "ready.json"), Record("b", "Ready", null, null));
+            File.WriteAllText(Path.Combine(records, "bad.json"), "{");
+
+            var failure = Assert.Single(HostApp.NodeActualizer.ReadFailures(state));
+
+            Assert.Equal(("demo", "a", "process_exited"), (failure.ClusterId, failure.SlotKey, failure.Failure));
+            Assert.Equal("System.InvalidOperationException: boom at Preloader.Fail()", failure.Cause);
+            Assert.Equal(Path.Combine(run, "config", "info.log"), failure.LogPath);
+        }
+        finally { Directory.Delete(state, true); }
+    }
+
+    [Fact]
     public void EnrolledHostLaunchesOnlyNodeScopedCredentialWithoutControlSecret()
     {
         const string secretName = "QSR_MANAGED_TEST_SECURITY";

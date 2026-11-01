@@ -643,6 +643,27 @@ internal sealed class NodeActualizer
         return process.MainModule?.FileName;
     }
 
+    // A status poll must not fail because of one unreadable record or report.
+    internal static HostContract.HostNodeFailure[] ReadFailures(string stateDirectory)
+    {
+        string directory = Path.Combine(Path.GetFullPath(stateDirectory), "launch-records");
+        if (!Directory.Exists(directory)) return [];
+        var failures = new List<HostContract.HostNodeFailure>();
+        foreach (string path in Directory.EnumerateFiles(directory, "*.json"))
+        {
+            try
+            {
+                if (JsonSerializer.Deserialize<LaunchRecord>(File.ReadAllBytes(path), JsonOptions) is not { Status: LaunchStatus.Failed, Failure: { } failure } record)
+                    continue;
+                string log = Path.Combine(record.RunDirectory, "config", "info.log");
+                failures.Add(new(record.ClusterId, record.SlotKey, failure, DiagnosticCollector.ReportedException(record.DiagnosticDirectory),
+                    File.Exists(log) ? log : null));
+            }
+            catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) { }
+        }
+        return [.. failures];
+    }
+
     private LaunchRecord? ReadRecord(string clusterId, string slotKey)
     {
         string path = RecordPath(clusterId, slotKey);

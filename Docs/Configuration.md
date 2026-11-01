@@ -2159,14 +2159,21 @@ newest catalogued saves; their unsaved changes are lost, as with Recovery. Every
 saved. The workflow logs the accepting actor and the list. A failed start reverts from the backup as
 any update does. Inspect with
 `cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
-An update that cannot finish locks goal changes, commands, backup, restore and deletion. It
-records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
-30 minutes. `cluster update-abandon NAME --idempotency-key KEY` (API
+An update that cannot finish locks goal changes, commands, backup, restore, deletion and staging.
+It records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
+30 minutes. If nodes keep failing at startup, for example because a plugin throws in its preload
+hook, `lastError` says so as soon as the Gateway stops respawning them: the slots, the failure, the
+exception the node reported and the path of its log on the Host. A shutdown that ended dirty is
+named at once in Stopping, because no clean proof can follow it.
+`cluster update-abandon NAME --idempotency-key KEY` (API
 `POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
 panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
-rollback is an ordinary new update. Abandon is refused while a deployment activation is half
-applied on the Hosts; resume that activation or recover the cluster instead.
+rollback is an ordinary new update. After abandoning a start where no node ever ran, the next
+update waits in Stopping, because a Gateway whose World Authority never ran lists `global` as
+unsaved: abandon that update too and apply it with `acceptDirtyShutdown` (**Update despite the
+recorded dirty shutdown**). Abandon is refused while a deployment activation is half applied on the
+Hosts; resume that activation or recover the cluster instead.
 The one command an update accepts is an emergency shutdown (`cluster command NAME REQUEST.json`
 with `{"action":"shutdown","parameters":{"emergency":true}}`) while it stops or starts the cluster.
 It closes the update first, with the actor in `lastError`, because no clean shutdown proof can follow
@@ -2174,14 +2181,16 @@ it. While Hosts switch deployments the Gateway is already down and the command i
 Every update backs up the cleanly stopped cluster before activation, under the update's ID; it is
 the way back to the previous version and world. If nobody abandons a stuck update, Quasar gives it up
 itself after 60 minutes in Stopping, 30 minutes of failed attempts in Activating or 60 minutes in
-Starting, and says why in `lastError`:
+Starting, and says why in `lastError`. When every wanted node keeps failing at startup it gives up
+12 minutes after reaching Starting, once the Gateway's retry has failed as well:
 - Before any Host switched, the previous version carries on. If the cluster was On before the update,
   its goal returns to On when its Gateway still runs or stopped with clean proof; otherwise it stays
   stopped and `lastError` says what to recover.
 - After activation the new version may already have changed the world, so the update reverts
   from that backup (phase Reverting, the reason in `failure`). It sets goal Off and lets the
-  reconciler stop the failed deployment cleanly; after 10 minutes it stops the Gateway with a fence
-  instead, once every Host reports its nodes stopped, because the backup replaces that data anyway.
+  reconciler stop the failed deployment cleanly; after 10 minutes, or as soon as the Gateway is Down,
+  it stops the Gateway with a fence instead, once every Host reports its nodes stopped, because the
+  backup replaces that data anyway.
   It then runs the same restore as Maintenance (a fresh preparation with rotated credentials, then
   the snapshot restore; each Host keeps the replaced data beside the runtime folder) and starts the
   previous version again if the cluster was On before the update and the normal start check
