@@ -161,6 +161,10 @@ Configure them in `appsettings.json`. Store only the name of an environment vari
 
 Send the token as `Authorization: Bearer <token>`. The `Quasar cluster ...` CLI reads it from `QUASAR_API_TOKEN` (or the variable named with `--token-env`) and sends nothing when the variable is empty, which works from the Quasar machine through the loopback bypass. See [Configuration](Configuration.md#command-line) and [Clusters](Clusters.md).
 
+Public health and readiness probes expose only status. The update overlay uses
+`/api/version` to confirm the running release; that endpoint requires the same
+read permission as the dashboard and does not cache its response.
+
 ## Turning authentication off
 
 `Quasar:Auth:Enabled` defaults to `true`. Setting it to `false` removes the authorization checks on HTTP endpoints, but Quasar starts only when every effective listener is loopback. It checks `Quasar:Host`, `QUASAR_WEB_HOST`, and every `ASPNETCORE_URLS` binding before Kestrel starts. The UI still checks roles and Quasar no longer creates trusted-network users, so pages show "Access denied." and write actions fail. Do not use it to skip sign-in; use the trusted network bypass instead.
@@ -232,7 +236,7 @@ See [Hosted access](HostedPanel.md) for setup, private files and release gates.
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
-- `Quasar/Services/PublicProbeEndpoints.cs`
+- `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/ClusterApi.cs`

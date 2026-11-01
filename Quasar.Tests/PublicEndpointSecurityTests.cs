@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Security.Claims;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Discovery;
@@ -143,6 +144,7 @@ public sealed class PublicEndpointSecurityTests
             var builder = WebApplication.CreateBuilder();
             builder.WebHost.UseTestServer();
             builder.Services.AddSingleton(new ClusterOperationStore(root));
+            builder.Services.AddSingleton(new WebServiceOptions());
             builder.Services.AddSingleton(new WebServiceState(
                 new WebServiceOptions(), null!, null!, null!)
             {
@@ -154,7 +156,7 @@ public sealed class PublicEndpointSecurityTests
                 },
             });
             await using var app = builder.Build();
-            app.MapPublicProbes();
+            app.MapWebServiceProbes(new QuasarAuthOptions { Enabled = false });
             await app.StartAsync();
             using var client = app.GetTestClient();
 
@@ -168,6 +170,61 @@ public sealed class PublicEndpointSecurityTests
         finally
         {
             Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(null, 401)]
+    [InlineData("unassigned", 403)]
+    [InlineData(QuasarRoles.Viewer, 200)]
+    [InlineData(QuasarRoles.Editor, 200)]
+    [InlineData(QuasarRoles.Admin, 200)]
+    public async Task WorkerVersionRequiresDashboardReadAccess(string? role, int expectedStatus)
+    {
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton(new WebServiceOptions { Version = "1.3.2.123" });
+        // These probes are not called here; register their services for route binding.
+        builder.Services.AddSingleton<ClusterOperationStore>(_ => throw new InvalidOperationException());
+        builder.Services.AddSingleton<WebServiceState>(_ => throw new InvalidOperationException());
+        builder.Services.AddAuthentication(QuasarAuthSchemes.Cookie)
+            .AddCookie(QuasarAuthSchemes.Cookie, options =>
+            {
+                options.Events.OnRedirectToLogin = context =>
+                {
+                    context.Response.StatusCode = 401;
+                    return Task.CompletedTask;
+                };
+                options.Events.OnRedirectToAccessDenied = context =>
+                {
+                    context.Response.StatusCode = 403;
+                    return Task.CompletedTask;
+                };
+            });
+        builder.Services.AddAuthorization(Quasar.Program.ConfigureAuthorizationPolicies);
+        await using var app = builder.Build();
+        app.UseRouting();
+        app.UseAuthentication();
+        app.Use((context, next) =>
+        {
+            if (role is not null)
+                context.User = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(ClaimTypes.Role, role)], QuasarAuthSchemes.Cookie));
+            return next(context);
+        });
+        app.UseAuthorization();
+        app.MapWebServiceProbes(new QuasarAuthOptions());
+        await app.StartAsync();
+        using var client = app.GetTestClient();
+
+        using var response = await client.GetAsync("/api/version").WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(expectedStatus, (int)response.StatusCode);
+        if (expectedStatus == 200)
+        {
+            Assert.True(response.Headers.CacheControl?.NoStore);
+            using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+            Assert.Equal(["version"], payload.RootElement.EnumerateObject().Select(property => property.Name));
+            Assert.Equal("1.3.2.123", payload.RootElement.GetProperty("version").GetString());
         }
     }
 

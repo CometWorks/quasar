@@ -130,8 +130,10 @@ explicit and requires the worker to be running under Bootstrap; the UI copies th
 staged payload into `<install-root>\ManagedRuntime\WebService\<version>`,
 and Bootstrap drains the old worker, starts the managed
 `Quasar.exe` on the same port, and leaves managed Magnetar servers running. The
-browser shows a restart progress overlay, polls `/api/health` until the
-activated UI version is serving, then reloads the Updates page.
+browser shows a restart progress overlay, polls `/api/health`, and checks the
+protected `/api/version` endpoint until the activated UI version is serving,
+then reloads the Updates page. Rollback to older releases also accepts their
+version in the health response.
 
 Selecting an older version marked **rollback**, then **Stage** and **Activate**,
 restores both UI and Bootstrap to that exact release. Its Windows installer must

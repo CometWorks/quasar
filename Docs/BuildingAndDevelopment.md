@@ -523,6 +523,15 @@ release. These dependency-free tests exercise worker identity, activation races,
 registration/installation failure, timeouts, and update activation. Browser APIs
 are simulated; no push subscription or running Quasar service is required.
 
+### Worker restart and update regression tests
+
+Run `node --test Quasar.Tests/Browser/restart-reload.test.mjs` to check update
+polling against status-only health responses, protected version checks, older
+release rollback, hosted panel paths and ordinary worker restarts. Run
+`dotnet test Quasar.Tests/Quasar.Tests.csproj --filter FullyQualifiedName~PublicEndpointSecurityTests`
+to check status-only public probes and the version endpoint's read permission.
+These checks do not start the Quasar web service.
+
 ## Native UI migration checks
 
 The core UI is being migrated in stages; keep Mud compatibility providers and

@@ -32,7 +32,7 @@ The page has these panels:
 1. **Check.** The worker reads up to 100 releases from `https://api.github.com/repos/<Owner>/<Repository>/releases`, skips drafts, and skips prereleases unless prereleases are enabled. It finds the platform asset by name: `quasar-web-linux-x64.tar.gz` on Linux, `quasar-web-win-x64.zip` on Windows. The first check runs 10 seconds after startup, then every `CheckIntervalSeconds` (default 900).
 2. **Stage.** Quasar downloads the asset into `<install root>/ManagedRuntime/Cache/`, verifies it against the release's `SHA256SUMS` file, extracts it to `<install root>/Updates/Staged/<version>/`, and merges `appsettings.json` (see below). With **Automatically stage UI updates after checks** on (the default), staging happens right after a check finds a newer version. With it off, the newer version waits as "ready to download" until you press **Stage**.
 3. **Activate.** Press **Activate**. Quasar copies the staged files to `<install root>/ManagedRuntime/WebService/<version>/`, copies the resolved `appsettings.json` back to the install root, and writes `<install root>/Updates/active-release.json`.
-4. **Cutover.** Bootstrap sees the pointer change, asks the old worker to drain, starts the new worker on the same port and waits up to 60 seconds for `/api/health`. The browser shows a progress overlay and reloads the Updates page when the new version answers. After a successful cutover Bootstrap keeps the active release and the previous healthy release under `ManagedRuntime/WebService/`, then deletes other inactive release folders.
+4. **Cutover.** Bootstrap sees the pointer change, asks the old worker to drain, starts the new worker on the same port and waits up to 60 seconds for `/api/health`. The browser shows a progress overlay, checks health and the protected `/api/version` endpoint, then reloads the Updates page when the selected version answers. Public health responses stay status-only. Rollback also accepts older releases that include their version in health. After a successful cutover Bootstrap keeps the active release and the previous healthy release under `ManagedRuntime/WebService/`, then deletes other inactive release folders.
 
 Activation needs Quasar to run under Bootstrap (the installed systemd service or Scheduled Task). Otherwise the page shows "Quasar is not running under Bootstrap, so this update cannot be activated from the UI."
 
@@ -308,6 +308,8 @@ What to do:
 - `Quasar/Services/Plugins/QuasarUiPluginHubCatalogService.cs`
 - `Quasar/Services/Plugins/QuasarUiPluginHubRefreshService.cs`
 - `Quasar/Program.cs`
+- `Quasar/Services/WebServiceProbeEndpoints.cs`
+- `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/Components/Pages/Updates.razor`
 - `Quasar/Components/Pages/Notifications.razor`
 - `Quasar/Components/Pages/Home.razor`
