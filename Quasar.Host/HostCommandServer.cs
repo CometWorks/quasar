@@ -721,7 +721,14 @@ internal sealed class HostCommandServer : IDisposable
             if (Uri.UnescapeDataString(path[prefix.Length..]) != request.ClusterId)
                 throw new ArgumentException("Route cluster ID does not match deployment activation.");
             if (context.Request.HttpMethod == "PUT") _snapshots.RefuseDuringOnlineCapture(request.ClusterId);
-            await WriteAsync(context, 200, _deployments.Apply(request, preview: context.Request.HttpMethod == "POST", online: context.Request.QueryString["online"] == "true"), cancellationToken);
+            var deployment = _deployments.Apply(request, preview: context.Request.HttpMethod == "POST", online: context.Request.QueryString["online"] == "true");
+            // Until the poll loop gets to it, the status doesn't name the new start generation, and Quasar refuses
+            // to start a Gateway it can't match. Observe it here, so a finished activation can start at once.
+            if (context.Request.HttpMethod == "PUT"
+                && _gateways.GetAll().FirstOrDefault(spec => spec.ClusterId.Equals(request.ClusterId, StringComparison.OrdinalIgnoreCase))
+                    is { Goal: HostContract.GatewayGoal.Off } activated)
+                _gateways.SetStatus(await _gatewayActualizer.ReconcileAsync(activated, cancellationToken));
+            await WriteAsync(context, 200, deployment, cancellationToken);
             return;
         }
         prefix = HostContract.HostProtocol.RoutePrefix + "/gateways/";

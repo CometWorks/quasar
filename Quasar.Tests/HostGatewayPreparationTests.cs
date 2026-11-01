@@ -119,6 +119,60 @@ public sealed class HostGatewayPreparationTests : IDisposable
         await StopAsync(actualizer, recovered, running);
     }
 
+    // SE-769: a goal On right after setup's "Ready to start" failed with cluster_start_unavailable,
+    // because the Host's status didn't name the activated start generation until its next poll.
+    [Fact]
+    public async Task ActivationAnswersOnlyOnceTheStatusAllowsTheFirstStart()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string state = Path.Combine(_root, "state"), runtime = Path.Combine(_root, "runtime");
+        Directory.CreateDirectory(_root);
+        string manifest = Path.Combine(_root, "bundle.json");
+        File.WriteAllBytes(manifest, JsonSerializer.SerializeToUtf8Bytes(new HostApp.BundleManifest(1, "revision-1", [], [],
+            new HostApp.GatewaySpawnSpec("gateway", "{runRoot}", [], [], ReservedPorts: [29416]), RuntimeRoot: runtime,
+            ClusterId: "demo", HostId: "host", StorageFormats: new() { ["world"] = "test-v1", ["registry"] = "test-v1", ["plugins"] = "test-v1" }),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        string url = $"http://127.0.0.1:{port}";
+        string tokenVariable = "HOST_ACTIVATION_STATUS_TEST_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(tokenVariable, "test-token");
+        var config = new HostApp.HostExecutorConfig("executor", "host", 2, [], state, new(url, tokenVariable));
+        using var shutdown = new CancellationTokenSource();
+        // No poll loop runs here, as for the seconds before its next round on a real Host.
+        using var server = new HostApp.HostCommandServer(config.Command!, config, new HostApp.AttachmentStore(state, []),
+            new HostApp.GatewaySpecStore(state), new HostApp.GatewayActualizer(state, "host"));
+        server.Start(shutdown.Token);
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
+        try
+        {
+            string sha256 = HostApp.ExecutionBundle.Hash(File.ReadAllBytes(manifest));
+            using HttpResponseMessage activated = await client.PutAsync(url + HostProtocol.RoutePrefix + "/deployments/demo",
+                System.Net.Http.Json.JsonContent.Create(new HostDeploymentActivation("demo", null, manifest, sha256, "http://127.0.0.1:29416", "EXECUTOR_TOKEN"), options: json));
+            string answer = await activated.Content.ReadAsStringAsync();
+            Assert.True(activated.IsSuccessStatusCode, answer);
+            HostActiveDeployment deployment = JsonSerializer.Deserialize<HostEnvelope<HostActiveDeployment>>(answer, json)!.Data;
+            using HttpResponseMessage status = await client.GetAsync(url + HostProtocol.StatusRoute);
+            HostStatus host = JsonSerializer.Deserialize<HostEnvelope<HostStatus>>(await status.Content.ReadAsStringAsync(), json)!.Data;
+            var cluster = new Quasar.Models.ClusterDefinition
+            {
+                UniqueName = "demo",
+                Gateway = deployment.Gateway,
+                ActiveDeployment = new("revision-1", [new("host", url, tokenVariable, deployment)], DateTimeOffset.UnixEpoch),
+            };
+            Assert.True(Quasar.Services.ClusterCommandService.CanStartFromHostState(cluster, host));
+        }
+        finally
+        {
+            shutdown.Cancel();
+            Environment.SetEnvironmentVariable(tokenVariable, null);
+        }
+    }
+
     // A respawn between Quasar's status read and its write must not leave a live Gateway under goal Off.
     [Fact]
     public async Task HostRefusesAnOffThatCannotStopTheLiveGatewayBeforePersistingIt()
