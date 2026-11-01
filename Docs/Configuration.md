@@ -1118,6 +1118,9 @@ companions remain deployable; their UI assemblies are not loaded.
   operation store are ready, returning only `status` with HTTP 200 or 503.
 - `GET /api/discovery` contains worker identity used by the local Bootstrap
   stale-process guard and is restricted by the machine endpoint policy.
+- `GET /api/version` returns only the running worker's `version` for the update
+  overlay. It requires dashboard read access when authentication is enabled and
+  is never cached; public health probes remain status-only.
 - `GET /` returns a small JSON discovery document instead of the UI.
 
 Authentication and authorization remain enabled exactly as configured; headless

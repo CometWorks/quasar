@@ -130,6 +130,9 @@ loopback-only effective listeners; Quasar refuses startup if `Quasar:Host`,
 `QUASAR_WEB_HOST`, or any `ASPNETCORE_URLS` binding exposes an auth-off worker.
 `/api/discovery` is part of the machine endpoint policy because only local
 Bootstrap worker-identity checks consume its process metadata.
+Public health and readiness responses contain only status. The browser update
+overlay reads the selected worker version through `/api/version`, which requires
+dashboard read access when authentication is enabled and sends `Cache-Control: no-store`.
 
 Provisioned Host command listeners remain `http://127.0.0.1:<command-port>`.
 Quasar sends commands through the Host's outbound authenticated WSS connection to

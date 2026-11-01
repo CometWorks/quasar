@@ -411,7 +411,9 @@ window.quasarConfigs = window.quasarConfigs || {
     },
     // Used when the Quasar worker is being restarted: the Blazor circuit drops, so we
     // poll the (anonymous) health endpoint from the browser and navigate to the target
-    // page once the new worker answers. Falls back to a plain reload after a timeout.
+    // page once the new worker answers. Updates also check the protected version
+    // endpoint; public health responses contain only status. Falls back to a plain
+    // reload after a timeout.
     reloadWhenHealthy(targetUrl, options) {
         const url = targetUrl || "/";
         const opts = options || {};
@@ -554,6 +556,24 @@ window.quasarConfigs = window.quasarConfigs || {
                         } catch {
                             payload = null;
                         }
+
+                        // Older releases include version in health. Keep accepting that
+                        // during rollback; current releases expose it only to dashboard users.
+                        if (!(payload?.version ?? payload?.Version)) {
+                            const versionResponse = await fetch(new URL("api/version", document.baseURI), {
+                                cache: "no-store",
+                                redirect: "error"
+                            });
+                            if (!versionResponse.ok) {
+                                scheduleNext();
+                                return;
+                            }
+                            payload = await versionResponse.json();
+                        }
+                    }
+
+                    if (!isCurrentSession()) {
+                        return;
                     }
 
                     if (observedUnhealthy && isExpectedVersion(payload)) {
