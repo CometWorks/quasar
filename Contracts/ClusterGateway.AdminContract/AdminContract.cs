@@ -22,6 +22,11 @@ public static class AdminProtocol
         "GET /admin/v1/nodes",
         "GET /admin/v1/world-authority",
         "GET /admin/v1/partitions",
+        "GET /admin/v1/offline/partitions",
+        "GET /admin/v1/offline/details",
+        "GET /admin/v1/offline/cache",
+        "GET /admin/v1/offline/prediction",
+        "POST /admin/v1/offline/cache/clear",
         "GET /admin/v1/snapshots",
         "GET /admin/v1/events",
         "GET /admin/v1/operations",
@@ -48,10 +53,19 @@ public static class AdminProtocol
         "DELETE /admin/v1/admission/bans/{userId}",
         "POST /admin/v1/chat",
         "GET /admin/v1/chat/history",
+        "GET /admin/v1/ship-storage/takes",
+        "POST /admin/v1/ship-storage/takes/{id}/settle",
         "POST /admin/v1/world-exports",
+        "POST /admin/v1/registry-backups",
         "GET /admin/v1/artifacts",
         "GET /admin/v1/artifacts/{id}",
         "DELETE /admin/v1/artifacts/{id}",
+        "GET /admin/v1/node-control",
+        "PUT /admin/v1/node-control/hosts/{host}",
+        "POST /admin/v1/node-control/remove",
+        "POST /admin/v1/node-control/recycle",
+        "GET /admin/v1/node-control/history",
+        "POST /admin/v1/node-control/hosts-file",
     ];
 }
 
@@ -184,6 +198,19 @@ public sealed record ChatMessage(long Seq, DateTimeOffset At, ulong Author, byte
 /// </summary>
 public sealed record ChatHistory(ChatMessage[] Messages, long NextCursor, long WorldAuthorityEpoch);
 
+/// <summary>
+/// #1316: a ship storage take the World Authority holds. A <c>Stranded</c> take (blueprint fetched, held 10 min) is
+/// one its node never settled: look for a grid named <c>Name</c> of <c>Owner</c> near <c>Position</c> before settling it.
+/// </summary>
+public sealed record ShipStorageTake(Guid Id, long Owner, string? Name, double[] Position, string TakenBy, Guid Take,
+    DateTime Taken, bool Fetched, bool Stranded);
+
+public sealed record ShipStorageTakes(ShipStorageTake[] Takes, long WorldAuthorityEpoch);
+
+/// <summary>#1316: settle a stranded take. <c>Action</c> "release" lists the ship again (no grid in the world),
+/// "consume" drops it (the grid exists). <c>Take</c> must be the take the list showed.</summary>
+public sealed record ShipStorageSettleRequest(Guid Take, string Action);
+
 /// <summary>Honest export labels: Quiescent only from a clean shutdown with nothing dirty;
 /// an online cut is CutConsistent only when the cluster can prove it, else CrashConsistent.</summary>
 public enum ExportConsistency { Quiescent, CutConsistent, CrashConsistent }
@@ -209,6 +236,10 @@ public sealed record ArtifactDescriptor(
     string[] Warnings);
 
 public sealed record WorldExportRequest(double? TtlHours = null);
+
+/// <summary>A consistent copy of the registry database, published as an artifact for an online cluster backup.
+/// It holds every registry commit up to the copy, the state a crash at that moment would leave.</summary>
+public sealed record RegistryBackupRequest(double? TtlHours = null);
 
 public sealed record ArtifactPage(ArtifactDescriptor[] Artifacts);
 
@@ -278,7 +309,11 @@ public sealed record PartitionSummary(
     DateTimeOffset LeaseExpires,
     bool Recovering,
     bool Quarantined,
-    bool Retired);
+    bool Retired,
+    bool Offline = false,
+    long? OfflineGameFrame = null,
+    OfflineGroupSummary[]? ProfileGroups = null,
+    ulong[]? RemoteUsers = null);
 
 public enum AdminSnapshotKind { CleanShutdown, Online, Conversion }
 
@@ -352,3 +387,103 @@ public enum NodeObservation { Missing, Spawning, Ready, Failed, Gone }
 public enum IncumbentAction { None, Draining, Kill }
 public enum RecoveryReadinessState { Ready, AtRisk, NotReconstructible }
 public enum RecoveryConsistency { Quiescent, CutConsistent }
+
+// ---------------------------------------------------------------- node control v1 (T-0320, additive, contract 0.5.0)
+
+/// <summary>What an operator sees of a node. Internal registry states (Active/Closed/Empty/Dead) are not exposed.</summary>
+public enum OperatorNodeState { Starting, Serving, Spare, Draining, Stopping, Failed }
+
+/// <summary>
+/// GET /admin/v1/node-control: per-host targets (runtime, last hosts file, actual), every live node with its
+/// operator state and host position (<c>host#position</c>, oldest process first), and the processes that are not
+/// counted (World Authority, Gateway). <c>DiffersFromFile</c>: a runtime change is in force that the next start
+/// (which applies the hosts file) will undo. <c>Active</c>: node control drives the node set (false before the first
+/// hosts-file apply or target). <c>Managed</c>: a managed deployment, read-only.
+/// </summary>
+public sealed record NodeControlView(
+    long Revision,
+    bool DiffersFromFile,
+    HostsFileInfo HostsFile,
+    HostView[] Hosts,
+    OperatorNode[] Nodes,
+    NotCountedNode[] NotCounted,
+    bool Active = false,
+    bool Managed = false);
+
+public sealed record HostsFileInfo(string? Sha256, DateTimeOffset? AppliedAt);
+
+/// <summary>A count: the runtime target, the hosts file's value (null: not in the file) and how many are in that state now.</summary>
+public sealed record TargetCount(int Target, int? File, int Actual);
+
+public sealed record HostView(
+    string Host,
+    TargetCount Serving,
+    TargetCount Spares,
+    long? RamFloorMb,
+    long? DiskFloorMb,
+    string[] Warnings);
+
+public sealed record OperatorNode(
+    string Node,
+    string Host,
+    int Position,
+    int? Pid,
+    DateTimeOffset? StartedAt,
+    DateTimeOffset? ServingSince,
+    double? AgeSeconds,
+    OperatorNodeState State,
+    int Partitions,
+    int Clients,
+    OperatorNodeStop? Stop,
+    string? Replaces,
+    string? ReplacedBy);
+
+/// <summary>A stop request: kind remove|recycle|decrease|failed, who (admin actor + free-text requestedBy), why, and
+/// when the graceful drain is forced (<c>Deadline</c>; it moves out while partitions recover).</summary>
+public sealed record OperatorNodeStop(
+    string Kind,
+    string Actor,
+    string Why,
+    DateTimeOffset Deadline,
+    bool Forced,
+    string? RequestedBy = null,
+    DateTimeOffset? RequestedAt = null,
+    DateTimeOffset? ForcedAt = null,
+    bool Now = false,
+    string? Detail = null);
+
+public sealed record NotCountedNode(string Node, string Role, string? Host, int? Pid, DateTimeOffset? StartedAt = null, double? AgeSeconds = null);
+
+/// <summary>PUT /admin/v1/node-control/hosts/{host}: runtime targets (null keeps the current value). Lasts until the next start.</summary>
+public sealed record HostTargetsUpdate(int? Serving = null, int? Spares = null, string? Reason = null, string? RequestedBy = null);
+
+/// <summary>POST /admin/v1/node-control/remove|recycle. <c>Selector</c>: <c>node-9</c>, <c>12345@polaris</c> or
+/// <c>polaris#2</c>. <c>TimeoutSeconds</c> null = the server default (300, CLUSTER_DRAIN_TIMEOUT_SECONDS);
+/// <c>Now</c> forces at once. Remove lowers the host's target by one; recycle keeps it (a spare or a new node replaces it).</summary>
+public sealed record NodeStopRequest(string Selector, bool Now = false, double? TimeoutSeconds = null, string? Reason = null, string? RequestedBy = null);
+
+public sealed record NodeHistoryEntry(
+    long Seq,
+    string Node,
+    string Host,
+    int? Pid,
+    DateTimeOffset StartedAt,
+    DateTimeOffset EndedAt,
+    double AgeSeconds,
+    string Outcome,
+    string Actor,
+    string? RequestedBy,
+    string Why,
+    bool Forced,
+    string? ReplacedBy,
+    int PartitionsAtStop);
+
+/// <summary>GET /admin/v1/node-control/history?limit&amp;cursor&amp;host, newest first; pass <c>NextCursor</c> as <c>cursor</c> for the next page.</summary>
+public sealed record NodeHistoryPage(NodeHistoryEntry[] Records, long? NextCursor);
+
+public sealed record HostTargetSpec(int Serving, int Spares, long? RamFloorMb = null, long? DiskFloorMb = null);
+
+/// <summary>POST /admin/v1/node-control/hosts-file: the launcher's start applies the hosts file. Every live node goes
+/// to the history and the file's nodes are planned under new ids (fresh ids every start; <c>Resume</c> is accepted
+/// and ignored).</summary>
+public sealed record HostsFileApply(IReadOnlyDictionary<string, HostTargetSpec> Hosts, string? Sha256 = null, bool Resume = false);

@@ -41,6 +41,7 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | `CanShutdownQuasar` | admin | Power button in the top bar (**Restart Quasar**, **Shutdown Quasar**) |
 | `ClusterQuery` | viewer, editor, admin, or scope `cluster.query`/`cluster.manage` | Viewing clusters and the cluster query API |
 | `ClusterManage` | editor, admin, or scope `cluster.manage` | Changing clusters |
+| `ClusterMaintenance` | authenticated admin | Offline profiling, deliberate compensation prediction and per-key production-rate cache clear |
 
 With authentication on, every UI page requires at least `viewer`.
 
@@ -111,6 +112,8 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | `AllowSameSubnet` | `true` | Trust RFC 1918 private IPv4 ranges, IPv6 ULA (`fc00::/7`), and IPv4 clients on an active local interface subnet |
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
+
+An explicit role list replaces the default. Set `Roles` to `["viewer"]` for read-only trusted access, then restart Quasar. The default `admin` role is not retained.
 
 Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Trust private LAN access** to opt out; an explicit `AllowSameSubnet: false` disables LAN bypass. Browser push still requires HTTPS or localhost.
 

@@ -1065,6 +1065,8 @@ Default policy grants are:
 Trusted-network access uses the roles configured under
 `Quasar:Auth:TrustedNetworkBypass:Roles`; it defaults to `admin`. Treat every
 trusted address as a full operator unless that role list is reduced explicitly.
+An explicit list replaces the default role: `["viewer"]` grants read-only access
+without retaining `admin`. Restart Quasar after changing this list.
 
 ### Development port
 

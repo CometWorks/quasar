@@ -336,6 +336,10 @@ supervisor.
 
 ## Cluster release consumer checks
 
+Offline partition/admin UI checks use fixture Gateway responses, bUnit and in-memory
+TestServer, without launching the Quasar worker or any cluster process. See
+[offline compensation checks and units](ClusterOfflineCompensation.md).
+
 `dotnet test Quasar.Tests/Quasar.Tests.csproj` covers cluster package staging with
 small generated archives and fixture HTTP responses. Package staging tests are Linux
 only. To run the positive staging/tamper check against a downloaded release archive:

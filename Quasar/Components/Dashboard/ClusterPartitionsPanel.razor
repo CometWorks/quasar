@@ -1,0 +1,303 @@
+@implements IDisposable
+@using System.Globalization
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject ClusterGatewayClient Gateway
+@inject ClusterCommandService Commands
+@inject ClusterOperationStore Operations
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+
+<section class="quasar-panel quasar-card-content quasar-stack" aria-label="Partitions and offline compensation">
+    <div class="quasar-row quasar-between quasar-wrap-wrap">
+        <h2 class="quasar-text quasar-type-h6">Partitions</h2>
+        <button type="button" class="quasar-button" @onclick="RefreshAsync" disabled="@_mutating">Refresh partitions</button>
+    </div>
+    <p>Review partition placement, offline production and power costs. Browsing, refreshing and predictions do not wake partitions.</p>
+    @if (_loading) { <QuasarOperationLoader Title="Reading partitions" Message="Reading partition placement and offline accounting from the Cluster Registry." /> }
+    @if (_error is not null) { <p class="quasar-notice quasar-notice-warning" role="status">@_error</p> }
+    @if (_offlineError is not null) { <p class="quasar-notice quasar-notice-warning" role="status">@_offlineError</p> }
+    @if (_supported == false)
+    {
+        <p role="status">Offline compensation administration is unsupported by this cluster package. Live Registry rows remain available; offline catalog, profile details and maintenance actions are unavailable.</p>
+    }
+    @if (_partitions is { Length: 0 }) { <p>No partition rows reported.</p> }
+    @if (_partitions is not null)
+    {
+        <div class="quasar-table-scroll" tabindex="0" role="region" aria-label="Partition placement; scroll horizontally for more columns"><table class="quasar-server-table">
+            <caption>Registry partition placement and remote presence</caption>
+            <thead><tr><th scope="col">Partition</th><th scope="col">State</th><th scope="col">Owner / exact Final holders</th><th scope="col">Profile readiness / confidence</th><th scope="col">Remote-use presence</th><th scope="col">Details</th></tr></thead>
+            <tbody>
+            @foreach (var row in _partitions.Where(p => !p.Retired))
+            {
+                var offline = Offline(row.Partition);
+                <tr @key="row.Partition">
+                    <th scope="row">@row.Partition</th>
+                    <td>@(row.Offline ? "Offline" : row.Quarantined ? "Quarantined" : row.Recovering ? "Recovering" : row.Node is null ? "Unowned" : "Online")</td>
+                    <td>@(offline is not null ? string.Join(", ", offline.Holders) : row.Node ?? "No owner")</td>
+                    <td>
+                        @if ((offline?.Groups ?? row.ProfileGroups) is { Length: > 0 } groups)
+                        {
+                            @foreach (var group in groups)
+                            {
+                                <p>Group @group.Group: @(group.State ?? "Captured") · @(group.Confidence ?? "Confidence unavailable")</p>
+                                @foreach (string reason in group.Unknowns) { <p class="quasar-muted">Unknown: @reason</p> }
+                            }
+                        }
+                        else { <span>Unavailable / not yet profiled</span> }
+                    </td>
+                    <td>@(row.RemoteUsers is null ? "Unavailable" : row.RemoteUsers.Length == 0 ? "No remote users reported" : string.Join(", ", row.RemoteUsers))</td>
+                    <td><button type="button" class="quasar-button" disabled="@(_supported != true || _mutating)" @onclick="@(() => SelectAsync(row))" aria-label="@($"Inspect partition {row.Partition}")">Inspect</button></td>
+                </tr>
+            }
+            </tbody>
+        </table></div>
+    }
+    <p class="quasar-muted">Remote users pin ordinary offline and clientless movement. A remote-use conflict means another node is using the partition remotely; retry after that use ends. It does not grant permission to force a move.</p>
+    @if (_selected is { } selected)
+    {
+        <section class="quasar-stack" aria-label="Selected partition">
+            <h3>Partition @selected.Partition</h3>
+            @if (Offline(selected.Partition) is { } offline)
+            {
+                <p>Exact Final @offline.SaveId · offline since @offline.OfflineAt.ToString("u") · @(offline.OfflineGameFrame is { } frame ? $"authority clock {frame} (16 ms units)" : "offline game clock unavailable")</p>
+                @if (offline.LoadReason is not null) { <p>Load request: @offline.LoadReason · @(offline.LoadRequestedNode ?? "no destination")</p> }
+                <label class="quasar-field"><span>Exact Final holder</span><select value="@_node" @onchange="HolderChangedAsync" disabled="@_mutating">
+                    @foreach (string holder in offline.Holders) { <option value="@holder">@holder</option> }
+                </select></label>
+                @if (offline.Holders.Length == 0) { <p role="status">No live exact Final holder is available. Refresh after a holder reconnects.</p> }
+            }
+            else { <p>Current owner: @(selected.Node ?? "unavailable")</p> }
+            @if (_detailsLoading) { <QuasarOperationLoader Title="Reading partition profile" Message="Reading the selected owner's or saved snapshot holder's accounting data." /> }
+            @if (_predicting) { <QuasarOperationLoader Title="Calculating compensation prediction" Message="Estimating production and shared power costs from the saved offline snapshot. The partition stays offline." /> }
+            @if (_details is { } details)
+            {
+                @if (details.Groups.Length == 0) { <p>No captured groups. The Final may predate compensation, or profiling has not completed.</p> }
+                @foreach (var group in details.Groups)
+                {
+                    <p>Group @group.Group: @(group.State ?? "Captured") · @(group.Confidence ?? "Confidence unavailable") · @group.Members.Length member grids</p>
+                    @foreach (string reason in group.Unknowns) { <p class="quasar-notice quasar-notice-warning">Unknown: @reason</p> }
+                }
+                <ClusterOfflineResults Results="details.Results" />
+            }
+            <AuthorizeView Policy="@QuasarPolicyNames.ClusterMaintenance">
+                <Authorized>
+                    <div class="quasar-row">
+                        <button type="button" class="quasar-button" disabled="@(!CanRun("POST /admin/v1/triggers/{task}") || selected.Offline || string.IsNullOrWhiteSpace(_node))" @onclick="ProfileAsync">Profile</button>
+                        <label class="quasar-field"><span>Prediction interval (game hours, 0–168)</span><input type="number" min="0" max="168" step="any" @bind="_hours" disabled="@_mutating" /></label>
+                        <button type="button" class="quasar-button quasar-tone-primary" disabled="@(!CanPredict || _mutating || _predicting || !selected.Offline || string.IsNullOrWhiteSpace(_node) || !ValidHours(out _))" @onclick="PredictAsync">Dry run (prediction only)</button>
+                    </div>
+                    <p class="quasar-muted">Profile needs the current online owner. Dry run needs a live exact Final holder. Neither action requests a wake.</p>
+                </Authorized>
+                <NotAuthorized><p>Administrator role required for Profile, Dry run and cache clear.</p></NotAuthorized>
+            </AuthorizeView>
+            @if (_prediction is { } prediction)
+            {
+                <p>Prediction for Final @prediction.SaveId · @prediction.Hours.ToString("0.######", CultureInfo.InvariantCulture) game hours · holder @prediction.Node</p>
+                <ClusterOfflineResults Results="prediction.Results" Prediction="true" />
+            }
+        </section>
+    }
+    @if (_operation is { } operation)
+    {
+        <p role="status">@operation.Kind: @operation.State. @operation.Error?.Code @operation.Error?.Message</p>
+        @if (operation.State == ClusterOperationState.Running) { <p>Refresh to check the recorded operation before submitting another maintenance action.</p> }
+    }
+    <details class="quasar-details"><summary>Shared production rate cache</summary>
+        @if (_cache is null) { <p>Rate cache unavailable.</p> }
+        else
+        {
+            <p>World Authority @_cache.Node · incarnation epoch @_cache.Epoch. Rates are recipe units per second (60 native frames per second). Spread is relative variation. Scripted entries are not reused as known production rates.</p>
+            @if (_cache.Entries.Length == 0) { <p>No cached rates reported.</p> }
+            <div class="quasar-table-scroll" tabindex="0" role="region" aria-label="Shared rate cache; scroll horizontally for more columns"><table class="quasar-server-table">
+                <thead><tr><th scope="col">Rate key</th><th scope="col">Formula (units/s)</th><th scope="col">Measured (units/s)</th><th scope="col">Samples</th><th scope="col">Spread (%)</th><th scope="col">Scripted</th><th scope="col">Key epoch</th><th scope="col">Action</th></tr></thead>
+                <tbody>
+                @foreach (var entry in _cache.Entries)
+                {
+                    <tr @key="entry.Key"><th scope="row">@entry.Key</th><td>@Number(entry.Formula * 60)</td><td>@Number(entry.Rate * 60)</td><td>@entry.Samples</td><td>@Number(entry.Spread * 100)</td><td>@(entry.Scripted ? "Yes" : "No")</td><td>@entry.Epoch</td><td>
+                        <AuthorizeView Policy="@QuasarPolicyNames.ClusterMaintenance" Context="cacheAuthorization"><Authorized>
+                            <button type="button" class="quasar-button" disabled="@(!CanRun("POST /admin/v1/offline/cache/clear"))" @onclick="@(() => ClearAsync(entry))" aria-label="@($"Clear rate key {entry.Key} at epoch {entry.Epoch}")">Clear this key</button>
+                        </Authorized></AuthorizeView>
+                    </td></tr>
+                }
+                </tbody>
+            </table></div>
+        }
+    </details>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
+    private string? _clusterKey, _error, _offlineError;
+    private CancellationTokenSource? _read;
+    private CancellationTokenSource? _selectionRead;
+    private bool _disposed, _loading, _detailsLoading, _mutating, _predicting;
+    private bool? _supported;
+    private Admin.AdminCapabilities? _capabilities;
+    private Admin.PartitionSummary[]? _partitions;
+    private Admin.OfflinePartitionCatalog? _catalog;
+    private Admin.OfflineCacheView? _cache;
+    private Admin.PartitionSummary? _selected;
+    private Admin.OfflinePartitionDetails? _details;
+    private Admin.OfflinePrediction? _prediction;
+    private ClusterOperation? _operation;
+    private string _node = "", _hours = "1";
+    private bool CanMutate => !_mutating && _supported == true && _capabilities?.Scope == Admin.AdminScope.Manage
+        && _operation?.State != ClusterOperationState.Running;
+    private bool CanRun(string operation) => CanMutate && _capabilities!.Operations.Contains(operation, StringComparer.Ordinal);
+    private bool CanPredict => _supported == true && _capabilities?.Operations.Contains("GET /admin/v1/offline/prediction", StringComparer.Ordinal) == true;
+    private static string Number(double value) => double.IsFinite(value) ? value.ToString("0.######", CultureInfo.InvariantCulture) : "Unavailable";
+    private Admin.OfflinePartitionSummary? Offline(ulong partition) => _catalog?.Partitions.FirstOrDefault(p => p.Partition == partition);
+    private bool ValidHours(out double hours) => double.TryParse(_hours, NumberStyles.Float, CultureInfo.InvariantCulture, out hours)
+        && double.IsFinite(hours) && hours is >= 0 and <= 168;
+    protected override async Task OnParametersSetAsync()
+    {
+        string key = Cluster.UniqueName + "|" + Cluster.GatewayUrl;
+        if (_clusterKey == key) return;
+        _clusterKey = key;
+        _operation = null;
+        await RefreshAsync();
+    }
+    private void CancelSelection()
+    {
+        _selectionRead?.Cancel(); _selectionRead?.Dispose(); _selectionRead = null;
+        _selected = null; _details = null; _prediction = null; _detailsLoading = false; _predicting = false; _node = "";
+    }
+    private async Task RefreshAsync()
+    {
+        _read?.Cancel(); _read?.Dispose();
+        var read = new CancellationTokenSource();
+        _read = read;
+        CancelSelection();
+        _partitions = null; _catalog = null; _cache = null; _capabilities = null; _supported = null;
+        _error = null; _offlineError = null; _loading = true;
+        if (_operation is not null) _operation = Operations.Get(_operation.OperationId);
+        var cluster = Cluster;
+        try
+        {
+            var partitions = await Gateway.GetPartitionsAsync(cluster, read.Token);
+            if (!Current()) return;
+            _partitions = partitions.Data;
+            var capabilities = (await Gateway.GetCapabilitiesAsync(cluster, read.Token)).Data;
+            if (!Current()) return;
+            _capabilities = capabilities;
+            _supported = ClusterGatewayClient.SupportsOffline(_capabilities);
+            if (_supported != true) return;
+            try
+            {
+                var catalog = await Gateway.GetOfflinePartitionsAsync(cluster, read.Token);
+                if (!Current()) return;
+                _catalog = catalog.Data;
+            }
+            catch (ClusterGatewayException e) { if (Current()) _offlineError = e.Code + ": " + e.Message; }
+            try
+            {
+                var cache = await Gateway.GetOfflineCacheAsync(cluster, read.Token);
+                if (Current()) _cache = cache.Data;
+            }
+            catch (ClusterGatewayException e) { if (Current()) _offlineError = e.Code + ": " + e.Message; }
+        }
+        catch (OperationCanceledException) when (read.IsCancellationRequested) { }
+        catch (ClusterGatewayException e) { if (Current()) _error = e.Code + ": " + e.Message; }
+        finally { if (Current()) _loading = false; }
+        bool Current() => !_disposed && ReferenceEquals(_read, read) && !read.IsCancellationRequested;
+    }
+    private Task HolderChangedAsync(ChangeEventArgs args)
+    {
+        _node = args.Value?.ToString() ?? "";
+        return ReadSelectionAsync();
+    }
+    private Task SelectAsync(Admin.PartitionSummary row)
+    {
+        CancelSelection();
+        _selected = row;
+        _node = row.Offline ? Offline(row.Partition)?.Holders.FirstOrDefault() ?? "" : row.Node ?? "";
+        return ReadSelectionAsync();
+    }
+    private async Task ReadSelectionAsync()
+    {
+        _selectionRead?.Cancel(); _selectionRead?.Dispose();
+        var read = new CancellationTokenSource(); _selectionRead = read;
+        var row = _selected; string node = _node; string? save = row is null ? null : Offline(row.Partition)?.SaveId;
+        _details = null; _prediction = null; _predicting = false; _error = null;
+        if (row is null || string.IsNullOrWhiteSpace(node)) return;
+        _detailsLoading = true;
+        try
+        {
+            var details = (await Gateway.GetOfflineDetailsAsync(Cluster, node, row.Partition, read.Token)).Data;
+            if (!CurrentSelection(read)) return;
+            if (details.Partition != row.Partition || details.Node != node || details.Offline != row.Offline || row.Offline && details.SaveId != save)
+                _error = "Partition placement or Final changed. Refresh partitions before continuing.";
+            else _details = details;
+        }
+        catch (OperationCanceledException) when (read.IsCancellationRequested) { }
+        catch (ClusterGatewayException e) { if (CurrentSelection(read)) _error = e.Code + ": " + e.Message; }
+        finally { if (CurrentSelection(read)) _detailsLoading = false; }
+    }
+    private bool CurrentSelection(CancellationTokenSource read) => !_disposed && ReferenceEquals(_selectionRead, read) && !read.IsCancellationRequested;
+    private async Task<bool> AuthorizedAsync()
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterMaintenance)) return false;
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        return user.CanQueryCluster(Cluster.UniqueName);
+    }
+    private async Task ProfileAsync()
+    {
+        if (!CanMutate || !await AuthorizedAsync() || _selected is not { Offline: false } row || string.IsNullOrWhiteSpace(_node)) return;
+        await SubmitAsync(ClusterAdminCommand.Create("trigger", new ClusterMaintenanceScope(_node, row.Partition), "profile"));
+        if (!_disposed && _selected == row) await ReadSelectionAsync();
+    }
+    private async Task PredictAsync()
+    {
+        if (_mutating || _predicting || !CanPredict || !await AuthorizedAsync() || _selected is not { Offline: true } row || !ValidHours(out double hours) || string.IsNullOrWhiteSpace(_node)) return;
+        _selectionRead?.Cancel(); _selectionRead?.Dispose();
+        var read = new CancellationTokenSource(); _selectionRead = read;
+        string node = _node; string? save = Offline(row.Partition)?.SaveId;
+        _detailsLoading = false; _predicting = true;
+        _prediction = null; _error = null;
+        try
+        {
+            var prediction = (await Gateway.GetOfflinePredictionAsync(Cluster, node, row.Partition, hours, read.Token)).Data;
+            if (!CurrentSelection(read)) return;
+            if (prediction.Partition != row.Partition || prediction.Node != node || prediction.SaveId != save)
+                _error = "Offline Final changed. Refresh partitions before predicting again.";
+            else _prediction = prediction;
+        }
+        catch (OperationCanceledException) when (read.IsCancellationRequested) { }
+        catch (ClusterGatewayException e) { if (CurrentSelection(read)) _error = e.Code + ": " + e.Message; }
+        finally { if (CurrentSelection(read)) _predicting = false; }
+    }
+    private async Task ClearAsync(Admin.OfflineRateEntry entry)
+    {
+        if (!CanMutate || !await AuthorizedAsync()) return;
+        var cluster = Cluster; string? clusterKey = _clusterKey;
+        await SubmitAsync(ClusterAdminCommand.Create("offline-cache-clear", new Admin.OfflineCacheClearRequest(entry.Key, entry.Epoch)));
+        if (_disposed || clusterKey != _clusterKey) return;
+        try
+        {
+            var cache = (await Gateway.GetOfflineCacheAsync(cluster, CancellationToken.None)).Data;
+            if (!_disposed && clusterKey == _clusterKey) _cache = cache;
+        }
+        catch (ClusterGatewayException e)
+        { if (!_disposed && clusterKey == _clusterKey) { _cache = null; _error = e.Code + ": " + e.Message; } }
+    }
+    private async Task SubmitAsync(ClusterAdminCommand command)
+    {
+        string cluster = Cluster.UniqueName; string? clusterKey = _clusterKey;
+        _mutating = true; _error = null;
+        try
+        {
+            var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+            var operation = await Commands.SubmitAsync(cluster, command, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui");
+            if (!_disposed && clusterKey == _clusterKey) _operation = operation;
+        }
+        catch (Exception e) when (e is ClusterGatewayException or ClusterOperationConflictException or ClusterOperationStoreUnavailableException)
+        { if (!_disposed && clusterKey == _clusterKey) _error = e.Message; }
+        finally { _mutating = false; }
+    }
+    public void Dispose()
+    {
+        _disposed = true; _read?.Cancel(); _read?.Dispose();
+        CancelSelection();
+    }
+}

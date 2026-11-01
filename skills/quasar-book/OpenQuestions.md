@@ -106,6 +106,8 @@ Pages: [Monitoring](Monitoring.md), [Diagnostics](Diagnostics.md), [Troubleshoot
 
 Pages: [Clusters](Clusters.md), [Cluster setup](ClusterSetup.md), [Cluster hosts](ClusterHosts.md).
 
+- Which published cluster release first advertises `offlinePartitions=v1`? The vendored AdminContract 0.9.0 source pin is a committed upstream draft. Quasar's fixture/render tests do not establish deployed Gateway or interactive browser acceptance. See `Contracts/ClusterGateway.AdminContract/SOURCE.md`, `Docs/ClusterOfflineCompensation.md`.
+
 - Docs/Configuration.md "Host executor attachments" says node execution is gated by `executor_contract_unavailable` and the node actualizer is disabled. That code does not exist; `Quasar.Host/Program.cs` polls the Gateway heartbeat and `NodeActualizer` spawns nodes. The doc section looks stale. (Docs/Configuration.md, Quasar.Host/Program.cs, Quasar.Host/NodeActualizer.cs)
 - Docs/Configuration.md "Cluster plugin configuration status" says profile staging accepts only max-players changes and that the Plugins editor "does not synchronize cluster settings ... planned integration work". Code (`ClusterUpdatePreparationService`, ClusterAdminPanel text, ClusterPluginConfigurationPanel) allows session settings, administrators, mods and plugins and has a cluster plugin editor. Doc looks stale. (Docs/Configuration.md, Quasar/Services/ClusterUpdatePreparationService.cs)
 - Docs/Configuration.md still says "Hosts → Add cluster machine" and "Connect existing Gateway"; the UI says "Add host machine" and "Register existing cluster (advanced)". Same stale label in the error text of `ClusterSteamClientLibrary.ProvisionAsync` ("Hosts → Add cluster machine"). (Docs/Configuration.md, Quasar/Services/ClusterSteamClientLibrary.cs)
