@@ -127,11 +127,12 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 
 ## Players
 
-**Players** (`/players`, heading **Known Players**) lists every player Quasar has seen on a standalone server, with server, Steam ID, client service, faction, role, status and last seen time. Cluster players are managed from the cluster's details page.
+**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. When a cluster is unavailable, its actions are disabled. Cluster access restrictions still apply.
 
 - Filters: **Server**, **Type** (All, Online, Offline, Banned, Kick cooldown) and **Search players**.
-- The row menu (needs `CanControlServers` and a connected agent): **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown**, **Ban** or **Unban**. A row of a server without a connected agent shows "agent offline" and has no actions.
-- **Clean Server** and **Clean All** delete saved known players. Players still online are recorded again on the next snapshot.
+- The standalone row menu (needs `CanControlServers` and a connected agent): **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown**, **Ban** or **Unban**. A row of a server without a connected agent shows "agent offline" and has no actions.
+- The cluster row menu needs `ClusterManage`, a reachable Gateway with management scope and support for the action: **Kick** (online only), **Ban** or **Unban**, including saved offline players. These commands go through the Gateway and apply to the whole cluster. Cluster rows show admission state and node/partition routing when online; role edits and individual-node kick cooldown controls do not apply. The Registry does not supply every standalone metadata field.
+- **Clean Server** and **Clean All** delete saved known players from accessible servers, including cluster history when cluster management is allowed. Players still online are recorded again on the next observation.
 - **Auto clear after** removes players not seen for that many days (default 30, range 1 to 3650). Click **Save** next to it (needs `CanControlServers`).
 
 Quasar stores the list in `<data dir>/known-players.json` and the auto-clear setting in `known-player-settings.json`.
@@ -400,6 +401,10 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/AgentRegistry.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/KnownPlayerCatalog.cs`
+- `Quasar/Services/ClusterPlayerService.cs`
+- `Quasar/Services/ClusterCatalog.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Models/KnownPlayerRecord.cs`
 - `Quasar/Services/BrandingPresets.cs`
 - `Quasar/Services/Updates/NotificationPreferences.cs`
 - `Quasar/Services/Updates/PushNotificationService.cs`

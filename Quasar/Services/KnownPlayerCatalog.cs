@@ -149,20 +149,19 @@ public sealed class KnownPlayerCatalog
         return removed;
     }
 
-    public async Task<int> CleanAllAsync(CancellationToken cancellationToken = default)
+    public async Task<int> CleanAllAsync(CancellationToken cancellationToken = default, IReadOnlySet<string>? playerKeys = null)
     {
         int removed;
         lock (_sync)
         {
-            removed = _players.Count;
-            _players.Clear();
+            removed = RemovePlayers(player => playerKeys is null || playerKeys.Contains(player.PlayerKey));
         }
 
         await SavePlayersIfChangedAsync(removed, cancellationToken);
         return removed;
     }
 
-    public async Task<int> CleanServerAsync(string uniqueName, CancellationToken cancellationToken = default)
+    public async Task<int> CleanServerAsync(string uniqueName, CancellationToken cancellationToken = default, bool isCluster = false)
     {
         var normalized = NormalizeUniqueName(uniqueName);
         if (string.IsNullOrWhiteSpace(normalized))
@@ -171,11 +170,56 @@ public sealed class KnownPlayerCatalog
         int removed;
         lock (_sync)
         {
-            removed = RemovePlayers(player => BelongsToServer(player, normalized));
+            removed = RemovePlayers(player => player.IsCluster == isCluster && BelongsToServer(player, normalized));
         }
 
         await SavePlayersIfChangedAsync(removed, cancellationToken);
         return removed;
+    }
+
+    public void ObserveClusterPlayers(ClusterDefinition cluster,
+        CometWorks.ClusterGateway.AdminContract.V1.ClientSummary[] clients, ulong[] banned, DateTimeOffset observedAt)
+    {
+        var changed = false;
+        var bans = banned.ToHashSet();
+        lock (_sync)
+        {
+            changed |= RemoveExpiredPlayers(DateTimeOffset.UtcNow) > 0;
+            foreach (var client in clients.DistinctBy(client => client.ClientId))
+            {
+                if (client.ClientId is 0 or > long.MaxValue) continue;
+                long steamId = (long)client.ClientId;
+                string key = $"cluster::{BuildPlayerKey(cluster.UniqueName, steamId)}";
+                if (!_players.TryGetValue(key, out var record))
+                {
+                    record = new KnownPlayerRecord
+                    {
+                        PlayerKey = key, UniqueName = cluster.UniqueName, IsCluster = true,
+                        SteamId = steamId, FirstSeenUtc = observedAt,
+                    };
+                    _players[key] = record;
+                    changed = true;
+                }
+                changed |= Assign(record.ServerName, cluster.DisplayName, value => record.ServerName = value);
+                if (!string.IsNullOrWhiteSpace(client.PlayerName))
+                    changed |= Assign(record.DisplayName, TextSanitizer.CleanGameText(client.PlayerName), value => record.DisplayName = value);
+                if (client.IdentityId is { } identity)
+                    changed |= Assign(record.IdentityId, identity, value => record.IdentityId = value);
+                if (client.IsAdmin is { } admin)
+                    changed |= Assign(record.IsAdmin, admin, value => record.IsAdmin = value);
+                if (ShouldAdvanceLastSeen(record.LastSeenUtc, observedAt))
+                {
+                    record.LastSeenUtc = observedAt;
+                    record.LastOnlineUtc = observedAt;
+                    changed = true;
+                }
+            }
+            foreach (var record in _players.Values.Where(player => player.IsCluster && BelongsToServer(player, cluster.UniqueName)))
+                changed |= Assign(record.IsBanned, bans.Contains((ulong)record.SteamId), value => record.IsBanned = value);
+        }
+        if (!changed) return;
+        ScheduleSave();
+        Changed?.Invoke();
     }
 
     public void ObserveSnapshot(AgentSnapshot snapshot)
@@ -421,7 +465,7 @@ public sealed class KnownPlayerCatalog
 
         var uniqueName = NormalizeUniqueName(snapshot.UniqueName);
         var removedKeys = _players
-            .Where(pair => BelongsToServer(pair.Value, uniqueName) &&
+            .Where(pair => !pair.Value.IsCluster && BelongsToServer(pair.Value, uniqueName) &&
                            (hiddenSteamIds.Contains(pair.Value.SteamId) ||
                             hiddenIdentityIds.Contains(pair.Value.IdentityId)))
             .Select(pair => pair.Key)
@@ -569,6 +613,7 @@ public sealed class KnownPlayerCatalog
         {
             PlayerKey = player.PlayerKey,
             UniqueName = player.UniqueName,
+            IsCluster = player.IsCluster,
             ServerId = player.ServerId,
             ServerName = player.ServerName,
             WorldName = player.WorldName,

@@ -274,6 +274,8 @@ public class Program
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ExistingServerImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
+            builder.Services.AddSingleton<ClusterPlayerService>();
+            builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterPlayerService>());
             builder.Services.AddSingleton<ClusterPackageService>();
             builder.Services.AddSingleton<ClusterReleaseMonitor>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterReleaseMonitor>());

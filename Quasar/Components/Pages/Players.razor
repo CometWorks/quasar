@@ -5,6 +5,12 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject KnownPlayerCatalog KnownPlayers
+@inject ClusterCatalog Clusters
+@inject ClusterPlayerService ClusterPlayers
+@inject ClusterCommandService ClusterCommands
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 
@@ -13,7 +19,7 @@
 <div>
     <QuasarPageHeading Section="Operations">
     <Title>Known Players</Title>
-    <Description>Known players observed per standalone server, with client service and Steam/member id retained for moderation. Manage cluster players from <a href="servers">cluster details</a>.</Description>
+    <Description>Known and historical players across servers and clusters. Each cluster appears as one server, regardless of which node hosts a player.</Description>
 </QuasarPageHeading>
 </div>
 
@@ -144,6 +150,10 @@
                     <MudTd DataLabel="Server">
                         <p class="quasar-text quasar-type-body2">@context.ServerDisplayName</p>
                         <span class="quasar-text quasar-type-caption">@context.Record.UniqueName</span>
+                        @if (context.ClusterClient is { } client)
+                        {
+                            <span class="quasar-text quasar-type-caption">@client.AdmissionState · @client.Node / @client.Partition</span>
+                        }
                     </MudTd>
                     <MudTd DataLabel="Steam ID">
                         <p class="quasar-text quasar-type-body2 mono">@context.Record.SteamId</p>
@@ -166,14 +176,30 @@
                             {
                                 <MudChip T="string" Size="Size.Small" Color="Color.Warning">kicked (@(context.KickCooldownRemainingSeconds)s)</MudChip>
                             }
-                            @if (!context.CanModerate)
+                            @if (!context.ConnectionAvailable)
                             {
-                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">agent offline</MudChip>
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@(context.Record.IsCluster ? "cluster unavailable" : "agent offline")</MudChip>
                             }
                         </div>
                     </MudTd>
                     <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
                     <MudTd DataLabel="" Class="quasar-actions-column">
+                        @if (context.Record.IsCluster)
+                        {
+                            <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="clusterPermissionContext">
+                                <MudTooltip Text="Cluster player actions">
+                                    <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert" Disabled="@(!context.CanModerate)"
+                                             OpenChanged="@(open => _menuOpen = open)" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                        <MudMenuItem Disabled="@(!context.IsOnline || !context.CanRunClusterAction("kick"))"
+                                                     OnClick="@(() => SendClusterPlayerCommandAsync(context, "kick"))">Kick</MudMenuItem>
+                                        <MudMenuItem Disabled="@(!context.CanRunClusterAction(context.Record.IsBanned ? "unban" : "ban"))"
+                                                     OnClick="@(() => SendClusterPlayerCommandAsync(context, context.Record.IsBanned ? "unban" : "ban"))">@(context.Record.IsBanned ? "Unban" : "Ban")</MudMenuItem>
+                                    </MudMenu>
+                                </MudTooltip>
+                            </AuthorizeView>
+                        }
+                        else
+                        {
                         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
                         <MudTooltip Text="Player actions">
                             <MudMenu Dense="true"
@@ -205,6 +231,7 @@
                             </MudMenu>
                         </MudTooltip>
                         </AuthorizeView>
+                        }
                     </MudTd>
                 </RowTemplate>
             </MudTable>
@@ -259,13 +286,21 @@
 
             private bool _retentionDaysDirty => _retentionDays != _savedRetentionDays;
 
-            protected override void OnInitialized()
+            private System.Security.Claims.ClaimsPrincipal _user = new();
+            private bool _canQueryClusters;
+
+            protected override async Task OnInitializedAsync()
             {
+                _user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+                _canQueryClusters = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterQuery);
                 _savedRetentionDays = KnownPlayers.RetentionDays;
                 _retentionDays = _savedRetentionDays;
                 Registry.Changed += HandleChanged;
                 ServerCatalog.Changed += HandleChanged;
                 KnownPlayers.Changed += HandleChanged;
+                Clusters.Changed += HandleChanged;
+                ClusterPlayers.Changed += HandleChanged;
+                AuthenticationState.AuthenticationStateChanged += AuthenticationChanged;
             }
 
             public void Dispose()
@@ -273,7 +308,18 @@
                 Registry.Changed -= HandleChanged;
                 ServerCatalog.Changed -= HandleChanged;
                 KnownPlayers.Changed -= HandleChanged;
+                Clusters.Changed -= HandleChanged;
+                ClusterPlayers.Changed -= HandleChanged;
+                AuthenticationState.AuthenticationStateChanged -= AuthenticationChanged;
             }
+
+            private void AuthenticationChanged(Task<AuthenticationState> state) => _ = InvokeAsync(async () =>
+            {
+                _user = (await state).User;
+                _canQueryClusters = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterQuery);
+                _menuOpen = false;
+                StateHasChanged();
+            });
 
             // Skip live-update renders while a menu is open so the popup is not torn down underneath it.
             protected override bool ShouldRender() => !_menuOpen;
@@ -316,7 +362,9 @@
                     }))
                     .ToDictionary(item => item.PlayerKey, item => item.ExpiresUtc, StringComparer.OrdinalIgnoreCase);
 
+                var clusters = Clusters.GetClusters().ToDictionary(cluster => cluster.UniqueName, StringComparer.OrdinalIgnoreCase);
                 return KnownPlayers.GetPlayers()
+                    .Where(record => !record.IsCluster || _canQueryClusters && _user.CanQueryCluster(record.UniqueName))
                     .Select(record =>
                     {
                         connectedAgentsByServer.TryGetValue(record.UniqueName, out var agent);
@@ -326,13 +374,19 @@
                             : (DateTimeOffset?)null;
                         configuredServerNames.TryGetValue(record.UniqueName, out var configuredServerName);
 
+                        clusters.TryGetValue(record.UniqueName, out var cluster);
+                        var clusterSnapshot = record.IsCluster && cluster is not null ? ClusterPlayers.GetSnapshot(record.UniqueName) : null;
                         return new KnownPlayerView
                         {
                             Record = record,
-                            Agent = agent,
-                            OnlinePlayer = onlinePlayer,
-                            KickCooldownExpiresUtc = kickCooldownExpiresUtc,
-                            ConfiguredServerName = configuredServerName,
+                            Agent = record.IsCluster ? null : agent,
+                            OnlinePlayer = record.IsCluster ? null : onlinePlayer,
+                            Cluster = record.IsCluster ? cluster : null,
+                            ClusterSnapshot = clusterSnapshot,
+                            ClusterClient = clusterSnapshot?.Available == true
+                                ? clusterSnapshot.Clients.FirstOrDefault(client => client.ClientId == (ulong)record.SteamId) : null,
+                            KickCooldownExpiresUtc = record.IsCluster ? null : kickCooldownExpiresUtc,
+                            ConfiguredServerName = record.IsCluster ? cluster?.DisplayName : configuredServerName,
                         };
                     })
                     .OrderByDescending(view => view.IsOnline)
@@ -356,9 +410,12 @@
                         : server.DisplayName.Trim();
                 }
 
+                foreach (var cluster in Clusters.GetClusters().Where(cluster => _canQueryClusters && _user.CanQueryCluster(cluster.UniqueName)))
+                    options["cluster::" + cluster.UniqueName] = cluster.DisplayName;
+
                 foreach (var view in KnownPlayerViews)
                 {
-                    var uniqueName = NormalizeFilterValue(view.Record.UniqueName);
+                    var uniqueName = view.ServerFilterKey;
                     if (string.IsNullOrWhiteSpace(uniqueName) || options.ContainsKey(uniqueName))
                         continue;
 
@@ -383,7 +440,7 @@
                     return true;
 
                 return string.Equals(
-                    NormalizeFilterValue(view.Record.UniqueName),
+                    view.ServerFilterKey,
                     NormalizeFilterValue(_serverFilter),
                     StringComparison.OrdinalIgnoreCase);
             }
@@ -406,7 +463,8 @@
                 if (string.IsNullOrWhiteSpace(search))
                     return true;
 
-                return Contains(view.Record.ServerName, search)
+                return Contains(view.ServerDisplayName, search)
+                       || Contains(view.Record.ServerName, search)
                        || Contains(view.Record.UniqueName, search)
                        || Contains(GetPlayerName(view.Record), search)
                        || Contains(GetPlatformName(view.Record), search)
@@ -454,7 +512,11 @@
                 try
                 {
                     if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-                    var removed = await KnownPlayers.CleanServerAsync(uniqueName);
+                    bool isCluster = uniqueName.StartsWith("cluster::", StringComparison.OrdinalIgnoreCase);
+                    var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+                    if (isCluster && (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+                        || !user.CanQueryCluster(uniqueName[9..]))) return;
+                    var removed = await KnownPlayers.CleanServerAsync(isCluster ? uniqueName[9..] : uniqueName, isCluster: isCluster);
                     Snackbar.Add($"Removed {removed} known players for {serverName}.", Severity.Success);
                 }
                 catch (Exception exception)
@@ -468,7 +530,7 @@
                 if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
                 var confirmed = await DialogService.ShowMessageBoxAsync(
                     "Clean all known players?",
-                    "Remove all saved known players from every server? Live players will be recorded again on the next snapshot.",
+                    "Remove all saved known players from every accessible server? Live players will be recorded again on the next observation.",
                     yesText: "Clean All",
                     cancelText: "Cancel");
                 if (confirmed != true)
@@ -477,7 +539,12 @@
                 try
                 {
                     if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-                    var removed = await KnownPlayers.CleanAllAsync();
+                    _user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+                    _canQueryClusters = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterQuery);
+                    bool manageClusters = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage);
+                    var keys = KnownPlayerViews.Where(view => !view.Record.IsCluster || manageClusters)
+                        .Select(view => view.Record.PlayerKey).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    var removed = await KnownPlayers.CleanAllAsync(playerKeys: keys);
                     Snackbar.Add($"Removed {removed} known players.", Severity.Success);
                 }
                 catch (Exception exception)
@@ -485,6 +552,40 @@
                     Snackbar.Add($"Failed to clean known players: {exception.Message}", Severity.Error);
                 }
             }
+
+            private async Task SendClusterPlayerCommandAsync(KnownPlayerView view, string action)
+            {
+                if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+                var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+                var cluster = Clusters.GetCluster(view.Record.UniqueName);
+                if (cluster is null || !user.CanQueryCluster(cluster.UniqueName)
+                    || !view.CanRunClusterAction(action)) return;
+                var type = action == "kick" ? ServerCommandType.KickPlayer : ServerCommandType.BanPlayer;
+                if (action != "unban" && !await ConfirmPlayerCommandAsync(view, type)) return;
+                try
+                {
+                    if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+                    user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+                    if (!user.CanQueryCluster(cluster.UniqueName)) return;
+                    var snapshot = ClusterPlayers.GetSnapshot(cluster.UniqueName);
+                    if (snapshot?.CanRun(ClusterOperation(action)) != true) return;
+                    if (action == "kick" && !snapshot.Clients.Any(client => client.ClientId == (ulong)view.Record.SteamId)) return;
+                    var operation = await ClusterCommands.SubmitAsync(cluster.UniqueName,
+                        ClusterAdminCommand.Create(action, target: view.Record.SteamId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", CancellationToken.None);
+                    Snackbar.Add(operation.Error?.Message ?? $"Cluster player {action}: {operation.State}.",
+                        operation.State == ClusterOperationState.Failed ? Severity.Error : Severity.Info);
+                }
+                catch (Exception error) { Snackbar.Add(error.Message, Severity.Error); }
+            }
+
+            private static string ClusterOperation(string action) => action switch
+            {
+                "kick" => "POST /admin/v1/clients/{id}/kick",
+                "ban" => "POST /admin/v1/admission/bans",
+                "unban" => "DELETE /admin/v1/admission/bans/{userId}",
+                _ => string.Empty,
+            };
 
             private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
             {
@@ -548,8 +649,10 @@
 
             private void HandleChanged()
             {
-                _ = InvokeAsync(() =>
+                _ = InvokeAsync(async () =>
                 {
+                    _user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+                    _canQueryClusters = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterQuery);
                     var currentRetentionDays = KnownPlayers.RetentionDays;
                     if (!_retentionDaysDirty)
                         _retentionDays = currentRetentionDays;
@@ -651,7 +754,13 @@
                 // the player is not currently on a kick cooldown. Derived from the live snapshot.
                 public DateTimeOffset? KickCooldownExpiresUtc { get; init; }
 
-                public bool IsOnline => OnlinePlayer is not null;
+                public ClusterDefinition? Cluster { get; init; }
+                public ClusterPlayerSnapshot? ClusterSnapshot { get; init; }
+                public Admin.ClientSummary? ClusterClient { get; init; }
+                public bool IsOnline => OnlinePlayer is not null || ClusterClient is not null;
+                public string ServerFilterKey => (Record.IsCluster ? "cluster::" : "") + NormalizeFilterValue(Record.UniqueName);
+                public bool CanRunClusterAction(string action) => Cluster is not null
+                    && ClusterSnapshot?.CanRun(ClusterOperation(action)) == true;
 
                 public bool IsKickCooldownActive => KickCooldownExpiresUtc is { } expires && expires > DateTimeOffset.UtcNow;
 
@@ -659,7 +768,11 @@
                     ? Math.Max(0, (int)Math.Ceiling((expires - DateTimeOffset.UtcNow).TotalSeconds))
                     : 0;
 
-                public bool CanModerate => Agent?.IsConnected == true;
+                public bool ConnectionAvailable => Record.IsCluster ? ClusterSnapshot?.Available == true : Agent?.IsConnected == true;
+
+                public bool CanModerate => Record.IsCluster
+                    ? CanRunClusterAction("kick") || CanRunClusterAction("ban") || CanRunClusterAction("unban")
+                    : Agent?.IsConnected == true;
 
                 public string ServerDisplayName => !string.IsNullOrWhiteSpace(ConfiguredServerName)
                     ? ConfiguredServerName

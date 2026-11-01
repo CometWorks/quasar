@@ -51,37 +51,43 @@ The page groups controls into five views:
 | View | Contents |
 | --- | --- |
 | Overview | Current health, topology, service addresses, expandable runtime details. |
-| Nodes & players | Node operations, player moderation, events and detailed process telemetry. |
+| Nodes | Node operations and detailed process telemetry. |
+| Events | Cluster Registry event history. |
 | Mods & plugins | Content observations, update checks and queues. |
 | Maintenance | Deployed/latest versions, release staging, pending updates, backups, recovery and deployment tools. |
 | Settings | Name, profile, hot spares, shutdown grace period, plugin configuration, advanced controls and cluster removal. |
 
-Start, Stop, Save and the current operation result stay available across views.
+Start, Stop, Save and the current operation result stay visible across views.
+Save world requires a reachable Gateway with management scope and save support;
+it is disabled during another operation or an outage, including on Maintenance.
+Its tooltip explains why it is unavailable. The click handler also checks availability.
+
+Use the top-level **Players** page for live and historical players. Each cluster
+is one server in its filter, with one row per player regardless of node moves.
+Quasar collects Registry clients in the background every five seconds and retains
+history in the existing known-player store. Disconnects and restarts keep that
+history, subject to the Players page's retention and cleanup settings. Cluster
+Kick, Ban and Unban use the Gateway, with cluster management permission. Individual
+node role edits and kick-cooldown controls are not cluster actions.
 Settings retain the existing staging and maintenance workflow: changing a profile
 or hot spare count prepares an update; applying it still requires full downtime.
 Removal remains confirmed through the existing removal dialog. All existing
 query, management and configuration permissions remain enforced.
 
 Views have bookmarkable fragments: `#cluster-overview`, `#cluster-nodes`,
-`#cluster-content`, `#cluster-configuration` (Maintenance) and `#cluster-settings`.
+`#cluster-events`, `#cluster-content`, `#cluster-configuration` (Maintenance) and `#cluster-settings`.
 Existing content notifications and maintenance links select their corresponding
 view. Opened views retain their component state when switching views.
 
-Overview stays available while Quasar checks the Gateway admin connection. The
-other tabs are greyed out until the authenticated Gateway capabilities endpoint
-responds successfully. Availability follows that connection, not the cluster's
-desired On/Off state or node readiness; a reachable Gateway in the Down phase can
-still expose its admin views. A failed check disables the tabs and returns the
-visible view to Overview. Quasar checks again with its five-second status poll.
-When the connection recovers, it restores the requested tab and its existing
-component state, including a tab selected by a bookmarked fragment.
+Overview, Maintenance and Settings remain available while Quasar checks the
+Gateway admin connection or it is unavailable. Host-based recovery, backups and
+local settings remain reachable through their usual tabs. Each action retains its
+permissions, confirmations and safety checks.
 
-For a deployed cluster with desired state Off, **Offline maintenance and recovery**
-remains available beneath Overview when the Gateway is unavailable. It contains
-the existing maintenance panel, including Host-based recovery and backup tools,
-so bringing the Gateway back does not require an enabled Maintenance tab. Existing
-command checks, permissions and confirmations still apply. Start/Stop and guided
-setup also remain reachable.
+Nodes, Events and Mods & plugins unlock when the authenticated Gateway capabilities
+endpoint responds, regardless of desired On/Off state. A failed check returns a
+selected live-only view to Overview. The five-second poll restores the requested
+view and its existing state when the connection recovers, including bookmarks.
 
 The map uses native HTML, CSS and SVG, with textual metrics alongside colors and
 bars. Large clusters scroll within a labelled, keyboard-focusable map region. On

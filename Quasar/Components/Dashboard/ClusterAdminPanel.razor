@@ -24,11 +24,11 @@
             <div class="quasar-row">
                 @if (Cluster.GoalState == DedicatedServerGoalState.On && Compact)
                 {
-                    <span class="quasar-tooltip" title="Save world"><button class="quasar-icon-button" aria-label="Save world" type="button" disabled="@(!CanRun("POST /admin/v1/save-all"))" @onclick="SaveAsync"><QuasarIcon Icon="@QuasarIcons.Save" /></button></span>
+                    <span class="quasar-tooltip" title="@SaveWorldHint"><button class="quasar-icon-button" aria-label="Save world" type="button" disabled="@(!CanSaveWorld)" @onclick="SaveAsync"><QuasarIcon Icon="@QuasarIcons.Save" /></button></span>
                 }
                 else if (Cluster.GoalState == DedicatedServerGoalState.On)
                 {
-                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/save-all"))" @onclick="SaveAsync">Save world</button>
+                    <span class="quasar-tooltip" title="@SaveWorldHint"><button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanSaveWorld)" @onclick="SaveAsync">Save world</button></span>
                 }
                 @if (Cluster.GoalState == DedicatedServerGoalState.Off)
                 {
@@ -151,6 +151,7 @@
 @code {
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
     [Parameter] public bool Compact { get; set; }
+    [Parameter] public bool GatewayAvailable { get; set; } = true;
     private bool _settingsOpened;
     protected override void OnParametersSet() => _settingsOpened |= !Compact;
     private readonly CancellationTokenSource _shutdown = new();
@@ -170,7 +171,13 @@
     private bool Busy => _submitting || _operation?.State == ClusterOperationState.Running;
     private bool ManagedLifecycle => Cluster.Gateway is not null && !string.IsNullOrWhiteSpace(Cluster.HostCommandUrl);
     private bool CanRun(string operation) => !Busy && _capabilities?.Scope == Admin.AdminScope.Manage
+        && GatewayAvailable
         && _capabilities.Operations.Contains(operation, StringComparer.Ordinal);
+    private bool CanSaveWorld => Cluster.GoalState == DedicatedServerGoalState.On
+        && CanRun("POST /admin/v1/save-all");
+    private string SaveWorldHint => !GatewayAvailable || _capabilities is null
+        ? "Save world is unavailable while the Gateway admin connection is unavailable."
+        : CanSaveWorld ? "Save world" : "Save world is unavailable during an operation or without Gateway save permission.";
 
     protected override async Task OnInitializedAsync()
     {
@@ -244,7 +251,7 @@
             System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(_handover, DetailJson))); }
         catch (System.Text.Json.JsonException error) { _error = error.Message; }
     }
-    private Task SaveAsync() => SubmitAsync(new("save-all"));
+    private Task SaveAsync() => CanSaveWorld ? SubmitAsync(new("save-all")) : Task.CompletedTask;
     private void EnsureServerName()
     {
         if (!Busy && string.IsNullOrWhiteSpace(_displayName))
@@ -353,6 +360,7 @@
         if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) return;
+        if (command.Action == "save-all" && !CanSaveWorld) return;
         _submitting = true;
         _error = null;
         try { _operation = await Commands.SubmitAsync(Cluster.UniqueName, command, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", _shutdown.Token); }

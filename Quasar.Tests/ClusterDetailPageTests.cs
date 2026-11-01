@@ -38,7 +38,8 @@ public sealed class ClusterDetailPageTests
 
     [Theory]
     [InlineData("", "Overview")]
-    [InlineData("#cluster-nodes", "Nodes & players")]
+    [InlineData("#cluster-nodes", "Nodes")]
+    [InlineData("#cluster-events", "Events")]
     [InlineData("#cluster-content", "Mods & plugins")]
     [InlineData("#cluster-configuration", "Maintenance")]
     [InlineData("#cluster-settings", "Settings")]
@@ -85,8 +86,9 @@ public sealed class ClusterDetailPageTests
             context.Services.AddSingleton<NavigationManager>(navigation);
             navigation.NavigateTo("/clusters/test" + fragment);
             var page = context.Render<ClusterDetail>(p => p.Add(c => c.UniqueName, "test"));
-            Assert.Equal("Overview", page.Find("nav button[aria-pressed=true]").TextContent);
-            Assert.All(page.FindAll("nav button").Skip(1), button => Assert.True(button.HasAttribute("disabled")));
+            Assert.Equal(initialView is "Maintenance" or "Settings" ? initialView : "Overview", page.Find("nav button[aria-pressed=true]").TextContent);
+            Assert.All(page.FindAll("nav button"), button => Assert.Equal(
+                button.TextContent is "Nodes" or "Events" or "Mods & plugins", button.HasAttribute("disabled")));
             Assert.All(page.FindAll("nav button"), button => Assert.Single(page.FindAll("#" + button.GetAttribute("aria-controls"))));
             var admin = page.FindComponent<AdminStub>();
             var overview = page.FindComponent<Bunit.TestDoubles.Stub<ClusterDetailPanel>>();
@@ -97,32 +99,41 @@ public sealed class ClusterDetailPageTests
             page.FindAll("nav button").Single(b => b.TextContent == "Settings").Click();
             Assert.EndsWith("#cluster-settings", navigation.Uri);
             Assert.False(admin.Instance.Compact);
-            page.FindAll("nav button").Single(b => b.TextContent == "Nodes & players").Click();
+            page.FindAll("nav button").Single(b => b.TextContent == "Nodes").Click();
             Assert.False(page.Find("#cluster-nodes").HasAttribute("hidden"));
-            var fleet = page.FindComponent<Bunit.TestDoubles.Stub<ClusterFleetPanel>>();
+            var fleet = page.FindComponents<Bunit.TestDoubles.Stub<ClusterFleetPanel>>().Single(panel => !panel.Instance.Parameters.Get(p => p.ShowEvents));
             page.FindAll("nav button").Single(b => b.TextContent == "Overview").Click();
             Assert.Same(admin.Instance, page.FindComponent<AdminStub>().Instance);
             Assert.Same(overview.Instance, page.FindComponent<Bunit.TestDoubles.Stub<ClusterDetailPanel>>().Instance);
-            Assert.Same(fleet.Instance, page.FindComponent<Bunit.TestDoubles.Stub<ClusterFleetPanel>>().Instance);
+            Assert.Contains(page.FindComponents<Bunit.TestDoubles.Stub<ClusterFleetPanel>>(), panel => ReferenceEquals(fleet.Instance, panel.Instance));
             Assert.True(page.Find("#cluster-nodes").HasAttribute("hidden"));
             Assert.True(admin.Instance.Compact);
 
-            // Losing the API hides the selected tab; reconnect restores its state and bookmark.
-            page.FindAll("nav button").Single(b => b.TextContent == "Settings").Click();
+            page.FindAll("nav button").Single(b => b.TextContent == "Events").Click();
+            Assert.False(page.Find("#cluster-events").HasAttribute("hidden"));
+            Assert.Contains(page.FindComponents<Bunit.TestDoubles.Stub<ClusterFleetPanel>>(), panel => panel.Instance.Parameters.Get(p => p.ShowEvents));
+
+            // Maintenance stays reachable during an outage; live-only views retain their bookmark.
+            page.FindAll("nav button").Single(b => b.TextContent == "Maintenance").Click();
+            var maintenance = page.FindComponent<Bunit.TestDoubles.Stub<ClusterDeploymentPanel>>();
             await page.InvokeAsync(() => availability.InvokeAsync(false));
-            Assert.Equal("Overview", page.Find("nav button[aria-pressed=true]").TextContent);
-            Assert.All(page.FindAll("nav button").Skip(1), button => Assert.True(button.HasAttribute("disabled")));
+            Assert.Equal("Maintenance", page.Find("nav button[aria-pressed=true]").TextContent);
+            Assert.False(admin.Instance.GatewayAvailable);
+            Assert.All(page.FindAll("nav button"), button => Assert.Equal(
+                button.TextContent is "Nodes" or "Events" or "Mods & plugins", button.HasAttribute("disabled")));
             Assert.Contains("unavailable", page.Find("#cluster-gateway-connection").TextContent);
             Assert.False(page.Find("#cluster-configuration").HasAttribute("hidden"));
-            Assert.Contains("Offline maintenance and recovery", page.Find("#cluster-configuration summary").TextContent);
-            var maintenance = page.FindComponent<Bunit.TestDoubles.Stub<ClusterDeploymentPanel>>();
             await page.InvokeAsync(() => availability.InvokeAsync(true));
-            Assert.Equal("Settings", page.Find("nav button[aria-pressed=true]").TextContent);
+            Assert.Equal("Maintenance", page.Find("nav button[aria-pressed=true]").TextContent);
             Assert.Same(admin.Instance, page.FindComponent<AdminStub>().Instance);
-            page.FindAll("nav button").Single(b => b.TextContent == "Maintenance").Click();
             Assert.Same(maintenance.Instance, page.FindComponent<Bunit.TestDoubles.Stub<ClusterDeploymentPanel>>().Instance);
+            page.FindAll("nav button").Single(b => b.TextContent == "Nodes").Click();
+            await page.InvokeAsync(() => availability.InvokeAsync(false));
+            Assert.Equal("Overview", page.Find("nav button[aria-pressed=true]").TextContent);
+            await page.InvokeAsync(() => availability.InvokeAsync(true));
+            Assert.Equal("Nodes", page.Find("nav button[aria-pressed=true]").TextContent);
             await page.InvokeAsync(() => navigation.BrowserNavigate("/clusters/test#cluster-nodes"));
-            Assert.Equal("Nodes & players", page.Find("nav button[aria-pressed=true]").TextContent);
+            Assert.Equal("Nodes", page.Find("nav button[aria-pressed=true]").TextContent);
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

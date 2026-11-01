@@ -226,6 +226,9 @@ public sealed class ControlPlaneViewerTests : IDisposable
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new[] { new KnownPlayerRecord { PlayerKey = "server:76561198000000000", UniqueName = "server", SteamId = 76561198000000000, DisplayName = "Test player", LastSeenUtc = DateTimeOffset.UtcNow } }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         var players = new KnownPlayerCatalog(NullLogger<KnownPlayerCatalog>.Instance);
         context.Services.AddSingleton(players);
+        context.Services.AddSingleton(new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build()));
+        context.Services.AddSingleton(new ClusterPlayerService(null!, null!, players, NullLogger<ClusterPlayerService>.Instance));
+        context.Services.AddSingleton(new ClusterCommandService(null!, null!, null!, null!));
         context.Render<MudPopoverProvider>();
         var page = context.Render<Players>();
         Assert.Contains("Test player", page.Markup);
