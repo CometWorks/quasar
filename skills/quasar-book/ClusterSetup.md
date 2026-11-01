@@ -121,18 +121,18 @@ Several host machines need distinct addresses that can reach each other, and non
 
 ### Ports
 
-Setup reserves the public server port P through P+264 on the selected machines. Allow only P (UDP) through the public firewall; keep the rest on the LAN/VPN.
+Setup reserves P through P+16 and P+1100 through P+1264 on the selected machines. P+100 stays free for an optional Direct Transport frontend. Allow only P (UDP) through the public firewall; keep the rest on the LAN/VPN.
 
 | Port | Use |
 | --- | --- |
 | P | Public server port (UDP, players) |
 | P+16 | Cluster Registry admin endpoint (`http://<gateway address>:P+16`) |
-| P+100 and up | Regular node backends, one per node on each machine |
-| P+200 and up | Regular node controls |
-| P+164 | World Authority backend |
-| P+264 | World Authority control |
+| P+1100 and up | Regular node backends, one per node on each machine |
+| P+1200 and up | Regular node controls |
+| P+1164 | World Authority backend |
+| P+1264 | World Authority control |
 
-Setup refuses a port range that overlaps a local standalone server, another Cluster Gateway or another cluster's nodes on the same machines ("Choose a public server port at least 265 ports away."). It cannot see other software or firewall rules on the machines.
+Setup refuses a port range that overlaps a local standalone server, another Cluster Gateway, another cluster's nodes or a range reserved by an automatic conversion on the same machines. It cannot see other software or firewall rules on the machines.
 
 ## What setup does
 

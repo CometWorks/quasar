@@ -204,6 +204,26 @@ public sealed class ClusterCreateTests : IDisposable
     }
 
     [Fact]
+    public async Task StandaloneConversionHasOnlyDestinationChoiceAndOneAction()
+    {
+        await using var context = CreateContext();
+        var clusters = context.Services.GetRequiredService<ClusterCatalog>();
+        await clusters.CreateAsync(new("empty", "Empty", "http://10.1.0.1:28016", "ADMIN"), default);
+        await clusters.CreateAsync(new("busy", "Busy", "http://10.1.0.2:28016", "ADMIN"), default);
+        await clusters.SetGoalStateAsync("busy", DedicatedServerGoalState.On);
+        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ServerName, "source"));
+        Assert.Equal("Destination cluster", Assert.Single(page.FindComponents<MudSelect<string>>()).Instance.Label);
+        var destinations = page.FindComponents<MudSelectItem<string>>();
+        Assert.Contains(destinations, d => d.Instance.Value == "");
+        Assert.Contains(destinations, d => d.Instance.Value == "empty");
+        Assert.DoesNotContain(destinations, d => d.Instance.Value == "busy");
+        Assert.Empty(page.FindComponents<MudTextField<string>>());
+        Assert.Empty(page.FindComponents<MudNumericField<int>>());
+        Assert.Empty(page.FindComponents<MudCheckBox<bool>>());
+        Assert.Equal("Convert to cluster", Assert.Single(page.FindComponents<MudButton>()).Find("button").TextContent.Trim());
+    }
+
+    [Fact]
     public async Task ConversionKeepsSourceNameUntilClearedAndPreservesDestinationId()
     {
         await using var context = CreateContext();
