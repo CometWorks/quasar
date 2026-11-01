@@ -72,11 +72,11 @@ else
         @if (_gatewayAvailable != true)
         {
             <p id="cluster-gateway-connection" class="quasar-muted" role="status">@(_gatewayAvailable is null
-                ? "Checking Gateway admin connection. Cluster tabs will be available when it responds."
-                : "Gateway admin connection unavailable. Cluster tabs will be available when it reconnects.")</p>
+                ? "Checking Gateway admin connection. Nodes, Events and Mods & plugins will be available when it responds."
+                : "Gateway admin connection unavailable. Nodes, Events and Mods & plugins will be available when it reconnects. Maintenance and Settings remain available.")</p>
         }
         <section id="cluster-settings" aria-label="Cluster controls and settings">
-            <ClusterAdminPanel @ref="_admin" Cluster="Cluster" Compact="@(_view != "settings")" />
+            <ClusterAdminPanel @ref="_admin" Cluster="Cluster" Compact="@(_view != "settings")" GatewayAvailable="@(_gatewayAvailable == true)" />
             @if (_view == "settings")
             {
                 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><Authorized Context="settingsAuthorization">
@@ -88,10 +88,16 @@ else
             <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" CollapseDetails="true" ShowTopology="true"
                                 GatewayAvailabilityChanged="GatewayAvailabilityChanged" />
         </section>
-        <section id="cluster-nodes" aria-label="Nodes and players" hidden="@(_view != "nodes")">
+        <section id="cluster-nodes" aria-label="Cluster nodes" hidden="@(_view != "nodes")">
             @if (_visited.Contains("nodes"))
             {
-                <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" />
+                <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" ShowEvents="false" />
+            }
+        </section>
+        <section id="cluster-events" aria-label="Cluster events" hidden="@(_view != "events")">
+            @if (_visited.Contains("events"))
+            {
+                <ClusterFleetPanel Cluster="Cluster" ShowEvents="true" />
             }
         </section>
         <section id="cluster-content" aria-label="Cluster content updates" hidden="@(_view != "content")">
@@ -101,12 +107,12 @@ else
                 else { <p>Deploy the cluster to manage its mods and plugins.</p> }
             }
         </section>
-        <section id="cluster-configuration" aria-label="Cluster maintenance" hidden="@(_view != "configuration" && !OfflineMaintenance)" class="quasar-stack">
-            @if (_visited.Contains("configuration") || OfflineMaintenance)
+        <section id="cluster-configuration" aria-label="Cluster maintenance" hidden="@(_view != "configuration")" class="quasar-stack">
+            @if (_visited.Contains("configuration"))
             {
                 var releaseSnapshot = ClusterReleases.GetSnapshot();
                 <details class="quasar-details" open="@(_view == "configuration")">
-                <summary>@(OfflineMaintenance ? "Offline maintenance and recovery" : "Maintenance")</summary>
+                <summary>Maintenance</summary>
                 <section class="quasar-panel quasar-card-content" aria-label="Cluster versions">
                     <div class="quasar-detail-metrics">
                         <div>
@@ -141,14 +147,12 @@ else
 
     private ClusterDefinition? Cluster { get; set; }
     private ClusterAdminPanel? _admin;
-    private static readonly (string Key, string Label)[] Views = [("overview", "Overview"), ("nodes", "Nodes & players"), ("content", "Mods & plugins"), ("configuration", "Maintenance"), ("settings", "Settings")];
+    private static readonly (string Key, string Label)[] Views = [("overview", "Overview"), ("nodes", "Nodes"), ("events", "Events"), ("content", "Mods & plugins"), ("configuration", "Maintenance"), ("settings", "Settings")];
     private string _requestedView = "overview";
-    private string _view => _gatewayAvailable == true ? _requestedView : "overview";
+    private string _view => CanSelectView(_requestedView) ? _requestedView : "overview";
     private bool? _gatewayAvailable;
     private readonly HashSet<string> _visited = ["overview"];
-    private bool CanSelectView(string view) => view == "overview" || _gatewayAvailable == true;
-    private bool OfflineMaintenance => _gatewayAvailable == false
-        && Cluster is { ActiveDeployment: not null, GoalState: DedicatedServerGoalState.Off };
+    private bool CanSelectView(string view) => view is "overview" or "configuration" or "settings" || _gatewayAvailable == true;
     private void SelectView(string view)
     {
         if (!CanSelectView(view)) return;
@@ -161,7 +165,6 @@ else
     {
         _gatewayAvailable = available;
         _visited.Add(_view);
-        if (OfflineMaintenance) _visited.Add("configuration");
     }
     private void ReadView()
     {
@@ -198,6 +201,5 @@ else
         }
         var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
         Cluster = user.CanQueryCluster(UniqueName) ? ClusterCatalog.GetCluster(UniqueName) : null;
-        if (OfflineMaintenance) _visited.Add("configuration");
     }
 }

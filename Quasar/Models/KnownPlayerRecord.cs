@@ -6,6 +6,8 @@ public sealed class KnownPlayerRecord
 
     public string UniqueName { get; set; } = string.Empty;
 
+    public bool IsCluster { get; set; }
+
     public string ServerId { get; set; } = string.Empty;
 
     public string ServerName { get; set; } = string.Empty;

@@ -38,17 +38,20 @@ New dialogs prefill names and IDs such as `cluster-a1b2c3d4e5f6`, `host-machine-
 - Clusters appear next to standalone servers on the Dashboard, in cards and list view. A cluster card shows the Server name, Cluster ID, Gateway URL, **Desired state**, Start/Stop and Save buttons, the console button and **Manage cluster**.
 - **Hosts** (nav group "Infrastructure & tools", `/hosts`, page title "Host machines") lists Host executors and their reachability. See [Cluster hosts](ClusterHosts.md).
 
-The cluster page is `/clusters/<Cluster ID>`. It opens on **Overview** and groups controls into five views. Start / Stop, **Save world** (while running), the console and the current operation result stay available across views.
+The cluster page is `/clusters/<Cluster ID>`. It opens on **Overview** and groups controls into six views. Start / Stop, **Save world** (while running), the console and the current operation result stay available across views.
 
 | View | What it holds |
 | --- | --- |
 | Overview | Status, Capacity, Players, Recovery and a live map of Gateway, game nodes, hot spares and World Authority. Service addresses and expandable world/configuration/runtime details, including the last failed Gateway output. |
-| Nodes & players | Slots, registered nodes, performance and players. Node actions **Drain** and **Force remove node…**; player actions **Kick** and **Ban**. Events, plugin statistics and recent plugin logs. |
+| Nodes | Slots, registered nodes and performance. Node actions **Drain** and **Force remove node…**, plugin statistics and recent plugin logs. |
+| Events | Cluster Registry event history, with sequence, time, actor and target. |
 | Mods & plugins | Content update checks and queues, with an active deployment. |
 | Maintenance | Deployed/latest versions, release staging, pending updates, **Backups**, **Recovery**, **Convert to a standalone server**, **Advanced deployment tools**. |
 | Settings | Server name, profile, hot spares, shutdown grace period, plugin configuration, advanced controls and cluster removal. Existing confirmations and permissions still apply. |
 
-A resume banner appears when there is no active deployment: **Resume guided setup** if a setup exists, otherwise **Set up a new cluster**. Views have bookmarkable fragments. Existing `#cluster-content` links open Mods & plugins; `#cluster-configuration` opens Maintenance; `#cluster-settings` opens Settings.
+Live and historical cluster players appear in the top-level [Players page](Monitoring.md#players), grouped under one server per cluster. Node moves do not create duplicate player entries. Kick, Ban and Unban apply to the cluster through the Gateway.
+
+A resume banner appears when there is no active deployment: **Resume guided setup** if a setup exists, otherwise **Set up a new cluster**. Views have bookmarkable fragments. `#cluster-nodes` opens Nodes; `#cluster-events` opens Events; existing `#cluster-content` links open Mods & plugins; `#cluster-configuration` opens Maintenance; `#cluster-settings` opens Settings.
 
 The map shows connected players, routed players per node, hosted partitions, simulation speed, RAM in GB and process CPU. Hot spares are marked. Nodes show their host name when the cluster has at least two configured hosts. Configured empty slots remain visible. Solid links show player routing over Direct Transport; dashed links show partition synchronization. Internal node links show Registry lease status. Counts describe player routing and partition ownership, not transport socket counts, which the current Registry contract does not expose.
 
@@ -58,9 +61,7 @@ CPU 100% means one logical CPU. Four bars each hold one core equivalent; they do
 
 The cluster page refreshes status every five seconds. When a managed cluster is stopped, Quasar does not show Cluster Registry connection failures as warnings.
 
-Overview always stays available. The other tabs are greyed out while the Gateway admin connection is being checked or is unavailable. They unlock when its authenticated capabilities endpoint responds, regardless of whether the desired cluster state is On or Off. If the connection drops, Overview becomes visible; when it returns, Quasar restores the requested tab, including a bookmarked one. Opened panels retain their state across these changes. The existing five-second poll checks availability again.
-
-For a deployed cluster with desired state Off and an unavailable Gateway, expand **Offline maintenance and recovery** beneath Overview. It holds the same maintenance panel, including Host-based recovery and backup tools. Start/Stop and guided setup stay reachable as well. Tab availability does not bypass command permissions, confirmations or safety checks.
+Overview, Maintenance and Settings stay available while the Gateway admin connection is being checked or is unavailable. Recovery, backups and local settings use the same tabs online and offline. Nodes, Events and Mods & plugins are greyed out until the authenticated capabilities endpoint responds, regardless of desired On/Off state. A selected live-only view falls back to Overview during an outage; reconnect restores its requested view and bookmark. Opened panels retain their state. The five-second poll checks availability again. Every action retains its permissions, confirmations and safety checks.
 
 ### Cluster console
 
@@ -77,7 +78,7 @@ Start stays disabled ("Wait for stable stopped cluster services before starting"
 
 Other controls:
 
-- **Save world** runs the cluster-wide `save-all` command.
+- **Save world** runs the cluster-wide `save-all` command. It is disabled during another operation, when the Gateway admin connection is unavailable, or when the Gateway credential lacks management scope or save support. The tooltip explains why. The same checks apply to both button styles on every tab, including Maintenance, and the click handler checks again before submitting.
 - **Restart Cluster Gateway** (Advanced cluster controls, while running) restarts only the Gateway: "Clients will reconnect; nodes keep simulating."
 - **Drain** asks the Registry to move a node's work to another node. **Force remove node…** removes a node by its exact epoch ("Unsaved simulation state may be lost.").
 - Running clusters do not depend on Quasar. If Quasar stops, the Host executors keep the Gateway and nodes running.
@@ -88,7 +89,7 @@ At machine shutdown or user logout, the Host executor shuts its clusters down wi
 
 ### Recovery after an unclean shutdown
 
-If the Gateway did not prove a clean shutdown, the cluster needs explicit recovery. With the goal Off, open **Maintenance → Recovery**, or **Overview → Offline maintenance and recovery → Recovery** if the Gateway is unavailable:
+If the Gateway did not prove a clean shutdown, the cluster needs explicit recovery. With the goal Off, open **Maintenance → Recovery**, which remains available if the Gateway is unreachable:
 
 - **Recover missing cluster services** resumes the recorded Gateway and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.
 - **Recover stopped cluster after an unclean shutdown** requires every node to be stopped. It starts a new recovery generation from retained saves and plugin data. Unsaved game changes may be lost.
@@ -364,6 +365,9 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Components/Dashboard/ClusterResourceUsage.razor`
 - `Quasar/Services/ClusterOverview.cs`
 - `Quasar/Services/ClusterFleetService.cs`
+- `Quasar/Services/ClusterPlayerService.cs`
+- `Quasar/Services/KnownPlayerCatalog.cs`
+- `Quasar/Components/Pages/Players.razor`
 - `Quasar.Host.Contract/HostContract.cs`
 - `Quasar.Host/GatewayActualizer.cs`
 - `Docs/ClusterTerminology.md`

@@ -7,11 +7,11 @@
 <section class="quasar-panel server-card">
 <div class="quasar-card-content">
 <div class="quasar-layout quasar-gap-3">
-    <h2 class="quasar-text quasar-type-h6">Nodes and players</h2>
+    <h2 class="quasar-text quasar-type-h6">@(ShowEvents ? "Events" : "Nodes")</h2>
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">Observations may be stale: @_error</MudAlert> }
     @if (_capturedAt is { } captured) { <span class="quasar-text quasar-type-caption">Cluster Registry observation: @captured.ToString("u")</span> }
-    <MudTabs>
-        <MudTabPanel Text="Nodes">
+    @if (!ShowEvents)
+    {
             <MudTable T="ClusterNodeRow" Items="NodeRows" Dense="true" Hover="true">
                 <HeaderContent><MudTh>Slot / node</MudTh><MudTh>Host machine / role</MudTh><MudTh>Goal / observed</MudTh><MudTh>Cluster Registry status</MudTh><MudTh>Performance</MudTh><MudTh>Actions</MudTh></HeaderContent>
                 <RowTemplate>
@@ -77,30 +77,16 @@
                     </MudExpansionPanel>
                 </MudExpansionPanels>
             }
-        </MudTabPanel>
-        <MudTabPanel Text="Players">
-            <MudTable T="Admin.ClientSummary" Items="_clients" Dense="true">
-                <HeaderContent><MudTh>Player</MudTh><MudTh>Admission</MudTh><MudTh>Route</MudTh><MudTh>Actions</MudTh></HeaderContent>
-                <RowTemplate>
-                    <MudTd DataLabel="Player">@context.PlayerName · @context.ClientId</MudTd><MudTd DataLabel="Admission">@context.AdmissionState</MudTd><MudTd DataLabel="Route">@context.Node / @context.Partition</MudTd>
-                    <MudTd DataLabel="Actions">
-                        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="authorization">
-                            <MudButton Disabled="@(!_available)" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => ModerateAsync("kick", context))">Kick</MudButton>
-                            <MudButton Disabled="@(!_available)" Variant="Variant.Outlined" Color="Color.Warning" OnClick="@(() => ModerateAsync("ban", context))">Ban</MudButton>
-                        </AuthorizeView>
-                    </MudTd>
-                </RowTemplate>
-            </MudTable>
-        </MudTabPanel>
-        <MudTabPanel Text="Events">
+    }
+    else
+    {
             @if (_gap) { <MudAlert Severity="Severity.Info">The event history was truncated or reset at the Gateway.</MudAlert> }
             <MudTable T="Admin.AdminEvent" Items="_events.OrderByDescending(e => e.Seq)" Dense="true" RowsPerPage="25">
                 <HeaderContent><MudTh>Sequence / time</MudTh><MudTh>Event</MudTh><MudTh>Actor / target</MudTh></HeaderContent>
                 <RowTemplate><MudTd DataLabel="Sequence / time">@context.Seq · @context.At.ToString("u")</MudTd><MudTd DataLabel="Event">@context.Type</MudTd><MudTd DataLabel="Actor / target">@context.Actor / @context.Target</MudTd></RowTemplate>
                 <PagerContent><MudTablePager /></PagerContent>
             </MudTable>
-        </MudTabPanel>
-    </MudTabs>
+    }
 </div>
 </div>
 </section>
@@ -108,10 +94,10 @@
 @code {
     [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = new();
     [Parameter] public EventCallback<ClusterAdminCommand> Command { get; set; }
+    [Parameter] public bool ShowEvents { get; set; }
     private readonly CancellationTokenSource _shutdown = new();
     private ClusterFleet? _fleet;
     private Admin.NodePlan[] _plan = [];
-    private Admin.ClientSummary[] _clients = [];
     private Admin.AdminEvent[] _events = [];
     private long _cursor;
     private bool _gap, _available;
@@ -132,14 +118,21 @@
         try
         {
             var capabilities = (await Gateway.GetCapabilitiesAsync(Cluster, _shutdown.Token)).Data;
-            var fleet = await Fleet.GetAsync(Cluster, _shutdown.Token);
-            _fleet = fleet.Data; _capturedAt = fleet.CapturedAt;
-            _clients = (await Gateway.GetClientsAsync(Cluster, _shutdown.Token)).Data;
-            var page = (await Gateway.GetEventsAsync(Cluster, _cursor, 100, _shutdown.Token)).Data;
-            if (page.NextCursor < _cursor) { _events = []; _gap = true; }
-            if (_cursor > 0 && page.EarliestRetained > _cursor + 1) _gap = true;
-            _events = _events.Concat(page.Events).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).TakeLast(200).ToArray();
-            _cursor = page.NextCursor;
+            if (!ShowEvents)
+            {
+                var fleet = await Fleet.GetAsync(Cluster, _shutdown.Token);
+                _fleet = fleet.Data; _capturedAt = fleet.CapturedAt;
+            }
+            if (ShowEvents)
+            {
+                var envelope = await Gateway.GetEventsAsync(Cluster, _cursor, 100, _shutdown.Token);
+                _capturedAt = envelope.CapturedAt;
+                var page = envelope.Data;
+                if (page.NextCursor < _cursor) { _events = []; _gap = true; }
+                if (_cursor > 0 && page.EarliestRetained > _cursor + 1) _gap = true;
+                _events = _events.Concat(page.Events).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).TakeLast(200).ToArray();
+                _cursor = page.NextCursor;
+            }
             _available = capabilities.Scope == Admin.AdminScope.Manage; _error = null;
         }
         catch (ClusterGatewayException error)
@@ -148,6 +141,7 @@
                 && error.IsConnectivityFailure
                 ? null : error.Message;
         }
+        if (ShowEvents) return;
         try { _plan = (await Gateway.GetPlanAsync(Cluster, _shutdown.Token)).Data; }
         catch (ClusterGatewayException error)
         {
@@ -178,11 +172,6 @@
     {
         if (await Dialogs.ShowMessageBoxAsync("Force remove node?", $"Remove {node.Node}, epoch {node.Epoch}? Unsaved simulation state may be lost.", yesText: "Force remove", cancelText: "Cancel") == true)
             await Command.InvokeAsync(ClusterAdminCommand.Create("node-kill", new Admin.KillNodeRequest(node.Node, node.Epoch), node.SlotKey));
-    }
-    private async Task ModerateAsync(string action, Admin.ClientSummary player)
-    {
-        if (await Dialogs.ShowMessageBoxAsync("Confirm player action", $"{action} {player.PlayerName ?? player.ClientId.ToString()}?", yesText: "Confirm", cancelText: "Cancel") == true)
-            await Command.InvokeAsync(ClusterAdminCommand.Create(action, target: player.ClientId.ToString()));
     }
     public async ValueTask DisposeAsync()
     {
