@@ -32,7 +32,7 @@ The page has these panels:
 1. **Check.** The worker reads up to 100 releases from `https://api.github.com/repos/<Owner>/<Repository>/releases`, skips drafts, and skips prereleases unless prereleases are enabled. It finds the platform asset by name: `quasar-web-linux-x64.tar.gz` on Linux, `quasar-web-win-x64.zip` on Windows. The first check runs 10 seconds after startup, then every `CheckIntervalSeconds` (default 900).
 2. **Stage.** Quasar downloads the asset into `<install root>/ManagedRuntime/Cache/`, verifies it against the release's `SHA256SUMS` file, extracts it to `<install root>/Updates/Staged/<version>/`, and merges `appsettings.json` (see below). With **Automatically stage UI updates after checks** on (the default), staging happens right after a check finds a newer version. With it off, the newer version waits as "ready to download" until you press **Stage**.
 3. **Activate.** Press **Activate**. Quasar copies the staged files to `<install root>/ManagedRuntime/WebService/<version>/`, copies the resolved `appsettings.json` back to the install root, and writes `<install root>/Updates/active-release.json`.
-4. **Cutover.** Bootstrap sees the pointer change, asks the old worker to drain, starts the new worker on the same port and waits up to 60 seconds for `/api/health`. The browser shows a progress overlay and reloads the Updates page when the new version answers. After a successful cutover Bootstrap deletes the other release folders under `ManagedRuntime/WebService/`.
+4. **Cutover.** Bootstrap sees the pointer change, asks the old worker to drain, starts the new worker on the same port and waits up to 60 seconds for `/api/health`. The browser shows a progress overlay and reloads the Updates page when the new version answers. After a successful cutover Bootstrap keeps the active release and the previous healthy release under `ManagedRuntime/WebService/`, then deletes other inactive release folders.
 
 Activation needs Quasar to run under Bootstrap (the installed systemd service or Scheduled Task). Otherwise the page shows "Quasar is not running under Bootstrap, so this update cannot be activated from the UI."
 
@@ -53,6 +53,24 @@ Pick an older version (tagged `rollback`) in **Version to install**, press **Sta
 The running launcher must support coordinated rollbacks (introduced with Quasar 1.3.2). An older launcher shows "Update Bootstrap before rolling back" instead of silently leaving components on different versions. Upgrade Bootstrap first. Bootstrap keeps the replaced launcher as `Quasar.previous` (`Quasar.exe.previous` on Windows), and keeps the previous UI pointer through the startup health check for recovery. Live Windows/Linux rollback and recovery remain release acceptance checks.
 
 Automatic staging never picks an older version, and automatic activation never downgrades either component. If automatic updates remain enabled, they can upgrade an intentionally rolled-back installation again; turn that policy off first to stay on the older release. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
+
+### Command-line UI recovery
+
+From the install directory, run `./Quasar --rollback` on Linux or
+`.\Quasar.exe --rollback` on Windows. `rollback` is also accepted as a command.
+This local recovery command restores the previous healthy UI without downloading
+an installer or changing Bootstrap. It differs from the coordinated rollback on
+the Updates page above: current settings, worlds and plugin data stay unchanged,
+and managed game servers keep running. A running launcher applies the request
+asynchronously through its normal health-checked cutover.
+
+Bootstrap retains the previous healthy UI pointer as
+`Updates/active-release.json.rollback` across ordinary restarts and combined
+updates, starting with its first successful cutover using this feature.
+If a cutover was interrupted, `Updates/active-release.json.previous` takes
+precedence as the most recent healthy recovery target. A missing or unusable
+target fails without changing the active selection; stage an older version on
+Updates instead. Disable automatic application if you want to stay on the older UI.
 
 ### appsettings.json merge during staging
 
@@ -227,6 +245,8 @@ on ordinary startup, so older leftovers are cleared too.
 
 Newer staged updates stay available for activation. A directory containing the
 running worker is also kept, including older installs that run from Staged.
+Cleanup also preserves directories referenced by the persistent `.rollback`
+pointer or the transient `.previous` recovery pointer.
 Failed worker starts do not trigger cleanup. If files cannot be removed,
 Bootstrap logs a warning and retries after the next successful worker start.
 
@@ -268,6 +288,7 @@ What to do:
 - `Docs/Docker.md`
 - `Dockerfile`
 - `.github/workflows/release.yml`
+- `scripts/cleanup-releases.py`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`

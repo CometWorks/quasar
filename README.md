@@ -31,6 +31,14 @@ Viewers have read-only access to every built-in Control Plane page. Editing,
 server commands, and administration retain separate permissions; credentials and
 raw plugin settings remain restricted. See [RBAC enforcement](Docs/Configuration.md#rbac-enforcement).
 
+Private LAN access bypasses sign-in by default, including `192.168.x.x`, `10.x.x.x`,
+`172.16.x.x` through `172.31.x.x`, and IPv6 ULA addresses. Turn off **Trust private
+LAN access** on Security to opt out; an explicit `AllowSameSubnet: false` disables it.
+See [trusted-network configuration](Docs/Configuration.md#reverse-proxy-auth).
+
+Run `Quasar --rollback` from the install directory to restore the previous healthy
+UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
+
 ## Documentation
 
 | Page | What it covers |

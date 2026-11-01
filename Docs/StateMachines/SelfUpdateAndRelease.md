@@ -131,6 +131,15 @@ A saved previous pointer provides UI rollback if the new worker fails startup
 health checks. Stage-only mode and manual activation remain available. See
 [automatic update configuration](../Configuration.md#automatic-quasar-and-ui-plugin-updates).
 
+After a successful cutover, Bootstrap saves the previous healthy UI pointer as
+`Updates/active-release.json.rollback` and preserves that release during managed
+and staged payload cleanup. `Quasar --rollback` (alias `Quasar rollback`) selects
+it under the shared maintenance lease. The normal pointer watcher performs the
+health-checked cutover. Restarts preserve the rollback target; a later successful
+cutover replaces it. This rolls back UI binaries while retaining the launcher and
+current configuration/data. The transient `.previous` pointer protects interrupted
+manual and coordinated cutovers until a healthy worker is running.
+
 The Bootstrap installer leaves `WebService/` and root `appsettings.json` intact:
 UI activation uses the separately staged release pointer. This also preserves the
 packaged worker when it is the rollback target. Bootstrap revalidates the prepared

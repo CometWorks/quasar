@@ -77,10 +77,16 @@ public sealed class PublicEndpointSecurityTests
     [InlineData("203.0.113.10", "http", null, null, "/", true, 400)]
     [InlineData("127.0.0.1", "http", null, null, "/", true, 204)]
     [InlineData("::ffff:127.0.0.1", "http", null, null, "/", true, 204)]
+    [InlineData("192.168.1.10", "http", null, null, "/", true, 204)]
+    [InlineData("10.23.45.67", "http", null, null, "/", true, 204)]
+    [InlineData("172.16.5.10", "http", null, null, "/", true, 204)]
+    [InlineData("fd12::10", "http", null, null, "/", true, 204)]
+    [InlineData("::ffff:192.168.1.10", "http", null, null, "/", true, 204)]
     [InlineData("203.0.113.10", "https", null, null, "/", true, 204)]
     [InlineData("203.0.113.10", "http", null, null, "/", false, 204)]
     [InlineData("203.0.113.10", "http", null, null, "/ws/agent", true, 204)]
     [InlineData("192.0.2.20", "http", "203.0.113.10", "https", "/", true, 204)]
+    [InlineData("192.168.1.20", "http", "203.0.113.10", "http", "/", true, 400)]
     [InlineData("203.0.113.10", "http", "127.0.0.1", "https", "/", true, 400)]
     public async Task PublicHttpRequiresEffectiveHttpsAfterTrustedForwarding(
         string peer,
@@ -102,6 +108,7 @@ public sealed class PublicEndpointSecurityTests
         forwarding.KnownIPNetworks.Clear();
         forwarding.KnownProxies.Clear();
         forwarding.KnownProxies.Add(IPAddress.Parse("192.0.2.20"));
+        forwarding.KnownProxies.Add(IPAddress.Parse("192.168.1.20"));
         app.UseForwardedHeaders(forwarding);
         app.Use((context, next) => PublicAccessSecurity.InvokeAsync(
             context,

@@ -75,6 +75,59 @@ public sealed class TrustedNetworkEvaluatorTests
     }
 
     [Theory]
+    [InlineData("192.168.1.80", "192.168.1.10", true)]
+    [InlineData("192.168.1.10", "192.168.1.80", true)]
+    [InlineData("192.168.255.254", "192.168.1.80", true)]
+    [InlineData("10.255.255.254", "192.168.1.80", true)]
+    [InlineData("172.16.0.1", "192.168.1.80", true)]
+    [InlineData("172.31.255.254", "192.168.1.80", true)]
+    [InlineData("::ffff:192.168.1.10", "192.168.1.80", true)]
+    [InlineData("fc00::1", "fd12::80", true)]
+    [InlineData("fdff::10", "fd12::80", true)]
+    [InlineData("192.167.255.254", "192.168.1.80", false)]
+    [InlineData("192.169.0.1", "192.168.1.80", false)]
+    [InlineData("172.15.255.254", "192.168.1.80", false)]
+    [InlineData("172.32.0.1", "192.168.1.80", false)]
+    [InlineData("100.64.0.1", "192.168.1.80", false)]
+    [InlineData("2001:db8::10", "fd12::80", false)]
+    public async Task PrivateLanHttpAccessIsEnabledByDefault(string client, string server, bool expected)
+    {
+        var address = IPAddress.Parse(server);
+        var host = address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6 ? $"[{server}]:8080" : $"{server}:8080";
+        var context = Request(host);
+        context.Connection.RemoteIpAddress = IPAddress.Parse(client);
+        context.Connection.LocalIpAddress = address;
+        context.Request.Headers.Origin = $"http://{host}";
+        context.Request.Headers["Sec-Fetch-Site"] = "same-origin";
+        Assert.Equal(expected, await Evaluate(context));
+    }
+
+    [Fact]
+    public async Task PrivateLanCanBeDisabledAndStillRequiresDestinationOriginAndProxyChecks()
+    {
+        DefaultHttpContext LanRequest()
+        {
+            var context = Request("192.168.1.80:8080");
+            context.Connection.LocalIpAddress = IPAddress.Parse("192.168.1.80");
+            context.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.10");
+            return context;
+        }
+        Assert.False(await Evaluate(LanRequest(), auth: new() { TrustedNetworkBypass = new() { AllowSameSubnet = false } }));
+        var context = LanRequest();
+        context.Request.Host = new HostString("unconfigured.test:8080");
+        Assert.False(await Evaluate(context));
+        context = LanRequest();
+        context.Request.Headers.Origin = "http://other.test";
+        Assert.False(await Evaluate(context));
+        context = LanRequest();
+        context.Request.Headers["Sec-Fetch-Site"] = "cross-site";
+        Assert.False(await Evaluate(context));
+        context = LanRequest();
+        context.Request.Headers["X-Forwarded-For"] = "127.0.0.1";
+        Assert.False(await Evaluate(context));
+    }
+
+    [Theory]
     [InlineData("127.0.0.1", "localhost:8080", "quasar.example", "127.0.0.1", true)]
     [InlineData("127.0.0.1", "localhost:8080", "quasar.example", "127.0.0.1:54321", true)]
     [InlineData("192.0.2.20", "localhost:8080", "quasar.example", "127.0.0.1", true)]

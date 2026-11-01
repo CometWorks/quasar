@@ -94,8 +94,8 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 **Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has four panels.
 
-- **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted same subnet and trusted proxies, and the path of the `appsettings.json` it writes.
-- **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust same subnet access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and same subnet on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
+- **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
+- **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
@@ -106,11 +106,11 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `AllowLoopback` | `true` | Trust `127.0.0.1` and `::1` |
-| `AllowSameSubnet` | `true` | Trust IPv4 clients on the same subnet as any active network interface of the Quasar machine |
+| `AllowSameSubnet` | `true` | Trust RFC 1918 private IPv4 ranges, IPv6 ULA (`fc00::/7`), and IPv4 clients on an active local interface subnet |
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
-Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on, LAN users at an accepted destination can manage Quasar without signing in.
+Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Trust private LAN access** to opt out; an explicit `AllowSameSubnet: false` disables LAN bypass. Browser push still requires HTTPS or localhost.
 
 Quasar checks the original Host and scheme before proxy forwarding and checks the effective destination again before granting roles. Accepted destinations are the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or localhost, loopback or the actual socket destination IP at its local port. A wildcard listener does not authorize arbitrary DNS aliases. Set the public BaseUrl to the URL browsers should use.
 

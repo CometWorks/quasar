@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Configuration;
 using Quasar.Services.Auth;
 using Xunit;
 
@@ -15,6 +16,18 @@ public sealed class RbacAuthorizationTests
         Assert.True(options.AllowLoopback);
         Assert.True(options.AllowSameSubnet);
         Assert.Contains(QuasarRoles.Admin, options.Roles);
+    }
+
+    [Theory]
+    [InlineData(null, true)]
+    [InlineData("false", false)]
+    [InlineData("true", true)]
+    public void PrivateLanConfigurationSupportsOptOut(string? configured, bool expected)
+    {
+        var values = new Dictionary<string, string?>();
+        if (configured is not null) values["Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet"] = configured;
+        var config = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        Assert.Equal(expected, QuasarAuthOptions.Create(config).TrustedNetworkBypass.AllowSameSubnet);
     }
 
     [Fact]

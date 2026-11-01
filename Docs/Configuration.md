@@ -879,8 +879,15 @@ use for local control requests does not change proxy settings for downloads.
 ## Reverse proxy auth
 
 Quasar starts in private LAN mode: it grants trusted-network sessions to
-loopback and same-subnet clients by default and permits HTTP. This assumes the
+loopback and private LAN clients by default and permits HTTP. This assumes the
 Quasar port stays behind a firewall and is not forwarded from the router.
+The LAN exception accepts all RFC 1918 IPv4 ranges (`10.0.0.0/8`,
+`172.16.0.0/12`, `192.168.0.0/16`), IPv6 unique-local addresses (`fc00::/7`),
+and directly attached IPv4 subnets. A client at `192.168.1.10` can therefore
+use `http://192.168.1.80:8080` without HTTPS or sign-in at an accepted destination.
+Turn off **Trust private LAN access** on Security
+(`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`) to opt out.
+Browser push notifications still require HTTPS or localhost.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
@@ -906,7 +913,7 @@ Steam correlation cookies Secure. This includes the UI, login, and public
 health/readiness probes; local Bootstrap and container probes can continue to use
 loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
 keep their separate source/Host/credential policy; use HTTPS/WSS for them when
-they leave the machine. Direct loopback and same-subnet clients continue to bypass
+they leave the machine. Direct loopback and private LAN clients continue to bypass
 HTTPS and sign-in. The Security page's public proxy preset enables HTTPS
 enforcement while retaining those LAN exceptions; restart Quasar after saving it.
 
@@ -941,7 +948,7 @@ BaseUrl to that intended URL and give the proxy an accepted backend Host too.
 Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
 longer get automatic roles; use the configured URL or sign in. Signed-in users
 and service principals retain their existing authentication and permissions.
-Local loopback and same-subnet bypass remain on by default for private LAN mode.
+Local loopback and private LAN bypass remain on by default for private LAN mode.
 The public proxy preset keeps those direct LAN exceptions while requiring HTTPS
 and authentication for forwarded public clients. No new aliases or auth
 configuration fields are introduced. See the

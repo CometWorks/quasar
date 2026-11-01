@@ -31,7 +31,7 @@
                 <p class="quasar-text quasar-type-body2">Steam login: <strong>@(AuthOptions.Steam.Enabled ? "Enabled" : "Disabled")</strong></p>
                 <p class="quasar-text quasar-type-body2">Access mode: <strong>@(_trustedNetworkSettings.RequireHttpsForPublicAccess ? "Public HTTPS" : "Private LAN HTTP")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></p>
-                <p class="quasar-text quasar-type-body2">Trusted same subnet: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted private LAN: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
                 <p class="quasar-text quasar-type-body2">Trusted proxies: <strong>@TrustedProxySummary</strong></p>
                 <span class="quasar-text quasar-type-caption">
                     Settings are saved to <CopyablePath Value="@AuthSettingsService.SettingsPath" Inline="true" TextClass="" />
@@ -62,7 +62,7 @@
                 @if (_trustedNetworkSettings.AllowSameSubnet)
                 {
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                        Direct same-subnet clients bypass HTTPS and sign-in even in public HTTPS mode. Keep the Quasar backend port private when using a reverse proxy.
+                        Direct private LAN clients bypass HTTPS and sign-in even in public HTTPS mode. Keep the Quasar backend port private when using a reverse proxy.
                     </MudAlert>
                 }
 
@@ -78,9 +78,9 @@
                     <MudItem xs="12" md="6">
                         <MudCheckBox T="bool"
                                      @bind-Value="_trustedNetworkSettings.AllowSameSubnet"
-                                     Label="Trust same subnet access" />
+                                     Label="Trust private LAN access" />
                         <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                            Direct LAN clients remain trusted; correctly forwarded public clients still use HTTPS and sign in.
+                            Accepts 192.168.x.x, 10.x.x.x, 172.16–31.x.x, IPv6 private addresses (fc00::/7), and directly attached IPv4 subnets. Correctly forwarded public clients still use HTTPS and sign in.
                         </span>
                     </MudItem>
                     <MudItem xs="12">
@@ -101,7 +101,7 @@
                 </MudGrid>
 
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                    Restart Quasar after changing HTTPS mode or trusted proxies. Loopback and same-subnet toggles apply immediately.
+                    Restart Quasar after changing HTTPS mode or trusted proxies. Loopback and private LAN toggles apply immediately.
                 </MudAlert>
 
                 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">

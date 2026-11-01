@@ -122,11 +122,15 @@ After publishing, the workflow prunes older GitHub releases by API ID, then
 deletes their tags when present. Draft releases may not resolve through GitHub's
 release-by-tag endpoint, so pruning uses the ID returned by the release list. It
 keeps the newest two full active releases, plus the newest two draft/prerelease
-review builds per PR/manual stream. Closing or merging a pull request cancels any
+review builds per PR/manual stream. PR tags and tags with prerelease suffixes do
+not count toward the two full releases, even if they were published without the
+prerelease flag. Closing or merging a pull request cancels any
 in-progress release build for that PR, then deletes all remaining draft releases
 and tags whose names begin with that PR's exact `pr-<number>/` prefix. Draft
 releases may not have Git tags yet, so cleanup deletes a matching tag only when
-it exists.
+it exists. Every publish also rechecks PRs with remaining draft releases and
+removes drafts of closed PRs, so a missed close event does not retain them
+indefinitely. This includes a build whose PR closes while it is being published.
 
 ## First Start
 
@@ -190,6 +194,24 @@ Custom units must also use `Restart=on-failure` (not `Restart=always`).
 Install the updated Bootstrap launcher for this behavior; updating only the web
 worker leaves older launchers using the previous drained/idle behavior.
 
+## Command-line UI rollback
+
+From the install directory, run `./Quasar --rollback` (or `./Quasar rollback`).
+Bootstrap selects the previous healthy UI release retained locally, starts Quasar
+if needed, and uses its normal drain/start and health-check path. A running launcher
+applies the request asynchronously. Managed game servers stay running. No download
+is required. The launcher binary, current configuration, worlds and plugin data
+are unchanged. Disable automatic application on Updates if you want to keep an older UI.
+
+Bootstrap retains one previous healthy UI release in
+`Updates/active-release.json.rollback`, including across launcher restarts and
+combined UI/Bootstrap updates. Retention starts with the first successful cutover
+using this Bootstrap version. If no previous release is retained, or its files are
+missing, the command exits with an error and leaves the active selection unchanged;
+stage an older release on Updates instead. The temporary
+`Updates/active-release.json.previous` also protects recovery from an interrupted cutover.
+When present, that recovery pointer takes precedence over the older rollback target.
+
 ## UI Worker Updates
 
 The running Quasar UI checks GitHub releases every 15 minutes by default. The
@@ -231,7 +253,8 @@ pointer change, drains the old worker, starts the managed worker on the same
 public port, and leaves managed Magnetar servers running. The browser shows a
 restart progress overlay, polls `/api/health` until the activated UI version is
 serving, then reloads the Updates page. After a successful cutover, Bootstrap
-prunes inactive managed web-release directories.
+retains the previous healthy UI release and prunes other inactive managed
+web-release directories.
 
 After a worker passes its startup health check, Bootstrap removes completed
 UI and Bootstrap payloads from `Updates/Staged/`. It removes versions at or

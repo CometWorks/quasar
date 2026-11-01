@@ -7,6 +7,14 @@ namespace Quasar.Services.Auth;
 
 public sealed class TrustedNetworkEvaluator
 {
+    private static readonly System.Net.IPNetwork[] PrivateNetworks =
+    [
+        System.Net.IPNetwork.Parse("10.0.0.0/8"),
+        System.Net.IPNetwork.Parse("172.16.0.0/12"),
+        System.Net.IPNetwork.Parse("192.168.0.0/16"),
+        System.Net.IPNetwork.Parse("fc00::/7"),
+    ];
+
     private static readonly string[] ForwardingHeaders =
     [
         "Forwarded",
@@ -127,7 +135,8 @@ public sealed class TrustedNetworkEvaluator
         if (remoteIp.IsIPv4MappedToIPv6)
             remoteIp = remoteIp.MapToIPv4();
         return options.AllowLoopback && IPAddress.IsLoopback(remoteIp) ||
-            options.AllowSameSubnet && IsOnLocalSubnet(remoteIp);
+            options.AllowSameSubnet &&
+            (PrivateNetworks.Any(network => network.Contains(remoteIp)) || IsOnLocalSubnet(remoteIp));
     }
 
     private static bool IsOnLocalSubnet(IPAddress remoteIp)

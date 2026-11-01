@@ -39,7 +39,16 @@ Quasar access is controlled by roles (`viewer`, `editor`, `admin`) mapped to Ste
 
 By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar and enter your SteamID64 in the administrator setup step. You can also go to **Security** and add your SteamID with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode. Setup rechecks security-management permission before saving; a remote Steam sign-in alone cannot claim an unconfigured panel.
 
-This does not work when the request comes through a reverse proxy, from another machine, or when `Quasar:Auth:TrustedNetworkBypass:AllowLoopback` is `false`.
+Private LAN clients are also trusted by default. For example, a browser on
+`192.168.1.10` can open `http://192.168.1.80:8080` when Quasar runs at
+`192.168.1.80`. Private IPv4 ranges (`10/8`, `172.16/12`, `192.168/16`),
+IPv6 ULA (`fc00::/7`), and directly attached IPv4 subnets are accepted.
+Turn off **Trust private LAN access** on Security to opt out
+(`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`). An explicit saved
+`false` keeps LAN bypass disabled. Loopback has its separate `AllowLoopback` switch.
+Both bypasses require an accepted destination and same-origin browser context;
+reverse proxies also need correctly configured forwarding. See
+[trusted-network bypass](AccessControl.md#trusted-network-bypass).
 
 ### Option 2: create `rbac.json` by hand
 
