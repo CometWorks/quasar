@@ -25,6 +25,21 @@ Older names still appear in JSON fields and the API: `gatewayUrl` and `gatewayAd
 
 New dialogs prefill names and IDs such as `cluster-a1b2c3d4e5f6`, `host-machine-a1b2c3d4e5f6` or `server-a1b2c3d4e5f6` (prefix plus 12 hex characters). These are real values that you can edit. Clearing a name fills in a new suggestion when the field loses focus.
 
+## Client diagnostics and rotation publication
+
+The optional Pulsar Cluster Diagnostics client opens from F11. Cluster nodes send its
+allowlisted snapshot through secure game mod messages. In-game Admin and Owner receive
+fleet detail; Moderator and Space Master receive player mode. Quasar roles do not grant
+in-game privileges.
+
+Settings, under Advanced cluster controls, has **Client diagnostics and rotation
+publication**. Load the publication to inspect source, revision and expiry. Publishing
+requires cluster-manage permission and the Registry capability. It replaces the full
+fleet assignment list with `{node, epoch, dueAt}` rows and a lease of at most five minutes.
+The Manager renews every 30 seconds. An expired or changed incarnation loses its countdown.
+Publication reports rotation eligibility and does not rotate a node. See
+[Client diagnostics](https://github.com/CometWorks/quasar/blob/main/Docs/ClientDiagnostics.md).
+
 ## Requirements and permissions
 
 - Cluster package staging, dependency provisioning and guided setup need Quasar on Linux x64. On other platforms Quasar reports "Cluster release staging requires Linux." or "Guided cluster setup currently requires Linux x64."
@@ -413,6 +428,9 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterCredentialStore.cs`
 - `Quasar/Services/ClusterDependencyService.cs`
 - `Quasar/Services/ClusterGatewayClient.cs`
+- `Docs/ClientDiagnostics.md`
+- `Contracts/ClusterGateway.AdminContract/RotationContract.cs`
+- `Contracts/ClusterGateway.AdminContract/DiagnosticsModels.cs`
 - `Quasar/Services/ClusterPackageService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`

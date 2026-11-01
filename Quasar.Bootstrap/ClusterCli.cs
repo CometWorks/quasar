@@ -223,6 +223,9 @@ internal static class ClusterCli
             "plan" when values.Length == 2 => ClusterRoute("plan"),
             "recovery-readiness" when values.Length == 2 => ClusterRoute("recovery-readiness"),
             "config" when values.Length == 2 => ClusterRoute("config"),
+            "rotation" when values.Length == 2 => ClusterRoute("rotation"),
+            "rotation-set" when values.Length == 3 => ClusterRoute("rotation"),
+            "client-diagnostics" when values.Length == 3 => ClusterRoute("client-diagnostics?node=" + Uri.EscapeDataString(values[2])),
             "package-release" when values.Length == 2 => ClusterRoute("package-release"),
             "package-stage" when values.Length == 4 => ClusterRoute("package"),
             "package-selection" when values.Length == 2 => ClusterRoute("package-selection"),
@@ -297,7 +300,7 @@ internal static class ClusterCli
             body = new { };
             mutation = true;
         }
-        else if (command is "command" or "dependencies-stage" or "deployment-activate" or "deployment-prepare" or "create" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server")
+        else if (command is "rotation-set" or "command" or "dependencies-stage" or "deployment-activate" or "deployment-prepare" or "create" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server")
         {
             try
             {
@@ -408,7 +411,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,

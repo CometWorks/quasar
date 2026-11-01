@@ -71,6 +71,7 @@ public sealed class ClusterCliTests
     [Theory]
     [InlineData("conversion-plugins", "/api/v1/clusters/demo/convert/plugins")]
     [InlineData("fleet", "/api/v1/clusters/demo/fleet")]
+    [InlineData("rotation", "/api/v1/clusters/demo/rotation")]
     [InlineData("package-release", "/api/v1/clusters/demo/package-release")]
     [InlineData("package-selection", "/api/v1/clusters/demo/package-selection")]
     [InlineData("dependency-candidate", "/api/v1/clusters/demo/dependency-candidate")]
