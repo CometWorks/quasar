@@ -2163,7 +2163,8 @@ An update that cannot finish locks goal changes, commands, backup, restore, dele
 records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
 30 minutes. If nodes keep failing at startup, for example because a plugin throws in its preload
 hook, `lastError` says so as soon as the Gateway stops respawning them: the slots, the failure, the
-exception the node reported and the path of its log on the Host. `cluster update-abandon NAME --idempotency-key KEY` (API
+exception the node reported and the path of its log on the Host. A shutdown that ended dirty is
+named at once in Stopping, because no clean proof can follow it. `cluster update-abandon NAME --idempotency-key KEY` (API
 `POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
 panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
@@ -2183,8 +2184,9 @@ Starting, and says why in `lastError`. When every wanted node keeps failing at s
   stopped and `lastError` says what to recover.
 - After activation the new version may already have changed the world, so the update reverts
   from that backup (phase Reverting, the reason in `failure`). It sets goal Off and lets the
-  reconciler stop the failed deployment cleanly; after 10 minutes it stops the Gateway with a fence
-  instead, once every Host reports its nodes stopped, because the backup replaces that data anyway.
+  reconciler stop the failed deployment cleanly; after 10 minutes, or as soon as the Gateway is Down,
+  it stops the Gateway with a fence instead, once every Host reports its nodes stopped, because the
+  backup replaces that data anyway.
   It then runs the same restore as Maintenance (a fresh preparation with rotated credentials, then
   the snapshot restore; each Host keeps the replaced data beside the runtime folder) and starts the
   previous version again if the cluster was On before the update and the normal start check
