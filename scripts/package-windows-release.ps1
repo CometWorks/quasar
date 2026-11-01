@@ -266,6 +266,9 @@ New-ZipFromDirectory $WebDir $webZip
 
 # Launcher archive: the stable bootstrap launcher plus config and helper scripts.
 Copy-Item -LiteralPath (Join-Path $PublishDir 'Quasar.exe') -Destination (Join-Path $BootstrapDir 'Quasar.exe') -Force
+foreach ($notice in @('LICENSE', 'NOTICE', 'LICENSING.md')) {
+    Copy-Item -LiteralPath (Join-Path $PublishDir $notice) -Destination (Join-Path $BootstrapDir $notice) -Force
+}
 Copy-Item -LiteralPath (Join-Path $RepoDir 'Quasar\appsettings.json') -Destination (Join-Path $BootstrapDir 'appsettings.json') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-Path $BootstrapDir 'install.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $BootstrapDir 'uninstall.ps1') -Force

@@ -24,6 +24,7 @@ ARG QUASAR_VERSION
 LABEL org.opencontainers.image.title="Quasar" \
       org.opencontainers.image.description="Space Engineers dedicated server supervisor" \
       org.opencontainers.image.source="https://github.com/CometWorks/quasar" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="$QUASAR_VERSION"
 
 RUN dpkg --add-architecture i386 \

@@ -77,6 +77,9 @@ def package(repo, publish, output, runtime, configuration, version):
     temporary = output.with_suffix(output.suffix + ".tmp")
     try:
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+            for source, destination in [("LICENSE", "LICENSE"), ("NOTICE", "NOTICE"),
+                                        ("Docs/Licensing.md", "LICENSING.md")]:
+                archive.write(repo / source, destination)
             for name, project, executable in targets:
                 build = repo / project / "bin" / configuration / "net10.0" / runtime
                 if not (build / (project + ".pdb")).is_file():

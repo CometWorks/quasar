@@ -3,6 +3,14 @@
 How to build Quasar from source, the project layout, and local development
 utilities. For the runtime design see [Architecture](QuasarArchitecture.md).
 
+Quasar is distributed under `AGPL-3.0-only`. See [Licensing](Licensing.md) for
+the MIT archive, source availability, and distribution requirements. Shared
+`Directory.Build.props` metadata identifies the license and copies `LICENSE`,
+`NOTICE`, and `LICENSING.md` beside build and publish outputs, including
+single-file apps. Linux and Windows packaging retains these files in installer,
+web, Host, and symbols archives. The GHCR image inherits them from the web
+archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license label.
+
 ## Projects
 
 - `Quasar`
