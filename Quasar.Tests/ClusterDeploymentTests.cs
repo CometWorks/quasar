@@ -1390,14 +1390,18 @@ public sealed class ClusterDeploymentTests : IDisposable
     }
 
     [Fact]
-    public void NodeFailureCauseIsTheInnermostException()
+    public void NodeFailureCauseIsTheOutermostAndInnermostException()
     {
         Exception thrown;
-        try { try { throw new InvalidOperationException("boom"); } catch (Exception inner) { throw new TypeInitializationException("Preloader", inner); } }
+        try
+        {
+            try { try { throw new InvalidOperationException("boom"); } catch (Exception inner) { throw new TypeInitializationException("Preloader", inner); } }
+            catch (Exception middle) { throw new InvalidOperationException("Preloader plugin 'Performance_a1b2' failed", middle); }
+        }
         catch (Exception outer) { thrown = outer; }
         string summary = Quasar.Diagnostics.DiagnosticCollector.Summarize(thrown.ToString());
-        Assert.StartsWith("System.InvalidOperationException: boom at ", summary);
-        Assert.Contains(nameof(NodeFailureCauseIsTheInnermostException), summary);
+        Assert.StartsWith("System.InvalidOperationException: Preloader plugin 'Performance_a1b2' failed caused by System.InvalidOperationException: boom at ", summary);
+        Assert.Contains(nameof(NodeFailureCauseIsTheOutermostAndInnermostException), summary);
         Assert.Equal("System.Exception: plain", Quasar.Diagnostics.DiagnosticCollector.Summarize("System.Exception: plain"));
         Assert.EndsWith("…", Quasar.Diagnostics.DiagnosticCollector.Summarize(new string('x', 900)));
     }

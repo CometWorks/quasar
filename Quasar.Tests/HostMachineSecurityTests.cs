@@ -45,7 +45,7 @@ public sealed class HostMachineSecurityTests
             var failure = Assert.Single(HostApp.NodeActualizer.ReadFailures(state));
 
             Assert.Equal(("demo", "a", "process_exited"), (failure.ClusterId, failure.SlotKey, failure.Failure));
-            Assert.Equal("System.InvalidOperationException: boom at Preloader.Fail()", failure.Cause);
+            Assert.Equal("System.Exception: outer caused by System.InvalidOperationException: boom at Preloader.Fail()", failure.Cause);
             Assert.Equal(Path.Combine(run, "config", "info.log"), failure.LogPath);
         }
         finally { Directory.Delete(state, true); }

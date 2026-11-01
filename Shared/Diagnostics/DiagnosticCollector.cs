@@ -256,6 +256,9 @@ public sealed class DiagnosticCollector
         string summary = cause < 0 ? lines[0] : lines[cause][5..];
         if (Math.Max(cause, 0) + 1 < lines.Length && lines[Math.Max(cause, 0) + 1].StartsWith("at ", StringComparison.Ordinal))
             summary += " " + lines[Math.Max(cause, 0) + 1];
+        // The outermost can name what the cause can't, such as which plugin's Preloader type threw.
+        if (cause > 0)
+            summary = lines[0] + " caused by " + summary;
         return summary.Length > 500 ? summary[..500] + "…" : summary;
     }
 
