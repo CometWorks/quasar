@@ -94,6 +94,17 @@ public sealed class ClusterCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
+    // Caller holds the lifecycle gate; reserve generated endpoints before downloading or preparing inputs.
+    internal Task<ClusterDefinition> ConfigureConversionAsync(ClusterDefinition expected, string gatewayUrl,
+        string adminReference, CancellationToken token) => UpdateCoreAsync(expected.UniqueName, cluster =>
+    {
+        ClusterConversionService.RequireEmpty(cluster);
+        if (cluster.GetLifecycleId() != expected.GetLifecycleId())
+            throw new InvalidOperationException("Destination changed during conversion planning.");
+        cluster.GatewayUrl = gatewayUrl;
+        cluster.GatewayAdminTokenEnvironmentVariable = adminReference;
+    }, token);
+
     public Task<ClusterDefinition> SetGoalStateAsync(string uniqueName, DedicatedServerGoalState goal,
         CancellationToken cancellationToken = default) =>
         WithLifecycleAsync(uniqueName, cluster => cluster.GoalState == goal

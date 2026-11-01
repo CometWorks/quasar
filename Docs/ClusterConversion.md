@@ -9,29 +9,34 @@ plus access to the selected cluster. The initial cluster release targets Linux.
 
 ## Standalone server to cluster
 
-1. Review plugin settings while the source Agent is connected, then stop the server.
-   Quasar retains the last authenticated SDK configuration snapshot, including its
-   capture time. It is historical data, not evidence that the Agent is still online.
-2. Use **Convert to cluster** on the server row. Choose an empty registered cluster
-   with a verified release package and frozen dependency snapshot. The page links to
-   cluster registration and package/dependency setup when needed.
-3. Review the frozen plugin commits. The common plugin IDs must match the source
-   selection, apart from implicit compatibility/Agent plugins. A dev folder counts by
-   its manifest `Id`, or its folder name without one. Frozen commits govern
-   the deployed versions; moving source version labels may resolve differently.
-   An explicitly selected 40-character source commit must match the frozen commit.
-4. Enter Host executor endpoints, private IPs, credential environment-variable names,
-   game build, internal networks and public server port. Choose the Cluster Gateway
-   and World Authority host machine. At least two regular nodes are required: the
-   shipped converter seeds slots 1 and 2. Additional regular nodes may start without
-   seed partitions. Each host machine
-   requires 1–32 regular nodes in this wizard, with 254 across the cluster. **Hot spares** is one
-   count for the cluster, 1 by default.
-5. Confirm **Back up and convert**. Quasar reserves the source against supervised
-   starts, creates both server and world backups, and converts a verified copy with
-   the release's MagnetarWorld tool. It sends the complete verified installation and
-   converted world to each Host executor, prepares the shared specification, then activates
-   the stopped deployment. Package role plugins remain exactly as shipped.
+1. Use **Convert to cluster** in the standalone server's **More server actions** menu.
+2. In **Destination cluster**, keep **Create a new cluster** or select an empty existing
+   cluster. Clusters with a deployment are excluded so conversion cannot overwrite a world.
+3. Click **Convert to cluster**. No release, dependency, topology, credential or game-build
+   fields and no review checkbox are required.
+
+Quasar checks that access restrictions and recorded plugin settings can transfer, reserves
+its source against concurrent offline operations and supervised starts, then saves and stops
+it if running. Automatic stopping waits up to five minutes without force-killing the process.
+The source remains Off with automatic startup disabled, including after an interrupted attempt.
+
+Quasar creates a destination ID when needed and retains the source's server/world names.
+It chooses an enrolled host matching the destination's address, otherwise the local Linux
+Host, otherwise the first enrolled host. It starts the local Host when supported and waits
+for the selected Host to connect. A system without a local Linux x64 Host needs an enrolled
+Linux host; errors explain that prerequisite without adding conversion fields.
+
+Quasar chooses an available managed port range starting at 28000, checks it against local
+standalone servers and other cluster placements, and deploys two regular nodes, one hot spare
+and World Authority on that host. It downloads a compatible verified cluster release,
+prepares the source's plugin selection, freezes runtime and plugin inputs, determines the
+node binary version, and generates and installs cluster credentials. Existing empty clusters
+receive these managed endpoints, credentials and inputs automatically. Capacity can be changed
+later from the cluster's controls.
+
+The existing offline conversion then creates both server and world backups, converts a copy
+with MagnetarWorld, stages the profile's Workshop mods, transfers verified inputs, prepares
+and activates the stopped destination. The source world and backups remain available.
 
 The reviewed profile supplies session settings, mods and administrators. Recorded
 SDK plugin configuration becomes the canonical configuration applied to every node.
@@ -43,16 +48,15 @@ Plugins' arbitrary private files and global stores are retained in backups and n
 plugin-specific migration if used. The converter may reject worlds outside its
 supported layout, for example movable grids without a static anchor.
 
-With one host machine, Quasar assigns the cluster plugin shared directory under its
-Host executor's runtime root, so stopped snapshots include it. With several host machines,
-shared plugin storage needs an explicitly provisioned common mount and an advanced
-deployment specification with `sharedStorageRoot`; the conversion wizard does not
-create a filesystem shared across host machines.
+Automatic conversion keeps all nodes on one host so their plugin shared directory lives
+under the Host executor's durable runtime root and is included in snapshots. It does not
+create a shared filesystem between machines.
 
-Regular node backend/control ports start at 28417/29417 on each host machine. World Authority
-uses 28700/29700; Cluster Registry administration uses the destination cluster's configured URL.
-Credential fields contain environment-variable names, never secret values. Provision
-the corresponding credentials on Quasar and Host executors before running the workflow.
+For the selected player port P, Registry administration uses P+16; node backends start at
+P+1100, controls at P+1200, and World Authority uses P+1164/P+1264. Quasar generates
+credentials in its protected credential store and installs them on the Host; the conversion
+page does not ask for environment variables or secrets. Firewall rules and existing Steam
+Workshop credentials remain deployment prerequisites.
 
 ## Cluster to standalone server
 
@@ -80,7 +84,7 @@ backup; they are not automatically merged into standalone plugin storage.
 ## Progress, interruption and API/CLI
 
 The page shows progress and places a conversion UUID in its URL. Reopen that URL to
-resume the immutable request. Failed attempts retain source/backup data and verified
+resume the immutable request and its generated placement. Failed attempts retain source/backup data and verified
 intermediate outputs. A new operation key retries the same UUID/request; an existing
 operation key replays its recorded result. Changed inputs require **Edit as a new
 conversion**, which creates a new UUID. If Host executor activation partially succeeded,
@@ -110,7 +114,13 @@ For mutations supply `--idempotency-key KEY`; large conversions can use
 `--timeout 3600`. An HTTP timeout does not prove conversion failed: inspect progress
 and resume using the original UUID/request.
 
-The forward request includes `id`, `server`, `sourceRevision`, `binaryVersion`,
+The forward endpoint also accepts automatic conversion requests. Set `automatic: true`,
+provide `id` and `server`, and set `createCluster: true` to create the cluster named in the
+route; otherwise that route must name an empty existing cluster. Other forward fields are
+supplied by Quasar in automatic mode. The conversion page generates a new cluster ID and
+checks cluster access before sending this request. Saved manual requests remain resumable.
+
+For advanced manual API/CLI conversion, the forward request includes `id`, `server`, `sourceRevision`, `binaryVersion`,
 `gatewayHost`, `steamPort`, `joinTokenEnvironmentVariable`,
 `adminTokensFileEnvironmentVariable`, `internalNetworks`, `hosts`,
 `dependencySha256` and `packageRevision`. Each Host executor placement specifies `hostId`, `commandUrl`,
@@ -136,12 +146,9 @@ a managed source and does not provide an unmanaged Cluster Registry migration.
 
 ## Operator labels and suggested names
 
-The conversion form uses **Add placement** and **Remove placement** for topology
-rows; these do not enroll a host machine or install its Host executor. The placement
-fields use **Host machine ID**, **Public server port**, and
-**Cluster Gateway and World Authority host machine**. **Register existing cluster**
-opens the advanced registration tab directly, for an independently installed
-Cluster Registry. It does not create a managed deployment.
+Standalone-to-cluster conversion has only **Destination cluster** (including **Create a new
+cluster**) and **Convert to cluster**. Quasar generates the new cluster ID and copies the
+source's names; there are no topology rows or advanced registration links on this page.
 
 A standalone destination uses **Server ID** and **Server name**. Its initial name
 comes from the source cluster; clearing it fills an editable generated suggestion

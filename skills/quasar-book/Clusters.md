@@ -246,22 +246,18 @@ Cluster backups live in `<backup directory>/Clusters/<hash of the Cluster ID>/`.
 
 ## Convert a standalone server to a cluster
 
-Use **Convert to cluster** in the server's **More server actions** menu (page `/servers/<Server ID>/convert-to-cluster`). It needs cluster manage, server editing and configuration editing permissions. Conversion never deletes or restarts the source; the new cluster stays stopped.
+Use **Convert to cluster** in the server's **More server actions** menu (page `/servers/<Server ID>/convert-to-cluster`). It needs cluster manage, server editing and configuration editing permissions, plus access to the destination cluster.
 
-Before you start:
+1. Choose **Create a new cluster** or an empty existing cluster in **Destination cluster**.
+2. Click **Convert to cluster**. These are the only setup controls.
 
-- Connect the server's Agent once so Quasar records its plugin settings, then stop the server.
-- Register an empty destination cluster with **Register existing cluster** and select its release package and dependency snapshot (**Advanced deployment tools → Select latest release only** and **Freeze selected dependencies**, or the `package-stage`, `package-select` and `dependencies-stage` CLI commands).
-- Freezing dependencies this way copies the managed DS, Content and Magnetar plus two prepared folders set in `appsettings.json` as `Quasar:ClusterDependencies:DirectTransportDirectory` and `Quasar:ClusterDependencies:CommonPluginsDirectory`. Build them with `scripts/package-cluster-direct-transport.sh SOURCE_CHECKOUT COMMIT DS64 MAGNETAR_INSTALL OUTPUT_DIRECTORY` and `python3 scripts/package-cluster-plugins.py --plugin MANIFEST CACHE … --output DIR` from the Quasar source. An unset folder fails with "Dependency source DirectTransport is not configured." (or `CommonPlugins`).
+Quasar checks access restrictions and recorded plugin settings, reserves the source against other offline operations and supervised starts, saves and stops it if needed, and disables its automatic startup. It waits up to five minutes for a graceful stop without force-killing it. The source data remains intact and the converted cluster stays stopped for review and manual player cutover.
 
-The wizard steps:
+Quasar generates a new cluster ID when needed and keeps the source's server/world names. It chooses an enrolled host matching the destination address, otherwise the local Linux Host, otherwise the first enrolled host. Quasar starts the local Host when supported and waits for the selected Host to connect. Windows and container installs need an enrolled Linux host when local hosting is unavailable.
 
-1. **Review the stopped source**: profile, plugins, when plugin settings were captured, and blocking warnings.
-2. **Choose the destination and verified release**: an empty, stopped registered cluster. **Review frozen plugin versions** lists the frozen plugin commits.
-3. **Place the cluster**: per placement the Host machine ID, Host executor command URL, credential environment variable names, private IP address, regular nodes (1 to 32). Then the number of hot spares (1 by default). Then the Cluster Gateway and World Authority host machine, game build, public server port, allowed internal networks and two more credential variable names. Credential fields take environment variable names, never secret values.
-4. Confirm and choose **Back up and convert**.
+Quasar chooses free managed ports, downloads a compatible release, prepares the source's plugins, freezes runtime dependencies, detects the game build, and generates and installs credentials. Existing empty clusters receive these managed settings automatically. Conversion uses two regular nodes, one hot spare and World Authority on one host, so plugin shared storage works without a manual shared mount. Capacity can be changed later.
 
-Quasar then reserves the source, takes a server backup and a world backup, converts a copy of the world with the release's MagnetarWorld tool, stages the profile's Workshop mods as guided setup does (a profile with mods needs the Steam Web API key), sends the installation, the converted world and the mods to every Host, prepares and activates the stopped cluster.
+Quasar then takes server and world backups, converts a world copy with MagnetarWorld, stages the profile's Workshop mods (a profile with mods needs the Steam Web API key), transfers verified inputs, and prepares and activates the stopped cluster. Keep its public UDP port open through the firewall. The conversion URL and generated placement allow the same attempt to resume after an interruption.
 
 Conversion is blocked when:
 
@@ -270,9 +266,9 @@ Conversion is blocked when:
 - The profile has plugins but no recorded settings: "No recorded plugin settings. Connect the source Agent once before stopping the server, then review again."
 - A plugin configuration has no clear SDK type (custom providers or conflicting live copies).
 - The frozen plugin set does not match the source: "Frozen dependency snapshot does not contain every selected source plugin. Missing: …", "Frozen dependency snapshot contains additional common plugins; align it with the reviewed source selection." or, for a plugin pinned to a 40-character commit, "Frozen plugin commit differs from an explicitly pinned source plugin." `linux-compat`, `dotnet-compat`, `error-reporting` and `quasar-agent` may be present without being selected.
-- The source is running: "Stop the source server and wait for its process to exit before converting."
+- The destination already has a deployment, or the source cannot stop cleanly. Conversion never overwrites a deployed cluster.
 
-The converter needs at least two regular nodes in total. Regular nodes use backend ports from 28417 and control ports from 29417 on each host machine; the World Authority uses 28700/29700. The converter may reject worlds it does not support.
+Automatic ports start with a player port P of at least 28000, avoiding other managed port ranges. Registry administration uses P+16, regular node backends P+1100 onward, controls P+1200 onward and World Authority P+1164/P+1264. The converter may reject worlds it does not support. Advanced manual API/CLI conversion retains explicit topology and frozen input fields; see [Cluster conversion](https://github.com/CometWorks/Quasar/blob/main/Docs/ClusterConversion.md).
 
 ## Convert a cluster to a standalone server
 

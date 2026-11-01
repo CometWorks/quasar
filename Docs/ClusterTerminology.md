@@ -17,8 +17,8 @@ host enrollment, conversion, controls, monitoring and the standalone server edit
 | Gateway / Registry | **Cluster Gateway / Cluster Registry** | Cluster Gateway routes player traffic. Cluster Registry owns coordination, administration and retained control events. |
 | Display name | **Server name** | Human-readable server/cluster name. Host enrollment uses **Host machine name**. The optional standalone **In-game server name** continues to override the advertised name. |
 | Host ID, Unique server name, Identifier | **Host machine ID / Cluster ID / Server ID** | Permanent identifiers; separate from editable human-readable names. |
-| Connect existing Gateway | **Register existing cluster** | Registers an independently installed Cluster Registry. Does not provision host machines or deploy a new cluster. Conversion links open this tab directly. |
-| Add Host / Remove Host | **Add placement / Remove placement** | Edits conversion topology rows; does not perform enrollment. |
+| Connect existing Gateway | **Register existing cluster** | Registers an independently installed Cluster Registry. Does not provision host machines or deploy a new cluster. |
+| Standalone conversion setup | **Destination cluster / Create a new cluster / Convert to cluster** | Destination selection and one action. Quasar generates placement, ports, release inputs and credentials. |
 | Prepared (Hosts column) | **Configured clusters** | Count of configured attachments on a Host executor, not live readiness. |
 | Connected Agents | **Connected agents** | Connected in-process telemetry plugins; separate from Host executors. |
 
@@ -33,9 +33,10 @@ on blur or submission. Supplied names are preserved.
 
 Initial name and ID suggestions match when both fields are empty. Subsequent name
 changes preserve explicit IDs. The standalone editor retains its existing automatic
-name-to-ID derivation until the ID is manually edited. Conversion initially uses
+name-to-ID derivation until the ID is manually edited. Cluster-to-standalone conversion initially uses
 the source cluster's name and keeps its proposed destination ID when the name is
 cleared. Resumed setup/conversion requests retain their bound identity and names.
+Standalone-to-cluster conversion copies source names and generates its new cluster ID from the conversion UUID.
 Catalog validation remains authoritative for ID syntax, collisions and removed IDs;
 a suggestion does not reserve an ID or bypass those checks.
 
@@ -51,19 +52,19 @@ rendered screen instances.
 | Exact phrase | Lines | Occurrence locations |
 | --- | ---: | --- |
 | `Add host machine` | 4 | [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [HostEnroll](../Quasar/Components/Pages/HostEnroll.razor), [Hosts](../Quasar/Components/Pages/Hosts.razor) |
-| `Host machine ID` | 2 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
+| `Host machine ID` | 1 | [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
 | `Host machine name` | 1 | [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
 | `Cluster ID` | 2 | [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor) |
 | `Server ID` | 5 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
-| `Server name` | 9 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
-| `Configuration profile` | 8 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterConfigurationLinks](../Quasar/Components/Dashboard/ClusterConfigurationLinks.razor), [ClusterDetailPanel](../Quasar/Components/Dashboard/ClusterDetailPanel.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
-| `Public server port` | 5 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
-| `World Authority` | 7 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterDetailPanel](../Quasar/Components/Dashboard/ClusterDetailPanel.razor), [ClusterFleetPanel](../Quasar/Components/Dashboard/ClusterFleetPanel.razor) |
-| `Cluster Gateway` | 7 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [Hosts](../Quasar/Components/Pages/Hosts.razor), [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
-| `Cluster Registry` | 30 | [ClusterConsoleDialog](../Quasar/Components/Pages/ClusterConsoleDialog.razor), [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [Hosts](../Quasar/Components/Pages/Hosts.razor), [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterDeploymentPanel](../Quasar/Components/Dashboard/ClusterDeploymentPanel.razor), [ClusterDetailPanel](../Quasar/Components/Dashboard/ClusterDetailPanel.razor), [ClusterFleetPanel](../Quasar/Components/Dashboard/ClusterFleetPanel.razor), [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
-| `Register existing cluster` | 3 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor) |
-| `Add placement` | 1 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor) |
-| `Remove placement` | 1 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor) |
+| `Server name` | 8 | [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
+| `Configuration profile` | 7 | [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterConfigurationLinks](../Quasar/Components/Dashboard/ClusterConfigurationLinks.razor), [ClusterDetailPanel](../Quasar/Components/Dashboard/ClusterDetailPanel.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
+| `Public server port` | 4 | [ClusterConversion](../Quasar/Components/Pages/ClusterConversion.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [ServerEditorDialog](../Quasar/Components/Pages/ServerEditorDialog.razor) |
+| `World Authority` | 9 | [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterDetailPanel](../Quasar/Components/Dashboard/ClusterDetailPanel.razor), [ClusterFleetPanel](../Quasar/Components/Dashboard/ClusterFleetPanel.razor), [ClusterHealthOverview](../Quasar/Components/Dashboard/ClusterHealthOverview.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor) |
+| `Cluster Gateway` | 6 | [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [Hosts](../Quasar/Components/Pages/Hosts.razor), [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
+| `Cluster Registry` | 29 | [ClusterAdminPanel](../Quasar/Components/Dashboard/ClusterAdminPanel.razor), [ClusterDeploymentPanel](../Quasar/Components/Dashboard/ClusterDeploymentPanel.razor), [ClusterDetailPanel](../Quasar/Components/Dashboard/ClusterDetailPanel.razor), [ClusterFleetPanel](../Quasar/Components/Dashboard/ClusterFleetPanel.razor), [ClusterHealthOverview](../Quasar/Components/Dashboard/ClusterHealthOverview.razor), [ClusterConsoleDialog](../Quasar/Components/Pages/ClusterConsoleDialog.razor), [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor), [Hosts](../Quasar/Components/Pages/Hosts.razor), [HostEnrollment](../Quasar/Components/Shared/HostEnrollment.razor) |
+| `Register existing cluster` | 2 | [ClusterCreate](../Quasar/Components/Pages/ClusterCreate.razor) |
+| `Add placement` | 0 | None; removed from conversion |
+| `Remove placement` | 0 | None; removed from conversion |
 | `Configured clusters` | 2 | [Hosts](../Quasar/Components/Pages/Hosts.razor) |
 | `Connected agents` | 2 | [Hosts](../Quasar/Components/Pages/Hosts.razor) |
 
