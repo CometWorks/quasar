@@ -170,8 +170,8 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         var page = context.Render<Appearance>();
         Assert.Equal(58, page.FindAll("input[type=color]").Count);
-        Assert.Equal("/Quasar.png", page.Find("img[alt='Dark-mode logo preview']").GetAttribute("src"));
-        Assert.Equal("/Quasar-inverted-transparent.png", page.Find("img[alt='Light-mode logo preview']").GetAttribute("src"));
+        Assert.Equal("Quasar.png", page.Find("img[alt='Dark-mode logo preview']").GetAttribute("src"));
+        Assert.Equal("Quasar-inverted-transparent.png", page.Find("img[alt='Light-mode logo preview']").GetAttribute("src"));
         var darkPrimary = page.FindAll("input[type=text]")[31]; // Two identity inputs followed by 29 light fields.
         darkPrimary.Change("invalid");
         Assert.True(page.Find("button[type=submit]").HasAttribute("disabled"));
@@ -192,6 +192,38 @@ public sealed class NativeAppearanceTests : IDisposable
         page.FindAll("button").Single(x => x.TextContent.Contains("Reset to Quasar default")).Click();
         await page.WaitForAssertionAsync(() => Assert.Equal(BrandingPresets.QuasarId, _branding.Settings.PresetId));
         Assert.Equal("Quasar", _branding.Settings.AppName);
+    }
+
+    [Fact]
+    public async Task AppearanceImagesStayUnderAHostedPanelPrefix()
+    {
+        await using var context = new BunitContext();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton(_branding);
+        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
+        var navigation = new PrefixNavigation("https://dash.test/my-server-panel/");
+        context.Services.AddSingleton<Microsoft.AspNetCore.Components.NavigationManager>(navigation);
+        void AssertImagesUnderPrefix(IRenderedComponent<Appearance> rendered) => Assert.All(rendered.FindAll("img"), image =>
+            Assert.StartsWith("/my-server-panel/", new Uri(new Uri(navigation.BaseUri), image.GetAttribute("src")!).AbsolutePath));
+
+        var page = context.Render<Appearance>();
+        AssertImagesUnderPrefix(page); // Dark palette, default logos.
+        page.Find("button[aria-pressed='false']").Click();
+        AssertImagesUnderPrefix(page); // Light palette, default logos.
+
+        // Uploaded assets are stored with a root-relative /branding path.
+        foreach (bool dark in new[] { true, false })
+            await _branding.SaveLogoAsync(dark, new MemoryStream([1]), ".png");
+        page = context.Render<Appearance>();
+        AssertImagesUnderPrefix(page);
+        page.Find("button[aria-pressed='false']").Click();
+        AssertImagesUnderPrefix(page);
+    }
+
+    private sealed class PrefixNavigation : Microsoft.AspNetCore.Components.NavigationManager
+    {
+        public PrefixNavigation(string origin) => Initialize(origin, origin);
+        protected override void NavigateToCore(string uri, bool forceLoad) { }
     }
 
     [Fact]

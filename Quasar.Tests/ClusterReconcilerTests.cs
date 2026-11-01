@@ -12,6 +12,9 @@ using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 
 namespace Quasar.Tests;
 
+// A reconcile pass skips a cluster when it can't take the process-wide storage lease at once, and any
+// other test touching that lease in parallel can make it miss, so these tests can't run alongside them.
+[Collection("Cluster storage")]
 public sealed class ClusterReconcilerTests : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -748,8 +751,10 @@ public sealed class ClusterReconcilerTests : IDisposable
                 [GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
         });
         var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down)));
-        Task reconcile = CreateReconciler(catalog, gateway, host).ReconcileAllAsync(default);
-        await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        var reconciler = CreateReconciler(catalog, gateway, host);
+        Task reconcile = reconciler.ReconcileAllAsync(default);
+        await Task.WhenAny(entered.Task, reconcile);
+        Assert.True(entered.Task.IsCompleted, $"The pass ended before the Host stop: {reconciler.GetStatus("demo").Message}");
         Task goal = catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
         try { Assert.False(goal.IsCompleted); }
         finally { release.SetResult(); }
