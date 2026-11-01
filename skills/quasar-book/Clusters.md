@@ -49,7 +49,7 @@ Publication reports rotation eligibility and does not rotate a node. See
 
 ## Cluster pages
 
-- **New cluster** on the Dashboard and Servers pages opens `/clusters/new` (page title "Set up cluster"). See [Guided cluster setup](ClusterSetup.md).
+- **New server → Cluster** on the Dashboard and Servers pages opens `/clusters/new` (page title "Set up cluster"). See [Guided cluster setup](ClusterSetup.md).
 - Clusters appear next to standalone servers on the Dashboard, in cards and list view. A cluster card shows the Server name, Cluster ID, Gateway URL, **Desired state**, Start/Stop and Save buttons, the console button and **Manage cluster**.
 - **Hosts** (nav group "Infrastructure & tools", `/hosts`, page title "Host machines") lists Host executors and their reachability. See [Cluster hosts](ClusterHosts.md).
 
@@ -375,6 +375,8 @@ See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
 collisions, limits and the required Magnetar version.
 
 ## Sources
+- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar/Services/ServerManagementActions.cs`
 - `Docs/ClusterOverview.md`
 - `Quasar/Components/Dashboard/ClusterHealthOverview.razor`
 - `Quasar/Components/Dashboard/ClusterResourceUsage.razor`

@@ -254,6 +254,13 @@ server definition's configured Listen IP.
 `0.0.0.0` means “listen on every local interface”; it is not a valid remote
 client address and is not treated as localhost by the join guard.
 
+**New server** on the Dashboard and Servers pages offers **Single Magnetar** or
+**Cluster**, using the same choice-button layout as the Torch/vanilla import wizard.
+Single Magnetar opens the server editor; Cluster opens guided cluster setup at
+`/clusters/new`. Each choice requires its existing server-edit or cluster-management
+permission. The first-setup wizard keeps its world/profile selections when opening
+the standalone server editor.
+
 New server dialogs fill **Server name** and **Server ID** with editable generated
 suggestions. Clearing Server name fills a new suggestion when the field loses focus
 or the form is saved. The suggestion is a saved value, not a placeholder. Existing

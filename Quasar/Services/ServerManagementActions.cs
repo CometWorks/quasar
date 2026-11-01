@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
+using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using Quasar.Components.Pages;
 using Quasar.Models;
@@ -15,7 +16,8 @@ public sealed class ServerManagementActions(
     QuasarWorldTemplateCatalog worldTemplates,
     QuasarPermissionService permissions,
     IDialogService dialogService,
-    ISnackbar snackbar)
+    ISnackbar snackbar,
+    NavigationManager navigation)
 {
     private bool _creatingWorldTemplate;
 
@@ -42,6 +44,29 @@ public sealed class ServerManagementActions(
         };
 
         await dialogService.ShowAsync<ServerConsoleDialog>($"Console — {uniqueName}", parameters, dialogOptions);
+    }
+
+    public async Task OpenNewServerDialogAsync()
+    {
+        if (!await permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
+            && !await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+            return;
+
+        var dialog = await dialogService.ShowAsync<NewServerDialog>("New server",
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not NewServerDialog.ServerKind kind)
+            return;
+
+        if (kind == NewServerDialog.ServerKind.Cluster)
+        {
+            if (await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+                navigation.NavigateTo("clusters/new");
+        }
+        else
+        {
+            await OpenCreateDialogAsync();
+        }
     }
 
     public async Task OpenCreateDialogAsync(string configProfileId = "", string worldTemplateId = "")

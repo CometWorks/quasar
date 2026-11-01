@@ -1,0 +1,47 @@
+<MudDialog>
+    <TitleContent>
+        <h2 class="quasar-text quasar-type-h6">New server</h2>
+    </TitleContent>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-3">
+            <h3 class="quasar-text quasar-type-subtitle1">What kind of server do you want to create?</h3>
+            <MudGrid>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
+                    <MudItem xs="12" md="6">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Storage"
+                                   Style="width: 100%; min-height: 88px;"
+                                   OnClick="@(() => Choose(ServerKind.SingleMagnetar))">
+                            Single Magnetar
+                        </MudButton>
+                        <p class="quasar-text quasar-type-body2 mt-2">One dedicated server with Magnetar plugins, managed by Quasar.</p>
+                    </MudItem>
+                </AuthorizeView>
+                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                    <MudItem xs="12" md="6">
+                        <MudButton Variant="Variant.Filled" Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.AccountTree"
+                                   Style="width: 100%; min-height: 88px;"
+                                   OnClick="@(() => Choose(ServerKind.Cluster))">
+                            Cluster
+                        </MudButton>
+                        <p class="quasar-text quasar-type-body2 mt-2">One shared world across multiple nodes. Continue to guided cluster setup.</p>
+                    </MudItem>
+                </AuthorizeView>
+            </MudGrid>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    public enum ServerKind { SingleMagnetar, Cluster }
+
+    private void Choose(ServerKind kind) => MudDialog.Close(DialogResult.Ok(kind));
+    private void Cancel() => MudDialog.Cancel();
+}

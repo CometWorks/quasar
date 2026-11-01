@@ -104,7 +104,7 @@ When no server or cluster exists, the Dashboard opens the **Set Up First Server*
 - **Create New Server**: closes the dialog and shows the inline **First Setup** wizard on the Dashboard.
 - **Import Existing Server**: continues in the same dialog with the importer (see below).
 
-The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from the Dashboard buttons **Setup guide** (both choices) and **Import server** (import only). **New server** opens the plain server editor.
+The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from the Dashboard buttons **Setup guide** (both choices) and **Import server** (import only). **New server** offers **Single Magnetar** for the server editor or **Cluster** for [guided cluster setup](ClusterSetup.md).
 
 ## Create a new server with the wizard
 
@@ -184,6 +184,8 @@ With **Network** selected, the world's online mode is copied as is, including Of
 | Choose DS World or Start buttons disabled | The managed Dedicated Server download is not finished, or the server has no world save. Check the Managed Runtime panel. |
 
 ## Sources
+- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar/Services/ServerManagementActions.cs`
 - `Docs/QuickStart.md`
 - `Docs/Docker.md`
 - `Docs/Configuration.md`

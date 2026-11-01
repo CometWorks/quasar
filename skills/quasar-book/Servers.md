@@ -36,7 +36,7 @@ The server editor's **Paths** section can override the DS app-data path, Magneta
 
 ## Creating a server
 
-On the **Dashboard**, click **New server**. This opens the **Create Server** dialog. Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
+On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
 
 Required fields:
 
@@ -347,6 +347,7 @@ See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
 collisions, limits and the required Magnetar version.
 
 ## Sources
+- `Quasar/Components/Pages/NewServerDialog.razor`
 - `Docs/StateMachines/DedicatedServerLifecycle.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
 - `Docs/StateMachines/AgentConnection.md`

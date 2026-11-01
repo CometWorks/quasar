@@ -27,7 +27,7 @@ ID remains independent of the name. Resumed setup keeps its recorded identity an
 inputs; removed cluster IDs remain reserved.
 
 
-1. Choose **Create Cluster** beside **Create Server** on the Dashboard (cards or list),
+1. Choose **New server → Cluster** on the Dashboard (cards or list) or Servers page,
    then open **Create and deploy** at `/clusters/new`. **Register existing cluster** is a
    separate advanced tab for independently installed clusters.
 2. The wizard opens on **Host enrollment**. On Linux x64 the Quasar machine has a
