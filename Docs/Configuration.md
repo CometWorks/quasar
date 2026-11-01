@@ -2159,17 +2159,21 @@ newest catalogued saves; their unsaved changes are lost, as with Recovery. Every
 saved. The workflow logs the accepting actor and the list. A failed start reverts from the backup as
 any update does. Inspect with
 `cluster update-status NAME`. API equivalents are POST/GET `/api/v1/clusters/{name}/update`.
-An update that cannot finish locks goal changes, commands, backup, restore, deletion and staging. It
-records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
+An update that cannot finish locks goal changes, commands, backup, restore, deletion and staging.
+It records what it waits for in `lastError` once Stopping exceeds 20 minutes or Starting exceeds
 30 minutes. If nodes keep failing at startup, for example because a plugin throws in its preload
 hook, `lastError` says so as soon as the Gateway stops respawning them: the slots, the failure, the
 exception the node reported and the path of its log on the Host. A shutdown that ended dirty is
-named at once in Stopping, because no clean proof can follow it. `cluster update-abandon NAME --idempotency-key KEY` (API
+named at once in Stopping, because no clean proof can follow it.
+`cluster update-abandon NAME --idempotency-key KEY` (API
 `POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
 panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
-rollback is an ordinary new update. Abandon is refused while a deployment activation is half
-applied on the Hosts; resume that activation or recover the cluster instead.
+rollback is an ordinary new update. After abandoning a start where no node ever ran, the next
+update waits in Stopping, because a Gateway whose World Authority never ran lists `global` as
+unsaved: abandon that update too and apply it with `acceptDirtyShutdown` (**Update despite the
+recorded dirty shutdown**). Abandon is refused while a deployment activation is half applied on the
+Hosts; resume that activation or recover the cluster instead.
 The one command an update accepts is an emergency shutdown (`cluster command NAME REQUEST.json`
 with `{"action":"shutdown","parameters":{"emergency":true}}`) while it stops or starts the cluster.
 It closes the update first, with the actor in `lastError`, because no clean shutdown proof can follow

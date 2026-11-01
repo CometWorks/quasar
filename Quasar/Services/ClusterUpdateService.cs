@@ -563,9 +563,8 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             }
             catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested) { return false; }
             if (dirty is not { Length: > 0 }) return false;
-            string message = "The cluster stopped, but its last shutdown left unsaved state: " + string.Join(", ", dirty.Take(12))
-                + (dirty.Length > 12 ? $" and {dirty.Length - 12} more" : "")
-                + ". This update can't go on. Abandon it, then apply it with Update despite the recorded dirty shutdown in Maintenance, or recover the stopped cluster.";
+            string message = ClusterReconciler.UnsavedState(dirty)
+                + " This update can't go on. Abandon it, then apply it with Update despite the recorded dirty shutdown in Maintenance, or recover the stopped cluster.";
             if (await TimedOutAsync(cluster, workflow, message)) return true;
             if (workflow.LastError != message)
                 await catalog.RecordUpdateAsync(cluster, workflow with { LastError = message, UpdatedAt = DateTimeOffset.UtcNow }, token);

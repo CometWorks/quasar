@@ -600,7 +600,7 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             throw new InvalidOperationException("Select a cluster package and freeze its dependencies first.");
         if (cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
             || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-            throw new InvalidOperationException("Finish the current cluster update or activation first.");
+            throw new InvalidOperationException(cluster.BusyMessage("staging a release"));
         if (previous.Hosts.Length != cluster.ActiveDeployment.Hosts.Length
             || previous.Hosts.Any(host => cluster.ActiveDeployment.Hosts.All(active => active.HostId != host.HostId)))
             throw new InvalidOperationException("Saved preparation has a different Host inventory. Import a current deployment request.");

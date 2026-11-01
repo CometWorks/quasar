@@ -1385,7 +1385,7 @@ public sealed class ClusterDeploymentTests : IDisposable
 
         var cluster = catalog.GetCluster("demo")!;
         Assert.Equal(ClusterUpdatePhase.Stopping, cluster.Update!.Phase);
-        Assert.StartsWith("The cluster stopped, but its last shutdown left unsaved state: global.", cluster.Update.LastError);
+        Assert.StartsWith("The last cluster shutdown left unsaved state: global.", cluster.Update.LastError);
         Assert.Contains("Update despite the recorded dirty shutdown", cluster.Update.LastError);
     }
 
