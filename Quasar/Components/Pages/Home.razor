@@ -3,6 +3,9 @@
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
 @inject ClusterCatalog ClusterCatalog
+@inject ClusterOperationStore ClusterOperations
+@inject ClusterPlayerService ClusterPlayers
+@inject AuthenticationStateProvider AuthenticationState
 @inject DedicatedServerSupervisor Supervisor
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorldTemplateCatalog WorldTemplates
@@ -21,24 +24,26 @@
 @if (ShowDataHandlingConsentPrompt)
 {
     <section class=" mb-4 quasar-panel quasar-section">
-        <div class="quasar-row quasar-between">
-            <div class="setup-wizard-copy quasar-stack">
-                <h3>Data Handling Consent</h3>
-                <p>
-                    The updated data-handling policy requires a new decision. YES automatically enrolls this Quasar instance with CometWorks at https://log.se-servers.net and allows anonymous plugin usage statistics, logging and error reports. Reports include error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent. While YES and diagnostic reports remain enabled, Quasar also checks CometWorks announcements for the notification bell and Notifications page, or service logs in headless mode.
-                </p>
-                <p class="quasar-muted quasar-caption quasar-tone-secondary">
-                    Server listings require this consent and working log delivery. When a listing is explicitly enabled, its name, public join address and summary statistics are public; Quasar admin Steam identities are shared privately to authorize description edits. Existing statistics consent does not enable reports or listings.
-                    Until a new decision is accepted, sharing remains off. Memory dumps and public listing visibility are separate opt-ins in <a href="settings/security">Security</a>; both are off by default.
-                </p>
-            </div>
-            <div class="quasar-row">
-                <button class="quasar-button quasar-tone-success" type="button" @onclick="@(() => SaveDataHandlingConsentAsync(true))"><QuasarIcon Icon="@QuasarIcons.Check" />
-                    YES
-                </button>
-                <button class="quasar-button quasar-tone-warning" type="button" @onclick="@(() => SaveDataHandlingConsentAsync(false))"><QuasarIcon Icon="@QuasarIcons.Close" />
-                    NO
-                </button>
+        <div class="quasar-stack">
+            <div class="quasar-row quasar-between">
+                <div class="setup-wizard-copy quasar-stack">
+                    <h3>Data Handling Consent</h3>
+                    <p>
+                        The updated data-handling policy requires a new decision. YES automatically enrolls this Quasar instance with CometWorks at https://log.se-servers.net and allows anonymous plugin usage statistics, logging and error reports. Reports include error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent. While YES and diagnostic reports remain enabled, Quasar also checks CometWorks announcements for the notification bell and Notifications page, or service logs in headless mode.
+                    </p>
+                    <p class="quasar-muted quasar-caption quasar-tone-secondary">
+                        Server listings require this consent and working log delivery. When a listing is explicitly enabled, its name, public join address and summary statistics are public; Quasar admin Steam identities are shared privately to authorize description edits. Existing statistics consent does not enable reports or listings.
+                        Until a new decision is accepted, sharing remains off. Memory dumps and public listing visibility are separate opt-ins in <a href="settings/security">Security</a>; both are off by default.
+                    </p>
+                </div>
+                <div class="quasar-row">
+                    <button class="quasar-button quasar-tone-success" type="button" @onclick="@(() => SaveDataHandlingConsentAsync(true))"><QuasarIcon Icon="@QuasarIcons.Check" />
+                        YES
+                    </button>
+                    <button class="quasar-button quasar-tone-warning" type="button" @onclick="@(() => SaveDataHandlingConsentAsync(false))"><QuasarIcon Icon="@QuasarIcons.Close" />
+                        NO
+                    </button>
+                </div>
             </div>
         </div>
     </section>
@@ -60,6 +65,24 @@
     </div>
 }
 
+@if (_firstSetupFlow == FirstSetupFlow.Cluster)
+{
+    var cluster = Clusters.FirstOrDefault();
+    var deployed = cluster?.ActiveDeployment is not null;
+    var destination = deployed ? $"clusters/{Uri.EscapeDataString(cluster!.UniqueName)}"
+        : cluster is not null ? $"clusters/new?resume={Uri.EscapeDataString(cluster.UniqueName)}" : "clusters/new";
+    <section class="quasar-panel quasar-section mb-6">
+        <div class="quasar-stack">
+            <h2>First Setup · Cluster</h2>
+            <p>@(deployed ? "Your cluster is deployed. Open its controls to review and start it, then close setup when you are finished." : "Continue guided cluster setup to configure and deploy your cluster.")</p>
+            <div class="quasar-row">
+                <a class="quasar-button quasar-button-primary" href="@destination">@(deployed ? "Open cluster controls" : "Continue cluster setup")</a>
+                <button class="quasar-button" type="button" @onclick="HideSetupWizard">@(deployed ? "Close setup" : "Skip setup")</button>
+            </div>
+        </div>
+    </section>
+}
+
 @if (ShowSetupWizard)
 {
     <section class=" mb-6 quasar-panel quasar-section">
@@ -70,7 +93,7 @@
                     <p>Start from a Dedicated Server world. Quasar creates its world template first, then a matching config profile.</p>
                 </div>
                 <button class="quasar-button quasar-tone-default" type="button" @onclick="HideSetupWizard"><QuasarIcon Icon="@QuasarIcons.Close" />
-                    Hide Wizard
+                    Skip setup
                 </button>
             </div>
 
@@ -113,6 +136,10 @@
                             </div>
                         </div>
 
+                        @if (SetupWorldTemplate is null)
+                        {
+                            <DedicatedServerSetupStatus />
+                        }
                         @if (SetupWorldTemplate is not null)
                         {
                             <div class="quasar-row">
@@ -334,10 +361,17 @@
                 </div>
                 }
 
-                @if (CurrentSetupStep > 0)
+                @if (CurrentSetupStep > 0 || IsSetupStepComplete(CurrentSetupStep))
                 {
                     <div class="mt-1 quasar-row">
-                        <button class="quasar-button quasar-tone-default" type="button" @onclick="GoToPreviousSetupStep"><QuasarIcon Icon="@QuasarIcons.ArrowBack" />Back</button>
+                        @if (CurrentSetupStep > 0)
+                        {
+                            <button class="quasar-button quasar-tone-default" type="button" @onclick="GoToPreviousSetupStep"><QuasarIcon Icon="@QuasarIcons.ArrowBack" />Back</button>
+                        }
+                        @if (CurrentSetupStep < 4 && IsSetupStepComplete(CurrentSetupStep))
+                        {
+                            <button class="quasar-button quasar-button-primary" type="button" @onclick="GoToNextSetupStep"><QuasarIcon Icon="@Icons.Material.Filled.ArrowForward" />Next</button>
+                        }
                     </div>
                 }
             </div>
@@ -360,7 +394,7 @@
     </div>
 }
 
-@if (ShouldShowRuntimeWarmup())
+@if (ShouldShowRuntimeWarmup() && !(ShowSetupWizard && CurrentSetupStep == 0 && SetupWorldTemplate is null))
 {
     <section class=" runtime-status mb-4 quasar-panel quasar-section">
         <div class="quasar-stack">
@@ -387,7 +421,14 @@
                             }
                         </div>
                         <div class="runtime-status-progress">
-                            <QuasarProgress Label="@component.DisplayName" Value="@(component.Percent ?? 0)" Indeterminate="@IsRuntimeComponentIndeterminate(component)" />
+                            @if (component.State is ManagedRuntimeComponentState.Checking or ManagedRuntimeComponentState.Downloading or ManagedRuntimeComponentState.Installing)
+                            {
+                                <QuasarOperationLoader @key="component.Component" Title="@component.DisplayName" Message="@component.Message" Percent="@((double?)component.Percent)" />
+                            }
+                            else
+                            {
+                                <QuasarProgress Label="@component.DisplayName" Value="@(component.State == ManagedRuntimeComponentState.Ready ? 100 : 0)" />
+                            }
                             <div class="quasar-row quasar-between">
                                 <p class="quasar-muted quasar-caption">@GetRuntimeComponentLabel(component)</p>
                                 @if (CanRetryRuntimeComponent(component))
@@ -405,26 +446,30 @@
     </section>
 }
 
+@{
+    var fleet = FleetSummary.Build(Servers, RuntimeSnapshotList, Agents,
+        Clusters.ToDictionary(cluster => cluster.UniqueName, cluster => ClusterPlayers.GetSnapshot(cluster.UniqueName), StringComparer.OrdinalIgnoreCase));
+}
 <section class="quasar-summary" aria-label="Fleet summary">
     <div class="quasar-metric">
-        <span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone servers" : "Servers")<QuasarIcon Icon="@QuasarIcons.Storage" /></span>
-        <strong class="quasar-metric-value">@OnlineServerCount<small>/ @Servers.Count running</small></strong>
-        <span class="quasar-metric-note">@ConfiguredServerCount configured · @ConnectedAgentCount connected agents</span>
+        <span class="quasar-metric-label">Servers<QuasarIcon Icon="@QuasarIcons.Storage" /></span>
+        <strong class="quasar-metric-value">@(fleet.UnobservedClusters > 0 ? (fleet.RunningServers > 0 ? fleet.RunningServers + "+" : "—") : fleet.RunningServers.ToString())<small>/ @fleet.ConfiguredServers running</small></strong>
+        <span class="quasar-metric-note">@Servers.Count standalone · @Clusters.Count @(Clusters.Count == 1 ? "cluster" : "clusters")@if (fleet.UnobservedClusters > 0) { <span> · cluster status unavailable: @fleet.UnobservedClusters</span> }</span>
     </div>
     <div class="quasar-metric">
-        <span class="quasar-metric-label">@(Clusters.Count > 0 ? "Standalone players" : "Players online")<QuasarIcon Icon="@QuasarIcons.Groups" /></span>
-        <strong class="quasar-metric-value">@PlayersOnline<small>/ @PlayerCapacity slots</small></strong>
-        <span class="quasar-metric-note">Across connected standalone servers</span>
+        <span class="quasar-metric-label">Players online<QuasarIcon Icon="@QuasarIcons.Groups" /></span>
+        <strong class="quasar-metric-value">@(fleet.PlayersOnline?.ToString() ?? "—")<small>/ @(fleet.PlayerCapacity?.ToString() ?? "—") slots</small></strong>
+        <span class="quasar-metric-note">@fleet.ReportingServers of @fleet.ConfiguredServers servers reporting</span>
     </div>
-    <div class="quasar-metric @(WarningServerCount > 0 ? "quasar-metric-warning" : null)">
+    <div class="quasar-metric @(fleet.HealthWarnings > 0 ? "quasar-metric-warning" : null)">
         <span class="quasar-metric-label">Average sim speed<QuasarIcon Icon="@QuasarIcons.QueryStats" /></span>
-        <strong class="quasar-metric-value">@AverageSimSpeed<small>×</small></strong>
-        <span class="quasar-metric-note">@WarningServerCount health warnings · @UnhealthyServerCount errors</span>
+        <strong class="quasar-metric-value">@(fleet.AverageSimSpeed?.ToString("0.00") ?? "—")<small>×</small></strong>
+        <span class="quasar-metric-note">@fleet.SimulationProcesses active game processes · @fleet.HealthWarnings warnings · @fleet.HealthErrors errors</span>
     </div>
-    <div class="quasar-metric @(UnhealthyServerCount > 0 ? "quasar-metric-error" : null)">
-        <span class="quasar-metric-label">Memory usage<QuasarIcon Icon="@QuasarIcons.Memory" /></span>
-        <strong class="quasar-metric-value">@TotalMemoryGiB<small>GiB</small></strong>
-        <span class="quasar-metric-note">Reported standalone working sets</span>
+    <div class="quasar-metric @(fleet.HealthErrors > 0 ? "quasar-metric-error" : null)">
+        <span class="quasar-metric-label">Game process memory<QuasarIcon Icon="@QuasarIcons.Memory" /></span>
+        <strong class="quasar-metric-value">@(fleet.MemoryGiB?.ToString("0.0") ?? "—")<small>GiB</small></strong>
+        <span class="quasar-metric-note">@fleet.MemoryProcesses server and node processes reporting</span>
     </div>
 </section>
 
@@ -481,12 +526,12 @@ else
 }
 
 <div class="quasar-insights">
-    <FleetTelemetryChart Servers="@Servers" />
+    <FleetTelemetryChart Servers="@Servers" Clusters="@Clusters" Agents="@Agents" />
     <section class="quasar-panel">
         <div class="quasar-panel-heading"><h2>Recent activity</h2><span>Lifecycle &amp; commands</span></div>
         @if (RecentActivity.Count == 0)
         {
-            <div class="quasar-empty"><h2>No recent activity</h2><p>Server starts, stops, restarts, and command results appear here.</p></div>
+            <div class="quasar-empty"><h2>No recent activity</h2><p>Server and cluster starts, stops, restarts, and command results appear here.</p></div>
         }
         else
         {
@@ -510,7 +555,11 @@ else
     </text>;
 
     private const string ServerViewStorageKey = "quasar.dashboard.serverView";
-    private const string FirstSetupChoiceStorageKey = "quasar.dashboard.firstSetupChoiceShown";
+    private const string FirstSetupStorageKey = "quasar.dashboard.firstSetup";
+    private enum FirstSetupFlow { Choice, SingleMagnetar, Import, Cluster, Dismissed }
+    private sealed record FirstSetupProgress(FirstSetupFlow Flow, string? WorldTemplateId, int? StepOverride = null);
+    private FirstSetupFlow _firstSetupFlow = FirstSetupFlow.Choice;
+    private bool _disposed;
 
     private enum DashboardServerView
     {
@@ -523,7 +572,9 @@ else
 
     private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
     private IReadOnlyList<DedicatedServerDefinition> Servers => ServerCatalog.GetServers();
-    private IReadOnlyList<ClusterDefinition> Clusters => ClusterCatalog.GetClusters();
+    private System.Security.Claims.ClaimsPrincipal? _user;
+    private IReadOnlyList<ClusterDefinition> Clusters => _user is null ? []
+        : ClusterCatalog.GetClusters().Where(cluster => _user.CanQueryCluster(cluster.UniqueName)).ToArray();
     private IReadOnlyList<DedicatedServerRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
     private ManagedRuntimeWarmupSnapshot RuntimeWarmupSnapshot => RuntimeWarmup.GetSnapshot();
     private IReadOnlyDictionary<string, DedicatedServerRuntimeSnapshot> RuntimeSnapshots => Supervisor
@@ -556,28 +607,12 @@ else
 
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
-    private int OnlineServerCount => Servers.Count(server => IsOpen(server.UniqueName));
-
-    private int PlayersOnline => Servers
-        .Select(server => GetAgent(server.UniqueName))
-        .Where(agent => agent?.IsConnected == true)
-        .Sum(agent => agent?.Snapshot?.Metrics.PlayersOnline ?? 0);
-
-    private IReadOnlyList<Magnetar.Protocol.Model.ServerMetrics> LiveStandaloneMetrics => Servers
-        .Select(server => GetAgent(server.UniqueName))
-        .Where(agent => agent is { IsConnected: true, Snapshot: not null })
-        .Select(agent => agent!.Snapshot!.Metrics).ToArray();
-    private int PlayerCapacity => LiveStandaloneMetrics.Sum(metrics => metrics.MaxPlayers);
-    private string AverageSimSpeed => LiveStandaloneMetrics is { Count: > 0 } metrics
-        ? metrics.Average(value => value.SimSpeed).ToString("0.00") : "—";
-    private string TotalMemoryGiB => LiveStandaloneMetrics.Where(metrics => metrics.MemoryWorkingSetMb.HasValue).ToArray() is { Length: > 0 } metrics
-        ? (metrics.Sum(value => value.MemoryWorkingSetMb!.Value) / 1024d).ToString("0.0") : "—";
-
     private IReadOnlyList<FleetActivity> RecentActivity
     {
         get
         {
             var events = new List<FleetActivity>();
+            var clusters = Clusters.ToDictionary(cluster => cluster.UniqueName, StringComparer.OrdinalIgnoreCase);
             foreach (var runtime in RuntimeSnapshotList)
             {
                 if (runtime.StartedAtUtc is { } started) events.Add(new(started, runtime.UniqueName, "Server started", "quasar-text-success"));
@@ -588,13 +623,61 @@ else
                     string.IsNullOrWhiteSpace(restart.Reason) ? "Restart " + restart.Outcome.ToString().ToLowerInvariant() : restart.Reason,
                     restart.Outcome == DedicatedServerRestartOutcome.Failed ? "quasar-text-error" : "quasar-text-warning"));
             }
-            foreach (var agent in Agents)
+            foreach (var operation in ClusterOperations.GetRecent(clusters.Keys, 5))
+            {
+                var name = clusters[operation.Cluster].DisplayName;
+                events.Add(new(operation.UpdatedAt, string.IsNullOrWhiteSpace(name) ? operation.Cluster : name,
+                    ClusterActivityMessage(operation), operation.State switch
+                    {
+                        ClusterOperationState.Failed => "quasar-text-error",
+                        ClusterOperationState.Running => "quasar-text-warning",
+                        _ => "quasar-text-success",
+                    }));
+            }
+            foreach (var agent in Agents.Where(agent => !agent.IsCluster || clusters.ContainsKey(agent.ClusterId)))
                 foreach (var result in agent.CommandResults.Where(result => !string.IsNullOrWhiteSpace(result.Message)).Take(6))
                     events.Add(new(result.CompletedAtUtc, agent.ServerDisplayName, result.Message, result.Success ? "" : "quasar-text-error"));
             return events.OrderByDescending(entry => entry.At).Take(5).ToArray();
         }
     }
     private sealed record FleetActivity(DateTimeOffset At, string Server, string Message, string Tone);
+
+    private static string ClusterActivityMessage(ClusterOperation operation)
+    {
+        var action = operation.Kind switch
+        {
+            "cluster.goal.set" when operation.Result is { ValueKind: System.Text.Json.JsonValueKind.Object } result
+                && result.TryGetProperty("goal", out var goal) => goal.ToString() switch
+                {
+                    "On" => "Cluster start requested",
+                    "Off" => "Cluster stop requested",
+                    _ => "Cluster state change",
+                },
+            "cluster.goal.set" => "Cluster state change",
+            "cluster.lifecycle.shutdown" or "cluster.shutdown" => "Cluster shutdown",
+            "cluster.gateway-restart" => "Cluster Gateway restart",
+            "cluster.save-all" => "Cluster world save",
+            "cluster.kick" => "Cluster player kick",
+            "cluster.ban" => "Cluster player ban",
+            "cluster.unban" => "Cluster player unban",
+            "cluster.setup" => "Cluster setup",
+            "cluster.backup.create" => "Cluster backup",
+            "cluster.backup.prepare-restore" => "Cluster restore preparation",
+            "cluster.backup.restore" => "Cluster restore",
+            "cluster.deployment.prepare" => "Cluster deployment preparation",
+            "cluster.deployment.activate" => "Cluster deployment activation",
+            "cluster.update.begin" => "Cluster update",
+            "cluster.update.abandon" => "Cluster update cancellation",
+            "cluster.recover" or "cluster.gateway.recover" => "Cluster recovery",
+            _ => "Cluster operation",
+        };
+        return action + (operation.State switch
+        {
+            ClusterOperationState.Running => " · in progress",
+            ClusterOperationState.Failed => " · failed",
+            _ => " · completed",
+        });
+    }
 
     private int ConfiguredServerCount => Servers.Count + Clusters.Count;
 
@@ -603,13 +686,6 @@ else
             or DedicatedServerProcessState.Running
             or DedicatedServerProcessState.Restarting
             or DedicatedServerProcessState.Stopping);
-
-    private int WarningServerCount => RuntimeSnapshotList.Count(snapshot =>
-        snapshot.HealthState == DedicatedServerHealthState.Warning);
-
-    private int UnhealthyServerCount => RuntimeSnapshotList.Count(snapshot =>
-        snapshot.HealthState == DedicatedServerHealthState.Unhealthy ||
-        snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
 
     private (Severity Severity, string Message, string? ClearErrorUniqueName)? ProblemBanner
     {
@@ -635,9 +711,6 @@ else
 
     private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
 
-    private bool _setupWizardRequested;
-    private bool _setupWizardDismissed;
-    private bool _setupWizardActive;
     private string? _setupWorldTemplateId;
     private int? _setupStepOverride;
 
@@ -708,27 +781,39 @@ else
         }
     }
 
-    private void GoToPreviousSetupStep()
+    private async Task GoToPreviousSetupStep()
     {
         var step = CurrentSetupStep;
         if (step == 0)
             return;
 
         _setupStepOverride = step - 1;
+        await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
     }
 
-    // First-time users choose import or create-new in a modal. Create-new activates this
-    // existing inline flow, which stays visible while they complete launch and agent attach.
-    private bool ShowSetupWizard =>
-        (_setupWizardActive || _setupWizardRequested) && !_setupWizardDismissed;
+    private async Task GoToNextSetupStep()
+    {
+        var step = CurrentSetupStep;
+        if (step >= 4 || !IsSetupStepComplete(step)) return;
+        _setupStepOverride = step + 1;
+        await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
+    }
+
+    private bool ShowSetupWizard => _firstSetupFlow == FirstSetupFlow.SingleMagnetar;
 
     private Task ShowSetupWizardAgain() => OpenFirstServerSetupDialogAsync();
 
-    private void HideSetupWizard()
+    private Task HideSetupWizard() => SetFirstSetupFlowAsync(FirstSetupFlow.Dismissed);
+
+    private async Task SetFirstSetupFlowAsync(FirstSetupFlow flow)
     {
-        _setupWizardRequested = false;
-        _setupWizardActive = false;
-        _setupWizardDismissed = true;
+        if (_disposed) return;
+        _firstSetupFlow = flow;
+        try
+        {
+            await BrowserStorage.SetJsonAsync(FirstSetupStorageKey, new FirstSetupProgress(flow, _setupWorldTemplateId, _setupStepOverride));
+        }
+        catch (Exception error) when (error is InvalidOperationException or JSException) { }
     }
 
     protected override void OnInitialized()
@@ -736,14 +821,17 @@ else
         Registry.Changed += HandleRegistryChanged;
         ServerCatalog.Changed += HandleRegistryChanged;
         ClusterCatalog.Changed += HandleRegistryChanged;
+        ClusterOperations.Changed += HandleRegistryChanged;
+        ClusterPlayers.Changed += HandleRegistryChanged;
         Supervisor.Changed += HandleRegistryChanged;
         ConfigProfiles.Changed += HandleRegistryChanged;
         WorldTemplates.Changed += HandleRegistryChanged;
         RuntimeWarmup.Changed += HandleRegistryChanged;
         DataHandlingConsent.Changed += HandleRegistryChanged;
-
-        _setupWizardActive = false;
     }
+
+    protected override async Task OnInitializedAsync() =>
+        _user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
 
     protected override void OnParametersSet()
     {
@@ -789,45 +877,50 @@ else
 
     private async Task ShowFirstSetupChoiceOnceAsync()
     {
-        if (_firstSetupChoiceAttempted || ConfiguredServerCount > 0)
+        if (_firstSetupChoiceAttempted || _disposed)
             return;
 
         _firstSetupChoiceAttempted = true;
+        FirstSetupProgress? saved = null;
         try
         {
-            var stored = await BrowserStorage.GetStringAsync(FirstSetupChoiceStorageKey);
-            if (string.Equals(stored, "shown", StringComparison.OrdinalIgnoreCase))
-                return;
+            saved = await BrowserStorage.GetJsonAsync<FirstSetupProgress>(FirstSetupStorageKey);
         }
-        catch (InvalidOperationException)
-        {
-        }
-        catch (JSDisconnectedException)
-        {
-        }
+        catch (Exception error) when (error is InvalidOperationException or JSException or System.Text.Json.JsonException) { }
+
+        if (_disposed) return;
+        if (saved?.Flow == FirstSetupFlow.Dismissed || saved is null && ConfiguredServerCount > 0)
+            return;
 
         if (!await EnsureServerSetupAuthorizedAsync())
             return;
 
-        try
+        if (saved is not null && Enum.IsDefined(saved.Flow))
         {
-            await BrowserStorage.SetStringAsync(FirstSetupChoiceStorageKey, "shown");
-        }
-        catch (InvalidOperationException)
-        {
-        }
-        catch (JSDisconnectedException)
-        {
+            _setupWorldTemplateId = saved.WorldTemplateId;
+            _setupStepOverride = saved.StepOverride is >= 0 and <= 4 ? saved.StepOverride : null;
+            _firstSetupFlow = saved.Flow;
+            if (_firstSetupFlow == FirstSetupFlow.Cluster && (!OperatingSystem.IsLinux()
+                || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)))
+                _firstSetupFlow = FirstSetupFlow.Choice;
+            if (_firstSetupFlow is FirstSetupFlow.SingleMagnetar or FirstSetupFlow.Cluster)
+            {
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
         }
 
-        await OpenServerSetupDialogCoreAsync(offerCreateNew: true);
+        await OpenServerSetupDialogCoreAsync(offerCreateNew: true, startInImport: _firstSetupFlow == FirstSetupFlow.Import);
     }
 
     public void Dispose()
     {
+        _disposed = true;
         Registry.Changed -= HandleRegistryChanged;
         ServerCatalog.Changed -= HandleRegistryChanged;
         ClusterCatalog.Changed -= HandleRegistryChanged;
+        ClusterOperations.Changed -= HandleRegistryChanged;
+        ClusterPlayers.Changed -= HandleRegistryChanged;
         Supervisor.Changed -= HandleRegistryChanged;
         ConfigProfiles.Changed -= HandleRegistryChanged;
         WorldTemplates.Changed -= HandleRegistryChanged;
@@ -871,7 +964,7 @@ else
         if (ConnectedAgentCount == 0)
             return "Last step: wait here for Quasar.Agent attach. Dashboard updates live when server reports in.";
 
-        return "Setup complete. Dashboard now stays focused on live running servers.";
+        return "Setup complete. Choose Close when you are ready to finish.";
     }
 
     private async Task SaveDataHandlingConsentAsync(bool consentGranted)
@@ -919,6 +1012,7 @@ else
 
         _setupWorldTemplateId = importResult.Template.WorldTemplateId;
         _setupStepOverride = null;
+        await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
         await InvokeAsync(StateHasChanged);
     }
 
@@ -961,6 +1055,7 @@ else
             await ConfigProfiles.UpsertAsync(profile);
             Snackbar.Add($"Config profile '{profile.Name}' created from '{worldTemplate.Name}'.", Severity.Success);
             _setupStepOverride = null;
+            await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
             await InvokeAsync(StateHasChanged);
         }
         catch (Exception exception)
@@ -991,41 +1086,64 @@ else
         await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers) &&
         await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs);
 
-    private async Task OpenServerSetupDialogCoreAsync(bool offerCreateNew)
+    private async Task OpenServerSetupDialogCoreAsync(bool offerCreateNew, bool startInImport = false)
     {
-        if (_serverSetupDialogOpen)
+        if (_serverSetupDialogOpen || _disposed)
             return;
 
         _serverSetupDialogOpen = true;
-        var parameters = new DialogParameters
-        {
-            [nameof(ExistingServerImportDialog.OfferCreateNew)] = offerCreateNew,
-        };
-
         try
         {
+            await SetFirstSetupFlowAsync(!offerCreateNew || startInImport ? FirstSetupFlow.Import : FirstSetupFlow.Choice);
+            var parameters = new DialogParameters
+            {
+                [nameof(ExistingServerImportDialog.OfferCreateNew)] = offerCreateNew,
+                [nameof(ExistingServerImportDialog.OfferCluster)] = OperatingSystem.IsLinux()
+                    && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage),
+                [nameof(ExistingServerImportDialog.StartInImport)] = startInImport,
+                [nameof(ExistingServerImportDialog.ImportModeChanged)] = EventCallback.Factory.Create<bool>(this,
+                    importing => SetFirstSetupFlowAsync(importing ? FirstSetupFlow.Import : FirstSetupFlow.Choice)),
+                [nameof(ExistingServerImportDialog.ImportCompleted)] = EventCallback.Factory.Create<ExistingServerImportResult>(this, async imported =>
+                {
+                    if (_disposed) return;
+                    _setupWorldTemplateId = imported.Server.WorldTemplateId;
+                    _setupStepOverride = null;
+                    await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
+                }),
+            };
+
             var dialog = await DialogService.ShowAsync<ExistingServerImportDialog>(
                 offerCreateNew ? "Set Up First Server" : "Import Existing Server",
                 parameters,
                 new DialogOptions
                 {
                     CloseOnEscapeKey = false,
+                    BackdropClick = false,
                     FullWidth = true,
                     MaxWidth = MaxWidth.Large,
                 });
             var result = await dialog.Result;
+            if (_disposed) return;
             if (result is null || result.Canceled ||
                 result.Data is not ExistingServerImportDialog.DialogOutcome outcome)
             {
+                await HideSetupWizard();
                 return;
             }
 
+            if (outcome.StartClusterSetup)
+            {
+                if (OperatingSystem.IsLinux() && await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+                {
+                    await SetFirstSetupFlowAsync(FirstSetupFlow.Cluster);
+                    Navigation.NavigateTo("clusters/new");
+                }
+                return;
+            }
             if (outcome.StartNewSetup)
             {
-                _setupWizardRequested = true;
-                _setupWizardActive = true;
-                _setupWizardDismissed = false;
                 _setupStepOverride = null;
+                await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
                 await InvokeAsync(StateHasChanged);
                 return;
             }
@@ -1033,7 +1151,7 @@ else
             if (outcome.ImportResult is not { } imported)
                 return;
 
-            HideSetupWizard();
+            await HideSetupWizard();
             Snackbar.Add($"Imported server '{imported.Server.DisplayName}'. Review it before starting.", Severity.Success);
             await InvokeAsync(StateHasChanged);
         }
@@ -1462,11 +1580,6 @@ else
         ManagedRuntimeComponentState.Checking => Color.Info,
         _ => Color.Default,
     };
-
-    private static bool IsRuntimeComponentIndeterminate(ManagedRuntimeComponentSnapshot component) =>
-        (component.State is ManagedRuntimeComponentState.Checking
-            or ManagedRuntimeComponentState.Installing) ||
-        component.State == ManagedRuntimeComponentState.Downloading && !component.Percent.HasValue;
 
     private static string GetRuntimeComponentLabel(ManagedRuntimeComponentSnapshot component) => component.State switch
     {

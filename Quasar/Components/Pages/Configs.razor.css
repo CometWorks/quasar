@@ -154,6 +154,11 @@
     overflow: hidden;
 }
 
+/* Dense panels remove the space below the final option and its help text. */
+::deep .configs-expansion-panel .mud-expand-panel-content.mud-expand-panel-dense {
+    padding-bottom: 1rem;
+}
+
 .configs-expansion-panel .mud-expand-panel-header {
     transition: background-color 0.15s ease, box-shadow 0.15s ease;
 }

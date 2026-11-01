@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Collections.Concurrent;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
 
@@ -16,21 +17,31 @@ public sealed class QuasarShutdownService
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly WebServiceOptions _options;
     private readonly ILogger<QuasarShutdownService> _logger;
+    private readonly ClusterCatalog? _clusters;
+    private readonly ClusterCommandService? _clusterCommands;
+    private readonly ClusterReconciler? _clusterReconciler;
 
     public QuasarShutdownService(
         IHostApplicationLifetime lifetime,
         DedicatedServerSupervisor supervisor,
         WebServiceOptions options,
-        ILogger<QuasarShutdownService> logger)
+        ILogger<QuasarShutdownService> logger,
+        ClusterCatalog? clusters = null,
+        ClusterCommandService? clusterCommands = null,
+        ClusterReconciler? clusterReconciler = null)
     {
         _lifetime = lifetime;
         _supervisor = supervisor;
         _options = options;
         _logger = logger;
+        _clusters = clusters;
+        _clusterCommands = clusterCommands;
+        _clusterReconciler = clusterReconciler;
     }
 
     /// <summary>
-    /// Gracefully stops every running Magnetar server. Quasar itself keeps running;
+    /// Gracefully stops running standalone servers. Explicit goal-Off requests also
+    /// stop managed clusters through their normal lifecycle. Quasar itself keeps running;
     /// the worker is not restarted. Progress messages are reported via
     /// <paramref name="progress"/> so the caller can update a UI while waiting.
     /// </summary>
@@ -50,29 +61,84 @@ public sealed class QuasarShutdownService
                 or DedicatedServerProcessState.Stopping)
             .ToList();
 
-        if (running.Count == 0)
-            return;
-
-        progress?.Report($"Stopping {running.Count} server{(running.Count == 1 ? "" : "s")}…");
-
-        foreach (var snapshot in running)
+        // The explicit power action persists Off goals for the whole managed fleet.
+        // Worker-only shutdown retains its existing standalone goal-preservation policy.
+        var clusters = setGoalStateOff
+            ? _clusters?.GetClusters().Where(cluster => cluster.Gateway is not null).ToArray() ?? []
+            : [];
+        var total = running.Count + clusters.Length;
+        var completed = 0;
+        var failures = new ConcurrentQueue<string>();
+        void Report(string message) => progress?.Report($"{Volatile.Read(ref completed)} of {total} stopped. {message}");
+        async Task StopOneAsync(string label, Func<Task> stop)
         {
-            var label = snapshot.UniqueName;
-            progress?.Report($"Stopping \"{label}\"…");
-
+            Report($"Saving and stopping {label}…");
             try
             {
-                // Record the intent first (without a competing reconcile-driven stop)
-                // so the supervisor never auto-restarts the server we are about to stop.
-                if (setGoalStateOff)
-                    await _supervisor.SetGoalStateAsync(snapshot.UniqueName, DedicatedServerGoalState.Off, reconcile: false, cancellationToken);
-
-                await _supervisor.StopServerAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
+                await stop();
+                Interlocked.Increment(ref completed);
+                Report($"{label} stopped.");
             }
-            catch
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+            catch (Exception error)
             {
-                // Best-effort: keep shutting down the remaining servers.
+                failures.Enqueue($"{label}: {error.Message}");
+                _logger.LogError(error, "Save and stop failed for {Server}", label);
+                Report($"Could not stop {label}: {error.Message}");
             }
+        }
+
+        var stops = running.Select(snapshot => StopOneAsync($"server '{snapshot.UniqueName}'", async () =>
+        {
+            if (setGoalStateOff)
+                await _supervisor.SetGoalStateAsync(snapshot.UniqueName, DedicatedServerGoalState.Off, reconcile: false, cancellationToken);
+            await _supervisor.StopServerAsync(snapshot.UniqueName, forceAfter: null, cancellationToken);
+        })).Concat(clusters.Select(cluster =>
+        {
+            var label = string.IsNullOrWhiteSpace(cluster.DisplayName) ? cluster.UniqueName : cluster.DisplayName;
+            return StopOneAsync($"cluster '{label}'", () => StopClusterAsync(cluster, message => Report($"{label}: {message}"), cancellationToken));
+        }));
+        await Task.WhenAll(stops);
+        if (!failures.IsEmpty)
+            throw new InvalidOperationException("Some servers could not be stopped. " + string.Join(" ", failures));
+        progress?.Report(total == 0 ? "No managed servers or clusters need stopping." : "All managed servers and clusters have stopped.");
+    }
+
+    private async Task StopClusterAsync(ClusterDefinition cluster, Action<string> progress, CancellationToken cancellationToken)
+    {
+        if (_clusterCommands is null || _clusterReconciler is null || _clusters is null)
+            throw new InvalidOperationException("Cluster lifecycle control is unavailable.");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(cluster.ShutdownGracePeriodSeconds) + TimeSpan.FromMinutes(3));
+        try
+        {
+            var request = await _clusterCommands.SetGoalAsync(cluster.UniqueName, new(DedicatedServerGoalState.Off),
+                Guid.NewGuid().ToString("N"), "quasar-power", deadline.Token);
+            if (request.State != ClusterOperationState.Succeeded)
+                throw new InvalidOperationException(request.Error?.Message ?? "Could not request cluster shutdown.");
+            var lifecycle = _clusters.GetCluster(cluster.UniqueName)!.GetLifecycleId();
+            while (true)
+            {
+                var current = _clusters.GetCluster(cluster.UniqueName)
+                    ?? throw new InvalidOperationException("The cluster was removed during shutdown.");
+                if (current.GoalState != DedicatedServerGoalState.Off || current.GetLifecycleId() != lifecycle)
+                    throw new InvalidOperationException("Cluster configuration or goal changed during shutdown. Check its current state.");
+                var status = await _clusterReconciler.ReconcileNowAsync(cluster.UniqueName, deadline.Token);
+                progress(status?.Message ?? "Waiting for another cluster operation to finish…");
+                if (status is { Goal: DedicatedServerGoalState.Off, State: ClusterReconcileState.Converged,
+                    GatewayObserved: Quasar.Host.Contract.V1.GatewayObservedState.Missing,
+                    ClusterPhase: CometWorks.ClusterGateway.AdminContract.V1.ClusterPhase.Down }
+                    && _clusters.GetCluster(cluster.UniqueName) is { } stopped && stopped.IsProvenStopped())
+                    return;
+                if (status?.State is ClusterReconcileState.Failed or ClusterReconcileState.ConfigurationRequired
+                    || status?.ErrorCode == "deployment_pending")
+                    throw new InvalidOperationException(status.Message);
+                await Task.Delay(TimeSpan.FromSeconds(2), deadline.Token);
+            }
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Timed out waiting for verified cluster shutdown. Check the cluster page; an accepted Off goal remains in effect.");
         }
     }
 

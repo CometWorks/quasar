@@ -31,6 +31,8 @@ public sealed class ClusterDetailPanelTests
             var fixture = ClusterHealthOverviewTests.Sample();
             fixture.Cluster.GoalState = goal;
             using var handler = new PartialGateway(fixture);
+            handler.Recovery = new(RecoveryReadinessState.AtRisk, null, null, null, null,
+                new(1, 0, 0, 0), new(1, 0, 0, 0), new(1, 0, 0, 0), new(false, null, 0, 0), [], []);
             using var http = new HttpClient(handler);
             var gateway = new ClusterGatewayClient(http);
             var host = new ClusterHostClient(http);
@@ -44,6 +46,7 @@ public sealed class ClusterDetailPanelTests
             fixture.Cluster.HostCommandUrl = "http://host.test";
             fixture.Cluster.HostCommandTokenEnvironmentVariable = credential;
             var availability = new List<bool>();
+            context.Render<MudBlazor.MudPopoverProvider>();
             var panel = context.Render<ClusterDetailPanel>(p => p.Add(c => c.Cluster, fixture.Cluster)
                 .Add(c => c.ShowTopology, true).Add(c => c.ShowConfigurationLinks, false)
                 .Add(c => c.GatewayAvailabilityChanged, available => availability.Add(available)));
@@ -51,6 +54,15 @@ public sealed class ClusterDetailPanelTests
             Assert.Contains("18 routed players", panel.Markup);
             Assert.Contains("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
+            if (goal == DedicatedServerGoalState.On)
+            {
+                Assert.Contains("Recovery at risk", panel.Markup);
+                Assert.Contains("No complete recovery point has been reported", panel.Markup);
+                Assert.Contains("Recovery after a crash is not confirmed", panel.Markup);
+                Assert.DoesNotContain("AtRisk", panel.Markup);
+            }
+            handler.Recovery = handler.Recovery with { State = RecoveryReadinessState.Ready,
+                LatestPoint = new("save-1", RecoveryConsistency.CutConsistent, 42) };
             handler.FailEdges = true;
             handler.FailCapabilities = true;
             await panel.WaitForAssertionAsync(() => Assert.DoesNotContain("18 routed players", panel.Markup), TimeSpan.FromSeconds(10));
@@ -58,6 +70,13 @@ public sealed class ClusterDetailPanelTests
             Assert.DoesNotContain("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
             Assert.Equal([true, false], availability);
+            if (goal == DedicatedServerGoalState.On)
+            {
+                Assert.Contains("Ready to recover", panel.Markup);
+                Assert.Contains("Progress since the last save may be lost", panel.Markup);
+                Assert.DoesNotContain("CutConsistent", panel.Markup);
+                Assert.DoesNotContain("cluster time", panel.Markup);
+            }
         }
         finally { Environment.SetEnvironmentVariable(credential, null); }
     }
@@ -66,6 +85,7 @@ public sealed class ClusterDetailPanelTests
     {
         internal volatile bool FailEdges;
         internal volatile bool FailCapabilities;
+        internal RecoveryReadiness? Recovery;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             bool host = request.RequestUri!.Host == "host.test";
@@ -75,6 +95,7 @@ public sealed class ClusterDetailPanelTests
                 "/admin/v1/capabilities" when !FailCapabilities => new AdminCapabilities("gateway", AdminScope.Query, [], new Dictionary<string, string>()),
                 "/admin/v1/status" => fixture.Status,
                 "/admin/v1/plan" => Array.Empty<NodePlan>(),
+                "/admin/v1/recovery-readiness" => Recovery,
                 "/admin/v1/clients" when !FailEdges => fixture.Clients,
                 "/admin/v1/partitions" when !FailEdges => fixture.Partitions,
                 _ => null,
@@ -113,6 +134,7 @@ public sealed class ClusterDetailPanelTests
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
 
         var availability = new List<bool>();
+        context.Render<MudBlazor.MudPopoverProvider>();
         var panel = context.Render<ClusterDetailPanel>(parameters => parameters
             .Add(p => p.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test", GoalState = goal,
                 Gateway = managed ? new GatewaySpec("test", GatewayGoal.Off, "/bundle", "hash", "rev", [], "/run") : null })
@@ -121,6 +143,12 @@ public sealed class ClusterDetailPanelTests
 
         Assert.Equal([false], availability);
         Assert.Equal(shouldWarn, panel.Markup.Contains("Cannot reach the Cluster Registry", StringComparison.Ordinal));
+        var labels = panel.FindAll("th").Select(cell => cell.TextContent).ToArray();
+        Assert.Contains("Automatic cluster control", labels);
+        Assert.Contains("Host management service", labels);
+        Assert.Contains("Saved coordination state", labels);
+        Assert.Contains("Waiting for first check", panel.Markup);
+        Assert.DoesNotContain("first reconcile pass", panel.Markup);
         if (collapseDetails)
         {
             Assert.False(panel.Find("details").HasAttribute("open"));
@@ -147,6 +175,7 @@ public sealed class ClusterDetailPanelTests
         context.Services.AddSingleton(new ClusterReconciler(null!, gateway, host, null!, NullLogger<ClusterReconciler>.Instance));
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
+        context.Render<MudBlazor.MudPopoverProvider>();
         var panel = context.Render<ClusterDetailPanel>(parameters => parameters
             .Add(p => p.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test" })
             .Add(p => p.ShowConfigurationLinks, false));

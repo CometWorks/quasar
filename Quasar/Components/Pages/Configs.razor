@@ -18,6 +18,7 @@
 @inject IDialogService DialogService
 
 <PageTitle>Config Profiles</PageTitle>
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasPendingChanges()" />
 
 <QuasarPageHeading Section="Configuration"><Title>Configuration profiles</Title><Description>Edit server settings, Workshop mods, and plugin selections in one workspace.</Description></QuasarPageHeading>
 
@@ -1606,11 +1607,35 @@
         SelectProfile(configProfileId);
     }
 
+    private Task<bool>? _pendingChangesConfirmation;
+
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
+            context.PreventNavigation();
+    }
+
     public async Task<bool> ConfirmPendingChangesBeforeLeavingAsync()
     {
         if (!HasPendingChanges())
             return true;
 
+        if (_pendingChangesConfirmation is not null)
+            return await _pendingChangesConfirmation;
+
+        try
+        {
+            _pendingChangesConfirmation = ShowPendingChangesDialogAsync();
+            return await _pendingChangesConfirmation;
+        }
+        finally
+        {
+            _pendingChangesConfirmation = null;
+        }
+    }
+
+    private async Task<bool> ShowPendingChangesDialogAsync()
+    {
         var dialog = await DialogService.ShowAsync<ConfigProfilePendingChangesDialog>(
             "Unsaved config changes",
             new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
@@ -1625,7 +1650,17 @@
         }
 
         if (action == ConfigProfilePendingChangesDialog.PendingChangesAction.Save)
-            return await SaveTemplateInternalAsync(reselectAfterSave: false);
+        {
+            try
+            {
+                return await SaveTemplateInternalAsync(reselectAfterSave: false);
+            }
+            catch (Exception error)
+            {
+                Snackbar.Add($"Could not save config profile: {error.Message}", Severity.Error);
+                return false;
+            }
+        }
 
         return true;
     }

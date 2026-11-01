@@ -2,6 +2,8 @@ using System.Net;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Collections.Concurrent;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Host.Contract.V1;
@@ -117,6 +119,113 @@ public sealed class ClusterReconcilerTests : IDisposable
 
         Assert.Equal(["host-status", "gateway-status", "gateway-shutdown", "gateway-status", "host-off"], order);
         Assert.Equal(ClusterReconcileState.Converged, reconciler.GetStatus("demo").State);
+    }
+
+    [Fact]
+    public async Task SaveAndStopAllIncludesClusterAndWaitsForItsFencedStopConfirmation()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.On);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        GatewayStatus hostState = GatewayStatus(GatewayGoal.On, GatewayObservedState.Running);
+        var phase = Admin.ClusterPhase.Serving;
+        var host = new AsyncHandler(async (request, token) =>
+        {
+            if (request.Method == HttpMethod.Put)
+            {
+                Assert.Equal(Admin.ClusterPhase.Down, phase);
+                var spec = JsonSerializer.Deserialize<GatewaySpec>(await request.Content!.ReadAsStringAsync(token), JsonOptions)!;
+                Assert.Equal(new GatewayStopFence(42, DateTimeOffset.UnixEpoch), spec.StopFence);
+                entered.TrySetResult();
+                await release.Task.WaitAsync(token);
+                hostState = GatewayStatus(GatewayGoal.Off, GatewayObservedState.Missing);
+                return HostResponse(hostState);
+            }
+            return HostResponse(Host([hostState]));
+        });
+        var gateway = new ContractHandler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Post)
+            {
+                Assert.EndsWith("/shutdown", request.RequestUri!.AbsolutePath);
+                phase = Admin.ClusterPhase.Down;
+                return GatewayResponse(new Admin.AdminOperation("shutdown-all", "shutdown", Admin.AdminOperationState.Succeeded,
+                    "quasar-power", request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null, null));
+            }
+            return GatewayResponse(Status(phase));
+        });
+        var operations = new ClusterOperationStore(Path.Combine(_directory, "power-operations"));
+        var client = new ClusterGatewayClient(new HttpClient(gateway));
+        var hosts = new ClusterHostClient(new HttpClient(host));
+        var reconciler = new ClusterReconciler(catalog, client, hosts, operations, NullLogger<ClusterReconciler>.Instance);
+        var options = new WebServiceOptions();
+        using var supervisor = new DedicatedServerSupervisor(null!, new AgentRegistry(null!, null!, null!, null!), null!, null!, null!, options, null!, NullLogger<DedicatedServerSupervisor>.Instance);
+        var lifetime = new PowerLifetime();
+        var service = new QuasarShutdownService(lifetime, supervisor, options, NullLogger<QuasarShutdownService>.Instance,
+            catalog, new(catalog, operations, client, hosts), reconciler);
+        var messages = new ConcurrentQueue<string>();
+        var stopping = service.StopAllServersAsync(new ProgressSink(messages.Enqueue), setGoalStateOff: true);
+        try
+        {
+            await Task.WhenAny(entered.Task, stopping).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(entered.Task.IsCompleted, stopping.Exception?.ToString());
+            Assert.False(stopping.IsCompleted);
+            Assert.Equal(DedicatedServerGoalState.Off, catalog.GetCluster("demo")!.GoalState);
+            Assert.Contains(messages, message => message.Contains("Saving and stopping cluster 'Demo'"));
+            Assert.DoesNotContain(messages, message => message.StartsWith("All managed"));
+        }
+        finally { release.TrySetResult(); }
+        await stopping.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(catalog.GetCluster("demo")!.HasCleanShutdownProof());
+        Assert.Equal("All managed servers and clusters have stopped.", messages.Last());
+        Assert.False(lifetime.Stopped);
+    }
+
+    [Fact]
+    public async Task SaveAndStopAllReportsDirtyClusterWithoutForcingTheGatewayOrStoppingQuasar()
+    {
+        Environment.SetEnvironmentVariable(_tokenVariable, "test-token");
+        using var catalog = CreateCatalog(DedicatedServerGoalState.On);
+        var host = new ContractHandler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Get, request.Method);
+            return HostResponse(Host([GatewayStatus(GatewayGoal.On, GatewayObservedState.Running)]));
+        });
+        var gateway = new ContractHandler((_, _) => GatewayResponse(Status(Admin.ClusterPhase.Down)))
+            { Snapshots = [Snapshot("partition:11")] };
+        var operations = new ClusterOperationStore(Path.Combine(_directory, "power-operations"));
+        var client = new ClusterGatewayClient(new HttpClient(gateway));
+        var hosts = new ClusterHostClient(new HttpClient(host));
+        var reconciler = new ClusterReconciler(catalog, client, hosts, operations, NullLogger<ClusterReconciler>.Instance);
+        var options = new WebServiceOptions();
+        using var supervisor = new DedicatedServerSupervisor(null!, new AgentRegistry(null!, null!, null!, null!), null!, null!, null!, options, null!, NullLogger<DedicatedServerSupervisor>.Instance);
+        var lifetime = new PowerLifetime();
+        var service = new QuasarShutdownService(lifetime, supervisor, options, NullLogger<QuasarShutdownService>.Instance,
+            catalog, new(catalog, operations, client, hosts), reconciler);
+        var messages = new ConcurrentQueue<string>();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.StopAllServersAsync(new ProgressSink(messages.Enqueue), setGoalStateOff: true));
+        Assert.Contains("partition:11", error.Message);
+        Assert.Null(catalog.GetCluster("demo")!.ShutdownProof);
+        Assert.Equal(DedicatedServerGoalState.Off, catalog.GetCluster("demo")!.GoalState);
+        Assert.False(lifetime.Stopped);
+        Assert.Contains(messages, message => message.Contains("Could not stop cluster"));
+        Assert.DoesNotContain(messages, message => message.StartsWith("All managed"));
+    }
+
+    private sealed class ProgressSink(Action<string> report) : IProgress<string>
+    {
+        public void Report(string value) => report(value);
+    }
+
+    private sealed class PowerLifetime : IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => CancellationToken.None;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public bool Stopped { get; private set; }
+        public void StopApplication() => Stopped = true;
     }
 
     [Theory]

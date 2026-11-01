@@ -47,7 +47,18 @@ public sealed class NewServerDialogTests : IDisposable
         var provider = context.Render<MudDialogProvider>();
         var action = provider.InvokeAsync(() => actions.OpenNewServerDialogAsync());
         await provider.WaitForAssertionAsync(() => Assert.Single(provider.FindComponents<NewServerDialog>()));
-        await provider.FindAll("button").Single(b => b.TextContent.Trim() == choice).ClickAsync();
+        bool unavailableCluster = choice == "Cluster" && !OperatingSystem.IsLinux();
+        var selected = provider.FindAll("button").Single(b => b.TextContent.Trim() == choice);
+        Assert.Equal(unavailableCluster, selected.HasAttribute("disabled"));
+        if (unavailableCluster)
+        {
+            Assert.Contains("Cluster setup requires Quasar running on Linux", provider.Markup);
+            var clusterButton = provider.FindComponents<MudButton>().Single(b => b.Find("button").TextContent.Trim() == "Cluster");
+            await provider.InvokeAsync(() => clusterButton.Instance.OnClick.InvokeAsync(new()));
+            Assert.Single(provider.FindComponents<NewServerDialog>());
+            await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Cancel").ClickAsync();
+        }
+        else await selected.ClickAsync();
 
         if (choice == "Single Magnetar")
         {
@@ -57,7 +68,7 @@ public sealed class NewServerDialogTests : IDisposable
         }
 
         await action;
-        Assert.Equal(choice == "Cluster" ? "http://localhost/clusters/new" : "http://localhost/", navigation.Uri);
+        Assert.Equal(choice == "Cluster" && !unavailableCluster ? "http://localhost/clusters/new" : "http://localhost/", navigation.Uri);
         Assert.Equal(choice == "Single Magnetar" ? 2 : 1, references.Count);
         Assert.Empty(catalog.GetServers());
     }
@@ -73,6 +84,8 @@ public sealed class NewServerDialogTests : IDisposable
         var choices = provider.FindAll("button").Select(b => b.TextContent.Trim()).ToArray();
         Assert.Contains(visible, choices);
         Assert.DoesNotContain(hidden, choices);
+        if (visible == "Cluster")
+            Assert.Equal(!OperatingSystem.IsLinux(), provider.FindAll("button").Single(b => b.TextContent.Trim() == "Cluster").HasAttribute("disabled"));
     }
 
     private static BunitContext CreateContext(params string[] policies)

@@ -161,6 +161,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.False(File.Exists(HostedPanelState.StatePath));
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Next")).ClickAsync();
         Assert.Contains("Step 2 of 3", provider.Markup);
+        Assert.DoesNotContain("Self-deploy", provider.Markup);
         provider.Find("input").Input("my-panel");
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Back")).ClickAsync();
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Next")).ClickAsync();
@@ -205,6 +206,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         var provider = await HostedDialogAsync(context, handler);
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Start hosted enrollment")).ClickAsync();
         Assert.Contains("Continue enrollment with Steam", provider.Markup);
+        Assert.DoesNotContain("Self-deploy", provider.Markup);
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
         Assert.Equal("Cancel", Assert.Single(provider.FindAll(".access-setup-actions button")).TextContent.Trim());
 
@@ -230,8 +232,18 @@ public sealed class AccessSetupDialogTests : IDisposable
         await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup));
         var dashboard = provider.FindAll("a").Single(a => a.TextContent.Contains("Open Quasar dashboard"));
         Assert.Equal("https://dash.se-servers.net/test-panel/", dashboard.GetAttribute("href"));
+        Assert.Null(dashboard.GetAttribute("target"));
         Assert.Contains("mud-button-root", dashboard.ClassList);
         Assert.Equal("1", provider.Find("progress").GetAttribute("value"));
+        Assert.DoesNotContain("Self-deploy", provider.Markup);
+        Assert.Contains("Manage Nebula hosting and billing", provider.Markup);
+
+        await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Done").ClickAsync();
+        Assert.Equal("hosted", HostedPanelState.Read()!.Choice);
+        provider.Dispose();
+        provider = await OpenAsync(context);
+        Assert.Contains("Your hosted panel is ready", provider.Markup);
+        Assert.DoesNotContain("Self-deploy", provider.Markup);
 
         // Retained credentials and fresh health cannot override inactive hosting.
         handler.Active = false;

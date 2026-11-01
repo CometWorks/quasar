@@ -8,6 +8,19 @@ External UI plugin migrations are additional work, depending on their scope.
 
 ## Migration progress
 
+Long operations use the shared native `QuasarOperationLoader`: a named activity,
+live status, elapsed time and a progress bar. Percentages come only from reported
+progress; elapsed time never generates an estimated percentage. At 30 seconds,
+the loader adds a long-operation note. This covers cluster setup, maintenance and
+conversion, Host enrollment, managed runtime installation on Dashboard and Updates,
+private .NET SDK installation, UI plugin changes and service shutdown. Restart
+feedback remains in browser JavaScript so it survives the worker stopping; its
+progress bar counts completed restart stages alongside the existing status and
+elapsed time. During a planned restart it also suppresses the normal reconnect
+dialog and its competing reload attempts; clearing restart feedback restores normal
+reconnection handling. Short authorization, entity-query and Workshop-search
+indicators remain compact.
+
 This branch targets Quasar **1.3.0**, with the shared version declared in
 `Directory.Build.props`. The release workflow uses that version for upcoming PR
 builds, allowing the core UI changes to be tested through the regular prerelease
@@ -30,19 +43,33 @@ The approved visual overhaul now extends across the core workspace. Migrated sur
   reset, busy states, and invalid-color validation. RGB selection preserves alpha.
 - Fleet overview with four summary tiles, compact server rows by default, a
   shared table/view toolbar, and larger page headings. Saved card/list choices
-  and query overrides still work. Player capacity, average simulation speed,
-  and working-set totals exclude disconnected standalone snapshots.
+  and query overrides still work. Fleet totals combine standalone servers with cluster-wide presence and current
+  node telemetry. Stale or missing readings remain unavailable.
 - Simulation history reuses the analytics endpoint and uPlot with a 30-minute
   window, 10-second request throttle, gaps for missing samples, and theme-aware
-  colors. Recent activity derives from existing lifecycle and command results.
+  colors. Recent activity combines standalone lifecycle and command results with durable cluster operations, including in-progress and failed actions without connected agents. The simulation-speed chart includes stable cluster slot histories alongside standalone servers.
   These panels have explicit empty/error states; production data is not mocked.
 - Native standalone/cluster server table with live search, status/type filters,
   resource metrics, optional technical columns, all previous sort choices,
   live detail expansion, copy/config links, restart/error summaries, and existing
-  actions/disabled states. Endpoint sorting uses comparable host/port pairs for
-  mixed standalone and cluster rows. Unmanaged agent expansion remains available.
+  actions/disabled states. The **Game port** column shows and sorts the player port
+  for standalone and cluster rows. Cluster ports use the active deployment's
+  Steam listener; missing configuration shows **Unknown**. Unmanaged agent expansion
+  remains available.
 
 Additional migrated surfaces:
+
+First-server setup remembers its active flow, selected world and manual Back step
+in browser storage. Refreshes and server creation preserve the guide; dismissal
+requires an explicit skip, cancel, close or completion action. The first choice
+offers Single Magnetar, Import, and Cluster on Linux when authorized. Cluster
+selection hands off to the existing guided wizard, with a resume panel on Dashboard.
+Import refreshes require fresh source selection and confirmation; a completed
+import resumes the setup guide if refreshed before Done.
+
+Single-line outlined MudBlazor text inputs and select fields use the same shared
+padding, so mixed forms such as Security's Provider, SteamID and Role row keep
+aligned control heights. Multiline inputs retain their own sizing.
 
 - Dashboard consent/setup wizard, errors, managed-runtime preparation, progress,
   retries, and copyable paths. Existing setup and lifecycle handlers are retained.
@@ -186,7 +213,7 @@ Screenshots: [fleet dashboard](quasar-fleet-dark.png),
 
 Working sample interactions:
 
-- Dashboard search, status and host filters, and row density.
+- Dashboard search, status and host filters.
 - Navigation between the three samples; other actions show a prototype notice.
 - Console message and severity filtering, plus simulated command submission.
 - Light, dark, and system appearance, including OS preference changes.
@@ -340,7 +367,7 @@ server/Agent interactions, and migrated UI plugin packages.
 
 The design study was checked in the collaborative browser at desktop and
 390-pixel mobile widths. Checks covered search, status/host filters, empty states,
-row density, navigation, log severity filtering, simulated commands, all four
+navigation, log severity filtering, simulated commands, all four
 existing presets, all 29 palette fields, alpha color editing, branding text,
 browser save/reload, light/dark selection, system preference changes, and mobile
 navigation. The mobile table scrolls within its container without overflowing

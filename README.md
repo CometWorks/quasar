@@ -1,8 +1,8 @@
 # Quasar
 
 Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
-(`AGPL-3.0-only`). The previous MIT distribution is preserved on
-[`archive/mit`](https://github.com/CometWorks/quasar/tree/archive/mit).
+(`AGPL-3.0-only`). The previous MIT distribution is preserved by the
+[`archive/mit` tag](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 See [licensing and source availability](Docs/Licensing.md) for the transition,
 redistribution, and modified hosted versions.
 
@@ -80,7 +80,9 @@ Entity Viewer companion plugins can now discover connected servers through
 `IQuasarCompanionChannel.GetConnectedServers()` and collect recording batches in
 background hosted services without an open browser. Stable server IDs are paired
 with current agent IDs. Cluster nodes use separate incarnation IDs, which can be
-passed directly back to the companion channel. The Entity Viewer owns replay contracts, capture,
+passed directly back to the companion channel. Discovery also includes explicit
+cluster IDs, configured cluster display names and stable slots so the viewer can
+present one logical server and apply recording controls across all its nodes. The Entity Viewer owns replay contracts, capture,
 24-hour storage, admin-only history endpoints, and playback; Quasar core supplies
 server discovery and the existing companion request transport. Install matching
 Quasar and Entity Viewer revisions to enable continuous history collection.

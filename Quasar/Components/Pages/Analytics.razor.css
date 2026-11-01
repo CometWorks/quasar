@@ -2,6 +2,22 @@
     flex-wrap: wrap;
 }
 
+.analytics-cluster-selection {
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 4px;
+    padding: 8px 16px 16px;
+}
+
+.analytics-node-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 16px;
+    margin-top: 8px;
+}
+
+.analytics-node-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.analytics-series-swatch { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+
 .analytics-chart-grid {
     display: grid;
     grid-template-columns: repeat(var(--analytics-grid-columns), minmax(0, 1fr));

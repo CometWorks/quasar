@@ -38,6 +38,11 @@ The solution file is `Quasar.sln`.
 
 ## Build setup
 
+The shared base version in `Directory.Build.props` is `1.4.0`. Stable main-branch
+releases append the number of commits since that base-version bump, producing
+`1.4.0.x`; the bump commit starts at `1.4.0.0`. CI supplies the complete release
+version to packaging. Keep the source base at three components.
+
 Quasar, Bootstrap and Quasar.Host compile the exact current Registry admin contract source pinned under
 `Contracts/ClusterGateway.AdminContract`. `SOURCE.md` records its upstream revision and
 checksum. No neighboring Gateway checkout or private contract package is needed.

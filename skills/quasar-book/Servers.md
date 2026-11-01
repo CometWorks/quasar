@@ -2,6 +2,12 @@
 
 This page covers standalone managed servers in Quasar: what a server is made of, creating, editing, cloning and deleting servers, start/stop/restart/kill, crash and health recovery, ports, the .NET runtime choice, managed downloads, Steam Workshop mods, process priority and what happens to servers when Quasar itself restarts. Config profiles and world saves have their own page: [Config profiles](ConfigProfiles.md).
 
+The **Dedicated servers** panel shows the filtered and total server counts in its toolbar.
+Its **Game port** column shows the player connection port for standalone servers
+and clusters. Cluster ports come from the deployed Steam listener, not the Registry
+administration URL; unavailable ports show **Unknown**. Search and sorting use the
+game port.
+
 ## What a managed server is
 
 A managed server is one Space Engineers 1 Dedicated Server (DS) process that Quasar launches and supervises. It has three parts:
@@ -312,6 +318,15 @@ Quasar updates don't rebuild the helper. An old one rejects launchers it doesn't
 
 Both warnings stay on the server while it runs, until a priority applies: on the card, in the expanded row of the List view, and as "Process priority not applied" under the row's status. Changing the ready priority to one that applies, such as Normal, clears the warning. After reinstalling the helper, restart the server so Quasar tries the priority again.
 
+## Save and stop the managed fleet
+
+The admin power dialog's **Save and stop all servers** includes standalone
+servers and managed clusters. Their goals are set to Off. Quasar stays online
+with a shutdown loader, elapsed time, progress messages and a stopped count.
+Cluster completion requires the normal final saves, drain and verified Gateway
+stop. An error remains visible until closed; other stop requests still proceed.
+No process is force-killed by this action. Observed-only clusters are excluded.
+
 ## Servers survive Quasar restarts
 
 Quasar launches Magnetar with `-daemon`, which detaches it from Quasar's session. Quasar saves each server's process ID in `supervisor-state.json`.
@@ -400,3 +415,7 @@ collisions, limits and the required Magnetar version.
 - `tools/quasar-renice.c`
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
+- `Quasar/Services/ClusterOverview.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterReconciler.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`

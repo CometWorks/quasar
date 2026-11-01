@@ -58,9 +58,12 @@ else
                             {
                                 <MudAlert Severity="Severity.Info">
                                     Plugin configuration is managed for the whole cluster.
-                                    <a href="@($"clusters/{Uri.EscapeDataString(selectedAgent.ClusterId)}#cluster-settings")">Open cluster configuration</a> to stage changes for all nodes.
+                                    Open the cluster's plugin settings to use the configuration editor and stage changes for all nodes.
                                 </MudAlert>
-                                <pre>@plugin.ConfigJson</pre>
+                                <MudButton Href="@($"clusters/{Uri.EscapeDataString(selectedAgent.ClusterId)}#cluster-settings")"
+                                           Variant="Variant.Outlined" Color="Color.Primary" Class="mt-3">
+                                    Open cluster plugin settings
+                                </MudButton>
                             }
                             else
                             {

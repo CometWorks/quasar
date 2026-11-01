@@ -16,6 +16,11 @@ These version details are also visible to users with query-only cluster access.
 
 ## Operator flow
 
+Cluster creation and Host installation show an activity panel with the current
+phase and elapsed time. During runtime provisioning, reported download percentages
+appear in the loader. Steps without a measured percentage remain indeterminate;
+after 30 seconds the panel explains that the operation is still running.
+
 UI labels follow the [agreed terminology](ClusterTerminology.md): **Host machine**
 for the computer, **Host executor** for its Quasar.Host service, **Cluster Gateway**
 for player traffic, and **Cluster Registry** for administration and coordination.
@@ -30,11 +35,12 @@ inputs; removed cluster IDs remain reserved.
 1. Choose **New server → Cluster** on the Dashboard (cards or list) or Servers page,
    then open **Create and deploy** at `/clusters/new`. **Register existing cluster** is a
    separate advanced tab for independently installed clusters.
-2. The wizard opens on **Host enrollment**. On Linux x64 the Quasar machine has a
-   built-in local Host (`local`) that Quasar runs from its own release, with its
-   files in `<install root>/LocalHost`, and starts when it is needed. It prefers
-   a private LAN/VPN address for multi-host support, falling back to loopback for
-   a single-host cluster.
+   The Cluster choice is disabled when Quasar runs on Windows; its description
+   explains that cluster setup requires Linux. Single Magnetar remains available.
+2. The wizard opens on **Host enrollment** and lists available machines with their
+   connection state. Continue when a machine shows **Connected**. The UI keeps
+   automatic local setup details out of this step and reports errors when action
+   is needed.
    Add other Linux x64 host machines inline with **Add host machine**, or use
    **Hosts → Add host machine** outside the wizard. Both use the same enrollment
    form: choose a one-time command, SSH, or a manual package.
@@ -47,6 +53,13 @@ inputs; removed cluster IDs remain reserved.
    Installation also enables a per-machine update timer. It checks the active Quasar
    web release every 15 minutes and updates the Host executor automatically, including when
    Quasar runs a prerelease. The cluster package pin does not select the Host executor binary.
+   Commands to the local Host start it when needed and wait for its authenticated
+   connection within the 30-second connection deadline. Startup does not wait for
+   the Host before opening Quasar's listener, which the Host needs to connect.
+   Launch failures and connection timeouts remain operation errors; they do not
+   stop Quasar. A running local Host is adopted only when both its binary and
+   configuration match. A changed Quasar address or port restarts the Host so it
+   reads the new connection settings; its Gateway and nodes keep running.
 3. In **Configure and deploy**, select a world template, configuration profile,
    Cluster Gateway and World Authority host machine, public server port and node counts. **Back to host enrollment** lets you add or repair
    hosts without leaving the wizard; entered cluster settings are preserved.
@@ -130,6 +143,15 @@ idempotency key after a failed attempt; reusing a key returns that attempt's res
 Source templates and profiles are preserved. The cluster receives its own profile
 copy, and remains stopped after activation.
 
+Once the runtime snapshot and Workshop payload are frozen, `prepared-inputs.json`
+records the approved deployment inventory, exact mod versions and files, resolved
+mod profile, canonical plugin settings and copied profile hash. Resume verifies
+this checkpoint and the selected release/dependencies, then continues with local
+installation verification, world conversion and distribution. It does not update
+the runtime, query Workshop, rebuild plugins or freeze dependencies again. The
+world conversion and activation receipts still skip their completed steps. The
+checkpoint and temporary mod payload are removed after successful activation.
+
 The setup form keeps a bound request read-only while it can be resumed. After a
 failed attempt, inputs remain bound and visible so an administrator can reconnect
 the hosts and resume. **Start a new setup** explicitly clears the bound request and
@@ -139,7 +161,16 @@ offline. The enrollment step remains available to repair connections; placement
 stays bound to the original request.
 Removed IDs remain reserved while their Host state and operation history exist.
 
-Before each attempt, guided setup updates managed Magnetar and checks its
+Interrupted status retains `failedPhase` as well as the error. The UI shows the
+failed phase and preserves line breaks in verification details; the service log
+includes the exception. A deployment inventory mismatch reports the inspected
+locations, counts of missing/unexpected/changed files, and up to ten named files
+with expected and actual SHA-256, byte count and executable flag. Remaining
+mismatches are counted. Fix the reported cause and resume the same cluster;
+deleting its registration is not a recovery step. Verification never accepts
+changed bytes or silently changes the approved pins.
+
+Before the preparation checkpoint exists, guided setup updates managed Magnetar and checks its
 PluginSdk against the selected cluster release. A cluster release records the
 `pluginSdkContract` (`major.minor`) of the SDK it was built against, and Magnetar's
 `PluginSdk.dll` declares its own in the `PluginSdkContract` assembly metadata. The

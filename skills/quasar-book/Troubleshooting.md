@@ -170,12 +170,14 @@ Read the status line at the top of **Updates**. Bootstrap rolls back a UI releas
 | --- | --- |
 | Power button in the top bar, **Shutdown Quasar** (admin) | Saves server state, stops the worker and the launcher with exit code 0. The service manager does not restart it. Servers keep running unsupervised. |
 | **Restart Quasar** in the same dialog | Restarts only the worker. Not available in Docker. |
-| **Save and stop all servers** | Stops every server; Quasar keeps running. |
+| **Save and stop all servers** | Saves and stops standalone servers and managed clusters, keeping Quasar online. Shows a loader and per-target progress until completion or a visible failure. |
 | Ctrl+C in a foreground run | Stops the launcher and worker. |
 | `kill <launcher pid>` (SIGTERM, Linux) | Same as Ctrl+C. |
 | `systemctl --user stop quasar.service` (or `sudo systemctl stop quasar.service`) | Same as Ctrl+C. |
 | `Stop-ScheduledTask -TaskName Quasar` | Ends the launcher process. |
 | `docker compose down` or `stop` | Stops the container. The image stops the managed servers too. |
+
+For **Save and stop all servers**, goals are set to Off so the stopped fleet stays down. Clusters use the normal graceful save/drain flow and wait for a clean, fenced Gateway stop. A failed or dirty cluster is reported rather than force-killed. Other stop requests still proceed. The Off goal remains active after a waiting timeout; check the cluster page before retrying. Observed-only clusters are excluded.
 
 By default (`Quasar:PreserveManagedServersOnShutdown` `true`) managed servers keep running when Quasar stops and Quasar adopts them again on the next start. Use **Save and stop all servers** first if you want them down. Details are in [Install on Linux](InstallLinux.md#stopping-and-the-shutdown-quasar-action), [Install on Windows](InstallWindows.md#shutdown-quasar-and-other-power-actions) and [Docker](Docker.md).
 
@@ -239,3 +241,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/QuasarShutdownService.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterReconciler.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`

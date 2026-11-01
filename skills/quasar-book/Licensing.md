@@ -8,8 +8,8 @@ without a license fee or registration.
 
 ## Previous MIT distribution
 
-The transition is dated 1 November 2026. The frozen MIT snapshot is on
-https://github.com/CometWorks/quasar/tree/archive/mit at commit
+The transition is dated 1 November 2026. The frozen MIT snapshot is preserved by
+the tag https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit at commit
 `80eddddb51d034517ffe699c09ff7e84f00b0021`. Code already received under MIT keeps
 those permissions. The current distribution uses AGPL; the retained original
 MIT notice does not make it dual-licensed.

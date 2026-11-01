@@ -4,6 +4,9 @@
 @inject QuasarPermissionService Permissions
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
+@inject ClusterCatalog ClusterCatalog
+@inject AuthenticationStateProvider AuthenticationStateProvider
+@using System.Security.Claims
 @inject EntityService EntityService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
@@ -13,21 +16,21 @@
 <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntitiesPage">
 <QuasarPageHeading Section="Operations">
     <Title>Entities</Title>
-    <Description>Live world entity list for a connected server. Query grids, characters, floating objects and voxels, then inspect or delete them with full admin control.</Description>
+    <Description>Live world entities for a server or whole cluster. Query grids, characters, dropped items and terrain, then inspect or delete them with full admin control.</Description>
 </QuasarPageHeading>
 
 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
     <MudSelect T="string"
-               Label="Server"
-               Value="_selectedAgentId"
+               Label="Server / cluster"
+               Value="_selectedTargetId"
                ValueChanged="OnServerChangedAsync"
                Variant="Variant.Outlined"
                Dense="true"
-               Disabled="@(ConnectedAgents.Count == 0 || _deletingSelected)"
+               Disabled="@(TargetOptions.Count == 0 || _deletingSelected)"
                Style="min-width: 16rem;">
-        @foreach (var agent in ConnectedAgents)
+        @foreach (var target in TargetOptions)
         {
-            <MudSelectItem T="string" Value="@agent.AgentId">@ResolveServerName(agent)</MudSelectItem>
+            <MudSelectItem T="string" Value="@target.Key">@target.DisplayName</MudSelectItem>
         }
     </MudSelect>
 
@@ -61,7 +64,7 @@
                Color="Color.Primary"
                StartIcon="@Icons.Material.Filled.Refresh"
                OnClick="LoadAsync"
-               Disabled="@(_loading || _deletingSelected || GetSelectedAgent() is null)">
+               Disabled="@(_loading || _deletingSelected || GetSelectedTarget() is null)">
         Refresh
     </MudButton>
 </div>
@@ -71,7 +74,14 @@
     {
         <MudChip T="string" Variant="Variant.Outlined">Matching @_lastResult.TotalCount</MudChip>
         <MudChip T="string" Variant="Variant.Outlined">Shown @FilteredEntities.Count</MudChip>
-        <MudChip T="string" Variant="Variant.Outlined">Live total @_lastResult.TotalEntityCount</MudChip>
+        @if (_lastResult.TotalEntityCount is { } total)
+        {
+            <MudChip T="string" Variant="Variant.Outlined">Live total @total</MudChip>
+        }
+        @if (IsClusterSelected)
+        {
+            <MudChip T="string" Variant="Variant.Outlined">Nodes checked @_lastResult.QueriedNodes / @_lastResult.ExpectedNodes</MudChip>
+        }
     }
     @if (_lastUpdated is not null)
     {
@@ -98,6 +108,7 @@
             Clear
         </MudButton>
         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
+        <MudTooltip Text="Select only entities with a verified owning node to delete.">
         <MudButton Variant="Variant.Filled"
                    Color="Color.Error"
                    StartIcon="@Icons.Material.Filled.Delete"
@@ -105,21 +116,37 @@
                    Disabled="@(!CanDeleteSelected)">
             Delete selected
         </MudButton>
+        </MudTooltip>
         </AuthorizeView>
     }
-    @if (_loading)
-    {
-        <MudProgressCircular Size="Size.Small" Indeterminate="true" />
-    }
 </div>
+@if (_loading)
+{
+    <QuasarOperationLoader Title="Loading entities" Message="@_loadMessage" />
+    <MudButton Variant="Variant.Outlined" OnClick="CancelLoad">Cancel</MudButton>
+}
+@if (_lastResult is { Warnings.Count: > 0 })
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+        <strong>Partial cluster view.</strong>
+        @foreach (var warning in _lastResult.Warnings.Distinct())
+        {
+            <p>@warning</p>
+        }
+    </MudAlert>
+}
+@if (IsClusterSelected)
+{
+    <p class="quasar-text quasar-type-caption">One row per entity across the cluster. Shared copies are combined. This live view includes loaded entities on responding nodes; entities in offline partitions are not listed.</p>
+}
 
-@if (ConnectedAgents.Count == 0)
+@if (TargetOptions.Count == 0)
 {
     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
         No connected servers. Entities can only be listed for a server with a live Quasar agent.
     </MudAlert>
 }
-else if (GetSelectedAgent() is null)
+else if (GetSelectedTarget() is null)
 {
     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
         The selected server is no longer connected. Pick another server above.
@@ -154,35 +181,42 @@ else
               OnRowClick="HandleRowClick"
               RowClassFunc="GetEntityRowClass">
         <HeaderContent>
+            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => EntityPresentation.Name(e))">Name</MudTableSortLabel></MudTh>
             <MudTh>Type</MudTh>
-            <MudTh>Entity ID</MudTh>
+            @if (IsClusterSelected) { <MudTh>Node(s)</MudTh> }
             <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntityViewerColumnHeader" />
-            <MudTh>Sub-type</MudTh>
+            <MudTh>Details</MudTh>
+            <MudTh>Quantity</MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.BlockCount ?? -1)">Blocks</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.Pcu ?? -1)">PCU</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.SizeMeters)">Size (m)</MudTableSortLabel></MudTh>
             <MudTh>Owner</MudTh>
             <MudTh>Position</MudTh>
-            <MudTh><MudTableSortLabel SortBy="new Func<EntitySummary, object>(e => e.DisplayName)">Name</MudTableSortLabel></MudTh>
+            <MudTh>Entity ID</MudTh>
             <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
         </HeaderContent>
         <RowTemplate>
+            <MudTd DataLabel="Name">@EntityPresentation.Name(context)</MudTd>
             <MudTd DataLabel="Type">
-                <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@context.TypeTag</MudChip>
+                <MudChip T="string" Size="Size.Small" Color="@GetTypeColor(context.TypeTag)" Variant="Variant.Outlined">@EntityPresentation.TypeLabel(context.TypeTag)</MudChip>
             </MudTd>
-            <MudTd DataLabel="Entity ID">
-                <p class="quasar-text quasar-type-body2 mono">@context.EntityId</p>
-            </MudTd>
+            @if (IsClusterSelected)
+            {
+                <MudTd DataLabel="Node(s)">@GetEntityRow(context)?.NodeLabel</MudTd>
+            }
             <QuasarExtensionOutlet
                 TargetKey="@QuasarExtensionTargets.EntityViewerColumnCell"
                 Parameters="@CreateEntityExtensionParameters(context)" />
-            <MudTd DataLabel="Sub-type">@context.SubType</MudTd>
+            <MudTd DataLabel="Details">@EntityPresentation.Details(context)</MudTd>
+            <MudTd DataLabel="Quantity">@EntityPresentation.Quantity(context)</MudTd>
             <MudTd DataLabel="Blocks">@(context.BlockCount?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="PCU">@(context.Pcu?.ToString() ?? "-")</MudTd>
             <MudTd DataLabel="Size (m)">@context.SizeMeters.ToString("0")</MudTd>
             <MudTd DataLabel="Owner">@FormatOwner(context)</MudTd>
             <MudTd DataLabel="Position" Class="mono">@FormatPosition(context)</MudTd>
-            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+            <MudTd DataLabel="Entity ID">
+                <p class="quasar-text quasar-type-body2 mono">@context.EntityId</p>
+            </MudTd>
             <MudTd DataLabel="" Class="quasar-actions-column">
                 <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1 plugin-actions" @onclick:stopPropagation="true">
                     <QuasarExtensionOutlet
@@ -191,11 +225,11 @@ else
                         Parameters="@CreateEntityExtensionParameters(context)">
                         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
                         <span @onclick:stopPropagation="true">
-                            <MudTooltip Text="Delete entity">
+                            <MudTooltip Text="@(DeleteUnavailableReason(context) ?? "Delete entity")">
                                 <MudIconButton Icon="@Icons.Material.Filled.Delete"
                                                Color="Color.Error"
                                                Size="Size.Small"
-                                               Disabled="@(_loading || _deletingSelected)"
+                                               Disabled="@(_loading || _deletingSelected || DeleteUnavailableReason(context) is not null)"
                                                OnClick="@(() => DeleteEntityAsync(context))" />
                             </MudTooltip>
                         </span>
@@ -218,42 +252,72 @@ else
         ("All", "All types"),
         ("Grid", "Grids"),
         ("Character", "Characters"),
-        ("Float", "Floating objects"),
-        ("Voxel", "Voxels"),
+        ("Float", "Dropped items"),
+        ("Voxel", "Terrain (asteroids / planets)"),
+        ("Other", "Other entities"),
     };
 
-    private string? _selectedAgentId;
+    private string? _selectedTargetId;
     private string _typeFilter = "All";
     private string _searchText = string.Empty;
     private IReadOnlyList<EntitySummary> _entities = Array.Empty<EntitySummary>();
     private readonly HashSet<long> _selectedEntityIds = new();
     private MudTable<EntitySummary>? _entityTable;
-    private EntityListResult? _lastResult;
+    private EntityQueryResult? _lastResult;
+    private Dictionary<long, EntityQueryRow> _rowsById = [];
+    private CancellationTokenSource? _loadCts;
+    private string _loadMessage = string.Empty;
+    private ClaimsPrincipal _user = new();
+    private bool _canQueryClusters;
     private DateTimeOffset? _lastUpdated;
     private long? _selectionAnchorEntityId;
     private bool _loading;
     private bool _deletingSelected;
+    private bool _disposed;
     private string? _error;
 
     private List<AgentRuntimeState> ConnectedAgents => Registry.GetAgents()
-        .Where(agent => agent.IsConnected)
+        .Where(agent => agent.IsConnected && (!agent.IsCluster || _canQueryClusters && _user.CanQueryCluster(agent.ClusterId)))
         .ToList();
 
     private List<EntitySummary> FilteredEntities => _entities
         .Where(MatchesSearch)
         .ToList();
 
-    protected override void OnInitialized()
+    private IReadOnlyList<EntityTarget> TargetOptions
     {
+        get
+        {
+            var targets = ConnectedAgents.Where(agent => !agent.IsCluster)
+                .Select(agent => new EntityTarget("agent:" + agent.AgentId, ResolveServerName(agent), Agent: agent)).ToList();
+            if (_canQueryClusters)
+            {
+                var clusters = ClusterCatalog.GetClusters().Where(cluster => _user.CanQueryCluster(cluster.UniqueName));
+                targets.AddRange(clusters.Select(cluster => new EntityTarget("cluster:" + cluster.UniqueName,
+                    string.IsNullOrWhiteSpace(cluster.DisplayName) ? cluster.UniqueName : cluster.DisplayName, Cluster: cluster)));
+            }
+            return targets.OrderBy(target => target.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+        }
+    }
+
+    private bool IsClusterSelected => GetSelectedTarget()?.Cluster is not null;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAccessAsync();
         Registry.Changed += HandleChanged;
         ServerCatalog.Changed += HandleChanged;
-        _selectedAgentId ??= ConnectedAgents.FirstOrDefault()?.AgentId;
+        ClusterCatalog.Changed += HandleChanged;
+        _selectedTargetId ??= TargetOptions.FirstOrDefault()?.Key;
     }
 
     public void Dispose()
     {
+        _disposed = true;
         Registry.Changed -= HandleChanged;
         ServerCatalog.Changed -= HandleChanged;
+        ClusterCatalog.Changed -= HandleChanged;
+        _loadCts?.Cancel();
     }
 
     // Prefer the name configured for the server in Quasar over the agent's in-game
@@ -261,20 +325,19 @@ else
     // to "Space Engineers {pid}"). Matches how the Servers/dashboard cards resolve it.
     private string ResolveServerName(AgentRuntimeState agent)
     {
-        if (agent.IsCluster) return $"{agent.ClusterId} / {agent.ClusterSlot} / {agent.ClusterNodeId} / epoch {agent.ClusterEpoch}";
         var configuredName = ServerCatalog.GetServer(agent.UniqueNameKey)?.DisplayName;
         return string.IsNullOrWhiteSpace(configuredName) ? agent.ServerDisplayName : configuredName;
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && _lastResult is null && GetSelectedAgent() is not null)
+        if (firstRender && _lastResult is null && GetSelectedTarget() is not null)
             await LoadAsync();
     }
 
-    private async Task OnServerChangedAsync(string agentId)
+    private async Task OnServerChangedAsync(string targetId)
     {
-        _selectedAgentId = agentId;
+        _selectedTargetId = targetId;
         ClearSelection();
         await LoadAsync();
     }
@@ -294,70 +357,88 @@ else
 
     private async Task LoadAsync()
     {
-        var agent = GetSelectedAgent();
-        if (agent is null)
-        {
-            _entities = Array.Empty<EntitySummary>();
-            _lastResult = null;
-            ClearSelection();
-            return;
-        }
-
+        _loadCts?.Cancel();
+        using var cts = new CancellationTokenSource();
+        _loadCts = cts;
+        _entities = [];
+        _rowsById.Clear();
+        _lastResult = null;
+        _lastUpdated = null;
+        ClearSelection();
         _loading = true;
         _error = null;
-        ClearSelection();
+        _loadMessage = "Querying live world entities…";
         StateHasChanged();
-
         try
         {
-            var filter = new EntityListFilter
+            await RefreshAccessAsync();
+            if (!ReferenceEquals(_loadCts, cts) || cts.IsCancellationRequested)
+                return;
+            var target = GetSelectedTarget();
+            if (target is null)
+                return;
+            var filter = new EntityListFilter { TypeTag = _typeFilter, Limit = 500 };
+            var progress = new Progress<string>(message =>
             {
-                TypeTag = _typeFilter,
-                Search = string.Empty,
-                Limit = 500,
-                Offset = 0,
-            };
-
-            var result = await EntityService.GetEntitiesAsync(agent, filter);
+                if (!_disposed && ReferenceEquals(_loadCts, cts))
+                {
+                    _loadMessage = message;
+                    _ = InvokeAsync(StateHasChanged);
+                }
+            });
+            var result = target.Cluster is { } cluster
+                ? await EntityService.QueryClusterAsync(cluster, filter, progress, cts.Token)
+                : await EntityService.QueryAsync(target.Agent!, filter, cts.Token);
+            if (!ReferenceEquals(_loadCts, cts) || cts.IsCancellationRequested)
+                return;
             _lastResult = result;
-            _entities = result.Entities;
+            _rowsById = result.Rows.ToDictionary(row => row.Entity.EntityId);
+            _entities = result.Rows.Select(row => row.Entity).ToArray();
             _lastUpdated = result.CapturedAtUtc;
-            PruneSelectionToLoadedEntities();
         }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested) { }
         catch (Exception exception)
         {
-            _error = exception.Message;
-            _entities = Array.Empty<EntitySummary>();
-            _lastResult = null;
-            ClearSelection();
+            if (ReferenceEquals(_loadCts, cts))
+                _error = exception.Message;
         }
         finally
         {
-            _loading = false;
-            StateHasChanged();
+            if (ReferenceEquals(_loadCts, cts))
+            {
+                _loadCts = null;
+                _loading = false;
+                if (!_disposed)
+                    StateHasChanged();
+            }
         }
     }
 
-    private bool CanDeleteSelected => GetSelectedAgent() is not null
+    private void CancelLoad() => _loadCts?.Cancel();
+
+    private bool CanDeleteSelected => GetSelectedTarget() is not null
                                       && !_loading
                                       && !_deletingSelected
-                                      && _selectedEntityIds.Count > 0;
+                                      && _selectedEntityIds.Count > 0
+                                      && _selectedEntityIds.All(id => _rowsById.TryGetValue(id, out var row)
+                                          && DeleteUnavailableReason(row.Entity) is null);
 
     private async Task DeleteSelectedEntitiesAsync()
     {
-        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-        var agent = GetSelectedAgent();
-        if (agent is null)
+        if (!await CanControlSelectionAsync()) return;
+        var target = GetSelectedTarget();
+        if (target is null)
         {
             Snackbar.Add("The selected server is not connected.", Severity.Error);
             return;
         }
 
-        var selectedEntities = _entities
+        var selectedRows = _entities
             .Where(entity => _selectedEntityIds.Contains(entity.EntityId))
+            .Select(GetEntityRow).OfType<EntityQueryRow>()
             .ToList();
 
-        if (selectedEntities.Count == 0)
+        if (selectedRows.Count == 0)
         {
             ClearSelection();
             return;
@@ -365,7 +446,7 @@ else
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Delete selected entities",
-            $"Permanently delete {selectedEntities.Count} selected entities? This cannot be undone.",
+            $"Permanently delete {selectedRows.Count} selected entities? This cannot be undone.",
             yesText: "Delete selected",
             cancelText: "Cancel");
 
@@ -380,12 +461,13 @@ else
 
         try
         {
-            foreach (var entity in selectedEntities)
+            foreach (var row in selectedRows)
             {
+                var entity = row.Entity;
                 try
                 {
-                    if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) break;
-                    var result = await EntityService.DeleteEntityAsync(agent, entity.EntityId);
+                    if (!await CanControlEntityAsync(row)) break;
+                    var result = await EntityService.DeleteEntityAsync(row);
                     if (result.Success)
                     {
                         deletedCount++;
@@ -425,13 +507,16 @@ else
 
     private async Task DeleteEntityAsync(EntitySummary entity)
     {
-        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-        var agent = GetSelectedAgent();
-        if (agent is null)
+        if (!await CanControlSelectionAsync()) return;
+        var target = GetSelectedTarget();
+        if (target is null)
         {
             Snackbar.Add("The selected server is not connected.", Severity.Error);
             return;
         }
+        var row = GetEntityRow(entity);
+        if (row is null)
+            return;
 
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Delete entity",
@@ -444,8 +529,8 @@ else
 
         try
         {
-            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-            var result = await EntityService.DeleteEntityAsync(agent, entity.EntityId);
+            if (!await CanControlEntityAsync(row)) return;
+            var result = await EntityService.DeleteEntityAsync(row);
             if (result.Success)
             {
                 Snackbar.Add(string.IsNullOrWhiteSpace(result.Message) ? "Entity deleted." : result.Message, Severity.Success);
@@ -543,15 +628,6 @@ else
         _selectionAnchorEntityId = null;
     }
 
-    private void PruneSelectionToLoadedEntities()
-    {
-        var loadedIds = _entities.Select(entity => entity.EntityId).ToHashSet();
-        _selectedEntityIds.RemoveWhere(entityId => !loadedIds.Contains(entityId));
-
-        if (_selectionAnchorEntityId is { } anchorId && !loadedIds.Contains(anchorId))
-            _selectionAnchorEntityId = null;
-    }
-
     private void PruneSelectionToFilteredEntities()
     {
         var visibleIds = FilteredEntities.Select(entity => entity.EntityId).ToHashSet();
@@ -568,18 +644,52 @@ else
             : "entity-row-selectable";
     }
 
-    private AgentRuntimeState? GetSelectedAgent()
-    {
-        if (string.IsNullOrEmpty(_selectedAgentId))
-            return null;
+    private EntityTarget? GetSelectedTarget() => TargetOptions.FirstOrDefault(target => target.Key == _selectedTargetId);
 
-        return ConnectedAgents.FirstOrDefault(agent =>
-            string.Equals(agent.AgentId, _selectedAgentId, StringComparison.OrdinalIgnoreCase));
+    private EntityQueryRow? GetEntityRow(EntitySummary entity) => _rowsById.GetValueOrDefault(entity.EntityId);
+
+    private AgentRuntimeState? GetEntityAgent(EntitySummary entity)
+    {
+        var row = GetEntityRow(entity);
+        if (row is null)
+            return null;
+        if (row.DeletionSource is { } owner && EntityService.IsCurrent(owner.Agent.AgentId, owner.TelemetryKey))
+            return owner.Agent;
+        return row.Observations
+            .FirstOrDefault(source => EntityService.IsCurrent(source.Agent.AgentId, source.TelemetryKey))?.Agent;
+    }
+
+    private string? DeleteUnavailableReason(EntitySummary entity)
+    {
+        var row = GetEntityRow(entity);
+        if (row?.DeletionSource is not { } source)
+            return row?.DeleteUnavailableReason ?? "Refresh the entity list before deleting.";
+        return EntityService.IsCurrent(source.Agent.AgentId, source.TelemetryKey) ? null
+            : "The entity's node disconnected or was replaced. Refresh before deleting.";
+    }
+
+    private async Task<bool> CanControlSelectionAsync() =>
+        await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)
+        && (!IsClusterSelected || _user.CanQueryCluster(GetSelectedTarget()!.Cluster!.UniqueName)
+            && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage));
+
+    private async Task RefreshAccessAsync()
+    {
+        _user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        _canQueryClusters = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterQuery);
+    }
+
+    private async Task<bool> CanControlEntityAsync(EntityQueryRow row)
+    {
+        var user = (await AuthenticationStateProvider.GetAuthenticationStateAsync()).User;
+        return await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)
+            && (!row.ViewingSource.Agent.IsCluster || user.CanQueryCluster(row.ViewingSource.Agent.ClusterId)
+                && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage));
     }
 
     private bool CanViewEntity(EntitySummary entity)
     {
-        return GetSelectedAgent() is not null
+        return GetEntityAgent(entity) is not null
                && (string.Equals(entity.TypeTag, "Grid", StringComparison.OrdinalIgnoreCase)
                    || (string.Equals(entity.TypeTag, "Voxel", StringComparison.OrdinalIgnoreCase)
                        && string.Equals(entity.SubType, "Asteroid", StringComparison.OrdinalIgnoreCase)));
@@ -587,12 +697,12 @@ else
 
     private IReadOnlyDictionary<string, object?> CreateEntityExtensionParameters(EntitySummary entity)
     {
-        var agent = GetSelectedAgent();
+        var agent = GetEntityAgent(entity);
         var canView = CanViewEntity(entity);
         return new Dictionary<string, object?>
         {
             ["AgentId"] = agent?.AgentId,
-            ["ServerName"] = agent is null ? null : ResolveServerName(agent),
+            ["ServerName"] = GetSelectedTarget()?.DisplayName,
             ["EntityId"] = entity.EntityId,
             ["EntityType"] = entity.TypeTag,
             ["EntitySubType"] = entity.SubType,
@@ -610,6 +720,9 @@ else
 
         return Contains(entity.DisplayName, search)
                || Contains(entity.SubType, search)
+               || Contains(EntityPresentation.TypeLabel(entity.TypeTag), search)
+               || Contains(EntityPresentation.Details(entity), search)
+               || Contains(EntityPresentation.Name(entity), search)
                || Contains(entity.OwnerName, search)
                || entity.EntityId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase)
                || (entity.OwnerSteamId?.ToString().Contains(search, StringComparison.OrdinalIgnoreCase) ?? false);
@@ -617,11 +730,15 @@ else
 
     private void HandleChanged()
     {
+        if (_disposed)
+            return;
         // Connected-server list and connection status can change underneath us; just
         // re-render. The entity list itself is only refreshed on explicit user action.
-        _selectedAgentId ??= ConnectedAgents.FirstOrDefault()?.AgentId;
+        _selectedTargetId ??= TargetOptions.FirstOrDefault()?.Key;
         _ = InvokeAsync(StateHasChanged);
     }
+
+    private sealed record EntityTarget(string Key, string DisplayName, AgentRuntimeState? Agent = null, ClusterDefinition? Cluster = null);
 
     private static bool Contains(string? value, string search)
     {

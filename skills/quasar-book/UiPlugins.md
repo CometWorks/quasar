@@ -24,7 +24,7 @@ Open **UI Plugins** in the **Infrastructure & tools** section of the navigation 
 The page has:
 
 - Header chips: **Dynamic plugins enabled** or **Safe boot active**, and the .NET SDK state (**.NET 10 SDK global**, **.NET 10 SDK managed** or **.NET SDK on demand**).
-- **Restart Quasar**: restarts the web worker so plugin changes load. Only available when Quasar runs under Bootstrap (the normal service install).
+- **Restart Quasar**: beside **Refresh Hub** in the QuasarHub Catalog header. It stays greyed out until an installed, removed, enabled or disabled plugin, or a safe-boot marker change, needs a worker restart. A hub update being available alone does not enable it. It also needs Bootstrap and remains disabled during plugin operations or SDK installation. Pending changes survive leaving the page and clear when the worker restarts.
 - Counters for **Loaded** plugins, **Load Errors**, **Extensions** and **Nav Items**.
 - **Safe Boot**: create or clear the safe boot marker file.
 - **QuasarHub Catalog**: browse, install, update, enable, disable and remove plugins, and the automatic update checkbox.
@@ -55,6 +55,11 @@ Recommended entries sort near the top and show a **Recommended** badge. Hidden e
 | Invalid | The installed `quasar-plugin.json` cannot be read; the error is shown below the status |
 
 ## Installing and updating
+
+Plugin changes and private .NET SDK installation show an activity panel with
+elapsed time and a note after 30 seconds for longer waits. Restart feedback shows
+a progress bar for completed stages, the current status and elapsed time, and
+continues working while the web worker is offline.
 
 1. On **UI Plugins**, find the plugin in **QuasarHub Catalog**.
 2. Click **Install** (or **Update**, or **Reinstall** when the installed commit already matches).
@@ -155,7 +160,7 @@ For clusters, guided setup includes owned companions only of UI plugins installe
 
 UI plugins get live data from their companions through `IQuasarCompanionChannel`, which Quasar registers as a service. It rides on the existing Quasar.Agent connection:
 
-- `GetConnectedServers()` lists connected servers with a `ServerId`, the current `AgentId` and a display name. For standalone servers the `ServerId` is the server's unique name, which stays the same across restarts; for cluster nodes it identifies one node incarnation, not the whole cluster.
+- `GetConnectedServers()` lists connected servers with a `ServerId`, the current `AgentId` and a display name. For standalone servers the `ServerId` is the server's unique name, which stays the same across restarts; for cluster nodes it identifies one node incarnation. Cluster entries also include an explicit `ClusterId`, configured `ClusterDisplayName` and stable `ClusterSlot`. Entity Viewer uses these fields to show one server per cluster, combine retained node histories and apply recording settings to current and future nodes. Node commands still use exact agent IDs. Install matching Quasar and Entity Viewer versions for this grouping.
 - `SendAsync(serverId, companionPluginId, operation, request, ...)` sends a JSON request to the companion and returns its JSON response. Pass a `ServerId` from `GetConnectedServers()` or a live `AgentId`. Standalone servers also accept their server key or unique name. Unknown, disconnected or ambiguous ids fail; Quasar never picks a different server.
 - On the server, the agent hands the request to the loaded Magnetar plugin whose `IQuasarCompanionRequestHandler.PluginId` matches. Requests time out after 30 seconds.
 
@@ -259,3 +264,5 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar.Tests/QuasarManagedDotNetSdkServiceTests.cs`
 - `Quasar.Tests/QuasarUiPluginStateStoreTests.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor.css`

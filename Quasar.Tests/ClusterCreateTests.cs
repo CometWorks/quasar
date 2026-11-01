@@ -1,10 +1,13 @@
 using System.Net.WebSockets;
 using System.Reflection;
+using System.Security.Claims;
 using System.Text.Json;
 using Bunit;
 using Bunit.TestDoubles;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
@@ -18,6 +21,8 @@ using Quasar.Components.Shared;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Auth;
+using Quasar.Services.Backup;
+using Quasar.Services.PluginSdk;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -89,6 +94,7 @@ public sealed class ClusterCreateTests : IDisposable
     public async Task DefaultPluginsAreOnForANewClusterAndNameWhatTheProfileLacks()
     {
         await using var context = CreateContext();
+        var dialogs = context.Render<MudDialogProvider>();
         await context.Services.GetRequiredService<QuasarConfigProfileCatalog>().UpsertAsync(new() { ConfigProfileId = "half", Name = "Half",
             Plugins = [new() { PluginId = QuasarDefaultPlugins.BugfixesPluginId, DisplayName = "Bugfixes" }] });
         var page = context.Render<ClusterCreate>();
@@ -96,8 +102,43 @@ public sealed class ClusterCreateTests : IDisposable
         Assert.True(option.Instance.GetState(c => c.Value));
         await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("half"));
         Assert.Contains("Adds Performance from MagnetarHub", page.Markup);
-        await page.InvokeAsync(() => option.Instance.ValueChanged.InvokeAsync(false));
+        Assert.Contains("Havok physics crash", page.Markup);
+        Assert.Contains("unsaved progress may be lost", page.Markup);
+        var disabling = option.Find("input").ChangeAsync(new ChangeEventArgs { Value = false });
+        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Skip recommended server plugins?", dialogs.Markup));
+        Assert.Contains("Performance will not be added", dialogs.Markup);
+        await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == "Keep enabled").ClickAsync();
+        await disabling;
+        Assert.True(option.Instance.GetState(c => c.Value));
+        Assert.True(option.Find("input").HasAttribute("checked"));
+
+        disabling = option.Find("input").ChangeAsync(new ChangeEventArgs { Value = false });
+        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Skip recommended server plugins?", dialogs.Markup));
+        await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == "Skip recommended plugins").ClickAsync();
+        await disabling;
+        Assert.False(option.Instance.GetState(c => c.Value));
         Assert.Contains("The cluster gets only the plugins the selected profile has.", page.Markup);
+        Assert.Contains("Existing profile plugins stay selected", page.Markup);
+        Assert.Single(context.Services.GetRequiredService<QuasarConfigProfileCatalog>().GetProfile("half")!.Plugins);
+        await option.Find("input").ChangeAsync(new ChangeEventArgs { Value = true });
+        Assert.True(option.Instance.GetState(c => c.Value));
+    }
+
+    [Fact]
+    public async Task SkippingDefaultAdditionsDoesNotWarnWhenBothPluginsAreAlreadySelected()
+    {
+        await using var context = CreateContext();
+        var dialogs = context.Render<MudDialogProvider>();
+        var profile = new QuasarConfigProfile { ConfigProfileId = "full", Name = "Full" };
+        QuasarDefaultPlugins.Apply(profile, true);
+        await context.Services.GetRequiredService<QuasarConfigProfileCatalog>().UpsertAsync(profile);
+        var page = context.Render<ClusterCreate>();
+        await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("full"));
+        var option = page.FindComponents<MudCheckBox<bool>>().Single(c => c.Instance.Label?.Contains("Bugfixes and Performance") == true);
+        await option.Find("input").ChangeAsync(new ChangeEventArgs { Value = false });
+        Assert.False(option.Instance.GetState(c => c.Value));
+        Assert.DoesNotContain("Skip recommended server plugins?", dialogs.Markup);
+        Assert.Equal(2, context.Services.GetRequiredService<QuasarConfigProfileCatalog>().GetProfile("full")!.Plugins.Count);
     }
 
     [Fact]
@@ -123,11 +164,17 @@ public sealed class ClusterCreateTests : IDisposable
         var request = new ClusterSetupRequest("resume", "Resume", "world", "profile", "host-1", 28000, [new("host-1", 2)]);
         string work = Path.Combine(_root, "ClusterSetup/resume");
         Directory.CreateDirectory(work);
-        File.WriteAllText(Path.Combine(work, "status.json"), JsonSerializer.Serialize(new ClusterSetupStatus(request, "Setup interrupted", "Offline", DateTimeOffset.UtcNow), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        File.WriteAllText(Path.Combine(work, "status.json"), JsonSerializer.Serialize(new ClusterSetupStatus(request, "Setup interrupted",
+            "Changed: Package/cli/cluster.py\n  Expected: SHA-256 approved\n  Actual: SHA-256 changed", DateTimeOffset.UtcNow,
+            "Verifying the pinned deployment installation"), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("/clusters/new?resume=resume");
         var page = context.Render<ClusterCreate>();
         Assert.Equal(1, page.FindComponent<MudStepper>().Instance.GetState(c => c.ActiveIndex));
         Assert.True(Button(page, "Resume setup").Instance.Disabled);
+        Assert.Contains("Setup interrupted during: Verifying the pinned deployment installation", page.Markup);
+        Assert.Contains("Changed: Package/cli/cluster.py", page.Markup);
+        Assert.Contains("Expected: SHA-256 approved", page.Markup);
+        Assert.Contains("Keep this cluster", page.Markup);
         Assert.True(page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Cluster ID" && c.Instance.HelperText?.Contains("Removed IDs") == true).Instance.Disabled);
         await Button(page, "Back to host enrollment").Find("button").ClickAsync();
         Assert.Single(page.FindComponents<HostEnrollment>());
@@ -239,7 +286,104 @@ public sealed class ClusterCreateTests : IDisposable
         Assert.Equal("source-standalone", id.Instance.GetState(c => c.Value));
     }
 
-    private BunitContext CreateContext(bool securityAdmin = true)
+    [Theory]
+    [InlineData(false, "Complete — destination remains stopped", "/")]
+    [InlineData(true, "Complete — destination remains stopped", "/clusters/destination")]
+    [InlineData(false, "Failed", null)]
+    [InlineData(true, "Failed", null)]
+    [InlineData(false, "Copying world", null)]
+    [InlineData(true, "Copying world", null)]
+    public async Task SavedConversionOffersResumeOnlyWhileUnfinished(bool toCluster, string phase, string? destination)
+    {
+        await using var context = CreateContext();
+        var id = Guid.NewGuid();
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        string cluster = toCluster ? "destination" : "source";
+        object request = toCluster
+            ? new ServerToClusterRequest(id, "source", "revision", "1.208", "host", 27016, "JOIN", "TOKENS", [], [])
+            : new ClusterToServerRequest(id, "destination", "Destination", 27017, "profile", "lifecycle");
+        string work = Path.Combine(_root, "backups", "Conversions", id.ToString("N"));
+        Directory.CreateDirectory(work);
+        await File.WriteAllTextAsync(Path.Combine(work, "request.json"), JsonSerializer.Serialize(new
+        {
+            cluster, direction = toCluster ? "to-cluster" : "to-server", request
+        }, json));
+        await File.WriteAllTextAsync(Path.Combine(work, "progress.json"), JsonSerializer.Serialize(
+            new ClusterConversionStatus(id, cluster, toCluster ? "to-cluster" : "to-server", phase,
+                destination, phase == "Failed" ? "Interrupted" : null, DateTimeOffset.UtcNow), json));
+        context.Services.GetRequiredService<NavigationManager>().NavigateTo(
+            $"/{(toCluster ? "servers" : "clusters")}/source/{(toCluster ? "convert-to-cluster" : "convert-to-server")}?conversion={id}");
+        var page = context.Render<ClusterConversion>(p => p
+            .Add(c => c.ServerName, toCluster ? "source" : null)
+            .Add(c => c.ClusterName, toCluster ? null : "source"));
+
+        Assert.Contains(id.ToString(), page.Markup);
+        Assert.Contains(phase, page.Markup);
+        var buttons = page.FindComponents<MudButton>();
+        Assert.Equal(destination is null, buttons.Any(b => b.Markup.Contains("Resume conversion")));
+        Assert.DoesNotContain(buttons, b => b.Markup.Contains("Back up and convert"));
+        Assert.Contains(buttons, b => b.Markup.Contains("Edit as a new conversion"));
+        Assert.Equal(destination is not null, buttons.Any(b => b.Instance.Href == destination && b.Markup.Contains("Review destination")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConversionShowsProgressDuringPermissionChecksAndReportsFailureAtTheAction(bool permitted)
+    {
+        var authorization = new DelayedConversionAuthorization();
+        await using var context = CreateContext(conversionAuthorization: authorization);
+        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ServerName, "source"));
+        Assert.Empty(page.FindComponents<MudCheckBox<bool>>());
+        var button = page.FindComponents<MudButton>().Single(c => c.Markup.Contains("Convert to cluster"));
+        var queuedClick = button.Instance.OnClick;
+        var clicking = button.Find("button").ClickAsync();
+
+        await page.WaitForAssertionAsync(() => Assert.Single(page.FindComponents<QuasarOperationLoader>()));
+        Assert.Contains("Validating the source and destination before backup.", page.Find("[role=status]").TextContent);
+        Assert.Equal("true", page.Find("[aria-busy]").GetAttribute("aria-busy"));
+        Assert.DoesNotContain(page.FindComponents<MudButton>(), b => b.Markup.Contains("Convert to cluster"));
+        Assert.DoesNotContain(page.FindComponents<MudAlert>(), a => a.Instance.Severity == Severity.Warning);
+        Assert.False(clicking.IsCompleted);
+
+        // A queued second click must not enter authorization or start another attempt.
+        await page.InvokeAsync(() => queuedClick.InvokeAsync(new()));
+        Assert.Equal(1, authorization.Checks);
+        authorization.Result.SetResult(permitted ? AuthorizationResult.Success() : AuthorizationResult.Failed());
+        await clicking;
+
+        Assert.Empty(page.FindComponents<QuasarOperationLoader>());
+        Assert.Contains(permitted ? "Source server was not found" : "You do not have permission",
+            page.Find("[role=alert]").TextContent);
+        Assert.False(page.FindComponents<MudButton>().Single(b => b.Markup.Contains(permitted ? "Resume conversion" : "Convert to cluster")).Instance.Disabled);
+        string work = Path.Combine(_root, "backups", "Conversions");
+        Assert.Equal(permitted, Directory.Exists(work));
+        if (permitted)
+        {
+            string requestFile = Assert.Single(Directory.GetFiles(work, "request.json", SearchOption.AllDirectories));
+            using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(requestFile));
+            var request = saved.RootElement.GetProperty("request");
+            Assert.True(request.GetProperty("automatic").GetBoolean());
+            Assert.True(request.GetProperty("createCluster").GetBoolean());
+            Assert.Equal("cluster-" + request.GetProperty("id").GetGuid().ToString("N"),
+                saved.RootElement.GetProperty("cluster").GetString());
+        }
+    }
+
+    private sealed class DelayedConversionAuthorization : IAuthorizationService
+    {
+        public TaskCompletionSource<AuthorizationResult> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Checks { get; private set; }
+        public Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, string policyName)
+        {
+            Checks++;
+            return Result.Task;
+        }
+        public Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, IEnumerable<IAuthorizationRequirement> requirements) =>
+            Task.FromResult(AuthorizationResult.Success());
+    }
+
+    private BunitContext CreateContext(bool securityAdmin = true, IAuthorizationService? conversionAuthorization = null)
     {
         var context = new BunitContext();
         context.Services.AddMudServices();
@@ -250,6 +394,8 @@ public sealed class ClusterCreateTests : IDisposable
             ? [QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
             : [QuasarPolicyNames.ClusterManage]);
         context.Services.AddSingleton(auth);
+        if (conversionAuthorization is not null)
+            context.Services.AddSingleton(conversionAuthorization);
         var credentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(_root, "credentials.json"));
         var hosts = new ClusterHostCatalog(credentials, Path.Combine(_root, "Hosts"));
         string binary = Path.Combine(_root, "Quasar.Host");
@@ -268,7 +414,12 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new QuasarAuthOptions(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
-        context.Services.AddSingleton(new ClusterConversionService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, new WebServiceOptions(), null!));
+        context.Services.AddSingleton(sp => new ClusterConversionService(sp.GetRequiredService<ClusterCatalog>(),
+            sp.GetRequiredService<DedicatedServerCatalog>(), null!, new ServerRestoreCoordinator(),
+            sp.GetRequiredService<QuasarConfigProfileCatalog>(),
+            new PluginConfigService(null!, NullLogger<PluginConfigService>.Instance, Path.Combine(_root, "configs")),
+            null!, null!, null!, null!, null!, new ClusterOperationStore(Path.Combine(_root, "operations")),
+            new WebServiceOptions { BackupDirectory = Path.Combine(_root, "backups") }, null!));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddSingleton<QuasarPermissionService>();
         context.ComponentFactories.AddStub<ClusterBetaNotice>();

@@ -27,16 +27,15 @@
     <p>Persistent standalone servers and clusters. Ordinary server controls stay here; cluster rows expose the Gateway, World Authority, node capacity, and recovery state as one managed server.</p></div></div>
 }
 
-<section class="quasar-panel quasar-servers-panel @(_compactRows ? "quasar-density-compact" : null)">
+<section class="quasar-panel quasar-servers-panel">
     <div class="quasar-panel-heading">
-        <h2>Dedicated servers <span class="quasar-muted quasar-caption">/ @ManagedServers.Count</span></h2>
+        <h2>Dedicated servers</h2>
         <div class="quasar-dashboard-actions">
             @if (!HideCreateActions)
             {
                 <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
             }
             @HeaderActions
-            <button type="button" class="quasar-button" aria-pressed="@(_compactRows ? "true" : "false")" @onclick="@(() => _compactRows = !_compactRows)">@(_compactRows ? "Comfortable rows" : "Compact rows")</button>
         </div>
     </div>
     <div class="quasar-toolbar">
@@ -97,7 +96,7 @@
                     </td>
                     <td class="mono">
                         @if (context.Server is { } endpointServer) { <button type="button" class="quasar-table-link" title="@GetDirectConnectTooltip(endpointServer)" @onclick="@(() => CopyDirectConnectAsync(endpointServer))">@endpointServer.ServerPort</button><span class="quasar-server-secondary">@agent?.HostDisplayName</span> }
-                        else { @GetGatewayEndpoint(context.Cluster!) }
+                        else { @(ClusterOverview.GamePort(context.Cluster!)?.ToString() ?? "Unknown") }
                     </td>
                     <td class="mono">@(context.Server is null ? GetClusterPlayerCount(context.UniqueName) : GetPlayerCount(context.UniqueName))</td>
                     <td class="mono @(metrics is { SimSpeed: < 0.95f } ? "quasar-text-warning" : null)">@(metrics is null ? "—" : metrics.SimSpeed.ToString("0.00") + "×")</td>
@@ -174,7 +173,7 @@
         </table>
         </div>
     }
-    <div class="quasar-table-footer"><span>Goal-state supervision · Agent telemetry</span><span>Process CPU can exceed 100% · Cluster resources are shown in live details</span></div>
+    <div class="quasar-table-footer"><span>Goal-state supervision · Agent telemetry</span><span>Process CPU can exceed 100% because it represents 1 CPU · Cluster resources are shown in live details</span></div>
 </section>
 
 @if (UnmanagedAgents.Count > 0)
@@ -207,13 +206,12 @@
 
 @code
 {
-    private static readonly string[] SortColumns = ["Name", "Status", "Endpoint", "Players", "Sim speed", "CPU", "Memory", "Type", "Config", "Process", "Agent / WA", "Unique name"];
+    private static readonly string[] SortColumns = ["Name", "Status", "Game port", "Players", "Sim speed", "CPU", "Memory", "Type", "Config", "Process", "Agent / WA", "Unique name"];
     private IEnumerable<string> VisibleColumns => _showTechnicalColumns ? SortColumns.Take(11) : SortColumns.Take(7);
     private string _search = string.Empty;
     private string _statusFilter = string.Empty;
     private string _kindFilter = string.Empty;
     private bool _showTechnicalColumns;
-    private bool _compactRows = true;
     private readonly string _menuPrefix = "server-actions-" + Guid.NewGuid().ToString("N");
     private string MenuId(string name) => _menuPrefix + "-" + Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(name));
     private string MenuAnchor(string name) => "--" + MenuId(name);
@@ -224,7 +222,7 @@
         && (_statusFilter.Length == 0 || GetManagedStateText(row) == _statusFilter)
         && (_search.Length == 0 || string.Join(" ", row.DisplayName, row.UniqueName, GetConfigProfileName(row.ConfigProfileId),
             GetAgent(row.UniqueName)?.WorldDisplayName, GetAgent(row.UniqueName)?.HostDisplayName,
-            row.Cluster?.GatewayUrl, row.Server?.ServerPort.ToString()).Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)));
+            row.Cluster?.GatewayUrl, row.Server?.ServerPort.ToString() ?? ClusterOverview.GamePort(row.Cluster!)?.ToString()).Contains(_search.Trim(), StringComparison.OrdinalIgnoreCase)));
     private void ClearFilters() { _search = _statusFilter = _kindFilter = string.Empty; }
     private string _sortColumn = "Name";
     private bool _sortDescending;
@@ -240,7 +238,7 @@
         "Memory" => GetAgent(row.UniqueName)?.Snapshot?.Metrics.MemoryWorkingSetMb ?? -1L,
         "Status" => GetManagedStateText(row),
         "Unique name" => row.UniqueName,
-        "Endpoint" => GetEndpointSortValue(row),
+        "Game port" => row.Server?.ServerPort ?? ClusterOverview.GamePort(row.Cluster!) ?? -1,
         "Config" => GetConfigProfileName(row.ConfigProfileId),
         "Players" => GetManagedPlayerSortValue(row),
         "Process" => GetManagedProcessSortValue(row),
@@ -865,11 +863,6 @@
     private string GetManagedStateText(ManagedServerRow row) => row.Server is not null
         ? GetStateText(row.UniqueName) : GetClusterStateText(row.UniqueName);
 
-    private static (string Host, int Port) GetEndpointSortValue(ManagedServerRow row) => row.Server is not null
-        ? (string.Empty, row.Server.ServerPort)
-        : Uri.TryCreate(row.Cluster!.GatewayUrl, UriKind.Absolute, out var endpoint)
-            ? (endpoint.Host, endpoint.Port) : (string.Empty, -1);
-
     private object GetManagedPlayerSortValue(ManagedServerRow row) => row.Server is not null
         ? GetPlayerSortValue(row.UniqueName)
         : GetClusterSnapshot(row.UniqueName)?.Status?.Counts.ConnectedClients ?? -1;
@@ -904,9 +897,6 @@
     private string GetClusterError(string uniqueName) => NeedsShutdownRecovery(uniqueName)
         ? ClusterReconciler.GetStatus(uniqueName).Message
         : GetClusterSnapshot(uniqueName)?.Error ?? "Gateway status is current.";
-
-    private static string GetGatewayEndpoint(ClusterDefinition cluster) =>
-        Uri.TryCreate(cluster.GatewayUrl, UriKind.Absolute, out Uri? gateway) ? gateway.Authority : "-";
 
     private string GetClusterPlayerCount(string uniqueName) =>
         GetClusterSnapshot(uniqueName)?.Status?.Counts.ConnectedClients.ToString() ?? "-";

@@ -14,6 +14,8 @@ public sealed class AnalyticsViewConfig
 
     public List<string> SelectedUniqueNames { get; set; } = [];
 
+    public List<string> SelectedClusterIds { get; set; } = [];
+
     public DateTime? CustomFromDate { get; set; } = DateTime.UtcNow.Date.AddDays(-1);
 
     public TimeSpan? CustomFromTime { get; set; } = TimeSpan.Zero;

@@ -73,11 +73,11 @@ window.quasarCharts = (function () {
 
         const series = [{}]; // x
         chart.series.forEach((s, i) => {
-            const color = colorsArr[i % colorsArr.length];
+            const color = s.color || colorsArr[i % colorsArr.length];
             series.push({
                 label: s.label,
                 stroke: color,
-                // Fleet overview uses a line; detailed analytics retains individual sample markers.
+                // Fleet and cluster comparisons use lines; standalone analytics keeps sample markers.
                 ...(lines ? { width: 1.5, spanGaps: false } : { paths: () => null }),
                 points: { show: !lines, size: 5, stroke: color, fill: color, width: 0 },
                 value: (u, v) => (v == null ? "-" : valueFmt(v)),
@@ -187,7 +187,7 @@ window.quasarCharts = (function () {
         const fallback = axisColors(dark);
         const appearance = { label: token("text-secondary") || fallback.label, grid: token("divider") || fallback.grid, tick: token("divider") || fallback.tick };
         if (!colors?.length) colors = ["primary", "warning", "success", "secondary", "error"].map(token).filter(Boolean);
-        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, chart.series.map(s => s.label)]);
+        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, chart.series.map(s => [s.label, s.color])]);
         const reserve = legendReserveFor(chart.series.length, fallbackHeight);
         const existing = instances.get(containerId);
 
@@ -250,7 +250,7 @@ window.quasarCharts = (function () {
     }
 
     // request: { endpoint, from, to, maxPoints, servers[], metrics[{key, containerId, height}],
-    //            names{uniqueName: displayName}, colors[], dark }
+    //            names{uniqueName: displayName}, colors[], seriesColors{uniqueName: color}, lines, dark }
     async function sync(request) {
         // Don't disturb an in-progress drag selection with a real-time refresh.
         if (suspendUpdates) return { ok: true, skipped: true, charts: 0, bytes: 0 };
@@ -309,7 +309,10 @@ window.quasarCharts = (function () {
             const panel = containerByMetric.get(chart.metric);
             if (!panel) continue;
             // Attach human-readable series labels from the request's name map (kept server-agnostic).
-            chart.series.forEach((s) => { s.label = labelForSeries(names, s.uniqueName); });
+            chart.series.forEach((s) => {
+                s.label = labelForSeries(names, s.uniqueName);
+                s.color = request.seriesColors?.[s.uniqueName] || request.seriesColors?.[s.uniqueName.split(" / ")[0]];
+            });
             renderChart(panel.containerId, chart, !!request.dark, request.colors, spanSeconds, heightByMetric.get(chart.metric), xMin, xMax, request.lines === true, request.selectable !== false);
             present.add(panel.containerId);
             rendered++;

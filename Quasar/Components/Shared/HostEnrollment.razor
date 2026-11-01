@@ -7,7 +7,7 @@
 @inject NavigationManager Navigation
 
 <div class="quasar-layout quasar-gap-3">
-    <p class="quasar-text quasar-type-body1">Install a Host executor (Quasar.Host) on another Linux x64 machine. It connects back to Quasar securely; its control port stays on loopback. Cluster Registry, Cluster Gateway and game nodes continue running if Quasar disconnects. A Quasar machine on Linux x64 has its own local Host executor and needs no enrollment.</p>
+    <p class="quasar-text quasar-type-body1">Add another Linux x64 machine to run your cluster. It connects securely to Quasar and keeps your cluster running during Quasar restarts.</p>
     <MudSelect T="string" Label="Registration" Value="_existing" ValueChanged="SelectExisting">
         <MudSelectItem Value="@(string.Empty)">New host machine</MudSelectItem>
         @foreach (var host in Hosts.GetAll().Where(h => h.Id != ClusterLocalHost.HostId)) { <MudSelectItem Value="host.Id">@host.Name — resume or update Host executor</MudSelectItem> }
@@ -35,7 +35,11 @@
         <p class="quasar-text quasar-type-body2">Download and extract this package on the host machine, then follow its README to start Quasar.Host with your preferred service manager. The package contains this host machine's credentials; keep it private.</p>
         <MudButton Href="@($"api/v1/host-enrollment/{Uri.EscapeDataString(_host.Id)}/manual?quasarUrl={Uri.EscapeDataString(_origin)}")" Variant="Variant.Outlined">Download manual host package</MudButton>
     }
-    @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+    @if (_busy)
+    {
+        <QuasarOperationLoader Title="Preparing Host executor"
+                               Message="@(_method == "ssh" ? "Connecting over SSH, installing prerequisites and starting the Host executor." : "Registering the host machine and preparing enrollment credentials.")" />
+    }
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     @if (_ticket is not null)
     {

@@ -309,6 +309,10 @@
                         </div>
                     </div>
 
+                    @foreach (var component in ManagedRuntimeRows.Where(c => c.State is ManagedRuntimeComponentState.Checking or ManagedRuntimeComponentState.Downloading or ManagedRuntimeComponentState.Installing))
+                    {
+                        <QuasarOperationLoader @key="component.Component" Title="@component.DisplayName" Message="@component.Message" Percent="@((double?)component.Percent)" />
+                    }
                     <MudTable Items="@ManagedRuntimeRows" Dense="true" Hover="true">
                         <HeaderContent>
                             <MudTh>Component</MudTh>

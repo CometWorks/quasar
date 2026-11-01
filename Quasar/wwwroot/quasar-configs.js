@@ -258,9 +258,11 @@ window.quasarConfigs = window.quasarConfigs || {
             const panel = document.createElement("div");
             panel.className = "quasar-restart-feedback-panel";
 
-            const spinner = document.createElement("div");
-            spinner.className = "quasar-restart-feedback-spinner";
-            spinner.setAttribute("aria-hidden", "true");
+            const progress = document.createElement("progress");
+            progress.className = "quasar-progress";
+            progress.max = 4;
+            progress.value = 0;
+            progress.setAttribute("aria-label", "Restart steps completed");
 
             const content = document.createElement("div");
             content.className = "quasar-restart-feedback-content";
@@ -280,8 +282,8 @@ window.quasarConfigs = window.quasarConfigs || {
             content.appendChild(title);
             content.appendChild(message);
             content.appendChild(status);
+            content.appendChild(progress);
             content.appendChild(stepList);
-            panel.appendChild(spinner);
             panel.appendChild(content);
             root.appendChild(panel);
             document.body.appendChild(root);
@@ -291,6 +293,7 @@ window.quasarConfigs = window.quasarConfigs || {
                 title,
                 message,
                 status,
+                progress,
                 stepList,
                 phaseOrder: ["request", "stop", "health", "reload"],
                 startedAt: Date.now()
@@ -313,6 +316,7 @@ window.quasarConfigs = window.quasarConfigs || {
             : [];
 
         window.quasarConfigs.updateRestartFeedback(statusText, "request");
+        window.dispatchEvent(new Event("quasar-restart-feedback-changed"));
         return true;
     },
     updateRestartFeedback(statusText, phase) {
@@ -330,6 +334,7 @@ window.quasarConfigs = window.quasarConfigs || {
         const activeIndex = phaseName === "timeout"
             ? state.phaseOrder.length - 1
             : Math.max(0, state.phaseOrder.indexOf(phaseName));
+        state.progress.value = activeIndex;
 
         (state.steps || []).forEach((step, index) => {
             step.classList.toggle("quasar-restart-feedback-step-done", index < activeIndex);
@@ -346,6 +351,7 @@ window.quasarConfigs = window.quasarConfigs || {
         window.quasarConfigs.clearRestartReloadState();
         window.quasarRestartFeedback = null;
         window.quasarRestartReloadSession = null;
+        window.dispatchEvent(new Event("quasar-restart-feedback-changed"));
     },
     getRestartReloadStorageKey() {
         return panelStorageKey("quasar.restartReload");

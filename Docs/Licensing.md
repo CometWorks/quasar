@@ -16,9 +16,9 @@ https://www.gnu.org/licenses/agpl-3.0.html. Binary distributions include it as
 ## MIT archive and transition
 
 The licensing transition is dated 1 November 2026. The frozen `archive/mit`
-branch preserves the last main-branch snapshot before this change:
+tag preserves the last main-branch snapshot before this change:
 
-- Branch: https://github.com/CometWorks/quasar/tree/archive/mit
+- Tag: https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit
 - Commit: `80eddddb51d034517ffe699c09ff7e84f00b0021`
 - License at that commit: MIT, with the original copyright and permission notice.
 

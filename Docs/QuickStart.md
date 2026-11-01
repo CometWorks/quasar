@@ -129,18 +129,28 @@ same mapping only when persistent `rbac.json` does not exist.
 
 ## First server setup
 
-When no server is configured, the dashboard automatically opens the first-server
-setup dialog once in that browser. Choose **Create New Server** to continue into
-the normal setup flow, or **Import Existing Server** to continue in the same
-dialog with the vanilla/Torch importer. The dashboard buttons can reopen either
-path later.
+When no server is configured, the dashboard automatically opens first-server
+setup. Choose **Single Magnetar** for the normal setup flow, **Cluster** on Linux
+for guided cluster setup (requires cluster-management permission), or **Import
+Existing Server** for the vanilla/Torch importer. Refresh resumes the chosen
+flow; creating a server does not dismiss setup. Use **Skip setup**, **Cancel**, or
+the close button to dismiss it explicitly, and **Close** or **Done** to finish.
+Escape and clicks outside the dialog do not dismiss it. **Setup guide** can reopen
+the choices later. Import refreshes return to source selection for fresh analysis
+and confirmation; after a successful import, refresh resumes the server setup guide.
 
 The create-new setup flow starts from a world shipped with Space Engineers
 Dedicated Server:
 
 1. Choose a predefined Dedicated Server world. Quasar copies it into managed
    world-template storage. The chooser stays disabled until the managed
-   Dedicated Server download is installed and validated.
+   Dedicated Server download is installed and validated. Preparation feedback beside
+   the button explains each stage and shows live download/validation progress.
+   The first run can take several minutes; failed steps include retry guidance.
+   Choose **Use this world** in the chooser. It searches in the background,
+   rechecks automatically when server files become ready, and shows file-copy
+   progress. **Where Quasar looked** lists the searched locations if worlds are
+   missing. World selection can proceed while Magnetar is still preparing.
 2. Create a matching config profile from that template's
    `Sandbox_config.sbc`. This carries the world's session settings and mods
    forward instead of applying an unrelated profile on first start. Online Mode

@@ -51,6 +51,7 @@ public sealed class ClusterConsoleDialogTests
             return;
         }
         Assert.Contains("world-saved", dialog.Markup);
+        Assert.NotEmpty(dialog.FindAll(".cluster-console-event"));
         Assert.DoesNotContain("<script>", dialog.Markup);
         handler.Unavailable = true;
         await dialog.WaitForAssertionAsync(() => Assert.Contains("Retained entries may be stale", dialog.Markup), TimeSpan.FromSeconds(10));

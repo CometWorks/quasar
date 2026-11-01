@@ -216,8 +216,6 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 480px), 1fr)); grid-auto-rows: 1fr; align-items: stretch; gap: 16px; }
 .quasar-shutdown-overlay { position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; padding: 24px; background: color-mix(in srgb, var(--quasar-palette-background) 90%, transparent); }
 .quasar-shutdown-overlay p { max-width: 560px; text-align: center; }
-.quasar-spinner { width: 36px; height: 36px; border: 3px solid var(--quasar-palette-lines-default); border-top-color: var(--quasar-palette-primary); border-radius: 50%; animation: quasar-spin 1s linear infinite; }
-@keyframes quasar-spin { to { transform: rotate(360deg); } }
 @media (max-width: 1200px) { .quasar-color-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 900px) {
     .quasar-shell { grid-template-columns: minmax(0, 1fr); }
@@ -238,7 +236,6 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     .quasar-fields, .quasar-appearance-preview { grid-template-columns: minmax(0, 1fr); }
     .quasar-page-heading h1 { font-size: 24px; }
 }
-@media (prefers-reduced-motion: reduce) { .quasar-spinner { animation: none; } }
 
 /* Fleet table: keep every column and action available on narrow screens. */
 .quasar-mobile-nav-toggle { display: none; }
@@ -431,7 +428,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-state-badge { border: 1px solid var(--quasar-palette-lines-default); padding: 3px 6px; border-radius: 4px; font-size: 10px; display: inline-flex; align-items: center; gap: 5px; }
 .quasar-state-badge::before { content: ""; width: 5px; height: 5px; flex-shrink: 0; border-radius: 50%; background: currentColor; }
 .quasar-table-link { font-size: inherit; }
-.quasar-density-compact .quasar-server-table > tbody > tr:not(.quasar-server-detail-row) > td { padding-block: 5px; }
+.quasar-servers-panel .quasar-server-table > tbody > tr:not(.quasar-server-detail-row) > td { padding-block: 5px; }
 .quasar-insights { display: grid; grid-template-columns: minmax(0, 3fr) minmax(300px, 2fr); gap: 18px; margin-top: 18px; }
 .quasar-insights .quasar-panel { min-width: 0; }
 .quasar-activity { margin: 0; padding: 0; list-style: none; }
@@ -480,7 +477,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-input-control { margin-top: 6px; }
 .quasar-shell .mud-input-outlined { border-radius: 4px; background: var(--quasar-palette-surface); }
 .quasar-shell .mud-input { font-size: 13px; }
-.quasar-shell .mud-input-outlined > input.mud-input-root { padding: 11px 12px; }
+.quasar-shell .mud-input-outlined > :is(input, div).mud-input-root:not(.mud-input-root-multiline) { padding: 11px 12px; }
 .quasar-shell .mud-input-label { font-size: 12px; }
 .quasar-shell .mud-input-label-outlined { transform: translate(12px, 13px) scale(1); }
 .quasar-shell .mud-input-label-outlined.mud-input-label-shrink { transform: translate(12px, -6px) scale(.8); }
@@ -505,6 +502,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-alert { border-radius: 5px; padding: 9px 14px; font-size: 12px; }
 .quasar-shell .mud-alert-outlined { background: var(--quasar-palette-surface); }
 .quasar-shell .mud-alert-message { padding-block: 3px; }
+.cluster-beta-notice .mud-alert-message { flex: 1; min-width: 0; }
 .quasar-shell .mud-switch { margin-left: -8px; }
 .quasar-shell .mud-treeview-item-content { min-height: 32px; font-size: 12px; }
 .quasar-shell .configs-sidebar { background: var(--quasar-palette-surface); }
@@ -530,6 +528,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .cluster-map { min-width: calc(var(--cluster-node-count) * 216px); display: flex; flex-direction: column; align-items: center; padding: 12px 0; }
 .cluster-player-entry { display: flex; align-items: center; gap: 16px; padding: 12px 24px; border: 1px solid var(--quasar-palette-divider); border-radius: 8px; }
 .cluster-player-entry span { color: var(--quasar-palette-text-secondary); }
+.cluster-routing-status { max-width: 36rem; padding: 8px 12px; text-align: center; font-size: 11px; }
 .cluster-entry-link { width: 2px; height: 24px; background: var(--quasar-palette-success); }
 .cluster-process { width: 100%; min-width: 0; padding: 14px; border: 1px solid var(--quasar-palette-divider); border-top: 3px solid var(--quasar-palette-text-secondary); border-radius: 8px; background: var(--quasar-palette-surface); display: flex; flex-direction: column; gap: 10px; overflow-wrap: anywhere; }
 .cluster-process h4 { font-size: 15px; }
@@ -556,7 +555,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .cluster-map-empty { padding: 30px; }
 .cluster-map-hint { display: none; }
 .cluster-game-nodes:focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 2px; }
-.cluster-spare-label { color: var(--quasar-palette-info); font-weight: 600; }
+.cluster-spare-label, .cluster-idle-label { color: var(--quasar-palette-info); font-weight: 600; }
 .cluster-resources { display: flex; flex-direction: column; gap: 6px; font-size: 12px; font-variant-numeric: tabular-nums; }
 .cluster-cpu { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .cluster-cpu-bars { display: flex; gap: 3px; height: 28px; align-items: stretch; }

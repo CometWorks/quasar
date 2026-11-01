@@ -1,0 +1,14 @@
+.quasar-operation-loader {
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid var(--quasar-palette-lines-default);
+    border-radius: 6px;
+    background: var(--quasar-palette-background);
+}
+
+.quasar-operation-loader p {
+    margin: 0;
+    overflow-wrap: anywhere;
+}

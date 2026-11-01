@@ -98,7 +98,7 @@ The power button in the top bar opens **Quasar power** (admin role):
 
 - **Shutdown Quasar** saves the managed server state, then stops the web worker and Bootstrap with exit code 0. The task counts this as success and does not restart it. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Run `Start-ScheduledTask -TaskName Quasar` to bring the UI back. In a foreground run the launcher exits to the terminal.
 - **Restart Quasar** restarts only the web worker under Bootstrap. Servers keep running.
-- **Save and stop all servers** stops every server and leaves Quasar running.
+- **Save and stop all servers** saves and stops standalone servers and managed clusters, setting their goals to Off. Quasar stays online with a loader, elapsed time, per-target progress and a stopped count. A cluster is complete only after its normal save/drain sequence and verified Gateway stop. Failures stay visible until closed; processes are not force-killed. Observed-only clusters are excluded.
 
 If the web worker crashes, Bootstrap restarts it. If Bootstrap itself fails, the task restarts it (up to 10 times, 5 minutes apart).
 
@@ -190,3 +190,6 @@ Cluster nodes run Quasar.Host from `quasar-host-win-x64.zip` in its own folder w
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Layout/QuasarControlDialog.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterReconciler.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`

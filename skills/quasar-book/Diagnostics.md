@@ -14,6 +14,9 @@ This page covers what Quasar records about its own errors and crashes, the conse
 
 Consent lives in the **Data Handling Consent** section of **Security** (`/settings/security`, needs the security management permission, see [Access control](AccessControl.md)). The **Dashboard** also shows a **Data Handling Consent** prompt with YES and NO buttons while no decision is stored, or while statistics consent is on but diagnostic reports are off.
 
+The Dashboard prompt keeps its text and buttons inside the standard panel padding;
+the buttons wrap below the text when space is limited.
+
 | Choice | Default | What it controls |
 | --- | --- | --- |
 | **YES** / **NO** buttons | no choice | YES turns on plugin usage statistics and diagnostic reports, and starts automatic enrollment with the backoffice. It does not turn on crash dumps or listings. NO turns off statistics, diagnostic reports and crash dumps. |

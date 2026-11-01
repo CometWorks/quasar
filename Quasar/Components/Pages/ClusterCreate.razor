@@ -12,6 +12,7 @@
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
 @inject NavigationManager Navigation
+@inject IDialogService Dialogs
 
 <PageTitle>Set up cluster</PageTitle>
 <ClusterBetaNotice />
@@ -26,8 +27,7 @@
                 <ChildContent>
                     <MudStep Title="Host enrollment" Disabled="_busy" Completed="HasConnectedHosts">
                         <div class="quasar-layout quasar-gap-3">
-                            <p class="quasar-text quasar-type-body1">Use this PC, an enrolled host machine, or add one here before configuring the cluster. On Linux x64 every Quasar install has a local Host executor without enrollment; Quasar starts it when you open this page.</p>
-                            <span class="quasar-text quasar-type-caption">@LocalHost.Status</span>
+                            <p class="quasar-text quasar-type-body1">Use an available host machine, or add one for your cluster.</p>
                             @if (LocalHost.Error is not null) { <MudAlert Severity="Severity.Warning">@LocalHost.Error</MudAlert> }
                             @foreach (var machine in _machines)
                             {
@@ -48,7 +48,7 @@
                                     <MudAlert Severity="Severity.Info">A security administrator must enroll host machines. You can continue with an existing connected host machine.</MudAlert>
                                 </NotAuthorized>
                             </AuthorizeView>
-                            @if (!HasConnectedHosts) { <MudAlert Severity="Severity.Info">Waiting for an enrolled Host executor to connect. Enrollment alone does not make a host machine ready for deployment.</MudAlert> }
+                            @if (!HasConnectedHosts) { <MudAlert Severity="Severity.Info">Waiting for a host machine to connect. You can continue when a machine shows Connected.</MudAlert> }
                         </div>
                     </MudStep>
                     <MudStep Title="Configure and deploy" Disabled="@(_busy || !HasConnectedHosts && _request is null)">
@@ -62,7 +62,8 @@
                             <MudSelect T="string" Label="Configuration profile" @bind-Value="_profile" Disabled="Locked" HelperText="Game settings, mods and plugin selection. New clusters start with the selected plugins' SDK defaults, shared across every node.">
                                 @foreach (var profile in Profiles.GetProfiles()) { <MudSelectItem Value="profile.ConfigProfileId">@profile.Name</MudSelectItem> }
                             </MudSelect>
-                            <MudCheckBox T="bool" @bind-Value="_defaultPlugins" Disabled="Locked" Label="Enable the Bugfixes and Performance server plugins (recommended)" />
+                            <MudCheckBox T="bool" @bind-Value:get="_defaultPlugins" @bind-Value:set="SetDefaultPluginsAsync" Disabled="@(Locked || _confirmingDefaultPlugins)" Label="Enable the Bugfixes and Performance server plugins (recommended)" />
+                            <MudAlert Severity="@(_defaultPlugins ? Severity.Info : Severity.Warning)" Variant="Variant.Outlined" Dense="true">@DefaultPluginsRisk</MudAlert>
                             <p class="quasar-text quasar-type-caption">@DefaultPluginsHelp</p>
                             <h2 class="quasar-text quasar-type-h6">Host machines</h2>
                             <p class="quasar-text quasar-type-body2">Choose 1–32 regular nodes per selected host machine, with at least two in total. The Cluster Gateway host machine also runs the Cluster Registry and World Authority. Clusters on multiple host machines need mutually reachable LAN/VPN addresses; Quasar also needs to reach the Cluster Registry admin port.</p>
@@ -82,17 +83,28 @@
                             <MudSelect T="string" Label="Cluster Gateway and World Authority host machine" @bind-Value="_gateway" Disabled="Locked" HelperText="Players connect to this host machine. Quasar generates and installs the Cluster Registry credentials automatically.">
                                 @foreach (var machine in _machines.Where(m => m.Selected)) { <MudSelectItem Value="machine.Host.Id">@machine.Host.Name</MudSelectItem> }
                             </MudSelect>
-                            <MudNumericField T="int" Label="Public server port" @bind-Value="_port" Min="1024" Max="64000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +16 and ports +1100 to +1264 for Cluster Registry administration and node communication; keep those ports free on these host machines. Port +100 stays free for a Direct Transport frontend." />
+                            <MudNumericField T="int" Label="Public server port" @bind-Value="_port" Min="1024" Max="64000" Disabled="Locked" HelperText="UDP port players use, usually 28000. Setup also reserves this port through port +16 and ports +1100 to +1264 for Cluster Registry administration and node communication; keep those ports free on these host machines. Port +100 stays free for optional player connections." />
                             <p class="quasar-text quasar-type-body2">Allow the player UDP port through your firewall. Keep internal cluster traffic on your LAN/VPN. The Host executor command listener stays on loopback and connects back to Quasar over HTTPS.</p>
                             @if (HasOfflineHosts)
                             {
                                 <MudAlert Severity="Severity.Warning">Every selected host machine must be connected before you can deploy. Start or reconnect the offline host machines. To change host machines after an interrupted attempt, choose Start a new setup.</MudAlert>
                             }
                             <MudButton OnClick="DeployAsync" Disabled="@(!CanDeploy)" Variant="Variant.Filled" Color="Color.Primary">@(_request is null ? "Create and deploy cluster" : "Resume setup")</MudButton>
-                            @if (_busy) { <MudProgressLinear Indeterminate="true" /> }
+                            @if (_busy)
+                            {
+                                <QuasarOperationLoader Title="Creating and deploying cluster"
+                                                       Message="@SetupProgressMessage" Percent="@SetupProgressPercent" />
+                            }
                             @if (_status is not null)
                             {
-                                <MudAlert Severity="@(_status.Error is null ? Severity.Info : Severity.Warning)">@_status.Phase @(_status.Error is null ? "" : ": " + _status.Error)</MudAlert>
+                                <MudAlert Severity="@(_status.Error is null ? Severity.Info : Severity.Warning)">
+                                    <div>@_status.Phase@(_status.FailedPhase is { } phase ? " during: " + phase : "")</div>
+                                    @if (_status.Error is { } error)
+                                    {
+                                        <div style="white-space: pre-wrap; overflow-wrap: anywhere;">@error</div>
+                                        <p>Keep this cluster and fix the reported cause, then choose Resume setup. Completed preparation is verified and reused. Start a new setup only to change the original settings.</p>
+                                    }
+                                </MudAlert>
                                 @if (_request is not null && _status.Error is not null)
                                 {
                                     <MudButton OnClick="StartNewSetup" Disabled="_busy">Start a new setup</MudButton>
@@ -138,29 +150,55 @@
     private string _id = "", _name = "", _world = "", _profile = "", _gateway = "";
     private string _importId = "", _importName = "", _url = "", _credential = "";
     private int _port = 28000, _setupStep, _spares = 1;
-    private bool _busy, _disposed, _showEnrollment, _defaultPlugins = true;
+    private bool _busy, _disposed, _showEnrollment, _confirmingDefaultPlugins, _defaultPlugins = true;
+    private const string DefaultPluginsRisk = "Bugfixes fixes known game crashes, including a Havok physics crash. Performance reduces CPU overhead and simulation pauses on every node. A node crash or prolonged stall can interrupt players and force partition recovery; unsaved progress may be lost. Keep both plugins enabled for production clusters.";
+    private IReadOnlyList<QuasarPluginSelection> PendingDefaultPlugins => QuasarDefaultPlugins.Pending(Profiles.GetProfile(_profile) ?? new());
     private string DefaultPluginsHelp
     {
         get
         {
-            var pending = Profiles.GetProfile(_profile) is { } profile ? QuasarDefaultPlugins.Pending(profile) : [];
+            var pending = PendingDefaultPlugins;
             if (!_defaultPlugins)
-                return "The cluster gets only the plugins the selected profile has. Quasar won't offer Bugfixes and Performance for its profile again.";
+                return "The cluster gets only the plugins the selected profile has. Existing profile plugins stay selected. Skipped defaults will not be added automatically later; add them manually in the cluster's profile if needed.";
             if (!string.IsNullOrWhiteSpace(_profile) && pending.Count == 0)
                 return "The selected profile already has them, or they were turned off in it before. Quasar leaves its plugin selection as it is.";
             return "Adds " + (pending.Count == 0 ? "Bugfixes and Performance" : string.Join(" and ", pending.Select(p => p.DisplayName)))
                 + " from MagnetarHub with their default settings to the cluster's own copy of the profile. The selected profile stays unchanged. You can turn either off later in the cluster's profile.";
         }
     }
+    private async Task SetDefaultPluginsAsync(bool enabled)
+    {
+        if (Locked || _confirmingDefaultPlugins || enabled == _defaultPlugins) return;
+        var pending = PendingDefaultPlugins;
+        _defaultPlugins = enabled;
+        if (enabled || pending.Count == 0) return;
+        _confirmingDefaultPlugins = true;
+        bool skip = false;
+        try
+        {
+            string names = string.Join(" and ", pending.Select(plugin => plugin.DisplayName));
+            var confirmed = await Dialogs.ShowMessageBoxAsync("Skip recommended server plugins?",
+                $"{names} will not be added to this cluster. {DefaultPluginsRisk} " +
+                "Plugins already selected in the profile stay selected. Skipped defaults will not be added automatically later. Skip them only for deliberate compatibility testing or troubleshooting.",
+                yesText: "Skip recommended plugins", cancelText: "Keep enabled");
+            skip = confirmed == true;
+        }
+        finally { if (!Locked) _defaultPlugins = !skip; _confirmingDefaultPlugins = false; }
+    }
     private string? _error;
     private ClusterSetupRequest? _request;
     private ClusterSetupStatus? _status;
+    private ManagedRuntimeInstallProgress? _runtimeProgress;
+    private bool ProvisioningRuntime => _status?.Phase == ClusterSetupService.RuntimeProvisioningPhase;
+    private string SetupProgressMessage => ProvisioningRuntime && _runtimeProgress is not null
+        ? _runtimeProgress.Message : _status?.Phase ?? "Checking cluster hosts and setup settings.";
+    private double? SetupProgressPercent => ProvisioningRuntime ? _runtimeProgress?.Percent : null;
     private List<MachineRow> _machines = [];
     private bool HasConnectedHosts => _machines.Any(m => Tunnels.IsConnected(m.Host.Id));
     private bool Locked => _busy || _request is not null;
     private bool HasOfflineHosts => (_request?.Machines.Select(m => m.HostId)
         ?? _machines.Where(m => m.Selected).Select(m => m.Host.Id)).Any(id => !Tunnels.IsConnected(id));
-    private bool CanDeploy => !_busy && !HasOfflineHosts && !string.IsNullOrWhiteSpace(_id)
+    private bool CanDeploy => !_busy && !_confirmingDefaultPlugins && !HasOfflineHosts && !string.IsNullOrWhiteSpace(_id)
         && !string.IsNullOrWhiteSpace(_name) && !string.IsNullOrWhiteSpace(_world) && !string.IsNullOrWhiteSpace(_profile)
         && _machines.Any(m => m.Selected && m.Host.Id == _gateway)
         && _port is >= 1024 and <= 65000
@@ -246,15 +284,21 @@
     private async Task DeployAsync()
     {
         EnsureNames();
-        if (_busy || !await AuthorizedAsync(_id, true)) return;
-        _busy = true; _error = null;
+        if (_busy || _confirmingDefaultPlugins || !await AuthorizedAsync(_id, true)) return;
+        _busy = true; _error = null; _runtimeProgress = null;
         var request = _request ?? new(_id, _name, _world, _profile, _gateway, _port,
             _machines.Where(m => m.Selected).Select(m => new ClusterSetupPlacement(m.Host.Id, m.Nodes)).ToArray(), _spares, _defaultPlugins);
         try
         {
             var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
             _request = request;
-            var result = await Setup.RunAsync(request, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "ui", default);
+            var progress = new Progress<ManagedRuntimeInstallProgress>(update =>
+            {
+                if (!_busy || _disposed) return;
+                _runtimeProgress = update;
+                _ = InvokeAsync(StateHasChanged);
+            });
+            var result = await Setup.RunAsync(request, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "ui", default, progress);
             _status = Setup.GetStatus(request.UniqueName);
             if (result.State == ClusterOperationState.Succeeded)
             {

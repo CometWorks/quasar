@@ -2,6 +2,7 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using System.Text.Json;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Configuration;
 using Quasar.Services;
 using Quasar.Services.Analytics;
 using Quasar.Services.PluginSdk;
@@ -13,12 +14,36 @@ namespace Quasar.Tests;
 public sealed class ClusterAgentIdentityTests : IDisposable
 {
     private readonly MetricsStoreService _metrics = new(null!, new AnalyticsStoreOptions(), NullLogger<MetricsStoreService>.Instance);
+    private readonly string _clusterDirectory = Path.Combine(Path.GetTempPath(), "quasar-companion-clusters-" + Guid.NewGuid().ToString("N"));
     private AgentRegistry Registry() => new(null!, _metrics, new ProfilerStoreService(), new PluginStatsStoreService());
     private static AgentHello Hello(long epoch = 300, string id = "process-a") => new()
     { AgentId = id, UniqueName = "slot-server", HostId = "host", ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a", ClusterNodeId = "node-a", ClusterEpoch = epoch };
     private static AgentSnapshot Snapshot(long epoch = 300, string id = "process-a") => new()
     { AgentId = id, UniqueName = "slot-server", HostId = "host", ClusterMode = true, ClusterId = "cluster-a", ClusterSlot = "slot-a", ClusterNodeId = "node-a", ClusterEpoch = epoch };
     private static Task Sender(AgentWireMessage message, CancellationToken token) => Task.CompletedTask;
+
+    [Fact]
+    public void FleetPreservesTheAgentsPausedStateAndClearsItOnResume()
+    {
+        var registry = Registry();
+        registry.UpsertHello(Hello(), "connection", Sender);
+        var snapshot = Snapshot();
+        snapshot.TelemetryPaused = true;
+        registry.UpdateSnapshot(snapshot, "connection");
+        var node = new Admin.NodeStatus("node-a", "slot-a", 300, Admin.NodeRole.Regular, Admin.NodeState.Active,
+            "endpoint", null, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddMinutes(1), 0, 0, "host", true);
+        var status = new Admin.ClusterStatus("cluster-a", "world", Admin.ClusterPhase.Serving, Admin.StartupKind.Warm, null, null,
+            false, false, [], new(0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, DateTimeOffset.UtcNow), [node], [],
+            false, Admin.AdminHealth.Healthy, [], DateTimeOffset.UtcNow);
+        var fleet = new ClusterFleetService(null!, registry, new());
+        Assert.True(Assert.Single(fleet.Observe(status).Nodes).Telemetry!.TelemetryPaused);
+        Assert.True(ClusterOverview.IsIdle(Assert.Single(fleet.Observe(status).Nodes)));
+        snapshot = Snapshot();
+        snapshot.TelemetryPaused = false;
+        registry.UpdateSnapshot(snapshot, "connection");
+        Assert.False(Assert.Single(fleet.Observe(status).Nodes).Telemetry!.TelemetryPaused);
+        Assert.False(ClusterOverview.IsIdle(Assert.Single(fleet.Observe(status).Nodes)));
+    }
 
     [Fact]
     public void ReconnectDropsSnapshotAndConfigAndRejectsSupersededConnection()
@@ -95,7 +120,16 @@ public sealed class ClusterAgentIdentityTests : IDisposable
             .Build(1000, 1003, [old.AnalyticsKey], ["cpu"], 1000).Charts);
         var series = Assert.Single(chart.Series);
         Assert.Equal(old.AnalyticsKey, series.UniqueName);
-        Assert.Equal(new double?[] { 155, 155 }, series.Y);
+        Assert.Equal(new double?[] { 155, null, 155 }, series.Y);
+
+        var otherSample = new MetricSample(1001, .8f, 50, 2048, 20, 0, 0, 0, 0, null);
+        _metrics.Enqueue(other.TelemetryKey, otherSample);
+        _metrics.GetStore(other.TelemetryKey)!.Ingest(otherSample);
+        var combined = Assert.Single(new AnalyticsSeriesService(_metrics, new(), new(), registry)
+            .Build(1000, 1003, [old.AnalyticsKey, other.AnalyticsKey], ["cpu"], 1000).Charts);
+        Assert.Equal(2, combined.Series.Count);
+        Assert.Equal(new double?[] { 155, null, 155 }, combined.Series.Single(s => s.UniqueName == old.AnalyticsKey).Y);
+        Assert.Equal(new double?[] { null, 50, null }, combined.Series.Single(s => s.UniqueName == other.AnalyticsKey).Y);
     }
 
     [Fact]
@@ -165,9 +199,18 @@ public sealed class ClusterAgentIdentityTests : IDisposable
                         Success = true, PayloadJson = "\"reply\"" }) }, id);
                 return Task.CompletedTask;
             });
-        var channel = new QuasarCompanionChannel(registry);
+        using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().AddInMemoryCollection(
+            new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = _clusterDirectory }).Build());
+        await clusters.CreateAsync(new("cluster-a", "Unified server", "http://gateway.test", "ADMIN"), default);
+        var channel = new QuasarCompanionChannel(registry, clusters);
         var servers = channel.GetConnectedServers();
         Assert.Equal(2, servers.Select(server => server.ServerId).Distinct().Count());
+        Assert.All(servers, server =>
+        {
+            Assert.Equal("cluster-a", server.ClusterId);
+            Assert.Equal("slot-a", server.ClusterSlot);
+            Assert.Equal("Unified server", server.ClusterDisplayName);
+        });
         foreach (var server in servers)
         {
             Assert.Equal("reply", await channel.SendAsync<string, string>(server.ServerId, "plugin", "read", "request", default));
@@ -185,5 +228,9 @@ public sealed class ClusterAgentIdentityTests : IDisposable
         Assert.Equal(2, sent.Count);
     }
 
-    public void Dispose() => _metrics.Dispose();
+    public void Dispose()
+    {
+        _metrics.Dispose();
+        if (Directory.Exists(_clusterDirectory)) Directory.Delete(_clusterDirectory, true);
+    }
 }

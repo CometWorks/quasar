@@ -1,5 +1,21 @@
 # Cluster plugins: one server, existing SDK
 
+## Recommended stability and performance plugins
+
+Guided setup enables Bugfixes and Performance by default. Bugfixes includes a fix
+for a [native Havok physics crash](https://github.com/CometWorks/bugfixes/blob/5c196d48d47387f4de0e2afbdc4426c4654d2bc3/Docs/havok-end-of-step-callbacks.md).
+Performance reduces CPU overhead, simulation stalls and loading pauses; see its
+[documented optimizations](https://github.com/viktor-ferenczi/se-performance-improvements/blob/main/Docs/PerformanceFixes.md).
+A node crash or prolonged stall can interrupt players and require partition
+recovery, with possible loss of unsaved progress. Keep both enabled in production.
+
+The wizard explains these consequences beside the option. Turning it off asks
+for confirmation when recommended additions would be skipped. **Keep enabled** or
+dismissing preserves the enabled choice; **Skip recommended plugins** confirms it.
+Existing profile plugins stay selected. Skipping is intended for deliberate
+compatibility testing or troubleshooting, and skipped defaults are not added
+automatically later. The selected source profile stays unchanged.
+
 ## Content update monitoring (2026-09-27)
 
 Quasar observes common-plugin manifest commits and Workshop mod timestamps. The cluster
@@ -347,6 +363,11 @@ persisted common preparation specification. An edit prepares a new immutable can
 on every Host. Activation requires a stopped cluster and full downtime. No per-node
 configuration write bypass is allowed. Canonical storage precedes plugin construction;
 continuous live read-back gates runtime readiness independently of Agent.
+
+The Plugins page directs individual node/epoch configuration entries to **Open
+cluster plugin settings**, which opens the cluster's **Settings** view. Expand
+**Plugin configuration** there for the schema-based editor. Individual node views
+do not display raw configuration JSON or offer per-node edits.
 
 Registry owns cluster readiness and topology. Agent reports process/slot/incarnation,
 revision, proof failure and plugin statistics. `cluster-plugin-services` adds availability,

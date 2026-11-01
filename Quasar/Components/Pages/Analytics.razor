@@ -3,6 +3,7 @@
 @using Microsoft.JSInterop
 @inject MetricsStoreService MetricsStore
 @inject DedicatedServerCatalog ServerCatalog
+@inject ClusterCatalog ClusterCatalog
 @inject AgentRegistry Registry
 @inject ProfilerStoreService ProfilerStore
 @inject PluginStatsStoreService PluginStatsStore
@@ -17,7 +18,7 @@
 
 <QuasarPageHeading Section="Operations">
     <Title>Analytics</Title>
-    <Description>Rolling server metrics with time-series charts, persisted filters, and configurable layout.</Description>
+    <Description>Select servers or whole clusters. Each metric has one chart, with a separate colored series for each cluster node.</Description>
 </QuasarPageHeading>
 
 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
@@ -88,20 +89,20 @@
         <MudItem xs="12" xl="8">
             <div class="quasar-layout quasar-gap-2">
                 <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
-                    <h2 class="quasar-text quasar-type-h6">Servers</h2>
+                    <h2 class="quasar-text quasar-type-h6">Servers and clusters</h2>
                     <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
                         <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
                         <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectNoneServersAsync">Select none</MudButton>
                     </div>
                 </div>
-                @if (_serverOptions.Count == 0)
+                @if (_serverOptions.Count == 0 && _clusterOptions.Count == 0)
                 {
                     <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No servers known yet.</MudAlert>
                 }
                 else
                 {
                     <MudGrid>
-                        @foreach (var option in _serverOptions)
+                        @foreach (var option in _serverOptions.Where(option => option.ClusterId is null))
                         {
                             <MudItem xs="12" sm="6">
                                 <MudCheckBox T="bool"
@@ -111,7 +112,32 @@
                             </MudItem>
                         }
                     </MudGrid>
-
+                    @foreach (var cluster in _clusterOptions)
+                    {
+                        <section class="analytics-cluster-selection" @key="cluster.Id">
+                            <MudCheckBox T="bool" Value="@IsClusterSelected(cluster.Id)"
+                                         ValueChanged="@(value => HandleClusterToggled(cluster.Id, value))"
+                                         Label="@cluster.DisplayName" />
+                            <p class="quasar-text quasar-type-caption">Cluster · @cluster.Nodes.Count node series · all nodes are included</p>
+                            @if (cluster.Nodes.Count == 0)
+                            {
+                                <p class="quasar-text quasar-type-caption">No node telemetry available yet.</p>
+                            }
+                            else
+                            {
+                                <div class="analytics-node-legend" aria-label="Node series">
+                                    @foreach (var node in cluster.Nodes)
+                                    {
+                                        <span><span class="analytics-series-swatch" style="background-color: @GetSeriesColor(node.UniqueName)" aria-hidden="true"></span>@node.NodeLabel</span>
+                                    }
+                                </div>
+                            }
+                        </section>
+                    }
+                    @if (_config.SelectedClusterIds.Count > 0)
+                    {
+                        <p class="quasar-text quasar-type-caption">Each chart compares all nodes. Player and world counts can be shared between nodes, so they are shown separately rather than added together.</p>
+                    }
                 }
             </div>
         </MudItem>
@@ -167,7 +193,7 @@
                 {
                     <MudTable T="ServerOption" Items="SelectedServerOptions" Dense="true" Hover="true">
                         <HeaderContent>
-                            <MudTh>Server</MudTh>
+                            <MudTh>Server / node</MudTh>
                             <MudTh>Mode</MudTh>
                             <MudTh>Live state</MudTh>
                             <MudTh>Data appears in</MudTh>
@@ -176,7 +202,7 @@
                             @{
                                 var profiler = GetProfilerView(context.UniqueName);
                             }
-                            <MudTd DataLabel="Server">
+                            <MudTd DataLabel="Server / node">
                                 <h3 class="quasar-text quasar-type-subtitle2">@context.DisplayName</h3>
                                 <span class="quasar-text quasar-type-caption">@context.UniqueName</span>
                             </MudTd>
@@ -329,6 +355,8 @@ else
     private readonly List<SummaryChipModel> _summaryChips = [];
     private AnalyticsViewConfig _config = CreateDefaultConfig();
     private IReadOnlyList<ServerOption> _serverOptions = [];
+    private IReadOnlyList<ClusterOption> _clusterOptions = [];
+    private readonly Dictionary<string, string> _seriesColors = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, DedicatedServerDefinition> _serverDefinitionsByName = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, AgentRuntimeState> _agentsByUniqueName = new(StringComparer.OrdinalIgnoreCase);
     private CancellationTokenSource _refreshCts = new();
@@ -362,7 +390,7 @@ else
     private IReadOnlyList<string> SelectedTelemetryKeys => _selectedMembers.Values.SelectMany(members => members).ToList();
 
     private IReadOnlyList<ServerOption> SelectedServerOptions => _serverOptions
-        .Where(option => IsServerSelected(option.UniqueName))
+        .Where(option => option.ClusterId is { } clusterId ? IsClusterSelected(clusterId) : IsServerSelected(option.UniqueName))
         .ToList();
 
     private string ChartGridStyle =>
@@ -375,6 +403,7 @@ else
         MetricsStore.Changed += HandleSourceChanged;
         Registry.Changed += HandleSourceChanged;
         ServerCatalog.Changed += HandleSourceChanged;
+        ClusterCatalog.Changed += HandleSourceChanged;
         ThemePreference.ThemeModeChanged += HandleThemeModeChanged;
         RefreshView();
         UpdateRefreshTimer();
@@ -420,6 +449,7 @@ else
         MetricsStore.Changed -= HandleSourceChanged;
         Registry.Changed -= HandleSourceChanged;
         ServerCatalog.Changed -= HandleSourceChanged;
+        ClusterCatalog.Changed -= HandleSourceChanged;
         ThemePreference.ThemeModeChanged -= HandleThemeModeChanged;
         _refreshCts.Cancel();
         _refreshCts.Dispose();
@@ -444,6 +474,7 @@ else
         {
             var stored = await BrowserStorage.GetJsonAsync<AnalyticsViewConfig>(StorageKey);
             _config = NormalizeConfig(stored);
+            _selectionInitialized = stored is not null;
             _configLoaded = true;
         }
         catch (InvalidOperationException)
@@ -510,7 +541,8 @@ else
 
     private async Task SelectAllServersAsync()
     {
-        _config.SelectedUniqueNames = _serverOptions.Select(option => option.UniqueName).ToList();
+        _config.SelectedUniqueNames = _serverOptions.Where(option => option.ClusterId is null).Select(option => option.UniqueName).ToList();
+        _config.SelectedClusterIds = _clusterOptions.Select(option => option.Id).ToList();
         _selectionInitialized = true;
         await RefreshAsync();
     }
@@ -518,6 +550,7 @@ else
     private async Task SelectNoneServersAsync()
     {
         _config.SelectedUniqueNames = [];
+        _config.SelectedClusterIds = [];
         _selectionInitialized = true;
         await RefreshAsync();
     }
@@ -534,6 +567,15 @@ else
             _config.SelectedUniqueNames.RemoveAll(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase));
         }
 
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private async Task HandleClusterToggled(string clusterId, bool value)
+    {
+        _config.SelectedClusterIds.RemoveAll(id => string.Equals(id, clusterId, StringComparison.OrdinalIgnoreCase));
+        if (value)
+            _config.SelectedClusterIds.Add(clusterId);
         _selectionInitialized = true;
         await RefreshAsync();
     }
@@ -847,6 +889,8 @@ else
             }),
             names = _serverNameMap,
             colors = SeriesColors,
+            seriesColors = _seriesColors,
+            lines = _config.SelectedClusterIds.Count > 0,
             dark = _isDarkTheme,
         };
 
@@ -900,6 +944,7 @@ else
     private void RefreshView()
     {
         _serverOptions = BuildServerOptions();
+        _clusterOptions = BuildClusterOptions();
         NormalizeSelection();
         _serverNameMap = _serverOptions.ToDictionary(option => option.UniqueName, option => option.DisplayName, StringComparer.OrdinalIgnoreCase);
         SyncAnalyticsProfilesExpansion();
@@ -933,7 +978,7 @@ else
         var hasScalarData = samplesByServer.Count > 0;
         var hasProfilerData = !hasScalarData && ProfilerStore.HasSamples(fromUnix, toUnix, SelectedTelemetryKeys);
 
-        BuildSummary(selectedServers, samplesByServer);
+        BuildSummary(samplesByServer);
         BuildChartCards(hasScalarData || hasProfilerData, keepEmptyProfilerPanels: selectedServers.Count > 0);
     }
 
@@ -1039,8 +1084,41 @@ else
         return names
             .OrderBy(pair => pair.Value, StringComparer.OrdinalIgnoreCase)
             .ThenBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
-            .Select(pair => new ServerOption(pair.Key, pair.Value))
+            .Select(pair =>
+            {
+                _agentsByUniqueName.TryGetValue(pair.Key, out var agent);
+                if (agent is not { IsCluster: true })
+                    return new ServerOption(pair.Key, pair.Value);
+                var cluster = ClusterCatalog.GetCluster(agent.ClusterId);
+                var clusterName = string.IsNullOrWhiteSpace(cluster?.DisplayName) ? agent.ClusterId : cluster.DisplayName;
+                var nodeLabel = string.Equals(agent.ClusterSlot, "world-authority", StringComparison.OrdinalIgnoreCase)
+                    ? "World Authority" : agent.ClusterSlot;
+                return new ServerOption(pair.Key, $"{clusterName} / {nodeLabel}", agent.ClusterId, nodeLabel);
+            })
             .ToList();
+    }
+
+    private IReadOnlyList<ClusterOption> BuildClusterOptions()
+    {
+        var clusters = ClusterCatalog.GetClusters().ToDictionary(cluster => cluster.UniqueName,
+            cluster => string.IsNullOrWhiteSpace(cluster.DisplayName) ? cluster.UniqueName : cluster.DisplayName,
+            StringComparer.OrdinalIgnoreCase);
+        foreach (var source in _serverOptions.Where(option => option.ClusterId is not null))
+            clusters.TryAdd(source.ClusterId!, source.ClusterId!);
+        return clusters.Select(cluster => new ClusterOption(cluster.Key, cluster.Value,
+                _serverOptions.Where(option => string.Equals(option.ClusterId, cluster.Key, StringComparison.OrdinalIgnoreCase)).ToList()))
+            .OrderBy(cluster => cluster.DisplayName, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    private string GetSeriesColor(string key)
+    {
+        if (_seriesColors.TryGetValue(key, out var color))
+            return color;
+        var index = _seriesColors.Count;
+        color = index < SeriesColors.Length ? SeriesColors[index]
+            : FormattableString.Invariant($"hsl({index * 137.508 % 360:0.###}, 70%, 60%)");
+        _seriesColors[key] = color;
+        return color;
     }
 
     private ProfilerView GetProfilerView(string uniqueName)
@@ -1118,7 +1196,7 @@ else
         if (SelectedServerOptions.Count == 0)
             return "No selected servers";
 
-        return $"{SelectedServerOptions.Count} selected server(s)";
+        return $"{SelectedServerOptions.Count} selected process(es)";
     }
 
     private static string GetProfilerModeHelperText(ProfilerView profiler)
@@ -1167,17 +1245,30 @@ else
 
     private void NormalizeSelection()
     {
-        var validIds = _serverOptions.Select(option => option.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        // Upgrade saved per-node/per-epoch selections to the whole logical cluster.
+        foreach (var agent in Registry.GetAgents().Where(agent => agent.IsCluster))
+        {
+            if (_config.SelectedUniqueNames.Contains(agent.AnalyticsKey, StringComparer.OrdinalIgnoreCase)
+                || _config.SelectedUniqueNames.Contains(agent.TelemetryKey, StringComparer.OrdinalIgnoreCase))
+                _config.SelectedClusterIds.Add(agent.ClusterId);
+        }
+        var validClusters = _clusterOptions.Select(option => option.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _config.SelectedClusterIds = _config.SelectedClusterIds.Where(validClusters.Contains).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var validIds = _serverOptions.Where(option => option.ClusterId is null).Select(option => option.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
         _config.SelectedUniqueNames = _config.SelectedUniqueNames
             .Where(validIds.Contains)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        if (!_selectionInitialized && _config.SelectedUniqueNames.Count == 0 && _serverOptions.Count > 0)
+        if (!_selectionInitialized && _config.SelectedUniqueNames.Count == 0 && _config.SelectedClusterIds.Count == 0
+            && (_serverOptions.Count > 0 || _clusterOptions.Count > 0))
         {
-            _config.SelectedUniqueNames = _serverOptions.Select(option => option.UniqueName).ToList();
+            _config.SelectedUniqueNames = validIds.ToList();
+            _config.SelectedClusterIds = validClusters.ToList();
             _selectionInitialized = true;
         }
+        foreach (var option in _serverOptions)
+            GetSeriesColor(option.UniqueName);
     }
 
     private bool IsServerSelected(string uniqueName)
@@ -1187,10 +1278,10 @@ else
 
     private IReadOnlyList<string> GetSelectedUniqueNames()
     {
-        return _config.SelectedUniqueNames.Count > 0
-            ? _config.SelectedUniqueNames
-            : [];
+        return SelectedServerOptions.Select(option => option.UniqueName).ToList();
     }
+
+    private bool IsClusterSelected(string id) => _config.SelectedClusterIds.Contains(id, StringComparer.OrdinalIgnoreCase);
 
     private (long FromUnix, long ToUnix) ResolveRange()
     {
@@ -1242,9 +1333,7 @@ else
         return store.OneHour.Read(fromUnix, toUnix);
     }
 
-    private void BuildSummary(
-        IReadOnlyList<string> selectedServers,
-        IReadOnlyDictionary<string, MetricSample[]> samplesByServer)
+    private void BuildSummary(IReadOnlyDictionary<string, MetricSample[]> samplesByServer)
     {
         _summaryChips.Clear();
 
@@ -1258,23 +1347,34 @@ else
             latestSamples.AddRange(latest);
         }
 
-        _summaryChips.Add(new SummaryChipModel("Servers", selectedServers.Count.ToString()));
+        var hasClusters = _config.SelectedClusterIds.Count > 0;
+        _summaryChips.Add(new SummaryChipModel("Servers", _config.SelectedUniqueNames.Count.ToString()));
+        if (hasClusters)
+        {
+            _summaryChips.Add(new SummaryChipModel("Clusters", _config.SelectedClusterIds.Count.ToString()));
+            _summaryChips.Add(new SummaryChipModel("Node series", SelectedServerOptions.Count(option => option.ClusterId is not null).ToString()));
+        }
 
         if (latestSamples.Count == 0)
         {
-            _summaryChips.Add(new SummaryChipModel("SimSpeed", "-"));
-            _summaryChips.Add(new SummaryChipModel("Process CPU", "-"));
-            _summaryChips.Add(new SummaryChipModel("Server Simulation CPU", "-"));
-            _summaryChips.Add(new SummaryChipModel("Memory", "-"));
-            _summaryChips.Add(new SummaryChipModel("Players", "-"));
-            _summaryChips.Add(new SummaryChipModel("PCU", "-"));
-            _summaryChips.Add(new SummaryChipModel("Grids", "-"));
-            _summaryChips.Add(new SummaryChipModel("Entities", "-"));
+            _summaryChips.Add(new SummaryChipModel("Avg process sim speed", "-"));
+            _summaryChips.Add(new SummaryChipModel(hasClusters ? "Total process CPU" : "Avg process CPU", "-"));
+            _summaryChips.Add(new SummaryChipModel("Avg simulation CPU", "-"));
+            _summaryChips.Add(new SummaryChipModel("Total process memory", "-"));
+            if (!hasClusters)
+            {
+                _summaryChips.Add(new SummaryChipModel("Players", "-"));
+                _summaryChips.Add(new SummaryChipModel("PCU", "-"));
+                _summaryChips.Add(new SummaryChipModel("Grids", "-"));
+                _summaryChips.Add(new SummaryChipModel("Entities", "-"));
+            }
             return;
         }
+        if (hasClusters)
+            _summaryChips.Add(new SummaryChipModel("Reporting processes", $"{latestSamples.Count}/{SelectedServerOptions.Count}"));
 
         var simSpeed = latestSamples.Average(sample => sample.SimSpeed);
-        var cpu = latestSamples.Average(sample => sample.CpuPercent);
+        var cpu = hasClusters ? latestSamples.Sum(sample => sample.CpuPercent) : latestSamples.Average(sample => sample.CpuPercent);
         var simCpu = latestSamples.Average(sample => sample.SimCpuPercent);
         var memory = latestSamples.Sum(sample => sample.MemoryMb > 0f ? sample.MemoryMb : 0f);
         var players = latestSamples.Sum(sample => sample.PlayersOnline);
@@ -1282,14 +1382,17 @@ else
         var grids = latestSamples.Where(sample => sample.ActiveGridCount >= 0).Sum(sample => sample.ActiveGridCount);
         var entities = latestSamples.Where(sample => sample.ActiveEntityCount >= 0).Sum(sample => sample.ActiveEntityCount);
 
-        _summaryChips.Add(new SummaryChipModel("SimSpeed", simSpeed.ToString("0.000")));
-        _summaryChips.Add(new SummaryChipModel("Process CPU", $"{cpu:0.0}%"));
-        _summaryChips.Add(new SummaryChipModel("Server Simulation CPU", simCpu.HasValue ? $"{simCpu:0.0}%" : "-"));
-        _summaryChips.Add(new SummaryChipModel("Memory", $"{memory:0} MB"));
-        _summaryChips.Add(new SummaryChipModel("Players", players.ToString()));
-        _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));
-        _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
-        _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
+        _summaryChips.Add(new SummaryChipModel("Avg process sim speed", simSpeed.ToString("0.000")));
+        _summaryChips.Add(new SummaryChipModel(hasClusters ? "Total process CPU" : "Avg process CPU", $"{cpu:0.0}%"));
+        _summaryChips.Add(new SummaryChipModel("Avg simulation CPU", simCpu.HasValue ? $"{simCpu:0.0}%" : "-"));
+        _summaryChips.Add(new SummaryChipModel("Total process memory", $"{memory:0} MB"));
+        if (!hasClusters)
+        {
+            _summaryChips.Add(new SummaryChipModel("Players", players.ToString()));
+            _summaryChips.Add(new SummaryChipModel("PCU", pcu.ToString()));
+            _summaryChips.Add(new SummaryChipModel("Grids", grids > 0 ? grids.ToString() : "-"));
+            _summaryChips.Add(new SummaryChipModel("Entities", entities > 0 ? entities.ToString() : "-"));
+        }
 
         if (samplesByServer.Values.SelectMany(sampleSet => sampleSet).Any())
         {
@@ -1420,6 +1523,7 @@ else
             .ToList();
 
         normalized.SelectedUniqueNames ??= [];
+        normalized.SelectedClusterIds ??= [];
         return normalized;
     }
 
@@ -1445,7 +1549,9 @@ else
             .ToList();
     }
 
-    private sealed record ServerOption(string UniqueName, string DisplayName);
+    private sealed record ServerOption(string UniqueName, string DisplayName, string? ClusterId = null, string? NodeLabel = null);
+
+    private sealed record ClusterOption(string Id, string DisplayName, IReadOnlyList<ServerOption> Nodes);
 
     private sealed record ProfilerModeOption(string Value, string Label);
 

@@ -78,7 +78,7 @@ Clusters work differently. Staging a cluster profile freezes the exact plugin bu
 The **Plugins** page (navigation **Plugins**, title "Plugin configuration") edits live settings of plugins that expose a configuration to Quasar.
 
 1. Pick the server in **Server**. Only connected servers that report at least one configurable plugin are listed. With none, the page shows "No connected server is exposing editable plugin configuration."
-2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries). Values that have no dedicated field type are edited as raw JSON text.
+2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries), with padded sections and space between fields and tab content. Values that have no dedicated field type are edited as raw JSON text.
 3. Click the apply button. **Reset defaults** fills in the plugin's default values; you still have to apply them.
 
 Quasar sends the new values to the server through the agent and the plugin applies them on the game thread. The success message ("Applied configuration to ...") means Quasar delivered the values to the server.
@@ -87,7 +87,7 @@ Who may see and edit configuration:
 
 - Any user with `CanView` can open the **Plugins** page and see the plugin list and logs.
 - Configuration values need `CanEditConfigs`, because plugin settings may contain credentials. Others see "Configuration values require editor access because they may contain credentials."
-- Cluster nodes are not edited here. The page shows "Plugin configuration is managed for the whole cluster." with a link to the cluster's configuration, which needs the `ClusterManage` permission. See [Clusters](Clusters.md).
+- Cluster nodes are not edited here. The page shows "Plugin configuration is managed for the whole cluster." and **Open cluster plugin settings**. This opens **Settings** on the cluster page; expand **Plugin configuration** to use the normal settings editor, which needs the `ClusterManage` permission. Node views never show the raw configuration document. The cluster settings editor calls the built-in networking plugin **Cluster networking**. See [Clusters](Clusters.md).
 
 ### Configuration snapshots
 

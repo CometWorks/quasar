@@ -1,0 +1,72 @@
+@implements IDisposable
+@inject ManagedRuntimeWarmupService RuntimeWarmup
+@inject QuasarPermissionService Permissions
+@inject ISnackbar Snackbar
+
+<section class="quasar-stack" aria-label="Dedicated Server setup">
+    <h4>Preparing your server files</h4>
+    <p>Quasar checks for an existing installation, then downloads anything missing. The first download and validation can take several minutes. Progress updates here automatically; you can leave this page and return.</p>
+    <ol>
+        <li>Prepare SteamCMD, the tool that downloads Space Engineers.</li>
+        <li>Install and validate Dedicated Server files, including the starting worlds.</li>
+        <li>Prepare Magnetar, which loads your server plugins.</li>
+    </ol>
+    @foreach (var component in _snapshot.Components.OrderBy(c => c.Component))
+    {
+        @if (component.State is ManagedRuntimeComponentState.Checking or ManagedRuntimeComponentState.Downloading or ManagedRuntimeComponentState.Installing)
+        {
+            <QuasarOperationLoader @key="component.Component" Title="@component.DisplayName" Message="@component.Message" Percent="@((double?)component.Percent)" />
+        }
+        else
+        {
+            <p><strong>@component.DisplayName: @component.State.</strong> @component.Message</p>
+        }
+    }
+    @if (_snapshot.Components.Any(c => c.Component == ManagedRuntimeInstallComponent.DedicatedServer && c.State == ManagedRuntimeComponentState.Ready))
+    {
+        <p class="quasar-notice quasar-notice-success" role="status">Server files are ready. Choose a starting world now; Magnetar only needs to be ready when you start the server.</p>
+    }
+    @if (_snapshot.State == ManagedRuntimeWarmupState.Failed || _snapshot.Components.Any(c => c.State == ManagedRuntimeComponentState.Failed))
+    {
+        <div class="quasar-notice quasar-notice-warning" role="alert">
+            <p>Preparation needs attention. Check the failed step above, internet access, available disk space and write access to Quasar's data folder. Fix the reported problem, then retry. Your setup choices are kept.</p>
+            <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
+                <button type="button" class="quasar-button quasar-tone-primary" disabled="@(_snapshot.State == ManagedRuntimeWarmupState.Running)" @onclick="RetryAsync">Retry preparation</button>
+            </AuthorizeView>
+        </div>
+    }
+</section>
+
+@code {
+    private ManagedRuntimeWarmupSnapshot _snapshot = ManagedRuntimeWarmupSnapshot.CreateInitial();
+    private bool _disposed;
+
+    protected override void OnInitialized()
+    {
+        RuntimeWarmup.Changed += OnChanged;
+        _snapshot = RuntimeWarmup.GetSnapshot();
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        if (_disposed) return;
+        _snapshot = RuntimeWarmup.GetSnapshot();
+        StateHasChanged();
+    });
+
+    private async Task RetryAsync()
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+        {
+            Snackbar.Add("Access denied: your current role cannot retry server preparation.", Severity.Error);
+            return;
+        }
+        _ = RuntimeWarmup.RetryAsync();
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        RuntimeWarmup.Changed -= OnChanged;
+    }
+}

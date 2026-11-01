@@ -2,7 +2,11 @@
 
 <div class="cluster-resources">
     <span>@(MemoryBytes is >= 0 ? $"{MemoryBytes / 1073741824d:0.0} GB RAM" : "RAM unavailable")</span>
-    @if (CpuPercent is { } cpu && double.IsFinite(cpu) && cpu >= 0)
+    @if (CpuPaused)
+    {
+        <span class="quasar-muted cluster-cpu-paused">CPU chart paused while idle</span>
+    }
+    else if (CpuPercent is { } cpu && double.IsFinite(cpu) && cpu >= 0)
     {
         <div class="cluster-cpu" role="img" aria-label="@($"CPU {cpu:0}% of one core, {cpu / 100:0.00} core equivalents")">
             <span class="cluster-cpu-bars" aria-hidden="true">
@@ -21,4 +25,5 @@
 @code {
     [Parameter] public double? CpuPercent { get; set; }
     [Parameter] public long? MemoryBytes { get; set; }
+    [Parameter] public bool CpuPaused { get; set; }
 }

@@ -18,20 +18,22 @@ public sealed class ClusterPlayerService(ClusterCatalog catalog, ClusterGatewayC
     {
         var observedAt = DateTimeOffset.UtcNow;
         ClusterPlayerSnapshot snapshot;
+        Admin.ClusterStatus? status = null;
         try
         {
             // Verify the registered endpoint's identity before attributing its clients to this cluster.
-            await gateway.GetStatusAsync(cluster, token);
+            status = (await gateway.GetStatusAsync(cluster, token)).Data;
             var clients = await gateway.GetClientsAsync(cluster, token);
             var bans = await gateway.GetBansAsync(cluster, token);
             var capabilities = await gateway.GetCapabilitiesAsync(cluster, token);
             knownPlayers.ObserveClusterPlayers(cluster, clients.Data, bans.Data.Banned, clients.CapturedAt);
             snapshot = new(clients.Data.DistinctBy(client => client.ClientId).ToArray(), capabilities.Data,
-                observedAt, null);
+                observedAt, null, status);
         }
         catch (ClusterGatewayException error)
         {
-            snapshot = new([], null, DateTimeOffset.UtcNow, error.Message);
+            // A failed moderation/history query must not discard an independently observed status.
+            snapshot = new([], null, observedAt, error.Message, status);
         }
         _snapshots[cluster.UniqueName] = snapshot;
         Changed?.Invoke();
@@ -57,8 +59,10 @@ public sealed class ClusterPlayerService(ClusterCatalog catalog, ClusterGatewayC
 }
 
 public sealed record ClusterPlayerSnapshot(Admin.ClientSummary[] Clients, Admin.AdminCapabilities? Capabilities,
-    DateTimeOffset ObservedAt, string? Error)
+    DateTimeOffset ObservedAt, string? Error, Admin.ClusterStatus? Status = null)
 {
+    public bool StatusAvailable => Status is { Counts: not null, Nodes: not null }
+        && DateTimeOffset.UtcNow - ObservedAt < TimeSpan.FromSeconds(15);
     public bool Available => Error is null && DateTimeOffset.UtcNow - ObservedAt < TimeSpan.FromSeconds(15);
     public bool CanRun(string operation) => Available && Capabilities?.Scope == Admin.AdminScope.Manage
         && Capabilities.Operations.Contains(operation, StringComparer.Ordinal);
