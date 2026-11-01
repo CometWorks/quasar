@@ -401,7 +401,7 @@ public class Program
             if (!webServiceOptions.Headless)
                 app.UseAntiforgery();
 
-            app.MapPublicProbes();
+            app.MapWebServiceProbes(authOptions);
             app.MapClusterApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 

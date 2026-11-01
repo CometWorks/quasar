@@ -251,8 +251,10 @@ resolved staged file. Bootstrap copies that
 install-directory file into the managed worker before launch, observes the
 pointer change, drains the old worker, starts the managed worker on the same
 public port, and leaves managed Magnetar servers running. The browser shows a
-restart progress overlay, polls `/api/health` until the activated UI version is
-serving, then reloads the Updates page. After a successful cutover, Bootstrap
+restart progress overlay, polls `/api/health`, and checks the protected
+`/api/version` endpoint until the activated UI version is serving, then reloads
+the Updates page. Rollback to older releases also accepts their version in the
+health response. After a successful cutover, Bootstrap
 retains the previous healthy UI release and prunes other inactive managed
 web-release directories.
 
