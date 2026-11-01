@@ -1,4 +1,5 @@
 @implements IAsyncDisposable
+@using System.Text.Json
 @using Admin = CometWorks.ClusterGateway.AdminContract.V1
 @inject ClusterCommandService Commands
 @inject ClusterCatalog Catalog
@@ -124,6 +125,18 @@
                     @if (_details is not null) { <pre style="max-height:400px;overflow:auto">@_details</pre> }
                     </div>
                 </details>
+                <details class="quasar-details"><summary>Client diagnostics and rotation publication</summary>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadRotationAsync">Load rotation publication</button>
+                    @if (_rotation is not null)
+                    {
+                        <p>Source: @(_rotation.Source ?? "Not published"). Revision @_rotation.Revision.
+                            @(_rotation.ValidUntil > DateTimeOffset.UtcNow ? "Publication current" : "Publication expired or unavailable").</p>
+                        <p class="quasar-muted quasar-caption">The Cluster Manager owns rotation. Renew its incarnation-bound assignments before expiry. Publishing reports due times; it does not rotate a node.</p>
+                        <label class="quasar-field"><span>RotationPublication JSON</span><textarea @bind="_rotationJson" disabled="@Busy" rows="7"></textarea></label>
+                        <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("PUT /admin/v1/rotation"))" @onclick="PublishRotationAsync">Publish rotation assignments</button>
+                        <p class="quasar-muted quasar-caption">Matching cluster clients receive F11 diagnostics over the mod channel. Only in-game Admin and Owner ranks receive the fleet and Cluster Registry fields.</p>
+                    }
+                </details>
                 <details class="quasar-details"><summary>Advanced capacity configuration</summary>
                     <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadConfigAsync">Load current configuration</button>
                     @if (_config is not null)
@@ -157,6 +170,8 @@
     private readonly CancellationTokenSource _shutdown = new();
     private Admin.AdminCapabilities? _capabilities;
     private Admin.AdminConfig? _config;
+    private Admin.RotationStatus? _rotation;
+    private string _rotationJson = string.Empty;
     private ClusterOperation? _operation;
     private string? _error;
     private string? _capabilityError;
@@ -366,6 +381,27 @@
         try { _operation = await Commands.SubmitAsync(Cluster.UniqueName, command, Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", _shutdown.Token); }
         catch (Exception error) when (error is ClusterOperationConflictException or ClusterOperationStoreUnavailableException or ClusterGatewayException) { _error = error.Message; }
         finally { _submitting = false; }
+    }
+    private async Task LoadRotationAsync()
+    {
+        try
+        {
+            _rotation = (await Gateway.GetRotationAsync(Cluster, _shutdown.Token)).Data;
+            _rotationJson = JsonSerializer.Serialize(new Admin.RotationPublication(_rotation.Revision,
+                _rotation.Source ?? "quasar", DateTimeOffset.UtcNow.AddMinutes(2), _rotation.Enabled, _rotation.Nodes));
+            _error = null;
+        }
+        catch (ClusterGatewayException error) { _error = error.Message; }
+    }
+    private async Task PublishRotationAsync()
+    {
+        try
+        {
+            var publication = JsonSerializer.Deserialize<Admin.RotationPublication>(_rotationJson);
+            if (publication is null) { _error = "A rotation publication is required."; return; }
+            await SubmitAsync(ClusterAdminCommand.Create("rotation-set", publication));
+        }
+        catch (JsonException error) { _error = error.Message; }
     }
     private async Task LoadConfigAsync()
     {

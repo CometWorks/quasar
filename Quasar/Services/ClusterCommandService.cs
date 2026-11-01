@@ -163,6 +163,16 @@ public sealed class ClusterCommandService
                     if (_operations.HasPendingShutdown(cluster.UniqueName))
                         throw Invalid("shutdown_pending", "Wait for the pending shutdown before restarting the Gateway.");
                     route = "gateway/restart"; body = new { }; break;
+                case "rotation-set":
+                    method = "PUT"; route = "rotation";
+                    var rotation = Read<Admin.RotationPublication>();
+                    if (rotation.ExpectedRevision < 0 || string.IsNullOrWhiteSpace(rotation.Source) || rotation.Source.Length > 128
+                        || rotation.ValidUntil <= DateTimeOffset.UtcNow || rotation.ValidUntil > DateTimeOffset.UtcNow.AddMinutes(5)
+                        || rotation.Nodes is null || rotation.Nodes.Length > 4096 || !rotation.Enabled && rotation.Nodes.Length != 0
+                        || rotation.Nodes.Any(n => n is null || string.IsNullOrWhiteSpace(n.Node) || n.Epoch <= 0 || n.DueAt < DateTimeOffset.UnixEpoch)
+                        || rotation.Nodes.Select(n => n.Node).Distinct(StringComparer.Ordinal).Count() != rotation.Nodes.Length)
+                        throw Invalid("invalid_rotation", "Rotation needs a revision, a source, a lease of at most five minutes and unique incarnation-bound assignments.");
+                    body = rotation; break;
                 case "config-set":
                     method = "PUT"; route = "config";
                     var config = Read<Admin.AdminConfigUpdate>();

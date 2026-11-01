@@ -117,6 +117,10 @@ internal static class ClusterApi
         routes.MapGet("/{uniqueName}/config", (string uniqueName, HttpContext context,
             ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetPolicyAsync, cancellationToken));
+        MapRead("rotation", (c, d, t) => c.GetRotationAsync(d, t));
+        routes.MapGet("/{uniqueName}/client-diagnostics", (string uniqueName, string node, HttpContext context,
+            ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetClientDiagnosticsAsync(c, node, t), token));
         MapRead("diagnostics", (c, d, t) => c.GetDiagnosticsAsync(d, t));
         MapRead("handover-config", (c, d, t) => c.GetHandoverConfigAsync(d, t));
         MapRead("artifacts", (c, d, t) => c.GetArtifactsAsync(d, t));
@@ -288,6 +292,7 @@ internal static class ClusterApi
         });
         RouteHandlerBuilder stageDependencies = routes.MapPut("/{uniqueName}/dependencies", StageDependencies);
         RouteHandlerBuilder submitCommand = routes.MapPost("/{uniqueName}/commands", SubmitCommand);
+        RouteHandlerBuilder setRotation = routes.MapPut("/{uniqueName}/rotation", SetRotation);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
         RouteHandlerBuilder setAdministration = routes.MapPut("/{uniqueName}/administration", SetAdministration);
         RouteHandlerBuilder stageProfile = routes.MapPost("/{uniqueName}/config-profile-preparation", StageProfile);
@@ -332,6 +337,7 @@ internal static class ClusterApi
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            setRotation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setAdministration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageHotSpares.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
@@ -804,6 +810,10 @@ internal static class ClusterApi
             return Error((int)exception.StatusCode, exception.Code, exception.Message);
         }
     }
+
+    private static Task<IResult> SetRotation(string uniqueName, Admin.RotationPublication publication,
+        HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>
+        SubmitCommand(uniqueName, ClusterAdminCommand.Create("rotation-set", publication), context, catalog, commands, token);
 
     private static Task<IResult> SetPolicy(string uniqueName, Admin.AdminConfigUpdate policy,
         HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>

@@ -68,6 +68,7 @@ UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeployme
 | [Cluster Terminology](Docs/ClusterTerminology.md) | Terminology occurrences and continuity findings across cluster setup, hosts, controls and contracts. |
 | [Cluster Health Overview](Docs/ClusterOverview.md) | Live cluster topology, resource readings, service addresses and grouped controls. |
 | [Cluster Conversion](Docs/ClusterConversion.md) | Guided standalone/cluster conversion, backups, resume and plugin configuration limits. |
+| [Client Diagnostics](Docs/ClientDiagnostics.md) | F11 diagnostics, secure mod messages and leased Manager rotation publications. |
 | [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
 | [Cluster Content Updates Plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md) | Proposed Workshop byte pinning, scheduled mod/plugin notices, explicit maintenance updates and compatible rollovers including World Authority. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |

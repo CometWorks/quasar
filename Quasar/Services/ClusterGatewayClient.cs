@@ -61,6 +61,11 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.SnapshotSummary[]>(cluster, "snapshots", token);
     public Task<Admin.AdminEnvelope<Admin.PartitionSummary[]>> GetPartitionsAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.PartitionSummary[]>(cluster, "partitions", token);
+    public Task<Admin.AdminEnvelope<Admin.RotationStatus>> GetRotationAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.RotationStatus>(cluster, "rotation", token);
+    public Task<Admin.AdminEnvelope<Admin.DiagnosticsSnapshot>> GetClientDiagnosticsAsync(
+        ClusterDefinition cluster, string node, CancellationToken token) =>
+        GetAsync<Admin.DiagnosticsSnapshot>(cluster, "client-diagnostics?node=" + Uri.EscapeDataString(node), token);
     public Task<Admin.AdminEnvelope<Admin.AdminConfig>> GetPolicyAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdminConfig>(cluster, "config", token);
     public Task<Admin.AdminEnvelope<Admin.ClientSummary[]>> GetClientsAsync(
