@@ -29,7 +29,7 @@ using ConnectorState = Bootstrap::Quasar.Hosting.HostedPanelState;
 namespace Quasar.Tests;
 
 [Collection("Exact server creation")]
-public sealed class HostedPanelTests : IDisposable
+public sealed partial class HostedPanelTests : IDisposable
 {
     private readonly FieldInfo cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.NonPublic | BindingFlags.Static)!;
     private readonly object? previous;

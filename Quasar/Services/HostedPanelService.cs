@@ -2,10 +2,12 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Quasar.Hosting;
+using Quasar.Services.Auth;
+using Quasar.Services.Updates;
 
 namespace Quasar.Services;
 
-public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<HostedPanelService> logger) : BackgroundService
+public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<HostedPanelService> logger, RbacConfigCatalog? rbac = null) : BackgroundService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
     public HostedPanelState State => HostedPanelState.Read() ?? new();
@@ -22,7 +24,37 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
         }
     }
     public bool IsReady => ConnectorHealth?.Ready == true;
+    private HostedBillingNotice[] billingNotices = [];
     public event Action? Changed;
+
+    internal static string[] AdministratorSteamIds(RbacConfig config) => config.SubjectRoleMappings
+        .Where(mapping => string.Equals(mapping.Provider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase)
+            && mapping.Roles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase)
+            && RbacConfigCatalog.IsSteamId64(mapping.Subject))
+        .Select(mapping => mapping.Subject).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+
+    internal UpdateNotice[] BillingNotices(string provider, string subject) => provider != QuasarAuthSchemes.Steam ? []
+        : Volatile.Read(ref billingNotices).Where(n => n.SteamId == subject).Select(n => new UpdateNotice(
+            n.Key, n.Title, n.Body, HostedPanelState.Origin + "/account")).ToArray();
+
+    private async Task SyncAdministrationAsync(HttpClient http, HostedPanelState state, CancellationToken ct)
+    {
+        if (rbac is null) return; // Test fixtures without runtime RBAC retain the legacy enrollment protocol.
+        using var request = new HttpRequestMessage(HttpMethod.Post,
+            HostedPanelState.Origin + "/api/v1/enrollments/" + Uri.EscapeDataString(state.EnrollmentId!) + "/administration");
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", state.InstallationSecret);
+        request.Content = JsonContent.Create(new { steamIds = AdministratorSteamIds(rbac.GetConfig()) });
+        using var response = await http.SendAsync(request, ct);
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<AdministrationResult>(ct) ?? throw new InvalidDataException("Missing hosted administration snapshot.");
+        if (result.Notices is null || result.Notices.Length > 4 || result.Notices.Any(n => n is null || n.Key is null || n.Title is null || n.Body is null || !n.Key.StartsWith("nebula-billing:", StringComparison.Ordinal)
+            || n.Key.Length > 128 || !RbacConfigCatalog.IsSteamId64(n.SteamId) || n.Title.Length > 100 || n.Body.Length > 1000))
+            throw new InvalidDataException("Invalid hosted billing notices.");
+        Volatile.Write(ref billingNotices, result.Notices);
+    }
+
+    private sealed record HostedBillingNotice(string Key, string SteamId, string Title, string Body);
+    private sealed record AdministrationResult(HostedBillingNotice[] Notices);
 
     public async Task ChooseAsync(string choice)
     {
@@ -108,6 +140,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             if (state is not { Choice: "hosted", EnrollmentId: not null })
             {
                 AccessActive = false;
+                Volatile.Write(ref billingNotices, []);
                 if (File.Exists(HostedPanelState.StatePath) && state is null)
                 {
                     Status = "Hosted enrollment state is unreadable; local Quasar continues working";
@@ -122,12 +155,14 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.NotFound)
             {
                 await HostedPanelState.SaveAsync(state with { Credential = null, EnrollmentId = null, BrowserUrl = null }, ct);
+                Volatile.Write(ref billingNotices, []);
                 Status = "Installation disconnected. Restart hosted setup to relink your panel.";
                 AccessActive = false;
                 Changed?.Invoke();
                 return;
             }
             response.EnsureSuccessStatusCode();
+            await SyncAdministrationAsync(http, state, ct);
             var result = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
             if (result.GetProperty("panelId").GetString() != state.PanelId) throw new InvalidDataException("Enrollment panel mismatch.");
             if (result.GetProperty("expired").GetBoolean())

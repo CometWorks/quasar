@@ -203,6 +203,8 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 
 ## Hosted public access
 
+All configured Steam administrators share their hosted Nebula panel; one payer controls billing. Billing transfers need that payer’s approval. Recovery onto another deployment retains its subscription and removes the old registration. See [Hosted access](HostedPanel.md).
+
 **Security → Manage access setup** lets an admin choose self-deployment or Nebula
 hosted enrollment at `https://dash.se-servers.net/<panel-name>/`. Hosted
 traffic always uses Steam/RBAC and endpoint credentials, even though frpc runs

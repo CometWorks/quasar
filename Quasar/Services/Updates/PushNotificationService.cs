@@ -17,7 +17,7 @@ public sealed record BrowserPushSubscription(string Endpoint, string P256dh, str
 public sealed class PushNotificationService(
     IDataProtectionProvider protection, QuasarUpdateService updates, ClusterReleaseMonitor releases,
     ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
-    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins, AnnouncementService announcements) : BackgroundService
+    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins, AnnouncementService announcements, HostedPanelService? hosted = null) : BackgroundService
 {
     internal const int MaxAnnouncementReceiptsPerBrowser = 4096;
     internal const int MaxReceiptKeysPerBrowser = 8192;
@@ -37,9 +37,9 @@ public sealed class PushNotificationService(
 
     internal PushNotificationService(IDataProtectionProvider protection, QuasarRoleMapper roles,
         AnnouncementService announcements, string path, Func<UpdateNotice, CancellationToken, Task> send,
-        ILogger<PushNotificationService>? testLogger = null, Func<UpdateNotice[]>? otherNotices = null)
+        ILogger<PushNotificationService>? testLogger = null, Func<UpdateNotice[]>? otherNotices = null, HostedPanelService? hosted = null)
         : this(protection, null!, null!, null!, roles, testLogger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PushNotificationService>.Instance,
-            null!, null!, null!, null!, announcements)
+            null!, null!, null!, null!, announcements, hosted)
     {
         _path = path;
         _sendOverride = send;
@@ -100,12 +100,13 @@ public sealed class PushNotificationService(
             { "critical" => 2, "warning" => 1, _ => 0 }).ToArray();
 
     private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user) =>
-        MergeAnnouncements(_otherNoticesOverride?.Invoke() ?? _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
+        MergeAnnouncements((_otherNoticesOverride?.Invoke() ?? _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
             .Concat(Preferences(state, provider, subject).Updates
                 ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
                 : [])
             .Concat(Preferences(state, provider, subject).UiPluginUpdates
-                ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []), announcements);
+                ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []))
+            .Concat(hosted?.BillingNotices(provider, subject) ?? []), announcements);
 
     internal static NotificationPreferences Preferences(PushState state, string provider, string subject) =>
         state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject)?.Options ?? new();
@@ -177,6 +178,7 @@ public sealed class PushNotificationService(
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         uiPlugins.Changed += OnUiPluginsChanged;
+        if (hosted is not null) hosted.Changed += OnUiPluginsChanged;
         announcements.Changed += OnUiPluginsChanged;
         agents.Changed += ObserveInstances;
         supervisor.Changed += ObserveInstances;
@@ -203,6 +205,7 @@ public sealed class PushNotificationService(
         finally
         {
             uiPlugins.Changed -= OnUiPluginsChanged;
+            if (hosted is not null) hosted.Changed -= OnUiPluginsChanged;
             announcements.Changed -= OnUiPluginsChanged;
             agents.Changed -= ObserveInstances;
             supervisor.Changed -= ObserveInstances;
@@ -232,8 +235,11 @@ public sealed class PushNotificationService(
                 QuasarAuthSchemes.TrustedNetwork => roles.CreateTrustedNetworkPrincipal(),
                 _ => null,
             };
-            if (principal is null || !CanView(principal)) continue;
-            var notices = Notices(state, item.Provider, item.Subject, principal);
+            if (principal is null) continue;
+            // Billing notices remain targeted to the payer even if their panel role was removed.
+            // They reveal no card/invoice data and lead to Nebula's separately authenticated account page.
+            var notices = CanView(principal) ? Notices(state, item.Provider, item.Subject, principal)
+                : hosted?.BillingNotices(item.Provider, item.Subject) ?? [];
             var current = item;
             // Announcement IDs stay deduplicated across withdrawal, consent changes and restarts.
             string[] retained = RetainedKeys(current, notices);

@@ -141,3 +141,48 @@ test('hosted panels register and inspect only their own service-worker scope', a
     await h.api.status();
     assert.equal((await h.api.subscribe('AQID')).endpoint, 'https://push.test/subscription');
 });
+
+function notificationWorker(base = '/my-server-panel/') {
+    const handlers = new Map(), calls = [];
+    const scope = origin + base;
+    vm.runInNewContext(readFileSync(new URL('../../Quasar/wwwroot/push-worker.js', import.meta.url), 'utf8'), {
+        URL,
+        self: { addEventListener: (type, handler) => handlers.set(type, handler), location: { origin },
+            registration: { scope, showNotification: async (title, options) => calls.push({ title, ...options }) } },
+        clients: { matchAll: async () => [], openWindow: async url => calls.push(url) }
+    });
+    return { calls, async push(notice) {
+        let completed; handlers.get('push')({ data: { json: () => notice }, waitUntil: task => { completed = task; } }); await completed;
+    }, async click(data) {
+        let completed; handlers.get('notificationclick')({ notification: { data, close() {} }, waitUntil: task => { completed = task; } }); await completed;
+    } };
+}
+
+test('hosted push icons and ordinary notification clicks retain the assigned panel prefix', async () => {
+    const h = notificationWorker();
+    await h.push({ title: 'Quasar update', body: 'Review', url: '/settings/updates', tag: 'update:1' });
+    assert.equal(h.calls[0].icon, origin + '/my-server-panel/Quasar.png');
+    assert.equal(h.calls[0].data.url, origin + '/my-server-panel/settings/updates');
+    await h.click(h.calls[0].data);
+    assert.equal(h.calls[1], origin + '/my-server-panel/settings/updates');
+});
+
+test('billing push opens the exact Nebula account from local and hosted Quasar', async () => {
+    for (const base of ['/', '/my-server-panel/']) {
+        const h = notificationWorker(base);
+        await h.push({ title: 'Nebula billing update', body: 'Review transfer', url: 'https://dash.se-servers.net/account', tag: 'nebula-billing:1:requested' });
+        assert.equal(h.calls[0].data.url, 'https://dash.se-servers.net/account');
+        await h.click(h.calls[0].data);
+        assert.equal(h.calls[1], 'https://dash.se-servers.net/account');
+    }
+});
+
+test('billing exceptions do not permit other external URLs or account return redirects', async () => {
+    for (const url of ['https://evil.test/account', 'https://dash.se-servers.net/account?return=https://evil.test', 'javascript:alert(1)']) {
+        const h = notificationWorker();
+        await h.push({ title: 'Billing', body: 'Review', url, tag: 'nebula-billing:1' });
+        assert.equal(h.calls[0].data.url, origin + '/my-server-panel/notifications');
+        await h.click({ url, tag: 'nebula-billing:1' });
+        assert.equal(h.calls[1], origin + '/my-server-panel/notifications');
+    }
+});
