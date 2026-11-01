@@ -1,6 +1,6 @@
 # Licensing and source availability
 
-Copyright (c) 2026 Viktor Ferenczi, Owen de Bree and SpaceGT.
+Copyright (c) 2026 CometWorks (https://github.com/CometWorks).
 
 Quasar is free software: you can redistribute it and/or modify it under the
 terms of the GNU Affero General Public License version 3 as published by the

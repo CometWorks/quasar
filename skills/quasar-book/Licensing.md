@@ -1,6 +1,6 @@
 # Licensing
 
-Copyright (c) 2026 Viktor Ferenczi, Owen de Bree and SpaceGT.
+Copyright (c) 2026 CometWorks (https://github.com/CometWorks).
 
 Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
