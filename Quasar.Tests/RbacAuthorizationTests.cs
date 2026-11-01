@@ -45,6 +45,19 @@ public sealed class RbacAuthorizationTests
         Assert.Equal(expected, QuasarAuthOptions.Create(config).TrustedNetworkBypass.AllowSameSubnet);
     }
 
+    [Theory]
+    [InlineData(null, QuasarRoles.Admin)]
+    [InlineData(QuasarRoles.Viewer, QuasarRoles.Viewer)]
+    [InlineData(QuasarRoles.Editor, QuasarRoles.Editor)]
+    public void ConfiguredTrustedNetworkRoleReplacesDefaultAdministrator(string? configured, string expected)
+    {
+        var values = new Dictionary<string, string?>();
+        if (configured is not null) values["Quasar:Auth:TrustedNetworkBypass:Roles:0"] = configured;
+        var config = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+
+        Assert.Equal([expected], QuasarAuthOptions.Create(config).TrustedNetworkBypass.Roles);
+    }
+
     [Fact]
     public void RefreshingRolesRemovesStalePrivileges()
     {

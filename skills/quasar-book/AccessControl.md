@@ -118,6 +118,8 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
+An explicit role list replaces the default. Set `Roles` to `["viewer"]` for read-only trusted access, then restart Quasar. The default `admin` role is not retained.
+
 Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Trust private LAN access** to opt out; an explicit `AllowSameSubnet: false` disables LAN bypass. Browser push still requires HTTPS or localhost.
 
 Quasar checks the destination twice: the original Host and scheme before proxy forwarding, and the effective destination after it. Both must be an accepted destination: the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or `localhost`, a loopback address or the socket's own destination IP at the socket's local port. A wildcard listener (`0.0.0.0`) does not accept arbitrary DNS names. To keep passwordless access through a DNS name, set the public BaseUrl to the URL browsers use.
