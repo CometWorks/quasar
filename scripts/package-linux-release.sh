@@ -195,6 +195,7 @@ fi
 tar -C "$PUBLISH_DIR/Host" -czf "$ARTIFACT_DIR/$HOST_ARCHIVE_NAME" .
 
 cp -a "$PUBLISH_DIR/Quasar" "$BOOTSTRAP_DIR/Quasar"
+cp -a "$PUBLISH_DIR/LICENSE" "$PUBLISH_DIR/NOTICE" "$PUBLISH_DIR/LICENSING.md" "$BOOTSTRAP_DIR/"
 cp -a "$REPO_DIR/Quasar/appsettings.json" "$BOOTSTRAP_DIR/appsettings.json"
 cp -a "$REPO_DIR/install.sh" "$BOOTSTRAP_DIR/install.sh"
 cp -a "$REPO_DIR/uninstall.sh" "$BOOTSTRAP_DIR/uninstall.sh"

@@ -9,6 +9,9 @@
     <Version>1.3.2</Version>
     <AssemblyVersion>$(Version)</AssemblyVersion>
     <FileVersion>$(Version)</FileVersion>
+    <PackageLicenseExpression>AGPL-3.0-only</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/CometWorks/quasar</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
 
     <!-- Shared application-data root used by Magnetar and Quasar -->
     <Magnetar Condition="'$(Magnetar)' == '' AND $([MSBuild]::IsOSPlatform('Windows'))">$(APPDATA)\Magnetar</Magnetar>
@@ -38,4 +41,15 @@
     <!-- Path to Steamworks.NET (for .NET 4.8) -->
     <Steamworks>$(DS64)\Steamworks.NET.dll</Steamworks>
   </PropertyGroup>
+  <!-- Keep license notices beside binaries, including single-file publishes. -->
+  <ItemGroup>
+    <None Include="$(MSBuildThisFileDirectory)LICENSE;$(MSBuildThisFileDirectory)NOTICE"
+          Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
+          Pack="true" PackagePath="" />
+    <None Include="$(MSBuildThisFileDirectory)Docs/Licensing.md"
+          Link="LICENSING.md" CopyToOutputDirectory="PreserveNewest"
+          CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
+          Pack="true" PackagePath="LICENSING.md" />
+  </ItemGroup>
 </Project>

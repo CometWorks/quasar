@@ -7,6 +7,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 ## Getting started
 
 - [Overview](Overview.md): what Quasar is, its parts (Quasar, Bootstrap, Quasar.Agent, Magnetar, the DS, Quasar.Host), and the glossary.
+- [Licensing](Licensing.md): AGPL-3.0-only, the MIT archive, source availability, modified hosted versions and redistribution.
 - [Install on Linux](InstallLinux.md): release assets, .NET 10, `./Quasar serve`, the `install.sh` systemd service, file locations, ports, uninstall and upgrade.
 - [Install on Windows](InstallWindows.md): the zip, `Quasar.exe serve`, the `install.ps1` Scheduled Task, file locations, uninstall and upgrade.
 - [Docker](Docker.md): the GHCR image, Docker Compose, `.env` settings, the `/data` volume, game port networking, upgrades and backups.

@@ -10,6 +10,10 @@ It runs on Linux (as a systemd service) and on Windows (as a Scheduled Task), an
 
 Source and releases: https://github.com/CometWorks/quasar
 
+The current distribution uses `AGPL-3.0-only`. The previous MIT snapshot is
+preserved on `archive/mit`. See [Licensing](Licensing.md) for source availability,
+modified hosted versions and redistribution.
+
 ## The parts
 
 | Part | Where it runs | What it does |

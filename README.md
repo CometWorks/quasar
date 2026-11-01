@@ -1,5 +1,11 @@
 # Quasar
 
+Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
+(`AGPL-3.0-only`). The previous MIT distribution is preserved on
+[`archive/mit`](https://github.com/CometWorks/quasar/tree/archive/mit).
+See [licensing and source availability](Docs/Licensing.md) for the transition,
+redistribution, and modified hosted versions.
+
 **Urgent security upgrade:** DIS-0042 requires saving worlds, updating Hosts and restarting game servers. Read the [upgrade order and machine endpoint policy](Docs/SecurityUpgradeDIS0042.md) before activation.
 
 Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)

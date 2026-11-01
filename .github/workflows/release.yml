@@ -10,6 +10,9 @@ on:
       - ".dockerignore"
       - ".env.example"
       - "Directory.Build.props"
+      - "LICENSE"
+      - "NOTICE"
+      - "Docs/Licensing.md"
       - "Dockerfile"
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
@@ -44,6 +47,9 @@ on:
       - ".dockerignore"
       - ".env.example"
       - "Directory.Build.props"
+      - "LICENSE"
+      - "NOTICE"
+      - "Docs/Licensing.md"
       - "Dockerfile"
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
@@ -621,6 +627,10 @@ jobs:
           draft: ${{ needs.metadata.outputs.draft }}
           prerelease: ${{ needs.metadata.outputs.prerelease }}
           body: |
+            Quasar is licensed under **AGPL-3.0-only**. License notices are included
+            in each archive. Matching source is available from this release's Git
+            tag and source archives. See [licensing and the MIT archive](https://github.com/CometWorks/quasar/blob/main/Docs/Licensing.md).
+
             ## Install Quasar
 
             Download the single archive for your operating system:
