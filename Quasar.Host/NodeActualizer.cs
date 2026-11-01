@@ -23,6 +23,8 @@ internal sealed class NodeActualizer
     private readonly string _stateDirectory;
     private readonly string _hostId;
     private readonly DiagnosticCollector _diagnostics;
+    // ponytail: finished entries stay, one per hung launch; they stop a failed capture from starting over.
+    private readonly Dictionary<string, Task> _hangCaptures = new(StringComparer.Ordinal);
 
     public NodeActualizer(string stateDirectory, string hostId, DiagnosticCollector? diagnostics = null)
     {
@@ -119,7 +121,16 @@ internal sealed class NodeActualizer
         }
 
         if (killRequested && record is not null && match.State == ProcessMatchState.Alive)
+        {
+            if (IsKillOfHungNode(plan, record) && CapturingHangEvidence(record, DiagnosticCollector.HungNodeKind,
+                    $"Node {record.NodeId} epoch {record.Epoch} hung: the Registry declared it dead while its process ran, and it is being killed."))
+            {
+                match.Process!.Dispose();
+                return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Spawning,
+                    record.NodeId, null, record.Epoch ?? 0);
+            }
             return await KillAsync(plan, record, match.Process!, cancellationToken);
+        }
 
         if (record is not null && match.State == ProcessMatchState.Missing
             && record.Status is LaunchStatus.Running or LaunchStatus.Ready)
@@ -173,11 +184,10 @@ internal sealed class NodeActualizer
             int timeout = spec?.ReadyTimeoutSeconds is > 0 ? spec.ReadyTimeoutSeconds : 120;
             if (SinceLaunch(record) >= TimeSpan.FromSeconds(timeout))
             {
-                if (record.DiagnosticDirectory is { } directory)
-                {
-                    DiagnosticCollector.ReportFailure(directory, "ready_timeout", "Node did not publish readiness before its startup deadline.");
-                    DiagnosticCollector.ExpectExit(directory);
-                }
+                if (CapturingHangEvidence(record, DiagnosticCollector.ReadyTimeoutKind, "Node did not publish readiness before its startup deadline."))
+                    return Observation(plan.SlotKey, record.AttemptKey, Admin.NodeObservation.Spawning,
+                        record.NodeId, null, record.Epoch ?? 0);
+                if (record.DiagnosticDirectory is { } directory) DiagnosticCollector.ExpectExit(directory);
                 await KillProcessAsync(process, cancellationToken);
                 record = record with { Status = LaunchStatus.Failed, Failure = "ready_timeout" };
                 WriteRecord(record);
@@ -312,6 +322,23 @@ internal sealed class NodeActualizer
         {
             return false;
         }
+    }
+
+    // The Registry marks the kill it plans for a node it declared dead, and keeps the mark until the kill is reported.
+    // Every other named kill stops a node that drained or an operator's choice, and leaves nothing to explain.
+    private static bool IsKillOfHungNode(Admin.NodePlan plan, LaunchRecord record) =>
+        plan.IncumbentAction == Admin.IncumbentAction.Kill && plan.LastFailure == "node_dead:" + record.NodeId
+        && plan.IncumbentNode == record.NodeId && plan.IncumbentEpoch > 0 && plan.IncumbentEpoch == record.Epoch;
+
+    // True while the capture runs in the background: it must not hold up the other slots or this poll's report,
+    // and each poll comes back here until it ends, within its own time limit.
+    private bool CapturingHangEvidence(LaunchRecord record, string kind, string message)
+    {
+        if (record.DiagnosticDirectory is not { } directory || record.ProcessId is not int pid) return false;
+        if (_hangCaptures.TryGetValue(record.AttemptKey, out Task? capture)) return !capture.IsCompleted;
+        if (HungNodeEvidence.Captured(directory)) return false;
+        _hangCaptures[record.AttemptKey] = HungNodeEvidence.CaptureAsync(directory, pid, _diagnostics.DumpAllowed(directory), kind, message);
+        return true;
     }
 
     private async Task<NodeExecutionObservation> KillAsync(Admin.NodePlan plan, LaunchRecord record,
