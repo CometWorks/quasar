@@ -978,8 +978,10 @@ public sealed class ClusterDeploymentTests : IDisposable
         await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On); // the lifecycle tools are unlocked again
     }
 
-    [Fact]
-    public async Task FailedStartRevertsFromThePreUpdateBackupAndStartsThePreviousVersion()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedStartRevertsFromThePreUpdateBackupAndStartsThePreviousVersion(bool gatewayDown)
     {
         using var catalog = Catalog();
         var handler = new Handler(credential);
@@ -1107,7 +1109,9 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(0, handler.GatewayStops);
 
         // Then a fenced stop: the Gateway runs the generation the update started, and every node is down.
-        await Backdate(ClusterUpdateService.RevertStopGrace);
+        // A Gateway already Down, as after a start where no node ever ran, won't get cleaner, so it needs no grace.
+        if (gatewayDown) gateway.Phase = ClusterPhase.Down;
+        else await Backdate(ClusterUpdateService.RevertStopGrace);
         handler.Recovery = true;
         handler.StartGeneration = catalog.GetCluster("demo")!.Gateway!.StartGeneration!.Value;
         await update.AdvanceAllAsync(default);
@@ -1124,6 +1128,7 @@ public sealed class ClusterDeploymentTests : IDisposable
 
         await update.AdvanceAllAsync(default);
         Assert.Equal(ClusterUpdatePhase.Reverting, catalog.GetCluster("demo")!.Update!.Phase);
+        gateway.Phase = ClusterPhase.Serving;
         gateway.Revision = "restored";
         gateway.Ready = true;
         await update.AdvanceAllAsync(default);
@@ -1360,6 +1365,31 @@ public sealed class ClusterDeploymentTests : IDisposable
     }
 
     [Fact]
+    public async Task StoppingSaysAtOnceWhenTheShutdownEndedDirty()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "stopped-dirty-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        await new ClusterDeploymentService(catalog, client, operations).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var update = new ClusterUpdateService(catalog, new ClusterDeploymentService(catalog, client, operations),
+            new ClusterGatewayClient(new HttpClient(new DirtyGatewayHandler(["global"]))), client, operations, NullLogger<ClusterUpdateService>.Instance);
+        handler.Revision = "candidate";
+        var candidate = new ClusterDeploymentRequest("revision", "candidate", Request().Hosts.Select(h => h with {
+            Activation = h.Activation with { ExpectedBundleManifestSha256 = h.Activation.BundleManifestSha256,
+                BundleManifestSha256 = new string('b', 64) } }).ToArray());
+        await update.BeginAsync("demo", new(Guid.NewGuid(), candidate), "begin", "test", default);
+
+        await update.AdvanceAllAsync(default);
+
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(ClusterUpdatePhase.Stopping, cluster.Update!.Phase);
+        Assert.StartsWith("The cluster stopped, but its last shutdown left unsaved state: global.", cluster.Update.LastError);
+        Assert.Contains("Update despite the recorded dirty shutdown", cluster.Update.LastError);
+    }
+
+    [Fact]
     public void NodeFailureCauseIsTheInnermostException()
     {
         Exception thrown;
@@ -1475,6 +1505,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal bool Ready;
         internal string Revision = "candidate";
         internal bool SpawnHalted;
+        internal ClusterPhase Phase = ClusterPhase.Serving;
         internal NodePlan[] Plan = [];
         internal readonly List<(string Path, string Body)> Posts = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
@@ -1489,7 +1520,7 @@ public sealed class ClusterDeploymentTests : IDisposable
                 return Task.FromResult(planned);
             }
             var status = new CometWorks.ClusterGateway.AdminContract.V1.ClusterStatus("demo", "world",
-                CometWorks.ClusterGateway.AdminContract.V1.ClusterPhase.Serving, CometWorks.ClusterGateway.AdminContract.V1.StartupKind.Warm,
+                Phase, CometWorks.ClusterGateway.AdminContract.V1.StartupKind.Warm,
                 null, null, false, SpawnHalted, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,
                 CometWorks.ClusterGateway.AdminContract.V1.AdminHealth.Healthy, [], DateTimeOffset.UtcNow,
                 Ready ? Revision : "revision", Ready);

@@ -242,8 +242,9 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                             if (!cluster.IsProvenStopped())
                             {
                                 if (!dirtyShutdown)
-                                    return await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown (if it "
-                                        + "ended dirty, abandon this update and apply it with Update despite the recorded dirty shutdown)");
+                                    return await StoppedDirtyAsync(cluster, workflow)
+                                        || await OverdueAsync(cluster, workflow, StoppingDeadline, "a verified clean shutdown (if it "
+                                            + "ended dirty, abandon this update and apply it with Update despite the recorded dirty shutdown)");
                                 if (!workflow.FencedStop)
                                 {
                                     // As Recovery does: every Host proves its nodes stopped, then the Gateway stops fenced.
@@ -386,7 +387,7 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             {
                 if (!cluster.IsProvenStopped())
                 {
-                    if (PhaseAge(workflow) < RevertStopGrace)
+                    if (PhaseAge(workflow) < RevertStopGrace && !await GatewayDownAsync(cluster))
                         return false;
                     await deployments.StopFencedAsync(cluster, token);
                 }
@@ -541,6 +542,34 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
             {
                 return "its Gateway Host cannot be checked (" + error.Message.TrimEnd('.') + ")";
             }
+        }
+
+        // A Gateway that reached Down won't stop any cleaner, for example when no node of a failed start ever saved.
+        async Task<bool> GatewayDownAsync(ClusterDefinition cluster)
+        {
+            try { return (await gateway.GetStatusAsync(cluster, token)).Data.Phase == Admin.ClusterPhase.Down; }
+            catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested) { return false; }
+        }
+
+        // A shutdown that ended dirty never turns into the clean proof this update waits for, so say so right away.
+        async Task<bool> StoppedDirtyAsync(ClusterDefinition cluster, ClusterUpdate workflow)
+        {
+            string[]? dirty;
+            try
+            {
+                var status = (await gateway.GetStatusAsync(cluster, token)).Data;
+                dirty = status.Phase != Admin.ClusterPhase.Down ? null
+                    : ClusterReconciler.DirtyList(status, (await gateway.GetSnapshotsAsync(cluster, token)).Data);
+            }
+            catch (Exception error) when (error is not OperationCanceledException || !token.IsCancellationRequested) { return false; }
+            if (dirty is not { Length: > 0 }) return false;
+            string message = "The cluster stopped, but its last shutdown left unsaved state: " + string.Join(", ", dirty.Take(12))
+                + (dirty.Length > 12 ? $" and {dirty.Length - 12} more" : "")
+                + ". This update can't go on. Abandon it, then apply it with Update despite the recorded dirty shutdown in Maintenance, or recover the stopped cluster.";
+            if (await TimedOutAsync(cluster, workflow, message)) return true;
+            if (workflow.LastError != message)
+                await catalog.RecordUpdateAsync(cluster, workflow with { LastError = message, UpdatedAt = DateTimeOffset.UtcNow }, token);
+            return true;
         }
 
         // Nodes that keep failing at startup won't serve however long the update waits. Says why as soon as the Gateway

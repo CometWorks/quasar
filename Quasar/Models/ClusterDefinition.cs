@@ -56,8 +56,6 @@ public sealed class ClusterDefinition
 
     internal bool HasActivationProof() => ActivationProof?.LifecycleId == GetLifecycleId();
 
-    // Nothing of this lifecycle runs: it shut down cleanly, or was activated and has not started since.
-    // requireRun also refuses a first deployment that never ran, so there is no saved cluster state yet.
     /// <summary>Why lifecycle changes are refused while an operation runs: the update and what it waits for, and the way out of it.</summary>
     internal string BusyMessage(string action)
     {
@@ -69,6 +67,8 @@ public sealed class ClusterDefinition
             : message;
     }
 
+    // Nothing of this lifecycle runs: it shut down cleanly, or was activated and has not started since.
+    // requireRun also refuses a first deployment that never ran, so there is no saved cluster state yet.
     internal bool IsProvenStopped(bool requireRun = false) => HasCleanShutdownProof()
         || HasActivationProof() && (!requireRun || ActivationProof!.CleanShutdownAt is not null);
 
