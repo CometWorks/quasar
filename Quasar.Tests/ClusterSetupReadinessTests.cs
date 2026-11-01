@@ -36,6 +36,7 @@ public sealed class ClusterSetupReadinessTests : IDisposable
     [InlineData("capability", true)]
     [InlineData("configuration", true)]
     [InlineData("healthy", true)]
+    [InlineData("starting", true)]
     public async Task SetupRequiresEveryHostToBeReadyIncludingPreviouslyCompletedAttempts(string fault, bool completed)
     {
         var credentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(_root, "credentials.json"));
@@ -53,7 +54,8 @@ public sealed class ClusterSetupReadinessTests : IDisposable
         var world = await worlds.ImportAsync("World", "", source);
         using var http = new HttpClient(new HostResponses(fault));
         var setup = new ClusterSetupService(clusters, hosts, new ClusterHostClient(http, credentials), credentials,
-            null!, null!, null!, null!, worlds, profiles, null!, new ClusterOperationStore(Path.Combine(_root, "operations")), servers, null!);
+            null!, null!, null!, null!, worlds, profiles, null!, new ClusterOperationStore(Path.Combine(_root, "operations")), servers, null!)
+        { HostStartWait = fault == "starting" ? TimeSpan.FromSeconds(30) : TimeSpan.Zero };
         var request = new ClusterSetupRequest("demo", "Demo", world.WorldTemplateId, "profile", "one", 28000,
             [new("one", 1), new("two", 1)]);
         if (completed)
@@ -74,12 +76,13 @@ public sealed class ClusterSetupReadinessTests : IDisposable
         }
 
         var result = await setup.RunAsync(request, "first", "test", default);
+        bool ready = fault is "healthy" or "starting";
 
-        Assert.Equal(fault == "healthy" ? ClusterOperationState.Succeeded : ClusterOperationState.Failed, result.State);
+        Assert.Equal(ready ? ClusterOperationState.Succeeded : ClusterOperationState.Failed, result.State);
         if (!completed) Assert.Empty(clusters.GetClusters());
         else Assert.NotNull(clusters.GetCluster("demo")!.ActiveDeployment);
-        Assert.Equal(fault == "healthy" ? "Ready to start" : "Setup interrupted", setup.GetStatus("demo")!.Phase);
-        if (fault == "healthy") Assert.Null(result.Error);
+        Assert.Equal(ready ? "Ready to start" : "Setup interrupted", setup.GetStatus("demo")!.Phase);
+        if (ready) Assert.Null(result.Error);
         else { Assert.NotNull(result.Error); Assert.NotNull(setup.GetStatus("demo")!.Error); }
         if (fault == "offline")
         {
@@ -92,11 +95,13 @@ public sealed class ClusterSetupReadinessTests : IDisposable
     private static readonly string Hash = new('a', 64);
     private sealed class HostResponses(string fault) : HttpMessageHandler
     {
+        private int startingCalls;
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string id = request.RequestUri!.Host.Split('.')[0];
             bool broken = id == (fault == "steam" ? "one" : "two");
             if (broken && fault == "offline") throw new HttpRequestException("offline");
+            if (fault == "starting" && Interlocked.Increment(ref startingCalls) == 1) throw new HttpRequestException("offline");
             var status = new HostContract.HostStatus(broken && fault == "executor" ? "" : "exec-" + id,
                 broken && fault == "identity" ? "wrong" : id,
                 [new("demo", "http://10.1.0.1:28016", !(broken && fault == "configuration"), Hash, "/runs/" + id)], [],

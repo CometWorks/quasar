@@ -36,6 +36,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     ILogger<ClusterSetupService>? logger = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    internal TimeSpan HostStartWait { get; init; } = TimeSpan.FromSeconds(60);
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
     private static string Workspace(string id)
     {
@@ -74,7 +75,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         if (catalog.GetCluster(request.UniqueName)?.ActiveDeployment is not null && GetStatus(request.UniqueName)?.Phase == "Ready to start")
                         {
                             bound = true;
-                            await CheckHostsAsync(request, selected, ct);
+                            await WaitForHostsAsync(request, selected, ct);
                             return Envelope(await StageAsync(request, "Ready to start", null, ct));
                         }
                     }
@@ -94,7 +95,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                         await WriteAsync(identity, request, ct);
                     }
                     bound = true;
-                    await CheckHostsAsync(request, selected, ct);
+                    await WaitForHostsAsync(request, selected, ct);
                     string adminReference = credentials.Create("cluster:" + request.UniqueName, "admin");
                     await catalog.CreateAsync(new(request.UniqueName, request.DisplayName, origin, adminReference), ct);
                     return await catalog.WithLifecycleAsync(request.UniqueName, async cluster =>
@@ -285,6 +286,23 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     { var copy = cluster.Clone(); copy.HostCommandUrl = host.CommandUrl; copy.HostCommandTokenEnvironmentVariable = host.CredentialReference; return copy; }
     private static void ValidateId(string id)
     { if (string.IsNullOrWhiteSpace(id) || !Regex.IsMatch(id, "^[a-zA-Z0-9_-]{1,64}$")) throw new ArgumentException("Use a cluster ID with 1–64 letters, numbers, hyphens or underscores."); }
+    /// <summary>With no cluster on this PC the local Host stays stopped until a request needs it. That request fails, so wait for the Host it started.</summary>
+    private async Task WaitForHostsAsync(ClusterSetupRequest request, EnrolledClusterHost[] selected, CancellationToken token)
+    {
+        DateTimeOffset end = DateTimeOffset.UtcNow + HostStartWait;
+        while (true)
+        {
+            try
+            {
+                await CheckHostsAsync(request, selected, token);
+                return;
+            }
+            catch (ClusterHostException error) when (error.Code == "host_unavailable" && DateTimeOffset.UtcNow < end)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), token);
+            }
+        }
+    }
     private async Task CheckHostsAsync(ClusterSetupRequest request, EnrolledClusterHost[] selected, CancellationToken token)
     {
         await StageAsync(request, "Checking cluster hosts", null, token);

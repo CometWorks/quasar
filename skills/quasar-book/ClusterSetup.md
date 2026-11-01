@@ -147,7 +147,7 @@ The status line shows each phase:
 7. "Converting a copy of the world": splits the world with the release's converter.
 8. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation, the world and the staged mods.
 9. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
-10. "Ready to start".
+10. "Ready to start": the Host has already reported the activated Gateway as stopped, so a start is accepted at once.
 
 Quasar generates all credentials. You do not set any environment variable for a guided cluster.
 
