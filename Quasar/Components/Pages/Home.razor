@@ -503,9 +503,6 @@ else
 @code
 {
     private RenderFragment FleetViewActions => @<text>
-        <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
-            <a href="clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a>
-        </AuthorizeView>
         <div class="quasar-segmented quasar-view-selector" role="group" aria-label="Server view">
             <button type="button" aria-pressed="@(IsCardsView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.Cards))"><QuasarIcon Icon="@QuasarIcons.Dashboard" />Cards</button>
             <button type="button" aria-pressed="@(IsListView ? "true" : "false")" @onclick="@(() => SetServerViewAsync(DashboardServerView.List))"><QuasarIcon Icon="@QuasarIcons.ViewList" />List</button>
@@ -972,7 +969,7 @@ else
         }
     }
 
-    private Task OpenCreateServerDialogAsync() => ServerActions.OpenCreateDialogAsync();
+    private Task OpenCreateServerDialogAsync() => ServerActions.OpenNewServerDialogAsync();
 
     private async Task OpenExistingServerImportDialogAsync()
     {

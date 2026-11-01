@@ -97,7 +97,7 @@ The form shows "Host executor connected. It is ready for cluster placement." onc
 
 ## Create the cluster
 
-Open **New cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Create and deploy**).
+Open **New server → Cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Create and deploy**). The Cluster choice requires cluster-management permission.
 
 **Step 1, Host enrollment.** Lists enrolled host machines with **Connected** or **Offline**. **Continue to cluster configuration** is enabled once at least one host machine is connected ("Waiting for an enrolled Host executor to connect. Enrollment alone does not make a host machine ready for deployment.").
 
@@ -202,6 +202,8 @@ Resume also re-checks the PluginSdk: if Magnetar was updated in between and the 
 - `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
 
 ## Sources
+- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar/Services/ServerManagementActions.cs`
 - `Docs/ClusterGuidedSetupPlan.md`
 - `Docs/ClusterTerminology.md`
 - `Docs/Configuration.md`

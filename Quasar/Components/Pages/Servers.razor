@@ -34,7 +34,6 @@
             @if (!HideCreateActions)
             {
                 <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
-                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><a href="clusters/new" class="quasar-button"><QuasarIcon Icon="@QuasarIcons.AccountTree" />New cluster</a></AuthorizeView>
             }
             @HeaderActions
             <button type="button" class="quasar-button" aria-pressed="@(_compactRows ? "true" : "false")" @onclick="@(() => _compactRows = !_compactRows)">@(_compactRows ? "Comfortable rows" : "Compact rows")</button>
@@ -426,7 +425,7 @@
         return agent;
     }
 
-    private Task OpenCreateDialogAsync() => ServerActions.OpenCreateDialogAsync();
+    private Task OpenCreateDialogAsync() => ServerActions.OpenNewServerDialogAsync();
 
     private Task OpenCloneDialogAsync(DedicatedServerDefinition definition) =>
         ServerActions.OpenCloneDialogAsync(definition);
