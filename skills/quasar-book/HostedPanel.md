@@ -83,13 +83,42 @@ disables hosting while local Quasar remains available. Restore a private backup
 before editing enrollment. Self-deploy disconnects hosting and retains the local
 identity; selecting the same hosted name resumes it. Renaming is not implemented.
 
-Manage billing/payment methods and cancel or resume subscription renewal on Nebula's
-account page. Canceling retains the paid service period; refunds and disputes
-can retract it. A checkout return never proves payment. To reinstall or move,
-enroll the same panel name as the verified Steam owner and explicitly confirm
-replacement. Old credentials are revoked; billing and paid dates stay linked.
-Disconnecting the installation does not cancel subscription renewal. A revoked
-local enrollment clears credentials and permits fresh pairing.
+All configured Steam administrators share this panel in Nebula. Quasar sends
+current Steam admin mappings over its private installation channel every ten
+seconds; Nebula requires a snapshot from the last two minutes for management.
+Other provider/trusted-network sessions can run setup, but membership uses
+configured Steam IDs. These roles do not grant Nebula platform super-admin rights.
+**Manage Nebula hosting and billing** on Security or the ready wizard opens the
+account page.
+
+Exactly one payer sees billing details and controls renewal. Another current
+admin can request a billing transfer there. The current payer approves or declines;
+requests expire after seven days. Approval stops the old subscription without
+refund or proration and keeps existing verified paid access. The new payer checks
+out with their own details and payment method after that paid period ends and
+must finish checkout to continue hosting. Cards and historical invoices are not
+transferred. Refunds/disputes still reconcile against the old paid periods.
+
+Billing requests and results use the bell/page and existing Steam browser push
+subscriptions. Enable push on **Notifications** through the hosted URL to register
+that browser in this panel's scope; local-origin subscriptions are separate.
+Quasar must run and the browser must grant permission. An existing subscription
+can still receive targeted billing notices after its payer loses local roles.
+Trusted-network push subscriptions do not receive Steam billing notices.
+The request stays visible on Nebula if push is off or delivery fails. Automated
+routing/targeting checks exist; real browser delivery through live Nebula remains
+an acceptance test.
+
+To recover or move a panel, choose its existing public name in the new Quasar
+installation and confirm replacement on Nebula as the current payer or a currently
+verified administrator. The payer can recover when the old deployment is offline,
+including after billing ownership has changed. This revokes old connector and
+installation proofs and automatically deletes their registration/health records.
+The old admin roster is dropped; the new deployment publishes its own roles.
+The subscription, billing details, URL and paid dates remain. Game servers, worlds
+and local settings are not moved or deleted. Disconnecting alone does not cancel
+renewal. A revoked local enrollment clears credentials and permits fresh pairing.
+Deploy the matching Nebula manager before the Quasar update.
 
 See [the detailed deployment and recovery guide](https://github.com/CometWorks/quasar/blob/main/Docs/HostedPanel.md).
 
@@ -97,6 +126,9 @@ See [the detailed deployment and recovery guide](https://github.com/CometWorks/q
 
 - `Shared/Hosting/HostedPanelState.cs`
 - `Quasar/Services/HostedPanelService.cs`
+- `Quasar/Services/Updates/PushNotificationService.cs`
+- `Quasar/wwwroot/quasar-push.js`
+- `Quasar/wwwroot/push-worker.js`
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`

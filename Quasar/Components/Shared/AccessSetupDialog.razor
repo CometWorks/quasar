@@ -61,12 +61,14 @@
                     <h2>Host your Quasar panel with Nebula</h2>
                     <p>Get a public dashboard address without configuring router ports, DNS or certificates. Local access and your game servers keep working independently.</p>
                 </header>
+                <p class="access-setup-note">Moving or recovering an existing panel? Enter its current public name and confirm replacement on Nebula as its billing owner. Your subscription and remaining paid access stay with it; the old registration is removed automatically.</p>
                 <MudTextField T="string" @bind-Value="_panelId" Label="Public panel name" HelperText="3–63 lowercase letters and digits, separated by single dashes." Variant="Variant.Outlined" Immediate="true" />
                 <section class="access-setup-card" aria-label="Public dashboard address">
                     <h3>Your public dashboard</h3>
                     <p class="access-setup-address">https://dash.se-servers.net/@(_panelId)/</p>
                 </section>
                 <section class="access-setup-section">
+                    <p>All configured Steam administrators can enroll and manage this panel in Nebula. One payer holds the subscription; another administrator can request a transfer with that payer’s approval and use their own payment details.</p>
                     <h3>€2.99 / month or €29.99 / year</h3>
                     <p>One panel and secure tunnel, in EUR including applicable taxes. Choose your plan on Nebula. Your dashboard connects automatically after activation; configured Nebula super admins can enroll free.</p>
                     <p class="access-setup-note">Your subscription provides hosted access to your Quasar panel and also supports ongoing development and future CometWorks projects.</p>
@@ -114,6 +116,7 @@
                 @if (Hosted.IsReady)
                 {
                     <MudButton OnClick="SelfDeployAsync" Disabled="@_busy">Self-deploy</MudButton>
+                    <MudButton Href="https://dash.se-servers.net/account" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Manage Nebula hosting and billing</MudButton>
                     <MudButton OnClick="Close" Disabled="@_busy">Done</MudButton>
                     <MudButton Href="@Hosted.State.DashboardUrl" Target="_blank" rel="noopener noreferrer" Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.OpenInNew">Open Quasar dashboard</MudButton>
                 }

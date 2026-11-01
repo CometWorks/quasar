@@ -372,7 +372,7 @@ public sealed partial class AnnouncementTests : IDisposable
         await using var context = new BunitContext();
         var bell = context.Render<NotificationBell>(p => p.Add(c => c.Notice, notices[0]));
         Assert.Contains("quasar-text-error", bell.Find("a").ClassList);
-        Assert.Equal("/notifications", bell.Find("a").GetAttribute("href"));
+        Assert.Equal("http://localhost/notifications", bell.Find("a").GetAttribute("href"));
         Assert.Contains("CRITICAL", bell.Find("a").GetAttribute("title"));
         var card = context.Render<NotificationCard>(p => p.Add(c => c.Notice, notices[0]));
         Assert.Empty(card.FindAll("script, img")); Assert.Contains("<script>urgent</script>", card.Find("h2").TextContent);

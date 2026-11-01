@@ -143,16 +143,72 @@ cutover still require deployment acceptance testing.
 
 ## Billing and installation management
 
-Nebula's account page starts hosted Stripe Checkout, shows subscription state,
-opens supported billing/payment management and cancels or resumes subscription renewal.
-A browser return never activates access; the backend verifies the Managed
-subscription, invoice and captured payment. Cancellation retains the paid period;
-refunds or unresolved disputes can retract it. Quasar polls activation automatically.
+All configured Steam administrators share one Nebula panel. Quasar sends its
+current Steam admin mappings through the private installation proof every ten
+seconds, including while waiting for payment. Nebula expires management authority
+after two minutes without a current snapshot. Browser claims and local roles do
+not grant platform super-admin/free-enrollment rights. Trusted-network or other
+provider sessions can run setup, but Nebula membership uses configured Steam IDs.
+**Manage Nebula hosting and billing** on Security or the ready wizard opens the
+account page for the signed-in Steam identity.
 
-To move or reinstall Quasar, enroll the same panel name using the verified owner
-Steam account and explicitly confirm replacing the old installation on Nebula.
-This revokes old installation proofs and connector credentials while preserving
-the subscription and paid dates. The account page can disconnect an installation;
-that action does not cancel renewal. Manage billing separately. Quasar clears
-revoked local enrollment credentials so the administrator can start a fresh pairing.
-Automatic hardware attestation and public-name renaming are not implemented.
+One payer controls the subscription, renewal and billing details. Other current
+admins can manage the installation and choose **Request billing transfer to me**.
+The payer reviews the durable request in Nebula, then approves or declines it.
+Requests expire after seven days. Approval rechecks authorization, stops the old
+subscription without refund or proration, and preserves verified paid access.
+The incoming payer uses fresh checkout with their own billing details and payment
+method after that paid period ends. They must complete checkout to continue
+hosting at that point; no overlapping subscription or inherited card is created.
+Historical invoices stay private to the old payer and refunds/disputes still
+reconcile. Returning from Checkout never proves payment.
+
+Billing requests and results appear in Quasar's notifications and use existing
+Steam browser push subscriptions when enabled. Quasar must be running and the
+browser must have granted notification permission. Enable push on
+**Notifications** through the hosted URL to subscribe that browser under this
+panel's scope; a local-origin subscription is separate. Existing subscriptions
+can deliver targeted billing notices even after the payer loses local roles.
+Trusted-network push subscriptions do not receive Steam billing notices.
+The fixed billing link opens Nebula's separately authenticated account page.
+Delivery is best-effort; review pending requests there if push is disabled.
+Automated scope, icon, click, targeting and receipt checks pass, but a real browser
+receiving Web Push through the live Nebula URL remains an acceptance test.
+
+To move or reinstall Quasar, choose the **same public panel name** in the new
+installation's hosted setup. Follow its Steam link and explicitly confirm
+replacement. The current payer can do this even if the old deployment is offline
+or the founding payer has changed; a currently verified administrator can also
+replace it. Confirmation revokes the old connector, deletes previous registration
+records and health, and drops the old deployment's admin roster atomically.
+The public URL, subscription, payment details and paid dates stay linked to the
+same panel. The new deployment publishes its own administrators. This moves
+hosted registration only: game servers, worlds and local settings remain where
+they were and are not deleted or migrated.
+
+The account page can also disconnect an installation; that action does not cancel
+renewal. Manage billing separately. Quasar clears revoked local enrollment
+credentials so an administrator can start fresh pairing. Automatic hardware
+attestation and public-name renaming are not implemented. Deploy the matching
+Nebula manager before this Quasar update.
+
+## Hosted push acceptance check
+
+Automated tests cover the worker scope, icon/click URLs, targeted notices, receipt
+persistence and generic HTTP transport. To verify real browser delivery:
+
+1. Open `https://dash.se-servers.net/<panel-name>/notifications` with a Steam admin
+   session in a browser that supports Web Push. Enable notifications and grant
+   permission. Confirm the worker and subscription belong to `/<panel-name>/`.
+2. In a second administrator's Steam session, open Nebula and request billing
+   ownership. Within the polling/delivery interval, confirm the payer's subscribed
+   browser receives **Nebula billing update**, including with the panel tab closed.
+3. Click it and confirm it opens `https://dash.se-servers.net/account` and requires
+   the correct Steam identity to approve. A third account cannot approve it or
+   read private billing information.
+4. Decline the request and check the targeted result and durable account state.
+   Repeat with browser permission disabled: the request remains reviewable in
+   Nebula and other Quasar notifications still use the panel prefix.
+
+Use isolated sandbox billing for approval/payment tests. No completed provider
+payment, real push delivery or live deployment is implied by automated checks.

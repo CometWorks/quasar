@@ -200,6 +200,18 @@ and restart, or explicitly remove the affected subscription; continuing pauses
 emit one generic warning per service instance. See
 [announcements](https://github.com/CometWorks/quasar/blob/main/Docs/Announcements.md) for the full contract and limits.
 
+### Nebula billing notifications
+
+Nebula transfer requests and billing updates target their payer and incoming Steam
+administrator through the existing push subscription. They also appear in the
+bell/page while that identity can view Quasar. An existing subscription can still
+receive billing-only notices after its payer loses panel roles; this grants no
+Quasar access. Trusted-network subscriptions do not receive Steam billing notices.
+The fixed link opens Nebula's account page for review and approval. Requests stay
+there if push is off or delivery fails. Quasar must run and refresh the hosted
+installation; real browser delivery through live Nebula still needs acceptance.
+See [Hosted access](HostedPanel.md).
+
 ### Notification preferences
 
 Preferences are per account and apply to the page, the bell and browser push on every browser. Click **Save preferences**.
@@ -391,6 +403,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/BrandingPresets.cs`
 - `Quasar/Services/Updates/NotificationPreferences.cs`
 - `Quasar/Services/Updates/PushNotificationService.cs`
+- `Quasar/Services/HostedPanelService.cs`
 - `Quasar/Services/Updates/InstanceNotificationMonitor.cs`
 - `Quasar/Services/Discord/DiscordBotService.cs`
 - `Quasar/Services/Discord/DiscordOptions.cs`

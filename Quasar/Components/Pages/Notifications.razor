@@ -15,14 +15,14 @@
 <div class="quasar-stack">
     <h1>Notifications</h1>
     <p>
-        CometWorks announcements, Quasar and cluster updates, plus optional UI plugin updates and instance health alerts. Open a notice to review its details.
+        CometWorks announcements, Nebula billing requests and updates, Quasar and cluster updates, plus optional UI plugin updates and instance health alerts. Open a notice to review its details.
     </p>
     <p class="quasar-muted quasar-caption">CometWorks announcements appear while current data-handling consent is YES and diagnostic reports are enabled in Security. Browser push uses this browser's existing subscription.</p>
     <section class="pa-4 quasar-panel quasar-section">
         <div class="quasar-stack">
             <h2>Browser push notifications</h2>
             <p>@(!Push.Checked ? "Checking this browser…" : Push.Enabled ? "Push notifications are enabled on this browser." : "Push notifications are not enabled on this browser.")</p>
-            <p class="quasar-muted quasar-caption">These controls affect only this browser and account. Other subscribed clients keep receiving notifications.</p>
+            <p class="quasar-muted quasar-caption">Nebula billing updates use your Steam account’s browser subscription, including transfer requests that need your approval. Requests also remain visible in Nebula if push is disabled. These controls affect only this browser and account. Other subscribed clients keep receiving notifications.</p>
             <div class="quasar-row">
                 @if (Push.Enabled)
                 {
