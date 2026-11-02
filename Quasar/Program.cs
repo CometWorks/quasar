@@ -11,6 +11,8 @@ using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
 using Quasar.Services.Plugins;
 using Quasar.Services.Updates;
+using Quasar.Updates;
+using System.Diagnostics;
 using Quasar.Plugin.Abstractions.Companion;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
@@ -34,11 +36,32 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        try { QuasarServiceInstallation.Load(applyEnvironment: true); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or ArgumentException)
+        {
+            Console.Error.WriteLine("Cannot read this installation: " + exception.Message + " Use an elevated Windows shell or the configured Linux service account; repair installation metadata if needed.");
+            Environment.ExitCode = 3;
+            return;
+        }
+        if (QuasarApplicationEntry.TryRunCommand(args, out var exitCode)) { Environment.ExitCode = exitCode; return; }
+        try { QuasarUpgradePath.EnsureAllowed(QuasarReleaseVersion.GetEntryAssemblyVersion(), MagnetarPaths.GetQuasarDirectory()); }
+        catch (InvalidOperationException exception) { Console.Error.WriteLine(exception.Message); Environment.ExitCode = 3; return; }
+        if (args.Any(arg => arg is "--foreground" or "--console"))
+        {
+            Environment.SetEnvironmentVariable("QUASAR_MODE", "Console");
+            Environment.SetEnvironmentVariable("QUASAR_OPEN_BROWSER_ON_START", "true");
+        }
+        args = args.Where(arg => arg is not ("serve" or "ensure-running" or "--service" or "--quiet" or "--foreground" or "--console")).ToArray();
         QuasarDiagnosticLoggerProvider? diagnosticCapture = null;
         try
         {
             string[] workerArgs = NormalizeWorkerArguments(args);
             var builder = WebApplication.CreateBuilder(workerArgs);
+            if (OperatingSystem.IsWindows() && QuasarServiceInstallation.Current is { } serviceInstallation)
+                {
+                builder.Services.AddWindowsService(options => options.ServiceName = serviceInstallation.MainService);
+                builder.Services.Configure<Microsoft.Extensions.Logging.EventLog.EventLogSettings>(options => { if (OperatingSystem.IsWindows()) options.SourceName = serviceInstallation.MainService; });
+                }
             Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory();
             AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, workerArgs);
             MachineEndpointSecurity.DisableAutomaticForwarding(builder.Configuration);
@@ -477,6 +500,13 @@ public class Program
             if (!webServiceOptions.Headless)
                 MapAuthenticationEndpoints(app, authOptions);
 
+            app.MapGet("/api/internal/update-health", (HttpContext context, WebServiceOptions options) =>
+            {
+                if (!QuasarApplicationEntry.IsUpdaterAuthorized(context, options.LauncherToken)) return Results.Unauthorized();
+                return Results.Json(new { pid = Environment.ProcessId, version = options.Version,
+                    started = Process.GetCurrentProcess().StartTime.ToUniversalTime() });
+            }).AllowAnonymous();
+
             app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime) =>
             {
                 var expectedToken = context.RequestServices.GetRequiredService<WebServiceOptions>().LauncherToken;
@@ -595,7 +625,10 @@ public class Program
             foreach (var warning in Quasar.Diagnostics.SystemLimits.Check())
                 startupLogger.LogWarning("{Warning}", warning);
 
+            app.Lifetime.ApplicationStarted.Register(() => QuasarApplicationEntry.ConfirmManualUpdate(webServiceOptions.Version));
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
+            NativeServiceFailures.Observe(app);
+            StartHostedConnector(app, webServiceOptions, startupLogger);
             app.Run();
         }
         catch (Exception exception)
@@ -616,6 +649,13 @@ public class Program
         {
             LogManager.Shutdown();
         }
+    }
+
+    private static void StartHostedConnector(WebApplication app, WebServiceOptions options, Microsoft.Extensions.Logging.ILogger logger)
+    {
+        var connector = new Quasar.Bootstrap.HostedPanelConnector(options.Port, logger);
+        connector.Start();
+        app.Lifetime.ApplicationStopped.Register(() => connector.DisposeAsync().AsTask().GetAwaiter().GetResult());
     }
 
     internal static void ConfigureNotificationServices(IServiceCollection services, WebServiceOptions options)
@@ -774,7 +814,6 @@ public class Program
 
         var shutdownService = services.GetRequiredService<QuasarShutdownService>();
         var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
-        var options = services.GetRequiredService<WebServiceOptions>();
         var logger = services.GetRequiredService<ILogger<Program>>();
         var started = 0;
 
@@ -792,7 +831,7 @@ public class Program
                     // stop and let the preserve-aware DedicatedServerSupervisor.StopAsync
                     // leave the detached Magnetars running. Only stop the servers when
                     // the policy says to take them down with Quasar.
-                    if (options.PreserveManagedServersOnShutdown)
+                    if (services.GetRequiredService<DedicatedServerSupervisor>().PreserveServersOnShutdown)
                         lifetime.StopApplication();
                     else
                         await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);

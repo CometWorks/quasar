@@ -8,7 +8,7 @@ clusters. Automatic local setup details are kept out of its introduction.
 ## Packages and binary
 
 - Each Linux Quasar release ships the Host executor as a self-contained single-file executable at `Host/Quasar.Host` next to the web worker. Quasar's installer, the enrollment command, SSH installation, the manual package and the automatic updater all use this same file, so the Host version always follows the Quasar web release, not the cluster package.
-- Releases also publish `quasar-host-linux-x64.tar.gz` and `quasar-host-win-x64.zip` with the Host publish tree (`Quasar.Host` or `Quasar.Host.exe` at the root), listed in the release `SHA256SUMS`. Quasar does not use these archives during enrollment.
+- Complete Linux and Windows platform packages include the Host publish tree under `Host/`, covered by the package checksum. Extract that folder for manual Host deployment. Quasar serves its bundled executable during enrollment; enrollment does not download another release archive.
 - Guided enrollment and automatic installation support Linux x64 only.
 - `Quasar.Host --self-test` runs a built-in test with harmless child processes and temporary state. It does not start Space Engineers or contact Quasar.
 

@@ -8,6 +8,7 @@ using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Magnetar.Protocol.Runtime;
 using Quasar.Services;
+using Quasar.Updates;
 
 namespace Quasar.Services.Updates;
 
@@ -63,6 +64,13 @@ public sealed class QuasarUpdateService : BackgroundService
                 : "Update checks disabled.",
             LastChangedUtc = DateTimeOffset.UtcNow,
         };
+        if (QuasarUpdateJournal.Read() is { WebStageDirectory.Length: > 0 } operation && Directory.Exists(operation.WebStageDirectory))
+        {
+            var conflict = HasUnresolvedAppSettingsConflict(operation.WebStageDirectory);
+            _snapshot = _snapshot with { SelectedWebVersion = operation.Version,
+                Web = new QuasarUpdateCandidate { Version = operation.Version, StagedDirectory = operation.WebStageDirectory, IsStaged = !conflict, IsNewer = IsNewerVersion(operation.Version, webOptions.Version) },
+                AppSettingsConflict = conflict, AppSettingsConflictPath = Path.Combine(operation.WebStageDirectory, AppSettingsFileName), AppSettingsConflictMessage = operation.Message };
+        }
     }
 
     public override void Dispose()
@@ -77,9 +85,22 @@ public sealed class QuasarUpdateService : BackgroundService
     {
         lock (_sync)
         {
-            return _snapshot with
+            var operation = QuasarUpdateJournal.Read();
+            var snapshot = _snapshot;
+            if (operation is { WebStageDirectory.Length: > 0, Stage: not (UpdateStage.Healthy or UpdateStage.Abandoned) } &&
+                Directory.Exists(operation.WebStageDirectory) && snapshot.SelectedWebVersion == operation.Version)
             {
-                Web = _snapshot.Web is null ? null : _snapshot.Web with { },
+                var conflict = HasUnresolvedAppSettingsConflict(operation.WebStageDirectory);
+                snapshot = snapshot with { Web = (snapshot.Web ?? new QuasarUpdateCandidate()) with {
+                    Version = operation.Version, StagedDirectory = operation.WebStageDirectory, IsStaged = !conflict,
+                    IsCurrent = operation.Version == _webOptions.Version, IsNewer = IsNewerVersion(operation.Version, _webOptions.Version) },
+                    AppSettingsConflict = conflict, AppSettingsConflictPath = Path.Combine(operation.WebStageDirectory, AppSettingsFileName), AppSettingsConflictMessage = operation.Message };
+            }
+            return snapshot with
+            {
+                Operation = operation,
+                RestartCapability = BootstrapUpdateSupport.Read(),
+                Web = snapshot.Web is null ? null : snapshot.Web with { },
                 WebReleases = _snapshot.WebReleases.Select(candidate => candidate with { }).ToArray(),
                 Bootstrap = _snapshot.Bootstrap is null ? null : _snapshot.Bootstrap with { },
             };
@@ -209,15 +230,17 @@ public sealed class QuasarUpdateService : BackgroundService
             });
 
             var releases = await GetReleasesAsync(cancellationToken).ConfigureAwait(false);
-            var webReleases = BuildCandidates(releases, _options.WebAssetName, _webOptions.Version, requiresPrivilegedInstall: false);
+            var webReleases = BuildCandidates(releases, _options.PackageAssetName, _webOptions.Version, requiresPrivilegedInstall: false)
+                .Concat(string.IsNullOrWhiteSpace(_webOptions.BootstrapVersion) ? [] : BuildCandidates(releases, _options.WebAssetName, _webOptions.Version, requiresPrivilegedInstall: false))
+                .DistinctBy(candidate => candidate.Version).ToArray();
             var bootstrap = BuildCandidates(
                     releases,
-                    _options.BootstrapAssetName,
+                    string.IsNullOrWhiteSpace(_webOptions.BootstrapVersion) ? _options.PackageAssetName : _options.BootstrapAssetName,
                     string.IsNullOrWhiteSpace(_webOptions.BootstrapVersion) ? _webOptions.Version : _webOptions.BootstrapVersion,
                     requiresPrivilegedInstall: true)
                 .FirstOrDefault(candidate => candidate.IsNewer);
 
-            if (webReleases.Count == 0 && bootstrap is null)
+            if (webReleases.Length == 0 && bootstrap is null)
             {
                 SetSnapshot(_snapshot with
                 {
@@ -236,7 +259,7 @@ public sealed class QuasarUpdateService : BackgroundService
             if (_options.AutoStageWebUpdates && selectedWeb?.IsNewer != true)
                 selectedWeb = webReleases.FirstOrDefault(candidate => candidate.IsNewer) ?? selectedWeb;
 
-            if (_options.AutoApplyUpdates)
+            if (_options.AutoApplyUpdates && QuasarServiceInstallation.Current is null && !string.IsNullOrEmpty(_webOptions.BootstrapVersion))
             {
                 var pair = SelectAutomaticRelease(webReleases,
                     BuildCandidates(releases, _options.BootstrapAssetName, _webOptions.BootstrapVersion, requiresPrivilegedInstall: true));
@@ -259,22 +282,14 @@ public sealed class QuasarUpdateService : BackgroundService
                 Bootstrap = bootstrap is { IsNewer: true } ? bootstrap : null,
             });
 
-            if ((_options.AutoStageWebUpdates || _options.AutoApplyUpdates) && selectedWeb is { IsNewer: true })
-                await StageWebUpdateCoreAsync(false, cancellationToken).ConfigureAwait(false);
-            if (_options.AutoApplyUpdates && selectedWeb is not null && !string.IsNullOrWhiteSpace(_webOptions.LauncherToken)
-                && !GetSnapshot().AppSettingsConflict)
+            if ((_options.AutoApplyUpdates || _options.AutoStageWebUpdates) && selectedWeb is { IsNewer: true } && selectedWeb.AssetName == _options.PackageAssetName)
             {
-                if (bootstrap is { IsNewer: true })
-                {
-                    var pointer = selectedWeb.IsNewer ? PrepareStagedWebRelease() : null;
-                    // Older launchers ignore the paired pointer. Upgrade the launcher
-                    // first during migration; the next check activates the staged UI.
-                    var coordinated = string.Equals(Environment.GetEnvironmentVariable("QUASAR_COORDINATED_UPDATES"), "true", StringComparison.OrdinalIgnoreCase);
-                    await RequestBootstrapUpdateCoreAsync(coordinated ? pointer : null, cancellationToken);
-                }
-                else if (selectedWeb.IsNewer)
-                    await ActivateStagedWebUpdateCoreAsync(cancellationToken);
+                var previous = QuasarUpdateJournal.Read();
+                if (previous is null || previous.Stage == UpdateStage.Healthy && previous.Version != selectedWeb.Version ||
+                    _options.AutoApplyUpdates && previous is { Stage: UpdateStage.Ready, ActivateWhenReady: false })
+                    QuasarUpdateJournal.Submit(selectedWeb.Version, retry: false, stageOnly: !_options.AutoApplyUpdates);
             }
+
         }
         catch (Exception exception)
         {
@@ -311,6 +326,8 @@ public sealed class QuasarUpdateService : BackgroundService
         var candidate = GetSnapshot().Web;
         if (candidate is null)
             return;
+        if (candidate.AssetName == _options.PackageAssetName)
+            throw new InvalidOperationException("This is a complete Quasar package. Use Update Quasar to stage and verify the matching components.");
 
         if (candidate.IsCurrent)
             throw new InvalidOperationException($"Quasar UI {candidate.Version} is already active.");
@@ -429,6 +446,7 @@ public sealed class QuasarUpdateService : BackgroundService
         await MaintenanceGate.WaitAsync(cancellationToken);
         try
         {
+            using var maintenance = await QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             var snapshot = GetSnapshot();
             var candidate = snapshot.Web;
             if (candidate is null || string.IsNullOrWhiteSpace(candidate.StagedDirectory))
@@ -452,8 +470,13 @@ public sealed class QuasarUpdateService : BackgroundService
                 TryDeleteFile(releaseBasePath);
             }
 
-            QuasarWebReleaseLayout.ValidateDirectory(candidate.StagedDirectory);
-            EnsureExecutableBit(Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
+            if (QuasarUpdateJournal.Read() is { } operation && operation.Version == candidate.Version && operation.WebStageDirectory == candidate.StagedDirectory)
+                QuasarUpdateJournal.Write(operation with { ResolvedSettings = appSettingsPath });
+            if (QuasarUpdateJournal.Read()?.WebStageDirectory != candidate.StagedDirectory)
+            {
+                QuasarWebReleaseLayout.ValidateDirectory(candidate.StagedDirectory);
+                EnsureExecutableBit(Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName));
+            }
 
             var staged = candidate with
             {
@@ -496,11 +519,18 @@ public sealed class QuasarUpdateService : BackgroundService
 
     private async Task ActivateStagedWebUpdateCoreAsync(CancellationToken cancellationToken)
     {
+        var operation = QuasarUpdateJournal.Read();
+        if (operation?.Stage is UpdateStage.Queued or UpdateStage.Downloading or UpdateStage.Verified or UpdateStage.Restarting ||
+            File.Exists(MagnetarPaths.GetQuasarBootstrapUpdateRequestPath()))
+            throw new InvalidOperationException("A coordinated activation is pending. Wait for its outcome before component recovery.");
+        if (operation?.Stage == UpdateStage.Ready && GetSnapshot().Web is { IsNewer: true })
+            QuasarUpdateJournal.Write(operation with { Stage = UpdateStage.Abandoned, Message = "Coordinated activation abandoned by explicit advanced worker-only recovery. Bootstrap is unchanged." });
         if (GetSnapshot().Web is { IsNewer: false, IsCurrent: false } rollback)
         {
             if (!string.Equals(Environment.GetEnvironmentVariable("QUASAR_COORDINATED_ROLLBACKS"), "true", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Update Bootstrap before rolling back. This launcher cannot roll back Bootstrap and the UI together.");
 
+            EnsureBootstrapUpdateSupported();
             var releases = await GetReleasesAsync(cancellationToken).ConfigureAwait(false);
             var bootstrap = BuildCandidates(releases, _options.BootstrapAssetName, _webOptions.BootstrapVersion, requiresPrivilegedInstall: true)
                 .FirstOrDefault(candidate => string.Equals(candidate.Version, rollback.Version, StringComparison.OrdinalIgnoreCase));
@@ -519,9 +549,9 @@ public sealed class QuasarUpdateService : BackgroundService
         SetSnapshot(_snapshot with { Status = QuasarUpdateStatus.Activating, Message = $"Activating Quasar UI {pointer.Version}." });
     }
 
-    private QuasarActiveReleasePointer PrepareStagedWebRelease()
+    private QuasarActiveReleasePointer PrepareStagedWebRelease(bool allowCurrent = false)
     {
-        if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
+        if (!allowCurrent && string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
             throw new InvalidOperationException("Quasar is not running under Bootstrap, so staged UI updates cannot be activated from the UI.");
 
         var candidate = GetSnapshot().Web;
@@ -529,7 +559,14 @@ public sealed class QuasarUpdateService : BackgroundService
             throw new InvalidOperationException("No staged Quasar UI update is ready to activate.");
 
         if (candidate.IsCurrent)
-            throw new InvalidOperationException($"Quasar UI {candidate.Version} is already active.");
+        {
+            if (!allowCurrent) throw new InvalidOperationException($"Quasar UI {candidate.Version} is already active.");
+            var active = JsonSerializer.Deserialize<QuasarActiveReleasePointer>(File.ReadAllText(MagnetarPaths.GetQuasarActiveReleasePath()), JsonOptions)
+                ?? throw new InvalidDataException("No active UI release pointer.");
+            if (!string.Equals(active.Version, candidate.Version, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The running UI does not match its active pointer. Recover Bootstrap supervision before updating.");
+            return active;
+        }
 
         var workerPath = Path.Combine(candidate.StagedDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
         if (!File.Exists(workerPath))
@@ -538,7 +575,7 @@ public sealed class QuasarUpdateService : BackgroundService
         var activeDirectory = MagnetarPaths.GetQuasarManagedWebReleaseDirectory(candidate.Version);
         var activeWorkerPath = Path.Combine(activeDirectory, QuasarWebReleaseLayout.WorkerExecutableFileName);
         PrepareActiveWebRelease(candidate.StagedDirectory, activeDirectory);
-        TrySyncActiveAppSettingsToInstallDirectory(activeDirectory);
+        if (!allowCurrent) TrySyncActiveAppSettingsToInstallDirectory(activeDirectory);
 
         var pointer = new QuasarActiveReleasePointer
         {
@@ -578,6 +615,9 @@ public sealed class QuasarUpdateService : BackgroundService
         if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
             throw new InvalidOperationException("Quasar is not running under Bootstrap, so the launcher cannot be updated from the UI.");
 
+        EnsureBootstrapUpdateSupported();
+        if (QuasarUpdateJournal.Read()?.Stage is UpdateStage.Queued or UpdateStage.Downloading or UpdateStage.Verified or UpdateStage.Ready or UpdateStage.Restarting)
+            throw new InvalidOperationException("A coordinated update is pending. Use its retry/recovery controls before component recovery.");
         var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
 
@@ -602,16 +642,138 @@ public sealed class QuasarUpdateService : BackgroundService
         });
     }
 
+    private void EnsureBootstrapUpdateSupported()
+    {
+        if (string.IsNullOrWhiteSpace(_webOptions.LauncherToken))
+            throw new InvalidOperationException("This worker has no Bootstrap supervisor. Stage the complete package and restart Bootstrap manually.");
+        if (_webOptions.BootstrapUpdateUnavailableReason is { } reason) throw new InvalidOperationException(reason);
+    }
+
+    public async Task<QuasarUpdateOperation> UpdateAsync(string? version = null, bool retry = false, CancellationToken cancellationToken = default)
+    {
+        await MaintenanceGate.WaitAsync(cancellationToken);
+        try
+        {
+            using var lease = await QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+            if (!_options.Enabled) throw new InvalidOperationException("Quasar updates are disabled in configuration.");
+            var operation = QuasarUpdateJournal.Submit(version ?? _snapshot.SelectedWebVersion, retry);
+            Changed?.Invoke();
+            return operation;
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
+    internal async Task ProcessUpdateAsync(CancellationToken token)
+    {
+        await MaintenanceGate.WaitAsync(token);
+        try
+        {
+            using var lease = await QuasarMaintenanceLease.AcquireAsync(token);
+            var operation = QuasarUpdateJournal.Read();
+            if (operation?.Stage != UpdateStage.Queued) return;
+            try
+            {
+                if (!_options.Enabled) throw new InvalidOperationException("Quasar updates are disabled in configuration.");
+                if (LauncherReplacement.Phase(QuasarServiceInstallation.Current?.InstallDirectory ?? AppContext.BaseDirectory) is "installing" or "ready" or "attempted")
+                    throw new InvalidOperationException("The previous application replacement still needs recovery. Inspect updater status before retrying.");
+                QuasarUpgradePath.EnsureAllowed(operation.Version, MagnetarPaths.GetQuasarDirectory());
+                operation = operation with { Stage = UpdateStage.Downloading, PreviousVersion = _webOptions.Version, Message = $"Downloading complete Quasar {operation.Version}." };
+                QuasarUpdateJournal.Write(operation); Changed?.Invoke();
+                var releases = await GetReleasesAsync(token);
+                var package = BuildCandidates(releases, _options.PackageAssetName, _webOptions.Version, requiresPrivilegedInstall: true)
+                    .SingleOrDefault(candidate => string.Equals(candidate.Version, operation.Version, StringComparison.OrdinalIgnoreCase))
+                    ?? throw new InvalidOperationException($"Release {operation.Version} has no complete {_options.PackageAssetName} package. A complete application package is required; enable prereleases first if selecting a prerelease.");
+                var stage = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), "Package-" + operation.Id.ToString("N"));
+                Directory.CreateDirectory(stage);
+                var archive = Path.Combine(stage, package.AssetName);
+                using (var client = CreateGitHubClient(TimeSpan.FromMinutes(10)))
+                using (var response = await client.GetAsync(package.DownloadUrl, HttpCompletionOption.ResponseHeadersRead, token))
+                {
+                    ObserveGitHubTokenExpiration(response); response.EnsureSuccessStatusCode();
+                    await using var output = File.Create(archive);
+                    await response.Content.CopyToAsync(output, token);
+                }
+                await VerifySha256Async(archive, await ResolveExpectedSha256Async(package, token), token);
+                var extracted = Path.Combine(stage, "extracted"); Directory.CreateDirectory(extracted);
+                ExtractArchive(archive, extracted);
+                var payload = File.Exists(Path.Combine(extracted, LauncherReplacement.ManifestName)) ? extracted : Path.Combine(extracted, "Quasar");
+                var application = Path.Combine(payload, OperatingSystem.IsWindows() ? "Quasar.exe" : "Quasar");
+                if (!File.Exists(application)) throw new InvalidDataException("The complete package has no Quasar application executable.");
+                foreach (var name in LauncherReplacement.ReadManifest(payload))
+                    if (!File.Exists(Path.Combine(payload, name))) throw new InvalidDataException($"Package is incomplete: {name}");
+                QuasarApplicationPackage.Validate(payload, operation.Version);
+                await VerifiedUpdatePackage.SealAsync(payload, token);
+                operation = operation with { Stage = UpdateStage.Verified, PackageDirectory = payload, Message = "Complete package checksum and application layout verified." };
+                QuasarUpdateJournal.Write(operation); Changed?.Invoke();
+                var webStage = Path.Combine(stage, "Settings"); Directory.CreateDirectory(webStage);
+                var defaults = Path.Combine(payload, AppSettingsFileName);
+                if (File.Exists(defaults)) File.Copy(defaults, Path.Combine(webStage, AppSettingsFileName));
+                operation = operation with { WebStageDirectory = webStage };
+                QuasarUpdateJournal.Write(operation);
+                AppSettingsResolution merge;
+                if (!string.IsNullOrWhiteSpace(operation.ResolvedSettings) && File.Exists(operation.ResolvedSettings))
+                {
+                    await AtomicFileWriter.WritePrivateTextAsync(Path.Combine(webStage, AppSettingsFileName), await File.ReadAllTextAsync(operation.ResolvedSettings, token), token);
+                    merge = AppSettingsResolution.Clean("Using the saved administrator config resolution.", Path.Combine(webStage, AppSettingsFileName));
+                }
+                else merge = await ResolveStagedAppSettingsAsync(webStage, operation.Version, false, token);
+                var candidate = new QuasarUpdateCandidate { Version = operation.Version, AssetName = package.AssetName,
+                    StagedDirectory = webStage, IsStaged = !merge.HasConflict, IsAvailable = true,
+                    IsCurrent = operation.Version == _webOptions.Version, IsNewer = IsNewerVersion(operation.Version, _webOptions.Version) };
+                SetSnapshot(_snapshot with { Web = candidate, SelectedWebVersion = operation.Version,
+                    AppSettingsConflict = merge.HasConflict, AppSettingsConflictPath = merge.Path, AppSettingsConflictMessage = merge.Message });
+                if (merge.HasConflict) throw new InvalidOperationException(merge.Message + " Resolve the conflict on Updates, then retry.");
+                operation = operation with { Stage = UpdateStage.Ready, NeedsBootstrap = false, ResolvedSettings = Path.Combine(webStage, AppSettingsFileName),
+                    Message = "The complete application is ready. Waiting for native updater service verification and activation." };
+                if (!operation.ActivateWhenReady) operation = operation with { Message = "Staged and verified. Select Update Quasar to activate this release." };
+                else if (QuasarServiceInstallation.Current is null && !string.IsNullOrEmpty(_webOptions.BootstrapVersion))
+                    operation = operation with { Message = "Staged safely. This is a legacy Bootstrap installation. Migrate using the complete current package and its installer; do not activate only the web worker." };
+                else if (QuasarServiceInstallation.Current is null)
+                    operation = operation with { Message = "Staged safely. Stop Quasar, run Quasar update --retry, then start Quasar manually. For unattended updates install the native main and updater services." };
+                QuasarUpdateJournal.Write(operation); Changed?.Invoke();
+
+            }
+            catch (Exception exception)
+            {
+                QuasarUpdateJournal.Fail(exception.Message);
+                _logger.LogWarning(exception, "Coordinated Quasar update failed.");
+            }
+            finally { Changed?.Invoke(); }
+        }
+        finally { MaintenanceGate.Release(); }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!_options.Enabled)
-            return;
-
-        await Task.Delay(TimeSpan.FromSeconds(10), stoppingToken).ConfigureAwait(false);
+        if (QuasarServiceInstallation.Current is { } installation)
+        {
+            var capability = await NativeQuasarServices.VerifyAsync(installation, Environment.ProcessId, stoppingToken);
+            QuasarUpdateJournal.WriteJson(BootstrapUpdateSupport.CapabilityPath, capability);
+        }
+        else QuasarUpdateJournal.WriteJson(BootstrapUpdateSupport.CapabilityPath,
+            BootstrapUpdateSupport.Unavailable("This Quasar process has no verified native service owner. Updates stage safely and require manual restart."));
+        using (await QuasarMaintenanceLease.AcquireAsync(stoppingToken))
+        {
+            if (QuasarUpdateJournal.Read()?.Stage is UpdateStage.Downloading or UpdateStage.Verified)
+                QuasarUpdateJournal.Fail("Update preparation was interrupted. Use update --retry to download and verify again.");
+        }
+        var nextCheck = DateTimeOffset.UtcNow.AddSeconds(10);
+        var nextCapabilityCheck = DateTimeOffset.UtcNow.AddSeconds(30);
         while (!stoppingToken.IsCancellationRequested)
         {
-            await CheckNowAsync(stoppingToken).ConfigureAwait(false);
-            await Task.Delay(_options.CheckInterval, stoppingToken).ConfigureAwait(false);
+            if (DateTimeOffset.UtcNow >= nextCapabilityCheck && QuasarServiceInstallation.Current is { } services)
+            {
+                QuasarUpdateJournal.WriteJson(BootstrapUpdateSupport.CapabilityPath, await NativeQuasarServices.VerifyAsync(services, Environment.ProcessId, stoppingToken));
+                nextCapabilityCheck = DateTimeOffset.UtcNow.AddSeconds(30);
+            }
+            await ProcessUpdateAsync(stoppingToken);
+            Changed?.Invoke(); // Refresh durable progress written by Bootstrap after reconnect.
+            if (_options.Enabled && DateTimeOffset.UtcNow >= nextCheck)
+            {
+                await CheckNowAsync(stoppingToken);
+                nextCheck = DateTimeOffset.UtcNow + _options.CheckInterval;
+            }
+            await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken);
         }
     }
 
@@ -679,7 +841,10 @@ public sealed class QuasarUpdateService : BackgroundService
         string currentVersion,
         bool requiresPrivilegedInstall)
     {
+        if (Path.GetFileName(assetName) != assetName || assetName.Contains('\\'))
+            throw new InvalidDataException("Update asset name must be a file name.");
         return releases
+            .Where(release => QuasarUpdateJournal.IsVersion(QuasarReleaseVersion.Normalize(release.TagName)))
             .Select(release =>
             {
                 var asset = FindAsset(release, assetName);
@@ -1078,15 +1243,8 @@ public sealed class QuasarUpdateService : BackgroundService
         if (!File.Exists(sourcePath) || IsSamePath(sourcePath, destinationPath))
             return;
 
-        try
-        {
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            AtomicFileWriter.WritePrivateTextAsync(destinationPath, File.ReadAllText(sourcePath))
-                .GetAwaiter().GetResult();
-        }
-        catch
-        {
-        }
+        Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
+        AtomicFileWriter.WritePrivateTextAsync(destinationPath, File.ReadAllText(sourcePath)).GetAwaiter().GetResult();
     }
 
     private static GitHubAsset? FindAsset(GitHubRelease release, string assetName) =>

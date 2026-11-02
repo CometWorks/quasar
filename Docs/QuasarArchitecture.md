@@ -187,9 +187,8 @@ Support:
 Support:
 
 - foreground console mode
-- Scheduled Task startup/keep-alive mode
-
-Windows Service integration is not required.
+- native Windows main/updater services with virtual service accounts
+- explicit migration from legacy Scheduled Tasks
 
 No GUI shell is required on either platform.
 
@@ -433,8 +432,9 @@ Expected local mechanism:
 - `/api/health` check for every candidate URL
 - process identity / server metadata
 
-Bootstrap/setup should be handled by `Quasar.Bootstrap` or the installed
-service/launcher flow, not by `Quasar.Agent`.
+Setup is handled by the platform installer. Native systemd/SCM supervises the
+unified application; an external updater handles replacement and recovery.
+`Quasar.Agent` never installs or owns the supervisor.
 
 Expected behavior:
 
@@ -644,197 +644,37 @@ If the user closes the browser, `Quasar` keeps running and the user can return v
 
 ## Self-Update and Version Rollover
 
-The UI bell also supports opt-in browser Web Push. `PushNotificationService`
-persists VAPID keys, per-browser subscriptions, and account notification preferences in a Data
-Protection-protected file. The Notifications page, bell, and push delivery share the same
-account-filtered notice list. Update notices are enabled by default; crash/fault, health-restart,
-simulation speed, CPU, memory, unsaved-world, and recovery alerts are optional. Preferences can
-be saved without a browser subscription.
+Quasar now has one application process containing UI and server supervision.
+Normal releases have one complete package per OS, containing the application,
+a small external updater and Host. Legacy UI assets remain during migration;
+symbols stay separate CI debugging artifacts.
 
-`InstanceNotificationMonitor` observes supervisor and Agent changes synchronously to preserve
-short crash-recovery transitions. It baselines existing lifecycle state, evaluates sustained metric
-thresholds only against fresh running-instance telemetry, and applies cooldown independently per
-account, instance, and metric. Authenticated cluster identity scopes node metrics and access;
-local supervisor snapshots supply standalone crash and health-restart causes. It retains at most
-100 incidents per account for 24 hours in memory; saving that account's preferences or restarting
-Quasar clears its incidents and rule timers. It does not infer a cluster crash from a disconnected Agent.
-
-The service checks pending notices every 30 seconds and sends up to ten per subscribed browser
-independently, retaining delivery receipts for outstanding updates and retained incidents. Delivery reconstructs
-the subscriber's current roles, so role removal stops future sends. The service
-worker handles push and notification clicks only; it does not cache pages or
-intercept fetches. Click destinations are fixed same-origin Quasar routes.
-
-`Quasar` should be able to stage its own updates and roll forward without stopping managed Dedicated Server processes.
-
-The important nuance is what "seamless" actually means here.
-
-> See [Self-Update and Release Cutover](StateMachines/SelfUpdateAndRelease.md)
-> for the update-status and Bootstrap worker-cutover state diagrams.
-
-Required guarantees for the Linux-first update path:
-
-- DS servers keep running throughout a Quasar supervisor upgrade
-- the control-plane URL stays stable after the short worker restart window
-- Quasar state survives worker turnover
-- agents and browsers reconnect against the new worker without operator repair
-
-Not realistically guaranteed:
-
-- preserving the exact same live Blazor Server circuit across a version rollover
-- preserving the exact same already-open raw WebSocket agent connection across worker replacement
-
-Required model:
-
-- stage new versions side-by-side
-- validate staged payload before cutover
-- retire the old worker before starting the new worker when both use the same public port
-- preserve a stable entrypoint for the browser and `Quasar.Agent` attachments
-- keep managed Magnetar servers detached so worker turnover does not kill them
-
-Expected layout:
-
-- active runtime under a versioned release directory
-- active managed web releases under `<install-root>/ManagedRuntime/WebService/<version>/`
-- transient staged payloads under `<install-root>/Updates/Staged/`
-- stable release pointer / manifest for the currently active version
-- release identity from `AssemblyInformationalVersion` and the active-release
-  pointer, not from numeric `AssemblyVersion`
-
-Linux-first cutover ownership:
-
-- `Quasar.Bootstrap` owns the systemd service entrypoint
-- the replaceable `Quasar` worker owns the public port
-- updates stage a new worker side-by-side under the Quasar data root
-- activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`
-  and writes `Updates/active-release.json`
-- Bootstrap observes the pointer change, drains the old worker, then starts the managed worker
-- after worker health succeeds, Bootstrap removes completed UI and Bootstrap
-  payloads from `Updates/Staged/`, including earlier leftovers on ordinary startup;
-  newer staged versions and any directory containing the running worker are kept
-- UI-plugin install/update/remove restarts write `Updates/worker-restart-request.json`;
-  Bootstrap consumes it, drains the old worker, then starts the same active release
-  so dynamic plugin assemblies are loaded from the updated install root
-- the browser and `Quasar.Agent` reconnect after the short listener gap
-- retiring workers only delete the discovery manifest if the on-disk worker id
-  and process id still match themselves, so an old worker cannot remove the new
-  worker's manifest during cutover
-- Bootstrap self-update drains only when the primary release asset is actually
-  newer than the running launcher's normalized release identity
-- `/settings/updates` can also write `Updates/bootstrap-update-request.json`
-  with the detected version and asset to ask Bootstrap to run the self-update
-  path for that requested launcher release immediately
-
-This implies a two-layer deployment:
-
-1. stable lightweight launcher/proxy layer
-2. replaceable Quasar worker layer
-
-The current Linux implementation deliberately uses Bootstrap as a launcher, not
-as a reverse proxy. Replacing the worker creates a short listener gap, which is
-acceptable because `Quasar.Agent` reconnects and managed Magnetar processes run
-detached.
-
-Future strict no-downtime rollover would still require Bootstrap to become a
-stable proxy/front door and run workers on internal ports.
-
-Practical guarantee:
-
-- browser sessions may briefly reconnect
-- `Quasar.Agent` sockets may briefly reconnect; the supervisor waits for the
-  first telemetry snapshot under the activity-aware startup timeout before
-  applying the normal heartbeat timeout
-- the supervisor must preserve enough state that reconnect is operationally seamless
-- when the replacement supervisor adopts a still-live server process by id, it
-  reports the process as running (except during the startup monitoring window)
-  instead of carrying stale stopping/restarting UI state from the old worker
-- managed DS processes continue running independently during the rollover
-- already-running DS processes keep their loaded `Quasar.Agent` assembly until
-  that server process exits; after reconnect, the supervisor compares the
-  bundled `Agent/Quasar.Agent.dll` hash with the deployed Magnetar local DLL
-  hash and warns on drift, but leaves the restart/manual stop-start decision to
-  the operator. The normal launch-preparation path copies and loads the current
-  deployable agent on the next manual restart.
+The UI and local CLI submit one durable operation through the existing update
+service and maintenance lease. The updater independently verifies trusted release
+provenance, stops the main native service, snapshots/replaces its manifest-owned
+files, starts it and confirms exact version and service PID health. It restores
+the complete previous application and config on failure. Its own files and
+protected installer metadata are outside application replacement.
 
 ### Linux update flow
 
-1. Bootstrap downloads the latest web asset on startup if no usable worker exists
-2. Quasar checks GitHub releases every 15 minutes while running
-3. new Linux web assets are downloaded into a staged version directory
-4. staging performs a three-way `appsettings.json` rollover: previous release
-   base from the install directory, local install-directory values, and new release
-   defaults
-5. UI notifies admins that the update is queued/staged, or shows a conflict
-   resolver with current and incoming files side-by-side and an editable final
-   file when appsettings cannot be auto-merged
-6. admin activates the staged UI update from `/settings/updates`
-7. activation promotes the staged payload into `ManagedRuntime/WebService/<version>/`,
-   updates the install-directory `appsettings.json` from the resolved staged file,
-   and writes the active-release pointer
-8. Bootstrap copies the install-directory `appsettings.json` into the managed
-   worker, drains the old worker without stopping managed servers, and starts the
-   managed worker on the same port
-9. browsers and agents reconnect
-
-After health checks pass, Bootstrap retains the previous healthy UI pointer in
-`Updates/active-release.json.rollback` and keeps its payload alongside the active
-release. `Quasar --rollback` (alias `Quasar rollback`) publishes that pointer under
-the shared maintenance lease and ensures the launcher is running. The normal
-cutover path applies it without a download or stopping game servers. The launcher
-binary and current settings/data stay unchanged. A transient `.previous` pointer
-also protects interrupted cutovers until startup succeeds.
-
-Bootstrap updates normally activate from Bootstrap's own update monitor. When
-the Updates page has detected a newer launcher asset and the worker is running
-under Bootstrap, an admin can force activation from the UI. The worker writes a
-request file under `Updates/` containing the detected version and asset;
-Bootstrap consumes it with a watcher and runs the same checksum-verified
-self-update path for that requested release immediately.
-Bootstrap sets `QUASAR_INSTALL_DIR` to the launcher install root when the
-variable is not already set, so the launcher and worker share one root.
-
-The Updates page also shows installed managed-runtime versions independently of
-Quasar self-update state: Quasar UI/Bootstrap, Magnetar, and the Space Engineers
-Dedicated Server can all be inspected there. The DS version is resolved from the
-server's `SpaceEngineers.Game.dll` `SE_VERSION` metadata first, with
-non-placeholder file versions only as fallbacks. Quasar release checks run on
-the configured update interval (15 minutes by default) and can be triggered by
-the Quasar check button. Managed Magnetar is checked on startup and every hour
-after startup, with a separate manual Magnetar check button. The managed
-Dedicated Server is checked during startup readiness and can be forced through
-its own manual check button; the action runs SteamCMD `app_update 298740 validate`.
-Quasar owns the SteamCMD process tree for these checks and terminates it if the
-worker is stopping or the check is otherwise cancelled.
+The owning systemd main unit and updater unit are verified by PID/cgroup,
+action, account and restart policy. User/system scope is preserved. System
+updaters use the main account with narrowly scoped polkit service-control rights.
+`KillMode=process` and persisted adoption state preserve running game servers.
 
 ### Future proxy update flow
 
-1. download or place a new Quasar release into a staged version directory
-2. validate package shape and version metadata
-3. start the new worker on an internal staging port
-4. wait for health and warm-up
-5. switch the stable launcher/proxy target to the new worker
-6. stop sending new browser and agent connections to the old worker
-7. drain old worker connections for a grace window
-8. force remaining old connections to reconnect if needed
-9. retire the old worker
+Proxy/cluster release ownership remains independent of Quasar application updates.
+The main/updater services do not stop cluster Hosts or deploy remote changes.
 
 ### State requirements for rollover
 
-Quasar worker state needed after rollover must not live only in process memory.
-
-At minimum this includes:
-
-- server definitions
-- goal state per server
-- current active version pointer
-- reconciliation-relevant config paths
-- enough runtime metadata for the new worker to resume control
-
-Observed live process state can be rebuilt from:
-
-- process inspection
-- persisted server definitions
-- reconnecting `Quasar.Agent` sessions
+The operation journal, native service identities, complete previous file snapshot
+and durable replacement phase determine recovery. A disconnected UI, a deleted
+request or a file merely existing never proves success. Stopped manual installs
+can stage safely and need explicit manual restart. See
+[the operation and migration contract](QuasarUpdates.md).
 
 ## Configuration Management
 
@@ -1182,7 +1022,7 @@ As of this document:
 - the Analytics dashboard renders metrics as client-side uPlot canvas charts: the browser fetches compact, timeline-aligned series from a JSON HTTP endpoint (`/api/analytics/series`, backed by `AnalyticsSeriesService`, which selects the RRD consolidation tier by span — raw ≤2h, 1-minute ≤24h, 1-hour beyond — and trims empty leading/trailing buckets while preserving internal gaps); profiler game-loop timing buckets (frame, update, physics, scripts, network, other) and extensive profiler top grids/entity types are surfaced as additional chart panels through the same endpoint via `ProfilerAnalyticsMetrics` and `ProfilerEntryAnalyticsMetrics`; the same page edits each server/agent profiler mode with user-facing labels ("Simple, low overhead" for `SafeContinuous`, "Extensive, deep detail" for `DeepContinuous`) and pushes live changes through `ServerCommandType.SetProfilerMode`; the previous inline `ProfilerSummaryCard` tables and the `blocks`/`floating-objects` scalar metrics have been removed
 - deep per-server profiler telemetry now exists: `Quasar.Agent` runs a continuous in-process profiler with `SafeContinuous` enabled by default, with per-server persisted `AgentProfilerMode` values and a global `Quasar:AgentProfilerMode` / `QUASAR_AGENT_PROFILER_MODE` fallback for older definitions. Safe mode uses Harmony prefix/postfix timing only for named high-level paths: frame/update, programmable-block script, physics, replication/network/session, GPS, and block-limit work. It deliberately avoids broad entity update method patching and detailed network-event hooks so the always-on default stays low overhead. Deep mode adds detailed network-event method hooks plus Magnetar-compatible Harmony IL call-site transpilers for `MySession.Update` / `UpdateComponents`, session component calls, replication simulation, entity update dispatch, parallel waits/callbacks, and Havok physics stepping internals. Runtime mode changes reconfigure Harmony patches so Safe, Deep, and Off can be selected without restarting the server. Hot-path measurements use numeric call-site ids and rolling accumulators, split main-thread vs off-thread time, and publish one-second windows with bounded top-lists for grids, scripts, entity types, system methods, physics detail, and network/replication/session work where the active patch depth can observe them. Patch failures are logged and the agent keeps the remaining profiler surface; entity call-site misses stay at high-level timing rather than adding broad method wrapping. Each `ProfilerSnapshot` rides the regular agent snapshot, is validated, and is kept in a small recent in-memory `ProfilerStoreService` ring (~720 samples per server, about 12 minutes at one snapshot per second), then surfaced on the Analytics page as game-loop timing and top grid/entity-type chart panels
 - Discord per-server options now include privacy-aware chat relay and simspeed alert rules. Quasar.Agent captures the dedicated server's live `ChatMessageReceived` callbacks only within the final accepted `OnChatMessageReceived_Server` dispatch, after validation and recipient fan-out. A thread-local receive scope admits one entry, preserves the original authenticated sender, and marks Quasar/local sends as server-authored; delivery callbacks and rejected messages cannot create relay entries. Agent `SendChat` calls carry a scoped broadcast origin into the accepted receive and the additive `ChatMessageSnapshot.IsQuasarBroadcast` field. The relay permits these server-authored global broadcasts, so Web UI sends appear once as Server while tracked Discord-origin echoes remain suppressed. Other server messages and private/unsupported channels gain no relay exception. The game's `GlobalChatHistory` also contains faction and private messages, so the protocol carries channel, target, and faction metadata. `DiscordChatRelayService` uses default-deny routing: only `Global` reaches the global channel, whispers require an admin-only channel, and faction messages require an explicit admin-only binding. `/faction-channel` creates and persists that binding with an Everyone view denial and bot allow overwrite; messages posted there by Discord administrators fan out as labeled server-authored private messages to the faction's online game members, with no global fallback. `/whisper` resolves an online player name or Steam ID and sends a private game message with an ephemeral Discord response. Discord-to-game chat is injected as `[Discord] <username>: <message>` so in-game readers see the Discord sender. The relay deduplicates repeated snapshots by chat timestamp and retains server-scoped echo matches for the full two-minute suppression window, so multiple game captures of a forwarded Discord message cannot post back to Discord during that window. `DiscordSimSpeedAlertService` evaluates fresh raw metric samples for connected/running agents on the registry change path, sending alerts through the configured simspeed channel or the server's analytics channel. Baseline rules detect sharp sample-to-sample drops across every unseen raw sample pair and sustained low average simspeed, and the Discord page exposes thresholds, windows, cooldowns, and per-rule enable switches. `DiscordBotService` also publishes aggregate managed-server state through Discord presence: the bot status reflects unhealthy/faulted vs active vs idle server instances, and its activity text shows active/total servers, player count, and issue/warning counts.
-- a unified GitHub-release-based update/publish pipeline now exists covering both Linux and Windows in a single combined release (`.github/workflows/release.yml`): each build produces `quasar-installer-linux.tar.gz` / `quasar-web-linux-x64.tar.gz` (Linux) and `quasar-installer-windows.zip` / `quasar-web-win-x64.zip` (Windows) under one tag; tag pushes and `main` publish full releases while pull requests publish draft prereleases; closing or merging a pull request cancels its in-progress release build and removes every draft release/tag under that PR's exact tag prefix; installer archives contain a single top-level `Quasar` directory for clean manual extraction; the release carries one combined `SHA256SUMS` covering every archive; release identity is normalized from `AssemblyInformationalVersion` and the active-release pointer (not numeric `AssemblyVersion`); four-part build tags such as `1.0.0.37` are canonical; every downloaded asset is verified against `SHA256SUMS`; the UI stages web updates and queues them for explicit activation from `/settings/updates`; Bootstrap self-upgrades from the launcher stream only when an actually-newer asset appears (see [Linux Deployment and Updates](LinuxDeploymentAndUpdates.md) and [Windows Deployment and Updates](WindowsDeploymentAndUpdates.md))
+- the unified release pipeline builds `quasar-linux-x64.tar.gz` and `quasar-win-x64.zip` with the application, native updater and Host under one tag and combined `SHA256SUMS`. Temporary web assets support legacy migration; old launcher asset names are absent to prevent unsafe self-activation. The normal UI and CLI use one durable full-application update operation. See [updates and migration](QuasarUpdates.md) and the platform deployment guides.
 - `Quasar.Bootstrap` runs as the stable launcher that owns the public port on both Linux (systemd service) and Windows (Scheduled Task): it activates web releases through the `Updates/active-release.json` pointer after staged payloads are promoted into `ManagedRuntime/WebService/<version>/`, and performs worker cutover by draining the old worker and starting the managed one on the same port — a launcher, not yet a reverse proxy — so the public endpoint stays stable across the short listener gap while managed Magnetar servers keep running; UI plugin restarts write `Updates/worker-restart-request.json` so Bootstrap performs the same drain/start sequence for the current active release; the UI shutdown action writes `launcher-shutdown-request`, stops the worker, and signals Bootstrap to clean up and exit 0; the installed service/task restart-on-failure policy leaves Quasar stopped until it is started again; on Linux the launcher exits with code 75 so systemd restarts it for self-upgrade; on Windows the launcher spawns a detached replacement `Quasar.exe serve --quiet` and exits 0, with the Scheduled Task restart-on-failure as the safety net
 - Windows deployment exists via `install.ps1`/`uninstall.ps1`: extracted release installs default to the installer root, source installs default to `%ProgramFiles%\Quasar`, and the installer registers a Scheduled Task (`Quasar`) that starts at boot and restarts the launcher on failure; the task runs Bootstrap directly with `serve --quiet --service`
 - staged relaunch now persists supervisor runtime state so managed DS processes survive worker turnover

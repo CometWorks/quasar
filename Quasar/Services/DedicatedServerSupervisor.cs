@@ -84,6 +84,9 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     /// configuration). The Dashboard surfaces this once at the top rather than on
     /// every server card.
     /// </summary>
+    internal bool PreserveServersOnShutdown => _preserveManagedServersOnShutdown || Quasar.Updates.QuasarServiceInstallation.Current is not null &&
+        File.Exists(Path.Combine(MagnetarPaths.GetQuasarUpdatesDirectory(), "application-maintenance"));
+
     public bool HealthMonitoringDisabled => _options.DisableServerHealthMonitoring;
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -104,7 +107,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         _catalog.Changed -= HandleCatalogChanged;
         _runtimeWarmup.Changed -= HandleRuntimeWarmupChanged;
 
-        if (_preserveManagedServersOnShutdown)
+        if (PreserveServersOnShutdown)
         {
             await PersistStateSnapshotAsync(CancellationToken.None);
             return;

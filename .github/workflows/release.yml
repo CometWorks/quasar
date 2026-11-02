@@ -13,12 +13,14 @@ on:
       - "LICENSE"
       - "NOTICE"
       - "Docs/Licensing.md"
+      - "Docs/Installation.md"
       - "Dockerfile"
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
+      - "Quasar.Updater/**"
       - "Quasar.Host/**"
       - "Quasar.Host.Contract/**"
       - "Contracts/**"
@@ -28,6 +30,8 @@ on:
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
+      - "scripts/install-gui.*"
+      - "scripts/Install.*"
       - "scripts/package-linux-release.sh"
       - "scripts/package-windows-release.ps1"
       - "scripts/package-symbols.py"
@@ -50,12 +54,14 @@ on:
       - "LICENSE"
       - "NOTICE"
       - "Docs/Licensing.md"
+      - "Docs/Installation.md"
       - "Dockerfile"
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
+      - "Quasar.Updater/**"
       - "Quasar.Host/**"
       - "Quasar.Host.Contract/**"
       - "Contracts/**"
@@ -65,6 +71,8 @@ on:
       - "install.sh"
       - "uninstall.sh"
       - "scripts/install.ps1"
+      - "scripts/install-gui.*"
+      - "scripts/Install.*"
       - "scripts/package-linux-release.sh"
       - "scripts/package-windows-release.ps1"
       - "scripts/package-symbols.py"
@@ -204,6 +212,12 @@ jobs:
             echo "prerelease=$prerelease"
           } >> "$GITHUB_OUTPUT"
           echo "Resolved release: tag=$tag version=$version draft=$draft prerelease=$prerelease"
+
+      - name: Enforce 1.4.1 migration release prerequisite
+        if: steps.release.outputs.prerelease == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 scripts/cleanup-releases.py --require-migration-release '${{ steps.release.outputs.version }}'
 
   build-linux:
     needs: metadata
@@ -371,9 +385,9 @@ jobs:
       - name: Verify Linux installer archive root
         run: |
           set -euo pipefail
-          roots="$(tar -tzf artifacts/linux/quasar-installer-linux.tar.gz | awk -F/ 'NF { print $1 }' | sort -u)"
+          roots="$(tar -tzf artifacts/linux/quasar-linux-x64.tar.gz | awk -F/ 'NF { print $1 }' | sort -u)"
           if [ "$roots" != "Quasar" ]; then
-            echo "ERROR: expected quasar-installer-linux.tar.gz root directory to be Quasar; found: $roots" >&2
+            echo "ERROR: expected quasar-linux-x64.tar.gz root directory to be Quasar; found: $roots" >&2
             exit 1
           fi
 
@@ -383,8 +397,7 @@ jobs:
           name: quasar-linux
           path: |
             artifacts/linux/quasar-web-linux-x64.tar.gz
-            artifacts/linux/quasar-installer-linux.tar.gz
-            artifacts/linux/quasar-host-linux-x64.tar.gz
+            artifacts/linux/quasar-linux-x64.tar.gz
             artifacts/linux/quasar-symbols-linux-x64.zip
 
   build-windows:
@@ -546,7 +559,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'artifacts/windows/quasar-installer-windows.zip').Path)
+          $zip = [System.IO.Compression.ZipFile]::OpenRead((Resolve-Path 'artifacts/windows/quasar-win-x64.zip').Path)
           try {
             $roots = @(
               $zip.Entries |
@@ -559,7 +572,7 @@ jobs:
             $zip.Dispose()
           }
           if ($roots.Count -ne 1 -or $roots[0] -ne 'Quasar') {
-            throw "expected quasar-installer-windows.zip root directory to be Quasar; found: $($roots -join ', ')"
+            throw "expected quasar-win-x64.zip root directory to be Quasar; found: $($roots -join ', ')"
           }
 
       - name: Upload Windows archives
@@ -568,8 +581,7 @@ jobs:
           name: quasar-windows
           path: |
             artifacts/windows/quasar-web-win-x64.zip
-            artifacts/windows/quasar-installer-windows.zip
-            artifacts/windows/quasar-host-win-x64.zip
+            artifacts/windows/quasar-win-x64.zip
             artifacts/windows/quasar-symbols-win-x64.zip
 
   # Publish a single GitHub release/tag carrying every Linux and Windows archive
@@ -588,15 +600,13 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          for asset in \
-            quasar-installer-linux.tar.gz \
-            quasar-web-linux-x64.tar.gz \
-            quasar-installer-windows.zip \
-            quasar-web-win-x64.zip \
-            quasar-host-linux-x64.tar.gz \
-            quasar-host-win-x64.zip \
-            quasar-symbols-linux-x64.zip \
-            quasar-symbols-win-x64.zip; do
+          assets=(quasar-linux-x64.tar.gz quasar-win-x64.zip)
+          # Only 1.4.1 publishes the old worker channel. Old Bootstrap must select
+          # the bridge instead of jumping directly into the incompatible 1.5 layout.
+          if [[ '${{ needs.metadata.outputs.version }}' == 1.4.1 || '${{ needs.metadata.outputs.version }}' == 1.4.1.* || '${{ needs.metadata.outputs.version }}' == 1.4.1-* ]]; then
+            assets+=(quasar-web-linux-x64.tar.gz quasar-web-win-x64.zip)
+          fi
+          for asset in "${assets[@]}"; do
             found="$(find dist -type f -name "$asset" -print -quit)"
             if [ -z "$found" ]; then
               echo "ERROR: expected release archive not found: $asset" >&2
@@ -606,15 +616,7 @@ jobs:
           done
 
           cd release
-          sha256sum \
-            quasar-installer-linux.tar.gz \
-            quasar-web-linux-x64.tar.gz \
-            quasar-installer-windows.zip \
-            quasar-web-win-x64.zip \
-            quasar-host-linux-x64.tar.gz \
-            quasar-host-win-x64.zip \
-            quasar-symbols-linux-x64.zip \
-            quasar-symbols-win-x64.zip > SHA256SUMS
+          sha256sum "${assets[@]}" > SHA256SUMS
           echo "Combined release archives:"; ls -1
           echo "Combined SHA256SUMS:"; cat SHA256SUMS
 
@@ -631,42 +633,37 @@ jobs:
             in each archive. Matching source is available from this release's Git
             tag and source archives. See [licensing and the MIT archive](https://github.com/CometWorks/quasar/blob/main/Docs/Licensing.md).
 
+            ## Required upgrade order
+
+            **Complete and successfully start the full Quasar 1.4.1 migration package before 1.5 or later.** Updating only a legacy web worker does not complete migration. The application, updater, CLI and installer enforce this prerequisite. Follow the [migration guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#required-141-migration-before-15).
+
             ## Install Quasar
 
             Download the single archive for your operating system:
 
             | Operating system | Download |
             | --- | --- |
-            | **Linux** (x64) | **`quasar-installer-linux.tar.gz`** |
-            | **Windows** (x64) | **`quasar-installer-windows.zip`** |
+            | **Linux** (x64) | **`quasar-linux-x64.tar.gz`** |
+            | **Windows** (x64) | **`quasar-win-x64.zip`** |
 
             The same full release is also published as
             `ghcr.io/cometworks/quasar:${{ needs.metadata.outputs.version }}` and
             `ghcr.io/cometworks/quasar:latest`. See the [Docker deployment guide](https://github.com/CometWorks/quasar/blob/main/Docs/Docker.md).
 
-            Download the archive with **installer** in its name. It contains one top-level `Quasar` folder with the Quasar **Bootstrap launcher**, the install/uninstall scripts, and a default `appsettings.json`. Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
+            Extract the platform archive and open **Install.cmd** (Windows UAC) or **Install.desktop** (Linux polkit). Choose **Manual install** for terminal commands and custom settings; `INSTALL.md` is bundled.
+
+            Download the platform archive listed above. It contains one top-level `Quasar` folder with the unified **Quasar application**, native updater, Host, install/uninstall scripts, and a default `appsettings.json`. Existing Bootstrap or Scheduled Task installations must follow the [migration procedure](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#migrating-existing-installations). Follow the [Linux](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md) or [Windows](https://github.com/CometWorks/quasar/blob/main/Docs/WindowsDeploymentAndUpdates.md) deployment guide to install it. The web UI is available on http://127.0.0.1:8080 by default (the web server listens on all interfaces at 0.0.0.0:8080).
 
             Linux hosts need glibc 2.38 or newer (Debian 13, Ubuntu 24.04). On Debian and Ubuntu, install SteamCMD's 32-bit libraries and the CA certificates first: `sudo apt install ca-certificates lib32gcc-s1`. Quasar also needs the .NET 10 runtime, which `install.sh` offers to install. See the [prerequisites](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md#prerequisites).
 
-            Cluster machines use the separate `quasar-host-linux-x64.tar.gz` or `quasar-host-win-x64.zip` archive. Extract it into a dedicated directory and configure Quasar.Host for that machine. These archives are not installed or started by the web launcher.
 
-            The two web archives (`quasar-web-linux-x64.tar.gz` and `quasar-web-win-x64.zip`) are updates that Quasar downloads and applies automatically — you never download them by hand.
 
-            Matching `quasar-symbols-linux-x64.zip` and `quasar-symbols-win-x64.zip` are separate debugging artifacts. They contain portable PDBs, matching managed modules, and a source-commit/binary-hash manifest; runtime archives contain no PDBs.
 
-            ## Why separate installer and web archives?
+            ## Complete Quasar packages
 
-            Quasar deploys as two layers — a small, stable **Bootstrap launcher** (the installer) and a larger, frequently-updated **web UI worker** — shipped separately so the launcher can update the web UI, and itself, in place with no manual reinstall.
+            The 1.4.1 release line provides legacy `quasar-web-*` bridge assets; later releases omit that channel and cleanup retains the latest full 1.4.1 bridge; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
           files: |
-            release/quasar-installer-linux.tar.gz
-            release/quasar-web-linux-x64.tar.gz
-            release/quasar-installer-windows.zip
-            release/quasar-web-win-x64.zip
-            release/quasar-host-linux-x64.tar.gz
-            release/quasar-host-win-x64.zip
-            release/quasar-symbols-linux-x64.zip
-            release/quasar-symbols-win-x64.zip
-            release/SHA256SUMS
+            release/*
 
       - uses: actions/checkout@v4
 

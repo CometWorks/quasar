@@ -58,8 +58,26 @@ def plan_cleanup(releases, current_tag, closed_prs):
         keep.update(release["tag_name"] for release in retained)
         print(f"{stream}: keeping {', '.join(release['tag_name'] for release in retained)}")
 
+    bridges = [release for release in grouped.get("active", [])
+               if release_identity(release)[1][:3] == (1, 4, 1)]
+    if bridges:
+        keep.add(max(bridges, key=lambda release: release_identity(release)[1])["tag_name"])
+
     return closed_drafts + [release for builds in grouped.values() for release in builds
                             if release["tag_name"] not in keep]
+
+
+def require_migration_release(releases, target):
+    identity = release_identity({"tag_name": "v" + target.removeprefix("v")})
+    if not identity:
+        raise ValueError("Invalid target release version")
+    if identity[1] < (1, 5, 0, 0):
+        return
+    required = {"quasar-linux-x64.tar.gz", "quasar-win-x64.zip", "quasar-web-linux-x64.tar.gz", "quasar-web-win-x64.zip", "SHA256SUMS"}
+    if not any((info := release_identity(release)) and info[0] == "active" and info[1][:3] == (1, 4, 1)
+               and required <= {asset["name"] for asset in release.get("assets", [])} for release in releases):
+        raise ValueError("Release blocker: publish a full Quasar 1.4.1 migration release with both platform packages and legacy worker bridges before publishing 1.5 or later.")
+    print("Verified retained 1.4.1 migration release prerequisite.")
 
 
 def api_request(path, method="GET", missing_ok=False):
@@ -123,6 +141,10 @@ if __name__ == "__main__":
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--current-tag")
     mode.add_argument("--closed-pr", type=int)
+    mode.add_argument("--require-migration-release", metavar="TARGET_VERSION")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
-    cleanup(os.environ["GITHUB_REPOSITORY"], args.current_tag, args.closed_pr, args.dry_run)
+    if args.require_migration_release:
+        require_migration_release(get_releases(os.environ["GITHUB_REPOSITORY"]), args.require_migration_release)
+    else:
+        cleanup(os.environ["GITHUB_REPOSITORY"], args.current_tag, args.closed_pr, args.dry_run)

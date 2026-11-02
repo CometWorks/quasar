@@ -7,8 +7,8 @@ Quasar is distributed under `AGPL-3.0-only`. See [Licensing](Licensing.md) for
 the MIT archive, source availability, and distribution requirements. Shared
 `Directory.Build.props` metadata identifies the license and copies `LICENSE`,
 `NOTICE`, and `LICENSING.md` beside build and publish outputs, including
-single-file apps. Linux and Windows packaging retains these files in installer,
-web, Host, and symbols archives. The GHCR image inherits them from the web
+single-file apps. Linux and Windows packaging retains these files in application,
+migration bridge, and symbols archives. The GHCR image inherits them from the platform
 archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license label.
 
 ## Projects
@@ -19,8 +19,9 @@ archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license labe
 - `Quasar.Agent`
   Dedicated Server plugin that attaches to Quasar and exposes telemetry,
   commands, and generic companion-plugin request dispatch.
-- `Quasar.Bootstrap`
-  Ensure-running helper used for the Quasar startup/bootstrap flow.
+- `Quasar.Updater` (native update owner)
+- `Quasar.Bootstrap` (legacy worker recovery)
+  Retained ensure-running and worker cutover helper for older installations.
 - `Quasar.Plugin.Abstractions`
   Public contract assembly for Quasar UI plugins: plugin entry point, manifest
   model, nav contributions, page/component patch contributions, and the generic
@@ -483,11 +484,11 @@ provider, ownership, conversion, outage and upgrade acceptance.
 
 ## Cluster Host release package
 
-Release packaging also produces `quasar-host-linux-x64.tar.gz` and
-`quasar-host-win-x64.zip`, included in the combined `SHA256SUMS`. Each contains the
-complete self-contained Host publish tree with `Quasar.Host` (or `.exe`) at its root.
-Extract it into a dedicated directory on each cluster machine. Host has its own
-configuration and process lifecycle; the web launcher does not install or start it.
+Each complete platform package includes the self-contained `Host/` publish tree
+with `Quasar.Host` (or `.exe`). Extract that folder into a dedicated directory on
+each cluster machine. Host has its own configuration and process lifecycle.
+Enrollment continues to serve the bundled Host executable from Quasar; it does
+not download a separate Host release archive.
 
 For offline package validation, run the extracted `Quasar.Host --self-test`. This uses
 inert child processes and temporary state, without launching Space Engineers or Quasar's

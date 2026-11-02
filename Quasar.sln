@@ -23,6 +23,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "Contracts", "Contracts", "{
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ClusterGateway.AdminContract", "Contracts\ClusterGateway.AdminContract\ClusterGateway.AdminContract.csproj", "{CBA67153-35FF-4F57-8BA1-57033B452655}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.Updater", "Quasar.Updater\Quasar.Updater.csproj", "{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -145,6 +147,18 @@ Global
 		{CBA67153-35FF-4F57-8BA1-57033B452655}.Release|x64.Build.0 = Release|Any CPU
 		{CBA67153-35FF-4F57-8BA1-57033B452655}.Release|x86.ActiveCfg = Release|Any CPU
 		{CBA67153-35FF-4F57-8BA1-57033B452655}.Release|x86.Build.0 = Release|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Debug|x64.Build.0 = Debug|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Debug|x86.Build.0 = Debug|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Release|x64.ActiveCfg = Release|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Release|x64.Build.0 = Release|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Release|x86.ActiveCfg = Release|Any CPU
+		{9165ED2C-2D1D-4DDD-B08F-A56ABD18BD72}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

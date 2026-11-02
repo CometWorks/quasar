@@ -14,7 +14,7 @@ processes on a single host — starting, stopping, health-checking, configuring,
 auto-updating them through goal-state reconciliation — while an in-process plugin
 (`Quasar.Agent`) attaches to each server to report telemetry and execute commands.
 
-It runs on **Linux** (systemd service) and **Windows** (Scheduled Task), in
+It runs on **Linux** (systemd service) and **Windows** (native main and updater services), in
 foreground console or unattended background mode.
 
 Each server uses the **[Magnetar](https://github.com/CometWorks/magnetar)** plugin loader and launcher.
@@ -31,6 +31,9 @@ Quasar UI plugins are discovered and managed through [QuasarHub](https://github.
 
 See the [Quick Start](Docs/QuickStart.md) guide to download a release, run Quasar
 from the terminal, install it as a background service, or run the GHCR image.
+For guided service installation, extract the platform package and open
+**Install.cmd** (Windows UAC) or **Install.desktop** (Linux polkit). See
+[installation](Docs/Installation.md) for manual options and migration.
 <!-- END packaged install instructions -->
 
 Viewers have read-only access to every built-in Control Plane page. Editing,
@@ -42,14 +45,14 @@ Private LAN access bypasses sign-in by default, including `192.168.x.x`, `10.x.x
 LAN access** on Security to opt out; an explicit `AllowSameSubnet: false` disables it.
 See [trusted-network configuration](Docs/Configuration.md#reverse-proxy-auth).
 
-Run `Quasar --rollback` from the install directory to restore the previous healthy
-UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
+Run `Quasar --rollback` from the install directory to restore the previous complete
+application release retained by the native updater. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
 
 ## Documentation
 
 | Page | What it covers |
 | --- | --- |
-| [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
+| [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Windows Services). |
 | [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Hosted panel](Docs/HostedPanel.md) | Optional Nebula enrollment, public path URLs, connector lifecycle and current launch gates. |
@@ -72,7 +75,7 @@ UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeployme
 | [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
 | [Cluster Content Updates Plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md) | Proposed Workshop byte pinning, scheduled mod/plugin notices, explicit maintenance updates and compatible rollovers including World Authority. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
-| [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
+| [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Windows Services install, migration, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
 | [Admin handbook](skills/quasar-book/TOC.md) | Task-oriented handbook for server admins, written from the code: install, servers, plugins, updates, backups, clusters, troubleshooting. Also an AI skill (`quasar-book`), used by the Clangy support bot. |
 
@@ -88,7 +91,12 @@ server discovery and the existing companion request transport. Install matching
 Quasar and Entity Viewer revisions to enable continuous history collection.
 
 Quasar and UI plugin automatic updates are separately opt-in on **Updates** and
-**UI Plugins**. Automatic Quasar application coordinates UI and Bootstrap releases;
-plugin updates can restart the worker after a successful build. Administrators can
+**UI Plugins**. Automatic Quasar updates replace the unified application through its native updater;
+plugin updates can restart Quasar after a successful build. Administrators can
 opt into UI plugin notices on **Notifications**. See
 [automatic update configuration](Docs/Configuration.md#automatic-quasar-and-ui-plugin-updates).
+
+Application releases now contain the UI and supervisor together, with an external native updater. See [updates and migration](Docs/QuasarUpdates.md) before upgrading an older Bootstrap/Scheduled Task installation.
+
+**Required migration release: 1.4.1.** Install and successfully start its complete
+package before moving to 1.5 or later. See [upgrade order and migration](Docs/QuasarUpdates.md#required-141-migration-before-15).

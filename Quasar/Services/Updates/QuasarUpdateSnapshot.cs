@@ -2,6 +2,10 @@ namespace Quasar.Services.Updates;
 
 public sealed record QuasarUpdateSnapshot
 {
+    public Quasar.Updates.QuasarUpdateOperation? Operation { get; init; }
+
+    public Quasar.Updates.BootstrapRestartCapability RestartCapability { get; init; } = new();
+
     public bool Enabled { get; init; }
 
     public bool SupportedPlatform { get; init; }

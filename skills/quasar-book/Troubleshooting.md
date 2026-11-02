@@ -2,6 +2,20 @@
 
 This page lists where Quasar and its servers write logs, and the common failures with what to check first. Details live on the topic pages linked from each section. Error reporting to CometWorks is covered in [Diagnostics](Diagnostics.md).
 
+## Guided installation problems
+
+Windows starts with `Install.cmd` and requests UAC only after **Install**. Linux
+starts with `Install.desktop` and uses polkit; the file manager may require
+**Allow Launching** or **Trust** first. Linux needs kdialog or zenity, pkexec and a
+desktop authentication agent. Choose **Manual install** for headless hosts,
+custom service accounts or an unavailable desktop dependency.
+
+Linux keeps private installer output in
+`${XDG_STATE_HOME:-~/.local/state}/Quasar/install-*.log`. Windows shows the backend
+console and error dialog; run the same `install.ps1` command in an elevated shell
+to retain output. Failed or declined elevation never counts as a successful
+installation. See [installation](https://github.com/CometWorks/quasar/blob/main/Docs/Installation.md).
+
 ## Where the logs are
 
 `<data dir>` below is the Quasar data directory (install root): `QUASAR_INSTALL_DIR`, for example `~/.local/share/Quasar` on Linux, the extracted `Quasar` folder on Windows, `/data` in Docker (`./quasar-data` on the host). See [Configuration](Configuration.md#where-files-live).
@@ -10,7 +24,7 @@ This page lists where Quasar and its servers write logs, and the common failures
 | --- | --- | --- |
 | Quasar log | `<data dir>/Logs/quasar.log` | The web worker and supervisor: server starts, faults, health restarts, update and download errors |
 | Discord log | `<data dir>/Logs/discord.log` | Discord bot messages only. They also go to `quasar.log`. |
-| systemd journal (Linux service) | `journalctl --user -u quasar.service` (system install: `sudo journalctl -u quasar.service`) | The worker's console output, which the launcher forwards, and launcher errors |
+| systemd journal (Linux service) | `journalctl --user -u quasar.service` (system install: `sudo journalctl -u quasar.service`) | Quasar console output; also inspect `quasar-updater.service` for replacement/recovery failures |
 | Foreground console | the terminal running `./Quasar serve` or `Quasar.exe` | Same as the journal, plus launcher progress lines |
 | Docker | `docker compose logs -f quasar`, and `./quasar-data/Logs/quasar.log` | Console output and the log file |
 | DS log | `<data dir>/Magnetars/<server>/DedicatedServer/SpaceEngineersDedicated*.log` | The Space Engineers Dedicated Server's own log |
@@ -37,7 +51,10 @@ Quasar does not rotate `quasar.log` or `discord.log`. Delete or truncate them yo
 
 A fatal startup error is logged as "Quasar terminated unexpectedly." and printed to the console as `[Quasar:FATAL] <type>: <message>`.
 
-The launcher (Bootstrap) has no log file of its own. Installed services run it with `--quiet`, so only its error lines, its first-start download retries and the forwarded worker output reach the journal. On Windows the Scheduled Task `Quasar` has no visible console, so read `Logs\quasar.log`.
+Native Windows roles write service output to the Application event log under
+their service names. Quasar also writes its normal `Logs/quasar.log`. On Linux,
+inspect both main and updater journals. Legacy Bootstrap has no separate log file;
+its older task/unit output is relevant only before migration.
 
 ### Server logs in the UI
 
@@ -162,7 +179,12 @@ See [Access control](AccessControl.md#common-problems) and [First setup](FirstSe
 
 ## Self-update failures
 
-Read the status line at the top of **Updates**. Bootstrap rolls back a UI release that fails its health check within 60 seconds ("Rolled Quasar worker back to version <v>."). Checksum errors ("SHA256 mismatch for <file>.") mean the download did not match; retry later. HTTP 403 or 429 from GitHub means a rate limit; add a GitHub token. Docker has no in-app updates. See [Updates](Updates.md#when-an-update-fails).
+Read the durable operation on Updates or run `Quasar update --status`. Failed
+launches and interrupted replacement restore the complete prior application;
+fix the recorded cause before `update --retry`. The page persistently explains
+missing native restart capability. Current Windows installations use two native
+services and virtual accounts; existing Scheduled Tasks need explicit migration.
+See [Updates](Updates.md#when-an-update-fails).
 
 ## Stopping Quasar
 
@@ -245,3 +267,18 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
+
+- `Docs/QuasarUpdates.md`
+- `Quasar.Updater/QuasarUpdater.cs`
+
+- `Shared/Updates/GitHubUpdateTokenReader.cs`
+
+- `Shared/ServiceHosting/NativeServiceFailures.cs`
+
+- `Shared/Updates/NativeQuasarServices.cs`
+
+- `Docs/Installation.md`
+
+- `scripts/install-gui.sh`
+
+- `scripts/install-gui.ps1`

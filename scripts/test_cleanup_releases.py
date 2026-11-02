@@ -16,6 +16,20 @@ def release(tag, draft=False, prerelease=False):
 
 
 class ReleaseCleanupTests(unittest.TestCase):
+    def test_latest_full_141_bridge_survives_newer_release_cleanup(self):
+        builds = [release("v1.4.1.1"), release("v1.4.1.2"), release("v1.5.0"), release("v1.5.1"), release("v1.5.2")]
+        deleted = {r["tag_name"] for r in cleanup.plan_cleanup(builds, "v1.5.2", set())}
+        self.assertEqual({"v1.4.1.1", "v1.5.0"}, deleted)
+
+    def test_15_publication_needs_complete_full_141_release(self):
+        cleanup.require_migration_release([], "1.4.1")
+        bridge = release("v1.4.1.2")
+        for builds in [[], [bridge], [release("v1.4.1.2", prerelease=True)]]:
+            with self.assertRaisesRegex(ValueError, "Release blocker"):
+                cleanup.require_migration_release(builds, "1.5.0")
+        bridge["assets"] = [{"name": name} for name in ["quasar-linux-x64.tar.gz", "quasar-win-x64.zip", "quasar-web-linux-x64.tar.gz", "quasar-web-win-x64.zip", "SHA256SUMS"]]
+        cleanup.require_migration_release([bridge], "1.5.0")
+
     def test_published_pr_and_manual_builds_do_not_displace_rollback(self):
         builds = [release("v1.3.1.75"), release("v1.3.1.74"), release("v1.3.1.73"),
                   release("pr-299/v1.3.1.703-pr.299"), release("v1.3.1.900-manual"),

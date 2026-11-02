@@ -26,6 +26,9 @@ public sealed class WebServiceOptions
 
     public string BootstrapVersion { get; init; } = string.Empty;
 
+    public string? BootstrapUpdateUnavailableReason { get; init; } =
+        Quasar.Updates.BootstrapUpdateSupport.Read() is { CanRestart: false } capability ? capability.Detail + " " + capability.Repair : null;
+
     public string Mode { get; init; } = "Console";
 
     public bool OpenBrowserOnStart { get; init; } = true;

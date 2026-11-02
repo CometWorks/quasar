@@ -102,7 +102,7 @@ public sealed class PairedRollbackTests : IDisposable
         var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
         _credentials.Add(credentials);
         var updater = new QuasarUpdateService(handler, new QuasarUpdateOptions(),
-            new WebServiceOptions { Version = "1.3.2", BootstrapVersion = "1.3.2", LauncherToken = "fixture" },
+            new WebServiceOptions { Version = "1.3.2", BootstrapVersion = "1.3.2", LauncherToken = "fixture", BootstrapUpdateUnavailableReason = null },
             credentials, NullLogger<QuasarUpdateService>.Instance);
         typeof(QuasarUpdateService).GetField("_snapshot", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(updater,
             new QuasarUpdateSnapshot { Web = new() { Version = Target, IsStaged = true, StagedDirectory = staged } });
