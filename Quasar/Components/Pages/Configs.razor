@@ -635,6 +635,7 @@
                                     <MudButton Variant="Variant.Outlined"
                                                Color="Color.Secondary"
                                                StartIcon="@Icons.Material.Filled.Sort"
+                                               title="Sort dependencies and save all pending profile changes."
                                                OnClick="AutoSortModDependenciesAsync"
                                                Disabled="@(_modDependencyCheckRunning || _editor?.Mods.Count == 0 || !WorkshopCredentials.HasWebApiKey)">
                                         @(_modDependencyCheckRunning ? "Checking Dependencies..." : "Auto Sort Dependencies")
@@ -1299,7 +1300,7 @@
         await SaveTemplateInternalAsync(reselectAfterSave: true);
     }
 
-    private async Task<bool> SaveTemplateInternalAsync(bool reselectAfterSave)
+    private async Task<bool> SaveTemplateInternalAsync(bool reselectAfterSave, bool sortModLoadOrder = false)
     {
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
         if (_editor is null)
@@ -1319,16 +1320,20 @@
 
         if (!ValidateCommandAliases()) return false;
 
-        await ResolveProfileModDependenciesAsync(_editor);
+        var profile = _editor;
+        await ResolveProfileModDependenciesAsync(profile, sortLoadOrder: sortModLoadOrder);
+        if (!ReferenceEquals(_editor, profile)) return false;
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
-        await ConfigProfiles.UpsertAsync(_editor);
+        var dependencyTreeRows = _modDependencyTreeRows;
+        await ConfigProfiles.UpsertAsync(profile);
         if (reselectAfterSave)
-            SelectProfile(_editor.ConfigProfileId);
+            SelectProfile(profile.ConfigProfileId);
         else
         {
             _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
             LoadSteamIdDraftsFromEditor();
         }
+        _modDependencyTreeRows = dependencyTreeRows;
 
         Snackbar.Add("Config profile saved.", Severity.Success);
         return true;
@@ -1384,10 +1389,7 @@
             return;
 
         if (!WorkshopCredentials.HasWebApiKey)
-        {
-            EnableServerDependencyAutodetectFallback(_editor);
             return;
-        }
 
         _ = InvokeAsync(() => CheckSelectedProfileDependenciesAsync(version));
     }
@@ -1410,11 +1412,12 @@
                 return;
             }
 
-            ApplyProfileModDependencyResult(profile, result, sortLoadOrder: false);
+            ShowModDependencyResult(result);
+            if (result.AddedDependencyCount > 0)
+                Snackbar.Add($"Found {result.AddedDependencyCount} missing dependency mod(s). Save or auto-sort the profile to add them.", Severity.Info);
         }
         catch (Exception exception)
         {
-            EnableServerDependencyAutodetectFallback(_editor);
             Snackbar.Add($"Mod dependency check failed: {exception.Message}", Severity.Warning);
         }
         finally
@@ -1426,12 +1429,12 @@
 
     private async Task AutoSortModDependenciesAsync()
     {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (_editor is null || _editor.Mods.Count == 0)
             return;
 
         if (!WorkshopCredentials.HasWebApiKey)
         {
-            EnableServerDependencyAutodetectFallback(_editor);
             Snackbar.Add("Steam Workshop Web API key required for dependency sorting.", Severity.Warning);
             return;
         }
@@ -1440,13 +1443,12 @@
         _modDependencyCheckRunning = true;
         try
         {
-            await ResolveProfileModDependenciesAsync(_editor, sortLoadOrder: true);
-            Snackbar.Add("Dependency load order sorted. Save profile to persist.", Severity.Success);
+            await SaveTemplateInternalAsync(reselectAfterSave: true, sortModLoadOrder: true);
         }
         catch (Exception exception)
         {
             EnableServerDependencyAutodetectFallback(_editor);
-            Snackbar.Add($"Mod dependency sort failed: {exception.Message}", Severity.Error);
+            Snackbar.Add($"Could not sort and save mod dependencies: {exception.Message}", Severity.Error);
         }
         finally
         {
@@ -1471,11 +1473,16 @@
     {
         profile.Mods = result.Mods.ToList();
         ApplyServerDependencyAutodetectPolicy(profile, result, sortLoadOrder);
-        _modDependencyTreeRows = result.DependencyTreeRows;
-        RefreshModList(clearDependencyTree: false);
+        ShowModDependencyResult(result);
 
         if (result.AddedDependencyCount > 0)
             Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
+    }
+
+    private void ShowModDependencyResult(QuasarModDependencyResolutionResult result)
+    {
+        _modDependencyTreeRows = result.DependencyTreeRows;
+        RefreshModList(clearDependencyTree: false);
 
         if (result.Warnings.Count > 0)
             Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);

@@ -118,7 +118,8 @@ public sealed class ControlPlaneViewerTests : IDisposable
         }
     }
 
-    private static SteamWorkshopCredentialsCatalog ConfigureConfigServices(BunitContext context, QuasarConfigProfileCatalog profiles)
+    private static SteamWorkshopCredentialsCatalog ConfigureConfigServices(BunitContext context, QuasarConfigProfileCatalog profiles,
+        IHttpClientFactory? workshopHttp = null)
     {
         context.Services.AddSingleton(profiles);
         var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
@@ -126,10 +127,93 @@ public sealed class ControlPlaneViewerTests : IDisposable
         var pluginHubs = new QuasarPluginHubCatalog(NullLogger<QuasarPluginHubCatalog>.Instance);
         context.Services.AddSingleton(pluginHubs);
         context.Services.AddSingleton(new QuasarPluginCatalogService(NullLogger<QuasarPluginCatalogService>.Instance, null!, devFolders, pluginHubs));
-        context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         var credentials = new SteamWorkshopCredentialsCatalog(NullLogger<SteamWorkshopCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
         context.Services.AddSingleton(credentials);
+        context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), credentials, workshopHttp!, NullLogger<QuasarWorkshopModResolver>.Instance));
         return credentials;
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task OpeningConfigWithModsDoesNotCreatePendingChanges(bool hasKey, bool apiFails)
+    {
+        await using var context = Context(editor: true);
+        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var profile = new QuasarConfigProfile { Name = "Survival", RootSettings = new() { AutodetectDependencies = false },
+            Mods = [new() { WorkshopId = 123456, DisplayName = "Root mod" }] };
+        await profiles.UpsertAsync(profile);
+        using var http = new DependencyWorkshopHttp(apiFails);
+        var credentials = ConfigureConfigServices(context, profiles, http);
+        if (hasKey) await credentials.SaveAsync(new() { WebApiKey = "test-key" });
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/configs");
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Configs>();
+
+        Assert.False(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+        Assert.Single(profiles.GetProfile(profile.ConfigProfileId)!.Mods);
+        var editor = (QuasarConfigProfile)typeof(Configs).GetField("_editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!;
+        Assert.Single(editor.Mods);
+        Assert.False(editor.RootSettings.AutodetectDependencies);
+        if (hasKey && !apiFails)
+            Assert.NotEmpty((IReadOnlyList<QuasarModDependencyTreeRow>)typeof(Configs)
+                .GetField("_modDependencyTreeRows", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!);
+        await page.InvokeAsync(() => navigation.NavigateTo("/"));
+        Assert.EndsWith("/", navigation.Uri);
+        Assert.Empty(dialogs.FindComponents<ConfigProfilePendingChangesDialog>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutoSortSavesProfileAndDoesNotPromptWhenLeaving(bool invalid)
+    {
+        await using var context = Context(editor: true);
+        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var profile = new QuasarConfigProfile { Name = "Survival", Description = "Original",
+            RootSettings = new() { AutodetectDependencies = true },
+            Mods = [new() { WorkshopId = 123456, DisplayName = "Root mod" }, new() { WorkshopId = 654321, DisplayName = "Dependency" }] };
+        await profiles.UpsertAsync(profile);
+        using var http = new DependencyWorkshopHttp();
+        var credentials = ConfigureConfigServices(context, profiles, http);
+        await credentials.SaveAsync(new() { WebApiKey = "test-key" });
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Configs>();
+        var field = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == (invalid ? "Profile name" : "Description"));
+        await page.InvokeAsync(() => field.Instance.ValueChanged.InvokeAsync(invalid ? "" : "Edited"));
+        await page.InvokeAsync(() => (Task)typeof(Configs).GetMethod("AutoSortModDependenciesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(page.Instance, null)!);
+
+        using var reloaded = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var saved = reloaded.GetProfile(profile.ConfigProfileId)!;
+        Assert.Equal(invalid ? new long[] { 123456, 654321 } : [654321, 123456], saved.Mods.Select(m => m.WorkshopId));
+        Assert.Equal(invalid ? "Original" : "Edited", saved.Description);
+        Assert.Equal(invalid, saved.RootSettings.AutodetectDependencies);
+        Assert.Equal(invalid, page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+        if (!invalid)
+        {
+            Assert.True(saved.Mods[0].IsDependency);
+            Assert.True(await page.InvokeAsync(() => page.Instance.ConfirmPendingChangesBeforeLeavingAsync()));
+        }
+    }
+
+    private sealed class DependencyWorkshopHttp(bool fails = false) : HttpMessageHandler, IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(fails ? System.Net.HttpStatusCode.ServiceUnavailable : System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    {"response":{"publishedfiledetails":[
+                        {"publishedfileid":"123456","result":1,"consumer_app_id":244850,"title":"Root mod","children":[{"publishedfileid":"654321"}]},
+                        {"publishedfileid":"654321","result":1,"consumer_app_id":244850,"title":"Dependency"}
+                    ]}}
+                    """)
+            });
     }
 
     [Theory]
@@ -388,6 +472,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     public static TheoryData<Type, string> WriteHandlers => new()
     {
         { typeof(Configs), "CreateProfileAsync" }, { typeof(Configs), "SaveTemplateInternalAsync" },
+        { typeof(Configs), "AutoSortModDependenciesAsync" },
         { typeof(Configs), "CloneProfileAsync" }, { typeof(Configs), "CloneCurrentProfileForCrossplayAsync" },
         { typeof(Configs), "DeleteProfileAsync" }, { typeof(Configs), "RefreshPluginCatalogAsync" },
         { typeof(Configs), "OpenWorkshopApiKeyDialogAsync" }, { typeof(Configs), "OpenSteamAccountDialogAsync" },
