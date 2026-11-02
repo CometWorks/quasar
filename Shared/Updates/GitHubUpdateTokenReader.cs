@@ -62,4 +62,3 @@ internal static class GitHubUpdateTokenReader
         public string? ProtectedToken { get; set; }
     }
 }
-
