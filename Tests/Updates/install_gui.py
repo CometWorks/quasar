@@ -11,6 +11,9 @@ import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[2]
+GIO_PYTHON = '/usr/bin/python3'
+GIO_AVAILABLE = Path(GIO_PYTHON).is_file() and subprocess.run(
+    [GIO_PYTHON, '-c', 'from gi.repository import Gio'], capture_output=True).returncode == 0
 
 @unittest.skipIf(os.geteuid() == 0, 'Desktop installer requires an unelevated user')
 class GuidedInstaller(unittest.TestCase):
@@ -43,16 +46,19 @@ class GuidedInstaller(unittest.TestCase):
     def run_gui(self, **options):
         return subprocess.run(['/bin/bash', str(self.package / 'install-gui.sh')], env=dict(self.env, **options), capture_output=True, text=True, timeout=10)
 
-    @unittest.skipUnless(shutil.which('gio'), 'GIO desktop launcher unavailable')
+    @unittest.skipUnless(GIO_AVAILABLE, 'GIO Python desktop-file API unavailable')
     def test_desktop_entry_resolves_its_extracted_package(self):
         desktop = self.package / 'Install.desktop'
         shutil.copy2(REPO / 'scripts/Install.desktop', desktop)
         original = desktop.read_text()
-        # Older GIO may omit %k; its launch environment still carries the filename.
+        # Test file-manager launch semantics with both %k and the launch environment.
+        # Older `gio launch` loads an anonymous key file and loses both locations.
         for entry in [original, original.replace('quasar-install %k', 'quasar-install')]:
             desktop.write_text(entry)
             (self.root / 'dialogs').unlink(missing_ok=True)
-            result = subprocess.run(['gio', 'launch', str(desktop)], env=dict(self.env, CHOICE='2'), capture_output=True, text=True, timeout=10)
+            result = subprocess.run([GIO_PYTHON, '-c',
+                'import sys; from gi.repository import Gio; Gio.DesktopAppInfo.new_from_filename(sys.argv[1]).launch([], None)',
+                str(desktop)], env=dict(self.env, CHOICE='2'), capture_output=True, text=True, timeout=10)
             self.assertEqual(result.returncode, 0, result.stderr)
             deadline = time.monotonic()+5
             while not (self.root / 'dialogs').exists() and time.monotonic() < deadline:
