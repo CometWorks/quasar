@@ -92,6 +92,15 @@ else
     SYSTEMCTL=(systemctl --user)
 fi
 SERVICE_UNIT="${SERVICE_NAME}.service"
+UPDATER_UNIT="${SERVICE_NAME}-updater.service"
+UPDATER_PATH="$(dirname "$SERVICE_PATH")/$UPDATER_UNIT"
+if [[ -f "$UPDATER_PATH" ]]; then
+    "${SYSTEMCTL[@]}" disable --now "$UPDATER_UNIT"
+    rm -f -- "$UPDATER_PATH"
+fi
+if [[ "$INSTALL_MODE" == "system" ]]; then
+    rm -f -- "/etc/quasar/$SERVICE_NAME.json" "/etc/polkit-1/rules.d/60-quasar-$SERVICE_NAME.rules"
+fi
 CLUSTERS_UNIT="${SERVICE_NAME}-clusters.service"
 CLUSTERS_PATH="$(dirname "$SERVICE_PATH")/$CLUSTERS_UNIT"
 LOCAL_HOST_DIR="$INSTALL_DIR/LocalHost"

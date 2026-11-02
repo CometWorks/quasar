@@ -2,9 +2,8 @@
 # Windows equivalent of scripts/package-linux-release.sh.
 #
 # Produces the win-x64 release artifacts under artifacts/windows:
-#   - quasar-web-win-x64.zip   (replaceable web UI worker + wwwroot)
-#   - quasar-installer-windows.zip (stable launcher + install/uninstall scripts)
-#   - quasar-host-win-x64.zip (independently deployed cluster Host)
+#   - quasar-web-win-x64.zip   (temporary legacy worker migration bridge)
+#   - quasar-win-x64.zip (unified application, updater, Host and installers)
 #   - quasar-symbols-win-x64.zip (portable PDBs, managed modules, source/hash manifest)
 #   - SHA256SUMS               (sha256 of all archives, lowercase, two-space separated)
 #
@@ -25,7 +24,7 @@ $Runtime = if ($env:RUNTIME) { $env:RUNTIME } else { 'win-x64' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '' }
 $DefaultAssemblyFileVersion = '1.0.0'
 $WebArchiveName = 'quasar-web-win-x64.zip'
-$InstallerArchiveName = 'quasar-installer-windows.zip'
+$InstallerArchiveName = 'quasar-win-x64.zip'
 $InstallerRootName = 'Quasar'
 $SymbolsArchiveName = 'quasar-symbols-win-x64.zip'
 
@@ -131,7 +130,7 @@ function Copy-Tree {
 }
 
 # Builds the launcher archive's README from the repo README plus the Windows
-# install/run instructions, so whoever unpacks quasar-installer-windows.zip learns how to
+# install/run instructions, so whoever unpacks quasar-win-x64.zip learns how to
 # actually run the binary they downloaded — not just the project overview.
 #
 # Two transforms are applied to the packaged copy (the in-repo README is left
@@ -217,10 +216,10 @@ Write-Host "Building Quasar.Agent ($Configuration)..."
     -v minimal
 if ($LASTEXITCODE -ne 0) { throw "dotnet build Quasar.Agent failed with exit code $LASTEXITCODE" }
 
-Write-Host "Publishing Quasar.Bootstrap ($Configuration, $Runtime, version $NugetVersion)..."
-& dotnet publish (Join-Path $RepoDir 'Quasar.Bootstrap\Quasar.Bootstrap.csproj') `
+Write-Host "Publishing Quasar ($Configuration, $Runtime, version $NugetVersion)..."
+& dotnet publish (Join-Path $RepoDir 'Quasar\Quasar.csproj') `
     -c $Configuration `
-    -r $Runtime `
+    -r $Runtime -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
     -p:Version=$NugetVersion `
     -p:AssemblyVersion=$AssemblyFileVersion `
     -p:FileVersion=$AssemblyFileVersion `
@@ -228,7 +227,18 @@ Write-Host "Publishing Quasar.Bootstrap ($Configuration, $Runtime, version $Nuge
     -p:DebugSymbols=true -p:DebugType=portable -p:Optimize=true -p:IncludeSymbolsInSingleFile=false `
     -o $PublishDir `
     -v minimal
-if ($LASTEXITCODE -ne 0) { throw "dotnet publish Quasar.Bootstrap failed with exit code $LASTEXITCODE" }
+if ($LASTEXITCODE -ne 0) { throw "dotnet publish Quasar failed with exit code $LASTEXITCODE" }
+
+foreach ($component in @('Quasar.Updater','Quasar.Host')) {
+    $directory = if ($component -eq 'Quasar.Updater') { 'Updater' } else { 'Host' }
+    & dotnet publish (Join-Path $RepoDir "$component/$component.csproj") -c $Configuration -r $Runtime `
+        -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:Version=$NugetVersion -p:AssemblyVersion=$AssemblyFileVersion -p:FileVersion=$AssemblyFileVersion `
+        -p:InformationalVersion=$InformationalVersion -p:DebugSymbols=true -p:DebugType=portable -p:Optimize=true `
+        -o (Join-Path $PublishDir $directory) -v minimal
+    if ($LASTEXITCODE) { throw "Publish failed: $component" }
+}
+Copy-Tree (Join-Path $RepoDir 'Quasar/wwwroot') (Join-Path $PublishDir 'wwwroot')
 
 & python (Join-Path $ScriptDir 'package-symbols.py') --repo $RepoDir --publish $PublishDir `
     --output (Join-Path $ArtifactDir $SymbolsArchiveName) --runtime $Runtime `
@@ -237,7 +247,9 @@ if ($LASTEXITCODE -ne 0) { throw "Matching release symbol packaging failed with 
 Get-ChildItem -LiteralPath $PublishDir -Recurse -File -Filter '*.pdb' | Remove-Item -Force
 
 # Web UI worker archive: WebService/* overlaid with the full source wwwroot.
-Copy-Tree (Join-Path $PublishDir 'WebService') $WebDir
+Copy-Tree $PublishDir $WebDir
+Remove-Item -LiteralPath (Join-Path $WebDir 'Updater') -Recurse -Force
+Copy-Tree (Join-Path $PublishDir 'Host') (Join-Path $WebDir 'Host')
 Copy-Tree (Join-Path $RepoDir 'Quasar\wwwroot') (Join-Path $WebDir 'wwwroot')
 
 $requiredWebFiles = @(
@@ -253,33 +265,27 @@ foreach ($requiredFile in $requiredWebFiles) {
     }
 }
 
-# Host is deployed independently to cluster machines, including its publish dependencies.
-$HostArchiveName = 'quasar-host-win-x64.zip'
-$HostPublishDir = Join-Path $PublishDir 'Host'
-if (-not (Test-Path -LiteralPath (Join-Path $HostPublishDir 'Quasar.Host.exe'))) {
-    throw 'Host release missing executable Quasar.Host.exe'
-}
-New-ZipFromDirectory $HostPublishDir (Join-Path $ArtifactDir $HostArchiveName)
-
-$webZip = Join-Path $ArtifactDir $WebArchiveName
-New-ZipFromDirectory $WebDir $webZip
-
-# Launcher archive: the stable bootstrap launcher plus config and helper scripts.
-Copy-Item -LiteralPath (Join-Path $PublishDir 'Quasar.exe') -Destination (Join-Path $BootstrapDir 'Quasar.exe') -Force
-foreach ($notice in @('LICENSE', 'NOTICE', 'LICENSING.md')) {
-    Copy-Item -LiteralPath (Join-Path $PublishDir $notice) -Destination (Join-Path $BootstrapDir $notice) -Force
-}
-Copy-Item -LiteralPath (Join-Path $RepoDir 'Quasar\appsettings.json') -Destination (Join-Path $BootstrapDir 'appsettings.json') -Force
+# Main package contains the application, updater and Host. Keep a UI-only bridge
+# artifact for old Bootstrap installations during migration.
+New-ZipFromDirectory $WebDir (Join-Path $ArtifactDir $WebArchiveName)
+Copy-Tree $PublishDir $BootstrapDir
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-Path $BootstrapDir 'install.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $BootstrapDir 'uninstall.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $ScriptDir 'Install.cmd'), (Join-Path $ScriptDir 'install-gui.ps1') -Destination $BootstrapDir -Force
+Copy-Item -LiteralPath (Join-Path $RepoDir 'Docs/Installation.md') -Destination (Join-Path $BootstrapDir 'INSTALL.md') -Force
 Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'readme-install-windows.md') (Join-Path $BootstrapDir 'README.md')
 
+@{version=$NugetVersion;updaterProtocol=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $BootstrapDir 'release.json') -Encoding utf8
+$launcherFiles = Get-ChildItem -LiteralPath $BootstrapDir -File -Recurse | ForEach-Object {
+    $_.FullName.Substring($BootstrapDir.Length).TrimStart('\', '/').Replace('\', '/')
+} | Where-Object { $_ -notlike 'Updater/*' -and $_ -notin @('appsettings.json', 'service-installation.json', 'launcher-files.txt') } | Sort-Object
+[IO.File]::WriteAllLines((Join-Path $BootstrapDir 'launcher-files.txt'), [string[]]$launcherFiles)
 $bootstrapZip = Join-Path $ArtifactDir $InstallerArchiveName
 New-ZipFromDirectory $BootstrapDir $bootstrapZip -IncludeBaseDirectory
 
 Push-Location $ArtifactDir
 try {
-    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName, $HostArchiveName, $SymbolsArchiveName)) {
+    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName, $SymbolsArchiveName)) {
         $hash = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"
     }

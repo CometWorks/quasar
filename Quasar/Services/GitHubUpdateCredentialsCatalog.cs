@@ -7,7 +7,7 @@ namespace Quasar.Services;
 
 public sealed class GitHubUpdateCredentialsCatalog : IDisposable
 {
-    private const string DataProtectionPurpose = "Quasar.GitHubUpdateCredentials.v1";
+    private const string DataProtectionPurpose = Quasar.Updates.GitHubUpdateTokenReader.DataProtectionPurpose;
     public const string QuasarTokenVariableName = "QUASAR_GITHUB_TOKEN";
     public const string GenericTokenVariableName = "GITHUB_TOKEN";
 

@@ -67,8 +67,8 @@ def package(repo, publish, output, runtime, configuration, version):
     commit = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"], text=True).strip()
     dirty = bool(subprocess.check_output(["git", "-C", str(repo), "status", "--porcelain", "--untracked-files=no"], text=True).strip())
     suffix = ".exe" if runtime.startswith("win-") else ""
-    targets = [("bootstrap", "Quasar.Bootstrap", "Quasar" + suffix),
-               ("worker", "Quasar", "WebService/Quasar" + suffix),
+    targets = [("application", "Quasar", "Quasar" + suffix),
+               ("updater", "Quasar.Updater", "Updater/Quasar.Updater" + suffix),
                ("host", "Quasar.Host", "Host/Quasar.Host" + suffix)]
     manifest = {"schemaVersion": 1, "version": version, "runtime": runtime,
                 "configuration": configuration, "optimized": True,

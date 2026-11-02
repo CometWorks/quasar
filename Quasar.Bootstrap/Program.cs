@@ -17,6 +17,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Quasar.Networking;
+using Quasar.Updates;
 
 namespace Quasar.Bootstrap;
 
@@ -75,6 +76,7 @@ internal static class Program
             ActivateReleaseCommand => await ActivateReleaseAsync(args, quiet, headless),
             RollbackCommand => await RollbackAsync(quiet, openBrowser, foreground, headless),
             ClusterCommand => await ClusterCli.RunAsync(args),
+            "update" => await UpdateCli.RunAsync(args),
             _ => InvalidUsage(quiet),
         };
     }
@@ -255,6 +257,8 @@ internal static class Program
         }
 
         var options = BootstrapOptions.Create();
+        if (LauncherReplacement.Phase(AppContext.BaseDirectory) == "ready")
+            LauncherReplacement.SetPhase(AppContext.BaseDirectory, "attempted");
 
         if (IsPortInUse(options.Port, options.AdvertisedHost))
         {
@@ -535,7 +539,8 @@ internal static class Program
           serve             Run the launcher and supervise the web worker in this process.
           rollback          Restore the previous healthy UI release and ensure Quasar is running.
           cluster ...       Cluster command line tools. See "Quasar cluster --help".
-          activate-release  Internal, used during updates.
+          update            --version <release>, --status, or --retry (local installation).
+          activate-release  Internal, used during recovery.
           help              Print this help.
 
         Options for ensure-running and serve:
@@ -927,61 +932,9 @@ internal sealed class BootstrapOptions
 
 internal static class GitHubUpdateTokenReader
 {
-    private const string DataProtectionPurpose = "Quasar.GitHubUpdateCredentials.v1";
-    internal const string QuasarTokenVariableName = "QUASAR_GITHUB_TOKEN";
-    internal const string GenericTokenVariableName = "GITHUB_TOKEN";
-
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
-
-    // The token saved on the Updates page needs a running web UI, so the first start
-    // can only use one from the environment. QUASAR_GITHUB_TOKEN is meant for Quasar
-    // and wins over the saved one; a GITHUB_TOKEN set for other tools comes last.
-    public static string ReadToken(ILogger logger)
-    {
-        var token = ReadVariable(QuasarTokenVariableName);
-        if (token.Length == 0)
-            token = ReadSavedToken(logger);
-        if (token.Length == 0)
-            token = ReadVariable(GenericTokenVariableName);
-        return token;
-    }
-
-    private static string ReadVariable(string name) =>
-        Environment.GetEnvironmentVariable(name)?.Trim() ?? string.Empty;
-
-    private static string ReadSavedToken(ILogger logger)
-    {
-        var path = MagnetarPaths.GetQuasarGitHubUpdateCredentialsPath();
-        if (!File.Exists(path))
-            return string.Empty;
-
-        try
-        {
-            var json = File.ReadAllText(path);
-            var persisted = JsonSerializer.Deserialize<PersistedCredentials>(json, JsonOptions);
-            if (persisted is null)
-                return string.Empty;
-
-            if (string.IsNullOrWhiteSpace(persisted.ProtectedToken))
-                return string.Empty;
-
-            var protector = DataProtectionProvider
-                .Create(new DirectoryInfo(MagnetarPaths.GetQuasarDataProtectionKeyringDirectory()), options => options.SetApplicationName("Quasar"))
-                .CreateProtector(DataProtectionPurpose);
-
-            return protector.Unprotect(persisted.ProtectedToken).Trim();
-        }
-        catch (Exception exception)
-        {
-            logger.LogWarning(exception, "Failed reading GitHub update token from {Path}. Continuing without GitHub authentication.", path);
-            return string.Empty;
-        }
-    }
-
-    private sealed class PersistedCredentials
-    {
-        public string? ProtectedToken { get; set; }
-    }
+    internal const string QuasarTokenVariableName = Quasar.Updates.GitHubUpdateTokenReader.QuasarTokenVariableName;
+    internal const string GenericTokenVariableName = Quasar.Updates.GitHubUpdateTokenReader.GenericTokenVariableName;
+    public static string ReadToken(ILogger logger) => Quasar.Updates.GitHubUpdateTokenReader.ReadToken(logger);
 }
 
 internal sealed class LauncherCoordinator : IHostedService, IDisposable
@@ -1118,9 +1071,34 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         if (TryConsumeWorkerRestartRequest())
             _logger.LogInformation("Cleared stale Quasar worker restart request on startup.");
 
+        var capability = await BootstrapUpdateSupport.DetectAsync(AppContext.BaseDirectory, cancellationToken);
+        QuasarUpdateJournal.WriteJson(BootstrapUpdateSupport.CapabilityPath, capability);
+        using (await QuasarMaintenanceLease.AcquireAsync(cancellationToken))
+        {
+            if (LauncherReplacement.Phase(AppContext.BaseDirectory) == "rolled-back")
+                QuasarUpdateJournal.Fail("Launcher replacement failed or was interrupted. The complete previous installation was restored. Fix the launch error, then use update --retry.");
+            else if (QuasarUpdateJournal.Read() is { Stage: UpdateStage.Downloading or UpdateStage.Verified } interrupted)
+                QuasarUpdateJournal.Write(interrupted with { Stage = UpdateStage.Failed, Message = "Update preparation was interrupted. Use update --retry to download and verify again." });
+        }
+
         await WaitForInitialWebReleaseAsync(cancellationToken).ConfigureAwait(false);
         EnsureActiveReleasePointerExists();
         await ActivateCurrentReleaseAsync(force: false, cancellationToken).ConfigureAwait(false);
+        using (await QuasarMaintenanceLease.AcquireAsync(cancellationToken))
+        {
+            var operation = QuasarUpdateJournal.Read();
+            if (LauncherReplacement.Phase(AppContext.BaseDirectory) == "attempted" &&
+                (operation?.Stage != UpdateStage.Restarting || _currentWorker is null ||
+                 !string.Equals(operation.Version, _options.Version, StringComparison.OrdinalIgnoreCase) ||
+                 !string.Equals(operation.WebRelease?.Version ?? (string.IsNullOrWhiteSpace(operation.WorkerVersion) ? operation.Version : operation.WorkerVersion), _currentWorker.Release.Version, StringComparison.OrdinalIgnoreCase)))
+            {
+                QuasarUpdateJournal.Fail("The replacement Bootstrap/UI pair failed health verification. Restoring the previous complete installation on supervisor restart.");
+                if (_currentWorker is { } failedWorker)
+                    await DrainAndRetireWorkerAsync(failedWorker, TimeSpan.FromSeconds(2), stopManagedServers: false, cancellationToken);
+                Environment.Exit(75);
+            }
+            ConfirmUpdateHealth();
+        }
         var previousPath = MagnetarPaths.GetQuasarActiveReleasePath() + ".previous";
         if (_currentWorker is null && File.Exists(previousPath))
         {
@@ -1291,8 +1269,11 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             try
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(250), debounce.Token);
-                if (!TryConsumeBootstrapUpdateRequest(out var request))
-                    return;
+                BootstrapUpdateRequest request;
+                using (await QuasarMaintenanceLease.AcquireAsync(CancellationToken.None))
+                {
+                    if (!TryConsumeBootstrapUpdateRequest(out request)) return;
+                }
 
                 if (string.IsNullOrWhiteSpace(request.Version))
                 {
@@ -1312,6 +1293,14 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             }
             catch (Exception exception)
             {
+                using (await QuasarMaintenanceLease.AcquireAsync(CancellationToken.None))
+                {
+                    QuasarUpdateJournal.Fail(exception.Message + " Use update --retry after correcting the problem.");
+                    if (LauncherReplacement.Phase(AppContext.BaseDirectory) is "ready" or "installing")
+                        LauncherReplacement.Restore(AppContext.BaseDirectory);
+                    QuarantineBootstrapRequest();
+                }
+                await ActivateCurrentReleaseAsync(force: false, CancellationToken.None);
                 _logger.LogWarning(exception, "Requested Bootstrap update activation failed.");
             }
         }, CancellationToken.None);
@@ -1328,6 +1317,25 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             if (_isStopping || _isRestartingForBootstrapUpdate || IsDrained())
                 return;
 
+            var capability = await BootstrapUpdateSupport.DetectAsync(AppContext.BaseDirectory, cancellationToken);
+            QuasarUpdateJournal.WriteJson(BootstrapUpdateSupport.CapabilityPath, capability);
+            if (!capability.CanRestart) throw new InvalidOperationException(capability.Detail + " " + capability.Repair);
+            using (await QuasarMaintenanceLease.AcquireAsync(cancellationToken))
+            {
+                var operation = QuasarUpdateJournal.Read();
+                if (request.OperationId != Guid.Empty && (operation?.Id != request.OperationId || operation.Stage != UpdateStage.Ready))
+                { QuarantineBootstrapRequest(); return; }
+                if (request.OperationId == Guid.Empty)
+                {
+                    if (operation?.Stage is UpdateStage.Downloading or UpdateStage.Verified or UpdateStage.Restarting)
+                        throw new InvalidOperationException("Another coordinated update is in progress.");
+                    operation = new QuasarUpdateOperation { Version = request.Version, Stage = UpdateStage.Downloading, WebRelease = request.WebRelease, WorkerVersion = request.WorkerVersion };
+                    QuasarUpdateJournal.Write(operation);
+                    request.OperationId = operation.Id;
+                    QuasarUpdateJournal.WriteJson(MagnetarPaths.GetQuasarBootstrapUpdateRequestPath(), request);
+                }
+            }
+
             if (request.WebRelease is { } prepared)
             {
                 if (!string.Equals(prepared.Version, QuasarReleaseVersion.Normalize(request.Version), StringComparison.OrdinalIgnoreCase)
@@ -1339,71 +1347,91 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             var assetName = string.IsNullOrWhiteSpace(request.AssetName)
                 ? _options.BootstrapAssetName
                 : request.AssetName.Trim();
-            var release = string.IsNullOrWhiteSpace(requestedVersion)
-                ? await GetLatestReleaseWithAssetAsync(assetName, cancellationToken).ConfigureAwait(false)
-                : await GetReleaseWithAssetAsync(
-                    assetName,
-                    requestedVersion,
-                    includePrerelease: true,
-                    cancellationToken).ConfigureAwait(false);
-            if (release is null)
+            var version = requestedVersion;
+            string payloadDirectory;
+            if (!string.IsNullOrWhiteSpace(request.PackageDirectory))
             {
-                if (!string.IsNullOrWhiteSpace(requestedVersion))
-                {
-                    _logger.LogWarning(
-                        "Requested Bootstrap release {Version} with asset {AssetName} was not found.",
+                var operation = QuasarUpdateJournal.Read()!;
+                if (!IsSamePath(operation.PackageDirectory, request.PackageDirectory) || operation.Id != request.OperationId)
+                    throw new InvalidDataException("Prepared package does not match the durable update operation.");
+                payloadDirectory = request.PackageDirectory;
+                await VerifiedUpdatePackage.VerifyAsync(payloadDirectory, cancellationToken);
+                QuasarWebReleaseLayout.ValidateDirectory(Path.Combine(payloadDirectory, "WebService"));
+            }
+            else
+            {
+                var release = string.IsNullOrWhiteSpace(requestedVersion)
+                    ? await GetLatestReleaseWithAssetAsync(assetName, cancellationToken).ConfigureAwait(false)
+                    : await GetReleaseWithAssetAsync(
+                        assetName,
                         requestedVersion,
-                        assetName);
-                }
-
-                return;
-            }
-
-            var version = QuasarReleaseVersion.Normalize(release.TagName);
-            if (!CanActivateBootstrapVersion(version, _options.Version, request.AllowRollback, request.WebRelease))
-            {
-                if (!string.IsNullOrWhiteSpace(requestedVersion))
+                        includePrerelease: true,
+                        cancellationToken).ConfigureAwait(false);
+                if (release is null)
                 {
-                    _logger.LogInformation(
-                        "Requested Bootstrap release {Version} is not newer than running Bootstrap {CurrentVersion}.",
-                        version,
-                        _options.Version);
+                    if (!string.IsNullOrWhiteSpace(requestedVersion))
+                    {
+                        _logger.LogWarning(
+                            "Requested Bootstrap release {Version} with asset {AssetName} was not found.",
+                            requestedVersion,
+                            assetName);
+                    }
+
+                    throw new InvalidOperationException($"Release {requestedVersion} has no matching Bootstrap package.");
                 }
 
-                return;
+                version = QuasarReleaseVersion.Normalize(release.TagName);
+                if (!CanActivateBootstrapVersion(version, _options.Version, request.AllowRollback, request.WebRelease))
+                {
+                    if (!string.IsNullOrWhiteSpace(requestedVersion))
+                    {
+                        _logger.LogInformation(
+                            "Requested Bootstrap release {Version} is not newer than running Bootstrap {CurrentVersion}.",
+                            version,
+                            _options.Version);
+                    }
+
+                    throw new InvalidOperationException("The Bootstrap recovery target is not newer; use coordinated rollback for an older release.");
+                }
+
+                var asset = release.Assets.FirstOrDefault(asset =>
+                    string.Equals(asset.Name, assetName, StringComparison.OrdinalIgnoreCase));
+                if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
+                    throw new InvalidDataException("The release has no Bootstrap download asset.");
+
+                var checksums = await GetChecksumsAsync(release, cancellationToken).ConfigureAwait(false);
+                var cacheDirectory = MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory();
+                Directory.CreateDirectory(cacheDirectory);
+                var archivePath = Path.Combine(cacheDirectory, asset.Name);
+                var extractDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), $"Bootstrap-{version}");
+
+                if (Directory.Exists(extractDirectory))
+                    Directory.Delete(extractDirectory, recursive: true);
+                Directory.CreateDirectory(extractDirectory);
+
+                using (var response = await _downloadClient.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+                {
+                    response.EnsureSuccessStatusCode();
+                    await using var archiveFile = File.Create(archivePath);
+                    await response.Content.CopyToAsync(archiveFile, cancellationToken).ConfigureAwait(false);
+                }
+
+                await VerifySha256Async(archivePath, GetChecksum(checksums, asset.Name), cancellationToken).ConfigureAwait(false);
+                ExtractArchive(archivePath, extractDirectory);
+                TryDeleteFile(archivePath);
+
+                payloadDirectory = ResolveBootstrapPayloadDirectory(extractDirectory);
+                if (!File.Exists(Path.Combine(payloadDirectory, LauncherExecutableFileName)))
+                    throw new InvalidOperationException("Bootstrap update archive did not contain the executable.");
+
             }
-
-            var asset = release.Assets.FirstOrDefault(asset =>
-                string.Equals(asset.Name, assetName, StringComparison.OrdinalIgnoreCase));
-            if (asset is null || string.IsNullOrWhiteSpace(asset.BrowserDownloadUrl))
-                return;
-
-            var checksums = await GetChecksumsAsync(release, cancellationToken).ConfigureAwait(false);
-            var cacheDirectory = MagnetarPaths.GetQuasarManagedRuntimeCacheDirectory();
-            Directory.CreateDirectory(cacheDirectory);
-            var archivePath = Path.Combine(cacheDirectory, asset.Name);
-            var extractDirectory = Path.Combine(MagnetarPaths.GetQuasarStagingDirectory(), $"Bootstrap-{version}");
-
-            if (Directory.Exists(extractDirectory))
-                Directory.Delete(extractDirectory, recursive: true);
-            Directory.CreateDirectory(extractDirectory);
-
-            using (var response = await _downloadClient.GetAsync(asset.BrowserDownloadUrl, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false))
+            if (string.IsNullOrWhiteSpace(request.PackageDirectory))
             {
-                response.EnsureSuccessStatusCode();
-                await using var archiveFile = File.Create(archivePath);
-                await response.Content.CopyToAsync(archiveFile, cancellationToken).ConfigureAwait(false);
+                using var lease = await QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+                var operation = QuasarUpdateJournal.Read()!;
+                QuasarUpdateJournal.Write(operation with { Stage = UpdateStage.Ready });
             }
-
-            await VerifySha256Async(archivePath, GetChecksum(checksums, asset.Name), cancellationToken).ConfigureAwait(false);
-            ExtractArchive(archivePath, extractDirectory);
-            TryDeleteFile(archivePath);
-
-            var payloadDirectory = ResolveBootstrapPayloadDirectory(extractDirectory);
             var replacement = Path.Combine(payloadDirectory, LauncherExecutableFileName);
-            if (!File.Exists(replacement))
-                throw new InvalidOperationException($"Bootstrap update archive did not contain executable '{replacement}'.");
-
             var installedLauncher = Path.Combine(AppContext.BaseDirectory, LauncherExecutableFileName);
             if (await FilesHaveSameSha256Async(replacement, installedLauncher, cancellationToken).ConfigureAwait(false))
             {
@@ -1411,13 +1439,19 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     "Bootstrap release {Version} is already installed at {Path}; skipping worker drain and launcher restart.",
                     version,
                     installedLauncher);
-                if (request.WebRelease is null) return;
+                if (request.WebRelease is null) throw new InvalidOperationException("The requested launcher is already installed. No activation performed.");
             }
             await _activationLock.WaitAsync(cancellationToken);
             try
             {
                 using var maintenance = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(cancellationToken);
+                if (IsDrained() || _isStopping) return;
                 if (request.WebRelease is { } ready) QuasarWebReleaseLayout.ValidateDirectory(ready.WorkingDirectory);
+                capability = await BootstrapUpdateSupport.DetectAsync(AppContext.BaseDirectory, cancellationToken);
+                if (!capability.CanRestart) throw new InvalidOperationException(capability.Detail + " " + capability.Repair);
+                var operation = QuasarUpdateJournal.Read()!;
+                if (operation.Id != request.OperationId || operation.Stage != UpdateStage.Ready) return;
+                QuasarUpdateJournal.Write(operation with { Stage = UpdateStage.Restarting, Message = "Replacing Bootstrap and selecting its matching UI. Waiting for supervisor restart and health checks." });
                 ApplyBootstrapUpdate(payloadDirectory, AppContext.BaseDirectory);
                 _logger.LogInformation("Installed Bootstrap update {Version}; restarting Bootstrap.", version);
                 _isRestartingForBootstrapUpdate = true;
@@ -1429,6 +1463,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     if (previous is not null)
                         WriteActiveReleasePointer(previous, MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
                     WriteActiveReleasePointer(web);
+                    UpdateCli.SyncMergedSettings(web);
                 }
                 WorkerProcessHandle? worker;
                 lock (_sync) { worker = _currentWorker; _currentWorker = null; }
@@ -1479,66 +1514,12 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         return extractDirectory;
     }
 
-    // Linux runs under systemd, which restarts the unit when Bootstrap exits with a
-    // failure code. Windows has no systemd: spawn a detached replacement launcher from
-    // the freshly installed binary, then exit cleanly so the Scheduled Task keep-alive
-    // (which only restarts on failure) does not also start a second instance.
-    private void RestartBootstrap()
-    {
-        if (OperatingSystem.IsWindows())
-        {
-            var launcherPath = Path.Combine(AppContext.BaseDirectory, LauncherExecutableFileName);
-            if (File.Exists(launcherPath))
-            {
-                _logger.LogInformation("Spawning detached replacement launcher {Path}.", launcherPath);
-                var serviceFlag = _foregroundOptions.IsService ? " --service" : "";
-                var headlessFlag = _foregroundOptions.Headless ? " --headless" : "";
-                Program.StartDetachedProcess(launcherPath, $"serve --quiet{serviceFlag}{headlessFlag}", AppContext.BaseDirectory);
-                Environment.Exit(0);
-                return;
-            }
+    // Verified native supervisors restart on failure. Success remains reserved for
+    // intentional shutdown; never spawn into a terminating Scheduled Task job.
+    private void RestartBootstrap() => Environment.Exit(75);
 
-            _logger.LogWarning("Replacement launcher not found at {Path}; exiting for external supervisor restart.", launcherPath);
-        }
-
-        Environment.Exit(75);
-    }
-
-    private static void ApplyBootstrapUpdate(string sourceDirectory, string installDirectory)
-    {
-        installDirectory = Path.GetFullPath(installDirectory);
-        foreach (var sourcePath in Directory.EnumerateFiles(sourceDirectory, "*", SearchOption.AllDirectories))
-        {
-            var relativePath = Path.GetRelativePath(sourceDirectory, sourcePath);
-            if (string.Equals(relativePath, "appsettings.json", StringComparison.OrdinalIgnoreCase)
-                || relativePath.StartsWith("WebService" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                continue; // UI releases use their own staged pointer; preserve the packaged worker for rollback.
-
-            var destinationPath = Path.GetFullPath(Path.Combine(installDirectory, relativePath));
-            var installRoot = Path.GetFullPath(installDirectory + Path.DirectorySeparatorChar);
-            if (!destinationPath.StartsWith(installRoot, StringComparison.Ordinal))
-                throw new InvalidOperationException($"Bootstrap update entry escapes install directory: {relativePath}");
-
-            Directory.CreateDirectory(Path.GetDirectoryName(destinationPath)!);
-            if (string.Equals(Path.GetFileName(destinationPath), LauncherExecutableFileName, StringComparison.OrdinalIgnoreCase) &&
-                File.Exists(destinationPath))
-            {
-                // On Windows the running launcher .exe can be renamed but not deleted;
-                // moving it aside lets us drop the replacement in place.
-                var backupPath = destinationPath + ".previous";
-                TryDeleteFile(backupPath);
-                File.Move(destinationPath, backupPath);
-            }
-
-            File.Copy(sourcePath, destinationPath, overwrite: true);
-            if (string.Equals(Path.GetFileName(destinationPath), LauncherExecutableFileName, StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Path.GetFileName(destinationPath), "install.sh", StringComparison.OrdinalIgnoreCase) ||
-                string.Equals(Path.GetFileName(destinationPath), "uninstall.sh", StringComparison.OrdinalIgnoreCase))
-            {
-                EnsureExecutableBit(destinationPath);
-            }
-        }
-    }
+    private static void ApplyBootstrapUpdate(string sourceDirectory, string installDirectory) =>
+        LauncherReplacement.Apply(sourceDirectory, installDirectory);
 
     private static async Task<bool> FilesHaveSameSha256Async(string leftPath, string rightPath, CancellationToken cancellationToken)
     {
@@ -1934,6 +1915,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                     !current.Process.HasExited &&
                     IsSameRelease(current.Release, pointer))
                 {
+                    ConfirmUpdateHealth();
                     return;
                 }
             }
@@ -1962,6 +1944,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             var nextWorker = await StartWorkerAsync(pointer, cancellationToken).ConfigureAwait(false);
             if (nextWorker is null)
             {
+                QuasarUpdateJournal.Fail("The requested UI failed health checks. Restoring the previous worker. Use update --retry.");
                 if (current is not null && !IsSameRelease(current.Release, pointer))
                     _ = Task.Run(() => ActivateSpecificReleaseAsync(current.Release, CancellationToken.None), CancellationToken.None);
 
@@ -1973,6 +1956,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
                 _currentWorker = nextWorker;
             }
 
+            ConfirmUpdateHealth();
             RetainPreviousRelease(pointer, current?.Release);
             if (current is not null) TryDeleteFile(MagnetarPaths.GetQuasarActiveReleasePath() + ".previous");
             CleanupCompletedStagedUpdates(pointer);
@@ -2119,6 +2103,7 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
         startInfo.Environment["QUASAR_MODE"] = "service";
         startInfo.Environment["QUASAR_LAUNCHER_TOKEN"] = _launcherToken;
         startInfo.Environment["QUASAR_BOOTSTRAP_VERSION"] = _options.Version;
+        startInfo.Environment["QUASAR_UNIFIED_UPDATES"] = "true";
         startInfo.Environment["QUASAR_COORDINATED_UPDATES"] = "true";
         startInfo.Environment["QUASAR_COORDINATED_ROLLBACKS"] = "true";
         startInfo.Environment["QUASAR_INSTALL_DIR"] = ResolveInstallDirectoryForWorker();
@@ -2219,7 +2204,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
             {
                 using var response = await _healthClient.GetAsync(new Uri(worker.BaseUri, "/api/health"), cancellationToken);
                 if (response.IsSuccessStatusCode)
-                    return true;
+                {
+                    var manifest = await _healthClient.GetFromJsonAsync<WebServiceDiscoveryManifest>(new Uri(worker.BaseUri, "/api/discovery"), cancellationToken);
+                    if (manifest?.ProcessId == worker.Process.Id && !worker.Process.HasExited) return true;
+                }
             }
             catch
             {
@@ -2457,30 +2445,43 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
     {
         request = new BootstrapUpdateRequest();
         var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
-        if (!File.Exists(path))
-            return false;
-
+        if (!File.Exists(path)) return false;
         try
         {
-            var text = File.ReadAllText(path);
-            request = JsonSerializer.Deserialize<BootstrapUpdateRequest>(text, JsonOptions)
-                      ?? new BootstrapUpdateRequest();
+            request = JsonSerializer.Deserialize<BootstrapUpdateRequest>(File.ReadAllText(path), JsonOptions)
+                ?? throw new InvalidDataException("Empty Bootstrap update request.");
+            if (string.IsNullOrWhiteSpace(request.Version)) throw new InvalidDataException("Bootstrap request has no target version.");
+            return true;
         }
-        catch
+        catch (Exception exception) when (exception is JsonException or InvalidDataException)
         {
-            TryDeleteFile(path);
+            // Persist malformed legacy requests too; do not silently consume them.
+            var operation = QuasarUpdateJournal.Read() ?? new QuasarUpdateOperation();
+            QuasarUpdateJournal.Write(operation with { Stage = UpdateStage.Failed, Message = "Invalid Bootstrap recovery request: " + exception.Message });
+            QuarantineBootstrapRequest();
             return false;
         }
+    }
 
-        try
-        {
-            File.Delete(path);
-        }
-        catch
-        {
-        }
+    private static void QuarantineBootstrapRequest()
+    {
+        var path = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
+        if (File.Exists(path)) File.Move(path, path + ".completed", overwrite: true);
+    }
 
-        return !string.IsNullOrWhiteSpace(request.Version);
+    private void ConfirmUpdateHealth()
+    {
+        var operation = QuasarUpdateJournal.Read();
+        if (operation?.Stage is not (UpdateStage.Restarting or UpdateStage.Healthy) || _currentWorker is not { } worker) return;
+        var expectedWorker = operation.WebRelease?.Version ?? (string.IsNullOrWhiteSpace(operation.WorkerVersion) ? operation.Version : operation.WorkerVersion);
+        if (!string.Equals(worker.Release.Version, expectedWorker, StringComparison.OrdinalIgnoreCase) ||
+            operation.NeedsBootstrap && !string.Equals(_options.Version, operation.Version, StringComparison.OrdinalIgnoreCase)) return;
+        if (LauncherReplacement.Phase(AppContext.BaseDirectory) == "attempted") LauncherReplacement.SetPhase(AppContext.BaseDirectory, "committed");
+        QuasarUpdateJournal.Write(operation with { Stage = UpdateStage.Healthy, Message = $"Quasar {operation.Version} passed Bootstrap and worker health checks.",
+            HealthyBootstrapPid = Environment.ProcessId, HealthyWorkerPid = worker.Process.Id,
+            HealthyBootstrapStartedAtUtc = Process.GetCurrentProcess().StartTime.ToUniversalTime(),
+            HealthyWorkerStartedAtUtc = worker.Process.StartTime.ToUniversalTime() });
+        QuarantineBootstrapRequest();
     }
 
     private static string GetLauncherShutdownRequestPath() =>
@@ -2982,6 +2983,10 @@ internal sealed class LauncherCoordinator : IHostedService, IDisposable
 
     private sealed class BootstrapUpdateRequest
     {
+        public Guid OperationId { get; set; }
+
+        public string PackageDirectory { get; set; } = string.Empty;
+
         public string Version { get; set; } = string.Empty;
 
         public string AssetName { get; set; } = string.Empty;

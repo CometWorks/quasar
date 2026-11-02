@@ -18,6 +18,12 @@ public sealed class QuasarUpdateOptions
 
     public TimeSpan CheckInterval { get; init; } = TimeSpan.FromMinutes(15);
 
+    public string LinuxPackageAssetName { get; init; } = "quasar-linux-x64.tar.gz";
+
+    public string WindowsPackageAssetName { get; init; } = "quasar-win-x64.zip";
+
+    public string PackageAssetName => OperatingSystem.IsWindows() ? WindowsPackageAssetName : LinuxPackageAssetName;
+
     public string LinuxWebAssetName { get; init; } = "quasar-web-linux-x64.tar.gz";
 
     public string LinuxBootstrapAssetName { get; init; } = "quasar-installer-linux.tar.gz";
@@ -61,6 +67,8 @@ public sealed class QuasarUpdateOptions
 
         return new QuasarUpdateOptions
         {
+            LinuxPackageAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_LINUX_PACKAGE_ASSET") ?? section["LinuxPackageAssetName"] ?? "quasar-linux-x64.tar.gz",
+            WindowsPackageAssetName = Environment.GetEnvironmentVariable("QUASAR_UPDATES_WINDOWS_PACKAGE_ASSET") ?? section["WindowsPackageAssetName"] ?? "quasar-win-x64.zip",
             Enabled = enabled,
             Owner = Environment.GetEnvironmentVariable("QUASAR_UPDATES_OWNER")
                     ?? section["Owner"]

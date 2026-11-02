@@ -124,7 +124,7 @@ public sealed class BootstrapUpdateTests
     [InlineData("null", false)]
     [InlineData("{}", false)]
     [InlineData("{\"version\":\"1.4.0\",\"webRelease\":{\"version\":\"1.4.0\",\"workingDirectory\":\"prepared\"}}", true)]
-    public void LauncherOnlyConsumesVersionedRequests(string json, bool expected)
+    public void LauncherKeepsVersionedRequestsUntilAnOutcomeIsRecorded(string json, bool expected)
     {
         WithRoot(() =>
         {
@@ -134,8 +134,9 @@ public sealed class BootstrapUpdateTests
             var arguments = new object?[] { null };
             var consume = typeof(Coordinator).GetMethod("TryConsumeBootstrapUpdateRequest", BindingFlags.Static | BindingFlags.NonPublic)!;
             Assert.Equal(expected, consume.Invoke(null, arguments));
-            Assert.False(File.Exists(path));
-            Assert.Equal(false, consume.Invoke(null, new object?[] { null }));
+            Assert.Equal(expected, File.Exists(path));
+            Assert.Equal(expected, consume.Invoke(null, new object?[] { null }));
+            if (!expected) Assert.True(File.Exists(path + ".completed"));
         });
     }
 
@@ -176,6 +177,8 @@ public sealed class BootstrapUpdateTests
             File.WriteAllText(Path.Combine(source, "appsettings.json"), "new defaults");
             File.WriteAllText(Path.Combine(install, "appsettings.json"), "local settings");
             File.WriteAllText(Path.Combine(source, "launcher-component"), "new launcher");
+            File.WriteAllText(Path.Combine(source, "launcher-files.txt"), "launcher-component\n");
+            File.WriteAllText(Path.Combine(install, "launcher-files.txt"), "launcher-component\n");
             typeof(Coordinator).GetMethod("ApplyBootstrapUpdate", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [source, install]);
             Assert.Equal("old worker", File.ReadAllText(Path.Combine(install, "WebService", "worker")));
             Assert.Equal("local settings", File.ReadAllText(Path.Combine(install, "appsettings.json")));
@@ -196,9 +199,11 @@ public sealed class BootstrapUpdateTests
             var launcher = OperatingSystem.IsWindows() ? "Quasar.exe" : "Quasar";
             File.WriteAllText(Path.Combine(source, launcher), "older launcher");
             File.WriteAllText(Path.Combine(install, launcher), "current launcher");
+            File.WriteAllText(Path.Combine(source, "launcher-files.txt"), launcher + "\n");
+            File.WriteAllText(Path.Combine(install, "launcher-files.txt"), launcher + "\n");
             typeof(Coordinator).GetMethod("ApplyBootstrapUpdate", BindingFlags.Static | BindingFlags.NonPublic)!.Invoke(null, [source, install]);
             Assert.Equal("older launcher", File.ReadAllText(Path.Combine(install, launcher)));
-            Assert.Equal("current launcher", File.ReadAllText(Path.Combine(install, launcher + ".previous")));
+            Assert.Equal("current launcher", File.ReadAllText(Path.Combine(install, "Updates", "LauncherTransaction", "previous", launcher)));
         });
     }
 

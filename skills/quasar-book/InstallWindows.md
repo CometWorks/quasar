@@ -1,171 +1,155 @@
 # Install on Windows
 
-How to download, run and install Quasar on Windows: release assets, the .NET prerequisite, foreground runs, the `install.ps1` Scheduled Task, where Quasar keeps its files, uninstalling and upgrading. For Linux see [Install on Linux](InstallLinux.md).
+Quasar runs its UI and supervisor in one application. Native Windows Services
+run that application and a small external updater under dedicated virtual accounts.
+For Linux see [Install on Linux](InstallLinux.md).
+
+**Required upgrade order:** install and successfully start the complete 1.4.1
+migration release before 1.5 or later. Native service health (or successful startup
+of the full manual package) records `Updates/migration-1.4.1.json`. A staged legacy
+web worker is insufficient. Keep the receipt with the data directory. Missing or
+invalid completion evidence blocks later staging, installation and startup.
 
 ## Release assets
 
-Every Quasar GitHub release (`https://github.com/CometWorks/quasar/releases`) carries the Windows and Linux archives together with one combined `SHA256SUMS` file.
+Download `quasar-win-x64.zip`. Its `Quasar/` folder contains the application,
+UI assets, `Updater/Quasar.Updater.exe`, Host, installers and defaults. Check it
+against `SHA256SUMS`. Legacy `quasar-web-*` assets are temporary migration bridges;
+old launcher asset names are deliberately absent to prevent unsafe Bootstrap
+self-activation. Symbols remain CI artifacts.
 
-| Asset | Contents | Who needs it |
-| --- | --- | --- |
-| `quasar-installer-windows.zip` | One top-level `Quasar\` folder: the `Quasar.exe` Bootstrap launcher, `install.ps1`, `uninstall.ps1`, the default `appsettings.json` and a `README.md` | Everyone. This is the file you download. |
-| `quasar-web-win-x64.zip` | The web UI worker (`Quasar.exe`), static web assets, `Agent\Quasar.Agent.dll`, `Agent\Magnetar.Protocol.dll`, `Quasar.Plugin.Abstractions.dll` | Bootstrap downloads it on first start and on UI updates. |
-| `quasar-host-win-x64.zip` | The standalone Quasar.Host for cluster machines | Only cluster machines. See [Cluster hosts](ClusterHosts.md). |
-| `quasar-symbols-win-x64.zip` | Debug symbols matching the release | Developers analyzing crashes. |
-| `SHA256SUMS` | SHA-256 of every archive | Quasar verifies every download against it. |
+## Guided installation
 
-The installer zip does not contain the web UI. On first start Bootstrap downloads the latest `quasar-web-win-x64.zip` from GitHub, checks it against `SHA256SUMS`, extracts it to `<install-dir>\ManagedRuntime\WebService\<version>\` and writes `<install-dir>\Updates\active-release.json`. The first start therefore needs outbound HTTPS access to GitHub. If the download fails, Bootstrap keeps retrying until it works; see [Common problems](#common-problems).
+Open **Install.cmd** from the extracted package and choose **Install**.
+Windows requests UAC approval. New installs use Program Files for the application and ProgramData for data, with editable paths and passwordless virtual accounts. Existing default-service paths and names are read after elevation and preserved.
 
-Both `Quasar.exe` files are self-contained single-file x64 executables (`win-x64`).
+Choose **Manual install** for terminal commands and custom settings. The same
+platform package contains the updater; no separate download is needed. See
+[installation details](https://github.com/CometWorks/quasar/blob/main/Docs/Installation.md).
 
 ## Prerequisites
 
-- Windows x64.
-- The .NET 10 runtime. `install.ps1` runs `dotnet --list-runtimes` and requires a `Microsoft.NETCore.App 10.x` entry before it copies anything. It does not install .NET for you. Download it from `https://dotnet.microsoft.com/download/dotnet/10.0`.
-- An elevated PowerShell (Run as Administrator) for `install.ps1` and `uninstall.ps1`.
-- A .NET 10 SDK only if an administrator installs a source-built QuasarHub UI plugin. Quasar then uses a .NET 10 SDK on `PATH`, or asks whether to download a pinned private SDK into `<install-dir>\ManagedRuntime\Tools\DotNetSdk\`. You can also install the SDK with WinGet instead. See [UI plugins](UiPlugins.md).
-- Git is not required.
+Windows x64 and an elevated PowerShell for installation. Packaged binaries are
+self-contained. Source builds and source-built UI plugins need a .NET 10 SDK;
+Quasar can offer its pinned private SDK for plugin builds. Git is unnecessary for
+packaged installs. Virtual service accounts need no password.
 
 ## Run in the foreground
 
 ```powershell
-Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
+Expand-Archive quasar-win-x64.zip -DestinationPath C:\quasar
 cd C:\quasar\Quasar
-.\Quasar.exe serve
+.\Quasar.exe serve --foreground
 ```
 
-- Bootstrap starts the web worker and prints `Quasar worker launching on http://127.0.0.1:8080`. Open that URL in a browser. A `serve` run does not open a browser by itself.
-- Logs go to the console and to `Logs\quasar.log` in the extracted folder.
-- `Ctrl+C` stops the launcher.
-- State lives in the extracted folder.
-- If another Quasar is already healthy on the same folder, `Quasar.exe serve` exits immediately with code 0 and no output.
+The bundled UI is available at `http://localhost:8080`. Foreground updates stage
+safely but need manual stop, `update --retry` and restart. **Shutdown Quasar**
+preserves running servers; Ctrl+C follows the configured shutdown policy.
 
-`.\Quasar.exe serve --headless` runs the API-only mode (no Blazor UI, UI plugins, branding or static files). The other launcher commands and flags are the same as on Linux; see [Install on Linux](InstallLinux.md#launcher-commands-and-flags).
+## Install native Windows services
+
+```powershell
+.\install.ps1 -Start
+Get-Service Quasar, QuasarUpdater
+```
+
+The installer grants data access to `NT SERVICE\Quasar` and application replacement
+and main-service control to `NT SERVICE\QuasarUpdater`. It protects updater files,
+service metadata and shared Data Protection keys. Use an elevated shell for local
+CLI maintenance. Application updates stop only Quasar; the updater remains outside
+its file locks and restores the complete previous application on failure.
 
 ## Install as a Scheduled Task
 
-Quasar on Windows runs as a Scheduled Task, not as a Windows Service. From an elevated PowerShell:
-
-```powershell
-Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\Quasar
-.\install.ps1 -Start
-```
-
-With an extracted release zip, `install.ps1` installs in place: the folder that holds the script becomes the install directory, and Quasar keeps all its state there. At the end it prints the task name, install directory, run-as account and the web UI URL (`http://localhost:<Quasar:Port>`, default `8080`).
+This heading is retained for old links. Scheduled Tasks are now a migration source,
+not the recommended installation. Save worlds, stop the old task and game servers,
+then use `-MigrateScheduledTask -TaskName <name> -Start` from the new package. A
+one-time server restart may be needed to leave the old task's job object. The old
+task and complete application backup remain available; migration failure restores
+them. Do not run old and new supervision together.
 
 ### install.ps1 parameters
 
-| Parameter | Default | Effect |
-| --- | --- | --- |
-| `-Start` | off | Starts the task right after registering it. Without it, run `Start-ScheduledTask -TaskName Quasar` or reboot. |
-| `-InstallDir <dir>` | the script's folder for release zips; `%ProgramFiles%\Quasar` for source checkouts | Copies Quasar to `<dir>` and runs it from there. |
-| `-User <account>` | the current user | Runs the task as this account instead. |
-| `-TaskName <name>` | `Quasar` | Scheduled Task name. |
-| `-NoEnable` | off | Registers the task disabled. |
-| `-NoBuild` | automatic for release zips | Source checkouts: install an existing publish output instead of running `dotnet publish`. |
-| `-Configuration <name>`, `-Runtime <rid>` | `Release`, `win-x64` | Source checkouts only: publish settings. |
+| Parameter | Purpose |
+| --- | --- |
+| `-InstallDir`, `-DataDir` | Existing/custom application and data locations |
+| `-ServiceName`, `-UpdaterServiceName` | Native service names; preserve them on repair |
+| `-Start` | Start and health-check the native installation |
+| `-RepairSupervision` | Repair already replaced files without copying binaries |
+| `-MigrateScheduledTask`, `-TaskName` | Explicit transition from a stopped old task |
+| `-NoEnable` | Manual rather than automatic native service startup |
+| `-NoBuild`, `-Configuration`, `-Runtime` | Source/publish installation options |
 
-`install.ps1` replaces an existing task with the same name. It does not create firewall rules.
+The installer does not silently convert an existing named service account into a
+virtual account. Complete that account migration explicitly first.
 
 ### The Scheduled Task
 
-| Setting | Value |
-| --- | --- |
-| Name | `Quasar` (or `-TaskName`) |
-| Action | `<install-dir>\Quasar.exe serve --quiet --service`, working directory `<install-dir>`. Bootstrap is the task's process directly, without `cmd.exe`. |
-| Trigger | At system startup |
-| Account | Default: the installing user (`DOMAIN\user`), logon type S4U, run level Highest. With `-User`: that account, logon type ServiceAccount, run level Highest. |
-| Restart on failure | Up to 10 times, every 5 minutes |
-| Time limit | None |
-| Other | Start when available, run on batteries, ignore a new instance while one runs. The task is saved with Windows 10 compatibility. |
-
-The task sets no environment variables. Bootstrap uses its own folder as the install root (`QUASAR_INSTALL_DIR`) and `--service` puts it in service mode, which also disables the browser auto-open.
-
-Manage the task:
-
-```powershell
-Get-ScheduledTask   -TaskName Quasar
-Start-ScheduledTask -TaskName Quasar
-Stop-ScheduledTask  -TaskName Quasar
-```
-
-Stopping the task terminates the Bootstrap process. To restart Quasar after editing `appsettings.json`, run `Stop-ScheduledTask -TaskName Quasar; Start-ScheduledTask -TaskName Quasar`.
+A migration task is disabled before native activation and retained. After successful
+migration it stays disabled; remove it only once native operation and recovery have
+been checked. Failure restores the prior application and enabled state.
 
 ### Shutdown Quasar and other power actions
 
-The power button in the top bar opens **Quasar power** (admin role):
+**Shutdown Quasar** preserves servers and exits successfully; native failure
+recovery leaves the main service stopped. **Restart Quasar** uses the updater.
+Explicit server stop actions still stop their selected servers.
 
-- **Shutdown Quasar** saves the managed server state, then stops the web worker and Bootstrap with exit code 0. The task counts this as success and does not restart it. Quasar stops within about 10 seconds, also while a browser tab still shows the UI. Servers keep running without supervision. Run `Start-ScheduledTask -TaskName Quasar` to bring the UI back. In a foreground run the launcher exits to the terminal.
-- **Restart Quasar** restarts only the web worker under Bootstrap. Servers keep running.
-- **Save and stop all servers** saves and stops standalone servers and managed clusters, setting their goals to Off. Quasar stays online with a loader, elapsed time, per-target progress and a stopped count. A cluster is complete only after its normal save/drain sequence and verified Gateway stop. Failures stay visible until closed; processes are not force-killed. Observed-only clusters are excluded.
-
-If the web worker crashes, Bootstrap restarts it. If Bootstrap itself fails, the task restarts it (up to 10 times, 5 minutes apart).
+The installer grants access to the configured application and data directories.
+Grant the main virtual account access to any external worlds, runtime folders,
+backup paths or network resources before starting migrated servers. Existing task
+credentials cannot be transferred to a service without supplying credentials;
+this migration instead uses the selected passwordless virtual accounts.
 
 ## Where Quasar keeps its files
 
-Everything lives under the install root: the extracted `Quasar\` folder for an in-place install, or `-InstallDir`. The layout is the same as on Linux; the full table is in [Install on Linux](InstallLinux.md#where-quasar-keeps-its-files). The most asked-for paths:
-
-| Path under the install root | Contents |
-| --- | --- |
-| `appsettings.json` | Settings. Pages such as Security and Updates save their changes here. |
-| `rbac.json` | Role mappings. See [Access control](AccessControl.md). |
-| `Logs\quasar.log`, `Logs\discord.log` | Application logs. Under the Scheduled Task there is no visible console, so read these files. |
-| `Magnetars\<server>\` | Per-server definition, DS app data and saves, Magnetar config, history and analytics |
-| `ManagedRuntime\Tools\` | Downloaded Magnetar, SteamCMD, Space Engineers Dedicated Server and private .NET SDK |
-| `ManagedRuntime\WebService\<version>\` | Installed web UI worker releases |
-| `Updates\` | `active-release.json`, `appsettings.base.json`, staged updates |
-| `Backups\` | Configuration backup ZIPs |
-| `Diagnostics\` | Diagnostic capture and queues. See [Diagnostics](Diagnostics.md). |
-
-Back up the whole install root as one unit.
+The installer records application and data paths in protected metadata. The small
+`service-installation.json` in the application folder locates that record. Existing
+configuration, worlds, credentials and Data Protection keys are retained together.
+`Updates/operation.json` is the durable update status. The complete previous
+application is under `Updates/LauncherTransaction` in the application directory.
 
 ## Network ports
 
-The web UI listens on TCP `8080` on all interfaces by default (`Quasar:Host` `0.0.0.0`, `Quasar:Port` `8080` in `appsettings.json`). Each game server gets its own UDP game port, starting at `27016`, plus a Steam port (game port + 1000) and a Remote API port (game port + 2000). Neither the scripts nor Quasar add Windows Firewall rules. See [Install on Linux](InstallLinux.md#network-ports) and [Servers](Servers.md).
+The default UI/API port is 8080. Existing game and cluster ports are unchanged.
+Internal update health requires the installation token and a local connection.
+The installer does not add public firewall rules.
 
 ## Uninstall
 
-From an elevated PowerShell in the install directory:
-
 ```powershell
-.\uninstall.ps1          # stop and remove the Scheduled Task, keep all files
-.\uninstall.ps1 -Purge   # also delete the install directory
+.\uninstall.ps1
 ```
 
-| Parameter | Default | Effect |
-| --- | --- | --- |
-| `-TaskName <name>` | `Quasar` | Task to remove |
-| `-InstallDir <dir>` | the script's folder | Folder `-Purge` deletes |
-| `-Purge` | off | Delete the install directory, including all servers, saves, backups and logs inside it |
-
-The script stops the task if it is running, then unregisters it. If the task does not exist it prints `Scheduled task 'Quasar' not found; nothing to remove.` and continues. `-Purge` refuses the system drive root, `%SystemRoot%`, `%ProgramFiles%`, `%ProgramFiles(x86)%` and `%ProgramData%`. Managed game servers are detached processes, so use **Save and stop all servers** first if you want them stopped.
+This stops/removes the native pair and any retained migration task. Data remains
+unless `-Purge` is supplied. Stop game servers explicitly before destructive purge.
 
 ## Upgrading
 
-- Quasar updates itself from the Updates page. See [Updates](Updates.md). Your `appsettings.json` is kept.
-- When Bootstrap replaces itself on Windows, it starts the new launcher as a detached `Quasar.exe serve --quiet` process (with `--service` and `--headless` if the old one had them) and exits with code 0.
-- Running `install.ps1 -InstallDir <existing-root>` from a newly extracted zip copies every file of that zip into the install root, including the default `appsettings.json`. Save your `appsettings.json` first and put it back afterwards.
-- Rerun `install.ps1` to change task options; it replaces the task.
+Use **Update Quasar** or `Quasar.exe update --version <release>`. Inspect
+`update --status` and use `update --retry` after correcting a failure. The updater
+independently checks trusted release provenance and confirms the exact service PID
+and version before recording success. See [Updates](Updates.md).
 
 ### Move the install root
 
-Stop the Scheduled Task and the managed servers, copy the whole install root, then run `install.ps1 -InstallDir <new-root>` so the task starts Quasar from the new place. Blank or relative server paths follow the new root. Absolute overrides stay where they point. If an old `server.json` still contains absolute default paths, open the server and use **Edit Server -> Paths -> Use Managed Defaults**.
+Stop both services, preserve the complete application/data and keyring together,
+copy to the new locations and rerun installer repair with those paths and names.
+Verify native actions and health before deleting the old copy.
 
 ## Cluster machines
 
-Cluster nodes run Quasar.Host from `quasar-host-win-x64.zip` in its own folder with its own configuration. See [Cluster hosts](ClusterHosts.md).
+Host is bundled under `Host/` in the complete platform package. Cluster deployment
+and Host update ownership remain separate; application updates do not deploy remote
+changes. See [Cluster hosts](ClusterHosts.md).
 
 ## Common problems
 
-- `.NET 10 runtime is required before installing Quasar.`: install the .NET 10 runtime, open a new PowerShell and rerun. The message lists the runtimes it found.
-- `Run from an elevated PowerShell (Administrator) to register the scheduled task.`: start PowerShell with Run as Administrator. `uninstall.ps1` has the same check.
-- `install.ps1 supports Windows only.`: use `install.sh` on Linux.
-- `Existing publish output not found: <dir>`: `-NoBuild` was used in a source checkout without a publish output.
-- Rerunning `install.ps1` in place inside a populated install root copies the whole folder, including downloaded runtimes and saves, through a temporary folder under `%TEMP%` and back. Make sure the temp drive has enough free space, or stop the task and run the script from a freshly extracted zip with `-InstallDir`.
-- `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
-- The UI doesn't come up after a fresh install: Bootstrap hasn't been able to download the web worker from GitHub yet, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. Bootstrap retries a failed download on its own, 30 seconds after the first failure, then doubling up to every 10 minutes. When GitHub's anonymous API rate limit (60 requests an hour per public IP address) is used up, it waits until GitHub resets it, at most an hour, and then continues. A GitHub token in `QUASAR_GITHUB_TOKEN` (or `GITHUB_TOKEN`) skips the wait; see [Updates](Updates.md#github-token-for-update-checks). The Scheduled Task has no visible console, so stop the task and run `Quasar.exe serve` in a terminal to see the waits (`Failed downloading the Quasar web UI; retrying at <time> ...` or `GitHub's API rate limit is used up, ...`). Older launchers (1.3.1.27 and earlier) gave up after the first failure and needed a restart. See [Install on Linux](InstallLinux.md#common-problems) for the messages.
-- `Could not request Bootstrap shutdown. Check write access to the Quasar install directory.`: the task account cannot write to the install root. Give it write access.
+Read the persistent capability and operation messages on Updates. Missing service
+permissions, wrong accounts/actions, a stopped updater, checksum failures and merge
+conflicts prevent activation. The old application remains available. Linux fixtures
+do not validate Windows file locking; native Windows CI provides that coverage.
+See [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
 
 ## Sources
 - `README.md`
@@ -193,3 +177,23 @@ Cluster nodes run Quasar.Host from `quasar-host-win-x64.zip` in its own folder w
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
+
+- `Docs/QuasarUpdates.md`
+
+- `Shared/Updates/QuasarServiceInstallation.cs`
+
+- `Quasar.Updater/ConfigureInstallation.cs`
+
+- `Shared/Updates/GitHubUpdateTokenReader.cs`
+
+- `Shared/ServiceHosting/NativeServiceFailures.cs`
+
+- `Shared/Updates/NativeQuasarServices.cs`
+
+- `Docs/Installation.md`
+
+- `scripts/install-gui.ps1`
+
+- `scripts/Install.cmd`
+
+- `Shared/Updates/QuasarUpgradePath.cs`

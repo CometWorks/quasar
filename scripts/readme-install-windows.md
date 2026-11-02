@@ -1,65 +1,61 @@
 ## Install and run on Windows (x64)
 
-You downloaded **`quasar-installer-windows.zip`**. It contains one
-`Quasar\` folder with the Quasar launcher (`Quasar.exe`), the
-`install.ps1` / `uninstall.ps1` scripts, and a default `appsettings.json`. The
-steps below assume you have extracted the zip, for example:
+Extract **`quasar-win-x64.zip`**. It contains the complete Quasar application,
+UI assets, Host, installer and a small updater under `Updater\`.
 
-```powershell
-Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\Quasar
-```
+**Required upgrade order:** install and successfully start the full 1.4.1 migration
+package before 1.5 or later. A legacy worker-only update does not complete it.
+See [installation and migration](INSTALL.md).
+
+### Guided install
+
+Open **Install.cmd**, choose **Install**, and approve Windows UAC.
+Choose **Manual install** for terminal commands and custom settings. The updater
+is installed from this same package. See [installation](INSTALL.md) for defaults,
+desktop requirements and existing-installation migration.
 
 ### Run in the foreground
 
 ```powershell
-.\Quasar.exe serve
+.\Quasar.exe serve --foreground
 ```
 
-Quasar starts, opens <http://localhost:8080> in your browser, and prints log
-output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
-Quasar** action drains the web worker and fully stops Bootstrap, returning to
-the terminal. Run `.\Quasar.exe serve` again when you want the UI back.
-On first start the launcher downloads the Quasar web UI from GitHub and caches
-it locally. The listening port is configurable — see [Configuration](Docs/Configuration.md).
+The UI is bundled and available at <http://localhost:8080>. A separate UI download
+is unnecessary. Foreground updates stage safely and need explicit manual restart.
+Use **Shutdown Quasar** to preserve running game servers before manual activation.
 
-### Install as a background service (Scheduled Task)
+### Install native services
 
-Install the **.NET 10 runtime** before running `install.ps1`.
-Packaged Quasar can run with the runtime alone. When an administrator installs a
-source-built QuasarHub UI plugin, Quasar uses a suitable .NET 10 SDK on `PATH`
-or offers a confirmed download of its pinned private SDK. The administrator can
-cancel and install the SDK with WinGet or another package manager instead.
-
-Run from an **elevated PowerShell** (Administrator):
+From an elevated PowerShell:
 
 ```powershell
 .\install.ps1 -Start
+Get-Service Quasar, QuasarUpdater
 ```
 
-This installs Quasar in the extracted folder, keeps Quasar state in the same
-folder by default, and registers a **Scheduled Task** named `Quasar` that starts
-the launcher at boot and restarts it on failure. The web UI is then served at
-<http://localhost:8080>. Pass `-InstallDir <dir>` to copy it elsewhere, or
-`-User <account>` to run as a specific service account instead of the current user.
-The UI **Shutdown Quasar** action drains the web worker and stops Bootstrap
-with exit code `0`, so the task completes without restarting it. Start the task
-to bring the UI and supervisor back.
+The installer uses dedicated `NT SERVICE\Quasar` and `NT SERVICE\QuasarUpdater`
+virtual accounts, with no password. It grants data permissions and narrowly scoped
+main-service control to the updater. `-InstallDir`, `-DataDir`, `-ServiceName` and
+`-UpdaterServiceName` support custom installations.
 
-Manage the task:
+For an old Scheduled Task installation, save worlds and stop the old task and
+servers first. Then run the new package's installer with `-MigrateScheduledTask
+-TaskName <old name> -Start`. A complete application backup is retained; migration
+failure restores it and the old task's enabled state. Do not run old/new supervision
+together. See [migration](Docs/QuasarUpdates.md#migrating-existing-installations).
+
+### Updates and uninstall
+
+Use an elevated shell or an account with installation/data access:
 
 ```powershell
-Get-ScheduledTask -TaskName Quasar
-Start-ScheduledTask -TaskName Quasar
-Stop-ScheduledTask  -TaskName Quasar
+.\Quasar.exe update --version <release>
+.\Quasar.exe update --status
+.\Quasar.exe update --retry
+.\uninstall.ps1
 ```
 
-### Uninstall
-
-```powershell
-.\uninstall.ps1         # stop and remove the Scheduled Task
-.\uninstall.ps1 -Purge  # also delete the install directory
-```
-
-For release assets, the auto-updater flow, and advanced configuration see the
-[Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) guide.
+`-RepairSupervision` repairs services after files have already been replaced while
+stopped. The updater does not replace its own files during an application update.
+Uninstall preserves data unless `-Purge` is supplied. See
+[Windows deployment](Docs/WindowsDeploymentAndUpdates.md).

@@ -168,6 +168,16 @@ public sealed class QuasarShutdownService
         progress?.Report("Restarting Quasar worker…");
         await _supervisor.BeginLauncherDrainAsync();
 
+        if (Quasar.Updates.QuasarServiceInstallation.Current is not null && Quasar.Updates.BootstrapUpdateSupport.Read() is { CanRestart: true } capability && capability.ProcessId == Environment.ProcessId)
+        {
+            using var lease = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(CancellationToken.None);
+            var previous = Quasar.Updates.QuasarUpdateJournal.Read();
+            if (previous?.Stage is Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Ready or Quasar.Updates.UpdateStage.Restarting)
+                throw new InvalidOperationException("An update is already pending. Wait for its outcome before restarting Quasar.");
+            Quasar.Updates.QuasarUpdateJournal.Write(new Quasar.Updates.QuasarUpdateOperation { Version = _options.Version,
+                Stage = Quasar.Updates.UpdateStage.Ready, RestartOnly = true, Message = "Application restart requested; waiting for the updater service." });
+            return;
+        }
         if (TryRequestLauncherWorkerRestart())
         {
             ScheduleRestartFallback();
@@ -187,7 +197,7 @@ public sealed class QuasarShutdownService
         progress?.Report("Shutting down Quasar…");
         _logger.LogInformation("Quasar shutdown requested; preserving managed server state before stopping.");
         await _supervisor.BeginLauncherDrainAsync();
-        RequestLauncherShutdown();
+        if (Quasar.Updates.QuasarServiceInstallation.Current is null) RequestLauncherShutdown();
         _logger.LogInformation("Managed server state saved; stopping the Quasar web worker.");
         _lifetime.StopApplication();
     }
@@ -214,6 +224,7 @@ public sealed class QuasarShutdownService
 
     private bool TryRequestLauncherWorkerRestart()
     {
+        if (Quasar.Updates.QuasarServiceInstallation.Current is not null) return false;
         if (string.IsNullOrWhiteSpace(_options.LauncherToken))
             return false;
 

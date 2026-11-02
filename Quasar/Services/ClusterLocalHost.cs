@@ -26,6 +26,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private readonly ClusterHostInstaller installer;
     private readonly ClusterHostTunnels tunnels;
     private readonly WebServiceOptions options;
+    private readonly DedicatedServerSupervisor? supervisor;
     private readonly ILogger<ClusterLocalHost> logger;
     private readonly string root;
     private readonly bool supported;
@@ -38,16 +39,17 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private string? error;
 
     public ClusterLocalHost(ClusterHostCatalog hosts, ClusterCredentialStore credentials, ClusterHostInstaller installer,
-        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger)
+        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, DedicatedServerSupervisor supervisor)
         : this(hosts, credentials, installer, tunnels, options, logger, Path.Combine(MagnetarPaths.GetQuasarDirectory(), "LocalHost"),
             OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64
-            && Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") != "true") { }
+            && Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") != "true", supervisor) { }
 
     internal ClusterLocalHost(ClusterHostCatalog hosts, ClusterCredentialStore credentials, ClusterHostInstaller installer,
-        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, string root, bool supported)
+        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, string root, bool supported, DedicatedServerSupervisor? supervisor = null)
     {
         (this.hosts, this.credentials, this.installer, this.tunnels, this.options, this.logger, this.root, this.supported)
             = (hosts, credentials, installer, tunnels, options, logger, root, supported);
+        this.supervisor = supervisor;
         if (supported) tunnels.EnsureLocalHostConnectedAsync = EnsureConnectedAsync;
         if (!supported)
             status = OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64
@@ -330,7 +332,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         if (await gate.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None)) gate.Release();
         if (ReadPid() is not { } running) return;
         bool busy = HasRunningClusters();
-        if (busy && options.PreserveManagedServersOnShutdown)
+        if (busy && (supervisor?.PreserveServersOnShutdown ?? options.PreserveManagedServersOnShutdown))
         {
             logger.LogInformation("Leaving the local Host executor running for its clusters (PID {Pid}).", running.Pid);
             return;

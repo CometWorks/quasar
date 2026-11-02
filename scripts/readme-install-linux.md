@@ -1,78 +1,64 @@
 ## Install and run on Linux (x64)
 
-You downloaded **`quasar-installer-linux.tar.gz`**. It contains one
-`Quasar/` folder with the Quasar launcher (`Quasar`), the
-`install.sh` / `uninstall.sh` scripts, and a default `appsettings.json`.
+Extract **`quasar-linux-x64.tar.gz`**. It contains the complete Quasar application,
+UI assets, Host and a separate updater under `Updater/`.
+
+**Required upgrade order:** install and successfully start the full 1.4.1 migration
+package before 1.5 or later. A legacy worker-only update does not complete it.
+See [installation and migration](INSTALL.md).
+
+### Guided install
+
+Open **Install.desktop**, choose **Install**, and approve polkit.
+Choose **Manual install** for terminal commands and custom settings. The updater
+is installed from this same package. See [installation](INSTALL.md) for defaults,
+desktop requirements and existing-installation migration.
 
 ### Before you start
 
-Quasar runs on Linux x64 with glibc 2.38 or newer, such as Debian 13 or Ubuntu
-24.04. It needs the .NET 10 runtime (`install.sh` offers to install it), the CA
-certificates for its HTTPS downloads, and the 32-bit libraries of SteamCMD,
-which downloads the Dedicated Server. On Debian and Ubuntu:
+Use Linux x64 with glibc 2.38 or newer and the .NET 10 runtime. Game provisioning
+also needs CA certificates and SteamCMD's 32-bit libraries; on Debian/Ubuntu:
 
 ```bash
-sudo apt update && sudo apt install ca-certificates lib32gcc-s1
+sudo apt install ca-certificates lib32gcc-s1
 ```
 
-See the prerequisites in
-[Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md#prerequisites).
+A .NET 10 SDK is needed for source-built UI plugins; Quasar can offer its pinned
+private SDK when no suitable SDK is installed.
 
 ### Run in the foreground
 
 ```bash
-tar -xzf quasar-installer-linux.tar.gz
-cd Quasar
-./Quasar serve
+./Quasar serve --foreground
 ```
 
-Quasar starts, opens `http://localhost:8080` in your browser, and prints log
-output to the console. Press `Ctrl+C` to stop the launcher. The UI **Shutdown
-Quasar** action drains the web worker and fully stops Bootstrap, returning to
-the terminal. Run `./Quasar serve` again when you want the UI back. On
-first start the launcher downloads the Quasar web UI from GitHub and caches it
-locally. The listening port is configurable — see [Configuration](Docs/Configuration.md).
+The UI is bundled and opens at <http://localhost:8080>. Application staging works
+without services; activation then requires stopping Quasar, `update --retry` and
+manual restart. **Shutdown Quasar** preserves running servers. Ctrl+C follows the
+configured shutdown policy.
 
 ### Install as a background service (systemd)
 
-Install the **.NET 10 runtime** before running `install.sh`. Packaged Quasar can
-run with the runtime alone, but QuasarHub UI plugin install/update compiles
-source with `dotnet build` and needs the **.NET 10 SDK**. When an administrator
-installs one of those plugins, Quasar first uses a suitable SDK on `PATH`. If no
-system SDK is available, the UI can download a pinned private SDK into Quasar's
-managed data directory after confirmation, or the administrator can cancel and
-install the SDK through the system package manager.
-
 ```bash
-mkdir -p ~/.local/share/Quasar
-tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
-~/.local/share/Quasar/install.sh --start
+./install.sh --start
+systemctl --user status quasar.service quasar-updater.service
 ```
 
-This installs Quasar in the extracted folder and starts the user
-`quasar.service`. Pass `--system` with `sudo` for a machine-wide service or
-`--install-dir <dir>` to install Quasar elsewhere. It also enables
-`quasar-clusters.service`, which saves the clusters on this PC at logout or
-shutdown. The web UI is then served at `http://localhost:8080`. In the installed user service, the UI **Shutdown
-Quasar** action drains the web worker and stops Bootstrap with exit code `0`.
-The installed `Restart=on-failure` policy leaves the service inactive. Start the
-service to bring the UI and supervisor back:
+The default is a user service pair in the extracted directory. For system units
+use `sudo ./install.sh --system --user <account> --start`. Preserve your existing
+service name, account, path and scope during migration. System updater control uses
+a scoped polkit rule; it does not need root at runtime. The clusters shutdown unit
+continues to save/stop local clusters at logout or machine shutdown.
+
+### Updates and uninstall
 
 ```bash
-systemctl --user status  quasar.service
-systemctl --user stop    quasar.service
-systemctl --user restart quasar.service
+./Quasar update --version <release>
+./Quasar update --status
+./Quasar update --retry
+./uninstall.sh
 ```
 
-### Uninstall
-
-```bash
-~/.local/share/Quasar/uninstall.sh          # stop and remove the user service
-~/.local/share/Quasar/uninstall.sh --purge  # also delete the install folder
-```
-
-The uninstall script saves and stops the clusters on this PC, then stops
-`quasar.service` and the local Host executor before removing them.
-
-For release assets, the auto-updater flow, and advanced configuration see the
-[Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) guide.
+Read [updates and migration](Docs/QuasarUpdates.md) before replacing a legacy
+Bootstrap installation. `--repair-supervision` repairs already copied files.
+Uninstall retains data unless `--purge` is supplied.

@@ -78,7 +78,7 @@ public sealed class AutomaticUpdateTests
             using var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
             var options = new QuasarUpdateOptions();
             using var updater = new QuasarUpdateService(new NoNetwork(), options,
-                new WebServiceOptions { Version = "1.3.0", BootstrapVersion = "1.3.0", LauncherToken = "test" }, credentials,
+                new WebServiceOptions { Version = "1.3.0", BootstrapVersion = "1.3.0", LauncherToken = "test", BootstrapUpdateUnavailableReason = null }, credentials,
                 NullLogger<QuasarUpdateService>.Instance);
             await updater.SetAutoApplyUpdatesAsync(true);
             await updater.SetAutoUpdateUiPluginsAsync(true);

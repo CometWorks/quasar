@@ -29,6 +29,7 @@
     <Reference Include="VRage.Library" HintPath="$(DS64)/VRage.Library.dll" Private="True" />
     <Reference Include="VRage.Game" HintPath="$(DS64)/VRage.Game.dll" Private="True" />
     <Reference Include="Sandbox.Common" HintPath="$(DS64)/Sandbox.Common.dll" Private="True" />
+    <ProjectReference Include="../Quasar.Updater/Quasar.Updater.csproj" Aliases="Updater" />
     <!-- Bootstrap and worker both compile the shared networking types. -->
     <ProjectReference Include="..\Quasar.Bootstrap\Quasar.Bootstrap.csproj" Aliases="Bootstrap" />
   </ItemGroup>

@@ -4,12 +4,12 @@
 
 Grab the latest release from GitHub. Each release contains platform archives:
 
-- **Linux** — `quasar-installer-linux.tar.gz`
-- **Windows** — `quasar-installer-windows.zip`
+- **Linux** — `quasar-linux-x64.tar.gz`
+- **Windows** — `quasar-win-x64.zip`
 
-For cluster machines, also download `quasar-host-linux-x64.tar.gz` or
-`quasar-host-win-x64.zip`. Extract the Host into a dedicated directory; it has its own
-configuration and lifecycle. See [Host packaging](BuildingAndDevelopment.md#cluster-host-release-package).
+For cluster machines, extract `Host/` from the complete platform package into a
+dedicated directory. Host has its own configuration and lifecycle. See
+[Host packaging](BuildingAndDevelopment.md#cluster-host-release-package).
 
 Quasar on Linux needs glibc 2.38 or newer (Debian 13, Ubuntu 24.04), the .NET 10
 runtime (`install.sh` offers to install it), the CA certificates and the 32-bit
@@ -21,12 +21,24 @@ sudo apt update && sudo apt install ca-certificates lib32gcc-s1
 
 See [Prerequisites](LinuxDeploymentAndUpdates.md#prerequisites).
 
+**Required upgrade order:** complete the 1.4.1 migration and start it successfully
+before 1.5 or later. A staged legacy worker does not satisfy the requirement. See
+[the migration prerequisite](QuasarUpdates.md#required-141-migration-before-15).
+
+## Guided service installation
+
+Extract the complete package, then open **Install.cmd** on Windows or
+**Install.desktop** on Linux. Choose **Install** and approve UAC (Windows) or
+polkit (Linux). Choose **Manual install** for terminal commands and custom settings.
+The main application and updater are installed together. See
+[installation](Installation.md) for defaults, prerequisites and migration.
+
 ## Run from the terminal (foreground)
 
 **Linux**
 
 ```bash
-tar -xzf quasar-installer-linux.tar.gz
+tar -xzf quasar-linux-x64.tar.gz
 cd Quasar
 ./Quasar serve
 ```
@@ -34,7 +46,7 @@ cd Quasar
 **Windows** (PowerShell or cmd)
 
 ```cmd
-Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
+Expand-Archive quasar-win-x64.zip -DestinationPath C:\quasar
 cd C:\quasar\Quasar
 Quasar.exe serve
 ```
@@ -42,7 +54,7 @@ Quasar.exe serve
 Quasar starts, opens `http://localhost:8080` in your browser, and prints log
 output to the console. Press `Ctrl+C` to stop the launcher; on Linux a SIGTERM
 (`kill <pid>`) stops it the same way. The UI **Shutdown
-Quasar** action drains the web worker and fully stops Bootstrap, returning to
+Quasar** action preserves game servers and stops Quasar, returning to
 the terminal. Run `./Quasar serve` or `Quasar.exe serve` again when you want
 the UI back. The web UI port is configurable — see
 [Configuration](Configuration.md).
@@ -215,7 +227,7 @@ private SDK does not modify `PATH` or the system package database.
 
 ```bash
 mkdir -p ~/.local/share/Quasar
-tar -xzf quasar-installer-linux.tar.gz -C ~/.local/share/Quasar --strip-components=1
+tar -xzf quasar-linux-x64.tar.gz -C ~/.local/share/Quasar --strip-components=1
 ~/.local/share/Quasar/install.sh --start        # installs in place and starts quasar.service
 ```
 
@@ -226,7 +238,7 @@ folder as the install root, and writes that path to the unit as
 `quasar-clusters.service`, which saves the clusters on this PC at logout or
 shutdown.
 When Quasar is running from the installed user service, the UI **Shutdown
-Quasar** action drains the web worker and stops Bootstrap with exit code `0`.
+Quasar** action preserves game servers and stops the unified application successfully.
 The installed `Restart=on-failure` policy leaves the service inactive. Managed
 servers stay detached. Start the service to bring the UI and supervisor back.
 
@@ -251,30 +263,53 @@ The uninstall script saves and stops the clusters on this PC, then stops
 For release assets, auto-update behaviour, and advanced configuration see
 [Linux Deployment & Updates](LinuxDeploymentAndUpdates.md).
 
-**Windows — Task Scheduler**
+**Windows native services**
 
-Run from an **elevated PowerShell**:
+Extract **`quasar-win-x64.zip`**. It contains the complete Quasar application,
+UI assets, Host, installer and a small updater under `Updater\`.
 
-```powershell
-Expand-Archive quasar-installer-windows.zip -DestinationPath C:\quasar
-cd C:\quasar\Quasar
-.\install.ps1 -Start   # installs in place and starts the task
-```
-
-The task starts at boot, restarts on failure, and runs as the installing user by
-default. Quasar state is stored in the same folder by default. Pass
-`-InstallDir <dir>` to copy Quasar elsewhere, or `-User <account>` to run as a
-specific service account instead.
-The UI **Shutdown Quasar** action drains the web worker and stops Bootstrap
-successfully, so the Scheduled Task completes without restarting it. Run
-`Start-ScheduledTask -TaskName Quasar` to bring the UI and supervisor back.
-
-To remove:
+### Run in the foreground
 
 ```powershell
-.\uninstall.ps1         # stop and remove the task
-.\uninstall.ps1 -Purge  # also delete the install directory
+.\Quasar.exe serve --foreground
 ```
 
-For release assets, auto-update behaviour, and advanced configuration see
-[Windows Deployment & Updates](WindowsDeploymentAndUpdates.md).
+The UI is bundled and available at <http://localhost:8080>. A separate UI download
+is unnecessary. Foreground updates stage safely and need explicit manual restart.
+Use **Shutdown Quasar** to preserve running game servers before manual activation.
+
+### Install native services
+
+From an elevated PowerShell:
+
+```powershell
+.\install.ps1 -Start
+Get-Service Quasar, QuasarUpdater
+```
+
+The installer uses dedicated `NT SERVICE\Quasar` and `NT SERVICE\QuasarUpdater`
+virtual accounts, with no password. It grants data permissions and narrowly scoped
+main-service control to the updater. `-InstallDir`, `-DataDir`, `-ServiceName` and
+`-UpdaterServiceName` support custom installations.
+
+For an old Scheduled Task installation, save worlds and stop the old task and
+servers first. Then run the new package's installer with `-MigrateScheduledTask
+-TaskName <old name> -Start`. A complete application backup is retained; migration
+failure restores it and the old task's enabled state. Do not run old/new supervision
+together. See [migration](QuasarUpdates.md#migrating-existing-installations).
+
+### Updates and uninstall
+
+Use an elevated shell or an account with installation/data access:
+
+```powershell
+.\Quasar.exe update --version <release>
+.\Quasar.exe update --status
+.\Quasar.exe update --retry
+.\uninstall.ps1
+```
+
+`-RepairSupervision` repairs services after files have already been replaced while
+stopped. The updater does not replace its own files during an application update.
+Uninstall preserves data unless `-Purge` is supplied. See
+[Windows deployment](WindowsDeploymentAndUpdates.md).
