@@ -292,7 +292,9 @@ If an update gets stuck, **Abandon update** (`./Quasar cluster update-abandon NA
 
 If nodes keep failing at startup, for example because a plugin throws in its preload hook, the update's last error says so as soon as the Gateway stops respawning them: which nodes, the exception they reported and where the node log is on the Host. When all of them fail, Quasar gives up 12 minutes after Starting began, once the Gateway's retry has failed too, and reverts from the pre-update backup. Then stage the fixed build and apply it as usual.
 
-To stage a fixed build sooner, abandon the update. Applying the fixed build then stops in Stopping, because a Gateway whose World Authority never ran lists `global` as unsaved, and the update's last error says so at once. Abandon that update too and apply the build with **Update despite the recorded dirty shutdown**. Nothing is lost: the failed deployment never ran, and the world comes from its newest cataloged saves.
+To stage a fixed build sooner, abandon the update, then stage and apply the fixed build as usual. The world comes from its newest cataloged saves, since the failed deployment never ran.
+
+With a cluster package older than 0.1.26, applying the fixed build stops in Stopping, because a Gateway whose World Authority never ran lists `global` as unsaved, and the update's last error says so at once. Abandon that update too and apply the build with **Update despite the recorded dirty shutdown**. Nothing is lost.
 
 When Quasar gives up:
 
