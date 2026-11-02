@@ -2,7 +2,7 @@
 Type=Application
 Name=Install Quasar
 Comment=Install Quasar and its updater, or view manual installation commands
-Exec=/bin/bash -c "exec /bin/bash \\"\\$(dirname -- \\"\\$1\\")/install-gui.sh\\"" quasar-install %k
+Exec=/bin/bash -c "exec /bin/bash \\"\\$(dirname -- \\"\\${GIO_LAUNCHED_DESKTOP_FILE:-\\$1}\\")/install-gui.sh\\"" quasar-install %k
 Icon=system-software-install
 Terminal=false
 Categories=System;

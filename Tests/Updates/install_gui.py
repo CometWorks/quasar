@@ -47,13 +47,18 @@ class GuidedInstaller(unittest.TestCase):
     def test_desktop_entry_resolves_its_extracted_package(self):
         desktop = self.package / 'Install.desktop'
         shutil.copy2(REPO / 'scripts/Install.desktop', desktop)
-        result = subprocess.run(['gio', 'launch', str(desktop)], env=dict(self.env, CHOICE='2'), capture_output=True, text=True, timeout=10)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        deadline = time.monotonic()+5
-        while not (self.root / 'dialogs').exists() and time.monotonic() < deadline:
-            time.sleep(.05)
-        self.assertTrue((self.root / 'dialogs').exists(), result.stderr)
-        self.assertFalse((self.root / 'calls').exists())
+        original = desktop.read_text()
+        # Older GIO may omit %k; its launch environment still carries the filename.
+        for entry in [original, original.replace('quasar-install %k', 'quasar-install')]:
+            desktop.write_text(entry)
+            (self.root / 'dialogs').unlink(missing_ok=True)
+            result = subprocess.run(['gio', 'launch', str(desktop)], env=dict(self.env, CHOICE='2'), capture_output=True, text=True, timeout=10)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            deadline = time.monotonic()+5
+            while not (self.root / 'dialogs').exists() and time.monotonic() < deadline:
+                time.sleep(.05)
+            self.assertTrue((self.root / 'dialogs').exists(), result.stderr)
+            self.assertFalse((self.root / 'calls').exists())
 
     def test_native_elevation_preserves_literal_paths_and_user(self):
         result = self.run_gui()
