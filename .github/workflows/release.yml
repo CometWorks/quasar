@@ -390,13 +390,18 @@ jobs:
             echo "ERROR: expected quasar-linux-x64.tar.gz root directory to be Quasar; found: $roots" >&2
             exit 1
           fi
+          expected="$(artifacts/linux/publish/Quasar --version)"
+          actual="$(tar -xOzf artifacts/linux/quasar-linux-x64.tar.gz Quasar/release.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Package identity $actual differs from application identity $expected" >&2
+            exit 1
+          fi
 
       - name: Upload Linux archives
         uses: actions/upload-artifact@v4
         with:
           name: quasar-linux
           path: |
-            artifacts/linux/quasar-web-linux-x64.tar.gz
             artifacts/linux/quasar-linux-x64.tar.gz
             artifacts/linux/quasar-symbols-linux-x64.zip
 
@@ -567,6 +572,9 @@ jobs:
                 ForEach-Object { ($_.FullName -replace '\\', '/').Split('/')[0] } |
                 Sort-Object -Unique
             )
+            $identityEntry = $zip.GetEntry('Quasar/release.json')
+            $reader = [IO.StreamReader]::new($identityEntry.Open())
+            try { $identity = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
           }
           finally {
             $zip.Dispose()
@@ -575,12 +583,14 @@ jobs:
             throw "expected quasar-win-x64.zip root directory to be Quasar; found: $($roots -join ', ')"
           }
 
+          $expected = & 'artifacts/windows/publish/Quasar.exe' --version
+          if ($LASTEXITCODE -or $identity.version -ne $expected.Trim()) { throw 'Package release identity differs from application identity.' }
+
       - name: Upload Windows archives
         uses: actions/upload-artifact@v4
         with:
           name: quasar-windows
           path: |
-            artifacts/windows/quasar-web-win-x64.zip
             artifacts/windows/quasar-win-x64.zip
             artifacts/windows/quasar-symbols-win-x64.zip
 
@@ -601,11 +611,6 @@ jobs:
           set -euo pipefail
           mkdir -p release
           assets=(quasar-linux-x64.tar.gz quasar-win-x64.zip)
-          # Only 1.4.1 publishes the old worker channel. Old Bootstrap must select
-          # the bridge instead of jumping directly into the incompatible 1.5 layout.
-          if [[ '${{ needs.metadata.outputs.version }}' == 1.4.1 || '${{ needs.metadata.outputs.version }}' == 1.4.1.* || '${{ needs.metadata.outputs.version }}' == 1.4.1-* ]]; then
-            assets+=(quasar-web-linux-x64.tar.gz quasar-web-win-x64.zip)
-          fi
           for asset in "${assets[@]}"; do
             found="$(find dist -type f -name "$asset" -print -quit)"
             if [ -z "$found" ]; then
@@ -659,9 +664,9 @@ jobs:
 
 
 
-            ## Complete Quasar packages
+            ## Quasar 1.5
 
-            The 1.4.1 release line provides legacy `quasar-web-*` bridge assets; later releases omit that channel and cleanup retains the latest full 1.4.1 bridge; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
+            This release provides only the two complete platform packages. Legacy `quasar-web-*` assets remain exclusively on the retained full 1.4.1 migration release; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
           files: |
             release/*
 

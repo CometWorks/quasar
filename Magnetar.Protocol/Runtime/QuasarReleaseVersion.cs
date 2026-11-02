@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Reflection;
 using System.Text.RegularExpressions;
 
@@ -49,19 +48,11 @@ public static class QuasarReleaseVersion
         if (!match.Success)
             return value.StartsWith("v", StringComparison.OrdinalIgnoreCase) ? value.Substring(1) : value;
 
-        var core = NormalizeCore(match.Groups["core"].Value);
+        // Update/package identities retain the build component, including zero.
+        var core = match.Groups["core"].Value;
         var prerelease = match.Groups["pre"].Success ? match.Groups["pre"].Value : string.Empty;
 
         return string.IsNullOrWhiteSpace(prerelease) ? core : $"{core}-{prerelease}";
-    }
-
-    private static string NormalizeCore(string core)
-    {
-        var parts = core.Split('.');
-        if (parts.Length == 4 && parts[3] == "0")
-            parts = parts.Take(3).ToArray();
-
-        return string.Join(".", parts);
     }
 
     private static bool TryParse(string value, out ReleaseVersion version)

@@ -37,6 +37,17 @@ public sealed class ReliableUpdateTests : IDisposable
     }
 
     [Theory]
+    [InlineData("v1.4.1.0", "1.4.1.0")]
+    [InlineData("v1.4.1.42", "1.4.1.42")]
+    [InlineData("pr-342/v1.4.1.0-pr.342", "1.4.1.0-pr.342")]
+    public void UpdateIdentityRetainsTheCompleteBuildVersion(string tag, string expected)
+    {
+        Assert.Equal(expected, QuasarReleaseVersion.Normalize(tag));
+        Assert.True(QuasarReleaseVersion.IsNewer("1.4.1.1", "1.4.1.0"));
+        Assert.False(QuasarReleaseVersion.IsNewer("1.4.1.0", "1.4.1"));
+    }
+
+    [Theory]
     [InlineData("1.5.0")]
     [InlineData("1.5.0-rc.1")]
     [InlineData("1.6.0.2")]
@@ -48,7 +59,7 @@ public sealed class ReliableUpdateTests : IDisposable
         Assert.False(QuasarUpgradePath.IsCompleted(_root));
         File.WriteAllText(Path.Combine(_root, LauncherReplacement.ManifestName), "Quasar\n");
         File.WriteAllText(Path.Combine(_root, "release.json"), "{\"version\":\"1.4.1.0\",\"updaterProtocol\":1}");
-        QuasarUpgradePath.RecordHealthy(_root, _root, "1.4.1");
+        QuasarUpgradePath.RecordHealthy(_root, _root, "1.4.1.0");
         Assert.True(QuasarUpgradePath.IsCompleted(_root));
         QuasarUpgradePath.EnsureAllowed(target, _root);
     }

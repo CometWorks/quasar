@@ -8,6 +8,11 @@ of the full manual package) records `Updates/migration-1.4.1.json`. A staged leg
 web worker is insufficient. Keep the receipt with the data directory. Missing or
 invalid completion evidence blocks later staging, installation and startup.
 
+Quasar 1.5 builds and publishes only the complete Linux and Windows platform
+packages. They include the unified application, updater, Host and guided/manual
+installers. The retained 1.4.1 release supplies the legacy worker bridge assets;
+no worker-only 1.5 archive is generated.
+
 ## What gets updated and by whom
 
 | Component | Source | Who checks | Who installs |
@@ -281,6 +286,11 @@ Dedicated Server downloads and validation report SteamCMD percentages as they ha
 When SteamCMD provides no percentage, the operation loader shows the current stage
 and elapsed time. First-time preparation can take several minutes.
 
+Release package metadata uses the application's reported version, including
+four-part CI build identities, including a final `.0`. The main UI shows the
+three-part base; Updates keeps the full identity. NuGet's internal version is separate and must not
+be used to identify the running release or its 1.4.1 migration receipt.
+
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
@@ -355,3 +365,7 @@ and elapsed time. First-time preparation can take several minutes.
 - `Docs/Installation.md`
 
 - `Shared/Updates/QuasarUpgradePath.cs`
+
+- `Docs/BuildingAndDevelopment.md`
+
+- `Docs/ReleaseNotes1.5.md`

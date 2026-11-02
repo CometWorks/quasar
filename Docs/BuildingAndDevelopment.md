@@ -7,9 +7,26 @@ Quasar is distributed under `AGPL-3.0-only`. See [Licensing](Licensing.md) for
 the MIT archive, source availability, and distribution requirements. Shared
 `Directory.Build.props` metadata identifies the license and copies `LICENSE`,
 `NOTICE`, and `LICENSING.md` beside build and publish outputs, including
-single-file apps. Linux and Windows packaging retains these files in application,
-migration bridge, and symbols archives. The GHCR image inherits them from the platform
+single-file apps. Linux and Windows 1.5 packaging retains these files in application
+and symbols archives. Legacy worker bridges are built only by the retained 1.4.1
+release line. The GHCR image inherits them from the platform
 archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license label.
+
+The platform packagers write `release.json` from the published application's
+`--version` output. CI compares both identities before uploading archives.
+NuGet's build version is separate: a CI release such as `1.4.1.42` may build with
+NuGet version `1.4.1-42`, but its package and runtime identities stay `1.4.1.42`.
+Source installation follows the same rule so health checks and migration receipts
+use the version the application actually reports. The main UI shows only the
+three-part base, such as `1.4.1`; Updates, package metadata and health checks keep
+the full build identity, including a final `.0` in `1.4.1.0`.
+
+Linux installer fixtures (`python3 Tests/Updates/install_gui.py`) launch desktop
+entries through GIO's filename-aware desktop-file API using inert dialog/elevation
+commands. The tests need system Python's `gi` module (`python3-gi` and
+`gir1.2-glib-2.0` on Ubuntu). Older `gio launch` CLI versions load an anonymous key
+file and lose `%k` and `GIO_LAUNCHED_DESKTOP_FILE`, so they do not represent a normal
+file-manager launch. These fixtures never open a real installer or install services.
 
 ## Projects
 
