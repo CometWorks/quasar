@@ -7,8 +7,9 @@ Quasar is distributed under `AGPL-3.0-only`. See [Licensing](Licensing.md) for
 the MIT archive, source availability, and distribution requirements. Shared
 `Directory.Build.props` metadata identifies the license and copies `LICENSE`,
 `NOTICE`, and `LICENSING.md` beside build and publish outputs, including
-single-file apps. Linux and Windows packaging retains these files in application,
-migration bridge, and symbols archives. The GHCR image inherits them from the platform
+single-file apps. Linux and Windows 1.5 packaging retains these files in application
+and symbols archives. Legacy worker bridges are built only by the retained 1.4.1
+release line. The GHCR image inherits them from the platform
 archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license label.
 
 The platform packagers write `release.json` from the published application's

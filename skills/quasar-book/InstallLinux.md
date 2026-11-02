@@ -16,7 +16,7 @@ invalid completion evidence blocks later staging, installation and startup.
 
 Download `quasar-linux-x64.tar.gz` and verify `SHA256SUMS`. Its `Quasar/` folder
 contains the unified application, bundled UI, Host, updater and installers. Legacy
-web archives remain only for migration; old Bootstrap launcher asset names are
+web archives remain only on the retained 1.4.1 migration release; old Bootstrap launcher asset names are
 absent so old launchers cannot self-activate the new layout. First UI startup does
 not download a separate worker. Game/runtime provisioning still needs network.
 
@@ -306,3 +306,5 @@ cluster deployment and remote update ownership stay separate. See
 - `scripts/Install.desktop`
 
 - `Shared/Updates/QuasarUpgradePath.cs`
+
+- `Docs/ReleaseNotes1.5.md`

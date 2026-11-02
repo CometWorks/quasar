@@ -8,6 +8,11 @@ of the full manual package) records `Updates/migration-1.4.1.json`. A staged leg
 web worker is insufficient. Keep the receipt with the data directory. Missing or
 invalid completion evidence blocks later staging, installation and startup.
 
+Quasar 1.5 builds and publishes only the complete Linux and Windows platform
+packages. They include the unified application, updater, Host and guided/manual
+installers. The retained 1.4.1 release supplies the legacy worker bridge assets;
+no worker-only 1.5 archive is generated.
+
 ## What gets updated and by whom
 
 | Component | Source | Who checks | Who installs |
@@ -362,3 +367,5 @@ be used to identify the running release or its 1.4.1 migration receipt.
 - `Shared/Updates/QuasarUpgradePath.cs`
 
 - `Docs/BuildingAndDevelopment.md`
+
+- `Docs/ReleaseNotes1.5.md`

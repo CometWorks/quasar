@@ -3,6 +3,9 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'Directory.Build.props'
+      - 'scripts/package-linux-release.sh'
+      - 'scripts/package-windows-release.ps1'
       - 'Shared/Updates/**'
       - 'Quasar.Bootstrap/**'
       - 'Quasar.Updater/**'

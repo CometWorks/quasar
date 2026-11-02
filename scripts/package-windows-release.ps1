@@ -2,7 +2,6 @@
 # Windows equivalent of scripts/package-linux-release.sh.
 #
 # Produces the win-x64 release artifacts under artifacts/windows:
-#   - quasar-web-win-x64.zip   (temporary legacy worker migration bridge)
 #   - quasar-win-x64.zip (unified application, updater, Host and installers)
 #   - quasar-symbols-win-x64.zip (portable PDBs, managed modules, source/hash manifest)
 #   - SHA256SUMS               (sha256 of all archives, lowercase, two-space separated)
@@ -23,9 +22,8 @@ $Configuration = if ($env:CONFIGURATION) { $env:CONFIGURATION } else { 'Release'
 $Runtime = if ($env:RUNTIME) { $env:RUNTIME } else { 'win-x64' }
 $Version = if ($env:VERSION) { $env:VERSION } else { '' }
 $DefaultAssemblyFileVersion = '1.0.0'
-$WebArchiveName = 'quasar-web-win-x64.zip'
-$InstallerArchiveName = 'quasar-win-x64.zip'
-$InstallerRootName = 'Quasar'
+$PackageArchiveName = 'quasar-win-x64.zip'
+$PackageRootName = 'Quasar'
 $SymbolsArchiveName = 'quasar-symbols-win-x64.zip'
 
 function Normalize-VersionComponent {
@@ -196,15 +194,13 @@ $NugetVersion = Normalize-NugetVersion $Version
 $AssemblyFileVersion = Build-AssemblyFileVersion $Version
 
 $PublishDir = Join-Path $ArtifactDir 'publish'
-$WebDir = Join-Path $ArtifactDir 'web'
-$BootstrapDir = Join-Path $ArtifactDir $InstallerRootName
+$PackageDir = Join-Path $ArtifactDir $PackageRootName
 
 if (Test-Path -LiteralPath $ArtifactDir) {
     Remove-Item -LiteralPath $ArtifactDir -Recurse -Force
 }
 New-Item -ItemType Directory -Path $PublishDir -Force | Out-Null
-New-Item -ItemType Directory -Path $WebDir -Force | Out-Null
-New-Item -ItemType Directory -Path $BootstrapDir -Force | Out-Null
+New-Item -ItemType Directory -Path $PackageDir -Force | Out-Null
 
 Write-Host "Building Quasar.Agent ($Configuration)..."
 & dotnet build (Join-Path $RepoDir 'Quasar.Agent\Quasar.Agent.csproj') `
@@ -246,49 +242,42 @@ Copy-Tree (Join-Path $RepoDir 'Quasar/wwwroot') (Join-Path $PublishDir 'wwwroot'
 if ($LASTEXITCODE -ne 0) { throw "Matching release symbol packaging failed with exit code $LASTEXITCODE" }
 Get-ChildItem -LiteralPath $PublishDir -Recurse -File -Filter '*.pdb' | Remove-Item -Force
 
-# Web UI worker archive: WebService/* overlaid with the full source wwwroot.
-Copy-Tree $PublishDir $WebDir
-Remove-Item -LiteralPath (Join-Path $WebDir 'Updater') -Recurse -Force
-Copy-Tree (Join-Path $PublishDir 'Host') (Join-Path $WebDir 'Host')
-Copy-Tree (Join-Path $RepoDir 'Quasar\wwwroot') (Join-Path $WebDir 'wwwroot')
-
-$requiredWebFiles = @(
+$requiredApplicationFiles = @(
     'Quasar.exe',
+    'Host/Quasar.Host.exe',
+    'Updater/Quasar.Updater.exe',
     'wwwroot',
     'wwwroot/_framework/blazor.web.js',
     'wwwroot/_content/MudBlazor/MudBlazor.min.css',
     'wwwroot/_content/MudBlazor/MudBlazor.min.js'
 )
-foreach ($requiredFile in $requiredWebFiles) {
-    if (-not (Test-Path -LiteralPath (Join-Path $WebDir $requiredFile))) {
-        throw "web release missing required file: $requiredFile"
+foreach ($requiredFile in $requiredApplicationFiles) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PublishDir $requiredFile))) {
+        throw "application package missing required file: $requiredFile"
     }
 }
 
-# Main package contains the application, updater and Host. Keep a UI-only bridge
-# artifact for old Bootstrap installations during migration.
-New-ZipFromDirectory $WebDir (Join-Path $ArtifactDir $WebArchiveName)
-Copy-Tree $PublishDir $BootstrapDir
-Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-Path $BootstrapDir 'install.ps1') -Force
-Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $BootstrapDir 'uninstall.ps1') -Force
-Copy-Item -LiteralPath (Join-Path $ScriptDir 'Install.cmd'), (Join-Path $ScriptDir 'install-gui.ps1') -Destination $BootstrapDir -Force
-Copy-Item -LiteralPath (Join-Path $RepoDir 'Docs/Installation.md') -Destination (Join-Path $BootstrapDir 'INSTALL.md') -Force
-Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'readme-install-windows.md') (Join-Path $BootstrapDir 'README.md')
+Copy-Tree $PublishDir $PackageDir
+Copy-Item -LiteralPath (Join-Path $ScriptDir 'install.ps1') -Destination (Join-Path $PackageDir 'install.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $ScriptDir 'uninstall.ps1') -Destination (Join-Path $PackageDir 'uninstall.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $ScriptDir 'Install.cmd'), (Join-Path $ScriptDir 'install-gui.ps1') -Destination $PackageDir -Force
+Copy-Item -LiteralPath (Join-Path $RepoDir 'Docs/Installation.md') -Destination (Join-Path $PackageDir 'INSTALL.md') -Force
+Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'readme-install-windows.md') (Join-Path $PackageDir 'README.md')
 
 # Use the running application's normalized identity, not the NuGet build version.
 $ReleaseVersion = & (Join-Path $PublishDir 'Quasar.exe') --version
 if ($LASTEXITCODE) { throw 'Cannot read the packaged release identity.' }
-@{version=$ReleaseVersion.Trim();updaterProtocol=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $BootstrapDir 'release.json') -Encoding utf8
-$launcherFiles = Get-ChildItem -LiteralPath $BootstrapDir -File -Recurse | ForEach-Object {
-    $_.FullName.Substring($BootstrapDir.Length).TrimStart('\', '/').Replace('\', '/')
+@{version=$ReleaseVersion.Trim();updaterProtocol=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $PackageDir 'release.json') -Encoding utf8
+$launcherFiles = Get-ChildItem -LiteralPath $PackageDir -File -Recurse | ForEach-Object {
+    $_.FullName.Substring($PackageDir.Length).TrimStart('\', '/').Replace('\', '/')
 } | Where-Object { $_ -notlike 'Updater/*' -and $_ -notin @('appsettings.json', 'service-installation.json', 'launcher-files.txt') } | Sort-Object
-[IO.File]::WriteAllLines((Join-Path $BootstrapDir 'launcher-files.txt'), [string[]]$launcherFiles)
-$bootstrapZip = Join-Path $ArtifactDir $InstallerArchiveName
-New-ZipFromDirectory $BootstrapDir $bootstrapZip -IncludeBaseDirectory
+[IO.File]::WriteAllLines((Join-Path $PackageDir 'launcher-files.txt'), [string[]]$launcherFiles)
+$packageZip = Join-Path $ArtifactDir $PackageArchiveName
+New-ZipFromDirectory $PackageDir $packageZip -IncludeBaseDirectory
 
 Push-Location $ArtifactDir
 try {
-    $sumLines = foreach ($name in @($WebArchiveName, $InstallerArchiveName, $SymbolsArchiveName)) {
+    $sumLines = foreach ($name in @($PackageArchiveName, $SymbolsArchiveName)) {
         $hash = (Get-FileHash -LiteralPath $name -Algorithm SHA256).Hash.ToLowerInvariant()
         "$hash  $name"
     }

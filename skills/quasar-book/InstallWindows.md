@@ -14,7 +14,7 @@ invalid completion evidence blocks later staging, installation and startup.
 
 Download `quasar-win-x64.zip`. Its `Quasar/` folder contains the application,
 UI assets, `Updater/Quasar.Updater.exe`, Host, installers and defaults. Check it
-against `SHA256SUMS`. Legacy `quasar-web-*` assets are temporary migration bridges;
+against `SHA256SUMS`. Legacy `quasar-web-*` assets remain only on the retained 1.4.1 migration release;
 old launcher asset names are deliberately absent to prevent unsafe Bootstrap
 self-activation. Symbols remain CI artifacts.
 
@@ -197,3 +197,5 @@ See [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Do
 - `scripts/Install.cmd`
 
 - `Shared/Updates/QuasarUpgradePath.cs`
+
+- `Docs/ReleaseNotes1.5.md`

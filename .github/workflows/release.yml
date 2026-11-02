@@ -402,7 +402,6 @@ jobs:
         with:
           name: quasar-linux
           path: |
-            artifacts/linux/quasar-web-linux-x64.tar.gz
             artifacts/linux/quasar-linux-x64.tar.gz
             artifacts/linux/quasar-symbols-linux-x64.zip
 
@@ -592,7 +591,6 @@ jobs:
         with:
           name: quasar-windows
           path: |
-            artifacts/windows/quasar-web-win-x64.zip
             artifacts/windows/quasar-win-x64.zip
             artifacts/windows/quasar-symbols-win-x64.zip
 
@@ -613,11 +611,6 @@ jobs:
           set -euo pipefail
           mkdir -p release
           assets=(quasar-linux-x64.tar.gz quasar-win-x64.zip)
-          # Only 1.4.1 publishes the old worker channel. Old Bootstrap must select
-          # the bridge instead of jumping directly into the incompatible 1.5 layout.
-          if [[ '${{ needs.metadata.outputs.version }}' == 1.4.1 || '${{ needs.metadata.outputs.version }}' == 1.4.1.* || '${{ needs.metadata.outputs.version }}' == 1.4.1-* ]]; then
-            assets+=(quasar-web-linux-x64.tar.gz quasar-web-win-x64.zip)
-          fi
           for asset in "${assets[@]}"; do
             found="$(find dist -type f -name "$asset" -print -quit)"
             if [ -z "$found" ]; then
@@ -671,9 +664,9 @@ jobs:
 
 
 
-            ## Complete Quasar packages
+            ## Quasar 1.5
 
-            The 1.4.1 release line provides legacy `quasar-web-*` bridge assets; later releases omit that channel and cleanup retains the latest full 1.4.1 bridge; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
+            This release provides only the two complete platform packages. Legacy `quasar-web-*` assets remain exclusively on the retained full 1.4.1 migration release; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
           files: |
             release/*
 

@@ -4,8 +4,9 @@ Quasar now runs its web UI and server supervision in one application process.
 Bootstrap is retained in the source tree for older-installation recovery, but is
 not the entry point in current platform packages. Each normal platform package
 contains Quasar, a small updater, the matching Host, install scripts and defaults.
-Legacy `quasar-web-*` assets remain during migration; old `quasar-installer-*`
-launcher assets are deliberately absent so legacy Bootstrap cannot self-activate
+Legacy `quasar-web-*` assets remain on the retained 1.4.1 migration release only.
+Quasar 1.5 builds and publishes just the two complete platform packages. Old
+`quasar-installer-*` launcher assets are deliberately absent so legacy Bootstrap cannot self-activate
 the incompatible layout; debug symbols remain CI
 artifacts rather than another normal installation package.
 
@@ -31,7 +32,7 @@ staging/activation, installer file replacement, or application startup. Run the
 1.4.1 installer and start 1.4.1 to recover; do not fabricate a completion receipt.
 
 Only the 1.4.1 release line publishes legacy `quasar-web-*` bridge assets. Future
-releases publish the two complete platform packages; an old Bootstrap therefore
+releases build and publish the two complete platform packages; an old Bootstrap therefore
 selects the bridge rather than a 1.5 worker. Release cleanup retains the latest
 full 1.4.1 bridge even after newer releases arrive. CI blocks full 1.5+ publication
 until a full 1.4.1 release with both platform packages, worker bridges and checksums

@@ -100,3 +100,6 @@ Application releases now contain the UI and supervisor together, with an externa
 
 **Required migration release: 1.4.1.** Install and successfully start its complete
 package before moving to 1.5 or later. See [upgrade order and migration](Docs/QuasarUpdates.md#required-141-migration-before-15).
+
+[Quasar 1.5 release preparation](Docs/ReleaseNotes1.5.md) describes package changes,
+validation gates and the required 1.4.1 upgrade path.
