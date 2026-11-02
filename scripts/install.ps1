@@ -22,6 +22,27 @@ function Set-InstallationAcl {
     & icacls @AclArguments | Out-Null
     if ($LASTEXITCODE) { throw 'Cannot apply required installation permissions.' }
 }
+function Set-ProtectedTreeAcl([string]$Path, [string]$Account, [Security.AccessControl.FileSystemRights]$Rights) {
+    $item = Get-Item -LiteralPath $Path -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Protected installation path is a reparse point: $Path" }
+    $acl = if ($item.PSIsContainer) { New-Object Security.AccessControl.DirectorySecurity } else { New-Object Security.AccessControl.FileSecurity }
+    $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
+    $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
+    $accountSid = (New-Object Security.Principal.NTAccount($Account)).Translate([Security.Principal.SecurityIdentifier])
+    $inheritance = if ($item.PSIsContainer) { [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' } else { [Security.AccessControl.InheritanceFlags]::None }
+    $acl.SetOwner($administrators)
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($entry in @(@($administrators, 'FullControl'), @($system, 'FullControl'), @($accountSid, $Rights))) {
+        $rule = New-Object Security.AccessControl.FileSystemAccessRule($entry[0], $entry[1], $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
+        [void]$acl.AddAccessRule($rule)
+    }
+    # Publish the complete DACL once. Removing inheritance before adding the
+    # replacement rules temporarily locks administrators out, even during /T.
+    Set-Acl -LiteralPath $Path -AclObject $acl
+    if ($item.PSIsContainer) {
+        foreach ($child in Get-ChildItem -LiteralPath $Path -Force) { Set-ProtectedTreeAcl $child.FullName $Account $Rights }
+    }
+}
 if (-not $IsWindows -and $PSVersionTable.PSEdition -ne 'Desktop') { throw 'Windows only.' }
 $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not (New-Object Security.Principal.WindowsPrincipal($identity)).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this installer in an elevated PowerShell.' }
@@ -158,15 +179,12 @@ try {
     Set-InstallationAcl $DataDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'  "${mainAccount}:(OI)(CI)M" "${updaterAccount}:(OI)(CI)M" /T /C | Out-Null
     Set-InstallationAcl $InstallDir /grant "${mainAccount}:(OI)(CI)RX" "${updaterAccount}:(OI)(CI)M" /T /C | Out-Null
     $updaterDir = Join-Path $InstallDir 'Updater'
-    Set-InstallationAcl $updaterDir /inheritance:r /remove:g $mainAccount /T /C | Out-Null
-    Set-InstallationAcl $updaterDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' "${updaterAccount}:(OI)(CI)RX" /T /C | Out-Null
+    Set-ProtectedTreeAcl $updaterDir $updaterAccount 'ReadAndExecute'
     # The archive checked by the updater must remain private through extraction
     # and replacement, even when legacy data lives in the application directory.
     $privateCache = Join-Path $InstallDir '.update-cache'
     New-Item -ItemType Directory -Path $privateCache -Force | Out-Null
-    Set-InstallationAcl $privateCache /setowner '*S-1-5-32-544' /T /C | Out-Null
-    Set-InstallationAcl $privateCache /inheritance:r /remove:g $mainAccount '*S-1-1-0' '*S-1-5-11' '*S-1-5-32-545' /T /C | Out-Null
-    Set-InstallationAcl $privateCache /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' "${updaterAccount}:(OI)(CI)M" /T /C | Out-Null
+    Set-ProtectedTreeAcl $privateCache $updaterAccount 'Modify'
     Set-InstallationAcl $metadataDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
     Set-InstallationAcl $metadataDir /grant "${mainAccount}:RX" "${updaterAccount}:RX" | Out-Null
     Set-InstallationAcl $metadata /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
