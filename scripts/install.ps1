@@ -190,10 +190,17 @@ try {
     Set-InstallationAcl $metadata /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
     Set-InstallationAcl (Join-Path $InstallDir 'service-installation.json') /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
     # Grant the updater query/start/stop rights for this one service, not SCM-wide administration.
-    $sid = (New-Object Security.Principal.NTAccount($updaterAccount)).Translate([Security.Principal.SecurityIdentifier]).Value
-    $sddl = (& sc.exe sdshow $ServiceName | Where-Object { $_ -match '^D:' }).Trim()
-    if ($sddl -notmatch [regex]::Escape($sid)) { & sc.exe sdset $ServiceName ($sddl + '(A;;CCLCRPWPLO;;;' + $sid + ')') | Out-Null }
-    if ($LASTEXITCODE) { throw 'Cannot grant updater service-control permissions.' }
+    $sid = (New-Object Security.Principal.NTAccount($updaterAccount)).Translate([Security.Principal.SecurityIdentifier])
+    $securityOutput = & sc.exe sdshow $ServiceName
+    if ($LASTEXITCODE) { throw "Cannot read $ServiceName service permissions: $securityOutput" }
+    $sddl = ($securityOutput | Where-Object { $_ -match '^D:' }).Trim()
+    $descriptor = [Security.AccessControl.CommonSecurityDescriptor]::new($false, $false, $sddl)
+    # AddAccess merges an existing grant. Appending SDDL text can put an allow ACE
+    # in the SACL when sdshow includes S:, which Windows rejects as invalid.
+    $descriptor.DiscretionaryAcl.AddAccess([Security.AccessControl.AccessControlType]::Allow, $sid, 0xB5,
+        [Security.AccessControl.InheritanceFlags]::None, [Security.AccessControl.PropagationFlags]::None)
+    $securityOutput = & sc.exe sdset $ServiceName $descriptor.GetSddlForm([Security.AccessControl.AccessControlSections]::Access)
+    if ($LASTEXITCODE) { throw "Cannot grant updater service-control permissions: $securityOutput" }
     if ($NoEnable) { Set-Service -Name $ServiceName -StartupType Manual; Set-Service -Name $UpdaterServiceName -StartupType Manual }
     if ($Start) {
         Start-Service -Name $UpdaterServiceName

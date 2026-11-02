@@ -80,6 +80,11 @@ needed. Game/runtime downloads still need network access. For unattended use, ru
 QuasarUpdater services with their own virtual accounts. Existing task installs
 must follow [migration](QuasarUpdates.md#migrating-existing-installations).
 
+The installer grants the updater query, start, stop and interrogate rights on its
+main service. It preserves existing service audit rules; repeated supervision
+repair merges the same grant without adding duplicates. Service-permission failures
+include the Windows command output so an administrator can identify the cause.
+
 ## Command-line UI rollback
 
 Current `Quasar --rollback` restores the retained complete application through the updater. The following worker-only behavior applies to legacy Bootstrap installations.

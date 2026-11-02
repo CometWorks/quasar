@@ -30,6 +30,18 @@ function Request-Package([string]$Payload){
  return $id
 }
 function Assert-Sentinel{if(-not(Get-Process -Id $sentinel -ErrorAction SilentlyContinue)){throw 'Detached server-process sentinel died'}}
+function Service-Security {
+ $output=& sc.exe sdshow $name
+ if($LASTEXITCODE){throw "Cannot read fixture service permissions: $output"}
+ return [Security.AccessControl.CommonSecurityDescriptor]::new($false,$false,($output|Where-Object{$_ -match '^D:'}).Trim())
+}
+function Assert-ServiceControl {
+ $security=Service-Security
+ if($security.GetSddlForm([Security.AccessControl.AccessControlSections]::Audit) -ne $originalAudit){throw 'Installer changed service audit rules'}
+ $sid=(New-Object Security.Principal.NTAccount('NT SERVICE\'+$updater)).Translate([Security.Principal.SecurityIdentifier])
+ $grants=@($security.DiscretionaryAcl|Where-Object{$_.SecurityIdentifier -eq $sid -and $_.AceQualifier -eq [Security.AccessControl.AceQualifier]::AccessAllowed})
+ if($grants.Count -ne 1 -or $grants[0].AccessMask -ne 0xB5){throw 'Updater must have exactly one query/start/stop/interrogate grant, without administrative rights'}
+}
 try{
  New-Item -ItemType Directory -Path $root|Out-Null
  Get-ChildItem -LiteralPath $bin|Copy-Item -Destination $root -Recurse
@@ -47,9 +59,20 @@ try{
  $action=New-ScheduledTaskAction -Execute (Join-Path $root 'Quasar.exe') -Argument 'serve --service' -WorkingDirectory $root
  Register-ScheduledTask -TaskName $task -Action $action -Settings (New-ScheduledTaskSettingsSet) |Out-Null
  Disable-ScheduledTask -TaskName $task|Out-Null
+ # A real service descriptor includes an audit SACL after its access DACL.
+ # Keep those audit rules intact while granting the updater control rights.
+ & sc.exe create $name binPath= ('"'+(Join-Path $root 'Quasar.exe')+'" serve --service') obj= ('NT SERVICE\'+$name) start= demand|Out-Null
+ if($LASTEXITCODE){throw 'Cannot create fixture service'}
+ $originalAudit=(Service-Security).GetSddlForm([Security.AccessControl.AccessControlSections]::Audit)
+ if(-not $originalAudit){throw 'Fixture requires native service audit rules'}
  & (Join-Path $repo 'scripts/install.ps1') -RepairSupervision -InstallDir $root -ServiceName $name -UpdaterServiceName $updater -MigrateScheduledTask -TaskName $task -Start
+ Assert-ServiceControl
  Wait-Until {Test-Path -LiteralPath (Join-Path $root 'server.pid')} 'Native main service did not start'
  $sentinel=[int](Get-Content -LiteralPath (Join-Path $root 'server.pid') -Raw)
+ & (Join-Path $repo 'scripts/install.ps1') -RepairSupervision -InstallDir $root -ServiceName $name -UpdaterServiceName $updater -MigrateScheduledTask -TaskName $task -Start
+ Assert-ServiceControl
+ Assert-Sentinel
+ Write-Host 'PASS native service DACL grant preserves audit rules and remains idempotent after repair'
  if((Get-ScheduledTask -TaskName $task).State -ne 'Disabled'){throw 'Legacy task was not retained disabled'}
  Wait-Until {Test-Path -LiteralPath (Join-Path $root 'Updates/migration-1.4.1.json')} 'Healthy native 1.4.1 migration receipt'
  & dotnet $dll token-create

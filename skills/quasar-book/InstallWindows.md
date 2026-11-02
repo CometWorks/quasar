@@ -148,6 +148,11 @@ restoration fails, the complete recovery copy remains available and the legacy
 task stays disabled. Keep the services and task stopped until restoration is
 complete; a failed recovery does not count as a restored installation.
 
+The updater receives query, start, stop and interrogate rights on its main service.
+Installation preserves existing service audit rules. Repeating supervision repair
+merges this grant without duplicates; permission errors include Windows command
+output for diagnosis.
+
 ## Common problems
 
 Read the persistent capability and operation messages on Updates. Missing service
