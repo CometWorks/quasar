@@ -90,6 +90,11 @@ needed. Game/runtime downloads still need network access. For unattended use, ru
 QuasarUpdater services with their own virtual accounts. Existing task installs
 must follow [migration](QuasarUpdates.md#migrating-existing-installations).
 
+The installer grants the updater query, start, stop and interrogate rights on its
+main service. It preserves existing service audit rules; repeated supervision
+repair merges the same grant without adding duplicates. Service-permission failures
+include the Windows command output so an administrator can identify the cause.
+
 ## Command-line UI rollback
 
 Current `Quasar --rollback` restores the retained complete application through the updater. The following worker-only behavior applies to legacy Bootstrap installations.
@@ -185,6 +190,12 @@ and saving the server canonicalizes defaults under the current root. If both old
 and new server-data trees exist, first copy the authoritative tree manually;
 then use **Edit Server -> Paths -> Use Managed Defaults**. Quasar deliberately
 does not choose between, merge, move, or delete two existing trees.
+
+Installer failures report the original error before attempting recovery. A recovery
+failure is reported separately and leaves the complete backup available; it does
+not claim the old installation was restored or re-enable its legacy task. Keep both
+native services and the legacy task stopped until recovery is complete. The native
+Windows CI fixture also prints its isolated service event logs on failure.
 
 ## Configuration
 
