@@ -198,14 +198,14 @@ try {
     if ($Start) {
         Start-Service -Name $UpdaterServiceName
         Start-Service -Name $ServiceName
-        $configuration = Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json
+        $installationSettings = Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json
         $deadline = [DateTime]::UtcNow.AddSeconds(90)
         $releaseMetadata = Join-Path $InstallDir 'release.json'
         $expectedVersion = if (Test-Path -LiteralPath $releaseMetadata) { (Get-Content -LiteralPath $releaseMetadata -Raw | ConvertFrom-Json).version } else { $null }
         $healthy = $false
         do {
             try {
-                $response = Invoke-RestMethod ($configuration.healthUrl + '/api/internal/update-health') -Headers @{'X-Quasar-Launcher-Token'=$configuration.healthToken} -TimeoutSec 2
+                $response = Invoke-RestMethod ($installationSettings.healthUrl + '/api/internal/update-health') -Headers @{'X-Quasar-Launcher-Token'=$installationSettings.healthToken} -TimeoutSec 2
                 $service = Get-CimInstance Win32_Service -Filter "Name='$ServiceName'"
                 $healthy = $response.pid -eq $service.ProcessId -and $service.State -eq 'Running' -and (-not $expectedVersion -or $response.version -eq $expectedVersion)
             } catch { }
@@ -217,26 +217,39 @@ try {
     Write-Host "Installed native services $ServiceName and $UpdaterServiceName. Data: $DataDir. Use Quasar.exe update --status for supervision and update status."
 } catch {
     $failure = $_
+    $restoreSucceeded = $true
+    Write-Warning ("Installation failed before recovery: " + $failure.Exception.Message)
     foreach ($name in @($UpdaterServiceName,$ServiceName)) {
         $service = Get-Service -Name $name -ErrorAction SilentlyContinue
         if ($service) {
-            Stop-Service -Name $name -ErrorAction SilentlyContinue
-            $service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(90))
-            Set-Service -Name $name -StartupType Manual
+            try {
+                Stop-Service -Name $name -ErrorAction Stop
+                $service.WaitForStatus('Stopped',[TimeSpan]::FromSeconds(90))
+                Set-Service -Name $name -StartupType Manual
+            } catch {
+                $restoreSucceeded = $false
+                Write-Warning ("Cannot stop/disable " + $name + " for recovery: " + $_.Exception.Message)
+            }
         }
     }
-    if ($backup) {
-        Get-ChildItem -LiteralPath $backup | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
-        if (-not (Test-Path -LiteralPath (Join-Path $backup 'service-installation.json'))) {
-            Remove-Item -LiteralPath (Join-Path $InstallDir 'service-installation.json') -ErrorAction SilentlyContinue
+    if ($backup -and $restoreSucceeded) {
+        try {
+            Get-ChildItem -LiteralPath $backup | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
+            if (-not (Test-Path -LiteralPath (Join-Path $backup 'service-installation.json'))) {
+                Remove-Item -LiteralPath (Join-Path $InstallDir 'service-installation.json') -ErrorAction SilentlyContinue
+            }
+            Write-Warning "Previous complete application restored. Retained recovery copy: $backup"
+        } catch {
+            $restoreSucceeded = $false
+            Write-Warning ("Automatic restoration is incomplete. Retained recovery copy: " + $backup + ". " + $_.Exception.Message)
         }
-        Write-Warning "Previous complete application restored. Retained recovery copy: $backup"
     }
-    if ($legacyEnabled) {
+    if ($legacyEnabled -and $restoreSucceeded) {
         if (Test-Path -LiteralPath (Join-Path $DataDir 'Updates/bootstrap-update-request.json')) {
             Write-Warning 'The old task remains disabled because a legacy activation request could not be safely quarantined. Inspect it before manually starting the old installation.'
         } else { Enable-ScheduledTask -TaskName $TaskName | Out-Null }
     }
+    if (-not $restoreSucceeded) { Write-Warning "Keep the legacy task disabled and inspect the retained recovery copy before restarting. Original failure follows." }
     throw $failure
 } finally {
     if (Test-Path -LiteralPath $staging) { Remove-Item -LiteralPath $staging -Recurse -Force }

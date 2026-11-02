@@ -124,6 +124,13 @@ try{
  if((Get-Service $name).Status -ne 'Stopped'){throw 'Intentional shutdown restarted'}
  Assert-Sentinel
  Write-Host 'PASS intentional native shutdown remains stopped and preserves detached server sentinel'
+}catch{
+ Write-Warning ("Native Windows fixture failed: " + $_.Exception.Message)
+ foreach($source in @($name,$updater)){
+  Get-WinEvent -FilterHashtable @{LogName='Application';ProviderName=$source} -MaxEvents 8 -ErrorAction SilentlyContinue |
+   Select-Object TimeCreated,ProviderName,Message | Format-List | Out-Host
+ }
+ throw
 }finally{
  foreach($service in @($updater,$name)){
   if(Get-Service -Name $service -ErrorAction SilentlyContinue){Stop-Service $service -ErrorAction SilentlyContinue;& sc.exe delete $service|Out-Null}
