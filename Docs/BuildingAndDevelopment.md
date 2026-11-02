@@ -11,6 +11,13 @@ single-file apps. Linux and Windows packaging retains these files in application
 migration bridge, and symbols archives. The GHCR image inherits them from the platform
 archive under `/opt/quasar` and declares `AGPL-3.0-only` in its OCI license label.
 
+The platform packagers write `release.json` from the published application's
+`--version` output. CI compares both identities before uploading archives.
+NuGet's build version is separate: a CI release such as `1.4.1.42` may build with
+NuGet version `1.4.1-42`, but its package and runtime identities stay `1.4.1.42`.
+Source installation follows the same rule so health checks and migration receipts
+use the version the application actually reports.
+
 ## Projects
 
 - `Quasar`

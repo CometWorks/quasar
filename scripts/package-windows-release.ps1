@@ -275,7 +275,10 @@ Copy-Item -LiteralPath (Join-Path $ScriptDir 'Install.cmd'), (Join-Path $ScriptD
 Copy-Item -LiteralPath (Join-Path $RepoDir 'Docs/Installation.md') -Destination (Join-Path $BootstrapDir 'INSTALL.md') -Force
 Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'readme-install-windows.md') (Join-Path $BootstrapDir 'README.md')
 
-@{version=$NugetVersion;updaterProtocol=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $BootstrapDir 'release.json') -Encoding utf8
+# Use the running application's normalized identity, not the NuGet build version.
+$ReleaseVersion = & (Join-Path $PublishDir 'Quasar.exe') --version
+if ($LASTEXITCODE) { throw 'Cannot read the packaged release identity.' }
+@{version=$ReleaseVersion.Trim();updaterProtocol=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $BootstrapDir 'release.json') -Encoding utf8
 $launcherFiles = Get-ChildItem -LiteralPath $BootstrapDir -File -Recurse | ForEach-Object {
     $_.FullName.Substring($BootstrapDir.Length).TrimStart('\', '/').Replace('\', '/')
 } | Where-Object { $_ -notlike 'Updater/*' -and $_ -notin @('appsettings.json', 'service-installation.json', 'launcher-files.txt') } | Sort-Object

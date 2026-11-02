@@ -732,7 +732,7 @@ publish_quasar() {
                     -p:Version="$nuget_version" \
                     -p:AssemblyVersion="$assembly_file_version" \
                     -p:FileVersion="$assembly_file_version" \
-                    -p:InformationalVersion="$nuget_version" \
+                    -p:InformationalVersion="$build_version" \
                     -o "$PUBLISH_DIR" \
                     -v minimal
             return
@@ -746,7 +746,7 @@ publish_quasar() {
                 -p:Version="$nuget_version" \
                 -p:AssemblyVersion="$assembly_file_version" \
                 -p:FileVersion="$assembly_file_version" \
-                -p:InformationalVersion="$nuget_version" \
+                -p:InformationalVersion="$build_version" \
                 -o "$PUBLISH_DIR" \
                 -v minimal
         return
@@ -759,7 +759,7 @@ publish_quasar() {
             -p:Version="$nuget_version" \
             -p:AssemblyVersion="$assembly_file_version" \
             -p:FileVersion="$assembly_file_version" \
-            -p:InformationalVersion="$nuget_version" \
+            -p:InformationalVersion="$build_version" \
             -o "$PUBLISH_DIR" \
             -v minimal
 }
@@ -831,7 +831,8 @@ if [[ "$SKIP_BUILD" != "true" ]]; then
     done
 fi
 if [[ "$SKIP_BUILD" != true ]]; then
-    printf '{"version":"%s","updaterProtocol":1}\n' "$NUGET_VERSION" > "$PUBLISH_DIR/release.json"
+    release_version="$("$PUBLISH_DIR/Quasar" --version)"
+    printf '{"version":"%s","updaterProtocol":1}\n' "$release_version" > "$PUBLISH_DIR/release.json"
 fi
 [[ -x "$PUBLISH_DIR/Updater/Quasar.Updater" ]] || { echo "Use a complete unified package containing Updater/Quasar.Updater." >&2; exit 1; }
 "$PUBLISH_DIR/Updater/Quasar.Updater" check-upgrade-path --package "$PUBLISH_DIR" --data-dir "$INSTALL_DIR"
