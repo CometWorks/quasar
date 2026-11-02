@@ -207,7 +207,9 @@ cp -a "$REPO_DIR/Docs/Installation.md" "$BOOTSTRAP_DIR/INSTALL.md"
 cp -a "$REPO_DIR/tools/quasar-renice.c" "$BOOTSTRAP_DIR/quasar-renice.c"
 build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md" "$BOOTSTRAP_DIR/README.md"
 chmod +x "$BOOTSTRAP_DIR/Quasar" "$BOOTSTRAP_DIR/install.sh" "$BOOTSTRAP_DIR/uninstall.sh" "$BOOTSTRAP_DIR/install-gui.sh" "$BOOTSTRAP_DIR/Install.desktop"
-printf '{"version":"%s","updaterProtocol":1}\n' "$NUGET_VERSION" > "$BOOTSTRAP_DIR/release.json"
+# Public release identity differs from the NuGet-compatible build version.
+RELEASE_VERSION="$("$PUBLISH_DIR/Quasar" --version)"
+printf '{"version":"%s","updaterProtocol":1}\n' "$RELEASE_VERSION" > "$BOOTSTRAP_DIR/release.json"
 (cd "$BOOTSTRAP_DIR"; find . -type f ! -path './Updater/*' ! -name appsettings.json ! -name service-installation.json ! -name launcher-files.txt -printf '%P\n' | LC_ALL=C sort > launcher-files.txt)
 tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$INSTALLER_ARCHIVE_NAME" "$INSTALLER_ROOT_NAME"
 

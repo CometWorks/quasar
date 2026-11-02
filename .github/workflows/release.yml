@@ -390,6 +390,12 @@ jobs:
             echo "ERROR: expected quasar-linux-x64.tar.gz root directory to be Quasar; found: $roots" >&2
             exit 1
           fi
+          expected="$(artifacts/linux/publish/Quasar --version)"
+          actual="$(tar -xOzf artifacts/linux/quasar-linux-x64.tar.gz Quasar/release.json | python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])')"
+          if [[ "$actual" != "$expected" ]]; then
+            echo "Package identity $actual differs from application identity $expected" >&2
+            exit 1
+          fi
 
       - name: Upload Linux archives
         uses: actions/upload-artifact@v4
@@ -567,6 +573,9 @@ jobs:
                 ForEach-Object { ($_.FullName -replace '\\', '/').Split('/')[0] } |
                 Sort-Object -Unique
             )
+            $identityEntry = $zip.GetEntry('Quasar/release.json')
+            $reader = [IO.StreamReader]::new($identityEntry.Open())
+            try { $identity = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
           }
           finally {
             $zip.Dispose()
@@ -574,6 +583,9 @@ jobs:
           if ($roots.Count -ne 1 -or $roots[0] -ne 'Quasar') {
             throw "expected quasar-win-x64.zip root directory to be Quasar; found: $($roots -join ', ')"
           }
+
+          $expected = & 'artifacts/windows/publish/Quasar.exe' --version
+          if ($LASTEXITCODE -or $identity.version -ne $expected.Trim()) { throw 'Package release identity differs from application identity.' }
 
       - name: Upload Windows archives
         uses: actions/upload-artifact@v4

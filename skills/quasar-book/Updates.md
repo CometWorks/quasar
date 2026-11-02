@@ -281,6 +281,10 @@ Dedicated Server downloads and validation report SteamCMD percentages as they ha
 When SteamCMD provides no percentage, the operation loader shows the current stage
 and elapsed time. First-time preparation can take several minutes.
 
+Release package metadata uses the application's reported version, including
+four-part CI build identities. NuGet's internal version is separate and must not
+be used to identify the running release or its 1.4.1 migration receipt.
+
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
@@ -355,3 +359,5 @@ and elapsed time. First-time preparation can take several minutes.
 - `Docs/Installation.md`
 
 - `Shared/Updates/QuasarUpgradePath.cs`
+
+- `Docs/BuildingAndDevelopment.md`
