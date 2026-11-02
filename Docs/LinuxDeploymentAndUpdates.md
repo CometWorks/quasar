@@ -74,14 +74,12 @@ before 1.5 or later. The legacy web worker alone is insufficient. See
   - `install.sh`
   - `uninstall.sh`
   - default `appsettings.json`
-- `quasar-web-linux-x64.tar.gz`
-  - web worker executable `Quasar`
-  - `Quasar.Plugin.Abstractions.dll` for Quasar UI plugin adapter builds
-  - Blazor/static assets
-  - `Agent/Quasar.Agent.dll`
-  - `Agent/Magnetar.Protocol.dll` for Quasar.Agent and UI-plugin-owned
-    Magnetar companion builds
 - `SHA256SUMS`
+
+Quasar 1.5 does not build a separate web-worker archive. Legacy `quasar-web-*`
+assets belong to the retained 1.4.1 migration release. The complete package also
+contains `Quasar.Plugin.Abstractions.dll`, the `Agent/` deployable assemblies, and
+all Blazor/static assets. Symbols remain CI artifacts.
 
 The unified release workflow (`.github/workflows/release.yml`) builds the Linux
 and Windows assets in parallel and attaches all of them to a single GitHub

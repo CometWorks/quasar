@@ -10,9 +10,8 @@ VERSION="${VERSION:-}"
 ASSEMBLY_FILE_VERSION="1.0.0"
 INFORMATIONAL_VERSION="$VERSION"
 NUGET_VERSION="$VERSION"
-WEB_ARCHIVE_NAME="quasar-web-linux-x64.tar.gz"
-INSTALLER_ARCHIVE_NAME="quasar-linux-x64.tar.gz"
-INSTALLER_ROOT_NAME="Quasar"
+PACKAGE_ARCHIVE_NAME="quasar-linux-x64.tar.gz"
+PACKAGE_ROOT_NAME="Quasar"
 SYMBOLS_ARCHIVE_NAME="quasar-symbols-linux-x64.zip"
 
 normalize_version_component() {
@@ -131,11 +130,10 @@ NUGET_VERSION="$(normalize_nuget_version "$VERSION")"
 ASSEMBLY_FILE_VERSION="$(build_assembly_file_version "$VERSION")"
 
 PUBLISH_DIR="$ARTIFACT_DIR/publish"
-WEB_DIR="$ARTIFACT_DIR/web"
-BOOTSTRAP_DIR="$ARTIFACT_DIR/$INSTALLER_ROOT_NAME"
+PACKAGE_DIR="$ARTIFACT_DIR/$PACKAGE_ROOT_NAME"
 
 rm -rf "$ARTIFACT_DIR"
-mkdir -p "$PUBLISH_DIR" "$WEB_DIR" "$BOOTSTRAP_DIR"
+mkdir -p "$PUBLISH_DIR" "$PACKAGE_DIR"
 
 dotnet build "$REPO_DIR/Quasar.Agent/Quasar.Agent.csproj" \
     -c "$CONFIGURATION" \
@@ -173,49 +171,40 @@ python3 "$SCRIPT_DIR/package-symbols.py" --repo "$REPO_DIR" --publish "$PUBLISH_
 # Symbols belong exclusively to the matching debug artifact.
 find "$PUBLISH_DIR" -type f -iname '*.pdb' -delete
 
-cp -a "$PUBLISH_DIR/." "$WEB_DIR/"
-rm -rf "$WEB_DIR/Updater"
-mkdir -p "$WEB_DIR/Host"
-cp -a "$PUBLISH_DIR/Host/." "$WEB_DIR/Host/"
-mkdir -p "$WEB_DIR/wwwroot"
-cp -a "$REPO_DIR/Quasar/wwwroot/." "$WEB_DIR/wwwroot/"
-chmod +x "$WEB_DIR/Quasar"
-
-required_web_files=(
+required_application_files=(
     "Quasar"
     "Host/Quasar.Host"
+    "Updater/Quasar.Updater"
     "wwwroot"
     "wwwroot/_framework/blazor.web.js"
     "wwwroot/_content/MudBlazor/MudBlazor.min.css"
     "wwwroot/_content/MudBlazor/MudBlazor.min.js"
 )
-for required_file in "${required_web_files[@]}"; do
-    if [[ ! -e "$WEB_DIR/$required_file" ]]; then
-        echo "ERROR: web release missing required file: $required_file" >&2
+for required_file in "${required_application_files[@]}"; do
+    if [[ ! -e "$PUBLISH_DIR/$required_file" ]]; then
+        echo "ERROR: application package missing required file: $required_file" >&2
         exit 1
     fi
 done
 
-# Retain a legacy UI-only migration asset for old Bootstrap installations.
-tar -C "$WEB_DIR" -czf "$ARTIFACT_DIR/$WEB_ARCHIVE_NAME" .
-cp -a "$PUBLISH_DIR/." "$BOOTSTRAP_DIR/"
-cp -a "$REPO_DIR/Quasar/appsettings.json" "$BOOTSTRAP_DIR/appsettings.json"
-cp -a "$REPO_DIR/install.sh" "$BOOTSTRAP_DIR/install.sh"
-cp -a "$REPO_DIR/uninstall.sh" "$BOOTSTRAP_DIR/uninstall.sh"
-cp -a "$SCRIPT_DIR/install-gui.sh" "$SCRIPT_DIR/Install.desktop" "$BOOTSTRAP_DIR/"
-cp -a "$REPO_DIR/Docs/Installation.md" "$BOOTSTRAP_DIR/INSTALL.md"
-cp -a "$REPO_DIR/tools/quasar-renice.c" "$BOOTSTRAP_DIR/quasar-renice.c"
-build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md" "$BOOTSTRAP_DIR/README.md"
-chmod +x "$BOOTSTRAP_DIR/Quasar" "$BOOTSTRAP_DIR/install.sh" "$BOOTSTRAP_DIR/uninstall.sh" "$BOOTSTRAP_DIR/install-gui.sh" "$BOOTSTRAP_DIR/Install.desktop"
+cp -a "$PUBLISH_DIR/." "$PACKAGE_DIR/"
+cp -a "$REPO_DIR/Quasar/appsettings.json" "$PACKAGE_DIR/appsettings.json"
+cp -a "$REPO_DIR/install.sh" "$PACKAGE_DIR/install.sh"
+cp -a "$REPO_DIR/uninstall.sh" "$PACKAGE_DIR/uninstall.sh"
+cp -a "$SCRIPT_DIR/install-gui.sh" "$SCRIPT_DIR/Install.desktop" "$PACKAGE_DIR/"
+cp -a "$REPO_DIR/Docs/Installation.md" "$PACKAGE_DIR/INSTALL.md"
+cp -a "$REPO_DIR/tools/quasar-renice.c" "$PACKAGE_DIR/quasar-renice.c"
+build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md" "$PACKAGE_DIR/README.md"
+chmod +x "$PACKAGE_DIR/Quasar" "$PACKAGE_DIR/install.sh" "$PACKAGE_DIR/uninstall.sh" "$PACKAGE_DIR/install-gui.sh" "$PACKAGE_DIR/Install.desktop"
 # Public release identity differs from the NuGet-compatible build version.
 RELEASE_VERSION="$("$PUBLISH_DIR/Quasar" --version)"
-printf '{"version":"%s","updaterProtocol":1}\n' "$RELEASE_VERSION" > "$BOOTSTRAP_DIR/release.json"
-(cd "$BOOTSTRAP_DIR"; find . -type f ! -path './Updater/*' ! -name appsettings.json ! -name service-installation.json ! -name launcher-files.txt -printf '%P\n' | LC_ALL=C sort > launcher-files.txt)
-tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$INSTALLER_ARCHIVE_NAME" "$INSTALLER_ROOT_NAME"
+printf '{"version":"%s","updaterProtocol":1}\n' "$RELEASE_VERSION" > "$PACKAGE_DIR/release.json"
+(cd "$PACKAGE_DIR"; find . -type f ! -path './Updater/*' ! -name appsettings.json ! -name service-installation.json ! -name launcher-files.txt -printf '%P\n' | LC_ALL=C sort > launcher-files.txt)
+tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$PACKAGE_ARCHIVE_NAME" "$PACKAGE_ROOT_NAME"
 
 (
     cd "$ARTIFACT_DIR"
-    sha256sum "$WEB_ARCHIVE_NAME" "$INSTALLER_ARCHIVE_NAME" "$SYMBOLS_ARCHIVE_NAME" > SHA256SUMS
+    sha256sum "$PACKAGE_ARCHIVE_NAME" "$SYMBOLS_ARCHIVE_NAME" > SHA256SUMS
 )
 
 echo "Created Linux release artifacts in $ARTIFACT_DIR"
