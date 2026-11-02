@@ -4,34 +4,17 @@ This page covers the first steps after installing Quasar: giving yourself admini
 
 ## Open the web UI
 
-Quasar prints its URL when it starts. With the shipped `appsettings.json` the UI listens on all interfaces on port `8080`, and the printed URL is `http://127.0.0.1:8080`. From another machine use `http://<quasar-host>:8080`. To change the port or the listen address see [Configuration](Configuration.md#web-ui-address-and-port).
+With the shipped `appsettings.json` the UI listens on all interfaces on port `8080`. On the Quasar machine open `http://127.0.0.1:8080`; from another machine use `http://<quasar-host>:8080`. The guided installers end with the address, and a foreground run prints it. To change the port or the listen address see [Configuration](Configuration.md#web-ui-address-and-port).
 
-The installed services and `Quasar serve` do not open a browser on their own. `Quasar ensure-running --open-browser` opens one when a desktop session is available (see [Configuration](Configuration.md#command-line)).
+The installed services never open a browser. A foreground run (`Quasar serve --foreground`) opens one when a desktop session is available (see [Configuration](Configuration.md#browser-launch)).
 
 ## Choose public access
 
-A first interactive administrator session shows **Set up administrator access**.
-If no subject or claim mapping grants the admin role, its first step asks for
-your 17-digit **Administrator SteamID64**. **Save administrator and continue**
-saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**.
-Existing administrator mappings skip this step. The access-method screen uses
-two large choices and a step progress indicator, like the server import wizard.
-Both wizards use the same Large dialog width; the import wizard no longer uses
-ExtraLarge.
-Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back**
-returns from hosted settings and retains the name you entered. **Cancel** closes setup without
-configuring public access; setup returns on the next page load while no admin is
-configured. Headless startup is not blocked. Reopen it at
-**Security → Manage access setup**. See [Hosted access](HostedPanel.md)
-for automatic enrollment and its current availability limits.
+A first interactive administrator session shows **Set up administrator access**. If no subject or claim mapping grants the admin role, its first step asks for your 17-digit **Administrator SteamID64**. **Save administrator and continue** saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**. Existing administrator mappings skip this step. See [The first administrator](AccessControl.md#the-first-administrator).
 
-Starting hosted enrollment switches the dialog to a progress screen with live
-updates and **Cancel** as its only footer action while connecting. The primary
-**Open Quasar dashboard** button appears after hosting activation and fresh
-tunnel/worker readiness checks succeed and opens it in the current browser tab.
-**Self-deploy** appears only on the
-access-method selection screen, never on later hosted steps or when reopening a
-completed enrollment. Canceling setup does not cancel a paid subscription.
+Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back** returns from the hosted settings and keeps the name you entered. **Cancel** closes setup without configuring public access; setup comes back on the next page load while no admin is configured. Headless startup is not blocked. Reopen setup at **Security → Manage access setup**. See [Hosted access](HostedPanel.md) for automatic enrollment and its current availability.
+
+Starting hosted enrollment switches the dialog to a progress screen with live updates and **Cancel** as its only button while connecting. **Open Quasar dashboard** appears once the hosted panel is active and its connection checks pass, and opens the dashboard in the current tab. **Self-deploy** appears only on the access-method screen, never on later hosted steps or when reopening a completed enrollment. Canceling setup does not cancel a paid subscription.
 
 ## Set the first administrator
 
@@ -54,7 +37,7 @@ reverse proxies also need correctly configured forwarding. See
 
 ### Option 2: create `rbac.json` by hand
 
-Create `rbac.json` in the Quasar install directory (the data directory, next to `appsettings.json`). Replace the subject with your 17-digit SteamID64:
+Create `rbac.json` in the Quasar data directory, next to `appsettings.json`. Replace the subject with your 17-digit SteamID64:
 
 ```json
 {
@@ -70,8 +53,9 @@ Typical locations:
 
 | Install | `rbac.json` path |
 | --- | --- |
-| Linux user service | `~/.local/share/Quasar/rbac.json` (the folder set as `QUASAR_INSTALL_DIR` in the unit) |
-| Windows | the folder Quasar was extracted to and installed from, for example `C:\quasar\Quasar\rbac.json` |
+| Linux | the install directory, `~/.local/share/Quasar/rbac.json` for the guided installer (the folder set as `QUASAR_INSTALL_DIR` in the unit) |
+| Windows, guided install | the data folder, `%ProgramData%\Quasar\rbac.json` by default. Only Administrators and the service accounts can open it, so use an elevated editor. |
+| Windows, `install.ps1` without `-DataDir` | the folder Quasar was extracted to and installed from, for example `C:\quasar\Quasar\rbac.json` |
 | Docker Compose | `./quasar-data/rbac.json` on the host (`/data/rbac.json` in the container) |
 
 Quasar watches `rbac.json`, so a running instance picks up the change without a restart.
@@ -111,7 +95,7 @@ use **Done** or **Close** when finished. Background refreshes never dismiss setu
 - **Cluster**: on Linux, with cluster-management permission, opens [guided cluster setup](ClusterSetup.md). The Dashboard keeps a **Continue cluster setup** panel until explicitly skipped or closed. It links to controls once a cluster is deployed.
 - **Import Existing Server**: continues in the same dialog with the importer (see below).
 
-The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from **Setup guide** (all available choices) or **Import server** (import only). Refreshing during import returns to source selection so the source is read again and its stopped state must be confirmed again. After a completed import, refresh resumes the server setup guide instead of starting another import. **New server** separately opens the server-kind chooser, where **Cluster** stays visible but greyed out on Windows with a Linux requirement explanation.
+The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from **Setup guide** (all available choices) or **Import server** (import only). Refreshing during import returns to source selection so the source is read again and its stopped state must be confirmed again. After a completed import, refresh resumes the server setup guide instead of starting another import. **New server** separately opens the server-kind chooser, where **Cluster** stays visible but grayed out on Windows with a Linux requirement explanation.
 
 ## Create a new server with the wizard
 
@@ -230,5 +214,8 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Models/QuasarConfigProfile.cs`
-- `Quasar.Bootstrap/Program.cs`
+- `Quasar/Services/BrowserLauncher.cs`
+- `Quasar/Services/WebServiceManifestHostedService.cs`
+- `scripts/install-gui.ps1`
+- `scripts/install-gui.sh`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`

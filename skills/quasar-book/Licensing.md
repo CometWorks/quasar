@@ -18,16 +18,20 @@ MIT notice does not make it dual-licensed.
 
 If you modify Quasar and users interact with it over a network, AGPL section 13
 requires a prominent offer to download your version's Corresponding Source at
-no charge. The sidebar has a source link. Keep it prominent and update it to
-your fork's matching source, including your changes.
+no charge. The sidebar has a **Source (AGPL-3.0)** link to the upstream
+repository. Keep it prominent and point it at your fork's matching source,
+including your changes.
 
 Binary and container redistribution must also meet AGPL section 6's
 Corresponding Source requirements. Keep the license, copyright and warranty
-notices. Installer, web, Host and symbols archives include `LICENSE`, `NOTICE`
-and `LICENSING.md`; the Docker image carries these in `/opt/quasar`. Official
-source is available from the matching release tag and source archives at
-https://github.com/CometWorks/quasar/releases. Preserve source you need to
-supply independently of release cleanup.
+notices. The build copies `LICENSE`, `NOTICE` and `LICENSING.md` next to the
+binaries of every project, so the complete platform packages include them.
+The symbols archives, which are CI build artifacts and not release assets,
+include them too. The Docker image carries them in `/opt/quasar`. Official source is available from
+the matching release tag and source archives at
+https://github.com/CometWorks/quasar/releases. Symbols archives record the
+exact commit in `manifest.json`. Keep any source you must supply yourself,
+since release cleanup removes older releases.
 
 Read the full license and transition guidance at
 https://github.com/CometWorks/quasar/blob/main/Docs/Licensing.md. Separately
@@ -44,3 +48,4 @@ their own terms.
 - `scripts/package-symbols.py`
 - `Dockerfile`
 - `Quasar/Components/Layout/MainLayout.razor`
+- `.github/workflows/release.yml`

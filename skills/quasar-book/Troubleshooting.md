@@ -18,14 +18,16 @@ installation. See [installation](https://github.com/CometWorks/quasar/blob/main/
 
 ## Where the logs are
 
-`<data dir>` below is the Quasar data directory (install root): `QUASAR_INSTALL_DIR`, for example `~/.local/share/Quasar` on Linux, the extracted `Quasar` folder on Windows, `/data` in Docker (`./quasar-data` on the host). See [Configuration](Configuration.md#where-files-live).
+`<data dir>` below is the Quasar data directory, for example `~/.local/share/Quasar` on Linux, `%ProgramData%\Quasar` for a new Windows service installation, `/data` in Docker (`./quasar-data` on the host). See [Changing the data directory](#changing-the-data-directory) for how Quasar finds it, and [Configuration](Configuration.md#where-files-live).
 
 | Log | Location | Contents |
 | --- | --- | --- |
-| Quasar log | `<data dir>/Logs/quasar.log` | The web worker and supervisor: server starts, faults, health restarts, update and download errors |
+| Quasar log | `<data dir>/Logs/quasar.log` | Quasar's own messages: server starts, faults, health restarts, update and download errors, startup warnings |
 | Discord log | `<data dir>/Logs/discord.log` | Discord bot messages only. They also go to `quasar.log`. |
-| systemd journal (Linux service) | `journalctl --user -u quasar.service` (system install: `sudo journalctl -u quasar.service`) | Quasar console output; also inspect `quasar-updater.service` for replacement/recovery failures |
-| Foreground console | the terminal running `./Quasar serve` or `Quasar.exe` | Same as the journal, plus launcher progress lines |
+| systemd journal (Linux service) | `journalctl --user -u quasar.service` (system service: `sudo journalctl -u quasar.service`) | Only what Quasar prints to the console: installation metadata errors, an upgrade path refusal and the `[Quasar:FATAL]` line. Its log messages are in `quasar.log`. |
+| Updater journal (Linux service) | `journalctl --user -u quasar-updater.service` (or `sudo journalctl -u ...`) | The updater service's messages: application replacement, health checks and recovery |
+| Windows event log | **Application** log, source `QuasarUpdater` (the updater service name) | The updater service's messages. Quasar's own messages are in `quasar.log`. |
+| Foreground console | the terminal running `./Quasar serve --foreground` or `Quasar.exe --foreground` | The same console lines as the journal. Set `QUASAR_CONSOLE_LOGGING=true` to copy the log there too. |
 | Docker | `docker compose logs -f quasar`, and `./quasar-data/Logs/quasar.log` | Console output and the log file |
 | DS log | `<data dir>/Magnetars/<server>/DedicatedServer/SpaceEngineersDedicated*.log` | The Space Engineers Dedicated Server's own log |
 | Magnetar info log | `<data dir>/Magnetars/<server>/Magnetar/info*.log` | Magnetar and plugin startup, plugin exceptions, Quasar.Agent lines logged through PluginSdk |
@@ -43,7 +45,7 @@ The DS and Magnetar paths are the defaults. A server with **Paths** overrides wr
 | `Quasar:Logging:Format` | `QUASAR_LOG_FORMAT` | `text` (or `json`) |
 | `Quasar:Logging:MinimumLevel` | `QUASAR_LOG_MIN_LEVEL` | `Warn` (`Info` when `ASPNETCORE_ENVIRONMENT=Development`) |
 
-At the default `Warn`, Info messages such as server exit codes and "recovered after restart" lines are not written. Set `QUASAR_LOG_MIN_LEVEL=Info` (or `Quasar:Logging:MinimumLevel` to `Info`) and restart Quasar while you investigate. An unknown level name falls back to `Info`. The same level applies to the console and journal output.
+At the default `Warn`, Info messages such as server exit codes and "recovered after restart" lines are not written. Set `QUASAR_LOG_MIN_LEVEL=Info` (or `Quasar:Logging:MinimumLevel` to `Info`) and restart Quasar while you investigate. An unknown level name falls back to `Info`. The same level applies to the console when `QUASAR_CONSOLE_LOGGING=true` copies the log there, as the Docker image does.
 
 Cluster update timings are the exception: they are written at every level. To see where an update spent its time, look for `update step` and `references reconciled` in `quasar.log`, and for `step '` in the Host's `host.log`, which also has the bundle load and data seed of each start.
 
@@ -51,10 +53,21 @@ Quasar does not rotate `quasar.log` or `discord.log`. Delete or truncate them yo
 
 A fatal startup error is logged as "Quasar terminated unexpectedly." and printed to the console as `[Quasar:FATAL] <type>: <message>`.
 
-Native Windows roles write service output to the Application event log under
-their service names. Quasar also writes its normal `Logs/quasar.log`. On Linux,
-inspect both main and updater journals. Legacy Bootstrap has no separate log file;
-its older task/unit output is relevant only before migration.
+Since 1.5 Quasar runs as the service itself, next to a separate updater service, with no launcher in between. When an update or restart goes wrong, read both: `quasar.log` for Quasar and the updater's journal or event log for the replacement. Legacy Bootstrap output matters only for an installation not migrated yet.
+
+### Startup warnings about system limits
+
+At every start Quasar checks limits that make it or its servers fail in ways that are hard to trace back, and writes one warning per limit into `quasar.log`. Each warning names the value, the expected minimum, what fails when it runs out and how to raise it.
+
+| Platform | Limit | Expected at least |
+| --- | --- | --- |
+| Linux | Open files (`ulimit -n`) | 65536 |
+| Linux | Processes and threads of the user (`ulimit -u`) | 16384 |
+| Linux | `fs.inotify.max_user_instances` | 1024 |
+| Linux | `fs.inotify.max_user_watches` | 524288 |
+| Windows | Long path support (`LongPathsEnabled`) | 1 |
+
+The checks only warn; a small setup may work with less. A limit Quasar can't read, as in some containers, is skipped. See [Install on Linux](InstallLinux.md#system-limit-warnings).
 
 ### Server logs in the UI
 
@@ -77,7 +90,7 @@ The agent finds Quasar through `QUASAR_BASE_URL`, which Quasar sets for each ser
 
 Quasar refuses an agent that has no valid agent token, or whose server already has a connected agent; see [Plugins](Plugins.md). The Quasar log then has "Refused an agent connection from … without an agent token.", "Refused agent connection …: the agent token does not match server …" or "… already has a connected agent.", and the agent logs "Quasar refused the connection: …" or a 401 connection error. A server started by an older Quasar needs a restart to load the current agent (see [Updates](Updates.md)).
 
-After worker turnover, automatic attach/health/planned restart waits for authenticated running telemetry from an adopted process. This prevents killing a world without a save when an old agent is refused. A 403 on agent/Host routes means the original socket source, exact Host authority or Origin policy failed; forwarded headers do not grant access. Check [DIS-0042 migration and network policy](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) before manually restarting a disconnected server.
+After Quasar restarts, automatic attach/health/planned restart waits for authenticated running telemetry from an adopted process. This prevents killing a world without a save when an old agent is refused. A 403 on agent/Host routes means the original socket source, exact Host authority or Origin policy failed; forwarded headers do not grant access. Check [DIS-0042 migration and network policy](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) before manually restarting a disconnected server.
 
 What to check:
 
@@ -95,7 +108,8 @@ If Quasar itself stays down, a server that had connected keeps running and its a
 - **Faulted right after Start**: the card shows the reason, for example "World save required." or the oxygen guard message. The full table is in [Servers](Servers.md#launch-failures-that-fault-a-server).
 - **Faulted with "More than one plugin hub lists ..."**: two plugin hubs list a plugin the profile selects, or a compatibility plugin Magnetar loads by itself. Remove it from one hub, or remove a hub. See [Plugins](Plugins.md#two-hubs-with-the-same-plugin-id).
 - **Crashes, restarts, and ends Faulted with "Process exited with code N. Restart attempt limit (3) reached."**: the server crashes within a minute of each start. Read the DS log and the Magnetar info log of the last run. Quasar does not retry a Faulted server; click **Start** after fixing the cause, or **Clear Error Status**.
-- **Ends Faulted with "Start failed: process exited with code N before the world was ready."**: the DS gave up loading the world, every time. The card shows the error line from the DS log, usually right above "Session can not start" in it. "Unable to download mods" means a Workshop mod of the world couldn't be downloaded; without Steam (DirectTransport, for example) turn on **Disable implicit Magnetar mod load** so Magnetar doesn't add its MagnetarMod companion to the world. Fix the cause, then click **Start**.
+- **"Start failed: process exited with code N before the world was ready"**: the DS gave up loading the world and exited on its own. Quasar treats it like a crash: it restarts within the restart budget, then ends **Faulted** with "... Restart attempt limit (3) reached.", or **Crashed** when **Restart on crash** is off. The card shows the error line from the DS log, usually right above "Session can not start" in it. "Unable to download mods" means a Workshop mod of the world couldn't be downloaded; without Steam (DirectTransport, for example) turn on **Disable implicit Magnetar mod load** so Magnetar doesn't add its MagnetarMod companion to the world. Fix the cause, then click **Start**.
+- **High process priority shows a warning and does nothing on Linux**: install or reinstall `/usr/local/bin/quasar-renice`. See [Servers](Servers.md#process-priority-and-cpu-affinity).
 - **Restarts with cause "Health policy"**: health went Unhealthy (stale heartbeat, low simulation frame rate, agent disconnected). The health summary on the card says which. See [Servers](Servers.md#health-checks-and-the-watchdog).
 - **Restarts every 8 hours**: **Maximum uptime** defaults to `08:00`. See [Servers](Servers.md#crash-detection-and-automatic-restart).
 - **Server stops by itself and stays stopped**: someone used `!stop` or `!quit` in game, or a Discord `stop`. Both set the goal Off.
@@ -122,8 +136,8 @@ the bundled agent as described in [Cluster hosts](ClusterHosts.md).
 
 | Symptom | Cause and fix |
 | --- | --- |
-| `Error: port 8080 is already bound by another process and is not a healthy Quasar server.` | Another program has the Quasar web port. Stop it or change `Quasar:Port` in `<data dir>/appsettings.json`. See [Configuration](Configuration.md#web-ui-address-and-port). |
-| Launcher says the worker never became healthy after a port change | The port was changed with `QUASAR_WEB_PORT` or `ASPNETCORE_URLS`. The launcher reads only `appsettings.json`. |
+| Quasar stops at startup with `[Quasar:FATAL] IOException: Failed to bind to address ...` | Another program, or another Quasar, has the web port. Stop it or change `Quasar:Port` in `<data dir>/appsettings.json`. The service manager keeps restarting Quasar until the port is free. See [Configuration](Configuration.md#web-ui-address-and-port). |
+| Updates fail their health check after a port change | The installer records Quasar's health address from `appsettings.json` (`Quasar:Port`, `Quasar:Host`) when it installs, and the updater checks that address. After changing the port, run the installer again with `--repair-supervision` (Linux) or `-RepairSupervision` (Windows), keeping the same paths and names. |
 | Editor: "Port already used by server '<ID>'." | Two servers of this Quasar have the same game port. |
 | Second server not reachable, or a DS fails to bind | Each server also uses game port + 1000 (Steam) and game port + 2000 (Remote API). Quasar does not check those against other servers or other programs. Never give two servers game ports that differ by exactly 1000 or 2000. Consecutive ports such as 27016, 27017, 27018 are safe. See [Servers](Servers.md#ports). |
 | Players cannot connect | No firewall rule for the UDP game port. Neither Quasar nor its installers open firewall ports. |
@@ -134,6 +148,8 @@ The managed DS comes from SteamCMD (`+login anonymous +app_update 298740`, up to
 
 - "SteamCMD is not installed and could not be downloaded.": Quasar could not fetch SteamCMD from Valve. Check internet access from the machine.
 - "Space Engineers Dedicated Server is not installed and could not be downloaded.": SteamCMD failed 3 times. Check free disk space and network, then **Retry** on the Dashboard.
+- On Linux a message ending in "SteamCMD is a 32-bit program and this host can't run it. Install its 32-bit libraries, on Debian and Ubuntu: sudo apt install lib32gcc-s1": SteamCMD exited with code 127, or the 32-bit loader `/lib/ld-linux.so.2` is missing. Install the package, then **Retry**. See [Install on Linux](InstallLinux.md#prerequisites).
+- Only the SteamCMD row failed and the panel says "Magnetar and Dedicated Server ready. SteamCMD failed, so Quasar can't download or update the Dedicated Server.": a valid DS is already in place, for example through `QUASAR_DS_INSTALL_DIR`. Servers still start, but Quasar can't update the DS until SteamCMD works. Fix SteamCMD and click **Retry** on its row, or set **Dedicated Server update on launch** to **Skip**.
 - "DedicatedServer64 path not found. Set QUASAR_DS64_PATH, ...": the DS install is missing and no override is set.
 - Slow starts: **Dedicated Server update on launch** set to **Validate** re-checks every file on every start. Use **Update** or **Skip**.
 
@@ -148,26 +164,29 @@ See [Servers](Servers.md#steam-workshop-mods).
 
 ## .NET 10 missing
 
-Quasar needs the .NET 10 runtime (the ASP.NET Core runtime on Linux). The installers check it:
+On Linux, `install.sh` checks for the .NET 10 runtime and the ASP.NET Core runtime and offers to install them with the system package manager:
 
-- Linux: `.NET 10 ASP.NET Core runtime is still missing after installation attempt.` See [Install on Linux](InstallLinux.md#prerequisites).
-- Windows: `.NET 10 runtime is required before installing Quasar.` See [Install on Windows](InstallWindows.md#prerequisites).
+- `.NET 10 ASP.NET Core runtime is required before installing Quasar.` followed by `No supported package manager found. ...`: install the runtime by hand first. See [Install on Linux](InstallLinux.md#prerequisites).
+- `.NET 10 ASP.NET Core runtime is still missing after installation attempt.`: the package install did not provide it. The script prints the runtimes it found.
+
+On Windows the packaged programs need no .NET installation, and `install.ps1` does not check for one. See [Install on Windows](InstallWindows.md#prerequisites).
 
 UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 
 ## The web UI is not reachable
 
-- Check the service runs: `systemctl --user status quasar.service`, `Get-ScheduledTask -TaskName Quasar`, or `docker compose ps`.
-- On the Quasar machine, open `http://127.0.0.1:8080/api/health`. A JSON answer means the worker runs.
+- Check the service runs: `systemctl --user status quasar.service` (system service: `systemctl status quasar.service`), `Get-Service Quasar` in PowerShell, or `docker compose ps`. If it keeps restarting, read the journal or `quasar.log` for the `[Quasar:FATAL]` line.
+- On the Quasar machine, open `http://127.0.0.1:8080/api/health`. A JSON answer means Quasar runs.
 - The shipped `Quasar:Host` is `0.0.0.0` (all interfaces) on port `8080`. If it is `127.0.0.1`, only local browsers can connect. Remote access also needs a firewall rule for the TCP port.
-- A fresh install starts the UI only after Bootstrap has downloaded the first UI release from GitHub. Until then it retries and logs "Failed downloading the Quasar web UI; retrying at <time> ...", or "GitHub's API rate limit is used up, ..." when the anonymous limit of the public IP address is spent, in which case it waits for GitHub's reset time, unless a token is set in `QUASAR_GITHUB_TOKEN` or `GITHUB_TOKEN`. `QUASAR_UPDATES_ENABLED=false` blocks this first download; a foreground run then prints "Quasar has no running worker, so the web UI is not available." See [Install on Linux](InstallLinux.md#common-problems).
-- After 3 worker start failures within 5 minutes, Bootstrap starts the UI once more with UI plugins disabled. See [UI plugins](UiPlugins.md#safe-boot).
+- Quasar exits at once with "Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...": see [Self-update failures](#self-update-failures).
+- "Cannot read this installation: ...": Quasar can't read `service-installation.json` or the protected file it points to. Run the command as the service account or from an elevated Windows shell, or repair the installation with its installer.
+- A UI plugin breaks the web UI: start in safe boot by creating `ui-plugins.safe-mode` in the data directory, then restart Quasar. Quasar no longer turns safe boot on by itself after repeated start failures. See [UI plugins](UiPlugins.md#safe-boot).
 - Quasar defaults to private LAN HTTP mode. If `Quasar:Auth:RequireHttpsForPublicAccess=true`, remote plain-HTTP requests return HTTP 400. Use that setting with an HTTPS reverse proxy that sends trusted `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` headers; loopback HTTP remains available for local checks. See [Access control](AccessControl.md#behind-a-reverse-proxy).
 - `Quasar authentication can be disabled only on loopback listeners.` means `Auth:Enabled=false` was combined with a public `Quasar:Host`, `QUASAR_WEB_HOST`, or `ASPNETCORE_URLS` binding. Restore authentication or bind every listener to localhost/`127.0.0.1`/`::1`.
 
 ### "Rejoining the server..."
 
-The UI keeps a live connection to the worker. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Failed to rejoin. Please retry or reload the page." with **Retry**. This is expected for a few seconds after a Quasar update or a **Restart Quasar**, because the worker process changes. If it never reconnects, reload the page and check that the worker is still up.
+The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Failed to rejoin. Please retry or reload the page." with **Retry**. This is expected for a few seconds after a Quasar update or restart, because the Quasar process changes. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
 
 ## Sign-in problems
 
@@ -179,33 +198,32 @@ See [Access control](AccessControl.md#common-problems) and [First setup](FirstSe
 
 ## Self-update failures
 
-Read the durable operation on Updates or run `Quasar update --status`. Failed
-launches and interrupted replacement restore the complete prior application;
-fix the recorded cause before `update --retry`. The page persistently explains
-missing native restart capability. Current Windows installations use two native
-services and virtual accounts; existing Scheduled Tasks need explicit migration.
-See [Updates](Updates.md#when-an-update-fails).
+Open the Updates page or run `Quasar update --status` to see the recorded update operation and its cause. A failed launch or an interrupted replacement restores the complete previous application. Fix the recorded cause, then run `Quasar update --retry`. When Quasar can't restart itself through the updater, the Updates page shows an alert about it. Current Windows installations run as two native services under virtual accounts; an old Scheduled Task installation has to be migrated first. See [Updates](Updates.md#when-an-update-fails).
+
+Quasar 1.5 and later start only on an installation that completed the 1.4.1 migration, recorded in `<data dir>/Updates/migration-1.4.1.json`. Without it Quasar exits with code 3 and "Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...". Install the complete 1.4.1 package with the existing paths, account and scope, start it once, then update. Don't write the receipt by hand.
 
 ## Stopping Quasar
 
 | How | Effect |
 | --- | --- |
-| Power button in the top bar, **Shutdown Quasar** (admin) | Saves server state, stops the worker and the launcher with exit code 0. The service manager does not restart it. Servers keep running unsupervised. |
-| **Restart Quasar** in the same dialog | Restarts only the worker. Not available in Docker. |
+| Power button in the top bar, **Shutdown Quasar** (admin) | Saves server state and stops Quasar with exit code 0. The service manager does not restart it. Servers keep running unsupervised. |
+| **Restart Quasar** in the same dialog | In a service installation, asks the updater service to restart Quasar; servers keep running. Grayed out with "Restart needs the Quasar launcher." in Docker and in a run without a service installation. |
 | **Save and stop all servers** | Saves and stops standalone servers and managed clusters, keeping Quasar online. Shows a loader and per-target progress until completion or a visible failure. |
-| Ctrl+C in a foreground run | Stops the launcher and worker. |
-| `kill <launcher pid>` (SIGTERM, Linux) | Same as Ctrl+C. |
-| `systemctl --user stop quasar.service` (or `sudo systemctl stop quasar.service`) | Same as Ctrl+C. |
-| `Stop-ScheduledTask -TaskName Quasar` | Ends the launcher process. |
+| Ctrl+C in a foreground run | Stops Quasar. |
+| `kill <pid>` (SIGTERM, Linux) | Same as Ctrl+C. |
+| `systemctl --user stop quasar.service` (or `sudo systemctl stop quasar.service`) | Same as Ctrl+C. The unit allows 120 seconds for the stop. |
+| `Stop-Service Quasar` (Windows) | Same as Ctrl+C. |
 | `docker compose down` or `stop` | Stops the container. The image stops the managed servers too. |
 
 For **Save and stop all servers**, goals are set to Off so the stopped fleet stays down. Clusters use the normal graceful save/drain flow and wait for a clean, fenced Gateway stop. A failed or dirty cluster is reported rather than force-killed. Other stop requests still proceed. The Off goal remains active after a waiting timeout; check the cluster page before retrying. Observed-only clusters are excluded.
 
-By default (`Quasar:PreserveManagedServersOnShutdown` `true`) managed servers keep running when Quasar stops and Quasar adopts them again on the next start. Use **Save and stop all servers** first if you want them down. Details are in [Install on Linux](InstallLinux.md#stopping-and-the-shutdown-quasar-action), [Install on Windows](InstallWindows.md#shutdown-quasar-and-other-power-actions) and [Docker](Docker.md).
+An open browser tab doesn't hold up the stop: Quasar closes the web server after a 5-second drain and then stops the rest.
+
+By default (`Quasar:PreserveManagedServersOnShutdown` `true`) managed servers keep running when Quasar stops and Quasar adopts them again on the next start. During an application update or restart by the updater, servers are kept even when that setting is `false`. On Linux the clusters unit (`quasar-clusters.service`) saves and stops this PC's clusters at logout or machine shutdown; a plain Quasar stop leaves them running. See [Cluster hosts](ClusterHosts.md#systemd-units). Use **Save and stop all servers** first if you want them down. Details are in [Install on Linux](InstallLinux.md#stopping-and-the-shutdown-quasar-action), [Install on Windows](InstallWindows.md#shutdown-quasar-and-other-power-actions) and [Docker](Docker.md).
 
 ## Changing the data directory
 
-Quasar keeps all state under one data directory, resolved from `QUASAR_INSTALL_DIR`, then a `.quasar-install-dir` file (or the file named by `QUASAR_INSTALL_DIR_FILE`), then the program's folder. There is no other data directory variable. To move it, stop Quasar and its servers, copy the whole folder and rerun the installer with the new folder; see [Install on Linux](InstallLinux.md#move-the-install-root) or [Install on Windows](InstallWindows.md#move-the-install-root).
+Quasar keeps all state under one data directory. An installed copy takes it from `service-installation.json` next to the executable (or the protected file that one points to), which the installer writes. Otherwise Quasar uses `QUASAR_INSTALL_DIR`, then a `.quasar-install-dir` file (or the file named by `QUASAR_INSTALL_DIR_FILE`), then the program's folder. On Linux the data directory is the install folder by default; a new Windows service installation keeps program files in `%ProgramFiles%\Quasar` and data in `%ProgramData%\Quasar`. To move it, stop Quasar and its servers, copy the whole folder and rerun the installer with the new folder; see [Install on Linux](InstallLinux.md#move-the-install-root) or [Install on Windows](InstallWindows.md#move-the-install-root).
 
 Some parts can live elsewhere on their own:
 
@@ -219,11 +237,11 @@ Some parts can live elsewhere on their own:
 
 ## Two Quasar instances on one machine
 
-The code has no single-instance lock across data directories. Each launcher looks for a running Quasar only through `service-manifest.json` in its own data directory. To run two:
+The code has no single-instance lock across data directories. To run two:
 
-- Give each its own data directory.
-- Give each its own `Quasar:Port` in its own `appsettings.json`. A shared port fails with the "already bound" error above.
-- Install each service under its own name: `install.sh --service-name <name>` or `install.ps1 -TaskName <name>`.
+- Give each its own install folder and data directory.
+- Give each its own `Quasar:Port` in its own `appsettings.json` before installing it. A shared port fails with the "Failed to bind" error above.
+- Install each under its own service name: `install.sh --service-name <name>` (units `<name>.service`, `<name>-updater.service` and `<name>-clusters.service`) or `install.ps1 -ServiceName <name>` (updater `<name>Updater` unless `-UpdaterServiceName` is given).
 - Assign game ports by hand. Each Quasar picks new ports from 27016 upward and checks only its own servers, so two instances hand out the same ports. Keep the + 1000 and + 2000 ports free as well.
 
 Each server's agent connects to the Quasar that launched it, because that Quasar passes its own `QUASAR_BASE_URL`. The Docker Compose file uses host networking, so a container and a native install on the same machine share the port space too.
@@ -256,7 +274,6 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Dashboard/ServerCard.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
-- `Quasar.Bootstrap/Program.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
 - `Magnetar.Protocol/Transport/AgentMessageLimits.cs`
@@ -267,18 +284,22 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
-
 - `Docs/QuasarUpdates.md`
 - `Quasar.Updater/QuasarUpdater.cs`
-
 - `Shared/Updates/GitHubUpdateTokenReader.cs`
-
 - `Shared/ServiceHosting/NativeServiceFailures.cs`
-
 - `Shared/Updates/NativeQuasarServices.cs`
-
 - `Docs/Installation.md`
-
 - `scripts/install-gui.sh`
-
 - `scripts/install-gui.ps1`
+- `Quasar.Updater/Program.cs`
+- `Quasar.Updater/ConfigureInstallation.cs`
+- `Shared/Updates/QuasarServiceInstallation.cs`
+- `Shared/Updates/BootstrapUpdateSupport.cs`
+- `Shared/Diagnostics/SystemLimits.cs`
+- `Shared/Diagnostics/LinuxLimits.cs`
+- `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
+- `Quasar/Services/QuasarApplicationEntry.cs`
+- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar/wwwroot/quasar-configs.js`
+- `Quasar/Services/Plugins/QuasarUiPluginCatalog.cs`

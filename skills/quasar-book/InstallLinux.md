@@ -1,46 +1,50 @@
 # Install on Linux
 
-How to download, run and install Quasar on Linux: release assets, the .NET prerequisite, foreground runs, the `install.sh` systemd service, where Quasar keeps its files, uninstalling and upgrading. For the container image see [Docker](Docker.md); for Windows see [Install on Windows](InstallWindows.md).
+How to download, run and install Quasar on Linux: the release package, the guided installer, prerequisites, foreground runs, the `install.sh` systemd services, where Quasar keeps its files, uninstalling and upgrading. For the container image see [Docker](Docker.md); for Windows see [Install on Windows](InstallWindows.md).
 
-Current packages contain the unified Quasar application and its external updater.
-For current installation, native service accounts and migration instructions, use
-[the deployment/update guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
+Quasar is one application: the web UI and the server supervisor run in the same `Quasar` process. A small separate updater, `Updater/Quasar.Updater`, replaces the application during updates. The installer registers both as systemd services. Older versions had a Bootstrap launcher that downloaded a separate web worker; current packages don't use it.
 
-**Required upgrade order:** install and successfully start the complete 1.4.1
-migration release before 1.5 or later. Native service health (or successful startup
-of the full manual package) records `Updates/migration-1.4.1.json`. A staged legacy
-web worker is insufficient. Keep the receipt with the data directory. Missing or
-invalid completion evidence blocks later staging, installation and startup.
+**Required upgrade order.** Quasar 1.5 and later start only after a completed 1.4.1 migration. Install the complete 1.4.1 package with your existing paths, account, service name and user or system scope, and start it successfully. That writes `Updates/migration-1.4.1.json` in the data directory. A 1.4.1 web worker staged by an old Bootstrap install does not count. Without a valid receipt, the 1.5 installer, the updater and Quasar itself refuse with `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...` (exit code 3). This applies to new installations too: a new installation that will run 1.5 starts with 1.4.1. Keep the receipt with the data directory. Don't write one by hand.
 
 ## Release assets
 
-Download `quasar-linux-x64.tar.gz` and verify `SHA256SUMS`. Its `Quasar/` folder
-contains the unified application, bundled UI, Host, updater and installers. Legacy
-web archives remain only on the retained 1.4.1 migration release; old Bootstrap launcher asset names are
-absent so old launchers cannot self-activate the new layout. First UI startup does
-not download a separate worker. Game/runtime provisioning still needs network.
+Every GitHub release (`https://github.com/CometWorks/quasar/releases`) carries:
+
+| Asset | Contents |
+| --- | --- |
+| `quasar-linux-x64.tar.gz` | One top-level `Quasar/` folder: the `Quasar` application with its UI assets (`wwwroot/`), `Agent/`, `Host/Quasar.Host`, `Updater/Quasar.Updater`, `install.sh`, `uninstall.sh`, `install-gui.sh`, `Install.desktop`, `quasar-renice.c`, the default `appsettings.json`, `release.json`, `launcher-files.txt`, `README.md` and `INSTALL.md` |
+| `quasar-win-x64.zip` | The Windows package, see [Install on Windows](InstallWindows.md) |
+| `SHA256SUMS` | SHA-256 of the archives |
+
+Verify the archive against `SHA256SUMS` before you extract it. The package needs no download on first start: the UI is bundled. SteamCMD, the Dedicated Server, Magnetar and plugins still download from the network. The legacy `quasar-web-*` worker archives exist only on the 1.4.1 migration release, so old Bootstrap installs pick that release. Debug symbols are CI artifacts, not release assets.
+
+`Quasar`, `Quasar.Updater` and `Quasar.Host` are self-contained single-file x64 programs.
 
 ## Guided installation
 
-Open **Install.desktop** from the extracted package and choose **Install**.
-Linux uses polkit for administrator approval, system units running as the desktop user, and `~/.local/share/Quasar` for application/data. Existing account, path, name and scope are kept. The desktop may require Allow Launching or Trust first. The front end needs kdialog or zenity, pkexec and a polkit authentication agent; existing metadata parsing also needs python3.
+Open **Install.desktop** in the extracted `Quasar` folder and choose **Install**. Some file managers ask you to **Allow Launching** or **Trust** the file first. The front end needs `kdialog` or `zenity`, `pkexec` and a desktop polkit authentication agent. It refuses to run as root; start it as your desktop user.
 
-Choose **Manual install** for terminal commands and custom settings. The same
-platform package contains the updater; no separate download is needed. See
-[installation details](https://github.com/CometWorks/quasar/blob/main/Docs/Installation.md).
+For a new install it shows the plan and asks for polkit approval:
+
+- Application and data: `~/.local/share/Quasar` (the package is copied there).
+- Execution account: your desktop user.
+- Scope: system services (`quasar.service` and `quasar-updater.service` in `/etc/systemd/system`).
+- It runs `install.sh --system --user <you> --install-dependencies --yes --start`, so CA certificates, SteamCMD's 32-bit libraries, polkit and the .NET 10 runtime are installed through the package manager when missing.
+
+If `~/.local/share/Quasar` (or the package folder) already holds an installation, the guided installer reads its `service-installation.json` and keeps its path, account, service name and user or system scope. Reading it needs `python3`. An installation that runs as another account needs the manual install.
+
+On success it shows `Quasar and its updater are installed.` with the log path. Every run writes a private log to `${XDG_STATE_HOME:-~/.local/state}/Quasar/install-*.log`. Canceling the polkit prompt leaves the system unchanged. **Manual install** shows the terminal commands instead. A server without a desktop uses the manual commands below.
 
 ## Prerequisites
 
 - Linux x64 with systemd (`systemctl`) for the service install. A foreground run does not need systemd.
 - glibc 2.38 or newer, for example Debian 13 or Ubuntu 24.04. The native libraries LinuxCompat loads into the Dedicated Server need it. On Ubuntu 22.04 (glibc 2.35, .NET 10 from the `ppa:dotnet/backports` PPA) Quasar installs and downloads everything, but every server start aborts at `Havok: Physics.Init` with exit code 134, and Magnetar's crash report says `GLIBC_2.38' not found (required by .../LinuxCompat-*/Bin/libHavok.so)`. Debian 12 has glibc 2.36.
-- .NET 10. `install.sh` checks it before it copies any file:
-  - Installing from an extracted release archive needs the .NET 10 ASP.NET Core runtime. The script looks for both `Microsoft.NETCore.App 10.x` and `Microsoft.AspNetCore.App 10.x` in `dotnet --list-runtimes`.
-  - Installing from a source checkout needs the .NET 10 SDK, because the script runs `dotnet publish`.
-- A .NET 10 SDK is only needed later if an administrator installs a source-built QuasarHub UI plugin. Quasar then uses a .NET 10 SDK on `PATH`, or asks whether to download a pinned private SDK into `<install-dir>/ManagedRuntime/Tools/DotNetSdk/`. The private SDK needs no `sudo` and does not change `PATH`. See [UI plugins](UiPlugins.md).
-- Git is not required.
-- `ca-certificates`. Quasar downloads SteamCMD, Magnetar and plugins over HTTPS, and SteamCMD needs them to log in to Steam. Minimal Ubuntu installs can lack them. Guided system installation enables `--install-dependencies`; manual installation can opt into that flag too.
+- The .NET 10 ASP.NET Core runtime. `install.sh` checks for both `Microsoft.NETCore.App 10.x` and `Microsoft.AspNetCore.App 10.x` in `dotnet --list-runtimes` before it copies any file. Magnetar runs on it, and its packages bring ICU, which `Quasar` needs too. A source checkout needs the .NET 10 SDK instead, because the script runs `dotnet publish`.
+- `ca-certificates`. Quasar downloads SteamCMD, Magnetar and plugins over HTTPS, and SteamCMD needs them to log in to Steam. Minimal Ubuntu installs can lack them.
 - 32-bit libraries for SteamCMD, which Quasar uses to download and update the Dedicated Server. `linux32/steamcmd` is a 32-bit program and needs the 32-bit loader `/lib/ld-linux.so.2`. On Debian and Ubuntu install `lib32gcc-s1`. It brings `libc6-i386` with the loader, so the i386 architecture doesn't have to be enabled. On a host with i386 enabled, `libc6:i386` works too. Without them only SteamCMD fails: a Dedicated Server supplied with `QUASAR_DS_INSTALL_DIR` still works, but Quasar can't download or update one. See [Servers](Servers.md#managed-downloads-steamcmd-dedicated-server-magnetar).
-- Magnetar and the Dedicated Server need nothing else on Debian 13 and Ubuntu 24.04: Magnetar runs on the .NET 10 runtime, and the LinuxCompat native libraries load with the base system.
+- polkit, for a system service install. The system updater controls the main unit through a polkit rule; without `/etc/polkit-1/rules.d` the install stops with `System updater control needs polkit. Install polkit, then rerun repair-supervision.`
+- A .NET 10 SDK only if an administrator installs a source-built QuasarHub UI plugin. Quasar then uses a .NET 10 SDK on `PATH`, or asks whether to download a pinned private SDK into `<install-dir>/ManagedRuntime/Tools/DotNetSdk/`. The private SDK needs no `sudo` and does not change `PATH`. See [UI plugins](UiPlugins.md).
+- Git is not required.
 
 On Debian and Ubuntu, before the first start:
 
@@ -48,9 +52,9 @@ On Debian and Ubuntu, before the first start:
 sudo apt update && sudo apt install ca-certificates lib32gcc-s1
 ```
 
-Checked on minimal Debian 13 and Ubuntu 24.04 installs, up to a server that reaches `Game ready`. The self-contained launcher needs ICU, which the .NET runtime packages bring: on a host without it `./Quasar serve` stops with `Couldn't find a valid ICU package installed on the system`.
+Checked on minimal Debian 13 and Ubuntu 24.04 installs, up to a server that reaches `Game ready`. On a host without ICU, `./Quasar serve` stops with `Couldn't find a valid ICU package installed on the system`; the .NET runtime packages bring it.
 
-`install.sh` warns when `/etc/ssl/certs` is empty or `/lib/ld-linux.so.2` is missing and prints the `apt install` command, then installs as usual.
+`--install-dependencies` installs CA certificates, the SteamCMD 32-bit libraries and polkit with the detected package manager (`apt-get`, `dnf`, `yum`, `pacman` or `zypper`). It prints the commands and asks first unless `--yes` is given. Without the option, `install.sh` warns when `/etc/ssl/certs` is empty or `/lib/ld-linux.so.2` is missing, prints the `apt install` command, then installs as usual.
 
 ### What install.sh does when .NET is missing
 
@@ -64,73 +68,122 @@ Pass `--yes` (or `-y`) to run the commands without the prompt (it then uses `sud
 
 ## Run in the foreground
 
-Run `./Quasar serve --foreground` in the extracted package. The UI is bundled.
-Updates stage safely without services. Stop Quasar, run `update --retry`, then
-start it manually. Use **Shutdown Quasar** to preserve running game servers.
+```bash
+tar -xzf quasar-linux-x64.tar.gz
+cd Quasar
+./Quasar serve --foreground
+```
+
+Quasar prints `Quasar` and its URL (`http://127.0.0.1:8080` with the shipped settings) and opens it in a browser when a desktop session is available (`DISPLAY` or `WAYLAND_DISPLAY` set). State lives in the extracted folder. Logs go to `Logs/quasar.log` there.
+
+- Ctrl+C or SIGTERM stops Quasar. Managed servers keep running if `Quasar:PreserveManagedServersOnShutdown` is on (the default).
+- **Shutdown Quasar** in the UI saves the server state and stops Quasar; the servers keep running.
+- **Restart Quasar** is not available in a foreground run, because no service brings Quasar back.
+- An update started from the UI stages the release but can't swap the running files. Stop Quasar, run `./Quasar update --retry`, then start it again. See [Updates](Updates.md).
+
+A foreground run of a 1.4.1 package records the migration receipt after it starts, the same as a service install.
 
 ### Launcher commands and flags
 
-Current commands include `serve`, `update --version <version>`, `update --status`,
-`update --retry`, `rollback` and `cluster`. `--headless` runs API-only mode.
-Bootstrap-era worker activation flags apply only to the old recovery executable.
+`./Quasar --help` prints:
+
+```
+Quasar [serve] [--headless] [--foreground]
+Quasar update --version <release> | --status | --retry
+Quasar cluster --help
+Quasar activate-release --restore (internal recovery; Quasar must be stopped)
+```
+
+| Command or flag | Effect |
+| --- | --- |
+| `serve` (or no command) | Runs Quasar until stopped |
+| `--foreground`, `--console` | Console mode with browser auto-open |
+| `--headless` | API-only mode, see [Configuration](Configuration.md#headless-mode) |
+| `--service` | Used by the service unit. Service settings come from the installation metadata, see [The generated unit](#the-generated-unit). |
+| `--version` | Prints the full version, for example `1.5.0.0`, and exits |
+| `update --version <release>`, `update --status`, `update --retry` | Application updates from the terminal, see [Upgrading](#upgrading) |
+| `rollback` or `--rollback` | Queues a return to the retained previous application for the updater service |
+| `activate-release --restore` | Runs `Updater/Quasar.Updater recover` to restore the retained previous application. Stop Quasar and its updater first. |
+| `cluster <verb> ...` | Cluster API client, see [Configuration](Configuration.md#cluster-cli) |
+
+The full command list and exit codes are in [Configuration](Configuration.md#command-line).
 
 ## Install as a systemd service
 
+From the extracted package, as your normal user:
+
 ```bash
-mkdir -p ~/.local/share/Quasar
-tar -xzf quasar-linux-x64.tar.gz -C ~/.local/share/Quasar --strip-components=1
-~/.local/share/Quasar/install.sh --start
+./install.sh --start
+systemctl --user status quasar.service quasar-updater.service
 ```
 
-With an extracted release archive, `install.sh` installs in place: the folder that holds the script becomes the install directory, and Quasar keeps all its state there. The command above installs a user service named `quasar.service` and starts it. The UI is then at `http://localhost:8080` (or the port in `appsettings.json`).
+With an extracted release archive, `install.sh` installs in place: the folder that holds the script becomes the install directory, and Quasar keeps all its state there. To install somewhere else, pass `--install-dir`, for example the guided installer's default:
+
+```bash
+./install.sh --install-dir ~/.local/share/Quasar --start
+```
+
+The script then copies the package there. Before it copies anything it checks .NET, the 1.4.1 migration requirement (`Updater/Quasar.Updater check-upgrade-path`) and that no Quasar of this installation is running (`check-stopped`, which fails with `A Quasar process from this installation is still running. Stop it before replacing files.`). An existing `appsettings.json` in the install directory is kept.
+
+The UI is then at `http://localhost:8080` (or the port in `appsettings.json`). The script ends with a summary and the restart command.
 
 ### install.sh options
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| (none) | user service | Writes `~/.config/systemd/user/quasar.service`, enables it, does not start it. |
-| `--start` | off | Restarts or starts the service after installing. Without it, start it yourself. |
-| `--system` | off | Machine-wide service in `/etc/systemd/system/<name>.service`. Must run as root (`sudo`). |
-| `--user <user>` | the `sudo` caller, or `root` | Account the system service runs as. Only valid with `--system`. |
-| `--user-service` | on | Explicitly select the user service. |
-| `--install-dir <dir>` | the script's folder for release archives; `<run-user-home>/.local/share/Quasar` for source checkouts | Copies Quasar to `<dir>` and points the service there. |
-| `--service-name <name>` | `quasar` | systemd unit name, `<name>.service`, and the clusters unit `<name>-clusters.service`. |
-| `--no-enable` | off | Do not enable the unit at boot. |
-| `--install-dependencies` | off | Install CA certificates, SteamCMD 32-bit libraries and polkit through the package manager; guided system installation enables this. |
+| (none) | user services | Writes the units to `~/.config/systemd/user/`, enables them, does not start them. |
+| `--start` | off | Restarts or starts the updater and the main service after installing. |
+| `--system` | off | Machine-wide services in `/etc/systemd/system/`. Must run as root (`sudo`). |
+| `--user <user>` | the `sudo` caller, or `root` | Account the system services run as. Only valid with `--system`. |
+| `--user-service` | on | Explicitly select user services. |
+| `--install-dir <dir>` | the script's folder for release archives; `<run-user-home>/.local/share/Quasar` for source checkouts | Copies Quasar to `<dir>` and points the services there. |
+| `--service-name <name>` | `quasar` | Unit names `<name>.service`, `<name>-updater.service` and `<name>-clusters.service`. |
+| `--no-enable` | off | Do not enable the units at boot. |
+| `--repair-supervision` | off | Rewrites the units and installation metadata of an already copied current package without copying files. Needs the same path, name and scope; a system service also needs its existing `--user`. |
+| `--install-dependencies` | off | Install CA certificates, SteamCMD 32-bit libraries and polkit through the package manager. |
 | `--install-renice-helper` | off | Builds `quasar-renice.c` with `cc` and installs `/usr/local/bin/quasar-renice` as setuid root. |
-| `--yes`, `-y` | off | Run .NET package install commands without asking. |
+| `--yes`, `-y` | off | Run package install commands without asking. |
 | `--no-build` | automatic for release archives | Source checkouts: install an existing publish output instead of running `dotnet publish`. |
 | `--configuration <name>`, `--runtime <rid>` | `Release`, `linux-x64` | Source checkouts only: publish settings. |
 
-The script refuses `/`, `/bin`, `/boot`, `/dev`, `/etc`, `/home`, `/lib`, `/lib64`, `/proc`, `/root`, `/run`, `/sbin`, `/sys`, `/tmp`, `/usr` and `/var` as install directories. It does not open firewall ports.
+The script refuses `/`, `/bin`, `/boot`, `/dev`, `/etc`, `/home`, `/lib`, `/lib64`, `/proc`, `/root`, `/run`, `/sbin`, `/sys`, `/tmp`, `/usr` and `/var` as install directories. It does not open firewall ports. `./install.sh --help` lists the options.
 
 ### User service or system service
 
-- The user service runs as the user who ran `install.sh` and is managed with `systemctl --user`. To start it at boot before that user logs in, enable lingering once: `sudo loginctl enable-linger <user>`.
-- The system service (`sudo ./install.sh --system`) runs as the `sudo` caller unless you pass `--user <user>`, and is managed with `sudo systemctl`. When run as root, `install.sh` makes the run user the owner of the install directory.
+- User services run as the user who ran `install.sh` and are managed with `systemctl --user`. To start them at boot before that user logs in, enable lingering once: `sudo loginctl enable-linger <user>`.
+- System services (`sudo ./install.sh --system`) run as the `sudo` caller unless you pass `--user <user>`, and are managed with `sudo systemctl`. When run as root, `install.sh` makes the run user the owner of the install directory.
 
 ```bash
-systemctl --user status  quasar.service
+systemctl --user status  quasar.service quasar-updater.service
 systemctl --user restart quasar.service
 journalctl --user -u quasar.service
 
-sudo systemctl status quasar.service      # system service
+sudo systemctl status quasar.service quasar-updater.service    # system services
 ```
 
 ### The generated unit
 
-The main unit runs the installed Quasar directly with `serve --service`,
-`Restart=on-failure` and `KillMode=process`. A separate updater unit runs the
-installed `Updater/Quasar.Updater` with protected installation metadata. User units
-remain in the user's manager. System updater control uses the main account with a
-polkit rule limited to start/stop/restart of that Quasar unit, not a root updater.
+`install.sh` writes three units next to each other:
+
+| Unit | What it runs |
+| --- | --- |
+| `<name>.service` | `Quasar serve --service` from the install directory. `Restart=on-failure`, `RestartSec=5`, `KillMode=process`, `TimeoutStopSec=120`. Sets `QUASAR_INSTALL_DIR` and `QUASAR_HOST_STOP_UNIT`. `Wants=` the updater unit. |
+| `<name>-updater.service` | `Updater/Quasar.Updater --installation <metadata>`. `Restart=on-failure`, `RestartSec=5`. Runs as the same account as Quasar. |
+| `<name>-clusters.service` | A oneshot unit whose stop action runs `LocalHost/stop-clusters`, so the clusters on this PC are saved and stopped at logout or shutdown. See [Cluster hosts](ClusterHosts.md#the-local-host). |
+
+`KillMode=process` makes systemd stop only the Quasar process, so detached game servers keep running when Quasar stops or updates.
+
+The installer also writes the installation metadata: install and data directory (the same folder on Linux), service names, accounts, the release repository and package name the updater trusts, and the health URL and token the updater uses to confirm a new version. For user services the record is `<install-dir>/service-installation.json`. For system services it is `/etc/quasar/<name>.json` (mode 0600, owned by the run user), and `service-installation.json` in the install directory only points to it. A system install also writes `/etc/polkit-1/rules.d/60-quasar-<name>.rules`, which lets the run user start, stop and restart `<name>.service` and nothing else, so the updater doesn't need root.
+
+Quasar checks this wiring on start and shows the result on Updates. The main PID must belong to the configured unit and run the installed executable as the recorded account, and the unit needs `Restart=on-failure` and `KillMode=process` without treating exit code 75 as success. When something doesn't match, Quasar reports that it can't restart itself; the fix is the current installer with `--repair-supervision`.
 
 ### Stopping and the Shutdown Quasar action
 
-Intentional **Shutdown Quasar** preserves servers and exits successfully, so
-restart-on-failure keeps the main unit inactive. Start the main service explicitly
-to resume. Application updates use the updater and persist server adoption state
-before stopping Quasar. Existing explicit game-server stop actions are unchanged.
+**Shutdown Quasar** (in the **Quasar power** dialog, admin role) saves the managed server state and stops Quasar with exit code 0. `Restart=on-failure` treats that as a clean stop, so the main unit stays inactive. Servers keep running without supervision until their agent's offline policy takes over (see [Configuration](Configuration.md#shutdown-and-agent-behavior)). Start the service again to bring Quasar back.
+
+**Restart Quasar** hands the restart to the updater service; servers keep running. **Save and stop all servers** saves and stops standalone servers and managed clusters and leaves Quasar running.
+
+`systemctl stop` follows `Quasar:PreserveManagedServersOnShutdown`. Updates always keep servers running and save their state for the next Quasar to adopt.
 
 ### Raising game server priority
 
@@ -146,7 +199,7 @@ Quasar updates don't rebuild the helper. Helpers installed before Magnetar shipp
 
 ### System limit warnings
 
-At startup the web worker checks four Linux limits and logs a warning to `quasar.log` for each one below its minimum. The open file limit applies to each process. The other three are shared by every process of the user, so a host running many servers under one user runs out of them first:
+At startup Quasar checks four Linux limits and logs a warning to `quasar.log` for each one below its minimum. The open file limit applies to each process. The other three are shared by every process of the user, so a host running many servers under one user runs out of them first:
 
 | Limit | Minimum |
 | --- | --- |
@@ -159,14 +212,16 @@ The warning includes the fix: a `limits.conf` line or a `Limit*=` setting in the
 
 ## Where Quasar keeps its files
 
-Everything lives under the install root, `QUASAR_INSTALL_DIR`. The service unit sets it; a foreground run uses the launcher's folder. The default user-service install root is `~/.local/share/Quasar`.
+On Linux the install directory is also the data directory, `QUASAR_INSTALL_DIR`. The installation metadata sets it for the services; a foreground run uses the folder of `Quasar`. The guided installer uses `~/.local/share/Quasar`.
 
 | Path under the install root | Contents |
 | --- | --- |
-| `Quasar` | Unified application and supervisor |
-| `Updater/Quasar.Updater` | Separate native updater |
-| `service-installation.json` | Pointer to protected installation metadata |
-| `appsettings.json` | Settings. Pages such as Security and Updates save their changes here. |
+| `Quasar`, `wwwroot/`, `Agent/` | The application, its UI assets and the deployable Quasar.Agent |
+| `Updater/Quasar.Updater` | The separate updater. Application updates don't replace it; the installer does. |
+| `Host/Quasar.Host` | The Host executor for clusters |
+| `release.json`, `launcher-files.txt` | Package version and the list of application files an update replaces |
+| `service-installation.json` | The installation metadata (user services), or a pointer to `/etc/quasar/<name>.json` (system services) |
+| `appsettings.json` | Settings. Pages such as Security and Updates save their changes here. See [Configuration](Configuration.md). |
 | `rbac.json` | Role mappings. See [Access control](AccessControl.md). |
 | `Logs/quasar.log`, `Logs/discord.log` | Application logs. Default level `Warn`. Override the folder with `QUASAR_LOG_DIR` or `Quasar:Logging:Directory`. |
 | `Magnetars/<server>/` | Per server: `server.json`, `DedicatedServer/` (DS app data, saves), `Magnetar/` (Magnetar profiles and config), `History/`, `analytics.jsonl` |
@@ -175,136 +230,147 @@ Everything lives under the install root, `QUASAR_INSTALL_DIR`. The service unit 
 | `LocalHost/` | The local Host executor's configuration, state (cluster deployments and saves) and log. See [Cluster hosts](ClusterHosts.md#the-local-host). |
 | `Backups/` | Configuration backup ZIPs. Override with `QUASAR_BACKUP_DIR` or the Backups page. |
 | `ManagedRuntime/Tools/` | Downloaded `Magnetar/`, `SteamCMD/`, `SteamCmdHome/` (private HOME for SteamCMD), `SpaceEngineersDedicatedServer/`, `DotNetSdk/` |
-| `ManagedRuntime/WebService/<version>/` | Legacy worker releases retained during migration |
+| `ManagedRuntime/WebService/<version>/` | Web worker releases left from a Bootstrap install |
 | `ManagedRuntime/Cache/` | Download cache |
-| `Updates/` | Durable `operation.json`, restart capability, staged payloads and retained complete application transaction |
+| `Updates/` | `operation.json` (update status), `migration-1.4.1.json` (migration receipt), staged packages and `LauncherTransaction/` (the complete previous application) |
+| `.update-cache/` | The updater's private copy of a downloaded package |
 | `Diagnostics/` | Diagnostic capture and queues, unless `QUASAR_DIAGNOSTICS_DIRECTORY` points elsewhere. See [Diagnostics](Diagnostics.md). |
 | `DataProtection-Keys/` | Keys that encrypt stored secrets such as `github-updates.json` and `steam-workshop.json` |
-| `supervisor-state.json`, `service-manifest.json` | Supervisor runtime state and the running worker's address |
+| `supervisor-state.json`, `service-manifest.json` | Supervisor runtime state and the running Quasar's address and process |
 | `discord.json`, `branding.json`, `Branding/`, `backup-settings.json`, `known-players.json`, `data-handling-consent.json` | Settings saved from the UI |
 
-Back up the whole install root as one unit. With the service running, Quasar warnings and errors also appear in the systemd journal.
+Back up the whole install root as one unit, with the keys. The service does not send Quasar's log to the journal; `journalctl` shows only what Quasar prints before logging starts, such as a refused start. Read `Logs/quasar.log`.
 
 ## Network ports
 
 | Port | Default | Notes |
 | --- | --- | --- |
-| Web UI and API (TCP) | `8080` | `Quasar:Host` / `Quasar:Port` in `appsettings.json`. The shipped `Host` is `0.0.0.0` (all interfaces). Set `127.0.0.1` to allow only local access. Change the port in `appsettings.json` and rerun installer repair so native health metadata uses the same endpoint. |
+| Web UI and API (TCP) | `8080` | `Quasar:Host` / `Quasar:Port` in `appsettings.json`. The shipped `Host` is `0.0.0.0` (all interfaces). Set `127.0.0.1` to allow only local access. After changing the port or host, rerun the installer with `--repair-supervision` so the updater's health check uses the same address. |
 | Game server port (UDP) | first free port from `27016` | Set per server. |
 | DS Steam port | game port + 1000 | Quasar writes it into the DS config. |
 | DS Remote API port | game port + 2000 | Quasar writes it into the DS config. |
 
-Neither `install.sh` nor Quasar changes firewall rules. Keep the web port behind a firewall or an HTTPS reverse proxy if the machine is reachable from untrusted networks; see [Access control](AccessControl.md). Port details per server are in [Servers](Servers.md).
+The updater checks Quasar's health on a local address with a token from the installation metadata. Neither `install.sh` nor Quasar changes firewall rules. Keep the web port behind a firewall or an HTTPS reverse proxy if the machine is reachable from untrusted networks; see [Access control](AccessControl.md). Port details per server are in [Servers](Servers.md).
 
 ## Uninstall
 
 ```bash
-~/.local/share/Quasar/uninstall.sh            # save the clusters on this PC, stop and remove the user service
+~/.local/share/Quasar/uninstall.sh            # save the clusters on this PC, stop and remove the user services
 ~/.local/share/Quasar/uninstall.sh --purge    # also delete the install directory
-sudo ./uninstall.sh --system --install-dir /path/to/quasar --purge   # system service
+sudo ./uninstall.sh --system --install-dir /path/to/quasar --purge   # system services
 ```
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--service-name <name>` | `quasar` | Unit to remove, together with `<name>-clusters.service` |
+| `--service-name <name>` | `quasar` | Units to remove: `<name>.service`, `<name>-updater.service` and `<name>-clusters.service` |
 | `--install-dir <dir>` | the script's folder; `/opt/quasar` when `--system` is given without `--install-dir` | Folder `--purge` deletes |
-| `--user-service` | on | Remove the user unit from `~/.config/systemd/user/` |
-| `--system` | off | Remove `/etc/systemd/system/<name>.service`. Needs root. |
+| `--user-service` | on | Remove the user units from `~/.config/systemd/user/` |
+| `--system` | off | Remove the units from `/etc/systemd/system/`, plus `/etc/quasar/<name>.json` and the polkit rule. Needs root. |
 | `--purge` | off | Delete the install directory, including all servers, saves, backups and logs inside it |
 
-The script first stops `<service-name>-clusters.service`, which saves and stops the clusters on this PC while the local Host still runs. Without that unit (an older install) it runs `LocalHost/stop-clusters` itself when the Host runs. Then it stops the service, disables it, stops the local Host process recorded in `LocalHost/host.pid`, deletes both unit files, runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays, `LocalHost/` included.
+The script first disables and stops the updater unit. Then it stops `<name>-clusters.service`, which saves and stops the clusters on this PC while the local Host still runs. Without that unit (an older install) it runs `LocalHost/stop-clusters` itself when the Host runs. Then it stops and disables the main service, stops the local Host process recorded in `LocalHost/host.pid`, deletes the unit files, and runs `daemon-reload` and `reset-failed`. Without `--purge` all data stays, `LocalHost/` included.
 
 A local Host that an older Quasar version installed in `~/.local/share/Quasar/Hosts/<id>` is left alone, because another install may use it. The script prints the commands to remove it. Managed game servers are detached and can keep running after the service stops, so use **Save and stop all servers** first if you want them stopped. With `--system`, always pass `--install-dir` together with `--purge`, otherwise the script targets `/opt/quasar`.
 
 ## Upgrading
 
-Use **Update Quasar** or `./Quasar update --version <release>`. Status and retry
-survive reconnects and restarts. The updater retains and restores a complete
-previous application. Bootstrap-era installs need the complete package and
-installer transition; see [updates and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
+Use **Update Quasar** on the Updates page, or from the install directory as the service account:
+
+```bash
+./Quasar update --version <release>   # the full version shown on the release page
+./Quasar update --status
+./Quasar update --retry               # after fixing a reported failure
+```
+
+Quasar downloads the complete package and checks it against `SHA256SUMS`. The updater service checks its own copy of the archive, stops only the main service, keeps the complete previous application in `Updates/LauncherTransaction`, replaces the files, starts Quasar and confirms the exact version and process through the health endpoint. A failed start restores the previous application. Status survives restarts and reconnects. Game servers keep running. Details, exit codes and recovery are on [Updates](Updates.md).
+
+The updater does not replace its own files. To upgrade the updater, stop both services and run the new package's `install.sh` against the existing installation:
+
+```bash
+systemctl --user stop quasar.service quasar-updater.service
+./install.sh --no-build --install-dir /path/to/Quasar --service-name quasar --start
+```
+
+For system services use `sudo`, `--system` and the existing `--user <account>`.
+
+### Migrating a Bootstrap install
+
+A Bootstrap-era install moves to the native services through the complete 1.4.1 package. Save and stop the worlds, back up `appsettings.json`, credentials and `DataProtection-Keys/` together, and keep a copy of the old installation. Extract the 1.4.1 package to a temporary folder and run its `install.sh` with the existing install directory, service name and scope as above. The installer keeps the existing `appsettings.json` and data and abandons any pending Bootstrap activation (`Updates/bootstrap-update-request.json` is renamed to `.migrated`). When the files were already replaced with Quasar stopped, `--repair-supervision` with the same path, name and scope rewrites only the units and metadata. Then start 1.4.1 and check **Updates** and `./Quasar update --status` before moving on to 1.5.
 
 ### Move the install root
 
-Stop main and updater units, copy the complete application and data/keyring
-together, and rerun installer repair with the new path and existing name/account/
-scope. Verify both native actions before removing the old copy.
+Stop the main and updater services and the managed servers. Copy the complete install root, keys included, to the new location, then run the installer from the copy with `--install-dir <new-root>` and the existing service name, account and scope so the units and metadata point to the new place. Check the Updates page and `update --status` before you remove the old copy.
+
+Blank managed server paths and relative overrides follow the new root automatically. Absolute overrides stay at their configured external locations. Older `server.json` files may hold absolute defaults; opening and saving the server rewrites them under the current root. If both the old and new server data trees exist, copy the authoritative one first, then use **Edit Server -> Paths -> Use Managed Defaults**.
 
 ## Cluster machines
 
-Host is included in the complete platform package. Existing Host enrollment,
-cluster deployment and remote update ownership stay separate. See
-[Cluster hosts](ClusterHosts.md).
+The package contains `Host/Quasar.Host`. On the Quasar machine, Quasar runs it as its local Host executor. A separate cluster machine gets its Host through enrollment from the UI, and its updates are separate from Quasar's own updates. See [Cluster hosts](ClusterHosts.md).
 
 ## Common problems
 
+- `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`: install and start the complete 1.4.1 package first (see the top of this page).
 - `User service install is the default; run install.sh without sudo.` You ran `sudo ./install.sh` without `--system`. Run it as the normal user, or add `--system`.
 - `System service install needs root. Run: sudo ./install.sh --system`: `--system` needs `sudo`.
 - `--user is only supported with --system installs.`: drop `--user` or add `--system`.
-- `systemctl not found; systemd install cannot continue.`: the machine has no systemd. Run `./Quasar serve` in the foreground instead, or use [Docker](Docker.md).
+- `Repairing a system service requires --user <account> to preserve its execution account.`: pass the account the service runs as.
+- `Replace the complete current package before repairing native services.`: `--repair-supervision` found no `Quasar`, `Updater/Quasar.Updater` or `launcher-files.txt` in the install directory. Copy the complete package first.
+- `A Quasar process from this installation is still running. Stop it before replacing files.`: stop the service or the foreground run, then rerun the installer.
+- `systemctl not found; systemd install cannot continue.`: the machine has no systemd. Run `./Quasar serve --foreground` instead, or use [Docker](Docker.md).
 - `.NET 10 ASP.NET Core runtime is still missing after installation attempt.`: the package install did not provide .NET 10. The script lists the SDKs and runtimes it found. Install .NET 10 manually and rerun.
 - `Refusing unsafe install directory: <dir>`: pick a dedicated folder.
+- `Cannot read this installation: ... Use an elevated Windows shell or the configured Linux service account; repair installation metadata if needed.` (exit code 3): `Quasar` was started by a user that cannot read `service-installation.json` or the record it points to. Run commands as the service account.
+- The Updates page says Quasar can't restart itself and names a unit problem: the units don't match the installation metadata. Rerun the current `install.sh` with `--repair-supervision` and the existing path, name and scope.
+- The guided installer says `Graphical installation needs kdialog or zenity.` or `polkit (pkexec) is unavailable.`: install them, or use the manual commands.
 - The SteamCMD row of the Managed Runtime panel fails with `ExitCode=127` and `linux32/steamcmd: cannot execute: required file not found`: the host lacks SteamCMD's 32-bit libraries. Install them (see [Prerequisites](#prerequisites)) and click **Retry** on the SteamCMD row.
 - Quasar logs `The remote certificate is invalid because of errors in the certificate chain: PartialChain` for every download, or SteamCMD fails with `unable to load trusted SSL root certificates` and exit code 254: the host lacks `ca-certificates`. Install it (see [Prerequisites](#prerequisites)) and restart Quasar.
 - `./Quasar serve` stops with `Couldn't find a valid ICU package installed on the system`: install the .NET 10 runtime (see [Prerequisites](#prerequisites)), whose packages bring ICU.
-- The service does not start at boot: enable lingering for the user service (`sudo loginctl enable-linger <user>`), or check that `--no-enable` was not used.
-- `Error: port 8080 is already bound by another process and is not a healthy Quasar server.`: another program uses the port. Stop it or change `Quasar:Port` in `appsettings.json`.
-- Current packages bundle the UI. A startup failure needs application/service logs and the restart-capability repair instructions. The following first-download behavior applies only to legacy Bootstrap installs.
-- On a legacy install, the UI doesn't come up: Bootstrap hasn't been able to download the web worker from GitHub yet, or `QUASAR_UPDATES_ENABLED=false` blocks the first download. Bootstrap retries a failed download on its own, 30 seconds after the first failure, then doubling up to every 10 minutes, and writes each wait to the journal (`journalctl --user -u quasar.service`):
-  - `Failed downloading the Quasar web UI; retrying at <time> (in <n> s). <error>`: GitHub can't be reached. Fix network access; there is no need to restart Quasar.
-  - `GitHub's API rate limit is used up, so Quasar can't download its web UI yet. Waiting for GitHub to reset the limit; retrying at <time> ...`: GitHub allows 60 anonymous API requests an hour per public IP address, and every machine behind the same NAT, CGNAT or hosting provider shares them. Quasar waits until the reset time GitHub sends (at most an hour) and then continues on its own. To skip the wait, give Bootstrap a GitHub token in `QUASAR_GITHUB_TOKEN` (or `GITHUB_TOKEN`) and restart the service; see [Updates](Updates.md#github-token-for-update-checks) for how to set it for the service. The token on the Updates page can only be saved once the UI is up.
-  - Older launchers (1.3.1.27 and earlier) gave up after the first failure, printed `Failed downloading initial Quasar web release.` and `Quasar worker launching on ...` with no worker behind it, and needed a restart once GitHub could be reached again.
-
-  With updates disabled and no worker, or when no `quasar-web-linux-x64.tar.gz` asset is found, a foreground run (`./Quasar serve`) prints `Quasar has no running worker, so the web UI is not available.` after the reason.
-- `Could not request Bootstrap shutdown. Check write access to the Quasar install directory.`: the service user cannot write to the install root. Fix ownership (`chown -R <user> <install-dir>`).
+- The services don't start at boot: enable lingering for user services (`sudo loginctl enable-linger <user>`), or check that `--no-enable` was not used.
+- The UI doesn't come up after a port change: another program may use the port, or the port was changed only through an environment variable. Check `Logs/quasar.log`, set `Quasar:Port` in `appsettings.json`, and rerun the installer with `--repair-supervision`.
 
 ## Sources
 - `README.md`
+- `Docs/Installation.md`
 - `Docs/QuickStart.md`
 - `Docs/LinuxDeploymentAndUpdates.md`
+- `Docs/QuasarUpdates.md`
+- `Docs/ReleaseNotes1.5.md`
 - `Docs/Configuration.md`
 - `install.sh`
 - `uninstall.sh`
+- `scripts/install-gui.sh`
+- `scripts/Install.desktop`
 - `scripts/readme-install-linux.md`
 - `scripts/package-linux-release.sh`
 - `tools/quasar-renice.c`
 - `Shared/Diagnostics/LinuxLimits.cs`
+- `Shared/Diagnostics/SystemLimits.cs`
 - `.github/workflows/release.yml`
 - `Quasar/appsettings.json`
-- `Quasar.Bootstrap/Program.cs`
-- `Quasar.Bootstrap/Quasar.Bootstrap.csproj`
 - `Quasar/Program.cs`
+- `Quasar/Services/QuasarApplicationEntry.cs`
+- `Quasar.Bootstrap/UpdateCli.cs`
 - `Quasar/Services/WebServiceOptions.cs`
+- `Quasar/Services/WebServiceManifestHostedService.cs`
 - `Quasar/Services/BrowserLauncher.cs`
 - `Quasar/Services/QuasarLoggingConfigurator.cs`
 - `Quasar/Services/QuasarShutdownService.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/ClusterLocalHost.cs`
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Layout/QuasarControlDialog.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
-
-- `Docs/QuasarUpdates.md`
-
 - `Shared/Updates/QuasarServiceInstallation.cs`
-
-- `Quasar.Updater/ConfigureInstallation.cs`
-
-- `Shared/Updates/GitHubUpdateTokenReader.cs`
-
-- `Shared/ServiceHosting/NativeServiceFailures.cs`
-
 - `Shared/Updates/NativeQuasarServices.cs`
-
-- `Docs/Installation.md`
-
-- `scripts/install-gui.sh`
-
-- `scripts/Install.desktop`
-
 - `Shared/Updates/QuasarUpgradePath.cs`
-
-- `Docs/ReleaseNotes1.5.md`
+- `Shared/Updates/LauncherReplacement.cs`
+- `Shared/ServiceHosting/NativeServiceFailures.cs`
+- `Quasar.Updater/Program.cs`
+- `Quasar.Updater/ConfigureInstallation.cs`
+- `Quasar.Updater/InstallationProcesses.cs`
+- `Quasar.Updater/TrustedUpdatePackage.cs`

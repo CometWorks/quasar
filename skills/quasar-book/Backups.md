@@ -130,7 +130,11 @@ Take a fresh configuration backup after each Quasar update that changes the majo
 
 Managed clusters follow the **Servers** rule's schedule and retention. A cluster that is proven stopped gets a clean backup. A running cluster is copied without downtime at up to **Running cluster copy rate (MiB/s)** (default 32, range 1 to 4096) and restores to the state of a crash at the start of the copy. Retention always keeps the newest clean backup in addition to the last N. A failed scheduled cluster backup is retried one hour later.
 
-Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster name>/<snapshot id>/` and do not appear in the **Stored backups** table. Restoring a cluster and taking manual cluster backups happen from the cluster's own page. See [Clusters](Clusters.md).
+Quasar also backs up a cluster before each managed update and before converting it to a standalone server. It keeps the three newest backups of each of these two kinds; older ones are deleted when a new one is taken. The backup just taken is never deleted, since it is the way back from that update or conversion.
+
+**Keep deleted clusters (days)**, in the Servers rule (default 7, range 0 to 3650), sets how long a deleted cluster's backups, world and Host data stay. After that Quasar removes them all, manual backups included. 0 keeps them forever. See [Delete or forget a cluster](Clusters.md#delete-or-forget-a-cluster).
+
+Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster name>/<snapshot id>/` and do not appear in the **Stored backups** table. Conversion receipts and working copies live in `<backup folder>/Conversions/<id>/` and stay until you remove them. Restoring a cluster and taking manual cluster backups happen from the cluster's own page. See [Clusters](Clusters.md).
 
 ## Common problems
 
@@ -158,6 +162,8 @@ Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster 
 - `Quasar/Models/QuasarBackupSettings.cs`
 - `Quasar/Models/QuasarBackupManifest.cs`
 - `Quasar/Services/ClusterBackupService.cs`
+- `Quasar/Services/ClusterConversionService.cs`
+- `Docs/ClusterConversion.md`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Program.cs`
 - `Quasar/Components/Pages/Backup.razor`

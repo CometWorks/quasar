@@ -104,7 +104,7 @@ buttons to the entity's node. Partial coverage is marked. Cluster deletion needs
 updated agents and one verified owner; shared or moving entities cannot be
 deleted from an arbitrary node. See [Entities](Monitoring.md#entities).
 
-Overview, Maintenance and Settings stay available while the Gateway admin connection is being checked or is unavailable. Recovery, backups and local settings use the same tabs online and offline. Nodes, Events and Mods & plugins are greyed out until the authenticated capabilities endpoint responds, regardless of desired On/Off state. A selected live-only view falls back to Overview during an outage; reconnect restores its requested view and bookmark. Opened panels retain their state. The five-second poll checks availability again. Every action retains its permissions, confirmations and safety checks.
+Overview, Maintenance and Settings stay available while the Gateway admin connection is being checked or is unavailable. Recovery, backups and local settings use the same tabs online and offline. Nodes, Events and Mods & plugins are grayed out until the authenticated capabilities endpoint responds, regardless of desired On/Off state. A selected live-only view falls back to Overview during an outage; reconnect restores its requested view and bookmark. Opened panels retain their state. The five-second poll checks availability again. Every action retains its permissions, confirmations and safety checks.
 
 The **Crash recovery readiness** metric reports whether the Registry can reconstruct
 saved cluster state after a crash. Its status comes from the recovery-readiness
@@ -208,6 +208,12 @@ Cluster profiles must list administrators as numeric SteamID64 values and have m
 
 Guided setup copies the chosen profile to a new profile named "<Server name> (cluster)", so later edits to the original profile do not affect the cluster.
 
+### In-game names and Message of the Day
+
+**Server name** in Cluster settings only renames the cluster in Quasar. The names players see live in the deployment: the in-game world name comes from guided setup (`inGameWorldName`, else the Server name) or, for a converted server, from its In-game world name. The Message of the Day comes from the profile, and **Stage profile changes** picks up a changed one.
+
+The web UI has no field to change the in-game names. Use the API: `POST /api/v1/clusters/{name}/names-preparation` with `{"serverName":"...","worldName":"..."}` (needs cluster manage and configuration editing; a blank or missing name stays as it is). It prepares a new deployment and also writes the world name into the world's `SessionName`, without bringing along unstaged profile edits. The names stay staged until the next activation, even when you select a cluster package or stage the profile afterwards, also after a failed staging. Apply them with **Apply pending update**. A cluster deployed before profile patches existed needs one profile staging for `SessionName` to change.
+
 ### Bugfixes and Performance by default
 
 These defaults protect against known game crashes and reduce CPU overhead and
@@ -237,6 +243,8 @@ Every node (regular nodes, the World Authority, spares and replacements) runs th
 **Settings → Plugin configuration** shows the normal plugin settings editor for each plugin in the saved preparation. **Save and stage update** prepares a new deployment for all nodes; it does not change running nodes. Apply it from **Maintenance → Pending update → Apply pending update** (full downtime). The individual Agent editor on the Plugins page cannot change cluster-owned configuration. Generated plugin sections use padded bodies; advanced controls keep spacing between the restart action and nested panels. If no editor appears, the page says "No editable plugin configurations are available in the saved preparation. Complete guided setup or prepare an imported deployment first."
 
 New clusters start with each plugin's SDK default values. A converted server keeps the plugin settings the Agent recorded before you stopped it.
+
+The same staging without the web UI is `POST /api/v1/clusters/{name}/plugin-configuration-preparation` with `{"pluginId":"...","configType":"...","values":{...}}` (needs cluster manage and configuration editing). `values` replaces all values of that configuration, so read the others from the saved preparation first. An unknown plugin or configuration type returns 409 `plugin_configuration_preparation_conflict`. A cluster that has not run since guided setup can get its values before its first start: its update takes no backup, because there is no world yet, and starts the cluster.
 
 ### Shared plugin storage
 
@@ -284,7 +292,7 @@ If an update gets stuck, **Abandon update** (`./Quasar cluster update-abandon NA
 
 If nodes keep failing at startup, for example because a plugin throws in its preload hook, the update's last error says so as soon as the Gateway stops respawning them: which nodes, the exception they reported and where the node log is on the Host. When all of them fail, Quasar gives up 12 minutes after Starting began, once the Gateway's retry has failed too, and reverts from the pre-update backup. Then stage the fixed build and apply it as usual.
 
-To stage a fixed build sooner, abandon the update. Applying the fixed build then stops in Stopping, because a Gateway whose World Authority never ran lists `global` as unsaved, and the update's last error says so at once. Abandon that update too and apply the build with **Update despite the recorded dirty shutdown**. Nothing is lost: the failed deployment never ran, and the world comes from its newest catalogued saves.
+To stage a fixed build sooner, abandon the update. Applying the fixed build then stops in Stopping, because a Gateway whose World Authority never ran lists `global` as unsaved, and the update's last error says so at once. Abandon that update too and apply the build with **Update despite the recorded dirty shutdown**. Nothing is lost: the failed deployment never ran, and the world comes from its newest cataloged saves.
 
 When Quasar gives up:
 
@@ -318,11 +326,13 @@ Use **Convert to cluster** in the server's **More server actions** menu (page `/
 
 Quasar checks access restrictions and recorded plugin settings, reserves the source against other offline operations and supervised starts, saves and stops it if needed, and disables its automatic startup. It waits up to five minutes for a graceful stop without force-killing it. The source data remains intact and the converted cluster stays stopped for review and manual player cutover.
 
-Quasar generates a new cluster ID when needed and keeps the source's server/world names. It chooses an enrolled host matching the destination address, otherwise the local Linux Host, otherwise the first enrolled host. Quasar starts the local Host when supported and waits for the selected Host to connect. Windows and container installs need an enrolled Linux host when local hosting is unavailable.
+If the review finds a blocker (see the list below), the page shows it and **Convert to cluster** stays disabled.
+
+Quasar generates a new cluster ID (`cluster-` plus 32 hex characters) when needed and keeps the source's server/world names. It chooses an enrolled host matching the destination address, otherwise the local Linux Host, otherwise the first enrolled host. Quasar starts the local Host when supported and waits for the selected Host to connect. Windows and container installs need an enrolled Linux host when local hosting is unavailable.
 
 Quasar chooses free managed ports, downloads a compatible release, prepares the source's plugins, freezes runtime dependencies, detects the game build, and generates and installs credentials. Existing empty clusters receive these managed settings automatically. Conversion uses two regular nodes, one hot spare and World Authority on one host, so plugin shared storage works without a manual shared mount. Capacity can be changed later.
 
-Quasar then takes server and world backups, converts a world copy with MagnetarWorld, stages the profile's Workshop mods (a profile with mods needs the Steam Web API key), transfers verified inputs, and prepares and activates the stopped cluster. Keep its public UDP port open through the firewall. The conversion URL and generated placement allow the same attempt to resume after an interruption.
+Quasar then takes server and world backups, converts a world copy with MagnetarWorld, stages the profile's Workshop mods (a profile with mods needs the Steam Web API key), transfers verified inputs, and prepares and activates the stopped cluster. The cluster gets a copy of the source's profile named "<cluster name> (converted)"; the Bugfixes and Performance defaults are not added. Keep its public UDP port open through the firewall. The conversion URL and generated placement allow the same attempt to resume after an interruption.
 
 Conversion is blocked when:
 
@@ -332,6 +342,8 @@ Conversion is blocked when:
 - A plugin configuration has no clear SDK type (custom providers or conflicting live copies).
 - The frozen plugin set does not match the source: "Frozen dependency snapshot does not contain every selected source plugin. Missing: …", "Frozen dependency snapshot contains additional common plugins; align it with the reviewed source selection." or, for a plugin pinned to a 40-character commit, "Frozen plugin commit differs from an explicitly pinned source plugin." `linux-compat`, `dotnet-compat`, `error-reporting` and `quasar-agent` may be present without being selected.
 - The destination already has a deployment, or the source cannot stop cleanly. Conversion never overwrites a deployed cluster.
+- A selected plugin has no source provenance: "Conversion cannot preserve plugins without source provenance: <names>".
+- No host machine is available: "No cluster host is available. Install Quasar on Linux x64 or enroll a Linux host on Hosts, then retry."
 
 Automatic ports start with a player port P of at least 28000, avoiding other managed port ranges. Registry administration uses P+16, regular node backends P+1100 onward, controls P+1200 onward and World Authority P+1164/P+1264. The converter may reject worlds it does not support. Advanced manual API/CLI conversion retains explicit topology and frozen input fields; see [Cluster conversion](https://github.com/CometWorks/Quasar/blob/main/Docs/ClusterConversion.md).
 
@@ -397,7 +409,7 @@ Quasar removes unused package, dependency and mod content once no cluster, prepa
 
 ## Command line
 
-The packaged `Quasar` launcher has a `cluster` command that calls the Quasar API and prints one JSON envelope on stdout:
+The `Quasar` application has a `cluster` command that calls the Quasar API and prints one JSON envelope on stdout:
 
 ```bash
 export QUASAR_API_TOKEN='<service-principal token>'
@@ -409,8 +421,8 @@ Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (defa
 
 | Area | Commands |
 | --- | --- |
-| Read | `list`, `health`, `status`, `lifecycle`, `plan`, `recovery-readiness`, `config`, `capabilities`, `fleet`, `nodes`, `world-authority`, `snapshots`, `partitions`, `clients`, `bans`, `events`, `chat-history`, `gateway-operations`, `operation NAME ID`, `diagnostics`, `handover-config`, `artifacts`, `artifact NAME ID` |
-| Lifecycle | `goal NAME on|off`, `gateway-restart`, `gateway-recover`, `recover NAME REQUEST.json`, `command NAME REQUEST.json` |
+| Read | `list`, `health`, `status`, `lifecycle`, `plan`, `recovery-readiness`, `config`, `rotation`, `client-diagnostics NAME NODE`, `capabilities`, `fleet`, `nodes`, `world-authority`, `snapshots`, `partitions`, `clients`, `bans`, `events`, `chat-history`, `gateway-operations`, `operation NAME ID`, `diagnostics`, `handover-config`, `artifacts`, `artifact NAME ID` |
+| Lifecycle | `goal NAME on|off`, `gateway-restart`, `gateway-recover`, `recover NAME REQUEST.json`, `command NAME REQUEST.json`, `rotation-set NAME FILE` |
 | Packages | `package-release`, `package-stage NAME VERSION SHA256`, `package-selection`, `package-select NAME VERSION SHA256 EXPECTED_REVISION`, `dependency-candidate`, `dependencies`, `dependencies-stage NAME FILE`, `deployment-inputs` |
 | Deployment | `create FILE`, `deployment-prepare NAME FILE`, `release-update-prepare NAME`, `world-files NAME`, `world-files-prepare NAME FOLDER`, `deployment`, `deployment-activate NAME FILE`, `update NAME FILE`, `update-status`, `update-abandon` |
 | Backups | `backups`, `backup NAME FILE`, `restore NAME FILE`, `artifact-backup NAME ID` |
@@ -420,15 +432,17 @@ Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (defa
 
 Exit codes: `0` success, `2` usage, `3` local configuration, `4` connection or timeout, `5` authentication or authorization, `6` API rejection, `7` the operation completed as failed, `8` incompatible protocol. An HTTP timeout does not mean the operation failed; check it with `cluster operation` or `conversion-status`.
 
-Guided setup has no CLI command; use the UI or `POST /api/v1/clusters/setup`.
+Guided setup has no CLI command; use the UI or `POST /api/v1/clusters/setup`. Profile, hot spare, name and plugin configuration staging have no CLI command either; their API routes are listed below.
 
 ## API
 
 Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` header and return a durable operation; repeating the same key and body returns the same operation, a different body returns `idempotency_key_conflict`. Operations are stored under `<install root>/Operations/Clusters`. An operation still running when Quasar stopped is reported as Failed with `interrupted_by_restart`; resubmit with a new key.
 
+The stagings behind the Settings panel are `POST /api/v1/clusters/{name}/config-profile-preparation` (`{"configProfileId"}`), `hot-spares-preparation` (`{"hotSpares"}`), `names-preparation` and `plugin-configuration-preparation`. All need cluster manage and configuration editing, and apply with `cluster update` or **Apply pending update**.
+
 ## Common problems
 
-- **Start stays grey.** Quasar has not verified a stable stopped state. Check the cluster overview status code (see the table above), make sure every Host executor is connected on the Hosts page, and finish any pending update or restore.
+- **Start stays gray.** Quasar has not verified a stable stopped state. Check the cluster overview status code (see the table above), make sure every Host executor is connected on the Hosts page, and finish any pending update or restore.
 - **"Cannot reach the Cluster Registry at …"** The Gateway is not running or its admin port is not reachable from Quasar. While the cluster is stopped this is expected.
 - **"Cluster Registry credential environment variable '…' is not set."** For a registered cluster, set that variable on the Quasar service and restart Quasar.
 - **"Queued mod/plugin updates must be staged before applying."** Stage the queued content or remove the queue.
