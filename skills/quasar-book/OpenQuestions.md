@@ -54,7 +54,6 @@ Pages: [Servers](Servers.md), [Config profiles](ConfigProfiles.md).
 - Default `MinimumSimulationProgressScore` differs: model default 0.1, UI-created servers 0.05 (`CreateBlank`). Imported servers get which? Intentional? (`Quasar/Models/DedicatedServerDefinition.cs`, `Quasar/Services/ServerManagementActions.cs`)
 - `RecycleAfterUptimeHours` (health recycle) and per-server `AvoidSimultaneousScheduledRestarts` exist in `server.json` but have no UI; the supervisor uses the global option, not the per-server field. Left undocumented. (`DedicatedServerDefinition.cs`, `DedicatedServerSupervisor.cs` CanRunPlannedRestart)
 - The editor port check covers only the game port; derived Steam (+1000) and Remote API (+2000) ports of other servers are not validated. Worth a validation? (`ServerEditorDialog.razor` ValidatePortField)
-- The Configs page has no navigation guard: leaving via the nav menu drops unsaved profile edits without the Unsaved changes dialog. Intended? (`Quasar/Components/Pages/Configs.razor`)
 - `Create From Template` in the server editor creates the save folder immediately, before the server definition is saved; cancelling the editor leaves the folder. Intended? (`ServerEditorDialog.razor` CreateWorldSaveFromTemplateAsync)
 
 ## Plugins

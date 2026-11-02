@@ -295,13 +295,16 @@ its saved deployment is left unbound after restore; choose a matching profile be
 staging another update. For existing managed clusters, profile staging records the
 verified active inputs before replacing them with candidate inputs.
 
-When a config profile with Workshop mods is opened, saved, or receives imported
-mods, Quasar checks declared Steam Workshop child/dependency metadata, adds
+Opening a config profile with Workshop mods checks declared Steam Workshop
+child/dependency metadata and shows an outline and warnings without changing the
+profile or creating unsaved changes. Saving a profile or importing mods adds
 missing dependency mods, and marks dependency rows in the profile JSON and the
 world's generated `Sandbox_config.sbc`. It does not reorder the profile
 automatically during this check; the Mods tab provides an **Auto Sort
 Dependencies** action that applies a topological dependency order when the
-operator wants it. If Quasar finds a dependency listed after its dependent, or
+operator wants it, then saves the profile, including other pending edits. Normal
+profile validation still applies; invalid values or a failed save leave edits
+pending. If Quasar finds a dependency listed after its dependent, or
 Steam reports a circular dependency chain that prevents a clean topological
 order, the UI shows a warning. The Steam Workshop API key configured from the
 Mods tab is required for this automatic dependency check. If the key is missing
@@ -316,12 +319,13 @@ unchanged.
 
 Space Engineers Dedicated Server also has its own **Autodetect Dependencies**
 setting. Quasar manages that setting in the profile instead of showing it as a
-manual world option: it is disabled after a clean dependency check or a
+manual world option: it is disabled when applying a clean dependency check or a
 successful auto-sort, so DS receives the exact generated `Sandbox_config.sbc`
 mod list and load order. Quasar enables it as a fallback when the mod list is
 manually changed, the Workshop API key is missing, dependency checks fail, or
 dependency warnings remain after sorting. Auto-sort reorder notices do not keep
 the fallback enabled when the final sorted order is otherwise valid.
+The read-only check on opening a profile leaves this setting unchanged.
 
 After a dependency check or auto-sort, the Mods tab also shows a collapsed,
 flattened dependency outline. Rows are tagged as root mods, dependency mods,

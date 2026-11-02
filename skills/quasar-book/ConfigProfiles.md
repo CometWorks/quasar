@@ -104,6 +104,9 @@ When you switch to another profile in the list, navigate to another Quasar page
 If saving fails or the profile has invalid values, you stay in the editor with
 your changes. Refreshing, closing the browser tab or leaving Quasar shows the
 browser's standard unsaved-changes warning instead. Saved profiles do not prompt.
+Opening a profile only checks mod dependencies; that check does not create
+unsaved edits. **Auto Sort Dependencies** saves the profile, including any other
+pending edits, after validation.
 
 ### When profile changes take effect
 
@@ -145,10 +148,10 @@ The Mods tab has these panels:
 
 Dependency handling:
 
-- When a profile is opened, saved, cloned or receives imported mods, Quasar reads the declared Workshop dependencies (needs the API key), adds missing dependency mods and marks them as dependencies. It does not reorder the list.
-- **Auto Sort Dependencies** sorts the list so dependencies load before the mods that need them. Quasar warns when a dependency is listed after its dependent, when Steam reports a circular dependency, or when a dependency cannot be satisfied.
+- Opening a profile checks the declared Workshop dependencies (needs the API key) and shows an outline and warnings without changing the profile. Saving, cloning or importing mods adds missing dependencies and marks them as dependencies. These checks do not reorder the list.
+- **Auto Sort Dependencies** sorts the list so dependencies load before the mods that need them, then saves the profile and any other pending edits. Invalid values or a failed save leave edits pending. Quasar warns when a dependency is listed after its dependent, when Steam reports a circular dependency, or when a dependency cannot be satisfied.
 - After a check, a **Dependency outline** panel shows the dependency tree. It is not saved.
-- Quasar manages the DS **Autodetect Dependencies** setting (hidden in the World tab). It turns it off after a clean check or a successful sort, so the DS loads exactly the list Quasar wrote. It turns it on when the list was changed by hand, the API key is missing, the check failed or warnings remain.
+- Quasar manages the DS **Autodetect Dependencies** setting (hidden in the World tab). Applying a clean check or a successful sort turns it off, so the DS loads exactly the list Quasar wrote. It turns it on when the list was changed by hand, the API key is missing, the check failed or warnings remain. The check on opening a profile leaves it unchanged.
 - Without an API key or when Steam is unreachable, Quasar keeps the list as it is and shows a warning; saving still works.
 - Opening the Mods tab refreshes mod display names from Steam (no API key needed). The new names are unsaved edits until you save.
 - **Remove Dead Mods** asks Steam about every selected mod and removes the ones Steam reports as unavailable. Save the profile to keep the change.
