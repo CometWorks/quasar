@@ -143,6 +143,11 @@ Host is bundled under `Host/` in the complete platform package. Cluster deployme
 and Host update ownership remain separate; application updates do not deploy remote
 changes. See [Cluster hosts](ClusterHosts.md).
 
+Installer errors show the original failure before recovery. If automatic
+restoration fails, the complete recovery copy remains available and the legacy
+task stays disabled. Keep the services and task stopped until restoration is
+complete; a failed recovery does not count as a restored installation.
+
 ## Common problems
 
 Read the persistent capability and operation messages on Updates. Missing service

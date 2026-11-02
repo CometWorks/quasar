@@ -176,6 +176,12 @@ and new server-data trees exist, first copy the authoritative tree manually;
 then use **Edit Server -> Paths -> Use Managed Defaults**. Quasar deliberately
 does not choose between, merge, move, or delete two existing trees.
 
+Installer failures report the original error before attempting recovery. A recovery
+failure is reported separately and leaves the complete backup available; it does
+not claim the old installation was restored or re-enable its legacy task. Keep both
+native services and the legacy task stopped until recovery is complete. The native
+Windows CI fixture also prints its isolated service event logs on failure.
+
 ## Configuration
 
 For the web UI host/port (including how to change the listening port, default
