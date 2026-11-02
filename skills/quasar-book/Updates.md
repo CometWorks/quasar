@@ -282,7 +282,8 @@ When SteamCMD provides no percentage, the operation loader shows the current sta
 and elapsed time. First-time preparation can take several minutes.
 
 Release package metadata uses the application's reported version, including
-four-part CI build identities. NuGet's internal version is separate and must not
+four-part CI build identities, including a final `.0`. The main UI shows the
+three-part base; Updates keeps the full identity. NuGet's internal version is separate and must not
 be used to identify the running release or its 1.4.1 migration receipt.
 
 ## Sources

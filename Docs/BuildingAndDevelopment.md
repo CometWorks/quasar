@@ -16,7 +16,9 @@ The platform packagers write `release.json` from the published application's
 NuGet's build version is separate: a CI release such as `1.4.1.42` may build with
 NuGet version `1.4.1-42`, but its package and runtime identities stay `1.4.1.42`.
 Source installation follows the same rule so health checks and migration receipts
-use the version the application actually reports.
+use the version the application actually reports. The main UI shows only the
+three-part base, such as `1.4.1`; Updates, package metadata and health checks keep
+the full build identity, including a final `.0` in `1.4.1.0`.
 
 ## Projects
 
