@@ -20,6 +20,13 @@ use the version the application actually reports. The main UI shows only the
 three-part base, such as `1.4.1`; Updates, package metadata and health checks keep
 the full build identity, including a final `.0` in `1.4.1.0`.
 
+Linux installer fixtures (`python3 Tests/Updates/install_gui.py`) launch desktop
+entries through GIO's filename-aware desktop-file API using inert dialog/elevation
+commands. The tests need system Python's `gi` module (`python3-gi` and
+`gir1.2-glib-2.0` on Ubuntu). Older `gio launch` CLI versions load an anonymous key
+file and lose `%k` and `GIO_LAUNCHED_DESKTOP_FILE`, so they do not represent a normal
+file-manager launch. These fixtures never open a real installer or install services.
+
 ## Projects
 
 - `Quasar`
