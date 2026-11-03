@@ -54,22 +54,7 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
                     // Before the backups are read: what they pinned goes in this same pass.
                     var expired = ExpiredDeletedClusters();
                     foreach (var cluster in expired) RemoveLocalData(cluster);
-                    var definitions = catalog.GetClusters().ToList();
-                    string backups = Path.Combine(options.BackupDirectory, "Clusters");
-                    if (Directory.Exists(backups))
-                        foreach (string path in Directory.EnumerateFiles(backups, "backup.json", SearchOption.AllDirectories))
-                        {
-                            // An unreadable backup aborts collection; it never implies no references.
-                            var backup = JsonSerializer.Deserialize<ClusterBackup>(await File.ReadAllBytesAsync(path, stoppingToken), Json)
-                                ?? throw new InvalidDataException("Unreadable backup references: " + path);
-                            definitions.Add(backup.Deployment);
-                        }
-                    // Recovery/export backups can retain dependency and preparation roots
-                    // without pretending to be an active deployment or a managed world backup.
-                    if (Directory.Exists(options.BackupDirectory))
-                        foreach (string path in Directory.EnumerateFiles(options.BackupDirectory, "deployment-references.json", SearchOption.AllDirectories))
-                            definitions.AddRange(JsonSerializer.Deserialize<ClusterDefinition[]>(await File.ReadAllBytesAsync(path, stoppingToken), Json)
-                                ?? throw new InvalidDataException("Unreadable recovery references: " + path));
+                    var definitions = await RetainedDefinitionsAsync(catalog, options.BackupDirectory, stoppingToken);
                     var retained = DependencyReferences(definitions);
                     string identity = ReferenceIdentity(definitions);
                     var named = definitions.Select(c => c.UniqueName).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -151,6 +136,28 @@ public sealed class ClusterStorageMaintenance(ClusterCatalog catalog, ClusterDep
             }
         }
         finally { catalog.Changed -= Changed; ClusterStorageActivity.Idle -= StorageIdle; }
+    }
+
+    // The definitions whose content collection keeps: the catalog's and those that backups still reference.
+    internal static async Task<List<ClusterDefinition>> RetainedDefinitionsAsync(ClusterCatalog catalog, string backupDirectory, CancellationToken token)
+    {
+        var definitions = catalog.GetClusters().ToList();
+        string backups = Path.Combine(backupDirectory, "Clusters");
+        if (Directory.Exists(backups))
+            foreach (string path in Directory.EnumerateFiles(backups, "backup.json", SearchOption.AllDirectories))
+            {
+                // An unreadable backup aborts collection; it never implies no references.
+                var backup = JsonSerializer.Deserialize<ClusterBackup>(await File.ReadAllBytesAsync(path, token), Json)
+                    ?? throw new InvalidDataException("Unreadable backup references: " + path);
+                definitions.Add(backup.Deployment);
+            }
+        // Recovery/export backups can retain dependency and preparation roots
+        // without pretending to be an active deployment or a managed world backup.
+        if (Directory.Exists(backupDirectory))
+            foreach (string path in Directory.EnumerateFiles(backupDirectory, "deployment-references.json", SearchOption.AllDirectories))
+                definitions.AddRange(JsonSerializer.Deserialize<ClusterDefinition[]>(await File.ReadAllBytesAsync(path, token), Json)
+                    ?? throw new InvalidDataException("Unreadable recovery references: " + path));
+        return definitions;
     }
 
     // Deleted clusters whose retention has ended and whose data was not released yet in this process.

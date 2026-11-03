@@ -620,6 +620,43 @@ public sealed class ClusterCatalog : IDisposable
         return result;
     }
 
+    internal string PurgeArchive(string uniqueName) =>
+        Path.Combine(_directory, ".purged", $"{DateTimeOffset.UtcNow:yyyyMMddHHmmssfff}-{uniqueName}");
+
+    /// <summary>Releases a removed cluster ID: its deleted definitions move to <paramref name="archive"/> and its
+    /// reservation goes, so CreateAsync accepts the ID again. Returns whether anything was there.</summary>
+    internal async Task<bool> ReleaseRemovedIdAsync(string uniqueName, string archive, CancellationToken token)
+    {
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            if (GetCluster(uniqueName) is not null) throw new InvalidOperationException("Delete the cluster before purging it.");
+            bool found = false;
+            if (Directory.Exists(_directory))
+                foreach (string directory in Directory.EnumerateDirectories(_directory).Where(d => !Path.GetFileName(d).StartsWith('.')))
+                {
+                    string history = Path.Combine(directory, "History");
+                    bool named = Path.GetFileName(directory).Equals(uniqueName, StringComparison.OrdinalIgnoreCase);
+                    if (File.Exists(Path.Combine(directory, "cluster.json"))) continue; // Another cluster lives there.
+                    if (!named && !(Directory.Exists(history) && Directory.EnumerateFiles(history, "*-deleted.json").Any(path =>
+                        JsonSerializer.Deserialize<ClusterDefinition>(File.ReadAllText(path), JsonOptions)?.UniqueName
+                            .Equals(uniqueName, StringComparison.OrdinalIgnoreCase) == true)))
+                        continue;
+                    string target = Path.Combine(archive, "Clusters");
+                    Directory.CreateDirectory(target);
+                    Directory.Move(directory, Path.Combine(target, Path.GetFileName(directory)));
+                    found = true;
+                }
+            if (File.Exists(RemovedPath(uniqueName))) { File.Delete(RemovedPath(uniqueName)); found = true; }
+            if (!found) return false;
+            _logger.LogInformation("Released removed cluster ID {Cluster}; its definitions are in {Archive}", uniqueName, archive);
+        }
+        finally { _writeGate.Release(); }
+        // What only the purged cluster's backups kept goes in the next collection.
+        Changed?.Invoke();
+        return true;
+    }
+
     private string RemovedPath(string uniqueName) => Path.Combine(_directory, ".removed", uniqueName.ToLowerInvariant());
 
     private List<ClusterDefinition> Load()

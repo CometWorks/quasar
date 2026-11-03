@@ -383,7 +383,17 @@ The delete icon on the card or page opens a dialog:
 
 After a delete, Quasar asks each host machine's Host executor to detach the cluster, so the Host stops polling and supervising it. Detaching is refused while a node or the Gateway still runs, the Gateway goal is On, an activation or restore is unfinished, or the deployment changed. The Host moves the cluster's attachment, Gateway specification and activation journal to `state/detached/<timestamp>-<Cluster ID>/`. Worlds, run roots and snapshots stay where they are until the retention below ends. When a Host is too old or refuses, the deletion still stands and Quasar logs a warning with the `Quasar.Host cluster detach` command to run on that machine (see [Host command line](ClusterHosts.md#host-command-line)). Forget does not detach: run that command once the processes are stopped.
 
-Both keep worlds, Host data and backups for the **Keep deleted clusters (days)** set on the Backup page (default 7, 0 keeps them forever). Then Quasar removes them, manual backups included; see [Cluster storage](https://github.com/CometWorks/quasar/blob/main/Docs/ClusterStorage.md#deleted-clusters). A run root you chose outside the Host's `state/conversions` stays, and after a forget a Host keeps the cluster's data until you detach it. The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history."
+Both keep worlds, Host data and backups for the **Keep deleted clusters (days)** set on the Backup page (default 7, 0 keeps them forever). Then Quasar removes them, manual backups included; see [Cluster storage](https://github.com/CometWorks/quasar/blob/main/Docs/ClusterStorage.md#deleted-clusters). A run root you chose outside the Host's `state/conversions` stays, and after a forget a Host keeps the cluster's data until you detach it. The definition moves to `Clusters/<Cluster ID>/History/<timestamp>-<guid>-deleted.json`. A removed Cluster ID, in any letter case, cannot be reused: "This cluster ID was removed. Choose a new ID to avoid reusing retained Host state or operation history." Purge the deleted cluster to use the ID again.
+
+### Purge a deleted cluster
+
+Purging ends a deleted cluster's retention now and frees its Cluster ID, so a new cluster with that ID is set up from scratch instead of resuming or replaying the old setup. There is no button for it. API: `DELETE /api/v1/clusters/{name}/retained-data?confirmation={name}`; command line: `./Quasar cluster purge NAME`. Delete the cluster first: the purge refuses a cluster that still has a definition, and one with an operation in progress.
+
+- Removed, as at the end of the retention: the cluster's backups, `ClusterSetup/<Cluster ID>/`, and on each Host its preparation workspaces with the runtime in them, its snapshots, detached records and launch records. Each Host is asked first; when one refuses or can't be reached, nothing in Quasar changes and the purge can run again.
+- Moved to `Clusters/.purged/<timestamp>-<Cluster ID>/`: the deleted definitions, the cluster's operation records, its own configuration profile (`cluster-…` or `converted-…`), and a world template or configuration profile whose ID is the Cluster ID. A template or profile that another cluster or server uses stays.
+- The cluster's entries in Players go. Discord channel bindings and server list listings stay, so a new cluster with the same ID takes them over. Generated Host and cluster credentials also stay, and the new cluster gets the same ones.
+
+The answer lists what was archived and removed and the archive folder. Nothing reads the archive; delete it when you no longer need it.
 
 ## Register an existing cluster
 
@@ -417,12 +427,12 @@ export QUASAR_API_TOKEN='<service-principal token>'
 ./Quasar cluster goal production off --url https://quasar.example.com --idempotency-key stop-1 --wait
 ```
 
-Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (default `QUASAR_API_TOKEN`), `--idempotency-key KEY` (required for every change), `--wait`, `--timeout SECONDS` (1 to 3600, default 30), `--wait-timeout SECONDS` (default 900), `--cursor`, `--limit` (1 to 500). Commands that take a JSON file accept `-` for standard input.
+Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (default `QUASAR_API_TOKEN`), `--idempotency-key KEY` (required for every change except `purge`), `--wait`, `--timeout SECONDS` (1 to 3600, default 30), `--wait-timeout SECONDS` (default 900), `--cursor`, `--limit` (1 to 500). Commands that take a JSON file accept `-` for standard input.
 
 | Area | Commands |
 | --- | --- |
 | Read | `list`, `health`, `status`, `lifecycle`, `plan`, `recovery-readiness`, `config`, `rotation`, `client-diagnostics NAME NODE`, `capabilities`, `fleet`, `nodes`, `world-authority`, `snapshots`, `partitions`, `clients`, `bans`, `events`, `chat-history`, `gateway-operations`, `operation NAME ID`, `diagnostics`, `handover-config`, `artifacts`, `artifact NAME ID` |
-| Lifecycle | `goal NAME on|off`, `gateway-restart`, `gateway-recover`, `recover NAME REQUEST.json`, `command NAME REQUEST.json`, `rotation-set NAME FILE` |
+| Lifecycle | `goal NAME on|off`, `gateway-restart`, `gateway-recover`, `recover NAME REQUEST.json`, `command NAME REQUEST.json`, `rotation-set NAME FILE`, `purge NAME` |
 | Packages | `package-release`, `package-stage NAME VERSION SHA256`, `package-selection`, `package-select NAME VERSION SHA256 EXPECTED_REVISION`, `dependency-candidate`, `dependencies`, `dependencies-stage NAME FILE`, `deployment-inputs` |
 | Deployment | `create FILE`, `deployment-prepare NAME FILE`, `release-update-prepare NAME`, `world-files NAME`, `world-files-prepare NAME FOLDER`, `deployment`, `deployment-activate NAME FILE`, `update NAME FILE`, `update-status`, `update-abandon` |
 | Backups | `backups`, `backup NAME FILE`, `restore NAME FILE`, `artifact-backup NAME ID` |

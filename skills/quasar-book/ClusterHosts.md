@@ -29,7 +29,7 @@ This section is about enrolled machines. The Quasar machine's own Host is descri
 | `state/credentials.json` | Enrollment and cluster credentials (owner read/write only). |
 | `state/credentials/<cluster>/` | Per-cluster executor token roster. |
 | `state/attachments/`, `state/gateways/`, `state/deployments/` | Cluster attachments, Gateway specifications and activation journals. |
-| `state/launch-records/`, `state/gateway-launch-records/` | Records of started nodes and Gateways, used to re-adopt them after a Host restart. |
+| `state/launch-records/`, `state/gateway-launch-records/` | Records of started nodes and Gateways, used to re-adopt them after a Host restart. A deleted cluster's go when its [retention](Clusters.md#delete-or-forget-a-cluster) ends. |
 | `state/conversions/` | Installations, worlds and mods sent by Quasar (`installations/`, `worlds/`, `mods/`), one folder per deployment with `configuration/` and `runtime/`, and the shared content store `.objects`. |
 | `state/conversions/<id>/runtime/` | The cluster's run root: node data, saves and, for a single-machine cluster, `plugin-shared/`. |
 | `state/snapshots/`, `state/restores/` | Backup snapshots and restore journals. |

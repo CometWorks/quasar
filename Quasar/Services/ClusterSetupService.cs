@@ -330,7 +330,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     }
     private static ClusterDefinition Target(ClusterDefinition cluster, EnrolledClusterHost host)
     { var copy = cluster.Clone(); copy.HostCommandUrl = host.CommandUrl; copy.HostCommandTokenEnvironmentVariable = host.CredentialReference; return copy; }
-    private static void ValidateId(string id)
+    internal static void ValidateId(string id)
     { if (string.IsNullOrWhiteSpace(id) || !Regex.IsMatch(id, "^[a-zA-Z0-9_-]{1,64}$")) throw new ArgumentException("Use a cluster ID with 1–64 letters, numbers, hyphens or underscores."); }
     /// <summary>With no cluster on this PC the local Host stays stopped until a request needs it. That request fails, so wait for the Host it started.</summary>
     private async Task WaitForHostsAsync(ClusterSetupRequest request, EnrolledClusterHost[] selected, CancellationToken token, Func<string, Task>? report = null)

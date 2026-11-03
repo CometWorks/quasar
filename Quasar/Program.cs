@@ -310,6 +310,7 @@ public class Program
             builder.Services.AddHostedService<ClusterOperationReconciler>();
             builder.Services.AddSingleton<ClusterCommandService>();
             builder.Services.AddSingleton<ClusterDeploymentService>();
+            builder.Services.AddSingleton<ClusterPurgeService>();
             builder.Services.AddSingleton<ClusterConversionService>();
             builder.Services.AddSingleton<ClusterBackupService>();
             builder.Services.AddSingleton<ClusterUpdateService>();

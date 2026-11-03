@@ -150,6 +150,28 @@ public sealed class ClusterOperationStore
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
         && operation.State == ClusterOperationState.Running);
 
+    // A purged cluster's records move out, so its ID starts over: no idempotent replay, no terminal failed attempt.
+    internal async Task<int> ArchiveClusterAsync(string cluster, string archive, CancellationToken token)
+    {
+        await _gate.WaitAsync(token);
+        try
+        {
+            var records = _operations.Values.Where(o => o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (records.Any(o => o.State == ClusterOperationState.Running))
+                throw new InvalidOperationException("Wait for pending cluster operations to finish before purging the cluster.");
+            if (records.Length != 0) Directory.CreateDirectory(archive);
+            foreach (var record in records)
+            {
+                string path = Path.Combine(_directory, record.OperationId + ".json");
+                if (File.Exists(path)) File.Move(path, Path.Combine(archive, record.OperationId + ".json"));
+                _operations.TryRemove(record.OperationId, out _);
+            }
+            if (records.Length != 0) Changed?.Invoke();
+            return records.Length;
+        }
+        finally { _gate.Release(); }
+    }
+
     internal bool HasPendingShutdown(string cluster) => _operations.Values.Any(operation =>
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
         && operation.State == ClusterOperationState.Running

@@ -275,6 +275,7 @@ internal static class ClusterApi
         RouteHandlerBuilder createCluster = routes.MapPost("/", CreateCluster);
         RouteHandlerBuilder deleteCluster = routes.MapDelete("/{uniqueName}", DeleteCluster);
         RouteHandlerBuilder forgetCluster = routes.MapDelete("/{uniqueName}/registration", ForgetCluster);
+        RouteHandlerBuilder purgeCluster = routes.MapDelete("/{uniqueName}/retained-data", PurgeCluster);
         RouteHandlerBuilder prepareDeployment = routes.MapPost("/{uniqueName}/deployment-preparation", PrepareDeployment);
         RouteHandlerBuilder recoverCluster = routes.MapPost("/{uniqueName}/recover", (string uniqueName, ClusterRecoveryRequest request,
             HttpContext context, [FromServices] ClusterDeploymentService deployments, CancellationToken token) => RunBackup(uniqueName, context,
@@ -329,6 +330,7 @@ internal static class ClusterApi
             createCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deleteCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             forgetCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            purgeCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             captureBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             prepareRestore.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             archiveExport.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -526,6 +528,22 @@ internal static class ClusterApi
         catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
         catch (Exception error) when (error is InvalidOperationException or IOException)
         { return Error(409, "cluster_forget_conflict", error.Message); }
+    }
+
+    private static async Task<IResult> PurgeCluster(string uniqueName, string confirmation, HttpContext context,
+        [FromServices] ClusterPurgeService purge, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "Cluster access denied.");
+        if (!string.Equals(confirmation, uniqueName, StringComparison.Ordinal))
+            return Error(400, "confirmation_required", "Enter the exact cluster ID to purge its retained data.");
+        try { return Results.Json(Envelope(await purge.PurgeAsync(uniqueName, token)), JsonOptions); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Nothing of this cluster ID is left to purge."); }
+        catch (ArgumentException error) { return Error(400, "invalid_cluster_id", error.Message); }
+        catch (Exception error) when (error is ClusterHostException or JsonException or InvalidDataException)
+        { return Error(409, "cluster_purge_unverified", error.Message); }
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
+        { return Error(409, "cluster_purge_conflict", error.Message); }
     }
 
     private static async Task<IResult> DeleteCluster(string uniqueName, HttpContext context,
