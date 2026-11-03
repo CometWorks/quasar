@@ -1,5 +1,5 @@
 {
- "commit": "e98c325c79ffb65b9f8f44a1c1b6b91165e222ce",
+ "commit": "3da0b82822fae0154dffca70e87ce417ba26c340",
  "files": {
   ".dockerignore": "dff903861d9f0c39b4b107cf206243154443e801c48042429b6eaeaa311c9f64",
   ".env.example": "3cdd8b12869874ea0e28ad7843836ef6f0be176e208e5f192d400abf7ba9e788",
@@ -11,7 +11,7 @@
   "Dockerfile": "f69b5ef06d426b1d248035e35be9528c61af75643755fbefe8be4bc744eaf6f0",
   "Docs/AnalyticsCpuLoad.md": "76748f2f300d947f8dc16969ebf8a99e00e6307bce9a44c357b2501c91ac9497",
   "Docs/Announcements.md": "28e4283ec232ff9821b6b5d67834c77d88cf68779fb99af00877dbd4f8bb7199",
-  "Docs/BuildingAndDevelopment.md": "43354c73ce0671c9cc1b3d9e66b8d7460484e864713acc8b88d487f01bd4002c",
+  "Docs/BuildingAndDevelopment.md": "7ce35cb6f2d549ebfa8c96bbe51133c8f16556cfaf18843a4054d49f27c18f9a",
   "Docs/ClientDiagnostics.md": "73c8c620570d797fca0527bd274fa1add4ae090f127c877b164a388cecf45f2c",
   "Docs/ClusterConversion.md": "82c3d1df57688ee23bc98b40baa98b2f9caee52e1cc4744caa3e30a5010e9938",
   "Docs/ClusterGuidedSetupPlan.md": "2a66330d360d185b6be7d2c9fee3d69de117228c9858f2e737207b9ace295c66",
@@ -389,10 +389,10 @@
   "Shared/Updates/QuasarUpgradePath.cs": "b6ff2dbc024ac82ac846120d0ae5605fe9f4b2107c25afae87aef5b2cdbd3584",
   "Shared/Updates/UpdateDurability.cs": "7c31e5e96248dfd35e808521eb6fdb45808c657f951d80e2028ed9dfc933a1e7",
   "Shared/Updates/VerifiedUpdatePackage.cs": "19d81630a13c52e197e2aa04b2124e84c451de49c550e2ba5d984c5f5161c17e",
-  "Tests/Updates/NativeFixture.cs": "3d225f29e31ca470845390e4e81ce9af79292d0ca58379da3a193071ff812059",
+  "Tests/Updates/NativeFixture.cs": "c61455633c6e8c047e37e54a520e8ebac542ae729178073af0d9580005530e4e",
   "Tests/Updates/service_unit_config.py": "1f95b4bbc436c7da4a943f428dc7563d42b572d08b8f02718759d76e8295da52",
   "Tests/Updates/systemd.py": "06fc880b4bd0df2ce5ddcaf8b5a2f382b53bf6a357aad5e21fa69d5846644448",
-  "Tests/Updates/windows-services.ps1": "3cdf8de7e8890eb9b34cf8c91b63ff4c18beb3dbf0058b306398d24d35355225",
+  "Tests/Updates/windows-services.ps1": "ff76d98040a630370ca4ff863c1b2bacb802bddaf2b6a06189ef0d0a2393246f",
   "docker-compose.diagnostics.yml": "9e0d67e7e50a482d110e95b82edbf4cceaf9d53dd91caf2192e8594a4aae6cf9",
   "docker-compose.yml": "f7d2247fb6cc2cc0553e69572e838886c1aa3420c433ae323dc22369b70da992",
   "install.sh": "38469368c797b7f66b0786144def56b6f498a4ec7ff2430dd4828d9abac862d7",
