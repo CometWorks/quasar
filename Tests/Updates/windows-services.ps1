@@ -123,7 +123,8 @@ try{
  Set-Acl -LiteralPath (Join-Path $root 'release.json') -AclObject $acl
  $listener=New-Object Net.Sockets.TcpListener([Net.IPAddress]::Loopback,0);$listener.Start();$port=$listener.LocalEndpoint.Port;$listener.Stop()
  [IO.File]::WriteAllText((Join-Path $root 'appsettings.json'),('{"Quasar":{"Port":'+$port+'},"adminValue":42}'))
- $env:QUASAR_INSTALL_DIR=$data
+ # Fixture CLI locates service metadata at the install root, then loads DataDirectory.
+ $env:QUASAR_INSTALL_DIR=$root
  # A real retained Scheduled Task exercises explicit migration and account transition.
  $action=New-ScheduledTaskAction -Execute (Join-Path $root 'Quasar.exe') -Argument 'serve --service' -WorkingDirectory $root
  Register-ScheduledTask -TaskName $task -Action $action -Settings (New-ScheduledTaskSettingsSet) |Out-Null

@@ -651,6 +651,10 @@ separate authorization and coordination of service names, ports and shared resou
 
 `Tests/Updates/windows-services.ps1` uses isolated test-only main/updater binaries
 and real SCM virtual accounts, never the Quasar application or a game server.
+The fixture CLI starts with `QUASAR_INSTALL_DIR` pointing to the application root
+so it can locate service metadata. Loading that metadata selects the configured
+data directory inside each fixture process.
+
 The Windows native recovery CI job runs both the default co-located data layout
 and `Tests/Updates/windows-services.ps1 -NestedData`. Both layouts run the actual
 installer and repeat supervision repair before exercising replacement/recovery.
