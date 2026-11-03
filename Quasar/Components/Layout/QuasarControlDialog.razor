@@ -20,7 +20,7 @@
                 @if (!IsRestartAvailable)
                 {
                     <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                        Restart needs the Quasar launcher. This standalone process can only be shut down.
+                        @RestartUnavailableReason
                     </span>
                 }
 
@@ -31,7 +31,7 @@
                            Class="quasar-control-action">
                     <span>
                         <span class="quasar-control-action-title">Shutdown Quasar</span>
-                        <span class="quasar-control-action-body">Stop Quasar and Bootstrap; servers continue without supervision.</span>
+                        <span class="quasar-control-action-body">Stop Quasar; servers continue without supervision.</span>
                     </span>
                 </MudButton>
 
@@ -83,6 +83,9 @@
     public bool IsRestartAvailable { get; set; }
 
     [Parameter]
+    public string RestartUnavailableReason { get; set; } = "Restart needs verified native services or the legacy Bootstrap launcher. Restart this process manually.";
+
+    [Parameter]
     public int AgentOfflineShutdownSeconds { get; set; }
 
     private QuasarControlAction? _pendingAction;
@@ -123,11 +126,11 @@
     private string ConfirmationBody => _pendingAction switch
     {
         QuasarControlAction.RestartQuasar =>
-            "The Quasar web worker exits and the launcher starts it again. The web UI briefly disconnects, then reloads and re-adopts running servers by process id. Use this after restoring Quasar configuration from backup.",
+            "The native updater service or legacy Bootstrap launcher restarts Quasar. The web UI briefly disconnects, then reloads and re-adopts running servers by process id. Use this after restoring Quasar configuration from backup.",
         QuasarControlAction.ShutdownAllServers =>
             "Quasar stays online and shows shutdown progress. Standalone servers save and stop; clusters use their normal save-and-drain shutdown and wait for the Gateway to stop. Their goal states are set to Off so they stay stopped. Failures are shown without forcing processes to exit. Observed-only clusters are not managed by this action.",
         _ =>
-            $"The web UI, supervisor, and Bootstrap launcher stop. The installed service or task will not restart them automatically; start Quasar again when needed. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over.",
+            $"The web UI and supervisor stop, together with Bootstrap on legacy installs. The installed service or task will not restart Quasar automatically; start Quasar again when needed. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over.",
     };
 
     private void Select(QuasarControlAction action)

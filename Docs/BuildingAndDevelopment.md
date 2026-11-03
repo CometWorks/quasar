@@ -596,3 +596,85 @@ permission checks. Test output includes game reference DLLs for the SDK serializ
 no Quasar or game process starts. The Agent still builds against older SDKs using
 reflection, and empty profiles remain supported. Configured aliases require
 contract 1.1 at runtime. Windows live player/cluster acceptance is a separate check.
+
+### Native restart and Linux journal regression checks
+
+Without starting Quasar or installing any services:
+
+```sh
+python3 Tests/Updates/service_unit_config.py
+bash -n install.sh
+node --test Quasar.Tests/Browser/restart-reload.test.mjs
+dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~QuasarShutdownTests&FullyQualifiedName!~ShutdownFinishesWhileABrowserTabHoldsAConnection|FullyQualifiedName~QuasarControlDialogTests|FullyQualifiedName~QuasarLoggingConfiguratorTests'
+dotnet run --project Tests/Updates/UpdateIntegration.csproj -- self-test
+```
+
+Use a current Magnetar PluginSdk reference (`MagnetarBin`) and the DS assemblies
+as described above. The filter excludes the existing loopback WebSocket host test;
+these restart tests use a fake application lifetime and temporary state only.
+The service-unit check renders the installer's real heredocs in a temporary folder
+and uses `systemd-analyze verify` when available. Logging tests check one console
+copy plus the retained file sink, including disabled and enabled console logging.
+The updater self-test starts no service or web host.
+
+Live acceptance remains a separate, explicitly authorized smoketest. On isolated
+1.4.1 and 1.5 installations, with the migration prerequisite completed:
+
+1. On Linux, cover both user and system units, keeping custom service names,
+   execution accounts, scope and paths. On Windows, use the native main/updater
+   services and their configured accounts and permissions. Keep production services
+   untouched. Repair existing supervision using the matching installer.
+2. After Updates reports native verification for the current process, use Restart
+   from both the power dialog and UI Plugins. Confirm Quasar gets a new PID, the
+   updater records a healthy restart-only operation, the browser reconnects and
+   game-server PIDs remain unchanged and are adopted again. Check automatic plugin
+   restart after a successful build too.
+3. Stop the isolated updater or invalidate its action/account/permissions, wait for
+   verification, and confirm restart is disabled with repair guidance. An attempted
+   unsupported restart must leave Quasar and game servers running. Confirm a pending
+   update prevents a competing manual restart. Restore supervision and recheck.
+4. On Linux, generate one identifiable application warning. Confirm exactly one
+   copy in `journalctl [--user] -u <main>.service` and one in `Logs/quasar.log`.
+   Check the configured minimum level and JSON/text format, separate Discord file,
+   and updater journal. Repair an older unit and repeat after its main-service
+   restart. Windows application file logging and the updater's Application event
+   log need a Windows check; main-service Event Log mirroring is still an open
+   question, not provided by this change.
+5. Confirm Shutdown Quasar still stops cleanly and stays stopped under native
+   recovery policies, with game servers detached. Check legacy Bootstrap restart
+   and failed request-file writes separately; foreground restart stays unavailable.
+
+Do not run the live service fixtures or launch Quasar under these checks without
+separate authorization and coordination of service names, ports and shared resources.
+
+### Windows native ACL fixtures
+
+`Tests/Updates/windows-services.ps1` uses isolated test-only main/updater binaries
+and real SCM virtual accounts, never the Quasar application or a game server.
+The fixture CLI starts with `QUASAR_INSTALL_DIR` pointing to the application root
+so it can locate service metadata. Loading that metadata selects the configured
+data directory inside each fixture process.
+
+The Windows native recovery CI job runs both the default co-located data layout
+and `Tests/Updates/windows-services.ps1 -NestedData`. Both layouts run the actual
+installer and repeat supervision repair before exercising replacement/recovery.
+The detached server sentinel uses a system sleep process with a separate executable,
+as Magnetar does, so it does not keep old Quasar application images locked. The CLI
+still runs from the application being replaced to exercise its real image mapping.
+
+The service processes probe application reads, data read/write/create/delete,
+metadata read-only access, and denied writes to the updater tree. The updater also
+probes its private package cache; the main account must not access it. Unmapped
+probe files distinguish permission denial from Windows image-lock sharing errors.
+Receipts include actual account, SID, process ID and data layout, so the fixture
+checks the currently running identities rather than a synthetic ACL calculation.
+The administrator opens application and protected probe files for recovery access.
+The fixture checks effective leaf grants, exact protected DACLs, retained unrelated
+explicit denies, and the existing service-control grant/audit/idempotence rules.
+On failure it emits service identity/path and ACL owner/protection/SDDL diagnostics,
+without credential contents.
+
+On Linux, build `Tests/Updates/UpdateIntegration.csproj`, run its `self-test`, parse
+the PowerShell scripts, and run `Tests/Updates/install-gui.ps1` for portable
+validation. These checks do not prove Windows effective rights. Native SCM/ACL
+results must come from the Windows job or a coordinated Windows fixture run.

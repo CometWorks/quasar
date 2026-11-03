@@ -143,7 +143,7 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 
 ## Differences from a native install
 
-- No services and no installation record, so the updater doesn't run. The **Quasar power** dialog disables **Restart Quasar** with `Restart needs the Quasar launcher. This standalone process can only be shut down.`
+- No services and no installation record, so the updater doesn't run. The **Quasar power** dialog disables **Restart Quasar** because this standalone process must be restarted manually. Unsupported restart requests leave Quasar running.
 - No in-app Quasar updates; change the image tag instead.
 - Managed servers stop when the container stops (`QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`). A native service leaves them running.
 - Console logging is on, so `docker compose logs quasar` shows Quasar's log output. A native service writes only to the log files.

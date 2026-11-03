@@ -156,35 +156,37 @@ public sealed class QuasarShutdownService
     /// <summary>
     /// Restarts the Quasar web worker <em>without</em> stopping any managed server.
     /// Running Magnetar servers stay up (detached via <c>-daemon</c>) and are
-    /// re-adopted by process id once the Bootstrap launcher respawns the worker.
-    /// When Quasar runs standalone (no launcher) the worker simply stops and is not
-    /// brought back.
+    /// re-adopted by process id after the native updater or legacy Bootstrap
+    /// restarts Quasar. Unsupported restart requests leave Quasar running.
     /// </summary>
     public async Task RestartWorkerAsync(IProgress<string>? progress = null)
     {
-        // BeginLauncherDrainAsync marks the supervisor to preserve servers on this stop and
-        // persists the runtime snapshot (including PIDs) so the next worker can adopt
-        // them.
-        progress?.Report("Restarting Quasar worker…");
-        await _supervisor.BeginLauncherDrainAsync();
+        var capability = _options.RestartCapability;
+        if (!capability.CanRestart)
+            throw new InvalidOperationException(capability.Detail + " " + capability.Repair);
 
-        if (Quasar.Updates.QuasarServiceInstallation.Current is not null && Quasar.Updates.BootstrapUpdateSupport.Read() is { CanRestart: true } capability && capability.ProcessId == Environment.ProcessId)
+        if (Quasar.Updates.QuasarServiceInstallation.Current is not null)
         {
             using var lease = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(CancellationToken.None);
             var previous = Quasar.Updates.QuasarUpdateJournal.Read();
             if (previous?.Stage is Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Ready or Quasar.Updates.UpdateStage.Restarting)
                 throw new InvalidOperationException("An update is already pending. Wait for its outcome before restarting Quasar.");
+            progress?.Report("Requesting restart through the updater service…");
+            await _supervisor.BeginLauncherDrainAsync();
             Quasar.Updates.QuasarUpdateJournal.Write(new Quasar.Updates.QuasarUpdateOperation { Version = _options.Version,
                 Stage = Quasar.Updates.UpdateStage.Ready, RestartOnly = true, Message = "Application restart requested; waiting for the updater service." });
             return;
         }
+        // Persist PIDs before Bootstrap stops the worker so it can re-adopt servers.
+        progress?.Report("Restarting Quasar worker…");
+        await _supervisor.BeginLauncherDrainAsync();
         if (TryRequestLauncherWorkerRestart())
         {
             ScheduleRestartFallback();
             return;
         }
 
-        _lifetime.StopApplication();
+        throw new InvalidOperationException("Could not request a restart through Bootstrap. Quasar remains running; check write access to its data directory.");
     }
 
     /// <summary>

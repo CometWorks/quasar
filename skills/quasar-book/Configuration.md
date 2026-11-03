@@ -160,13 +160,13 @@ The installed services never open a browser: the installation record switches th
 | `Quasar:Logging:Format` | `QUASAR_LOG_FORMAT` | `text` | `text` or `json` |
 | `Quasar:Logging:MinimumLevel` | `QUASAR_LOG_MIN_LEVEL` | `Warn` (`Info` in Development) | `Trace`, `Debug`, `Info`, `Warn`, `Error`, `Fatal` |
 
-`discord.log` gets the Discord bot's messages. Cluster update step timings go to `quasar.log` at Info even when the level is `Warn`. Quasar writes its log to the console only when `QUASAR_CONSOLE_LOGGING=true`; the Docker image sets it, so `docker compose logs` shows the log. The service installs don't, so the systemd journal and the Windows services show only what Quasar prints before logging starts, such as a refused start. Server logs (DS and Magnetar) are in each server's folder; see [Troubleshooting](Troubleshooting.md).
+`discord.log` gets the Discord bot's messages. Cluster update step timings go to `quasar.log` at Info even when the level is `Warn`. Quasar writes its log to the console when `QUASAR_CONSOLE_LOGGING=true` (or `1`). Linux native units and the Docker image set it, so the systemd journal and `docker compose logs` receive the same configured log level and format as `quasar.log`. Windows main-service messages remain in `quasar.log`; the updater uses the Application event log. Existing Linux installs need `install.sh --repair-supervision` with their existing paths, service name, account and scope, then a service restart, to enable the journal copy. Server logs (DS and Magnetar) are in each server's folder; see [Troubleshooting](Troubleshooting.md).
 
 ## Shutdown and agent behavior
 
 | Key | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `Quasar:PreserveManagedServersOnShutdown` | `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN` | `true` (Docker image: `false`) | Leave managed servers running when Quasar stops and adopt them again on start. Updates, **Restart Quasar** and **Shutdown Quasar** always leave them running. |
+| `Quasar:PreserveManagedServersOnShutdown` | `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN` | `true` (Docker image: `false`) | Leave managed servers running when Quasar stops and adopt them again on start. Updates, supported **Restart Quasar** requests and **Shutdown Quasar** always leave them running. Unsupported restarts leave Quasar running too. |
 | `Quasar:AgentOfflineShutdownSeconds` | `QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS` | `3600` | How long a server keeps running after Quasar.Agent loses contact with Quasar before it saves and stops. Zero or less stops promptly. Only after the agent connected once; not for cluster nodes. |
 | `Quasar:AgentReconnectIntervalSeconds` | `QUASAR_AGENT_RECONNECT_INTERVAL_SECONDS` | `10` | Agent reconnect delay |
 | `Quasar:AgentReconnectJitterSeconds` | `QUASAR_AGENT_RECONNECT_JITTER_SECONDS` | `3` | Random jitter on the reconnect delay |
@@ -232,7 +232,7 @@ Short `QUASAR_*` variables for admins. Each wins over the matching `appsettings.
 | `QUASAR_GITHUB_TOKEN`, `GITHUB_TOKEN` | GitHub token for release checks, managed runtime downloads, registered plugin hubs and Magnetar starts. `QUASAR_GITHUB_TOKEN` wins over the token saved on [Updates](Updates.md#github-token-for-update-checks), `GITHUB_TOKEN` comes last. For a service install, set it for the updater service too. |
 | `QUASAR_URL`, `QUASAR_API_TOKEN` | Used by the `Quasar cluster` CLI |
 
-A service install reads its installation record at start and sets `QUASAR_INSTALL_DIR` (to the data directory), `QUASAR_MODE=service`, `QUASAR_OPEN_BROWSER_ON_START=false` and `QUASAR_LAUNCHER_TOKEN` (the updater's health token). The Linux unit also sets `QUASAR_INSTALL_DIR` and `QUASAR_HOST_STOP_UNIT`. The Docker image sets `QUASAR_INSTALL_DIR=/data`, `QUASAR_MODE=service`, `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`, `QUASAR_UPDATES_ENABLED=false`, `QUASAR_CONSOLE_LOGGING=true`, `DOTNET_RUNNING_IN_CONTAINER=true` and `ASPNETCORE_URLS=http://+:8080`. Don't set `QUASAR_LAUNCHER_TOKEN`, `QUASAR_BOOTSTRAP_VERSION` or `QUASAR_HOST_STOP_UNIT` by hand, nor the variables Quasar sets for each server.
+A service install reads its installation record at start and sets `QUASAR_INSTALL_DIR` (to the data directory), `QUASAR_MODE=service`, `QUASAR_OPEN_BROWSER_ON_START=false` and `QUASAR_LAUNCHER_TOKEN` (the updater's health token). The Linux unit also sets `QUASAR_INSTALL_DIR`, `QUASAR_HOST_STOP_UNIT` and `QUASAR_CONSOLE_LOGGING=true`, with stdout and stderr routed to the journal. The Docker image sets `QUASAR_INSTALL_DIR=/data`, `QUASAR_MODE=service`, `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`, `QUASAR_UPDATES_ENABLED=false`, `QUASAR_CONSOLE_LOGGING=true`, `DOTNET_RUNNING_IN_CONTAINER=true` and `ASPNETCORE_URLS=http://+:8080`. Don't set `QUASAR_LAUNCHER_TOKEN`, `QUASAR_BOOTSTRAP_VERSION` or `QUASAR_HOST_STOP_UNIT` by hand, nor the variables Quasar sets for each server.
 
 ## Command line
 
@@ -351,3 +351,4 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `Dockerfile`
 - `docker-compose.yml`
 - `.env.example`
+- `Shared/Updates/BootstrapUpdateSupport.cs`

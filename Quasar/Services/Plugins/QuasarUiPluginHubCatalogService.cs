@@ -46,7 +46,7 @@ public sealed class QuasarUiPluginHubCatalogService
         await _installGate.WaitAsync(cancellationToken);
         try
         {
-            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode)
+            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode && _webOptions.RestartCapability.CanRestart)
             {
                 await shutdown.RestartWorkerAsync();
                 AutomaticRestartPending = false;
@@ -406,7 +406,7 @@ public sealed class QuasarUiPluginHubCatalogService
             try
             {
                 var installState = GetInstallState(entry);
-                var autoUpdate = _updateOptions.AutoUpdateUiPlugins && !string.IsNullOrWhiteSpace(_webOptions.LauncherToken)
+                var autoUpdate = _updateOptions.AutoUpdateUiPlugins && _webOptions.RestartCapability.CanRestart
                     && CanAutomaticallyUpdate(entry, installState, _webOptions.Version);
                 if (!autoUpdate && !ShouldInstallImplicitPlugin(entry, _pluginStates)) continue;
                 // Implicit catalog entries may install initially; all installed revisions follow the update policy.

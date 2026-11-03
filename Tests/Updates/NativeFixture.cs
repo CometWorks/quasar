@@ -47,6 +47,7 @@ internal static class NativeFixture
         }
         if (args[0] == "--installation")
         {
+            if (OperatingSystem.IsWindows()) VerifyWindowsAccess(installation, updater: true);
             var builder = Host.CreateApplicationBuilder();
             if (OperatingSystem.IsWindows())
             {
@@ -65,6 +66,7 @@ internal static class NativeFixture
             var host = builder.Build(); NativeServiceFailures.Observe(host);
             await host.RunAsync(); return Environment.ExitCode;
         }
+        if (OperatingSystem.IsWindows()) VerifyWindowsAccess(installation, updater: false);
         var version = File.ReadAllText(Path.Combine(installation.InstallDirectory, "fixture-release.txt")).Trim();
         var appBuilder = WebApplication.CreateBuilder();
         appBuilder.WebHost.UseUrls(installation.HealthUrl);
@@ -91,8 +93,15 @@ internal static class NativeFixture
             if (File.Exists(sentinelFile)) { try { using var old = Process.GetProcessById(int.Parse(File.ReadAllText(sentinelFile))); exists = !old.HasExited; } catch (ArgumentException) { } }
             if (!exists)
             {
-                var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
-                start.ArgumentList.Add("sentinel");
+                // Magnetar uses a separate executable. Sharing this apphost would
+                // keep replaced Quasar images locked throughout later Windows updates.
+                var start = new ProcessStartInfo(OperatingSystem.IsWindows()
+                    ? Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe")
+                    : "/bin/sleep") { UseShellExecute = false };
+                if (OperatingSystem.IsWindows())
+                    foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 600" })
+                        start.ArgumentList.Add(argument);
+                else start.ArgumentList.Add("600");
                 using var sentinel = Process.Start(start)!; File.WriteAllText(sentinelFile, sentinel.Id.ToString());
             }
         });
@@ -111,6 +120,49 @@ internal static class NativeFixture
             }
         });
         await app.RunAsync(); return Environment.ExitCode;
+    }
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static void VerifyWindowsAccess(QuasarServiceInstallation installation, bool updater)
+    {
+        using var identity = System.Security.Principal.WindowsIdentity.GetCurrent();
+        var expected = updater ? installation.UpdaterAccount : installation.Account;
+        if (!string.Equals(identity.Name, expected, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"ACL fixture must run as {expected}, actually {identity.Name} ({identity.User}).");
+        void Access(string path, FileAccess access, bool allowed)
+        {
+            try
+            {
+                using var stream = File.Open(path, FileMode.Open, access, FileShare.ReadWrite | FileShare.Delete);
+                if (!allowed) throw new InvalidOperationException($"{identity.Name} unexpectedly has {access} access to {path}.");
+            }
+            catch (UnauthorizedAccessException) when (!allowed) { }
+            catch (Exception exception)
+            {
+                throw new InvalidOperationException($"ACL probe failed: {identity.Name} ({identity.User}), {path}, {access}, expected allowed={allowed}.", exception);
+            }
+        }
+        var root = installation.InstallDirectory;
+        foreach (var file in new[] { "release.json", "fixture-release.txt", "Quasar.exe" })
+            Access(Path.Combine(root, file), FileAccess.Read, true);
+        var coLocated = string.Equals(root, installation.DataDirectory, StringComparison.OrdinalIgnoreCase);
+        Access(Path.Combine(root, "fixture-release.txt"), FileAccess.Write, updater || coLocated);
+        Access(Path.Combine(installation.DataDirectory, "appsettings.json"), FileAccess.ReadWrite, true);
+        foreach (var metadata in new[] { installation.MetadataPath, Path.Combine(root, QuasarServiceInstallation.FileName) })
+        {
+            Access(metadata, FileAccess.Read, true);
+            Access(metadata, FileAccess.Write, false);
+        }
+        // Unmapped probe files distinguish denied ACL access from image-lock sharing violations.
+        var updaterProbe = Path.Combine(root, "Updater", "acl-probe.txt");
+        Access(updaterProbe, FileAccess.Read, updater);
+        Access(updaterProbe, FileAccess.Write, false);
+        Access(Path.Combine(root, ".update-cache", "acl-probe.txt"), FileAccess.ReadWrite, updater);
+        var scratch = Path.Combine(installation.DataDirectory, "acl-" + (updater ? "updater" : "main") + ".tmp");
+        File.WriteAllText(scratch, "service data access");
+        File.Delete(scratch);
+        QuasarUpdateJournal.WriteJson(Path.Combine(installation.DataDirectory, "acl-" + (updater ? "updater" : "main") + ".json"),
+            new { account = identity.Name, sid = identity.User!.Value, pid = Environment.ProcessId, coLocated });
     }
 }
 

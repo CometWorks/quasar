@@ -207,3 +207,17 @@ for recovery. The installer records the trusted repository and package name from
 configuration; repair the installation after intentionally changing that trust
 source. The updater reuses the existing saved GitHub token/keyring and token
 precedence. Keep credentials and Data Protection keys backed up together.
+
+## Restart Quasar safely
+
+The power dialog and UI Plugins use the same restart capability. Restart is enabled only
+after native service verification succeeds for the current Quasar process. If
+verification is missing, stale, unreadable or denied, the button stays disabled and
+shows repair guidance. An unsupported restart request leaves Quasar running. Wait for
+the next verification on Updates or repair supervision with the current installer,
+preserving paths, service names, account and scope. A pending update must finish before
+a manual restart can be queued. Native restarts are durable restart-only operations
+handled by the updater; it verifies the services again before stopping and starting the
+main service. Legacy Bootstrap keeps its worker-restart request path. Failed request
+writes leave Quasar running. Running game servers keep their PIDs for adoption after
+restart.
