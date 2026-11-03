@@ -24,7 +24,7 @@ Open **UI Plugins** in the **Infrastructure & tools** section of the navigation 
 The page has:
 
 - Header chips: **Dynamic plugins enabled** or **Safe boot active**, and the .NET SDK state (**.NET 10 SDK global**, **.NET 10 SDK managed** or **.NET SDK on demand**).
-- **Restart Quasar**: beside **Refresh Hub** in the QuasarHub Catalog header. It stays grayed out until an installed, removed, enabled or disabled plugin, or a safe-boot marker change, needs a worker restart. A hub update being available alone does not enable it. It also needs Quasar running as its installed native service (1.4.1 and later) or under the legacy Bootstrap launcher, and remains disabled during plugin operations or SDK installation. Pending changes survive leaving the page and clear when the worker restarts.
+- **Restart Quasar**: beside **Refresh Hub** in the QuasarHub Catalog header. It stays grayed out until an installed, removed, enabled or disabled plugin, or a safe-boot marker change, needs a worker restart. A hub update being available alone does not enable it. It also needs a verified native restart capability for this Quasar process (1.4.1 and later) or the legacy Bootstrap launcher, and remains disabled during plugin operations or SDK installation. Pending changes survive leaving the page and clear when the worker restarts.
 - Counters for **Loaded** plugins, **Load Errors**, **Extensions** and **Nav Items**.
 - **Safe Boot**: create or clear the safe boot marker file.
 - **QuasarHub Catalog**: browse, install, update, enable, disable and remove plugins, and the automatic update checkbox.
@@ -97,13 +97,13 @@ Automatic UI plugin updates are off by default. Turn them on with **Automaticall
 
 With the policy on, each 15-minute hub check updates a plugin when all of these hold:
 
-- Quasar runs as its installed native service or under the legacy Bootstrap launcher, not as a process started by hand
+- Quasar has verified native restart capability for the current process, or runs under the legacy Bootstrap launcher
 - the plugin is installed, enabled and not invalid
 - the hub pins a different commit than the installed one
 - the hub entry's `QuasarVersion` is empty, an exact version equal to the running Quasar, or a `>=` minimum the running Quasar meets (other forms need a manual update)
 - safe boot is off
 
-After a successful automatic update, Quasar restarts itself the same way as **Restart Quasar**. Running game servers stay online. Failed builds keep the old package and are logged as "Scheduled Quasar UI plugin {name} install or update failed."
+After a successful automatic update, Quasar restarts itself the same way as **Restart Quasar**. If capability becomes unavailable, the restart stays pending until verification succeeds again. Running game servers stay online. Failed builds keep the old package and are logged as "Scheduled Quasar UI plugin {name} install or update failed."
 
 To get a notice instead, enable **Quasar UI plugin updates** on the **Notifications** page. That notice lists installed plugins whose hub commit changed. See [Monitoring](Monitoring.md).
 
@@ -215,7 +215,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - **"Only root quasar-plugin.json package manifests are supported in this installer."** The hub entry's `PackageManifest` points elsewhere. The plugin author must fix it.
 - **"Quasar plugin manifest ... is missing '...'."** `quasar-plugin.json` lacks a required field: `id`, `displayName`, `version`, `entryAssembly`, `entryType`, `projectPath`, and `companionPlugins[].id` (plus `projectPath` for owned companions).
 - **Build output in the error message.** `dotnet build` failed; the message is the compiler output. The old package stays installed.
-- **"Quasar is not running under Bootstrap, so restart is not available from the UI."** Quasar was started by hand, not as its installed service (or under Bootstrap on a legacy install). Restart Quasar by hand.
+- **Restart is disabled or rejected.** Read the restart capability and repair instructions on Updates. Native service verification must belong to this Quasar process. Missing, stale, unreadable or denied verification leaves Quasar running; repair the existing services with the current installer, or restart a foreground process by hand. A pending update also blocks a manual restart.
 - **A plugin is installed but not loaded.** Restart Quasar, then check **Load Errors** and the Quasar log for "Quasar UI plugin safe mode is enabled" or the plugin's load error. Typical load errors: "Quasar plugin entry assembly was not found", "Plugin entry type not found", "Plugin entry type does not implement IQuasarPlugin".
 - **An update loaded but the browser still runs old plugin JavaScript.** Quasar sends plugin files with `Cache-Control: no-store`. A reverse proxy that caches anyway serves stale files: turn off **Cache Assets** in Nginx Proxy Manager, or add a Cloudflare cache rule to bypass `/_quasar/plugins/`, purge the cache once, and reload the page with the browser cache disabled.
 - **Automatic updates never happen.** Check that the checkbox is on, Quasar runs as its installed service (or under Bootstrap), safe boot is off, the plugin is enabled, and its hub `QuasarVersion` is empty, exact or `>=`.
@@ -272,3 +272,5 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Tests/QuasarUiPluginStateStoreTests.cs`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
+- `Quasar/Services/WebServiceOptions.cs`
+- `Quasar.Tests/QuasarShutdownTests.cs`

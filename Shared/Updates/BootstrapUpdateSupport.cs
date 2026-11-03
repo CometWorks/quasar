@@ -17,9 +17,19 @@ public sealed record BootstrapRestartCapability
 internal static class BootstrapUpdateSupport
 {
     internal static string CapabilityPath => Path.Combine(MagnetarPaths.GetQuasarUpdatesDirectory(), "restart-capability.json");
-    internal static BootstrapRestartCapability Read() => File.Exists(CapabilityPath)
-        ? JsonSerializer.Deserialize<BootstrapRestartCapability>(QuasarUpdateJournal.ReadText(CapabilityPath), QuasarUpdateJournal.JsonOptions) ?? Unavailable("Invalid supervisor status.")
-        : Unavailable("No native main/updater service verification is available. Foreground updates are staged for manual restart.");
+    internal static BootstrapRestartCapability Read()
+    {
+        try
+        {
+            return File.Exists(CapabilityPath)
+                ? JsonSerializer.Deserialize<BootstrapRestartCapability>(QuasarUpdateJournal.ReadText(CapabilityPath), QuasarUpdateJournal.JsonOptions) ?? Unavailable("Invalid supervisor status.")
+                : Unavailable("No native main/updater service verification is available. Foreground updates are staged for manual restart.");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return Unavailable("Cannot read native service verification: " + exception.Message);
+        }
+    }
 
     internal static BootstrapRestartCapability Unavailable(string detail) => new()
     {

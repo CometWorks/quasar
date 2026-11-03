@@ -64,7 +64,8 @@ Application updates and restarts leave detached game servers running and save th
 
 ### Native service checks
 
-Updates go through the updater only when both native services are verified. Quasar checks this at startup and every 30 seconds:
+Updates go through the updater only when both native services are verified. Quasar checks this at startup and every 30 seconds. The power dialog and UI Plugins enable restart only when verification belongs to the current Quasar process. Missing, stale, unreadable or denied capability disables restart with repair guidance; a rejected request leaves Quasar running. Manual restart also refuses while an update is pending:
+
 
 - **Linux:** the main PID must belong to the configured systemd unit, the unit's executable and account must match the installation, and the unit needs `Restart=on-failure` and `KillMode=process`, with exit code 75 not counted as success. The updater unit must run the installed updater as its configured account with `Restart=on-failure`. System installs run the updater as the main account, with a polkit rule that lets that account start, stop and restart only its Quasar unit.
 - **Windows:** both services must be running, the main service must own the Quasar process, executables and accounts must match, and both services need restart-on-failure recovery that also covers reported service failures. New installs use `NT SERVICE\<service name>` virtual accounts.
@@ -126,7 +127,7 @@ Moving off a Windows Scheduled Task can need one game server restart, because ru
 
 Checks never downgrade, and they don't repeat a failed or completed operation. A settings conflict always needs an admin.
 
-UI plugin auto-updates are a separate opt-in. Plugin builds and Quasar updates share the same maintenance lock. After a successful plugin update the application restarts through the native services.
+UI plugin auto-updates are a separate opt-in. Plugin builds and Quasar updates share the same maintenance lock. After a successful plugin update the application restarts through verified native services or legacy Bootstrap. Missing capability pauses automatic plugin updates and leaves any automatic restart pending until a later catalog refresh sees successful verification.
 
 ## Update settings
 
@@ -352,3 +353,6 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Quasar.Tests/ReliableUpdateTests.cs`
 - `Tests/Updates/systemd.py`
 - `Tests/Updates/windows-services.ps1`
+- `Quasar/Services/WebServiceOptions.cs`
+- `Quasar/Services/QuasarShutdownService.cs`
+- `Tests/Updates/NativeFixture.cs`

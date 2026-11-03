@@ -142,7 +142,6 @@
     // The worker is restartable only when it was launched by the Quasar launcher, which
     // injects QUASAR_LAUNCHER_TOKEN (surfaced as WebServiceOptions.LauncherToken).
     // Standalone runs have no launcher to respawn the worker, so restart is disabled.
-    private bool IsUnderBootstrap => !string.IsNullOrWhiteSpace(WebServiceOptions.LauncherToken);
 
     private string LogoSrc => _isDarkMode
         ? (BrandingService.Settings.LogoDarkPath ?? "Quasar.png")
@@ -375,9 +374,11 @@
     {
         if (_isShuttingDown || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanShutdownQuasar))
             return;
+        var restart = WebServiceOptions.RestartCapability;
         var parameters = new DialogParameters
         {
-            [nameof(QuasarControlDialog.IsRestartAvailable)] = IsUnderBootstrap,
+            [nameof(QuasarControlDialog.IsRestartAvailable)] = restart.CanRestart,
+            [nameof(QuasarControlDialog.RestartUnavailableReason)] = restart.Detail + " " + restart.Repair,
             [nameof(QuasarControlDialog.AgentOfflineShutdownSeconds)] = WebServiceOptions.AgentOfflineShutdownSeconds,
         };
         var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
@@ -409,23 +410,33 @@
         _shutdownStatus = "Restarting Quasar… the page will reload when it is back.";
         await InvokeAsync(StateHasChanged);
 
-        // The worker is about to stop, dropping this Blazor circuit, so hand off to a
-        // browser-side poller that reloads to the Dashboard once the new worker is
-        // healthy. Invoke it before stopping so the call reaches the client in time.
-        await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/", new
+        try
         {
-            requireUnhealthy = true,
-            showFeedback = true,
-            title = "Restarting Quasar",
-            message = "Stopping the current web worker. The page will reload when Quasar is healthy again.",
-            initialStatus = "Submitting restart request.",
-            waitingForStopMessage = "Waiting for the current worker to stop.",
-            pollingMessage = "Waiting for the restarted worker to pass /api/health.",
-            successMessage = "Quasar is healthy. Reloading Dashboard.",
-            timeoutMessage = "Still waiting for Quasar. Reloading Dashboard now.",
-        });
+            // The worker is about to stop, dropping this Blazor circuit, so hand off to a
+            // browser-side poller that reloads to the Dashboard once the new worker is
+            // healthy. Invoke it before stopping so the call reaches the client in time.
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/", new
+            {
+                requireUnhealthy = true,
+                showFeedback = true,
+                title = "Restarting Quasar",
+                message = "Stopping the current web worker. The page will reload when Quasar is healthy again.",
+                initialStatus = "Submitting restart request.",
+                waitingForStopMessage = "Waiting for the current worker to stop.",
+                pollingMessage = "Waiting for the restarted worker to pass /api/health.",
+                successMessage = "Quasar is healthy. Reloading Dashboard.",
+                timeoutMessage = "Still waiting for Quasar. Reloading Dashboard now.",
+            });
 
-        await ShutdownService.RestartWorkerAsync();
+            await ShutdownService.RestartWorkerAsync();
+        }
+        catch (Exception exception)
+        {
+            _isShuttingDown = false;
+            try { await JS.InvokeVoidAsync("quasarConfigs.clearRestartFeedback"); }
+            catch (JSException) { }
+            Snackbar.Add($"Failed restarting Quasar: {exception.Message}", Severity.Error);
+        }
     }
 
     private async Task ShutdownQuasarAsync()

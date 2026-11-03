@@ -16,6 +16,22 @@ console and error dialog; run the same `install.ps1` command in an elevated shel
 to retain output. Failed or declined elevation never counts as a successful
 installation. See [installation](https://github.com/CometWorks/quasar/blob/main/Docs/Installation.md).
 
+## Windows native service file access
+
+An access-denied error reading `release.json`, or an automatic restore that cannot
+overwrite application files, can indicate missing effective file grants. Keep the
+reported recovery copy. Use the current complete package's `install.ps1 -RepairSupervision` with the original application/data paths and service names.
+Files need direct rules; directory inheritance flags alone do not establish their
+access. SYSTEM and Administrators need recovery access, both service users need
+data access, and the updater needs application replacement access. The updater,
+private package cache and metadata retain their separate restricted ACLs.
+See [Windows permissions](InstallWindows.md#where-quasar-keeps-its-files).
+
+The Windows fixture checks actual virtual-service identities and administrator
+access for co-located and nested data. On failure it prints owner/protection/SDDL
+and service paths/accounts, without credentials. Linux syntax checks cannot prove
+Windows ACL or SCM behavior.
+
 ## Where the logs are
 
 `<data dir>` below is the Quasar data directory, for example `~/.local/share/Quasar` on Linux, `%ProgramData%\Quasar` for a new Windows service installation, `/data` in Docker (`./quasar-data` on the host). See [Changing the data directory](#changing-the-data-directory) for how Quasar finds it, and [Configuration](Configuration.md#where-files-live).
@@ -24,10 +40,10 @@ installation. See [installation](https://github.com/CometWorks/quasar/blob/main/
 | --- | --- | --- |
 | Quasar log | `<data dir>/Logs/quasar.log` | Quasar's own messages: server starts, faults, health restarts, update and download errors, startup warnings |
 | Discord log | `<data dir>/Logs/discord.log` | Discord bot messages only. They also go to `quasar.log`. |
-| systemd journal (Linux service) | `journalctl --user -u quasar.service` (system service: `sudo journalctl -u quasar.service`) | Only what Quasar prints to the console: installation metadata errors, an upgrade path refusal and the `[Quasar:FATAL]` line. Its log messages are in `quasar.log`. |
+| systemd journal (Linux service) | `journalctl --user -u quasar.service` (system service: `sudo journalctl -u quasar.service`) | Quasar log messages at the configured minimum level and format, alongside `quasar.log`, plus startup and fatal console lines. Existing units need supervision repair and a restart to enable the log copy. |
 | Updater journal (Linux service) | `journalctl --user -u quasar-updater.service` (or `sudo journalctl -u ...`) | The updater service's messages: application replacement, health checks and recovery |
 | Windows event log | **Application** log, source `QuasarUpdater` (the updater service name) | The updater service's messages. Quasar's own messages are in `quasar.log`. |
-| Foreground console | the terminal running `./Quasar serve --foreground` or `Quasar.exe --foreground` | The same console lines as the journal. Set `QUASAR_CONSOLE_LOGGING=true` to copy the log there too. |
+| Foreground console | the terminal running `./Quasar serve --foreground` or `Quasar.exe --foreground` | Startup and fatal console lines. Set `QUASAR_CONSOLE_LOGGING=true` to copy the application log there too. |
 | Docker | `docker compose logs -f quasar`, and `./quasar-data/Logs/quasar.log` | Console output and the log file |
 | DS log | `<data dir>/Magnetars/<server>/DedicatedServer/SpaceEngineersDedicated*.log` | The Space Engineers Dedicated Server's own log |
 | Magnetar info log | `<data dir>/Magnetars/<server>/Magnetar/info*.log` | Magnetar and plugin startup, plugin exceptions, Quasar.Agent lines logged through PluginSdk |
@@ -45,7 +61,7 @@ The DS and Magnetar paths are the defaults. A server with **Paths** overrides wr
 | `Quasar:Logging:Format` | `QUASAR_LOG_FORMAT` | `text` (or `json`) |
 | `Quasar:Logging:MinimumLevel` | `QUASAR_LOG_MIN_LEVEL` | `Warn` (`Info` when `ASPNETCORE_ENVIRONMENT=Development`) |
 
-At the default `Warn`, Info messages such as server exit codes and "recovered after restart" lines are not written. Set `QUASAR_LOG_MIN_LEVEL=Info` (or `Quasar:Logging:MinimumLevel` to `Info`) and restart Quasar while you investigate. An unknown level name falls back to `Info`. The same level applies to the console when `QUASAR_CONSOLE_LOGGING=true` copies the log there, as the Docker image does.
+At the default `Warn`, Info messages such as server exit codes and "recovered after restart" lines are not written. Set `QUASAR_LOG_MIN_LEVEL=Info` (or `Quasar:Logging:MinimumLevel` to `Info`) and restart Quasar while you investigate. An unknown level name falls back to `Info`. The same level applies to the console when `QUASAR_CONSOLE_LOGGING=true` copies the log there, as native Linux units and the Docker image do.
 
 Cluster update timings are the exception: they are written at every level. To see where an update spent its time, look for `update step` and `references reconciled` in `quasar.log`, and for `step '` in the Host's `host.log`, which also has the bundle load and data seed of each start.
 
@@ -303,3 +319,8 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Layout/QuasarControlDialog.razor`
 - `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/Services/Plugins/QuasarUiPluginCatalog.cs`
+- `Tests/Updates/service_unit_config.py`
+- `Quasar.Tests/QuasarLoggingConfiguratorTests.cs`
+- `Docs/BuildingAndDevelopment.md`
+- `Tests/Updates/NativeFixture.cs`
+- `Tests/Updates/windows-services.ps1`

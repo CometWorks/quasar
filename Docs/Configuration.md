@@ -2304,7 +2304,7 @@ On **Updates**, enable **Automatically update Quasar UI and Bootstrap together**
 to apply a matching release after a successful check. This is independent of the
 existing stage-only option. On **UI Plugins**, enable **Automatically update
 installed UI plugins and restart Quasar** for enabled catalog plugins. Both
-application policies default to off and require Bootstrap. They are stored under
+application policies default to off. Native application updates require the installed main/updater services; UI plugin automatic updates require verified native restart capability for the current process or the legacy Bootstrap launcher. They are stored under
 `Quasar:Updates` as `AutoApplyUpdates` and `AutoUpdateUiPlugins`; environment
 variables `QUASAR_UPDATES_AUTO_APPLY` and `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS`
 provide startup overrides. UI saves update the install-root `appsettings.json`.
@@ -2322,8 +2322,10 @@ constraints, incompatible requirements, invalid installs, and safe boot pause th
 path. Exact numeric versions and `>=` minimums are supported for unattended
 compatibility checks. Builds finish before installed files are replaced; build
 failures retain the old package. Successful automatic updates request a worker
-restart through Bootstrap. Quasar updates and plugin builds share a maintenance
-lock. Running game servers are preserved by the existing launcher drain protocol.
+restart through the verified native updater service or legacy Bootstrap. Missing
+or denied restart capability pauses automatic plugin updates and keeps a pending
+restart queued until verification succeeds again. Quasar updates and plugin builds
+share a maintenance lock. Running game servers are preserved by the existing state-persistence and drain protocol.
 Local/source-only plugins remain manual. Implicit catalog entries can still install
 initially; updating an installed revision follows this policy. The launcher also
 shares an OS-owned file lease with plugin publication, so a downloaded update

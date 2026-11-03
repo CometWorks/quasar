@@ -145,7 +145,7 @@ The old task's account and password don't carry over: the services run as their 
 The power button in the top bar opens **Quasar power** (admin role):
 
 - **Shutdown Quasar** saves the managed server state and stops Quasar cleanly. The service stays stopped; servers keep running without supervision until their agent's offline policy takes over (see [Configuration](Configuration.md#shutdown-and-agent-behavior)). Run `Start-Service Quasar` to bring the UI back.
-- **Restart Quasar** hands the restart to the updater service. Servers keep running.
+- **Restart Quasar** hands the restart to the updater service. Servers keep running. Restart is enabled only after native service verification succeeds for the current Quasar process. If verification is missing, stale, unreadable or denied, the button stays disabled and shows repair guidance. An unsupported restart request leaves Quasar running. Wait for the next verification on Updates or repair supervision with the current installer, preserving paths, service names, account and scope. A pending update must finish before a manual restart can be queued.
 - **Save and stop all servers** saves and stops standalone servers and managed clusters, setting their goals to Off. Quasar stays online and shows progress.
 
 `Stop-Service Quasar` follows `Quasar:PreserveManagedServersOnShutdown`. Updates always keep servers running and save their state for the next Quasar to adopt.
@@ -167,10 +167,15 @@ The application folder and the data folder can differ. `QUASAR_INSTALL_DIR` is t
 
 Permissions set by the installer:
 
-- Data folder: inherited permissions removed; full control for SYSTEM and Administrators, Modify for both service accounts. Ordinary users can't read it.
-- Application folder: Read and Execute for `NT SERVICE\Quasar`, Modify for `NT SERVICE\QuasarUpdater`.
+- Data folder: inherited permissions removed; full control for SYSTEM and Administrators, Modify for both service accounts. Unrelated explicit rules, including denies, stay in place.
+- Application folder: Read and Execute for `NT SERVICE\Quasar`, Modify for `NT SERVICE\QuasarUpdater`, full recovery access for SYSTEM and Administrators. Co-located data keeps the main account's Modify grant; nested data keeps its own Modify grant.
 - `Updater\`: owned by Administrators, full control for SYSTEM and Administrators, Read and Execute for the updater account only. The application account can't change it.
+- `.update-cache\`: private to SYSTEM, Administrators and the updater account; only the updater has Modify service access.
 - The installation record and its folder: full control for SYSTEM and Administrators, read for both service accounts.
+
+Files receive direct effective grants; directory inheritance flags apply only to directories. Repair skips protected updater, cache and metadata paths when applying ordinary grants, then restores their restricted ACLs. Recursive ACL changes reject reparse points.
+
+Both installation-record files get complete replacement ACLs: only SYSTEM and Administrators have full control, and both service accounts have read access. Extra explicit grants left by file creation or an older installation are removed from those files.
 
 Back up the data folder as one unit, with the keys. Quasar writes its log to `Logs\quasar.log` in the data folder.
 
@@ -245,6 +250,8 @@ When `install.ps1` fails, it prints `Installation failed before recovery: <messa
 | `Cannot grant updater service-control permissions: <sc.exe output>` | Windows refused the service permission change. The output says why. |
 | `Cannot read this installation: ...` from `Quasar.exe` | The shell isn't elevated, so it can't read the installation record. |
 
+If service startup reports access denied to `release.json`, or automatic recovery cannot overwrite application files, keep the reported recovery copy and repair supervision with the current package using the original paths and service names. The Windows native test fixture prints service identities and path owner/protection/SDDL on failure, without credential contents. Actual service-account and administrator access needs a Windows check; a Linux parse is not that check.
+
 The Updates page shows the restart capability and repair instructions when the services don't match the installation record. See also [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
 
 ## Sources
@@ -290,3 +297,6 @@ The Updates page shows the restart capability and repair instructions when the s
 - `Quasar.Updater/ConfigureInstallation.cs`
 - `Quasar.Updater/InstallationProcesses.cs`
 - `Quasar.Updater/TrustedUpdatePackage.cs`
+- `Quasar.Tests/QuasarShutdownTests.cs`
+- `Tests/Updates/NativeFixture.cs`
+- `Tests/Updates/windows-services.ps1`

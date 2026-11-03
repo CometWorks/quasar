@@ -59,6 +59,10 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           python3 Tests/Updates/systemd.py
   windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        data-layout: [colocated, nested]
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -71,4 +75,9 @@ jobs:
         run: Tests/Updates/install-gui.ps1
       - name: Real isolated native Windows Services, migration, locks, ACLs and recovery
         shell: pwsh
-        run: Tests/Updates/windows-services.ps1
+        run: |
+          if ('${{ matrix.data-layout }}' -eq 'nested') {
+            Tests/Updates/windows-services.ps1 -NestedData
+          } else {
+            Tests/Updates/windows-services.ps1
+          }
