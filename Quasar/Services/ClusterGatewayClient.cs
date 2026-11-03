@@ -72,6 +72,8 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.ClientSummary[]>(cluster, "clients", token);
     public Task<Admin.AdminEnvelope<Admin.AdmissionBans>> GetBansAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.AdmissionBans>(cluster, "admission/bans", token);
+    public Task<Admin.AdminEnvelope<Admin.PlayerModerationStatus>> GetPlayerModerationAsync(
+        ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.PlayerModerationStatus>(cluster, "players/moderation", token);
     public Task<Admin.AdminEnvelope<Admin.AdminEventPage>> GetEventsAsync(
         ClusterDefinition cluster, long cursor, int limit, CancellationToken token) =>
         GetAsync<Admin.AdminEventPage>(cluster, $"events?cursor={cursor}&limit={Math.Clamp(limit, 1, 500)}", token);

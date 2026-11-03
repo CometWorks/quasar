@@ -148,11 +148,13 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 
 ## Players
 
-**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. When a cluster is unavailable, its actions are disabled. Cluster access restrictions still apply.
+**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. Cluster access restrictions still apply.
 
 - Filters: **Server**, **Type** (All, Online, Offline, Banned, Kick cooldown) and **Search players**.
-- The standalone row menu (needs `CanControlServers` and a connected agent): **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown**, **Ban** or **Unban**. A row of a server without a connected agent shows "agent offline" and has no actions.
-- The cluster row menu needs `ClusterManage`, a reachable Gateway with management scope and support for the action: **Kick** (online only), **Ban** or **Unban**, including saved offline players. These commands go through the Gateway and apply to the whole cluster. Cluster rows show admission state and node/partition routing when online; role edits and individual-node kick cooldown controls do not apply. The Registry does not supply every standalone metadata field.
+- Open the ellipsis at the end of a row for player actions. The menu still opens when the Agent or Gateway is unavailable, with disabled actions and a reason. Cluster messages distinguish a failed connection, stale status, a credential without management scope and a Gateway that does not support player actions. Viewers do not receive moderation menus.
+- The standalone row menu needs `CanControlServers`: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Actions need a connected Agent. Kick and ban ask for confirmation. Quasar waits up to 15 seconds for the Agent's reply and shows success, the game error, a disconnect or a timeout. A timeout does not prove the action failed; check the player's status before retrying.
+- The cluster row menu needs `ClusterManage`, access to that cluster, fresh Gateway status with management scope and support for the action: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Saved offline players can have their role, ban or cooldown changed. Role changes, kick and ban ask for confirmation. Quasar checks permissions, cluster access and capabilities again after confirmation, then reports the Gateway operation status or error. A stale role revision fails and needs a refresh. Unconfirmed role changes remain in progress while Quasar reconciles the same request, including after a restart.
+- Cluster roles come from the World Authority and survive node movement, player reconnect and cluster restart through its saves and journal. Cooldowns come from Gateway admission, last five minutes and reset on Gateway restart. Clearing one does not unban the player or clear another player's deadline. Older Gateways keep unsupported actions disabled with an update explanation; an unavailable or older World Authority disables role changes while supported admission actions remain usable. Cluster rows show admission state and current node/partition routing when online. The Registry does not supply every standalone metadata field.
 - **Clean Server** and **Clean All** delete saved known players from accessible servers, including cluster history when cluster management is allowed. Players still online are recorded again on the next observation.
 - **Auto clear after** removes players not seen for that many days (default 30, range 1 to 3650). Click **Save** next to it (needs `CanControlServers`).
 
@@ -396,6 +398,10 @@ collisions, limits and the required Magnetar version.
 ## Sources
 - `Quasar/Services/FleetSummary.cs`
 - `Quasar/Services/ClusterOperationStore.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterPlayerService.cs`
+- `Quasar/Services/KnownPlayerCatalog.cs`
+- `Contracts/ClusterGateway.AdminContract/PlayerModerationContract.cs`
 - `Quasar/wwwroot/app.css`
 - `Docs/AnalyticsCpuLoad.md`
 - `Docs/StateMachines/ProfilerMode.md`

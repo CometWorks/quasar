@@ -21,3 +21,8 @@ Client diagnostics adds a small source overlay: `RotationContract.cs` and
 `DiagnosticsModels.cs` from the cluster client-diagnostics PR, plus its three operation
 names. The existing 0.4.0 core DTO shapes remain unchanged. No neighboring checkout or
 private NuGet feed is needed. See SOURCE.md for pins and hashes.
+
+The player-moderation overlay adds `PlayerModerationContract.cs` and three operation
+names from cluster admin contract `0.11.0`. Roles use a per-player expected revision;
+observed state includes disconnected players' Gateway admission cooldowns. The base
+contract version and existing DTO shapes stay pinned as above.

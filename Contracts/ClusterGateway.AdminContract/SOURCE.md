@@ -30,3 +30,22 @@ Source: https://github.com/CometWorks/cluster/tree/ade3f7e907a8e2a518246669b66df
 
 AdminContract.cs with the additive operation names: SHA-256
 `39c1c64ef291569ad6f51d92f5cf0feff85b0d16ba92c16a2f20a776836b95d2`.
+
+## Player moderation overlay
+
+The additive player-moderation overlay comes from `CometWorks/cluster` commit
+`eda4a1cd56967cf753b86a9d5eec2013f1db726d` (admin contract 0.11.0), implemented for
+[ticket 1855](https://tasks.cometworks.se/tasks/1855). The companion Cluster change
+provides the Gateway and World Authority support; older Gateways keep these
+actions disabled through operation capabilities.
+
+Source: https://github.com/CometWorks/cluster/tree/eda4a1cd56967cf753b86a9d5eec2013f1db726d
+
+`PlayerModerationContract.cs` is copied byte-for-byte from
+`ClusterRegistry.AdminContract/PlayerModerationContract.cs` (package 0.11.0).
+It adds a revision-checked role request and the observed promotion/cooldown state.
+The three player operation names are added to the existing local operation list.
+Existing base and diagnostics DTO shapes remain unchanged. HTTP wire v1 is retained.
+
+- `PlayerModerationContract.cs` SHA-256: `73d996e804d165324f89d8141b82544951ccda9065efa0d6fa7ae907b7bacff1`.
+- `AdminContract.cs` with the player operation names SHA-256: `f212df588d47a2650b6229aad1b6c2117ae34bdcb0a4c21183597de6987840aa`.

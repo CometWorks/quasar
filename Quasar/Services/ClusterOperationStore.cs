@@ -408,8 +408,12 @@ public sealed class ClusterOperationStore
             return await SaveAsync(operation with { Error = new("gateway_changed", "Restore the original Gateway URL to resume this operation.") }, token);
         try
         {
+            if (operation.Kind is "cluster.set-player-promotion" or "cluster.clear-kick-cooldown")
+                await client.GetStatusAsync(cluster, token);
             Admin.AdminOperation remote;
-            if (operation.GatewayOperationId is { } id)
+            // Role commands reconcile the same WA ledger GUID even when a Gateway restarted
+            // with a Running record. CAS prevents a delayed command undoing a later decision.
+            if (operation.GatewayOperationId is { } id && operation.Kind != "cluster.set-player-promotion")
                 remote = (await client.GetOperationAsync(cluster, id, token)).Data;
             else
             {
@@ -425,6 +429,7 @@ public sealed class ClusterOperationStore
                 State = remote.State switch
                 {
                     Admin.AdminOperationState.Succeeded => ClusterOperationState.Succeeded,
+                    Admin.AdminOperationState.Failed when operation.Kind == "cluster.set-player-promotion" && remote.Error?.Code == "promotion_uncertain" => ClusterOperationState.Running,
                     Admin.AdminOperationState.Failed => ClusterOperationState.Failed,
                     _ => ClusterOperationState.Running,
                 },
