@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Quasar.ClusterDeployment;
 using Quasar.Models;
@@ -15,8 +14,6 @@ public sealed class ClusterPurgeService(ClusterCatalog catalog, ClusterOperation
     WebServiceOptions options, QuasarConfigProfileCatalog profiles, QuasarWorldTemplateCatalog templates,
     DedicatedServerCatalog servers, KnownPlayerCatalog players, ILogger<ClusterPurgeService> logger)
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-
     public async Task<ClusterPurgeResult> PurgeAsync(string clusterId, CancellationToken token)
     {
         ClusterSetupService.ValidateId(clusterId);
@@ -31,9 +28,8 @@ public sealed class ClusterPurgeService(ClusterCatalog catalog, ClusterOperation
         string name = deleted.FirstOrDefault()?.UniqueName ?? clusterId;
         string quasar = MagnetarPaths.GetQuasarDirectory();
         string setup = Path.Combine(quasar, "ClusterSetup", name);
-        ClusterSetupRequest? request = null;
-        try { request = JsonSerializer.Deserialize<ClusterSetupRequest>(await File.ReadAllBytesAsync(Path.Combine(setup, "request.json"), token), Json); }
-        catch (Exception error) when (error is IOException or JsonException) { } // No setup, or one that never got far.
+        // A template or profile named after the cluster belongs to it only when something else shows the cluster existed.
+        bool known = deleted.Length > 0 || Directory.Exists(setup) || operations.GetRecent([name], 1).Count > 0;
 
         // Host data first: when a Host refuses, nothing here has changed yet and the purge can run again.
         var others = (await ClusterStorageMaintenance.RetainedDefinitionsAsync(catalog, options.BackupDirectory, token))
@@ -68,18 +64,18 @@ public sealed class ClusterPurgeService(ClusterCatalog catalog, ClusterOperation
         var inUse = catalog.GetClusters().SelectMany(c => new[] { c.ConfigProfileId, c.WorldTemplateId })
             .Concat(servers.GetServers().SelectMany(s => new[] { s.ConfigProfileId, s.WorldTemplateId }))
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
-        // Setup makes cluster-<guid>, a conversion converted-<guid>; a source profile is the operator's own.
+        // Setup makes cluster-<guid>, a conversion converted-<guid>. The profile a setup copied is the operator's, unless named after the cluster.
         bool Named(string? id) => id is not null && id.Equals(name, StringComparison.OrdinalIgnoreCase);
-        var ownProfiles = deleted.Select(c => c.ConfigProfileId).Append(request?.ConfigProfileId).Where(id => Named(id)
-            || id is not null && id != request?.ConfigProfileId
-            && (id.StartsWith("cluster-", StringComparison.Ordinal) || id.StartsWith("converted-", StringComparison.Ordinal)));
+        static bool Generated(string id) => id.StartsWith("cluster-", StringComparison.Ordinal) || id.StartsWith("converted-", StringComparison.Ordinal);
+        var ownProfiles = deleted.Select(c => c.ConfigProfileId).Where(id => Named(id) || Generated(id))
+            .Append(known ? name : null);
         foreach (string id in ownProfiles.OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Where(id => !inUse.Contains(id)))
             if (Move(Path.Combine(quasar, "ConfigProfiles", id), Path.Combine(archive, "ConfigProfiles", id)))
             {
                 await profiles.DeleteAsync(id, token);
                 archived.Add("config profile " + id);
             }
-        var ownTemplates = deleted.Select(c => c.WorldTemplateId).Append(request?.WorldTemplateId).Where(Named);
+        var ownTemplates = deleted.Select(c => c.WorldTemplateId).Where(Named).Append(known ? name : null);
         foreach (string id in ownTemplates.OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Where(id => !inUse.Contains(id)))
             if (Move(MagnetarPaths.GetQuasarWorldTemplateDirectory(id), Path.Combine(archive, "WorldTemplates", id)))
             {
@@ -87,8 +83,8 @@ public sealed class ClusterPurgeService(ClusterCatalog catalog, ClusterOperation
                 archived.Add("world template " + id);
             }
         if (await catalog.ReleaseRemovedIdAsync(name, archive, token)) archived.Add("deleted cluster definitions");
-        int known = await players.CleanServerAsync(name, token, isCluster: true);
-        if (known > 0) removed.Add($"{known} known player records");
+        int knownPlayers = await players.CleanServerAsync(name, token, isCluster: true);
+        if (knownPlayers > 0) removed.Add($"{knownPlayers} known player records");
 
         if (deleted.Length == 0 && removed.Count == 0 && archived.Count == 0)
             throw new KeyNotFoundException(clusterId);

@@ -648,10 +648,13 @@ public sealed class ClusterCatalog : IDisposable
                     found = true;
                 }
             if (File.Exists(RemovedPath(uniqueName))) { File.Delete(RemovedPath(uniqueName)); found = true; }
-            if (found) _logger.LogInformation("Released removed cluster ID {Cluster}; its definitions are in {Archive}", uniqueName, archive);
-            return found;
+            if (!found) return false;
+            _logger.LogInformation("Released removed cluster ID {Cluster}; its definitions are in {Archive}", uniqueName, archive);
         }
         finally { _writeGate.Release(); }
+        // What only the purged cluster's backups kept goes in the next collection.
+        Changed?.Invoke();
+        return true;
     }
 
     private string RemovedPath(string uniqueName) => Path.Combine(_directory, ".removed", uniqueName.ToLowerInvariant());

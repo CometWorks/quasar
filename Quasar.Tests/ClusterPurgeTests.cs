@@ -149,6 +149,32 @@ public sealed class ClusterPurgeTests : IDisposable
         Assert.Single(new ClusterOperationStore(Path.Combine(root, "Operations", "Clusters")).GetRecent(["reuse"], 10));
     }
 
+    // A setup refused before it bound its request leaves only a failed operation and what the caller made for it.
+    [Fact]
+    public async Task PurgeAfterAFailedSetupClearsItsKeyAndTheNamedTemplateAndProfile()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        Directory.CreateDirectory(Path.Combine(root, "WorldTemplates", "failed", "World"));
+        using var catalog = Catalog();
+        var operations = new ClusterOperationStore(Path.Combine(root, "Operations", "Clusters"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => Setup(operations, "failed", () => throw new InvalidOperationException("Choose a configuration profile.")));
+        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        await profiles.UpsertAsync(new QuasarConfigProfile { ConfigProfileId = "failed", Name = "failed" });
+        using var templates = new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance);
+        using var servers = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
+        var purge = new ClusterPurgeService(catalog, operations, new ClusterHostClient(new HttpClient(new RecordingHost())),
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "Backups") }, profiles, templates, servers,
+            new KnownPlayerCatalog(NullLogger<KnownPlayerCatalog>.Instance), NullLogger<ClusterPurgeService>.Instance);
+
+        var result = await purge.PurgeAsync("failed", default);
+
+        Assert.Empty(operations.GetRecent(["failed"], 10));
+        Assert.True(Directory.Exists(Path.Combine(result.Archive, "WorldTemplates", "failed")));
+        Assert.True(Directory.Exists(Path.Combine(result.Archive, "ConfigProfiles", "failed")));
+        Assert.False(Directory.Exists(Path.Combine(root, "WorldTemplates", "failed")));
+        Assert.Null(profiles.GetProfile("failed"));
+    }
+
     [Fact]
     public async Task PurgeRefusesALiveOrUnknownCluster()
     {
@@ -166,7 +192,9 @@ public sealed class ClusterPurgeTests : IDisposable
             profiles, templates, servers, players, NullLogger<ClusterPurgeService>.Instance);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => purge.PurgeAsync("LIVE", default));
+        string unrelated = Directory.CreateDirectory(Path.Combine(root, "WorldTemplates", "never")).FullName;
         await Assert.ThrowsAsync<KeyNotFoundException>(() => purge.PurgeAsync("never", default));
+        Assert.True(Directory.Exists(unrelated), "a template named like an ID that never was a cluster stays");
         await Assert.ThrowsAsync<ArgumentException>(() => purge.PurgeAsync("../live", default));
         Assert.Empty(host.Requests);
         Assert.NotNull(catalog.GetCluster("live"));
