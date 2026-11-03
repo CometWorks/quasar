@@ -205,7 +205,7 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 | "Magnetar preparation failed: …" | Magnetar's exporter failed, often a plugin that cannot build or has unsupported configuration. Read the message, fix the profile, resume. |
 | "Could not … from GitHub repository CometWorks/cluster (HTTP 404). …" | Missing release or no access. Check the token in **Updates → GitHub token**. 401, 403 and 429 have their own guidance in the message. |
 | "This cluster ID already belongs to an existing registration. Choose a new ID." | Pick another Cluster ID. |
-| "This cluster ID was removed. …" | Removed IDs are reserved. Pick another. |
+| "This cluster ID was removed. …" | Removed IDs are reserved. Pick another, or [purge the deleted cluster](Clusters.md#purge-a-deleted-cluster). |
 | "This setup is already bound to another request. Resume its original settings or choose a new cluster ID." | You changed inputs of an existing setup. Use **Start a new setup**. |
 | "Configuration profile cannot be used for a cluster: …" | Administrators must be SteamID64 numbers and max players at least 2. |
 | "Choose the Cluster Gateway host machine and distinct LAN/VPN addresses. Remote placements cannot use loopback addresses." | Two machines share an address, or a multi-machine cluster uses loopback. |

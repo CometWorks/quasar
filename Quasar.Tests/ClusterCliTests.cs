@@ -131,6 +131,21 @@ public sealed class ClusterCliTests
             "7", "--url", "http://quasar.test", "--idempotency-key", "select-1"], handler, new StringWriter(), new StringWriter()));
     }
 
+    // SE-968: no idempotency key, it ends the operation history that would replay one.
+    [Fact]
+    public async Task PurgeDeletesRetainedDataWithTheIdAsConfirmation()
+    {
+        var handler = new Handler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Delete, request.Method);
+            Assert.Equal("/api/v1/clusters/demo/retained-data?confirmation=demo", request.RequestUri!.PathAndQuery);
+            Assert.False(request.Headers.Contains("Idempotency-Key"));
+            return Response(HttpStatusCode.OK, """{"protocolVersion":1,"data":{"clusterId":"demo"}}""");
+        });
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "purge", "demo", "--url", "http://quasar.test"],
+            handler, new StringWriter(), new StringWriter()));
+    }
+
     [Fact]
     public async Task UpdateAbandonPostsWithIdempotencyKey()
     {

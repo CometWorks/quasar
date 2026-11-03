@@ -30,6 +30,7 @@ public sealed class ClusterApiRouteTests
     [InlineData("/api/v1/clusters/{uniqueName}/commands", true)]
     [InlineData("/api/v1/clusters/{uniqueName}", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/registration", true)]
+    [InlineData("/api/v1/clusters/{uniqueName}/retained-data", true)]
     [InlineData("/api/v1/clusters/setup", true)]
     [InlineData("/api/v1/clusters/{uniqueName}/package-release", false)]
     [InlineData("/api/v1/clusters/{uniqueName}/package", true)]

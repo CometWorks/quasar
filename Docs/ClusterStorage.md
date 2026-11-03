@@ -66,7 +66,14 @@ Deleting a cluster keeps its data for `DeletedClusterRetentionDays` (default 7, 
 0 keeps it forever), counted from the deletion. Then Quasar removes the cluster's backups, manual
 ones and exports included, and `ClusterSetup/<Cluster ID>`. The next collection pass releases what
 they pinned, and each Host removes the cluster's preparation workspaces under `state/conversions`
-with the runtime in them, its snapshots and its `state/detached` records.
+with the runtime in them, its snapshots, its `state/detached` records and its launch records.
+
+A purge (`DELETE /api/v1/clusters/{id}/retained-data`, `Quasar cluster purge`) ends the retention at
+once and frees the ID. It asks the Hosts first, removes what the end of the retention removes, and
+moves the deleted definitions, the cluster's operation records and the profiles and templates it
+owns to `Clusters/.purged/<timestamp>-<id>/`. Without it a new cluster with the same ID would
+resume the old `ClusterSetup/<id>`, replay its setup operation and seed from the old runtime, whose
+Host workspace is derived from the ID.
 
 A Host refuses while it still supervises the cluster or a process of it runs. It leaves any path
 that is not a `state/conversions/<id>` workspace alone, so a run root an operator chose stays. A

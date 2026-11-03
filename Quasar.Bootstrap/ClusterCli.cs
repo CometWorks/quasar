@@ -241,6 +241,7 @@ internal static class ClusterCli
             "operation" when values.Length == 3 => ClusterRoute(
                 "operations/" + Uri.EscapeDataString(values[2])),
             "goal" when values.Length == 3 => ClusterRoute("goal"),
+            "purge" when values.Length == 2 => ClusterRoute("retained-data?confirmation=" + Uri.EscapeDataString(cluster!)),
             "gateway-restart" when values.Length == 2 => ClusterRoute("gateway/restart"),
             "gateway-recover" when values.Length == 2 => ClusterRoute("gateway/recover"),
             _ => null,
@@ -328,6 +329,8 @@ internal static class ClusterCli
 
         request = new HttpRequestMessage(mutation ? HttpMethod.Put : HttpMethod.Get, baseUrl + route);
         if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "release-update-prepare" or "world-files-prepare" or "command" or "create" or "deployment-prepare" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server") request.Method = HttpMethod.Post;
+        // Not an operation: it ends the deleted cluster's operation history itself, so it takes no idempotency key.
+        if (command == "purge") request.Method = HttpMethod.Delete;
         if (body != null) request.Content = JsonContent.Create(body, options: JsonOptions);
         return true;
     }
@@ -411,7 +414,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,
