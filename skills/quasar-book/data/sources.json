@@ -1,5 +1,5 @@
 {
- "commit": "099cdf4c636501b38f7ca101edcc417bfcd7c02b",
+ "commit": "e98c325c79ffb65b9f8f44a1c1b6b91165e222ce",
  "files": {
   ".dockerignore": "dff903861d9f0c39b4b107cf206243154443e801c48042429b6eaeaa311c9f64",
   ".env.example": "3cdd8b12869874ea0e28ad7843836ef6f0be176e208e5f192d400abf7ba9e788",
@@ -46,7 +46,7 @@
   "Docs/StateMachines/ProfilerMode.md": "0bab6dad7e068f63beda2390b19afa1509672750c8342c793fd2e3c8a8154cff",
   "Docs/StateMachines/SelfUpdateAndRelease.md": "42e53fcd5cc44ecd11dcb25c0c7162e698b50f579400f3f06f166a55f11483b7",
   "Docs/StateMachines/ThemeMode.md": "232ade8ad2730b17b7a4cd6bbfd02f2ff198762e3e4d564ac2b562ce3f97cf2c",
-  "Docs/WindowsDeploymentAndUpdates.md": "e095dfc8b1e5766d348713616f0bf99d6c9cb5c31aac25cd5672043bb20491ee",
+  "Docs/WindowsDeploymentAndUpdates.md": "888083c32e7531f9611680dd60655590a61d26aa8575347a3840744d98b50260",
   "LICENSE": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
   "Magnetar.Protocol/Bridge/IQuasarCompanionRequestHandler.cs": "4d9bcf326d07fd968c1ff761be5a96f14cabf5e470b4a38d6783c6bf9103d69c",
   "Magnetar.Protocol/Bridge/IQuasarConfigProvider.cs": "4ce0e56755d67443303471d6651912f9cceec7384b74fc8898004a5e6a9ee5e7",
@@ -401,7 +401,7 @@
   "scripts/cleanup-releases.py": "59289ab00ad662fff3c88b8c031c4abb4d398b0bc39b5487f800ae10d14717cf",
   "scripts/install-gui.ps1": "f9a57d13db3e20500565d231eec365e08e033e0f72a5abda0578b187e416f546",
   "scripts/install-gui.sh": "5b845dec35bed26c4e60563d776a59dd1dab2d76c9636121121c4e61887534db",
-  "scripts/install.ps1": "7be02828c95c31e1b978404061a29cbf321334f1fe24275724c91ef02e131cad",
+  "scripts/install.ps1": "6bf9d664f5912af4d6338a7ba724f6cf4b177eaa8ed62478e2e7ae43580e9868",
   "scripts/package-cluster-direct-transport.sh": "dce2083f34ebc100e6bc6e5a0fb544762b6a91e112253f9afd12b8646ec789be",
   "scripts/package-cluster-plugins.py": "600bc1e80fa06747f586343d2ba9842e76229e6f4dfd61a6ee70fee4da83e2a7",
   "scripts/package-linux-release.sh": "ed3f79c4295ab2aeed9abd0c9c9101e4a6a3beae2811ae6099d8fcd81aaeb15f",
