@@ -282,3 +282,17 @@ token is expired, expiring soon, or rejected during an update check, the Updates
 page shows a warning and the notification icon in the app bar gets a warning
 badge. Save a fresh token before the old one expires to keep automatic checks
 working.
+
+## Restart Quasar safely
+
+The power dialog and UI Plugins use the same restart capability. Restart is enabled only
+after native service verification succeeds for the current Quasar process. If
+verification is missing, stale, unreadable or denied, the button stays disabled and
+shows repair guidance. An unsupported restart request leaves Quasar running. Wait for
+the next verification on Updates or repair supervision with the current installer,
+preserving paths, service names, account and scope. A pending update must finish before
+a manual restart can be queued. Native restarts are durable restart-only operations
+handled by the updater; it verifies the services again before stopping and starting the
+main service. Legacy Bootstrap keeps its worker-restart request path. Failed request
+writes leave Quasar running. Running game servers keep their PIDs for adoption after
+restart.

@@ -26,6 +26,23 @@ public sealed class WebServiceOptions
 
     public string BootstrapVersion { get; init; } = string.Empty;
 
+    // Native installs also set LauncherToken for health authentication. Only
+    // legacy Bootstrap uses that token as evidence that it will respawn a worker.
+    public Quasar.Updates.BootstrapRestartCapability RestartCapability
+    {
+        get
+        {
+            if (Quasar.Updates.QuasarServiceInstallation.Current is null)
+                return !string.IsNullOrWhiteSpace(LauncherToken)
+                    ? new() { CanRestart = true, Supervisor = "Legacy Bootstrap", Detail = "Bootstrap will restart the web worker." }
+                    : Quasar.Updates.BootstrapUpdateSupport.Unavailable("This standalone Quasar process must be restarted manually.");
+            var capability = Quasar.Updates.BootstrapUpdateSupport.Read();
+            return capability.CanRestart && capability.ProcessId != Environment.ProcessId
+                ? Quasar.Updates.BootstrapUpdateSupport.Unavailable("Restart verification belongs to a different Quasar process. Wait for verification on Updates or repair the services.")
+                : capability;
+        }
+    }
+
     public string? BootstrapUpdateUnavailableReason { get; init; } =
         Quasar.Updates.BootstrapUpdateSupport.Read() is { CanRestart: false } capability ? capability.Detail + " " + capability.Repair : null;
 

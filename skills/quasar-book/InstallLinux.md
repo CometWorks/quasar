@@ -167,9 +167,11 @@ sudo systemctl status quasar.service quasar-updater.service    # system services
 
 | Unit | What it runs |
 | --- | --- |
-| `<name>.service` | `Quasar serve --service` from the install directory. `Restart=on-failure`, `RestartSec=5`, `KillMode=process`, `TimeoutStopSec=120`. Sets `QUASAR_INSTALL_DIR` and `QUASAR_HOST_STOP_UNIT`. `Wants=` the updater unit. |
+| `<name>.service` | `Quasar serve --service` from the install directory. `Restart=on-failure`, `RestartSec=5`, `KillMode=process`, `TimeoutStopSec=120`. Sets `QUASAR_INSTALL_DIR`, `QUASAR_HOST_STOP_UNIT` and `QUASAR_CONSOLE_LOGGING=true`; stdout and stderr go to the journal. `Wants=` the updater unit. |
 | `<name>-updater.service` | `Updater/Quasar.Updater --installation <metadata>`. `Restart=on-failure`, `RestartSec=5`. Runs as the same account as Quasar. |
 | `<name>-clusters.service` | A oneshot unit whose stop action runs `LocalHost/stop-clusters`, so the clusters on this PC are saved and stopped at logout or shutdown. See [Cluster hosts](ClusterHosts.md#the-local-host). |
+
+New and repaired main units copy application messages to the journal at the configured minimum level and format, alongside `Logs/quasar.log`. File and Discord logging remain enabled. Existing units need `install.sh --repair-supervision` with their original paths, service name, account and scope, then a main-service restart.
 
 `KillMode=process` makes systemd stop only the Quasar process, so detached game servers keep running when Quasar stops or updates.
 
@@ -181,7 +183,7 @@ Quasar checks this wiring on start and shows the result on Updates. The main PID
 
 **Shutdown Quasar** (in the **Quasar power** dialog, admin role) saves the managed server state and stops Quasar with exit code 0. `Restart=on-failure` treats that as a clean stop, so the main unit stays inactive. Servers keep running without supervision until their agent's offline policy takes over (see [Configuration](Configuration.md#shutdown-and-agent-behavior)). Start the service again to bring Quasar back.
 
-**Restart Quasar** hands the restart to the updater service; servers keep running. **Save and stop all servers** saves and stops standalone servers and managed clusters and leaves Quasar running.
+**Restart Quasar** hands the restart to the updater service; servers keep running. Restart is enabled only after native service verification succeeds for the current Quasar process. If verification is missing, stale, unreadable or denied, the button stays disabled and shows repair guidance. An unsupported restart request leaves Quasar running. Wait for the next verification on Updates or repair supervision with the current installer, preserving paths, service names, account and scope. A pending update must finish before a manual restart can be queued. **Save and stop all servers** saves and stops standalone servers and managed clusters and leaves Quasar running.
 
 `systemctl stop` follows `Quasar:PreserveManagedServersOnShutdown`. Updates always keep servers running and save their state for the next Quasar to adopt.
 
@@ -374,3 +376,6 @@ The package contains `Host/Quasar.Host`. On the Quasar machine, Quasar runs it a
 - `Quasar.Updater/ConfigureInstallation.cs`
 - `Quasar.Updater/InstallationProcesses.cs`
 - `Quasar.Updater/TrustedUpdatePackage.cs`
+- `Tests/Updates/service_unit_config.py`
+- `Quasar.Tests/QuasarShutdownTests.cs`
+- `Quasar.Tests/QuasarLoggingConfiguratorTests.cs`

@@ -629,6 +629,9 @@ KillMode=process
 TimeoutStopSec=120
 Environment="QUASAR_INSTALL_DIR=$unit_install"
 Environment="QUASAR_HOST_STOP_UNIT=$scope_dir/$CLUSTERS_UNIT"
+Environment="QUASAR_CONSOLE_LOGGING=true"
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=$([[ "$INSTALL_MODE" == "system" ]] && echo multi-user.target || echo default.target)

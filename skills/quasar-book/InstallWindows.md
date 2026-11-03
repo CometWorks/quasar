@@ -145,7 +145,7 @@ The old task's account and password don't carry over: the services run as their 
 The power button in the top bar opens **Quasar power** (admin role):
 
 - **Shutdown Quasar** saves the managed server state and stops Quasar cleanly. The service stays stopped; servers keep running without supervision until their agent's offline policy takes over (see [Configuration](Configuration.md#shutdown-and-agent-behavior)). Run `Start-Service Quasar` to bring the UI back.
-- **Restart Quasar** hands the restart to the updater service. Servers keep running.
+- **Restart Quasar** hands the restart to the updater service. Servers keep running. Restart is enabled only after native service verification succeeds for the current Quasar process. If verification is missing, stale, unreadable or denied, the button stays disabled and shows repair guidance. An unsupported restart request leaves Quasar running. Wait for the next verification on Updates or repair supervision with the current installer, preserving paths, service names, account and scope. A pending update must finish before a manual restart can be queued.
 - **Save and stop all servers** saves and stops standalone servers and managed clusters, setting their goals to Off. Quasar stays online and shows progress.
 
 `Stop-Service Quasar` follows `Quasar:PreserveManagedServersOnShutdown`. Updates always keep servers running and save their state for the next Quasar to adopt.
@@ -290,3 +290,4 @@ The Updates page shows the restart capability and repair instructions when the s
 - `Quasar.Updater/ConfigureInstallation.cs`
 - `Quasar.Updater/InstallationProcesses.cs`
 - `Quasar.Updater/TrustedUpdatePackage.cs`
+- `Quasar.Tests/QuasarShutdownTests.cs`

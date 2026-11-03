@@ -439,3 +439,21 @@ working.
 **Warning:** prerelease updates are for testing only and should not be used by
 regular users. They may be unstable, may require manual recovery, and may update
 the complete Quasar application.
+
+## Application logs in the journal
+
+New and repaired main units set `QUASAR_CONSOLE_LOGGING=true` and route stdout
+and stderr to the systemd journal. The existing NLog console target copies
+application messages at the configured minimum level and text or JSON format;
+`Logs/quasar.log` and the separate Discord file remain enabled. No second console
+logging provider is added. At the default `Warn` level, routine Info messages do
+not appear in either the main file or the journal.
+
+Use `journalctl --user -u quasar.service` for a user install, or
+`sudo journalctl -u quasar.service` for a system install, substituting your service
+name. The updater has its own `<name>-updater.service` journal.
+
+For an existing install, run `install.sh --repair-supervision` with its original
+paths, service name, account and user/system scope, then restart the main service.
+Repair rewrites the unit without changing its `Restart=on-failure` policy.
+See [safe restart and capability checks](QuasarUpdates.md#restart-quasar-safely).
