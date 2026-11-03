@@ -88,7 +88,7 @@ application.
 | `<quasar-root>/ConfigProfiles/<profile id>/profile.json` | The profile. |
 | `<quasar-root>/ConfigProfiles/<profile id>/History/<timestamp>.json` | A copy on every save. Delete writes `<timestamp>-deleted.json` here and removes `profile.json`. |
 
-The profile id is a slug made from the name when the profile is created. Quasar writes profiles and their history atomically and owner-readable/writable only on Unix, then checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
+The profile id is a slug made from the name when the profile is created. Quasar writes profiles and their history atomically and owner-readable/writable only on Unix, then checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Only a `profile.json` directly in a profile folder counts. World templates work the same way with `WorldTemplates/<template id>/template.json`. Quasar does not create or restore built-in default profiles.
 
 ### Unsaved changes
 
@@ -175,9 +175,11 @@ Ways to create a template:
 - **Create world template** in a server's menu on the Dashboard: copies the server's current save. The server must be stopped with goal Off ("Stop the server before creating a world template from its current state."). The default name is "<server name> Snapshot <date time>".
 - **New Template** in the **Create World Save** dialog opens a quick import dialog with the same two tabs (see [Quick import](#quick-import)). The Dashboard setup guide uses the same dialog, titled **Choose Dedicated Server World**.
 
+While the managed runtime is still being prepared, the **Predefined worlds** tab of the quick import dialog (and the Dashboard setup guide) shows the preparation steps: SteamCMD, the Dedicated Server files with their starting worlds, and Magnetar. You can pick a world once the Dedicated Server files are ready; Magnetar only has to be ready when the server starts. If preparation fails, fix the reported problem and click **Retry preparation**.
+
 Discovery runs in the background and uses the runtime-selected Dedicated Server installation as well as configured and managed locations. The chooser checks again automatically when server files become ready. **Where Quasar looked** lists searched folders; unreadable folders show warnings. **Refresh** retries discovery, and **Clear search** removes a filter with no matches. If no worlds are found after preparation, use **Updates > Check Dedicated Server**, then refresh, or choose **Custom import**.
 
-Import progress shows the number of copied files. The source stays unchanged; a cancelled or failed copy removes the incomplete template and publishes no template entry.
+Import progress shows the number of copied files. The source stays unchanged; a canceled or failed copy removes the incomplete template and publishes no template entry.
 
 The **World Templates** table lists templates with size, update time, name and description. Row actions:
 
@@ -215,17 +217,18 @@ The folder is created right away, even if you then cancel the server editor.
 
 ## What Quasar writes on every start
 
-Before each launch Quasar prepares the server's files in this order:
+Before each launch Quasar prepares the server's files in this order. If the profile has command aliases and the server's Magnetar is too old for them, it stops before step 1 (see [Command aliases](#command-aliases)).
 
 1. Repairs the Steam Workshop cache if needed (see [Servers](Servers.md#workshop-cache-repair)).
-2. Renders `SpaceEngineers-Dedicated.cfg` in the DS app-data folder. It starts from the existing file (or an empty one) and sets: `IgnoreLastSession` false, `ServerPort`, `SteamPort` (game port + 1000), `RemoteApiPort` (game port + 2000), `IP` (`127.0.0.1` when Offline), every World-tab option, block type limits, `GroupID`, `Administrators`, `Reserved`, `Banned`, the password hash and salt, `ServerName` and `WorldName`.
-3. Writes the profile's `CommandAliases.json` snapshot, then Magnetar's `Sources/sources.xml` and `Profiles/Current.xml` from the profile's plugin selection and deploys Quasar.Agent into `Local/`.
-4. Rewrites the save's `Sandbox_config.sbc`: `SessionName` (the in-game world name), every session setting from the profile, and the `Mods` list in the profile's order. If the save has no `Sandbox_config.sbc`, Quasar skips this step and logs a warning.
-5. Writes `Saves/LastSession.sbl` pointing at the selected save.
+2. Writes the profile's `CommandAliases.json` snapshot into the Magnetar app-data folder.
+3. Renders `SpaceEngineers-Dedicated.cfg` in the DS app-data folder. It starts from the existing file (or an empty one) and sets: `IgnoreLastSession` false, `ServerPort`, `SteamPort` (game port + 1000), `RemoteApiPort` (game port + 2000), `IP` (`127.0.0.1` when Offline), every World-tab option, block type limits, `GroupID`, `Administrators`, `Reserved`, `Banned`, the password hash and salt, `ServerName` and `WorldName`.
+4. Writes Magnetar's `Sources/sources.xml` and `Profiles/Current.xml` from the profile's plugin selection and deploys Quasar.Agent into `Local/`.
+5. Rewrites the save's `Sandbox_config.sbc`: `SessionName` (the in-game world name), every session setting from the profile, and the `Mods` list in the profile's order. If the save has no `Sandbox_config.sbc`, Quasar skips this step and logs a warning.
+6. Writes `Saves/LastSession.sbl` pointing at the selected save.
 
-Because of step 4, world settings or mods changed outside the profile (in-game admin changes, a tool that edits the save) are overwritten at the next start. Make such changes in the profile.
+Because of step 5, world settings or mods changed outside the profile (in-game admin changes, a tool that edits the save) are overwritten at the next start. Make such changes in the profile.
 
-Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides whether a world with oxygen blocks may start (see [Servers](Servers.md#launch-failures-that-fault-a-server)).
+Step 5 runs before the oxygen check, so the profile's **Enable Oxygen** decides whether a world with oxygen blocks may start (see [Servers](Servers.md#launch-failures-that-fault-a-server)).
 
 ## Common problems
 
@@ -233,7 +236,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - **Save Profile disabled**: an Access list has an entry that is not a 17-digit SteamID64. Fix or remove it.
 - **Settings changed but the server still uses the old ones**: restart the server. Profiles apply only at start.
 - **Mods disappeared from a world**: the server's profile does not list them. Add them to the profile or use **Merge Into <profile>** in the server editor.
-- **Mods tab greyed out**: **Cross Platform** is on. Turn it off to edit mods.
+- **Mods tab grayed out**: **Cross Platform** is on. Turn it off to edit mods.
 - **"Workshop API key needed"**: add a Steam Web API key in the Mods tab. Dependency checks, search and **Auto Sort Dependencies** need it.
 - **A ban or admin added in-game is gone after restart**: Quasar replaces these lists from the profile on every start. Add the SteamID64 to the profile's Access lists.
 - **Players cannot join, profile is Offline**: Offline restricts the server to connections from the same machine. Use Public, Friends or Private.

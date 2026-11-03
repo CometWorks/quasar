@@ -6,7 +6,7 @@ How to create a managed cluster with the **Set up cluster** wizard: the local Ho
 
 Quasar side:
 
-- Quasar runs on Linux x64 from a published release. The release ships the Host executor as `Host/Quasar.Host` next to the web worker; a plain development build has none and enrollment fails with "This Quasar build does not include the Host installer (…)". For a development build, set `QUASAR_HOST_BINARY` to a published single-file `Quasar.Host`.
+- Quasar runs on Linux x64 from a published release. The release package ships the Host executor as `Host/Quasar.Host` next to the Quasar executable; a plain development build has none and enrollment fails with "This Quasar build does not include the Host installer (…)". For a development build, set `QUASAR_HOST_BINARY` to a published single-file `Quasar.Host`.
 - Internet access to GitHub for cluster releases. Public `CometWorks/cluster` releases need no token. An optional token in **Updates → GitHub token** raises rate limits; private releases require repository read access.
 - The managed Dedicated Server, Magnetar and SteamCMD (Quasar installs and updates them; see [Updates](Updates.md)). The installed Magnetar must support managed plugin preparation (`-prepareManaged`).
 - A published cluster release that runs on the installed Magnetar's PluginSdk: same PluginSdk contract major and an equal or higher minor on the Magnetar side. For a release or Magnetar without a contract version, the exact PluginSdk build has to match.
@@ -34,15 +34,18 @@ Open **Hosts** (nav group "Infrastructure & tools") and choose **Add host machin
 | Host machine ID | Lowercase letter first, then lowercase letters, digits and hyphens, up to 63 characters. Permanent. |
 | Host machine name | Display name. A blank name gets a generated suggestion. |
 | Cluster network IP address | A private IP: `10.x`, `172.16.x` to `172.31.x`, `192.168.x`, an IPv6 ULA (`fc00::/7`), or loopback. Use `127.0.0.1` only for a cluster entirely on the Quasar machine. |
-| Quasar address reachable by this host machine | The Quasar origin, for example `https://quasar.example.com`, with no path or query. HTTP is allowed only on loopback. |
+| Quasar address reachable by this host machine | The Quasar origin, for example `https://quasar.example.com`, with no path or query. HTTP is allowed only on loopback. The one exception to "no path" is the exact enrolled Nebula panel URL, `https://dash.se-servers.net/<panel>/` with the trailing slash (see [Hosted access](HostedPanel.md)). |
 | Installation method | **Run an enrollment command on the host machine** (default), **Install over SSH**, **Download package for manual installation**. |
+
+A Host on another machine connects to Quasar's [machine endpoints](AccessControl.md#machine-endpoints), which by default accept only the Quasar machine itself. Before you enroll it, add the host machine's address (or its private subnet) to `Quasar:MachineEndpoints:AllowedSources` and the Quasar address it uses to `AllowedHosts`. Otherwise the enrollment download and the Host connection get 403. The local Host needs no entry.
 
 Registration validation errors:
 
 - "Use a lowercase Host machine ID, a private IP address and a control port from 1024 to 65535."
 - "A host machine with this ID is already registered."
 - "This host machine address and Host executor control port are already registered. Resume the existing enrollment."
-- "Use the Quasar HTTPS origin reachable by the machine, for example https://quasar.example.com. HTTP is permitted only for local loopback setup."
+- "Use an HTTPS Quasar control address. HTTP is permitted only for loopback setup."
+- "Use a root Quasar control address or its exact enrolled Nebula panel URL, including the trailing slash."
 
 Each enrollment gets a Host executor control port (default 18400, loopback only on the host machine) and a generated credential. The Host executor connects out to Quasar; you do not open any inbound port for it.
 
@@ -100,9 +103,9 @@ The form shows "Host executor connected. It is ready for cluster placement." onc
 
 ## Create the cluster
 
-Open **New server → Cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Create and deploy**). The Cluster choice requires cluster-management permission.
+Open **New server → Cluster** on the Dashboard or Servers page (`/clusters/new`, tab **Create and deploy**). The Cluster choice requires cluster-management permission and Quasar running on Linux; elsewhere it is disabled with "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows."
 
-**Step 1, Host enrollment.** Lists enrolled host machines with **Connected** or **Offline**. **Continue to cluster configuration** is enabled once at least one host machine is connected ("Waiting for an enrolled Host executor to connect. Enrollment alone does not make a host machine ready for deployment.").
+**Step 1, Host enrollment.** Lists enrolled host machines with **Connected** or **Offline**. **Continue to cluster configuration** is enabled once at least one host machine is connected ("Waiting for a host machine to connect. You can continue when a machine shows Connected.").
 
 **Step 2, Configure and deploy.**
 
@@ -116,7 +119,7 @@ Open **New server → Cluster** on the Dashboard or Servers page (`/clusters/new
 | Host machines | Tick each machine and set **Regular nodes**, 1 to 32 per machine, at least 2 and at most 254 in total. |
 | Hot spares | How many hot spares the cluster has, 1 by default. A hot spare runs warm and holds nothing; when a node crashes the cluster moves that node's partitions to a spare at once, and the crashed node restarts as the new spare. Quasar only sets the count: it adds that many spare nodes, from the Gateway host machine on, at most 32 nodes per machine. With 0 the page warns that a crashed node's partitions reload on the remaining nodes. Hot spares need a cluster release that supports them; with an older release setup stops with "This cluster release does not support hot spares". |
 | Cluster Gateway and World Authority host machine | One of the selected machines. Players connect to it. It also runs the Cluster Registry and the World Authority. |
-| Public server port | UDP, 1024 to 65000, default 28000. |
+| Public server port | UDP, 1024 to 64000, default 28000. |
 
 **Create and deploy cluster** stays disabled until every selected host machine is connected. On success the page returns to the Dashboard and the cluster stays stopped; choose **Start** on its card or page.
 
@@ -160,10 +163,11 @@ Setup runs these phases:
 4. "Staging the profile's Workshop mods": resolves the mods' dependencies and downloads the current version of each mod with the managed SteamCMD, the same way **Stage profile changes** does (see [Mods and content updates](Clusters.md#mods-and-content-updates)). Magnetar's companion mod is always pinned with them, also for a profile without mods or with crossplay enabled, because Magnetar adds it to every node.
 5. "Preparing identical plugins and canonical configuration": runs Magnetar's managed exporter on a disposable copy, without starting a game server. Plugins start with their SDK default settings.
 6. "Freezing the common runtime snapshot": copies DS, Content, Magnetar, Direct Transport and the common plugins into a pinned dependency snapshot. It leaves out what a server running from the installed DS writes itself: `DedicatedServer64/ProfileOptimization` (the .NET runtime's JIT profile) and `Content/Workshop`.
-7. "Converting a copy of the world": splits the world with the release's converter.
-8. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation, the world and the staged mods.
-9. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
-10. "Ready to start": the Host has already reported the activated Gateway as stopped, so a start is accepted at once.
+7. "Verifying the pinned deployment installation", then "Converting a copy of the world": splits the world with the release's converter.
+8. "Packaging verified setup inputs": packs the split world, the installation and the staged mods for transfer.
+9. "Distributing verified files and generated credentials": generates the admin, join and per-Host executor credentials, installs them on each Host, sends `steamclient.so` to the Gateway Host, and transfers the installation, the world and the staged mods.
+10. "Preparing and activating the stopped cluster": every Host prepares the same revision and Quasar activates it stopped.
+11. "Ready to start": the Host has already reported the activated Gateway as stopped, so a start is accepted at once.
 
 Quasar generates all credentials. You do not set any environment variable for a guided cluster.
 
@@ -177,7 +181,7 @@ Setup is durable. Its files live in `<install root>/ClusterSetup/<Cluster ID>/` 
 
 - After a failure the status shows "Setup interrupted during: <phase>" and the error details. The inputs stay locked. Keep the cluster, fix the cause (for example reconnect a Host) and choose **Resume setup**. Deleting the cluster is not needed for a retry. Older saved failures without a phase still show their error.
 - "Deployment files do not match approved inputs" lists the inspected locations and the numbers of missing, unexpected and changed files. It names up to ten files and shows each file's expected and actual SHA-256, byte count and executable flag. Further differences are counted. Check the named files and anything writing into those folders; restore the approved files before resuming. The full exception and failed phase are also logged. Quasar does not accept changed files as new approved inputs.
-- Once `prepared-inputs.json` exists, resume verifies the selected release, dependency snapshot, copied profile and staged mod files. It reuses the exact runtime, plugin settings and mod versions without repeating runtime updates, Workshop requests, plugin builds or the freeze. World conversion and activation also reuse their completion receipts. Successful setup removes this checkpoint and its temporary mod payload.
+- Once `prepared-inputs.json` exists, resume shows "Verifying prepared setup inputs" and verifies the selected release, dependency snapshot, copied profile and staged mod files. It reuses the exact runtime, plugin settings and mod versions without repeating runtime updates, Workshop requests, plugin builds or the freeze. World conversion and activation also reuse their completion receipts. Successful setup removes this checkpoint and its temporary mod payload.
 - "A file changed while it was copied into content storage, nothing was stored: <path> ..." means something rewrote that file during the freeze, for example a DS or Magnetar update. Storage is not damaged. **Resume setup** pins the file again.
 - "Content object does not match its verified pin: <path> ..." means a file already in content storage changed, which Quasar never does. Check the disk and anything else that writes there before you resume.
 - The cluster page of an unfinished setup shows **Resume guided setup**, which opens `/clusters/new?resume=<Cluster ID>`.
@@ -242,6 +246,8 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 - `Quasar/Services/ClusterHostClient.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
+- `Shared/Networking/QuasarControlAddress.cs`
+- `scripts/package-linux-release.sh`
 - `Quasar/Services/ClusterLocalHost.cs`
 - `Quasar/Services/ClusterPackageService.cs`
 - `Quasar/Services/ClusterReleaseMonitor.cs`

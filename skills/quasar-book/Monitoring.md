@@ -37,13 +37,13 @@ A server card has:
   - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the UTC time. Hover for the reason.
   - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
 - Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime.
-- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures.
+- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures. A process priority warning, such as "Install /usr/local/bin/quasar-renice to use High process priority on Linux.", stays here until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).
 - **Console** opens the log console (see [Servers](Servers.md#the-server-console)).
 - **Start**, **Stop**, **Restart** and **Kill** buttons (need `CanControlServers`). Their behavior is in [Servers](Servers.md#dashboard-and-server-controls).
 
 ### Latest error line
 
-When a server crashes or faults, Quasar reads the last 256 KiB of the newest `SpaceEngineersDedicated*.log` in the DS app-data folder and of the newest `info*.log` in the Magnetar app-data folder. It takes the last line written since the server started that contains "exception", "fatal", "critical" or "error", from whichever file changed last. Starting the server again clears it.
+When a server crashes or faults, Quasar reads the last 256 KiB of the newest `SpaceEngineersDedicated*.log` in the DS app-data folder and of the newest `info*.log` in the Magnetar app-data folder. A file not written since the server started is skipped. From each file it takes the last line of this run that contains "exception", "fatal", "critical", "error", "failed", "failure", "crash", "could not" or "unable to" (any case), cut to 500 characters. Normally the line from whichever file changed last wins. For a failed start, a process that exited before the world was ready, the DS log line wins when there is one: Magnetar writes its teardown lines last, but the reason the world didn't load is in the DS log. Starting the server again clears it.
 
 ### Problem banner
 
@@ -52,7 +52,7 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 ### Other panels
 
 - **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
-- **Simulation speed** charts the last 30 minutes for standalone servers and cluster node slots (1.00x is real time) and links to Analytics. Each cluster line is labelled with the cluster name and slot. Node replacements and restarts share the same slot history; missing samples stay missing.
+- **Simulation speed** charts the last 30 minutes for standalone servers and cluster node slots (1.00x is real time) and links to Analytics. Each cluster line is labeled with the cluster name and slot. Node replacements and restarts share the same slot history; missing samples stay missing.
 - **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions.
 - **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
 
@@ -162,7 +162,7 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 
 **Chat** (`/chat`) shows the recent chat of one server or cluster node and lets you send to it.
 
-- Pick the server in **Server**. Only servers with a connected agent show chat. The page shows the agent's last 100 chat messages; Quasar does not store chat history.
+- Pick the server in **Server**. Only servers with a connected agent show chat. The page shows the agent's last 100 chat messages; Quasar does not store chat history. Multi-line messages, such as the reply of `!ess playerlist`, keep their line breaks here. Player names and the Discord relay still get a single line.
 - **Refresh** asks the agent for a new snapshot. **Save** and **Restart** act on the server (need `CanControlServers`). Cluster saves and restarts are done from the cluster details page.
 - The input box (needs `CanControlServers`) broadcasts to global chat. Messages appear from **Server**. Press Enter to send.
 - Text that starts with `!` switches the box to **Command text** and suggests matching chat commands registered on that server (Quasar.Agent and Magnetar plugin commands), up to 30 at a time.
@@ -383,7 +383,7 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **Whispers or faction chat never reach Discord**: the channel is not admin-only. Look for "Refused to relay private" in `discord.log`.
 - **`/faction-channel` fails**: the bot lacks Manage Channels.
 - **Push button disabled**: open the UI over HTTPS or on `localhost`, or remove an old subscription when at 16.
-- **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
+- **Player actions grayed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
 
 ## Profile command aliases
 
@@ -414,6 +414,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/wwwroot/quasar-charts.js`
 - `Quasar/Components/Pages/Players.razor`
 - `Quasar/Components/Pages/Chat.razor`
+- `Quasar/Services/TextSanitizer.cs`
 - `Quasar/Components/Pages/Entities.razor`
 - `Quasar/Services/EntityPresentation.cs`
 - `Quasar/Services/EntityService.cs`

@@ -2,21 +2,20 @@
 
 The Host executor (`Quasar.Host`) is the service that runs on every cluster host machine. It starts and supervises the Cluster Gateway and the cluster nodes, keeps them running while Quasar is down, and takes orders from Quasar over an outbound connection. This page covers its packages, files, configuration, credentials, connection to Quasar, command line, updates, shutdown behavior and connection troubleshooting. Enrollment steps are in [Guided cluster setup](ClusterSetup.md#enroll-host-machines).
 
-The Hosts page focuses on available machines, connection status and configured
-clusters. Automatic local setup details are kept out of its introduction.
-
 ## Packages and binary
 
-- Each Linux Quasar release ships the Host executor as a self-contained single-file executable at `Host/Quasar.Host` next to the web worker. Quasar's installer, the enrollment command, SSH installation, the manual package and the automatic updater all use this same file, so the Host version always follows the Quasar web release, not the cluster package.
-- Complete Linux and Windows platform packages include the Host publish tree under `Host/`, covered by the package checksum. Extract that folder for manual Host deployment. Quasar serves its bundled executable during enrollment; enrollment does not download another release archive.
+- Each Quasar release package (`quasar-linux-x64.tar.gz`, `quasar-win-x64.zip`) ships the Host executor as a self-contained single-file executable at `Host/Quasar.Host` (`Host/Quasar.Host.exe` on Windows), next to the Quasar application and its updater. Quasar's local Host, the enrollment command, SSH installation, the manual package and the automatic updater all use the file of the running Quasar release, so the Host version follows the Quasar release, not the cluster package. Enrollment does not download another release archive.
+- `QUASAR_HOST_BINARY` points Quasar at another `Quasar.Host` file, for development builds that lack `Host/`.
 - Guided enrollment and automatic installation support Linux x64 only.
 - `Quasar.Host --self-test` runs a built-in test with harmless child processes and temporary state. It does not start Space Engineers or contact Quasar.
 
 ## Security upgrade and network access
 
-Host enrollment, update downloads and control tunnels require the Host's bearer credential, an allowed original socket IP/CIDR and exact Host authority, and no Origin header. The default permits only loopback. List every remote Host/VPN site in Quasar's machine policy before enrollment. Provisioned Hosts keep their command listener on loopback and connect out only to their configured Quasar HTTPS origin; no LAN command port is needed. Nodes receive separate tokens bound to Host, cluster, slot, node, role and launch attempt, without the Host agent key.
+The Host's routes on Quasar (enrollment download, connection, tunnels and update downloads) are [machine endpoints](AccessControl.md#machine-endpoints). Besides the Host's bearer credential, Quasar checks the socket address against `Quasar:MachineEndpoints:AllowedSources`, the `Host` header against `AllowedHosts`, and refuses any `Origin` header. The defaults allow only loopback, which covers the local Host. Add every other host machine, or its site's private subnet, and the Quasar address it connects to, before you enroll it.
 
-For DIS-0042, save and stop clusters, back up each Host's configuration/state, update Quasar before Hosts, then re-pin the agent through **Stage profile changes** and **Apply pending update**. See the [complete security migration and proxy policy](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md).
+A Host's command listener stays on loopback. The Host connects out to Quasar, so a host machine needs no open inbound port.
+
+Quasar releases from the DIS-0042 security fix on need the Host from the same release. When you update from an older Quasar, save and stop the clusters, back up each Host's `host.json` and `state/`, update Quasar first and then every Host, and re-pin the cluster's agent with **Stage profile changes** and **Apply pending update** before you start the cluster again. `Docs/SecurityUpgradeDIS0042.md` in the Quasar repository has the full procedure.
 
 ## Files on a host machine
 
@@ -55,11 +54,11 @@ On Linux x64 every Quasar install runs its own Host executor, ID `local`, withou
 | `LocalHost/host.pid` | PID, process identity, binary hash and configuration hash of the running Host. |
 | `LocalHost/stop-clusters` | Runs `Quasar.Host stop-clusters` for this Host. The clusters unit calls it. |
 
-- The binary is the running web worker's `Host/Quasar.Host` (`QUASAR_HOST_BINARY` overrides it). It is not copied.
+- The binary is the running Quasar release's `Host/Quasar.Host` (`QUASAR_HOST_BINARY` overrides it). It is not copied.
 - Quasar starts the Host when the Hosts page or cluster setup is opened, when Quasar needs it for a cluster, and at Quasar start when a cluster is deployed on this PC. It runs in its own session (`setsid`), so `Ctrl+C` on a foreground Quasar doesn't reach it. If it exits, Quasar starts it again within 15 seconds.
 - Commands to the local Host wait for its authenticated connection within a 30-second connection deadline, including commands from startup storage maintenance. A launch failure or timeout fails the operation without stopping Quasar; storage maintenance defers collection and applies a one-minute retry backoff. Caller cancellation and Quasar shutdown cancel the wait.
-- A restarted or updated web worker adopts the running Host by its PID and process identity when its binary and configuration hashes match. A changed binary or configuration, including Quasar's address or port, restarts the Host. The first update from a version without a configuration hash restarts it once. The Gateway and nodes keep running, as with any Host restart.
-- When Quasar stops, it stops the Host unless a Gateway with goal On runs on it, or this PC takes part in a cluster whose Gateway runs elsewhere. Then the Host keeps running, like managed servers do, and the next Quasar start adopts it. With `Quasar:PreserveManagedServersOnShutdown` set to `false`, Quasar saves and stops those clusters with `stop-clusters` first, then stops the Host.
+- A restarted or updated Quasar adopts the running Host by its PID and process identity when its binary and configuration hashes match. A changed binary or configuration, including Quasar's address or port, restarts the Host. The first update from a version without a configuration hash restarts it once. The Gateway and nodes keep running, as with any Host restart.
+- When Quasar stops, it stops the Host unless a Gateway with goal On runs on it, or this PC takes part in a cluster whose Gateway runs elsewhere. Then the Host keeps running, like managed servers do, and the next Quasar start adopts it. With `Quasar:PreserveManagedServersOnShutdown` set to `false`, Quasar saves and stops those clusters with `stop-clusters` first, then stops the Host. An application update by the native updater always leaves them running.
 - The Docker image has no local Host.
 - A local Host that an older Quasar installed in `~/.local/share/Quasar/Hosts/<id>` with its own `quasar-host-<id>*` units stays an ordinary enrolled host machine next to the new one. Quasar doesn't touch it. [Install on Linux](InstallLinux.md#uninstall) shows how `uninstall.sh` reports it.
 
@@ -76,7 +75,8 @@ The installer writes `host.json`; you normally do not edit it. Fields:
 | `attachments` | Static cluster attachments; empty for enrolled Hosts (Quasar adds attachments at runtime). |
 | `command.url` | Control listener, `http://127.0.0.1:<port>` (default port 18400). Must be HTTP on loopback: "Host command URL must be an HTTP loopback origin". |
 | `command.tokenEnvironmentVariable` | Name of the control credential. |
-| `connection.quasarUrl` | The Quasar origin the Host connects to. HTTPS, or HTTP only on loopback. |
+| `command.allowedSources`, `command.allowedHosts` | Optional. Source addresses and exact `Host` values the control listener accepts, checked like Quasar's [machine endpoints](AccessControl.md#machine-endpoints). Defaults: loopback only, and the authority of `command.url`. |
+| `connection.quasarUrl` | The Quasar address the Host connects to. HTTPS, or HTTP only on loopback. It is a root URL, or the exact URL of a [hosted panel](HostedPanel.md) such as `https://dash.se-servers.net/<panel-name>/` with the trailing slash. |
 | `connection.tokenEnvironmentVariable` | Name of the enrollment credential (the same credential as `command`). |
 | `diagnosticsDirectory` | Optional; the `QUASAR_HOST_DIAGNOSTICS_DIRECTORY` environment variable overrides it. |
 
@@ -93,11 +93,13 @@ Quasar generates every secret. Names look like `QSR_MANAGED_<hex>`. At start the
 
 The Host connects out; Quasar never connects in to the Host machine.
 
-1. The Host opens a WebSocket to `wss://<quasar>/api/v1/hosts/<id>/connect` with its enrollment credential as a bearer token (20-second keep-alive).
+1. The Host opens a WebSocket to `wss://<quasar>/api/v1/hosts/<id>/connect` with its enrollment credential as a bearer token (20-second keep-alive). With a hosted panel address the path keeps the panel prefix.
 2. When Quasar needs to call the Host, it sends a tunnel ID over that socket. The Host opens a second WebSocket to `/api/v1/hosts/<id>/tunnels/<id>` and bridges it to its loopback control port. At most 16 tunnels per Host are open at once.
-3. If the connection drops, the Host logs "Quasar connection interrupted (<error>); retrying." and reconnects every 5 seconds. Supervision of the Gateway and nodes continues while disconnected.
+3. If the connection drops, the Host logs "Quasar connection interrupted (<error type>); retrying." and reconnects every 5 seconds. Supervision of the Gateway and nodes continues while disconnected. If `connection.quasarUrl` is invalid or the enrollment credential is missing, the Host logs "Quasar connection stopped (InvalidDataException): …" and stops trying until it restarts.
 
-The Host also sets `QUASAR_AGENT_TOKEN` for the processes it starts, derived from its enrollment credential (the nodes never see the credential itself). The Quasar Agent in each cluster node presents it on `/ws/agent`, and Quasar checks it against the Host ID the node reports. A Host configuration without a `connection` section sets no token, so its nodes' agents can't connect.
+Quasar accepts one control connection per Host ID. A second one is closed with "Host already connected"; it does not replace the first.
+
+Each node gets its own agent token in `QUASAR_AGENT_TOKEN`. The Host derives a key from its enrollment credential and from that a token bound to the cluster, slot, node, role and launch attempt. The Quasar Agent in the node presents it on `/ws/agent`, and Quasar recomputes it from the identity the node reports. Nodes never see the enrollment credential or the Host's key. A Host configuration without a `connection` section sets no token, so its nodes' agents can't connect.
 
 The Hosts page and the setup wizard show **Connected** while that WebSocket is open. A reverse proxy in front of Quasar must pass WebSocket upgrades for `/api/v1/hosts/`.
 
@@ -169,7 +171,9 @@ With the manual package, have your service manager run `./Quasar.Host stop-clust
 - Each Host polls its Gateway and starts or kills nodes as the Cluster Registry plans. Nodes receive `CLUSTER_ID`, `CLUSTER_NODE_ID`, `CLUSTER_NODE_ROLE`, `CLUSTER_SLOT_ID`, `CLUSTER_GATEWAY_REGISTRY`, `CLUSTER_DEPLOYMENT_REVISION` and `CLUSTER_LOCAL_WORLD_MODS=1`, so nodes load mods only from staged copies.
 - A node counts as ready only after it writes its readiness receipt; otherwise it fails with `ready_timeout`.
 - A node that exits with code 0 after a drain, or whose machine rebooted, is reported as gone, not failed. Any other exit is `process_exited:<code>`.
-- A Gateway that keeps failing is started again after 5 seconds, doubling up to 5 minutes; the status then ends in `;respawn_in_seconds=N`. A Gateway that ran for 2 minutes resets the delay.
+- The Host status lists the last failed launch of each node slot with its failure code, the exception the node reported, if any, and the path of the node's log on that machine. Quasar uses it to say why nodes don't start during a cluster update.
+- Before it kills a node that the Cluster Registry declared dead, or one that hit `ready_timeout`, the Host spends up to 20 seconds collecting evidence: `hang-evidence.txt` in the node's diagnostics folder with each thread's state, CPU use and stack (from the runtime's `createdump`), plus a minidump only when dump consent is granted. A planned stop or an operator's kill collects nothing. On Linux with `kernel.yama.ptrace_scope=1`, the Ubuntu default, a fully frozen node may yield thread states only.
+- A Gateway that keeps failing is started again after 5 seconds, doubling up to 5 minutes; the status then ends in `;respawn_in_seconds=N` and reports the number of failed launches in a row. A Gateway that ran for 2 minutes resets the delay. Once a Gateway with goal Off in Quasar has failed three launches in a row and no node runs, Quasar sets its goal Off on the Host too, which ends the respawns.
 - The Host prints Gateway output with the prefix `[gateway <cluster>]` and keeps its last 20 lines (300 characters each). When the Gateway exits, Quasar shows them under **Last Cluster Registry process output** with `process_exited:exit_code=N`. After a Host restart the output of a still-running Gateway is lost until it restarts.
 - If an interrupted activation or restore cannot be recovered at Host start, the Host pauses only that cluster and logs `cluster=<id> paused: <reason>`; retrying the operation from Quasar resumes it.
 
@@ -227,8 +231,9 @@ The cluster console in Quasar shows Registry events and node plugin logs, not th
 | Symptom | Check |
 | --- | --- |
 | Host shows **Offline** / "Waiting for this Host executor to connect." | `systemctl --user status quasar-host-<id>.service` on the machine and its journal. Check the Host can reach `connection.quasarUrl` over HTTPS, and that any reverse proxy passes WebSockets. |
-| Journal repeats "Quasar connection interrupted (…); retrying." | Network, TLS or proxy problem between Host and Quasar, or Quasar is down. A rejected credential also shows this way (Quasar answers 401). |
-| "Remote enrollment requires an HTTPS Quasar URL." | `connection.quasarUrl` is HTTP on a non-loopback address or has a path. The Host stops trying. Re-enroll with an HTTPS origin. |
+| Journal repeats "Quasar connection interrupted (…); retrying." | Network, TLS or proxy problem between Host and Quasar, or Quasar is down. A rejected credential or a refused source address also shows this way (Quasar answers 401 or 403). |
+| Journal shows "Quasar connection stopped (InvalidDataException)" | `connection.quasarUrl` is HTTP on a non-loopback address, or has a path other than an exact hosted panel prefix. The Host stops trying. Re-enroll with an HTTPS address. |
+| Host connection, enrollment download or update download gets 403 | Quasar's [machine endpoint](AccessControl.md#machine-endpoints) policy does not list the Host's source address or the `Host` value it sends, or a proxy added an `Origin` header. |
 | "Enrollment credential is unavailable." | `state/credentials.json` lacks the enrollment credential named in `host.json`. A reinstall over the same folder refuses to replace it ("Existing Host enrollment credential differs"). |
 | Two machines with the same Host ID | Quasar accepts one connection per Host ID and closes the second with "Host already connected". |
 | Hosts page **unreachable**, tooltip "Cannot reach Host executor '<id>'. Start the Host executor (Quasar.Host) on that host machine and wait for it to reconnect before retrying." | The Host is not connected. |
@@ -260,6 +265,7 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `Quasar.Host/GatewayActualizer.cs`
 - `Quasar.Host/NodeActualizer.cs`
 - `Quasar.Host/ProcessOutputTail.cs`
+- `Quasar.Host/HungNodeEvidence.cs`
 - `Quasar.Host/DeploymentPreparation.cs`
 - `Quasar.Host/ManagedPreparation.cs`
 - `Quasar.Host/DeploymentSnapshots.cs`
@@ -284,3 +290,8 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `scripts/package-linux-release.sh`
 - `scripts/package-windows-release.ps1`
 - `Shared/ClusterDeployment/ClusterContentStore.cs`
+- `Shared/Networking/QuasarControlAddress.cs`
+- `Shared/Networking/MachineEndpointPolicy.cs`
+- `Quasar/Services/DedicatedServerSupervisor.cs`
+- `Quasar/Services/ClusterReconciler.cs`
+- `Docs/ReleaseNotes1.5.md`

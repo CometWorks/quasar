@@ -2,11 +2,7 @@
 
 This page covers standalone managed servers in Quasar: what a server is made of, creating, editing, cloning and deleting servers, start/stop/restart/kill, crash and health recovery, ports, the .NET runtime choice, managed downloads, Steam Workshop mods, process priority and what happens to servers when Quasar itself restarts. Config profiles and world saves have their own page: [Config profiles](ConfigProfiles.md).
 
-The **Dedicated servers** panel shows the filtered and total server counts in its toolbar.
-Its **Game port** column shows the player connection port for standalone servers
-and clusters. Cluster ports come from the deployed Steam listener, not the Registry
-administration URL; unavailable ports show **Unknown**. Search and sorting use the
-game port.
+The **Dedicated servers** panel lists standalone servers and clusters. Its toolbar shows how many servers match the filters out of the total. The **Game port** column shows the port players connect to. For a cluster it is the port of the deployed Steam listener, not the Gateway administration URL, and **Unknown** when Quasar can't tell. Search and sorting use the game port.
 
 ## What a managed server is
 
@@ -42,7 +38,7 @@ The server editor's **Paths** section can override the DS app-data path, Magneta
 
 ## Creating a server
 
-On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
+On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. On Windows the **Cluster** button is disabled: "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows." Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
 
 Required fields:
 
@@ -124,6 +120,17 @@ On standalone servers Quasar.Agent registers these chat commands:
 
 Discord `start` and `stop` commands set the same goal state as the UI; see [Monitoring](Monitoring.md).
 
+### Stops and restarts requested by plugins
+
+On standalone servers Quasar.Agent registers as the PluginSdk lifecycle provider, so the stops and restarts that plugins request through PluginSdk `ServerControl` go through Quasar:
+
+- A restart request, such as the Essentials `Restart` auto command step or `!ess restart`, works like `!restart`: the agent tells Quasar, saves (unless the plugin asked for a restart without saving) and quits, and Quasar starts the server again with the cause In-game. Without this, Magnetar would restart the process by itself, which Quasar would see as a lost agent or a crash.
+- A stop request, such as the Essentials `Stop` step, `!ess stop` or a plugin's `SaveAndQuit`, is reported as a requested stop. Quasar sets the goal Off and the server stays stopped instead of counting a crash.
+- If the agent can't reach Quasar at that moment, the request runs in Magnetar unchanged.
+- A `SIGTERM` or `SIGINT` from outside Quasar still counts as a crash, so the server comes back.
+
+Cluster nodes don't use this; the cluster has its own lifecycle provider.
+
 ## Crash detection and automatic restart
 
 These settings are in the server editor's **Restart Policy** section:
@@ -145,7 +152,7 @@ How it works:
 - A server that exits before it gets to `Running` failed to start, whatever its exit code. That's how the DS ends a world it can't load ("Session can not start" in its log, for example after a Workshop mod download failed). The message is "Start failed: process exited with code N before the world was ready", and it's retried and faulted like a crash, so the Dashboard counts it as an error. The goal stays On: Quasar.Agent doesn't report a stop before the world is ready as an admin stop.
 - After a crash or fault, Quasar captures the newest error line from the DS and Magnetar logs and shows it on the Dashboard. After a failed start it takes the line from the DS log when it has one, since that's where the DS writes why the world didn't load.
 - A scheduled restart fires within 5 minutes after the scheduled time, and only if the process has been up for at least 5 minutes.
-- When **Avoid simultaneous scheduled restarts** is on (global, default on, `Quasar:AvoidSimultaneousScheduledRestarts` or `QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS`), scheduled and maximum-uptime restarts wait while another server is starting, stopping or restarting. The card then says "Scheduled restart delayed; another server is stopping or restarting."
+- While the global setting `Quasar:AvoidSimultaneousScheduledRestarts` (or `QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS`, default `true`) is on, scheduled and maximum-uptime restarts wait while another server is starting, stopping or restarting. The card then says "Scheduled restart delayed; another server is stopping or restarting."
 
 Every restart records its cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery), the reason, times and outcome (pending, recovered, failed). The latest record stays on the Dashboard across Quasar restarts.
 
@@ -162,6 +169,7 @@ Quasar sets `Faulted` without retrying when preparation fails. The Dashboard sho
 | `Executable not found: <path>` / `Working directory not found: <path>` | A **Paths** override points to a missing file. Clear it to use the managed Magnetar. |
 | `Launch arguments cannot include -ignorelastsession for Quasar-managed servers.` | Remove `-ignorelastsession` from **Launch arguments**. |
 | `Startup blocked: oxygen is disabled but the save contains oxygen-capable blocks or definitions (...). Enable Oxygen or remove the oxygen blocks before starting.` | Turn on **Enable Oxygen** in the config profile, or remove the blocks. Quasar blocks this because Space Engineers crashes on load in that combination. |
+| `Command aliases require Magnetar with PluginSdk contract 1.1 or newer in 1.x. ...` | The profile has [command aliases](ConfigProfiles.md#command-aliases) and the server's Magnetar is too old. Let Quasar update the managed Magnetar, or remove the aliases. |
 | `Quasar.Agent did not attach after N attempt(s). ...` | See [Health checks](#health-checks-and-the-watchdog). |
 | `DedicatedServer64 path not found. Set QUASAR_DS64_PATH, ...` | The managed DS install is missing and could not be downloaded. Check the Managed Runtime panel. |
 
@@ -247,7 +255,7 @@ On Linux the field is disabled (".NET 10 is the only runtime available on this h
 When Quasar starts, it checks and downloads the managed runtime in the background. The Dashboard shows a **Managed Runtime** panel with progress until everything is ready. Server launches are blocked until then.
 
 - **SteamCMD** comes from Valve's CDN (`steamcmd_linux.tar.gz` or `steamcmd.zip`). On Linux Quasar runs it with its own `HOME` (`ManagedRuntime/Tools/SteamCmdHome`) so it never touches a desktop Steam client's `~/.steam`, and prepares SteamCMD's `linux64` runtime, which it passes to servers through `LD_LIBRARY_PATH`. SteamCMD is a 32-bit program, so on Linux it needs the 32-bit loader (`lib32gcc-s1` on Debian and Ubuntu, see [Install on Linux](InstallLinux.md#prerequisites)). If SteamCMD can't be downloaded or can't run while a valid Dedicated Server is already in place (for example one set with `QUASAR_DS_INSTALL_DIR`), only the SteamCMD row fails, with **Retry**. Magnetar and the Dedicated Server still become ready and servers can start; servers then get no `linux64` runtime, and Quasar can't download or update the Dedicated Server until SteamCMD works. With exit code 127 the error ends with the packages to install.
-- **Dedicated Server** is installed with SteamCMD (`+login anonymous +app_update 298740`). Quasar tries up to 3 times. If it still fails, the Managed Runtime panel shows **Retry** on the Dedicated Server row. A valid install has `DedicatedServer64` with the `SpaceEngineersDedicated` executable, `VRage.dll`, `Sandbox.Game.dll` and `SpaceEngineers.Game.dll`.
+- **Dedicated Server** is installed with SteamCMD (`+login anonymous +app_update 298740`). The Managed Runtime panel shows SteamCMD's download, validation and install progress in percent. Quasar tries up to 3 times. If it still fails, the Managed Runtime panel shows **Retry** on the Dedicated Server row. A valid install has `DedicatedServer64` with the `SpaceEngineersDedicated` executable, `VRage.dll`, `Sandbox.Game.dll` and `SpaceEngineers.Game.dll`.
 - **Magnetar** comes from the latest full GitHub release of `CometWorks/magnetar` (`MagnetarForLinux-*.7z` or `MagnetarForWindows-*.7z`). On each server start Quasar checks the latest release (at most once per 5 minutes) and installs it if it is newer. If GitHub cannot be reached, Quasar logs a warning and launches with the installed Magnetar.
 
 What happens to the installed DS on each server start is set on the **Updates** page under **Dedicated Server update on launch**: **Skip** (use as is), **Update** (default, downloads only when Steam has a newer build) or **Validate** (re-checks every file, adds minutes). The setting is also `Quasar:ManagedRuntime:DedicatedServerLaunchUpdateMode` or `QUASAR_DS_LAUNCH_UPDATE_MODE`. See [Updates](Updates.md).
@@ -271,9 +279,11 @@ A server's **Launcher executable path** (Paths section) can point at a custom Ma
 
 Quasar always adds `-noconsole`, `-daemon`, `-path <DS app-data>`, `-config <Magnetar app-data>`, `-ds64 <DedicatedServer64>` and `-consent accept` or `-consent deny` (from the stored data handling consent), plus `-noimplicitmod` when **Disable implicit Magnetar mod load** is on. It removes these flags, `-console`, `-nosplash` and `-github-token` from what you type in **Launch arguments**. Tokens you can use: `{uniqueName}`, `{configPath}`, `{quasarBaseUrl}`, `{hostId}`, `{dsAppDataPath}`, `{magnetarAppDataPath}`, `{ds64Path}`, `{worldPath}`.
 
-For a Magnetar build older than 2.3.3.0, Quasar sends the old `-consent`/`-noconsent` flags instead. See [Configuration](Configuration.md) for consent and the implicit Magnetar mod.
+For a Magnetar build older than 2.3.3.0, Quasar sends the old `-consent`/`-noconsent` flags instead. See [Configuration](Configuration.md) for consent.
 
-**Log launch environment** (Runtime section) writes the full launch command and environment to the Quasar log on the next start. The GitHub token is redacted, but other environment values may contain secrets.
+**Disable implicit Magnetar mod load** (Runtime section, default off) adds `-noimplicitmod`, so Magnetar doesn't add its `MagnetarMod` companion mod to the world. That breaks the mission screen popups of server-side plugins, so the editor asks for confirmation. Use it for a server that can't download the mod from the Workshop, for example one without Steam access, where the world would otherwise fail with "Unable to download mods". Magnetar already skips the mod by itself when cross-play is on.
+
+**Log launch environment** (Runtime section) writes the full launch command and environment to the Quasar log on the next start. The GitHub token, the agent token, the launcher token and `QSR_MANAGED_*` values are redacted, but other environment values may contain secrets.
 
 ## Steam Workshop mods
 
@@ -331,8 +341,10 @@ No process is force-killed by this action. Observed-only clusters are excluded.
 
 Quasar launches Magnetar with `-daemon`, which detaches it from Quasar's session. Quasar saves each server's process ID in `supervisor-state.json`.
 
-- **Preserve servers on shutdown** is on by default (`Quasar:PreserveManagedServersOnShutdown`, or `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN`). When Quasar stops (service stop, `SIGTERM`, power menu, self-update), running servers keep running.
+- Preserving servers is on by default (`Quasar:PreserveManagedServersOnShutdown`, or `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN`). When Quasar stops (service stop, `SIGTERM`, power menu, self-update), running servers keep running.
+- A restart of Quasar from the UI, and an application update run by the updater service of a native service install (1.4.1 and later), always preserve the servers, whatever this setting says. See [Updates](Updates.md).
 - When Quasar starts again, it adopts each still-running process by its saved ID ("Process adopted after Quasar worker turnover.") and gives the agent a fresh startup window to reconnect. A server whose process is gone becomes `Stopped` ("Previously running process not found during supervisor restore.") and starts again if its goal is On.
+- Until an adopted server's agent sends authenticated telemetry again, Quasar doesn't restart it on its own: no attach retries, health restarts or scheduled restarts. An old agent that the current Quasar refuses (for example after the DIS-0042 security update) keeps it that way, and the health message adds "Automatic recovery is paused for this adopted process. Save in game before a manual restart." Save in game, then restart the server yourself.
 - With preserve set to `false`, Quasar stops every server gracefully (save, then stop, no kill timeout) before it exits. The Docker image sets `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`.
 
 While Quasar is away, Quasar.Agent keeps the server running and retries the connection every 10 seconds (plus up to 3 seconds of jitter). If Quasar stays unreachable for 3600 seconds after the agent had connected at least once, the agent saves the world and stops the server. Change this with `Quasar:AgentOfflineShutdownSeconds` or `QUASAR_AGENT_OFFLINE_SHUTDOWN_SECONDS` (0 or negative stops the server as soon as Quasar is gone). Quasar passes the value to each server at launch, so a change applies after the server's next start.
@@ -419,3 +431,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar.Agent/SupervisedLifecycle.cs`
+- `Shared/Updates/QuasarServiceInstallation.cs`
+- `Docs/QuasarUpdates.md`
