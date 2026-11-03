@@ -294,8 +294,6 @@ If nodes keep failing at startup, for example because a plugin throws in its pre
 
 To stage a fixed build sooner, abandon the update, then stage and apply the fixed build as usual. The world comes from its newest cataloged saves, since the failed deployment never ran.
 
-With a cluster package older than 0.1.26, applying the fixed build stops in Stopping, because a Gateway whose World Authority never ran lists `global` as unsaved, and the update's last error says so at once. Abandon that update too and apply the build with **Update despite the recorded dirty shutdown**. Nothing is lost.
-
 When Quasar gives up:
 
 - Before any Host switched, the previous version carries on, and Quasar restores the On goal if the cluster was On before.
