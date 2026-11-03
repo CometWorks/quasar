@@ -355,3 +355,4 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Tests/Updates/windows-services.ps1`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/QuasarShutdownService.cs`
+- `Tests/Updates/NativeFixture.cs`

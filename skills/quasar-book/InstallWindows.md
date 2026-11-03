@@ -167,10 +167,13 @@ The application folder and the data folder can differ. `QUASAR_INSTALL_DIR` is t
 
 Permissions set by the installer:
 
-- Data folder: inherited permissions removed; full control for SYSTEM and Administrators, Modify for both service accounts. Ordinary users can't read it.
-- Application folder: Read and Execute for `NT SERVICE\Quasar`, Modify for `NT SERVICE\QuasarUpdater`.
+- Data folder: inherited permissions removed; full control for SYSTEM and Administrators, Modify for both service accounts. Unrelated explicit rules, including denies, stay in place.
+- Application folder: Read and Execute for `NT SERVICE\Quasar`, Modify for `NT SERVICE\QuasarUpdater`, full recovery access for SYSTEM and Administrators. Co-located data keeps the main account's Modify grant; nested data keeps its own Modify grant.
 - `Updater\`: owned by Administrators, full control for SYSTEM and Administrators, Read and Execute for the updater account only. The application account can't change it.
+- `.update-cache\`: private to SYSTEM, Administrators and the updater account; only the updater has Modify service access.
 - The installation record and its folder: full control for SYSTEM and Administrators, read for both service accounts.
+
+Files receive direct effective grants; directory inheritance flags apply only to directories. Repair skips protected updater, cache and metadata paths when applying ordinary grants, then restores their restricted ACLs. Recursive ACL changes reject reparse points.
 
 Back up the data folder as one unit, with the keys. Quasar writes its log to `Logs\quasar.log` in the data folder.
 
@@ -245,6 +248,8 @@ When `install.ps1` fails, it prints `Installation failed before recovery: <messa
 | `Cannot grant updater service-control permissions: <sc.exe output>` | Windows refused the service permission change. The output says why. |
 | `Cannot read this installation: ...` from `Quasar.exe` | The shell isn't elevated, so it can't read the installation record. |
 
+If service startup reports access denied to `release.json`, or automatic recovery cannot overwrite application files, keep the reported recovery copy and repair supervision with the current package using the original paths and service names. The Windows native test fixture prints service identities and path owner/protection/SDDL on failure, without credential contents. Actual service-account and administrator access needs a Windows check; a Linux parse is not that check.
+
 The Updates page shows the restart capability and repair instructions when the services don't match the installation record. See also [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
 
 ## Sources
@@ -291,3 +296,5 @@ The Updates page shows the restart capability and repair instructions when the s
 - `Quasar.Updater/InstallationProcesses.cs`
 - `Quasar.Updater/TrustedUpdatePackage.cs`
 - `Quasar.Tests/QuasarShutdownTests.cs`
+- `Tests/Updates/NativeFixture.cs`
+- `Tests/Updates/windows-services.ps1`

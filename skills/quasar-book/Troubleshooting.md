@@ -16,6 +16,22 @@ console and error dialog; run the same `install.ps1` command in an elevated shel
 to retain output. Failed or declined elevation never counts as a successful
 installation. See [installation](https://github.com/CometWorks/quasar/blob/main/Docs/Installation.md).
 
+## Windows native service file access
+
+An access-denied error reading `release.json`, or an automatic restore that cannot
+overwrite application files, can indicate missing effective file grants. Keep the
+reported recovery copy. Use the current complete package's `install.ps1 -RepairSupervision` with the original application/data paths and service names.
+Files need direct rules; directory inheritance flags alone do not establish their
+access. SYSTEM and Administrators need recovery access, both service users need
+data access, and the updater needs application replacement access. The updater,
+private package cache and metadata retain their separate restricted ACLs.
+See [Windows permissions](InstallWindows.md#where-quasar-keeps-its-files).
+
+The Windows fixture checks actual virtual-service identities and administrator
+access for co-located and nested data. On failure it prints owner/protection/SDDL
+and service paths/accounts, without credentials. Linux syntax checks cannot prove
+Windows ACL or SCM behavior.
+
 ## Where the logs are
 
 `<data dir>` below is the Quasar data directory, for example `~/.local/share/Quasar` on Linux, `%ProgramData%\Quasar` for a new Windows service installation, `/data` in Docker (`./quasar-data` on the host). See [Changing the data directory](#changing-the-data-directory) for how Quasar finds it, and [Configuration](Configuration.md#where-files-live).
@@ -306,3 +322,5 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Tests/Updates/service_unit_config.py`
 - `Quasar.Tests/QuasarLoggingConfiguratorTests.cs`
 - `Docs/BuildingAndDevelopment.md`
+- `Tests/Updates/NativeFixture.cs`
+- `Tests/Updates/windows-services.ps1`

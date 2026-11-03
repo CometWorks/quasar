@@ -646,3 +646,28 @@ Live acceptance remains a separate, explicitly authorized smoketest. On isolated
 
 Do not run the live service fixtures or launch Quasar under these checks without
 separate authorization and coordination of service names, ports and shared resources.
+
+### Windows native ACL fixtures
+
+`Tests/Updates/windows-services.ps1` uses isolated test-only main/updater binaries
+and real SCM virtual accounts, never the Quasar application or a game server.
+The Windows native recovery CI job runs both the default co-located data layout
+and `Tests/Updates/windows-services.ps1 -NestedData`. Both layouts run the actual
+installer and repeat supervision repair before exercising replacement/recovery.
+
+The service processes probe application reads, data read/write/create/delete,
+metadata read-only access, and denied writes to the updater tree. The updater also
+probes its private package cache; the main account must not access it. Unmapped
+probe files distinguish permission denial from Windows image-lock sharing errors.
+Receipts include actual account, SID, process ID and data layout, so the fixture
+checks the currently running identities rather than a synthetic ACL calculation.
+The administrator opens application and protected probe files for recovery access.
+The fixture checks effective leaf grants, exact protected DACLs, retained unrelated
+explicit denies, and the existing service-control grant/audit/idempotence rules.
+On failure it emits service identity/path and ACL owner/protection/SDDL diagnostics,
+without credential contents.
+
+On Linux, build `Tests/Updates/UpdateIntegration.csproj`, run its `self-test`, parse
+the PowerShell scripts, and run `Tests/Updates/install-gui.ps1` for portable
+validation. These checks do not prove Windows effective rights. Native SCM/ACL
+results must come from the Windows job or a coordinated Windows fixture run.
