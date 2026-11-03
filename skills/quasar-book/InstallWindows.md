@@ -175,6 +175,8 @@ Permissions set by the installer:
 
 Files receive direct effective grants; directory inheritance flags apply only to directories. Repair skips protected updater, cache and metadata paths when applying ordinary grants, then restores their restricted ACLs. Recursive ACL changes reject reparse points.
 
+Both installation-record files get complete replacement ACLs: only SYSTEM and Administrators have full control, and both service accounts have read access. Extra explicit grants left by file creation or an older installation are removed from those files.
+
 Back up the data folder as one unit, with the keys. Quasar writes its log to `Logs\quasar.log` in the data folder.
 
 ## Network ports

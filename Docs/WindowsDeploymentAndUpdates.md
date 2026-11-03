@@ -96,7 +96,9 @@ grants. Unrelated explicit rules on ordinary files, including denies, are retain
 The updater executable tree remains private and read/execute-only for its service
 account. The private `.update-cache` tree grants only the updater Modify access.
 Both trees retain SYSTEM/Administrators full control; both metadata files stay
-read-only for the two service identities. Ordinary permission repair skips these
+read-only for the two service identities. Metadata ACLs are rebuilt with only
+SYSTEM/Administrators full control and those two read grants, removing leftover
+explicit grants from file creation or an older installation. Ordinary permission repair skips these
 protected paths, including when detached game processes still run as the main
 account. Recursive ACL setup rejects reparse points rather than following them.
 The existing narrowly scoped service-control grant and service audit rules remain.

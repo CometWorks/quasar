@@ -199,8 +199,8 @@ try {
     Set-InstallationTreeAcl $privateCache @{ $updaterAccount = 'Modify' } -Protected
     Set-InstallationAcl $metadataDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
     Set-InstallationAcl $metadataDir /grant "${mainAccount}:RX" "${updaterAccount}:RX" | Out-Null
-    Set-InstallationAcl $metadata /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
-    Set-InstallationAcl (Join-Path $InstallDir 'service-installation.json') /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
+    Set-InstallationTreeAcl $metadata @{ $mainAccount = 'Read'; $updaterAccount = 'Read' } -Protected
+    Set-InstallationTreeAcl (Join-Path $InstallDir 'service-installation.json') @{ $mainAccount = 'Read'; $updaterAccount = 'Read' } -Protected
     # Grant the updater query/start/stop rights for this one service, not SCM-wide administration.
     $sid = (New-Object Security.Principal.NTAccount($updaterAccount)).Translate([Security.Principal.SecurityIdentifier])
     $securityOutput = & sc.exe sdshow $ServiceName
