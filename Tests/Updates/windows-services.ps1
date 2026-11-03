@@ -140,6 +140,7 @@ try{
  Assert-InstallationAccess
  Wait-Until {Test-Path -LiteralPath (Join-Path $data 'server.pid')} 'Native main service did not start'
  $sentinel=[int](Get-Content -LiteralPath (Join-Path $data 'server.pid') -Raw)
+ if((Get-Process -Id $sentinel).Path -ieq (Join-Path $root 'Quasar.exe')){throw 'Detached server sentinel must use a separate executable from Quasar'}
  & (Join-Path $repo 'scripts/install.ps1') -RepairSupervision -InstallDir $root -DataDir $data -ServiceName $name -UpdaterServiceName $updater -MigrateScheduledTask -TaskName $task -Start
  Assert-ServiceControl
  Assert-InstallationAccess

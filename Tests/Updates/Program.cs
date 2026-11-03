@@ -35,7 +35,6 @@ if (args.FirstOrDefault() == "verify")
     Console.WriteLine(JsonSerializer.Serialize(capability, QuasarUpdateJournal.JsonOptions));
     return capability.CanRestart ? 0 : 4;
 }
-if (args.FirstOrDefault() == "sentinel") { await Task.Delay(TimeSpan.FromMinutes(10)); return 0; }
 if (args.FirstOrDefault() != "self-test") return 2;
 
 var testRoot = Path.Combine(Path.GetTempPath(), "quasar-update-shared-" + Guid.NewGuid().ToString("N"));

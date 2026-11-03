@@ -658,6 +658,9 @@ data directory inside each fixture process.
 The Windows native recovery CI job runs both the default co-located data layout
 and `Tests/Updates/windows-services.ps1 -NestedData`. Both layouts run the actual
 installer and repeat supervision repair before exercising replacement/recovery.
+The detached server sentinel uses a system sleep process with a separate executable,
+as Magnetar does, so it does not keep old Quasar application images locked. The CLI
+still runs from the application being replaced to exercise its real image mapping.
 
 The service processes probe application reads, data read/write/create/delete,
 metadata read-only access, and denied writes to the updater tree. The updater also

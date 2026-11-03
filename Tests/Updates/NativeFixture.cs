@@ -93,8 +93,15 @@ internal static class NativeFixture
             if (File.Exists(sentinelFile)) { try { using var old = Process.GetProcessById(int.Parse(File.ReadAllText(sentinelFile))); exists = !old.HasExited; } catch (ArgumentException) { } }
             if (!exists)
             {
-                var start = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = false };
-                start.ArgumentList.Add("sentinel");
+                // Magnetar uses a separate executable. Sharing this apphost would
+                // keep replaced Quasar images locked throughout later Windows updates.
+                var start = new ProcessStartInfo(OperatingSystem.IsWindows()
+                    ? Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe")
+                    : "/bin/sleep") { UseShellExecute = false };
+                if (OperatingSystem.IsWindows())
+                    foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-Command", "Start-Sleep -Seconds 600" })
+                        start.ArgumentList.Add(argument);
+                else start.ArgumentList.Add("600");
                 using var sentinel = Process.Start(start)!; File.WriteAllText(sentinelFile, sentinel.Id.ToString());
             }
         });
