@@ -379,6 +379,7 @@
     public async Task SubmitAsync(ClusterAdminCommand command)
     {
         if (Busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
+        if (command.RequiresAdministrator && !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterMaintenance)) return;
         var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
         if (!user.CanQueryCluster(Cluster.UniqueName)) return;
         if (command.Action == "save-all" && !CanSaveWorld) return;
