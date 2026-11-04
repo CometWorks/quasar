@@ -56,7 +56,24 @@ world) has its own schedule and retention.
   Dedicated Server and Magnetar app data. They do not include world save files.
 - `World` backups contain world save files for one server. They use the latest
   valid Space Engineers `Backup` snapshot when one exists and leave the current
-  server/world config in place on restore.
+  server/world config in place on restore. Automatic backups do not request a save.
+
+Manual world backups of a running server show **Save and back up**, **Stop and
+back up**, and **Cancel**. The queued world job carries a `WorldBackupAction`:
+
+- `LatestSave`: used directly for stopped servers and by automatic rules.
+- `SaveAndBackUp`: wait for the agent's successful save result before archiving;
+  do not select a snapshot older than the current save.
+- `StopAndBackUp`: wait for a successful save, persist goal Off with auto-start
+  disabled, then wait for a graceful stop before archiving the current world.
+  The server stays stopped. No forced kill is used by this backup operation.
+
+Cancel queues nothing. Manual world backups are refused during start/stop/restart
+transitions. Failed saves, disconnected agents, and stop timeouts produce Failed
+without publishing a ZIP. A stop already requested remains Off after failure.
+`ServerRestoreCoordinator` reserves the server throughout a world backup, excluding
+concurrent restores and deferring supervised starts until the operation finishes.
+World archives exclude nested `Backup` history and `.new` save staging files.
 
 Restored server definitions are always written with `GoalState = Off` and
 `AutoStart = false`, both for server backups and configuration backups that

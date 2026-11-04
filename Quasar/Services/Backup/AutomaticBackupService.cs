@@ -19,7 +19,9 @@ public sealed record QueuedBackupJobResult(
     string Message,
     Exception? Exception = null);
 
-internal sealed record QueuedBackupJob(Guid Id, QueuedBackupJobKind Kind, string? ServerUniqueName);
+internal sealed record QueuedBackupJob(
+    Guid Id, QueuedBackupJobKind Kind, string? ServerUniqueName,
+    WorldBackupAction WorldAction = WorldBackupAction.LatestSave);
 
 /// <summary>
 /// Background scheduler and manual queue for stored backup creation. Work is
@@ -67,8 +69,8 @@ public sealed class AutomaticBackupService : BackgroundService
         QueueBackup(QueuedBackupJobKind.Server, uniqueName);
 
     /// <summary>Queues a world-scope backup for one configured server.</summary>
-    public Guid QueueWorldBackup(string uniqueName) =>
-        QueueBackup(QueuedBackupJobKind.World, uniqueName);
+    public Guid QueueWorldBackup(string uniqueName, WorldBackupAction action = WorldBackupAction.LatestSave) =>
+        QueueBackup(QueuedBackupJobKind.World, uniqueName, action);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -96,10 +98,12 @@ public sealed class AutomaticBackupService : BackgroundService
         }
     }
 
-    private Guid QueueBackup(QueuedBackupJobKind kind, string? uniqueName = null)
+    private Guid QueueBackup(
+        QueuedBackupJobKind kind, string? uniqueName = null,
+        WorldBackupAction worldAction = WorldBackupAction.LatestSave)
     {
         var id = Guid.NewGuid();
-        if (!_queue.Writer.TryWrite(new QueuedBackupJob(id, kind, uniqueName)))
+        if (!_queue.Writer.TryWrite(new QueuedBackupJob(id, kind, uniqueName, worldAction)))
             throw new InvalidOperationException("Backup queue is not accepting new work.");
 
         return id;
@@ -203,7 +207,8 @@ public sealed class AutomaticBackupService : BackgroundService
         {
             var timestamp = DateTimeOffset.Now;
             if (kind == QuasarBackupKind.World)
-                await _backupService.WriteWorldBackupFileAsync(job.ServerUniqueName, timestamp, cancellationToken: cancellationToken);
+                await _backupService.WriteWorldBackupFileAsync(job.ServerUniqueName, timestamp,
+                    cancellationToken: cancellationToken, action: job.WorldAction);
             else
                 await _backupService.WriteServerBackupFileAsync(job.ServerUniqueName, timestamp, cancellationToken: cancellationToken);
 

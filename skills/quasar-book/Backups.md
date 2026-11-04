@@ -38,15 +38,24 @@ It does not include `appsettings.json`, `backup-settings.json`, `github-updates.
 
 ### World backups of running servers
 
-You can take a world backup while the server runs. If the world folder has a Space Engineers `Backup` subfolder, Quasar copies the newest snapshot folder in it that contains `Sandbox.sbc`, instead of the live save. Otherwise it copies the live world folder. The server needs a selected world save, or the backup fails with "Server '<name>' has no world save selected."
+When you press **Back up world** for a running server, Quasar opens a modal with three choices:
+
+- **Save and back up** requests a world save and waits for the agent to confirm completion before creating the ZIP. The server keeps running. Quasar uses a valid Space Engineers snapshot at least as recent as the current save, or the current world folder when no such snapshot exists.
+- **Stop and back up** first waits for a successful save, then stops the server gracefully and waits for it to exit. It backs up the current world folder and leaves the server stopped with auto-start disabled. Start it yourself when ready.
+- **Cancel** closes the modal without queuing a backup, saving, or stopping the server.
+
+A stopped server queues its backup immediately, without this modal. Wait for a server that is starting, stopping, or restarting to finish that transition before making a manual world backup. A missing agent, rejected save, disconnection, timeout, or incomplete stop fails the requested operation without creating a backup ZIP. If stopping has already begun, the server's goal remains Off even if the operation later fails.
+
+Automatic world backups keep their existing behavior: if the world folder has a Space Engineers `Backup` subfolder, Quasar copies the newest snapshot folder in it that contains `Sandbox.sbc`, instead of requesting a new save. Otherwise it copies the live world folder. World ZIPs exclude nested `Backup` history and the `.new` save staging folder. The server needs a selected world save containing `Sandbox.sbc`.
 
 ## Making backups by hand
 
 - **Back up Quasar configuration to file** builds the ZIP in memory and downloads it. Nothing is written to the backup folder.
-- **Back up server** and **Back up world** queue a job and show "Server backup queued." or "World backup queued.". The ZIP lands in the backup folder. When the job finishes, the page (if still open) shows "Server backup created in the configured backup folder." or the failure, such as "World backup failed: <reason>".
+- **Back up server** and **Back up world** queue a job and show "Server backup queued." or "World backup queued.". For a running world's backup, first choose an action in the modal described above. The selected save and stop actions run in the background queue, so closing the page after queuing does not cancel them. The ZIP lands in the backup folder. When the job finishes, the page (if still open) shows "Server backup created in the configured backup folder." or the failure, such as "World backup failed: <reason>".
 - **Run enabled rules now** queues all enabled automatic rules at once ("Enabled backup rules queued."). These count as automatic backups: they get the `-auto` suffix, count toward retention, and reset each rule's schedule from now.
 
 Backup jobs run one at a time in the background. A queued job is Queued, then Running, then Succeeded or Failed.
+World backups and restores of the same server cannot overlap. Quasar also defers starting that server until its world backup finishes.
 
 ## Automatic backups
 
@@ -159,6 +168,7 @@ Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster 
 - `Quasar/Services/Backup/QuasarBackupSettingsService.cs`
 - `Quasar/Services/Backup/BackupCompatibility.cs`
 - `Quasar/Services/Backup/ServerRestoreCoordinator.cs`
+- `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Models/QuasarBackupSettings.cs`
 - `Quasar/Models/QuasarBackupManifest.cs`
 - `Quasar/Services/ClusterBackupService.cs`

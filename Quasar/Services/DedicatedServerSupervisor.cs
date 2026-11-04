@@ -231,19 +231,22 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (state.StartInProgress)
                 return;
 
-            // A restore rewrites this server's files in place; launching now would
-            // race the file copy and could load a half-restored world. Claiming the
+            // A restore rewrites files and a world backup may stop the server;
+            // launching now would race the file operation. Claiming the
             // start (StartInProgress / State below) happens in the SAME locked block
             // as this check, while a restore claims its slot before re-checking that
             // the server is inactive — so a concurrent restore and start can never
             // both proceed. The reconcile loop starts the server once the restore
             // finishes, if the goal state is still on.
-            if (_restoreCoordinator.IsRestoreInProgress(uniqueName))
+            if (_restoreCoordinator.IsFileOperationInProgress(uniqueName))
             {
                 restoreDeferred = true;
-                if (state.LastMessage != RestoreInProgressMessage)
+                var message = _restoreCoordinator.IsBackupInProgress(uniqueName)
+                    ? "Start deferred: a world backup is in progress for this server."
+                    : RestoreInProgressMessage;
+                if (state.LastMessage != message)
                 {
-                    state.LastMessage = RestoreInProgressMessage;
+                    state.LastMessage = message;
                     notifyDeferred = true;
                 }
             }
@@ -298,6 +301,26 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
             startCancellation?.Dispose();
         }
+    }
+
+    /// <summary>Waits for the agent's completed world-save result; failures must not be treated as a saved world.</summary>
+    public async Task SaveWorldAsync(string uniqueName, CancellationToken cancellationToken = default)
+    {
+        var agent = _registry.GetAgents().FirstOrDefault(current =>
+            current.IsConnected && !current.IsCluster &&
+            string.Equals(current.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException($"No connected agent is available to save '{uniqueName}'.");
+
+        // Magnetar allows five minutes for the disk write, plus time to deliver the result.
+        var result = await _registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
+        {
+            AgentId = agent.AgentId,
+            UniqueName = uniqueName,
+            ServerId = agent.ServerKey,
+            CommandType = ServerCommandType.SaveWorld,
+        }, TimeSpan.FromMinutes(5.5), cancellationToken);
+        if (!result.Success)
+            throw new InvalidOperationException($"World save failed: {result.Message}");
     }
 
     public Task StopServerAsync(string uniqueName, CancellationToken cancellationToken = default) =>
@@ -701,6 +724,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
                 var processActive = IsProcessActive(state.Process);
                 var goalState = state.Definition.GoalState;
                 var agent = agents.TryGetValue(state.UniqueName, out var currentAgent) ? currentAgent : null;
+
+                // The backup owns its save/stop sequence. A reconcile-driven stop
+                // could otherwise compete with it or force-kill its graceful stop.
+                if (_restoreCoordinator.IsBackupInProgress(state.UniqueName))
+                    continue;
 
                 if (!processActive &&
                     !state.StartInProgress &&
