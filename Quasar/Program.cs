@@ -210,6 +210,7 @@ public class Program
             builder.Services.AddScoped<QuasarOperationService>();
             builder.Services.AddSingleton<QuasarTransferRegistry>();
             builder.Services.AddSingleton<QuasarBrowserSessions>();
+            builder.Services.AddQuasarRtc(builder.Configuration);
             builder.Services.AddScoped<QuasarHttpOperations>();
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarHttpOperations>(services => services.GetRequiredService<QuasarHttpOperations>());
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
@@ -441,6 +442,7 @@ public class Program
 
             app.MapWebServiceProbes(authOptions);
             app.MapQuasarSdk();
+            app.MapQuasarRtc();
             app.MapClusterApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 

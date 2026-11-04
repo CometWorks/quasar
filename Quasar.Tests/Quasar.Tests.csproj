@@ -10,6 +10,7 @@
   <ItemGroup>
     <PackageReference Include="bunit" Version="2.10.3" />
     <PackageReference Include="Microsoft.AspNetCore.TestHost" Version="10.0.11" />
+    <PackageReference Include="Microsoft.Extensions.TimeProvider.Testing" Version="10.0.0" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5">
@@ -32,5 +33,8 @@
     <ProjectReference Include="../Quasar.Updater/Quasar.Updater.csproj" Aliases="Updater" />
     <!-- Bootstrap and worker both compile the shared networking types. -->
     <ProjectReference Include="..\Quasar.Bootstrap\Quasar.Bootstrap.csproj" Aliases="Bootstrap" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Update="browser-rtc.test.mjs" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
