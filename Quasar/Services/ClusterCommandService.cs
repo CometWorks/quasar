@@ -190,6 +190,13 @@ public sealed class ClusterCommandService
                     body = kill; break;
                 case "wa-move": route = "world-authority/move"; body = Read(new Admin.WorldAuthorityMoveRequest()); break;
                 case "kick": route = "clients/" + PlayerTarget() + "/kick"; body = Read(new Admin.KickClientRequest()); break;
+                case "set-player-promotion":
+                    method = "PUT"; route = "players/" + PlayerTarget() + "/promotion";
+                    var promotion = Read<Admin.SetPlayerPromotionRequest>();
+                    if (!Enum.IsDefined(promotion.Level) || promotion.ExpectedRevision < 0 || promotion.ExpectedRevision == long.MaxValue)
+                        throw Invalid("invalid_promotion", "Role must be None, Scripter, Moderator, SpaceMaster or Admin, with a non-negative expected revision.");
+                    body = promotion; break;
+                case "clear-kick-cooldown": method = "DELETE"; route = "admission/kicks/" + PlayerTarget(); body = new { }; break;
                 case "ban": route = "admission/bans"; body = new Admin.BanRequest(PlayerTarget()); break;
                 case "unban": method = "DELETE"; route = "admission/bans/" + PlayerTarget(); body = new { }; break;
                 case "chat":
@@ -222,6 +229,15 @@ public sealed class ClusterCommandService
             }
         }
         catch (JsonException error) { throw Invalid("invalid_arguments", error.Message); }
+        if (action is "set-player-promotion" or "clear-kick-cooldown")
+        {
+            await _client.GetStatusAsync(cluster, token); // Verify endpoint identity before granting privileges.
+            var capabilities = (await _client.GetCapabilitiesAsync(cluster, token)).Data;
+            string operation = action == "set-player-promotion"
+                ? "PUT /admin/v1/players/{userId}/promotion" : "DELETE /admin/v1/admission/kicks/{userId}";
+            if (capabilities.Scope != Admin.AdminScope.Manage || !capabilities.Operations.Contains(operation, StringComparer.Ordinal))
+                throw new ClusterOperationConflictException(403, "player_action_unavailable", "The cluster Gateway does not authorize or support this player action.");
+        }
         return await _operations.ExecuteGatewayAsync(cluster, "cluster." + action, method, route, body,
             idempotencyKey, actor, _client, token);
 

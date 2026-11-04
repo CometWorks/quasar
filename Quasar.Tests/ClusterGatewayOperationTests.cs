@@ -73,6 +73,38 @@ public sealed class ClusterGatewayOperationTests : IDisposable
     }
 
     [Fact]
+    public async Task UncertainPromotionReconcilesOriginalMutationAndIdentityAfterRestart()
+    {
+        int mutations = 0;
+        string? stableKey = null;
+        var cluster = _cluster;
+        var client = Client(request =>
+        {
+            if (request.RequestUri!.AbsolutePath.EndsWith("/status"))
+                return Response(HttpStatusCode.OK, new AdminEnvelope<ClusterStatus>(1, DateTimeOffset.UtcNow,
+                    JsonSerializer.Deserialize<ClusterStatus>("{\"clusterId\":\"demo\",\"nodes\":[]}", Json)!));
+            Assert.Equal(HttpMethod.Put, request.Method);
+            string key = request.Headers.GetValues("Idempotency-Key").Single();
+            if (stableKey is null) stableKey = key;
+            Assert.Equal(stableKey, key);
+            mutations++;
+            return Response(HttpStatusCode.OK, new AdminEnvelope<AdminOperation>(1, DateTimeOffset.UtcNow,
+                new("promotion-1", "player-promotion", mutations == 1 ? AdminOperationState.Failed : AdminOperationState.Succeeded,
+                    "admin", key, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, "7", null,
+                    mutations == 1 ? new("promotion_uncertain", "No acknowledgement") : null)));
+        });
+        Task<ClusterOperation> Submit(ClusterOperationStore store) => store.ExecuteGatewayAsync(cluster, "cluster.set-player-promotion", "PUT", "players/7/promotion",
+            new SetPlayerPromotionRequest(PlayerPromotionLevel.Admin, 2), "same", "admin", client, default);
+        var uncertain = await Submit(new(_directory));
+        Assert.Equal(ClusterOperationState.Running, uncertain.State);
+        Assert.Equal("promotion_uncertain", uncertain.Error?.Code);
+        var completed = await Submit(new(_directory));
+        Assert.Equal(ClusterOperationState.Succeeded, completed.State);
+        Assert.Equal(uncertain.OperationId, completed.OperationId);
+        Assert.Equal(2, mutations);
+    }
+
+    [Fact]
     public async Task UndeliveredMutationExpiresInsteadOfBeingDeliveredAfterALongOutage()
     {
         var outage = Client(_ => throw new HttpRequestException("Gateway unreachable"));
