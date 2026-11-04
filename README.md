@@ -60,6 +60,7 @@ application release retained by the native updater. See [command-line rollback](
 | [Server directory uplink](Docs/ServerList.md) | Consent, diagnostics availability, public statistics, admin authority and directory rollout requirements. |
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and UI migration compatibility. |
+| [Browser SDK](Docs/QuasarBrowserSdk.md) | Protected plugin operations, shared HTTP dispatch, endpoint authorization settings and current migration limits. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Diagnostic Consent & Upload](Docs/DiagnosticsUplink.md) | Separate statistics/report/dump consent, configurable storage paths, central upload configuration, durable queues and host leases. |
 | [CometWorks announcements](Docs/Announcements.md) | Consent-gated operational notices in the existing bell, page, browser push and headless service logs; delivery and withdrawal limits. |

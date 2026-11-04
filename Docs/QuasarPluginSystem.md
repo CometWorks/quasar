@@ -5,6 +5,12 @@ separate from Magnetar Dedicated Server plugins. The first target plugin is the
 Entity Viewer: a heavy, mostly independent UI surface that should live outside the
 Quasar core repository while still feeling native inside Quasar.
 
+The [browser SDK](QuasarBrowserSdk.md) now provides protected typed operations,
+HTTP dispatch, runtime endpoint authorization settings and a versioned browser
+client. Its first viewer consumers are asset-status and Content-root reads.
+Streaming, subscriptions and WebRTC remain pending. Existing plugin endpoints
+and the service-side companion channel remain supported.
+
 For clustered servers, owned companion plugins of UI plugins installed from QuasarHub
 are part of the common pinned plugin set (see below). Joining the cluster config
 revision is planned work, and so is the rule that UI extension code uses the cluster

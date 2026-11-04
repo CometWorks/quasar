@@ -129,12 +129,16 @@ public class Program
                     options.SlidingExpiration = true;
                     options.ExpireTimeSpan = TimeSpan.FromHours(12);
                     options.Events.OnRedirectToLogin = context =>
-                        IsClusterApi(context.Request.Path)
+                        context.Request.Path.StartsWithSegments("/_quasar/sdk")
+                            ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 401)
+                            : IsClusterApi(context.Request.Path)
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 401,
                                 "authentication_required", "A valid Quasar credential is required.")
                             : Redirect(context.Response, context.RedirectUri);
                     options.Events.OnRedirectToAccessDenied = context =>
-                        IsClusterApi(context.Request.Path)
+                        context.Request.Path.StartsWithSegments("/_quasar/sdk")
+                            ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 403)
+                            : IsClusterApi(context.Request.Path)
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 403,
                                 "scope_forbidden", "The credential cannot access this cluster operation.")
                             : Redirect(context.Response, context.RedirectUri);
@@ -202,6 +206,10 @@ public class Program
                     };
                 });
             builder.Services.AddAuthorization(ConfigureAuthorizationPolicies);
+            builder.Services.AddSingleton<IAuthorizationPolicyProvider, QuasarAuthorizationPolicyProvider>();
+            builder.Services.AddScoped<QuasarOperationService>();
+            builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
+                services.GetRequiredService<QuasarOperationService>());
             var hostedState = HostedPanelState.Read() ?? new HostedPanelState();
             builder.Services.AddAntiforgery(options => options.Cookie.Name = ".Quasar.Csrf." + hostedState.LocalProxySecret[..16]);
             builder.Services.AddHttpClient("Nebula", http => { http.Timeout = TimeSpan.FromSeconds(15); http.MaxResponseContentBufferSize = 64 * 1024; })
@@ -371,6 +379,8 @@ public class Program
             app.Lifetime.ApplicationStopping.Register(app.Services.GetRequiredService<QuasarDiagnosticLoggerProvider>().MarkExpectedStop);
             StopWebServerOnStopping(app);
             _ = app.Services.GetRequiredService<RbacConfigCatalog>();
+            using (var sdkScope = app.Services.CreateScope())
+                _ = sdkScope.ServiceProvider.GetRequiredService<QuasarOperationService>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
@@ -426,6 +436,7 @@ public class Program
                 app.UseAntiforgery();
 
             app.MapWebServiceProbes(authOptions);
+            app.MapQuasarSdk();
             app.MapClusterApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 

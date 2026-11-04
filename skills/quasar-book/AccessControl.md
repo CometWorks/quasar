@@ -65,6 +65,27 @@ Viewers do not see **Security**, **UI Plugins**, **Backups**, **Updates** or **A
 
 Plugin-provided UI pages follow the permission each plugin declares (see [UI plugins](UiPlugins.md)).
 
+### Plugin endpoint authorization
+
+On **Security**, **Plugin endpoint authorization** lists operations registered
+with Quasar's browser SDK. They require authentication by default. You can disable
+an operation or replace its required policies; every selected policy must pass.
+Both its SDK route and adopted legacy URLs use that rule. **Restore declared
+policies** removes the operation override but keeps shared role grants.
+
+**Shared policy role grants** changes the roles allowed by a role-based policy
+for every endpoint using it. Empty role grants deny access. The editor keeps the
+`admin` role for `CanManageSecurity` and retains scope/resource requirements.
+Only callers with current `CanManageSecurity` permission can view or save these
+settings. A stale administrator page cannot save a change after access is lost.
+
+Settings are stored in `rbac.json`. Earlier builds saved `policyOverrides` without
+using them; they now affect authorization. Review existing overrides before an
+upgrade. Invalid SDK rules deny access. If the RBAC file is malformed, restore a
+valid backup before editing SDK rules. The first adopted viewer operations are
+asset-status and Content-root reads; other viewer requests and WebRTC have not
+migrated yet. See [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
+
 ## The rbac.json file
 
 `rbac.json` lives in the Quasar data directory (the install root, `QUASAR_INSTALL_DIR`), next to `appsettings.json`. See [Configuration](Configuration.md#where-files-live) for paths.
@@ -274,6 +295,10 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
+- `Quasar/Services/Auth/QuasarAuthorizationPolicyProvider.cs`
+- `Quasar/Services/Plugins/QuasarOperationService.cs`
+- `Quasar/Services/Plugins/QuasarSdkEndpoints.cs`
+- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
