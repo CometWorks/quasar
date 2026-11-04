@@ -41,6 +41,9 @@ public static class QuasarPluginPackageManifestReader
         Require(path, manifest.EntryType, "entryType");
         Require(path, manifest.ProjectPath, "projectPath");
 
+        if (manifest.BrowserSdkVersion < 0 || manifest.BrowserSdkVersion > Quasar.Plugin.Abstractions.Operations.QuasarSdkLimits.ProtocolVersion)
+            throw new InvalidOperationException($"Plugin '{manifest.Id}' requires browser SDK v{manifest.BrowserSdkVersion}. Update Quasar and the plugin together.");
+
         foreach (var companion in manifest.CompanionPluginManifests)
         {
             Require(path, companion.Id, "companionPlugins[].id");

@@ -20,6 +20,9 @@ public sealed class QuasarPluginManifest
 
     public IReadOnlyList<string> Stylesheets { get; init; } = [];
 
+    /// <summary>Required browser SDK major version; zero keeps legacy plugins compatible.</summary>
+    public int BrowserSdkVersion { get; init; }
+
     public string? QuasarVersion { get; init; }
 
     [JsonPropertyName("companionPlugins")]

@@ -126,12 +126,38 @@ Protocol version 1 is checked by the browser session exchange. New plugins using
 these APIs require a matching Quasar contract assembly and runtime; the updated
 viewer must not be released until its manifest names the first compatible Quasar
 release. Existing plugins retain their current registration and HTTP routes.
-The browser-wide viewer migration remains a later SDK milestone.
+The viewer uses SDK v1 for all 16 feature operations.
 
 `Quasar.Tests/QuasarSdkTests.cs` exercises the real HTTP dispatcher, authorization,
 antiforgery, limits, settings and legacy aliases in an isolated TestServer.
 `node --test Quasar.Tests/browser-sdk.test.mjs` checks browser URL, credential,
-version, cancellation and error behavior. The viewer's isolated streaming fixture
-supplies the dispatcher boundary and verifies plugin handlers; real Quasar/Steam
+version, cancellation and error behavior. The viewer's isolated streaming/replay
+fixtures use the real core SDK runtime and verify plugin handlers; real Quasar/Steam
 and hosted browser acceptance still require matching packages in an authorized
 isolated environment. Do not launch a user's Quasar service for these checks.
+
+## Plugin capability and discovery
+
+Declare `"browserSdkVersion": 1` in `quasar-plugin.json`. Omitted/zero preserves
+legacy plugins; a future unsupported version is rejected before assembly load.
+Also set `quasarVersion` to the first compatible released Quasar build before
+publication. An old host cannot enforce a field it does not know.
+
+`endpoints.MapQuasarSdkClient(pluginPrefix + "/_sdk/client.js")` supplies a
+protected module exporting `client`, initialized with the actual panel base.
+A plugin module can import `./_sdk/client.js` without owning URL-prefix discovery,
+authentication or transport selection. Validate `client.version === 1` and show
+an explicit update error if discovery/capabilities fail; never silently fall back
+to legacy fetch/auth code. Apply this mapping to each supported plugin prefix.
+
+Quasar coordinates four active transfers and at most 128 queued reservations per
+panel across same-origin frames. Control operations do not wait behind transfers.
+Only an explicit HTTP 429 during resource reservation is retried, at most 40 times
+250 ms apart; no feature handler has run at that point. Upload/JSON mutations are
+never automatically replayed. Browser-native downloads have no completion event,
+so server limits remain authoritative. Session cookie initialization is coalesced
+across concurrent clients; cancellation releases queued and active work.
+
+The viewer is the complete plugin example: all 16 operations share registrations,
+legacy aliases, authorization settings and the same browser SDK. Its standalone
+PreviewHost explicitly supplies a UI-only adapter; it grants no live credentials.

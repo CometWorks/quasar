@@ -40,6 +40,23 @@ public sealed partial class QuasarSdkTests : IDisposable
         _rbac = new(NullLogger<RbacConfigCatalog>.Instance);
     }
 
+    [Fact]
+    public void ManifestKeepsLegacyPluginsAndRejectsUnsupportedSdkBeforeLoading()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "quasar-plugin.json");
+        var manifest = new Dictionary<string, object> { ["id"] = "example.plugin", ["displayName"] = "Example",
+            ["version"] = "1", ["entryAssembly"] = "unused.dll", ["entryType"] = "Unused", ["projectPath"] = "unused.csproj" };
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+        Assert.Equal(0, QuasarPluginPackageManifestReader.Read(path).BrowserSdkVersion);
+        manifest["browserSdkVersion"] = 1;
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+        Assert.Equal(1, QuasarPluginPackageManifestReader.Read(path).BrowserSdkVersion);
+        manifest["browserSdkVersion"] = 2;
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+        Assert.Contains("Update Quasar", Assert.Throws<InvalidOperationException>(() => QuasarPluginPackageManifestReader.Read(path)).Message);
+    }
+
     private async Task<WebApplication> StartAsync()
     {
         var builder = WebApplication.CreateBuilder();

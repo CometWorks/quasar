@@ -143,5 +143,4 @@ buffering the whole file into JavaScript. No automatic mutation retry occurs.
 
 Focused checks cover ranges, incremental read bounds, control responsiveness,
 session separation and limits, interrupted/oversized upload cleanup, authorization
-revocation, native cookie expiry binding and logout token cancellation. Full
-viewer migration and core consumers are SDK 4 and SDK 5.
+revocation, native cookie expiry binding and logout token cancellation. Viewer migration is implemented in SDK 4; core consumers follow in SDK 5.

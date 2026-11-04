@@ -20,7 +20,7 @@ test("preserves the explicit panel prefix, antiforgery, credentials and cancella
     assert.equal(calls[0].url, "https://dash.test/my-panel/_quasar/sdk/v1/session");
     assert.equal(calls[1].url, "https://dash.test/my-panel/_quasar/sdk/v1/operations/example.plugin/read");
     for (const { options } of calls) {
-        assert.equal(options.signal, calls[0].options.signal);
+        assert.ok(options.signal instanceof AbortSignal);
         assert.equal(options.credentials, "same-origin");
         assert.equal(options.redirect, "error");
         assert.equal(options.cache, "no-store");
@@ -113,4 +113,37 @@ test("subscription disposal closes its resource without replay", async () => {
     for await (const item of client.subscribe("example.plugin", "watch")) { assert.equal(item.value, 1); break; }
     assert.equal(deleted, 1);
     client.dispose();
+});
+
+test("parallel plugin clients share four transfer slots and cancel queued work", async () => {
+    let reserved = 0;
+    let sessions = 0;
+    globalThis.fetch = async (url, options) => {
+        if (String(url).endsWith("/session")) { sessions++; return Response.json({ version: 1, headerName: "csrf", requestToken: "token" }); }
+        if (String(url).endsWith("/example.plugin/file")) {
+            const id = (++reserved).toString(16).padStart(32, "0");
+            return Response.json({ id, kind: "read", url: `/my-panel/_quasar/sdk/v1/resources/${id}` });
+        }
+        if (options.method === "DELETE") return new Response(null, { status: 204 });
+        return new Response(new ReadableStream({ pull() {} }));
+    };
+    const clients = Array.from({ length: 2 }, () => createClient({ baseUrl: "https://dash.test/my-panel/" }));
+    const open = () => clients[reserved % 2].openRead("example.plugin", "file");
+    const streams = await Promise.all(Array.from({ length: 4 }, open));
+    assert.equal(reserved, 4);
+    assert.equal(sessions, 1, "initial browser session setup is coalesced");
+    let completed = false;
+    const waiting = open().then(value => { completed = true; return value; });
+    const stop = new AbortController();
+    const cancelled = clients[1].openRead("example.plugin", "file", {}, { signal: stop.signal });
+    stop.abort();
+    await assert.rejects(cancelled);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    assert.equal(completed, false);
+    assert.equal(reserved, 4);
+    await streams[0].dispose();
+    const next = await waiting;
+    assert.equal(reserved, 5);
+    await Promise.all([...streams, next].map(stream => stream.dispose()));
+    clients.forEach(client => client.dispose());
 });
