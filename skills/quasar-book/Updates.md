@@ -16,6 +16,8 @@ Without the receipt, a 1.5 update fails with "Quasar 1.5 and later require a com
 
 Each 1.5 release contains only `quasar-linux-x64.tar.gz`, `quasar-win-x64.zip` and `SHA256SUMS`. The legacy `quasar-web-*` worker archives exist only on 1.4.1 releases, so an old Bootstrap installation that looks for a worker update finds 1.4.1. Release cleanup always keeps the newest full 1.4.1 release, and the release workflow refuses to publish a full 1.5 or later release until such a 1.4.1 release exists.
 
+Release notes start with installation instructions. The **Quasar 1.5** section includes the required upgrade order and a link to the migration guide.
+
 ## What gets updated and by whom
 
 | Component | Source | Who checks | Who installs |

@@ -36,6 +36,14 @@ report an error; Linux also keeps a private log under
 console and an error dialog; rerun the manual command to retain terminal output.
 No graphical installation is needed for a server without a desktop.
 
+After a successful guided installation, the installer opens the configured Quasar
+address in your desktop's default browser once Quasar is ready. Custom ports are
+preserved. If the browser cannot open, the success dialog gives the address for
+manual access. This runs from your desktop session; ordinary service starts and
+restarts do not open browser windows. Automatic opening on Linux also needs
+`python3` to read the installed address and check readiness; a new installation
+still succeeds without it and shows manual access guidance.
+
 ## Manual installation
 
 Choose **Manual install** in either guided installer, or use a terminal directly.

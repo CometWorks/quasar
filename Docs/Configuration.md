@@ -1078,6 +1078,11 @@ direct-worker override.
 Quasar prints the UI URL on startup. Native services never open a browser;
 interactive console runs can open one according to the setting below.
 
+The guided installer opens the configured Quasar address from your desktop session
+after a successful installation, once Quasar is ready. If the browser cannot open,
+the installer provides the address for manual access. This is separate from the
+service startup setting.
+
 - The installed **Windows native services** and **Linux systemd** services run in
   service mode with `QUASAR_OPEN_BROWSER_ON_START=false` — they never open a
   browser, and they run quietly in the background.
