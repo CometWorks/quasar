@@ -147,3 +147,23 @@ test("parallel plugin clients share four transfer slots and cancel queued work",
     await Promise.all([...streams, next].map(stream => stream.dispose()));
     clients.forEach(client => client.dispose());
 });
+
+test("back-forward suspension cancels work without permanently disposing the restored client", async t => {
+    const previousAdd = globalThis.addEventListener;
+    const previousRemove = globalThis.removeEventListener;
+    let pagehide;
+    globalThis.addEventListener = (name, callback) => { if (name === "pagehide") pagehide = callback; };
+    globalThis.removeEventListener = () => {};
+    t.after(() => { globalThis.addEventListener = previousAdd; globalThis.removeEventListener = previousRemove; });
+    let writes = 0;
+    globalThis.fetch = async url => String(url).endsWith("/session")
+        ? Response.json({ version: 1, headerName: "csrf", requestToken: "token" })
+        : Response.json({ writes: ++writes });
+    const client = createClient({ baseUrl: "https://dash.test/my-panel/" });
+    await client.request("example.plugin", "write");
+    pagehide({ persisted: true });
+    assert.equal(writes, 1, "suspension does not replay a mutation");
+    assert.deepEqual(await client.request("example.plugin", "write"), { writes: 2 });
+    pagehide({ persisted: false });
+    await assert.rejects(client.request("example.plugin", "write"), /disposed/);
+});

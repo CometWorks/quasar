@@ -152,6 +152,14 @@ export function createClient({ baseUrl }) {
                 async dispose() { await handle.entry.dispose(); await reader.cancel().catch(() => {}); } };
         } catch (error) { await handle.entry.dispose(); throw error; }
     }
+    function cancelOwned() {
+        for (const entry of [...active]) { if (entry.dispose) void entry.dispose(); else { entry.controller.abort(); entry.finish(); } }
+    }
+    function pagehide(event) {
+        // A restored back/forward-cache page must remain usable, without replaying its old work.
+        if (event.persisted) cancelOwned();
+        else client.dispose();
+    }
     const client = {
         version: 1,
         async request(plugin, operation, payload = {}, { signal } = {}) {
@@ -212,10 +220,10 @@ export function createClient({ baseUrl }) {
         dispose() {
             if (disposed) return;
             disposed = true;
-            globalThis.removeEventListener?.("pagehide", client.dispose);
-            for (const entry of [...active]) { if (entry.dispose) void entry.dispose(); else { entry.controller.abort(); entry.finish(); } }
+            globalThis.removeEventListener?.("pagehide", pagehide);
+            cancelOwned();
         },
     };
-    globalThis.addEventListener?.("pagehide", client.dispose);
+    globalThis.addEventListener?.("pagehide", pagehide);
     return Object.freeze(client);
 }
