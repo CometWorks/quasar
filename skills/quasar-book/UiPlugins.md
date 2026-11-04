@@ -29,6 +29,9 @@ operations. Administrators can disable an operation or change its required
 policies. Missing or invalid rules deny access. The same rule applies to adopted
 legacy URLs. See [Access control](AccessControl.md#plugin-endpoint-authorization).
 
+Entity Viewer 0.1.13 requires Quasar 1.6.0 or later. Upgrade Quasar first, then
+update the viewer adapter, assets and companion together.
+
 A plugin can require `browserSdkVersion: 1`. Quasar rejects unsupported versions
 before loading its assembly. An update error in a viewer means Quasar and the
 plugin need matching versions. Old plugins without this declaration keep their
@@ -293,3 +296,4 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar.Tests/QuasarShutdownTests.cs`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Docs/BrowserSdkRollout.md`

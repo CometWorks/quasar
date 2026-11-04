@@ -57,6 +57,16 @@ public sealed partial class QuasarSdkTests : IDisposable
         Assert.Contains("Update Quasar", Assert.Throws<InvalidOperationException>(() => QuasarPluginPackageManifestReader.Read(path)).Message);
     }
 
+    [Theory]
+    [InlineData("1.5.0.9", false)]
+    [InlineData("1.6.0.0", true)]
+    [InlineData("1.6.0.1", true)]
+    public void ViewerSdkMinimumBlocksOlderAutomaticUpdates(string version, bool compatible)
+    {
+        var entry = new QuasarUiPluginHubEntry { QuasarVersion = ">=1.6.0" };
+        Assert.Equal(compatible, QuasarUiPluginHubCatalogService.SupportsAutomaticUpdate(entry, version));
+    }
+
     private async Task<WebApplication> StartAsync()
     {
         var builder = WebApplication.CreateBuilder();

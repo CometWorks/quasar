@@ -2,7 +2,7 @@
 
 The version 1 SDK provides typed operations, a shared authorized dispatcher,
 endpoint authorization settings, binary reads, staged uploads and subscriptions.
-All 16 Entity Viewer operations use it. Built-in analytics and log downloads use
+All 15 Entity Viewer operations use it. Built-in analytics and log downloads use
 the same boundary. HTTP is the implemented adapter; WebRTC is separate work.
 See the [transport contract](QuasarSdkTransport.md) for verified session binding,
 expiry/logout, resource limits and commit behavior.
@@ -217,9 +217,8 @@ auth pipeline, and hosted requests do not receive a local-trust bypass.
 
 Protocol version 1 is checked by the browser session exchange. New plugins using
 these APIs require a matching Quasar contract assembly and runtime; the updated
-viewer must not be released until its manifest names the first compatible Quasar
-release. Existing plugins retain their current registration and HTTP routes.
-The viewer uses SDK v1 for all 16 feature operations.
+viewer 0.1.13 requires Quasar 1.6.0 or later. Existing plugins retain their current registration and HTTP routes.
+The viewer uses SDK v1 for all 15 feature operations.
 
 `Quasar.Tests/QuasarSdkTests.cs` exercises the real HTTP dispatcher, authorization,
 antiforgery, limits, settings and legacy aliases in an isolated TestServer.
@@ -251,7 +250,7 @@ never automatically replayed. Browser-native downloads have no completion event,
 so server limits remain authoritative. Session cookie initialization is coalesced
 across concurrent clients; cancellation releases queued and active work.
 
-The viewer is the complete plugin example: all 16 operations share registrations,
+The viewer is the complete plugin example: all 15 operations share registrations,
 legacy aliases, authorization settings and the same browser SDK. Its standalone
 PreviewHost explicitly supplies a UI-only adapter; it grants no live credentials.
 
@@ -280,3 +279,10 @@ Validation uses isolated core HTTP fixtures, real viewer SDK integration and
 browser-module checks. Production Steam login, installed matching packages and
 hosted browser acceptance remain release gates. No live service is started by
 these checks, and no release version is invented here.
+
+
+Quasar 1.6.0 is the first compatible release for the SDK v1 viewer candidate.
+The current viewer integrates the server-bound asset-session security fix:
+`scene.read`/`replay.query` return `{ data, assetSession }`, issued only from
+verified feature data; browser-selected session creation is removed. See
+[rollout and rollback](BrowserSdkRollout.md) before publishing the catalog pin.
