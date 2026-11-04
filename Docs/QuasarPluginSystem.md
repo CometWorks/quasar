@@ -7,7 +7,7 @@ Quasar core repository while still feeling native inside Quasar.
 
 The [browser SDK](QuasarBrowserSdk.md) provides protected typed JSON operations,
 binary reads, staged uploads, subscriptions, runtime endpoint authorization
-settings and a versioned browser client. All 16 viewer operations and built-in
+settings and a versioned browser client. All 15 viewer operations and built-in
 analytics/server-log consumers share it. Plugins declare policies with
 `AddQuasarOperation`/`AddQuasarRead`/`AddQuasarUpload`/`AddQuasarSubscription` and
 import the Quasar-owned `MapQuasarSdkClient` bridge. Authentication, CSRF, transfer

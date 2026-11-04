@@ -93,6 +93,7 @@ concurrency:
 
 env:
   SE_DS_APPID: "298740"
+  MAGNETAR_SDK_TAG: "v2.4.3.9"
   DIAGNOSTICS_SOURCE_REF: ${{ vars.DIAGNOSTICS_SOURCE_REF || '4629caff434e35312e8c99c776e364e392142d5d' }}
 
 jobs:
@@ -330,13 +331,13 @@ jobs:
           if token:
               headers["Authorization"] = f"Bearer {token}"
           req = urllib.request.Request(
-              "https://api.github.com/repos/CometWorks/magnetar/releases/latest",
+              f"https://api.github.com/repos/CometWorks/magnetar/releases/tags/{os.environ['MAGNETAR_SDK_TAG']}",
               headers=headers,
           )
           with urllib.request.urlopen(req) as response:
               release = json.load(response)
           if release.get("draft") or release.get("prerelease"):
-              raise SystemExit("latest Magnetar release is not a full release")
+              raise SystemExit("pinned Magnetar SDK release is not a full release")
           matches = [
               asset for asset in release.get("assets", [])
               if fnmatch.fnmatchcase(asset.get("name", ""), "MagnetarForLinux-*.7z")
@@ -376,6 +377,25 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify browser SDK before packaging
+        env:
+          DS64: ${{ github.workspace }}/ds64
+        run: |
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
+          node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/Browser/*.test.mjs
+
+      - name: Retain SDK test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-tests-linux
+          path: artifacts/sdk-test-results
+          if-no-files-found: ignore
 
       - name: Package Linux release
         env:
@@ -511,9 +531,9 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $release = gh api repos/CometWorks/magnetar/releases/latest | ConvertFrom-Json
+          $release = gh api "repos/CometWorks/magnetar/releases/tags/$env:MAGNETAR_SDK_TAG" | ConvertFrom-Json
           if ($release.draft -or $release.prerelease) {
-            throw "latest Magnetar release is not a full release"
+            throw "pinned Magnetar SDK release is not a full release"
           }
           $winAssets = @($release.assets | Where-Object { $_.name -like 'MagnetarForWindows-*.7z' })
           if ($winAssets.Count -ne 1) {
@@ -552,6 +572,29 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Verify browser SDK before packaging
+        shell: pwsh
+        env:
+          DS64: ${{ github.workspace }}/ds64
+        run: |
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
+          if ($LASTEXITCODE -ne 0) { throw 'SDK server checks failed.' }
+          $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
+          node --test @browserChecks
+          if ($LASTEXITCODE -ne 0) { throw 'SDK browser checks failed.' }
+
+      - name: Retain SDK test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdk-tests-windows
+          path: artifacts/sdk-test-results
+          if-no-files-found: ignore
 
       - name: Package Windows release
         shell: pwsh
@@ -653,7 +696,11 @@ jobs:
 
             Linux hosts need glibc 2.38 or newer (Debian 13, Ubuntu 24.04). On Debian and Ubuntu, install SteamCMD's 32-bit libraries and the CA certificates first: `sudo apt install ca-certificates lib32gcc-s1`. Quasar also needs the .NET 10 runtime, which `install.sh` offers to install. See the [prerequisites](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md#prerequisites).
 
-            ## Quasar 1.5
+            ## Browser SDK v1 (Quasar 1.6)
+
+            Plugin and built-in analytics/log operations share protected JSON, streaming and subscription APIs. Security offers endpoint policy overrides. Existing stored `policyOverrides` now take effect: review and back up `rbac.json` before upgrading. Entity Viewer 0.1.13 requires Quasar 1.6.0 or newer; upgrade Quasar first, then the viewer adapter/assets and companion. Existing panel URLs remain unchanged. This release uses the current HTTP transport; WebRTC is a later rollout. See [SDK rollout and rollback](https://github.com/CometWorks/quasar/blob/main/Docs/BrowserSdkRollout.md).
+
+            ## Platform packages
 
             This release provides only the two complete platform packages. Legacy `quasar-web-*` assets remain exclusively on the retained full 1.4.1 migration release; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
 
