@@ -249,7 +249,7 @@ window.quasarCharts = (function () {
         instances.delete(containerId);
     }
 
-    // request: { endpoint, from, to, maxPoints, servers[], metrics[{key, containerId, height}],
+    // request: { from, to, maxPoints, servers[], metrics[{key, containerId, height}],
     //            names{uniqueName: displayName}, colors[], seriesColors{uniqueName: color}, lines, dark }
     async function sync(request) {
         // Don't disturb an in-progress drag selection with a real-time refresh.
@@ -268,28 +268,15 @@ window.quasarCharts = (function () {
             return { ok: true, charts: 0, bytes: 0 };
         }
 
-        const params = new URLSearchParams();
-        params.set("from", String(request.from));
-        params.set("to", String(request.to));
-        params.set("maxPoints", String(request.maxPoints || 1000));
-        request.servers.forEach((s) => params.append("servers", s));
-        metrics.forEach((m) => params.append("metrics", m.key));
-
-        let text;
-        try {
-            const resp = await fetch(new URL(request.endpoint.replace(/^\//, "") + "?" + params.toString(), document.baseURI), {
-                credentials: "same-origin",
-                cache: "no-store",
-                headers: { "Accept": "application/json" },
-            });
-            if (!resp.ok) return { ok: false, status: resp.status, charts: 0, bytes: 0 };
-            text = await resp.text();
-        } catch (e) {
-            return { ok: false, status: -1, error: String(e), charts: 0, bytes: 0 };
-        }
-
         let payload;
-        try { payload = JSON.parse(text); } catch (e) { return { ok: false, status: -2, charts: 0, bytes: 0 }; }
+        try {
+            payload = await window.quasarSdk.request("quasar.core", "analytics.series.read", {
+                from: request.from, to: request.to, maxPoints: request.maxPoints || 1000,
+                servers: request.servers, metrics: metrics.map(metric => metric.key),
+            });
+        } catch (error) {
+            return { ok: false, status: error.status || -1, error: String(error), charts: 0, bytes: 0 };
+        }
 
         const requestFrom = Number(request.from);
         const requestTo = Number(request.to);
@@ -323,7 +310,7 @@ window.quasarCharts = (function () {
             if (!present.has(m.containerId)) destroy(m.containerId);
         }
 
-        return { ok: true, charts: rendered, bytes: text.length, hasData: (payload.charts || []).some(chart => chart.series.some(series => series.y.some(value => value != null))) };
+        return { ok: true, charts: rendered, bytes: JSON.stringify(payload).length, hasData: (payload.charts || []).some(chart => chart.series.some(series => series.y.some(value => value != null))) };
     }
 
     function disposeAll() {

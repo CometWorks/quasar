@@ -25,10 +25,12 @@ test('cluster nodes share metric charts and retain their colors when series are 
         destroy() {}
     }
     const context = vm.createContext({
-        window: { addEventListener() {} },
+        window: { addEventListener() {}, quasarSdk: { async request(plugin, operation, input) {
+            assert.equal(plugin, 'quasar.core'); assert.equal(operation, 'analytics.series.read');
+            assert.equal(input.metrics[0], "cpu"); return payload;
+        } } },
         document: { baseURI: 'https://dash.test/', getElementById: () => ({ clientWidth: 700, getBoundingClientRect: () => ({ width: 700, height: 320 }) }) },
         uPlot: Plot, URLSearchParams, URL, ResizeObserver: class { observe() {} disconnect() {} },
-        fetch: async () => ({ ok: true, text: async () => JSON.stringify(payload) }),
     });
     vm.runInContext(source, context);
     const request = {

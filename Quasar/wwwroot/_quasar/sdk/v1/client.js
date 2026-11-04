@@ -1,3 +1,41 @@
+// Share panel capacity across same-origin plugin frames. Feature plugins never schedule network work.
+const panelsKey = Symbol.for("Quasar.SDK.v1.panels");
+function panelState(base) {
+    let owner = globalThis;
+    try { if (globalThis.top?.location.origin === base.origin) owner = globalThis.top; } catch { /* standalone/cross-origin */ }
+    const panels = owner[panelsKey] ||= new Map();
+    if (!panels.has(base.href)) panels.set(base.href, { running: 0, waiting: [], session: null });
+    return panels.get(base.href);
+}
+function acquire(state, signal) {
+    return new Promise((resolve, reject) => {
+        if (signal.aborted) { reject(signal.reason); return; }
+        if (state.waiting.length >= 128) { reject(new QuasarSdkError(429, "Too many pending SDK transfers.")); return; }
+        const start = () => {
+            signal.removeEventListener("abort", cancel);
+            state.running++;
+            let released = false;
+            resolve(() => {
+                if (released) return;
+                released = true;
+                state.running--;
+                state.waiting.shift()?.();
+            });
+        };
+        const cancel = () => { state.waiting.splice(state.waiting.indexOf(start), 1); reject(signal.reason); };
+        if (state.running < 4) start();
+        else { state.waiting.push(start); signal.addEventListener("abort", cancel, { once: true }); }
+    });
+}
+function untilAborted(promise, signal) {
+    return new Promise((resolve, reject) => {
+        const cancel = () => reject(signal.reason);
+        if (signal.aborted) { cancel(); return; }
+        signal.addEventListener("abort", cancel, { once: true });
+        promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", cancel));
+    });
+}
+
 export class QuasarSdkError extends Error {
     constructor(status, detail) { super(detail); this.name = "QuasarSdkError"; this.status = status; }
 }
@@ -8,6 +46,7 @@ export function createClient({ baseUrl }) {
         throw new TypeError("An explicit same-origin panel base URL ending in / is required.");
     const root = new URL("_quasar/sdk/v1/", base);
     const identifier = /^[a-z0-9]+(?:[._-][a-z0-9]+)*$/;
+    const state = panelState(base);
     const active = new Set();
     let disposed = false;
 
@@ -37,13 +76,18 @@ export function createClient({ baseUrl }) {
         return response;
     }
     async function session(entry) {
-        const result = await (await checked(await fetch(new URL("session", root), {
-            credentials: "same-origin", redirect: "error", cache: "no-store", signal: entry.controller.signal,
-        }))).json();
-        if (result.version !== 1 || !result.headerName || !result.requestToken)
-            throw new QuasarSdkError(426, "Incompatible Quasar SDK session.");
-        return result;
+        // Coalesce initial cookie setup so simultaneous views cannot reserve under different bindings.
+        const pending = state.session ||= (async () => {
+            const result = await (await checked(await fetch(new URL("session", root), {
+                credentials: "same-origin", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000),
+            }))).json();
+            if (result.version !== 1 || !result.headerName || !result.requestToken)
+                throw new QuasarSdkError(426, "Incompatible Quasar SDK session.");
+            return result;
+        })().finally(() => { state.session = null; });
+        return untilAborted(pending, entry.controller.signal);
     }
+
     async function post(path, body, entry, tokens) {
         return checked(await fetch(new URL(path, root), {
             method: "POST", credentials: "same-origin", redirect: "error", cache: "no-store", signal: entry.controller.signal,
@@ -53,9 +97,23 @@ export function createClient({ baseUrl }) {
     async function resource(kind, plugin, operation, payload, signal) {
         const body = input(plugin, operation, payload);
         const entry = begin(signal);
+        let release;
         try {
+            release = await acquire(state, entry.controller.signal);
+            entry.releaseCapacity = release;
+            const finish = entry.finish;
+            entry.finish = () => { release(); finish(); };
             const tokens = await session(entry);
-            const result = await (await post(`resources/${plugin}/${operation}`, body, entry, tokens)).json();
+            let response;
+            // Only explicit capacity rejection may retry reservation. No feature handler has run yet.
+            for (let attempt = 0; ; attempt++) {
+                try { response = await post(`resources/${plugin}/${operation}`, body, entry, tokens); break; }
+                catch (error) {
+                    if (error.status !== 429 || attempt >= 40) throw error;
+                    await untilAborted(new Promise(resolve => setTimeout(resolve, 250)), entry.controller.signal);
+                }
+            }
+            const result = await response.json();
             const url = new URL(result.url, base);
             if (result.kind !== kind || !/^[a-f0-9]{32}$/.test(result.id) || url.href !== new URL(`resources/${result.id}`, root).href)
                 throw new QuasarSdkError(426, "Incompatible SDK resource response.");
@@ -67,8 +125,10 @@ export function createClient({ baseUrl }) {
                 await fetch(url, { method: "DELETE", credentials: "same-origin", redirect: "error", cache: "no-store", keepalive: true,
                     headers: { [tokens.headerName]: tokens.requestToken } }).catch(() => {});
             };
+            entry.controller.signal.addEventListener("abort", () => { void entry.dispose(); }, { once: true });
+            entry.controller.signal.throwIfAborted();
             return { entry, url, tokens };
-        } catch (error) { entry.finish(); throw error; }
+        } catch (error) { release?.(); entry.finish(); throw error; }
     }
     async function readResource(kind, plugin, operation, payload, { signal, range } = {}) {
         const handle = await resource(kind, plugin, operation, payload, signal);
@@ -91,6 +151,14 @@ export function createClient({ baseUrl }) {
                 blob: () => new Response(body, { headers: response.headers }).blob(),
                 async dispose() { await handle.entry.dispose(); await reader.cancel().catch(() => {}); } };
         } catch (error) { await handle.entry.dispose(); throw error; }
+    }
+    function cancelOwned() {
+        for (const entry of [...active]) { if (entry.dispose) void entry.dispose(); else { entry.controller.abort(); entry.finish(); } }
+    }
+    function pagehide(event) {
+        // A restored back/forward-cache page must remain usable, without replaying its old work.
+        if (event.persisted) cancelOwned();
+        else client.dispose();
     }
     const client = {
         version: 1,
@@ -143,6 +211,8 @@ export function createClient({ baseUrl }) {
             const anchor = document.createElement("a");
             anchor.href = handle.url.href; anchor.download = fileName; anchor.hidden = true;
             document.body.append(anchor); anchor.click(); anchor.remove();
+            // Browser-native downloads have no completion callback. Server capacity remains authoritative.
+            handle.entry.releaseCapacity();
             const timeout = setTimeout(() => { handle.entry.finish(); }, 10 * 60 * 1000);
             const dispose = handle.entry.dispose;
             handle.entry.dispose = async () => { clearTimeout(timeout); await dispose(); };
@@ -150,10 +220,10 @@ export function createClient({ baseUrl }) {
         dispose() {
             if (disposed) return;
             disposed = true;
-            globalThis.removeEventListener?.("pagehide", client.dispose);
-            for (const entry of [...active]) { if (entry.dispose) void entry.dispose(); else { entry.controller.abort(); entry.finish(); } }
+            globalThis.removeEventListener?.("pagehide", pagehide);
+            cancelOwned();
         },
     };
-    globalThis.addEventListener?.("pagehide", client.dispose);
+    globalThis.addEventListener?.("pagehide", pagehide);
     return Object.freeze(client);
 }

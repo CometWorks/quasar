@@ -17,7 +17,9 @@ The returned `QuasarBrowserSession` is a server-owned object with `User`, `Id`,
 `Owner`, `PathBase`, `ExpiresAt` and `Revoked`. The HTTP-only, protected session
 cookie is user- and path-bound; neither it nor the principal is sent to a peer
 process. `ExpiresAt` is the earlier of the Quasar authentication ticket expiry
-and the SDK cookie's eight-hour lifetime. Explicit local trusted access without
+and the SDK cookie's eight-hour lifetime. Rebinding with a shorter verified ticket
+revokes the previous binding and its resource tokens, and returns a new stored
+binding with that shorter expiry. Explicit local trusted access without
 an authentication ticket uses the SDK bound; the SDK creates no trust bypass.
 Machine service principals cannot bind. Session state is bounded to 512 entries
 and 32 per user, and idle entries are removed after 15 minutes when another
@@ -143,5 +145,13 @@ buffering the whole file into JavaScript. No automatic mutation retry occurs.
 
 Focused checks cover ranges, incremental read bounds, control responsiveness,
 session separation and limits, interrupted/oversized upload cleanup, authorization
-revocation, native cookie expiry binding and logout token cancellation. Full
-viewer migration and core consumers are SDK 4 and SDK 5.
+revocation, native cookie expiry binding and logout token cancellation. Viewer
+migration and core adoption are implemented in SDK 4 and SDK 5.
+
+SDK 5 consumers include all viewer operations and core analytics/server-log
+calls. JSON response bodies can exceed the request-control limit (for example
+scenes and chart series). A peer adapter must chunk/frame them with bounded
+outstanding bytes; the 64 KiB request/NDJSON item limit must not silently reject
+existing large responses. HTTP aliases and SDK calls share authorization and
+handlers. `BrowserSdkVersion` is the manifest capability gate (zero for legacy,
+one for these APIs); incompatible future versions fail before assembly load.

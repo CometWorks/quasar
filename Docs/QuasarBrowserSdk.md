@@ -1,11 +1,11 @@
 # Quasar browser SDK
 
-The HTTP SDK provides typed plugin operations, a shared authorized dispatcher,
-runtime endpoint settings, binary reads, staged uploads and subscriptions. Entity Viewer
-uses it for asset-status and Content-root settings reads, including both legacy
-HTTP aliases. The remaining viewer migration and WebRTC are separate steps. See
-the [transport adapter contract](QuasarSdkTransport.md) for session binding,
-expiry/logout, resource limits, streaming and commit behavior.
+The version 1 SDK provides typed operations, a shared authorized dispatcher,
+endpoint authorization settings, binary reads, staged uploads and subscriptions.
+All 16 Entity Viewer operations use it. Built-in analytics and log downloads use
+the same boundary. HTTP is the implemented adapter; WebRTC is separate work.
+See the [transport contract](QuasarSdkTransport.md) for verified session binding,
+expiry/logout, resource limits and commit behavior.
 
 ## Register an operation
 
@@ -41,22 +41,34 @@ handler. Other existing plugin endpoints remain supported.
 
 ## Browser requests
 
-Import `/_quasar/sdk/v1/client.js` relative to the panel base. The host supplies
-that base explicitly; inside a viewer iframe its own document URL is the plugin
-asset directory, not necessarily the panel base.
+In `ConfigureEndpoints`, expose a Quasar-owned discovery module at each plugin
+asset prefix, for example:
 
-```javascript
-import { createClient } from "/my-server-panel/_quasar/sdk/v1/client.js";
-
-const client = createClient({ baseUrl: "https://dash.se-servers.net/my-server-panel/" });
-const status = await client.request("example.plugin", "status.read", {}, { signal });
+```csharp
+endpoints.MapQuasarSdkClient("/_quasar/plugins/example.plugin/_sdk/client.js");
 ```
 
-The concrete URL above illustrates an enrolled panel. Derive both module and
-base URLs from the host's panel context in a real plugin rather than hardcoding a
-panel name. A local installation can supply its local base URL with the same API.
-Standalone preview hosts must supply a compatible adapter or fixture; they do
-not obtain a Quasar session by importing this module.
+The browser feature imports the bridge relative to its own asset URL. Quasar
+initializes it with the correct local or hosted panel base:
+
+```javascript
+import { client } from "./_sdk/client.js";
+
+const stop = new AbortController();
+try {
+    const status = await client.request("example.plugin", "status.read", {}, { signal: stop.signal });
+    renderStatus(status);
+} catch (error) {
+    if (error.name !== "AbortError") showError(error.message);
+}
+// On feature teardown: stop.abort(). Shared clients remain available to other features.
+// A client owned solely by this view can instead be disposed with client.dispose().
+```
+
+Use `createClient({ baseUrl })` from `/_quasar/sdk/v1/client.js` only when the host
+already supplies an explicit same-origin panel URL ending in `/`. Plugin code
+must not guess a panel ID or discover a private network address. A standalone
+preview must explicitly supply an adapter; importing the module grants no session.
 
 The client obtains a request-verification token from the authenticated
 `/_quasar/sdk/v1/session` endpoint and posts JSON to
@@ -68,8 +80,89 @@ HTTP errors; aborted requests retain the browser's cancellation error.
 Control JSON is limited to 64 KiB and depth 32, with a 30-second handler deadline.
 The handler must honor cancellation before side effects. A timed-out write can
 have an unknown result, so callers must not blindly replay it. Responses are
-private no-store. Use the future streaming API for large binary data rather than
+private no-store. Use the streaming API for large binary data rather than
 base64-encoding bytes into control JSON.
+
+## Reads, uploads and subscriptions
+
+Register feature-owned resource definitions, never browser-supplied filesystem
+paths or machine credentials. The dispatcher checks the declared/effective policy
+before the handler runs. Features retain consent, ownership and target validation.
+All code below belongs in the plugin's existing service registration method.
+
+```csharp
+services.AddQuasarRead<ReportRequest>(context.PluginId, "report.read", [QuasarPolicyNames.CanView],
+    async (caller, request, token) =>
+    {
+        var reports = caller.Services.GetRequiredService<ReportService>();
+        var report = await reports.FindOwnedAsync(caller.User, request.Id, token);
+        return new QuasarRead(open => reports.OpenAsync(report, open), "application/octet-stream",
+            FileName: report.Name, Length: report.Length, EnableRanges: true,
+            ValidateAsync: check => reports.VerifyOwnershipAsync(caller.User, report, check));
+    });
+
+services.AddQuasarUpload<ImportRequest, ImportResult>(context.PluginId, "report.import",
+    [QuasarPolicyNames.CanEditConfigs], maximumBytes: 8 * 1024 * 1024,
+    async (caller, request, staged, token) =>
+    {
+        var reports = caller.Services.GetRequiredService<ReportService>();
+        // staged is complete, private, bounded and rewound. No feature write yet.
+        var validated = await reports.ParseAndValidateAsync(staged, token);
+        return new QuasarUpload<ImportResult>(async commit =>
+        {
+            await reports.VerifyImportTargetAsync(caller.User, request, commit);
+            return await reports.ApplyAtomicallyAsync(request, validated, commit);
+        });
+    });
+
+services.AddQuasarSubscription<WatchRequest, StatusResponse>(context.PluginId, "status.watch",
+    [QuasarPolicyNames.CanView], (caller, request, token) =>
+        caller.Services.GetRequiredService<PluginStatusService>().ObserveAsync(request, token));
+```
+
+These example feature types/services are plugin-defined. The SDK rechecks current
+authorization immediately before upload commit. It deletes partial staging on
+failure/cancellation and removes successful staging on disposal. A feature must
+apply atomically and honor cancellation; once committed, a disconnect does not
+imply rollback. `caller.EnsureAuthorizedAsync(token)` is also available for a fresh
+check before JSON-handler side effects. Ongoing reads use `ValidateAsync` for
+feature checks; subscriptions must honor cancellation during enumeration.
+
+```javascript
+const report = await client.openRead("example.plugin", "report.read", { id }, { signal });
+try { await report.body.pipeTo(destination, { signal }); }
+finally { await report.dispose(); }
+
+const upload = await client.openWrite("example.plugin", "report.import", { targetId }, { signal });
+try { const result = await upload.write(file); showResult(result); }
+finally { await upload.dispose(); }
+
+for await (const item of client.subscribe("example.plugin", "status.watch", {}, { signal })) {
+    renderStatus(item);
+}
+// Breaking the loop, aborting or disposing cancels the owned subscription.
+await client.download("example.plugin", "report.read", { id }, { fileName: "report.bin", signal });
+```
+
+Reads use native Web Streams; uploads accept native Blob/File or supported request
+streams. Downloads use an SDK-owned native browser URL, avoiding a full JS buffer.
+HTTP resources are single-use and bound to the verified browser session. Four
+resources per session, 16 per user and 64 per worker limit concurrency; unclaimed
+leases expire after one minute and active resources after ten minutes. Queues and
+buffers stay bounded. A policy/role change, session expiry, logout, feature
+revocation or cancellation ends active work. The owner must dispose its handle.
+
+`QuasarSdkError.status` includes 400 invalid input/CSRF, 401 unauthenticated/expired,
+403 denied/disabled, 404 missing or foreign resource, 409 already claimed,
+413 input/upload too large, 416 unsupported range, 426 browser protocol mismatch,
+429 capacity and 504 cooperative JSON deadline. Features can supply other explicit
+statuses through `QuasarOperationException`. After a write timeout/disconnect,
+check feature state before retrying; mutations have no automatic replay.
+
+The 64 KiB limit applies to request control JSON and individual subscription
+items. JSON responses such as scenes/analytics may be larger; HTTP serializes
+them as response bodies. A peer adapter must frame/chunk large responses while
+bounding outstanding bytes, rather than rejecting existing feature responses.
 
 ## Administrator authorization settings
 
@@ -126,12 +219,64 @@ Protocol version 1 is checked by the browser session exchange. New plugins using
 these APIs require a matching Quasar contract assembly and runtime; the updated
 viewer must not be released until its manifest names the first compatible Quasar
 release. Existing plugins retain their current registration and HTTP routes.
-The browser-wide viewer migration remains a later SDK milestone.
+The viewer uses SDK v1 for all 16 feature operations.
 
 `Quasar.Tests/QuasarSdkTests.cs` exercises the real HTTP dispatcher, authorization,
 antiforgery, limits, settings and legacy aliases in an isolated TestServer.
 `node --test Quasar.Tests/browser-sdk.test.mjs` checks browser URL, credential,
-version, cancellation and error behavior. The viewer's isolated streaming fixture
-supplies the dispatcher boundary and verifies plugin handlers; real Quasar/Steam
+version, cancellation and error behavior. The viewer's isolated streaming/replay
+fixtures use the real core SDK runtime and verify plugin handlers; real Quasar/Steam
 and hosted browser acceptance still require matching packages in an authorized
 isolated environment. Do not launch a user's Quasar service for these checks.
+
+## Plugin capability and discovery
+
+Declare `"browserSdkVersion": 1` in `quasar-plugin.json`. Omitted/zero preserves
+legacy plugins; a future unsupported version is rejected before assembly load.
+Also set `quasarVersion` to the first compatible released Quasar build before
+publication. An old host cannot enforce a field it does not know.
+
+`endpoints.MapQuasarSdkClient(pluginPrefix + "/_sdk/client.js")` supplies a
+protected module exporting `client`, initialized with the actual panel base.
+A plugin module can import `./_sdk/client.js` without owning URL-prefix discovery,
+authentication or transport selection. Validate `client.version === 1` and show
+an explicit update error if discovery/capabilities fail; never silently fall back
+to legacy fetch/auth code. Apply this mapping to each supported plugin prefix.
+
+Quasar coordinates four active transfers and at most 128 queued reservations per
+panel across same-origin frames. Control operations do not wait behind transfers.
+Only an explicit HTTP 429 during resource reservation is retried, at most 40 times
+250 ms apart; no feature handler has run at that point. Upload/JSON mutations are
+never automatically replayed. Browser-native downloads have no completion event,
+so server limits remain authoritative. Session cookie initialization is coalesced
+across concurrent clients; cancellation releases queued and active work.
+
+The viewer is the complete plugin example: all 16 operations share registrations,
+legacy aliases, authorization settings and the same browser SDK. Its standalone
+PreviewHost explicitly supplies a UI-only adapter; it grants no live credentials.
+
+## Built-in adoption and remaining consumers
+
+`QuasarCoreOperations` registers `quasar.core/analytics.series.read` and
+`logs.server.read`/`logs.magnetar.read` with `CanView`, plus `logs.discord.read`
+with `CanManageDiscord`. Analytics/Fleet charts and server-console downloads use
+the same browser client. Existing analytics and log URLs are dispatcher aliases;
+log selection keeps its existing server lookup, safe-filename and log-pattern
+rules. Security lists these core operations alongside plugin operations.
+
+Normal local authentication/trusted-network behavior continues through Quasar's
+existing principal pipeline, without Nebula services or a hosting entitlement.
+SDK endpoints always require an accepted authenticated principal, including when
+other legacy routes have authentication explicitly disabled. Disabling hosting
+has no effect on the local SDK. No operation adds a Nebula endpoint allowlist.
+
+Other core HTTP APIs, config-backup downloads/uploads, appearance resources,
+server lifecycle APIs and existing SignalR circuits retain their current paths.
+The Discord log button uses its legacy alias to the SDK handler. SignalR and
+remaining core transport migration belong to later RTC steps. Existing plugins
+can keep their old interface and endpoint registration; SDK adoption is opt-in.
+
+Validation uses isolated core HTTP fixtures, real viewer SDK integration and
+browser-module checks. Production Steam login, installed matching packages and
+hosted browser acceptance remain release gates. No live service is started by
+these checks, and no release version is invented here.

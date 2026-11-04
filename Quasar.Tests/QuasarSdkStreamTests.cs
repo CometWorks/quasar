@@ -92,10 +92,13 @@ public sealed partial class QuasarSdkTests
         url = await ResourceAsync(client, "upload");
         using (var interrupted = new InterruptedUpload())
         {
-            var sending = PutAsync(client, url, new StreamContent(interrupted), tokens);
+            using var disconnect = new CancellationTokenSource();
+            var sending = PutAsync(client, url, new StreamContent(interrupted), tokens, disconnect.Token);
             await interrupted.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            // Cancel the HTTP request too: cancelling only a producer is not a peer disconnect in TestServer.
+            disconnect.Cancel();
             interrupted.Abort.Cancel();
-            await Assert.ThrowsAnyAsync<Exception>(async () => await sending.WaitAsync(TimeSpan.FromSeconds(5)));
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await sending.WaitAsync(TimeSpan.FromSeconds(5)));
         }
         for (var attempt = 0; attempt < 50 && Directory.EnumerateFiles(Path.Combine(_root, "SdkUploads"), "*.upload").Any(); attempt++)
             await Task.Delay(20);
@@ -170,10 +173,26 @@ public sealed partial class QuasarSdkTests
         sessions.Verify(binding);
         var registry = scope.ServiceProvider.GetRequiredService<QuasarTransferRegistry>();
         var transfer = registry.Create(binding, "example.plugin", "download", QuasarOperationKind.Read, JsonSerializer.SerializeToElement(new { }));
-        await sessions.RevokeAsync(request);
+        var shorterExpiry = DateTimeOffset.UtcNow.AddMinutes(1);
+        using var secondLoginScope = app.Services.CreateScope();
+        var secondLogin = new DefaultHttpContext { RequestServices = secondLoginScope.ServiceProvider };
+        await secondLogin.SignInAsync("test", User(QuasarRoles.Admin), new AuthenticationProperties { ExpiresUtc = shorterExpiry });
+        using var secondScope = app.Services.CreateScope();
+        var second = new DefaultHttpContext { RequestServices = secondScope.ServiceProvider };
+        second.Request.PathBase = Prefix;
+        second.Request.Headers.Cookie = string.Join("; ", secondLogin.Response.Headers.SetCookie.Concat(request.Response.Headers.SetCookie)
+            .Select(value => value!.Split(';')[0]));
+        second.User = (await second.AuthenticateAsync("test")).Principal!;
+        var shorter = await sessions.BindHttpSessionAsync(second);
+        Assert.InRange(Math.Abs((shorter.ExpiresAt - shorterExpiry).TotalSeconds), 0, 2);
         Assert.True(binding.Revoked.IsCancellationRequested);
         Assert.True(transfer.Token.IsCancellationRequested);
         Assert.Throws<QuasarOperationException>(() => sessions.Verify(binding));
+        var currentTransfer = registry.Create(shorter, "example.plugin", "download", QuasarOperationKind.Read, JsonSerializer.SerializeToElement(new { }));
+        await sessions.RevokeAsync(second);
+        Assert.True(shorter.Revoked.IsCancellationRequested);
+        Assert.True(currentTransfer.Token.IsCancellationRequested);
+        Assert.Throws<QuasarOperationException>(() => sessions.Verify(shorter));
     }
 
     private static async Task<string> ResourceAsync(HttpClient client, string operation)
@@ -183,11 +202,11 @@ public sealed partial class QuasarSdkTests
         return (await result.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
     }
 
-    private static async Task<HttpResponseMessage> PutAsync(HttpClient client, string url, HttpContent content, JsonElement tokens)
+    private static async Task<HttpResponseMessage> PutAsync(HttpClient client, string url, HttpContent content, JsonElement tokens, CancellationToken token = default)
     {
         using var request = new HttpRequestMessage(HttpMethod.Put, url) { Content = content };
         request.Headers.Add(tokens.GetProperty("headerName").GetString()!, tokens.GetProperty("requestToken").GetString());
-        return await client.SendAsync(request);
+        return await client.SendAsync(request, token);
     }
 
     private sealed class GeneratedStream(long length, QuasarSdkTests owner) : Stream

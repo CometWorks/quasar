@@ -40,6 +40,23 @@ public sealed partial class QuasarSdkTests : IDisposable
         _rbac = new(NullLogger<RbacConfigCatalog>.Instance);
     }
 
+    [Fact]
+    public void ManifestKeepsLegacyPluginsAndRejectsUnsupportedSdkBeforeLoading()
+    {
+        Directory.CreateDirectory(_root);
+        var path = Path.Combine(_root, "quasar-plugin.json");
+        var manifest = new Dictionary<string, object> { ["id"] = "example.plugin", ["displayName"] = "Example",
+            ["version"] = "1", ["entryAssembly"] = "unused.dll", ["entryType"] = "Unused", ["projectPath"] = "unused.csproj" };
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+        Assert.Equal(0, QuasarPluginPackageManifestReader.Read(path).BrowserSdkVersion);
+        manifest["browserSdkVersion"] = 1;
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+        Assert.Equal(1, QuasarPluginPackageManifestReader.Read(path).BrowserSdkVersion);
+        manifest["browserSdkVersion"] = 2;
+        File.WriteAllText(path, JsonSerializer.Serialize(manifest));
+        Assert.Contains("Update Quasar", Assert.Throws<InvalidOperationException>(() => QuasarPluginPackageManifestReader.Read(path)).Message);
+    }
+
     private async Task<WebApplication> StartAsync()
     {
         var builder = WebApplication.CreateBuilder();
@@ -71,6 +88,7 @@ public sealed partial class QuasarSdkTests : IDisposable
         builder.Services.AddQuasarOperation<JsonElement, object>("example.plugin", "unconfigured", [],
             (context, input, token) => throw new Exception("An unconfigured handler must not execute."));
         RegisterTransfers(builder.Services);
+        RegisterCore(builder.Services);
         var app = builder.Build();
         app.UsePathBase(Prefix);
         app.UseRouting();
@@ -85,6 +103,8 @@ public sealed partial class QuasarSdkTests : IDisposable
         });
         app.UseAuthorization();
         app.MapQuasarSdk();
+        app.MapQuasarCoreOperations();
+        new LegacyPlugin().ConfigureEndpoints(app, null!);
         foreach (var prefix in new[] { "/_quasar/plugins/example.plugin", "/_content/Example" })
         {
             app.MapQuasarOperationRead(prefix + "/api/read", "example.plugin", "read");

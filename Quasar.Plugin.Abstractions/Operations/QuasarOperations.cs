@@ -24,6 +24,7 @@ public static class QuasarSdkLimits
     public const int MaximumJsonBytes = 64 * 1024;
     public const int MaximumJsonDepth = 32;
     public const int TransferBufferBytes = 64 * 1024;
+    public const int ProtocolVersion = 1;
     public static readonly TimeSpan AuthorizationRecheckInterval = TimeSpan.FromSeconds(1);
 }
 
@@ -161,7 +162,33 @@ public static class QuasarOperationExtensions
         (HttpContext http, IQuasarHttpOperations adapter) => adapter.ExecuteAsync(http, pluginId, operationId)).RequireAuthorization();
 
     public static RouteHandlerBuilder MapQuasarOperation(this IEndpointRouteBuilder endpoints, string pattern,
-        string[] methods, string pluginId, string operationId, Func<HttpContext, JsonElement>? request = null) =>
-        endpoints.MapMethods(pattern, methods, (HttpContext http, IQuasarHttpOperations adapter) =>
-            adapter.ExecuteAsync(http, pluginId, operationId, request?.Invoke(http))).RequireAuthorization();
+        string[] methods, string pluginId, string operationId, Func<HttpContext, ValueTask<JsonElement>>? request = null) =>
+        endpoints.MapMethods(pattern, methods, async (HttpContext http, IQuasarHttpOperations adapter) =>
+        {
+            try { return await adapter.ExecuteAsync(http, pluginId, operationId, request is null ? null : await request(http)); }
+            catch (QuasarOperationException error) { return Results.Problem(statusCode: error.StatusCode, detail: error.Message); }
+            catch (JsonException) { return Results.Problem(statusCode: 400, detail: "Invalid JSON request."); }
+            catch (Exception error) when (error is ArgumentException or FormatException or OverflowException) { return Results.Problem(statusCode: 400, detail: "Invalid operation input."); }
+        }).RequireAuthorization();
+
+    public static RouteHandlerBuilder MapQuasarSdkClient(this IEndpointRouteBuilder endpoints, string pattern) =>
+        endpoints.MapGet(pattern, (HttpContext http) => Results.Content(
+            "import { createClient } from " + JsonSerializer.Serialize(http.Request.PathBase + "/_quasar/sdk/v1/client.js")
+            + "; export const client = createClient({baseUrl:" + JsonSerializer.Serialize(http.Request.PathBase + "/") + "});",
+            "text/javascript")).RequireAuthorization();
+
+    public static async ValueTask<JsonElement> ReadQuasarRequestAsync(this HttpContext http)
+    {
+        var bytes = new byte[QuasarSdkLimits.MaximumJsonBytes + 1];
+        var count = 0;
+        while (count < bytes.Length)
+        {
+            var read = await http.Request.Body.ReadAsync(bytes.AsMemory(count), http.RequestAborted);
+            if (read == 0) break;
+            count += read;
+        }
+        if (count > QuasarSdkLimits.MaximumJsonBytes) throw new QuasarOperationException(413, "SDK control request exceeds 64 KiB.");
+        using var body = JsonDocument.Parse(bytes.AsMemory(0, count), new JsonDocumentOptions { MaxDepth = QuasarSdkLimits.MaximumJsonDepth });
+        return body.RootElement.Clone();
+    }
 }

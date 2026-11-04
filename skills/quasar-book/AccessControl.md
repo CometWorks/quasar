@@ -82,9 +82,11 @@ settings. A stale administrator page cannot save a change after access is lost.
 Settings are stored in `rbac.json`. Earlier builds saved `policyOverrides` without
 using them; they now affect authorization. Review existing overrides before an
 upgrade. Invalid SDK rules deny access. If the RBAC file is malformed, restore a
-valid backup before editing SDK rules. The first adopted viewer operations are
-asset-status and Content-root reads; other viewer requests and WebRTC have not
-migrated yet. See [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
+valid backup before editing SDK rules. The viewer registers all 16 scene, asset
+setup/streaming and replay operations. View operations default to `CanView`;
+asset administration and history default to `CanManageSecurity`. Asset consent
+and user ownership still apply after you change an operation policy. WebRTC
+remains a separate implementation. See [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
 
 ## The rbac.json file
 
@@ -343,3 +345,4 @@ off for normal deployments. See [direct transport](https://github.com/CometWorks
 - `Shared/Networking/MachineEndpointPolicy.cs`
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`

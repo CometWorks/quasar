@@ -53,7 +53,16 @@ public sealed class QuasarBrowserSessions(IDataProtectionProvider protection) : 
             foreach (var stale in _sessions.Where(pair => pair.Value.Binding.ExpiresAt <= DateTimeOffset.UtcNow ||
                          pair.Value.LastSeen < DateTimeOffset.UtcNow.AddMinutes(-15)).ToArray())
             { stale.Value.Stop.Cancel(); stale.Value.Stop.Dispose(); _sessions.Remove(stale.Key); }
-            if (!_sessions.TryGetValue(id, out var entry))
+            _sessions.TryGetValue(id, out var entry);
+            // A shorter verified ticket must also shorten existing peer/transfer authority.
+            if (entry is not null && expiry < entry.Binding.ExpiresAt)
+            {
+                entry.Stop.Cancel();
+                entry.Stop.Dispose();
+                _sessions.Remove(id);
+                entry = null;
+            }
+            if (entry is null)
             {
                 if (_sessions.Count >= 512 || _sessions.Values.Count(item => item.Binding.Owner == owner) >= 32)
                     throw new QuasarOperationException(429, "Too many browser sessions.");

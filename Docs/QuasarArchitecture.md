@@ -52,9 +52,10 @@ The on-disk project layout now matches the runtime naming:
 Quasar owns the [browser SDK](QuasarBrowserSdk.md) boundary for registered plugin
 operations. HTTP and adopted legacy aliases share one dispatcher and current RBAC
 rules. The browser SDK is distinct from `IQuasarCompanionChannel`, which continues
-to route service-side requests to game-server plugins. The first slice supports
-JSON reads; binary streams, subscriptions, Blazor transport adaptation and WebRTC
-are later milestones. Local supervision and machine endpoint policies are unchanged.
+to route service-side requests to game-server plugins. JSON operations, binary
+reads, staged uploads and subscriptions are implemented. All viewer operations
+and core analytics/server-log consumers use the SDK. Blazor transport adaptation
+and WebRTC are later milestones. Local supervision and machine endpoint policies are unchanged.
 
 `Quasar` owns the host machine management workflow.
 
