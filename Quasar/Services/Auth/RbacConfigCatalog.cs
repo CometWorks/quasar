@@ -50,6 +50,21 @@ public sealed class RbacConfigCatalog : IDisposable
         finally { _saveLock.Release(); }
     }
 
+    // Read and mutate under the existing save gate so independent operation edits cannot overwrite one another.
+    public async Task UpdateAsync(Func<RbacConfig, Task> change, CancellationToken cancellationToken = default)
+    {
+        await _saveLock.WaitAsync(cancellationToken);
+        try
+        {
+            var config = GetConfig();
+            if (!config.SdkRulesValid)
+                throw new InvalidOperationException("Restore a valid RBAC file before editing SDK authorization.");
+            await change(config);
+            await SaveCoreAsync(config, cancellationToken);
+        }
+        finally { _saveLock.Release(); }
+    }
+
     public async Task AddFirstSteamAdminAsync(string? steamId, CancellationToken cancellationToken = default)
     {
         steamId = steamId?.Trim() ?? string.Empty;
@@ -84,6 +99,7 @@ public sealed class RbacConfigCatalog : IDisposable
     private async Task SaveCoreAsync(RbacConfig config, CancellationToken cancellationToken)
     {
         var normalized = RbacConfig.Normalize(config);
+        normalized.SdkRulesValid = true;
         lock (_sync)
         {
             if (HasAdminMapping(_config) && !HasAdminMapping(normalized))
@@ -147,7 +163,7 @@ public sealed class RbacConfigCatalog : IDisposable
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Failed loading RBAC config from {Path}", path);
-            return RbacConfig.Normalize(null);
+            return new RbacConfig { SdkRulesValid = false };
         }
     }
 
@@ -175,7 +191,7 @@ public sealed class RbacConfigCatalog : IDisposable
         var changed = false;
         lock (_sync)
         {
-            if (!string.Equals(_snapshot, snapshot, StringComparison.Ordinal))
+            if (!string.Equals(_snapshot, snapshot, StringComparison.Ordinal) || _config.SdkRulesValid != reloaded.SdkRulesValid)
             {
                 _config = reloaded;
                 _snapshot = snapshot;

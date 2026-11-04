@@ -248,6 +248,8 @@ $requiredApplicationFiles = @(
     'Updater/Quasar.Updater.exe',
     'wwwroot',
     'wwwroot/_framework/blazor.web.js',
+    'wwwroot/_quasar/sdk/v1/client.js',
+    'wwwroot/quasar-sdk.js',
     'wwwroot/_content/MudBlazor/MudBlazor.min.css',
     'wwwroot/_content/MudBlazor/MudBlazor.min.js'
 )

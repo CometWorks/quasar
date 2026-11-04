@@ -150,6 +150,7 @@ How it works:
 - When attempts run out, the server becomes `Faulted` with "Process exited with code N. Restart attempt limit (3) reached." Quasar does not retry on its own after that.
 - With `RestartOnCrash` off, a non-zero exit or a failed start (below) leaves the server `Crashed`.
 - A server that exits before it gets to `Running` failed to start, whatever its exit code. That's how the DS ends a world it can't load ("Session can not start" in its log, for example after a Workshop mod download failed). The message is "Start failed: process exited with code N before the world was ready", and it's retried and faulted like a crash, so the Dashboard counts it as an error. The goal stays On: Quasar.Agent doesn't report a stop before the world is ready as an admin stop.
+
 - After a crash or fault, Quasar captures the newest error line from the DS and Magnetar logs and shows it on the Dashboard. After a failed start it takes the line from the DS log when it has one, since that's where the DS writes why the world didn't load.
 - A scheduled restart fires within 5 minutes after the scheduled time, and only if the process has been up for at least 5 minutes.
 - While the global setting `Quasar:AvoidSimultaneousScheduledRestarts` (or `QUASAR_AVOID_SIMULTANEOUS_SCHEDULED_RESTARTS`, default `true`) is on, scheduled and maximum-uptime restarts wait while another server is starting, stopping or restarting. The card then says "Scheduled restart delayed; another server is stopping or restarting."
@@ -217,6 +218,13 @@ When Quasar's bundled Quasar.Agent differs from the one deployed in a running se
 - **Magnetar info log**: Magnetar's `info_*.log` files from the Magnetar app-data folder. Plugin log lines captured by Quasar.Agent are also written here.
 
 Each tab has a file selector (**Most recent** or an older file), **Errors** (searches the log for error lines), **Refresh** and a download button. Refresh and auto-refresh work only for **Most recent**.
+
+Server-console full log downloads use Quasar browser SDK v1. The
+`quasar.core/logs.server.read` and `logs.magnetar.read` operations require
+`CanView` by default. Security endpoint settings also apply to the existing log
+URLs. Download selection remains restricted to the chosen server's log files;
+missing files report an error. Streams stop on cancellation, logout or expiry.
+
 
 The console is read-only. To talk to players, use the **Chat** page or the chat box in a server's expanded live data on the Dashboard (see [Monitoring](Monitoring.md)).
 
@@ -435,3 +443,5 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Agent/SupervisedLifecycle.cs`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Docs/QuasarUpdates.md`
+- `Docs/QuasarBrowserSdk.md`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`
