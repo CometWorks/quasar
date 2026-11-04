@@ -106,8 +106,8 @@
                 <p class="quasar-text quasar-type-body2">
                     Server backups include Quasar's server definition plus non-cache Dedicated Server and Magnetar app
                     data. World backups restore only world files and keep the current server/world config intact. World
-                    backups can be taken while a server is running; when Space Engineers has a world <code>Backup</code>
-                    folder, Quasar uses the latest valid snapshot from it.
+                    backups of active servers ask whether to save first or stop and back up. Stop and back up leaves
+                    the server stopped. Automatic world backups use the latest valid Space Engineers snapshot when available.
                 </p>
 
                 @if (_servers.Count == 0)
@@ -675,19 +675,42 @@
         }
     }
 
-    private void MakeWorldBackupNowAsync(string uniqueName)
+    private async Task MakeWorldBackupNowAsync(string uniqueName)
     {
-        if (string.IsNullOrWhiteSpace(uniqueName))
+        if (_busy || string.IsNullOrWhiteSpace(uniqueName))
             return;
 
+        _busy = true;
         try
         {
-            AutomaticBackup.QueueWorldBackup(uniqueName);
+            var action = WorldBackupAction.LatestSave;
+            if (Supervisor.IsServerProcessActive(uniqueName))
+            {
+                if (Supervisor.GetSnapshots().FirstOrDefault(server =>
+                        string.Equals(server.UniqueName, uniqueName, StringComparison.OrdinalIgnoreCase))?.State
+                    != DedicatedServerProcessState.Running)
+                    throw new InvalidOperationException("Wait for the server to finish starting, stopping, or restarting before backing up its world.");
+                var choice = await DialogService.ShowMessageBoxAsync(
+                    "Back up world now?",
+                    "Save and back up waits for a fresh world save and keeps the server running. " +
+                    "Stop and back up saves the world, stops the server, and then backs it up. The server stays stopped.",
+                    yesText: "Save and back up",
+                    noText: "Stop and back up",
+                    cancelText: "Cancel");
+                if (choice is null)
+                    return;
+                action = choice.Value ? WorldBackupAction.SaveAndBackUp : WorldBackupAction.StopAndBackUp;
+            }
+            AutomaticBackup.QueueWorldBackup(uniqueName, action);
             Snackbar.Add("World backup queued.", Severity.Info);
         }
         catch (Exception exception)
         {
             Snackbar.Add($"Failed to queue world backup: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
         }
     }
 
