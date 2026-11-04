@@ -1,10 +1,11 @@
 # Quasar browser SDK
 
-The first HTTP SDK slice provides typed plugin operations, a shared authorized
-dispatcher, runtime endpoint settings and a browser JSON client. Entity Viewer
+The HTTP SDK provides typed plugin operations, a shared authorized dispatcher,
+runtime endpoint settings, binary reads, staged uploads and subscriptions. Entity Viewer
 uses it for asset-status and Content-root settings reads, including both legacy
-HTTP aliases. Binary streaming, subscriptions, the remaining viewer requests and
-WebRTC are not implemented by this slice.
+HTTP aliases. The remaining viewer migration and WebRTC are separate steps. See
+the [transport adapter contract](QuasarSdkTransport.md) for session binding,
+expiry/logout, resource limits, streaming and commit behavior.
 
 ## Register an operation
 

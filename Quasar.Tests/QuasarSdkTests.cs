@@ -24,7 +24,7 @@ using Xunit;
 namespace Quasar.Tests;
 
 [Collection("Exact server creation")]
-public sealed class QuasarSdkTests : IDisposable
+public sealed partial class QuasarSdkTests : IDisposable
 {
     private readonly string _root = Path.Combine(Path.GetTempPath(), "quasar-sdk-" + Guid.NewGuid().ToString("N"));
     private readonly FieldInfo _cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.NonPublic | BindingFlags.Static)!;
@@ -52,6 +52,10 @@ public sealed class QuasarSdkTests : IDisposable
             policy.RequireRole(QuasarRoles.Admin).RequireClaim("resource-access", "yes")));
         builder.Services.AddSingleton<IAuthorizationPolicyProvider, QuasarAuthorizationPolicyProvider>();
         builder.Services.AddScoped<QuasarOperationService>();
+        builder.Services.AddSingleton<QuasarTransferRegistry>();
+        builder.Services.AddSingleton<QuasarBrowserSessions>();
+        builder.Services.AddScoped<QuasarHttpOperations>();
+        builder.Services.AddScoped<IQuasarHttpOperations>(services => services.GetRequiredService<QuasarHttpOperations>());
         builder.Services.AddScoped<IQuasarOperationDispatcher>(services => services.GetRequiredService<QuasarOperationService>());
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
         builder.Services.AddAntiforgery();
@@ -66,6 +70,7 @@ public sealed class QuasarSdkTests : IDisposable
             (context, input, token) => Task.FromResult<object>(new { secret = "management detail" }));
         builder.Services.AddQuasarOperation<JsonElement, object>("example.plugin", "unconfigured", [],
             (context, input, token) => throw new Exception("An unconfigured handler must not execute."));
+        RegisterTransfers(builder.Services);
         var app = builder.Build();
         app.UsePathBase(Prefix);
         app.UseRouting();
@@ -270,7 +275,7 @@ public sealed class QuasarSdkTests : IDisposable
         view.Services.AddSingleton(scope.ServiceProvider.GetRequiredService<QuasarOperationService>());
         view.Services.AddSingleton(_rbac);
         var page = view.Render<QuasarSdkAuthorization>();
-        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("fieldset").Count));
+        page.WaitForAssertion(() => Assert.True(page.FindAll("fieldset").Count >= 3));
         await page.InvokeAsync(() => page.FindAll("fieldset").Single(field => field.TextContent.Contains("restricted"))
             .QuerySelector("input[type=text]")!.Change(QuasarPolicyNames.CanView));
         await page.InvokeAsync(() => page.FindAll("fieldset").Single(field => field.TextContent.Contains("restricted"))
@@ -301,13 +306,25 @@ public sealed class QuasarSdkTests : IDisposable
 
     private static async Task<HttpResponseMessage> SendSdkAsync(HttpClient client, string path, string payload)
     {
-        using var session = await client.GetAsync(Sdk + "/session");
-        var tokens = await session.Content.ReadFromJsonAsync<JsonElement>();
+        var tokens = await SessionTokensAsync(client);
         using var request = new HttpRequestMessage(HttpMethod.Post, Sdk + path);
-        request.Headers.Add("Cookie", session.Headers.GetValues("Set-Cookie").First().Split(';')[0]);
         request.Headers.Add(tokens.GetProperty("headerName").GetString()!, tokens.GetProperty("requestToken").GetString());
         request.Content = new StringContent(payload, System.Text.Encoding.UTF8, "application/json");
         return await client.SendAsync(request);
+    }
+
+    private static async Task<JsonElement> SessionTokensAsync(HttpClient client)
+    {
+        using var session = await client.GetAsync(Sdk + "/session");
+        var cookies = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (client.DefaultRequestHeaders.TryGetValues("Cookie", out var existing))
+            foreach (var cookie in string.Join(";", existing).Split(';', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries))
+            { var parts = cookie.Split('=', 2); cookies[parts[0]] = parts[1]; }
+        if (session.Headers.TryGetValues("Set-Cookie", out var added))
+            foreach (var cookie in added) { var parts = cookie.Split(';')[0].Split('=', 2); cookies[parts[0]] = parts[1]; }
+        client.DefaultRequestHeaders.Remove("Cookie");
+        client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", cookies.Select(cookie => cookie.Key + "=" + cookie.Value)));
+        return await session.Content.ReadFromJsonAsync<JsonElement>();
     }
 
     public void Dispose()

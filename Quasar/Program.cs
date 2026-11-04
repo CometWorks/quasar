@@ -208,6 +208,10 @@ public class Program
             builder.Services.AddAuthorization(ConfigureAuthorizationPolicies);
             builder.Services.AddSingleton<IAuthorizationPolicyProvider, QuasarAuthorizationPolicyProvider>();
             builder.Services.AddScoped<QuasarOperationService>();
+            builder.Services.AddSingleton<QuasarTransferRegistry>();
+            builder.Services.AddSingleton<QuasarBrowserSessions>();
+            builder.Services.AddScoped<QuasarHttpOperations>();
+            builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarHttpOperations>(services => services.GetRequiredService<QuasarHttpOperations>());
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
                 services.GetRequiredService<QuasarOperationService>());
             var hostedState = HostedPanelState.Read() ?? new HostedPanelState();
@@ -717,6 +721,8 @@ public class Program
                 return Results.BadRequest();
             }
 
+            if (context.User.Identity?.IsAuthenticated == true && context.RequestServices.GetService<QuasarBrowserSessions>() is { } sessions)
+                await sessions.RevokeAsync(context);
             await context.SignOutAsync(QuasarAuthSchemes.Cookie);
             return Results.Redirect(context.Request.PathBase + "/");
         }).AllowAnonymous();

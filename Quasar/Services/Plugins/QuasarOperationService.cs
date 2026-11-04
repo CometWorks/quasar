@@ -39,10 +39,41 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
     {
         cancellationToken.ThrowIfCancellationRequested();
         var user = _roles.RefreshRoles(context.User);
+        var denied = await CheckAccessAsync(user, pluginId, operationId, context.Kind);
+        if (denied is not null) return denied;
+        var operation = _operations[pluginId + "/" + operationId];
+        context = context with { User = user, VerifyAccess = async token =>
+        {
+            token.ThrowIfCancellationRequested();
+            var refused = await CheckAccessAsync(user, pluginId, operationId, context.Kind);
+            if (refused is not null) throw new QuasarOperationException(refused.StatusCode, refused.Error!);
+        }};
+
+        using var deadline = context.Kind == QuasarOperationKind.Json ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken) : null;
+        deadline?.CancelAfter(TimeSpan.FromSeconds(30));
+        try
+        {
+            var value = await operation.InvokeAsync(context, request, deadline?.Token ?? cancellationToken);
+            return new(200, value);
+        }
+        catch (QuasarOperationException error) { return new(error.StatusCode, Error: error.Message); }
+        catch (JsonException) { return new(400, Error: "Invalid operation request."); }
+        catch (ArgumentException) { return new(400, Error: "Invalid operation input."); }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        { return new(504, Error: "The operation deadline expired; a write outcome may be unknown."); }
+    }
+
+    public QuasarOperation? Find(string pluginId, string operationId) => _operations.GetValueOrDefault(pluginId + "/" + operationId);
+
+    public async Task<QuasarOperationResult?> CheckAccessAsync(ClaimsPrincipal caller, string pluginId,
+        string operationId, QuasarOperationKind kind)
+    {
+        var user = _roles.RefreshRoles(caller);
         if (user.Identity?.IsAuthenticated != true) return new(401, Error: "Authentication is required.");
         if (user.IsQuasarServicePrincipal()) return new(403, Error: "Service credentials are limited to their existing machine API.");
         if (!_operations.TryGetValue(pluginId + "/" + operationId, out var operation))
             return new(404, Error: "SDK operation not found.");
+        if (operation.Kind != kind) return new(400, Error: "Use the operation's registered transport primitive.");
         var config = _rbac.GetConfig();
         var rule = Rule(operation, config);
         if (!config.SdkRulesValid || rule?.Enabled != true || !await ValidPoliciesAsync(rule.RequiredPolicies))
@@ -51,18 +82,7 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
             if (!(await _authorization.AuthorizeAsync(user, null, policy)).Succeeded)
                 return new(403, Error: "The caller cannot access this SDK operation.");
 
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        deadline.CancelAfter(TimeSpan.FromSeconds(30));
-        try
-        {
-            // WaitAsync bounds the caller's wait; handlers must honor cancellation before side effects.
-            var value = await operation.InvokeAsync(context with { User = user }, request, deadline.Token).WaitAsync(deadline.Token);
-            return new(200, value);
-        }
-        catch (JsonException) { return new(400, Error: "Invalid operation request."); }
-        catch (ArgumentException) { return new(400, Error: "Invalid operation input."); }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-        { return new(504, Error: "The operation deadline expired; a write outcome may be unknown."); }
+        return null;
     }
 
     public async Task<IReadOnlyList<QuasarOperationSettings>> GetSettingsAsync(ClaimsPrincipal caller)
