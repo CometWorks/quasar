@@ -35,6 +35,7 @@
     <ProjectReference Include="..\Quasar.Bootstrap\Quasar.Bootstrap.csproj" Aliases="Bootstrap" />
   </ItemGroup>
   <ItemGroup>
+    <None Update="browser-rtc-data.test.mjs" CopyToOutputDirectory="PreserveNewest" />
     <None Update="browser-rtc.test.mjs" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

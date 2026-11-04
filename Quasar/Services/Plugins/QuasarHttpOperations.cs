@@ -104,10 +104,9 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
                     await foreach (var item in subscription.Items.WithCancellation(stop.Token))
                     {
                         await Check(stop.Token);
-                        using var buffer = new MemoryStream();
-                        await using (var bounded = new LimitedWriteStream(buffer, QuasarSdkEndpoints.MaximumJsonBytes))
-                            await JsonSerializer.SerializeAsync(bounded, item, new JsonSerializerOptions(JsonSerializerDefaults.Web) { MaxDepth = QuasarSdkLimits.MaximumJsonDepth }, stop.Token);
-                        await http.Response.Body.WriteAsync(buffer.GetBuffer().AsMemory(0, (int)buffer.Length), stop.Token);
+                        var bytes = await QuasarSdkSerialization.BoundedAsync(item, QuasarSdkLimits.MaximumJsonBytes,
+                            QuasarSdkSerialization.Items, stop.Token);
+                        await http.Response.Body.WriteAsync(bytes, stop.Token);
                         await http.Response.Body.WriteAsync("\n"u8.ToArray(), stop.Token);
                         await http.Response.Body.FlushAsync(stop.Token);
                     }
@@ -147,21 +146,4 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
         public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
-    private sealed class LimitedWriteStream(Stream inner, int limit) : Stream
-    {
-        private int _written;
-        public override bool CanRead => false;
-        public override bool CanSeek => false;
-        public override bool CanWrite => true;
-        public override long Length => _written;
-        public override long Position { get => _written; set => throw new NotSupportedException(); }
-        public override void Write(byte[] buffer, int offset, int count)
-        { if (_written + count > limit) throw new QuasarOperationException(413, "Subscription item exceeds 64 KiB."); inner.Write(buffer, offset, count); _written += count; }
-        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken token = default)
-        { Write(buffer.ToArray(), 0, buffer.Length); return ValueTask.CompletedTask; }
-        public override void Flush() => inner.Flush();
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-        public override void SetLength(long value) => throw new NotSupportedException();
-    }
 }

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -12,13 +13,17 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/pion/webrtc/v4"
 )
 
 const maximumPeers = 64
-const maximumMessage = 64 * 1024
+const maximumMessage = 66 * 1024 // 64 KiB request JSON plus its fixed envelope.
+const bulkMessage = 16*1024 + 8
+const sendWindow = 256 * 1024
 
 type endpoint struct {
 	mu    sync.Mutex
@@ -27,10 +32,25 @@ type endpoint struct {
 }
 
 type peer struct {
-	pc       *webrtc.PeerConnection
-	mu       sync.Mutex
-	expires  time.Time
-	channels map[string]*webrtc.DataChannel
+	pc              *webrtc.PeerConnection
+	mu              sync.Mutex
+	expires         time.Time
+	channels        map[string]*webrtc.DataChannel
+	ctx             context.Context
+	cancel          context.CancelFunc
+	retiring        sync.Once
+	bridges         map[string]*bridge
+	received        atomic.Uint64
+	sent            atomic.Uint64
+	maximumBuffered atomic.Uint64
+}
+
+type bridge struct {
+	dc       *webrtc.DataChannel
+	ready    chan struct{}
+	queue    chan webrtc.DataChannelMessage
+	low      chan struct{}
+	attached bool // guarded by peer.mu
 }
 
 func (e *endpoint) remove(id string) {
@@ -39,8 +59,103 @@ func (e *endpoint) remove(id string) {
 	delete(e.peers, id)
 	e.mu.Unlock()
 	if p != nil {
+		p.cancel()
 		_ = p.pc.Close()
 	}
+}
+
+func (e *endpoint) retire(id string, p *peer) { p.retiring.Do(func() { p.cancel(); go e.remove(id) }) }
+
+func (e *endpoint) connect(w http.ResponseWriter, r *http.Request, id string, p *peer, name string) {
+	if name != "control" && name != "bulk" {
+		http.NotFound(w, r)
+		return
+	}
+	p.mu.Lock()
+	b := p.bridges[name]
+	if b.attached || !time.Now().Before(p.expires) {
+		p.mu.Unlock()
+		http.Error(w, "peer channel unavailable", 409)
+		return
+	}
+	b.attached = true
+	p.mu.Unlock()
+	select {
+	case <-b.ready:
+	case <-p.ctx.Done():
+		http.NotFound(w, r)
+		return
+	case <-time.After(5 * time.Second):
+		e.retire(id, p)
+		http.Error(w, "channel deadline", 504)
+		return
+	}
+	ws, err := websocket.Accept(w, r, &websocket.AcceptOptions{Subprotocols: []string{"quasar.peer.v1"}, CompressionMode: websocket.CompressionDisabled})
+	if err != nil {
+		e.retire(id, p)
+		return
+	}
+	defer ws.CloseNow()
+	ws.SetReadLimit(maximumMessage)
+	finished := make(chan error, 2)
+	go func() {
+		for {
+			kind, data, err := ws.Read(p.ctx)
+			if err != nil {
+				finished <- err
+				return
+			}
+			if name == "control" && (kind != websocket.MessageText || len(data) > maximumMessage) ||
+				name == "bulk" && (kind != websocket.MessageBinary || len(data) > bulkMessage) {
+				finished <- errors.New("invalid IPC frame")
+				return
+			}
+			for b.dc.BufferedAmount()+uint64(len(data)) > sendWindow {
+				select {
+				case <-b.low:
+				case <-p.ctx.Done():
+					finished <- p.ctx.Err()
+					return
+				}
+			}
+			if name == "control" {
+				err = b.dc.SendText(string(data))
+			} else {
+				err = b.dc.Send(data)
+			}
+			if err != nil {
+				finished <- err
+				return
+			}
+			p.sent.Add(uint64(len(data)))
+			for old, next := p.maximumBuffered.Load(), b.dc.BufferedAmount(); next > old; old = p.maximumBuffered.Load() {
+				if p.maximumBuffered.CompareAndSwap(old, next) {
+					break
+				}
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case <-p.ctx.Done():
+				finished <- p.ctx.Err()
+				return
+			case message := <-b.queue:
+				kind := websocket.MessageBinary
+				if message.IsString {
+					kind = websocket.MessageText
+				}
+				if err := ws.Write(p.ctx, kind, message.Data); err != nil {
+					finished <- err
+					return
+				}
+			}
+		}
+	}()
+	<-finished
+	e.retire(id, p)
+	<-finished
 }
 
 func identifier(value string) bool {
@@ -87,12 +202,17 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot create peer", 503)
 			return
 		}
-		p := &peer{pc: pc, expires: time.Now().Add(30 * time.Second), channels: map[string]*webrtc.DataChannel{}}
+		ctx, cancel := context.WithCancel(context.Background())
+		p := &peer{pc: pc, expires: time.Now().Add(30 * time.Second), channels: map[string]*webrtc.DataChannel{}, ctx: ctx, cancel: cancel,
+			bridges: map[string]*bridge{
+				"control": {ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 8), low: make(chan struct{}, 1)},
+				"bulk":    {ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 16), low: make(chan struct{}, 1)},
+			}}
 		e.peers[id] = p
 		e.mu.Unlock()
 		pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 			if state == webrtc.PeerConnectionStateFailed {
-				go e.remove(id)
+				e.retire(id, p)
 			}
 		})
 		pc.OnDataChannel(func(dc *webrtc.DataChannel) {
@@ -102,15 +222,47 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			_, duplicate := p.channels[dc.Label()]
 			if valid && !duplicate {
 				p.channels[dc.Label()] = dc
+				name := "control"
+				if dc.Label() == "quasar.bulk.v1" {
+					name = "bulk"
+				}
+				p.bridges[name].dc = dc
 			}
 			p.mu.Unlock()
 			if !valid || duplicate {
-				go e.remove(id)
+				e.retire(id, p)
 				return
 			}
-			// Application messages are admitted only by the managed SDK adapter.
-			dc.OnMessage(func(message webrtc.DataChannelMessage) { go e.remove(id) })
-			dc.OnClose(func() { go e.remove(id) })
+			name := "control"
+			if dc.Label() == "quasar.bulk.v1" {
+				name = "bulk"
+			}
+			b := p.bridges[name]
+			dc.OnOpen(func() { close(b.ready) })
+			dc.SetBufferedAmountLowThreshold(sendWindow / 2)
+			dc.OnBufferedAmountLow(func() {
+				select {
+				case b.low <- struct{}{}:
+				default:
+				}
+			})
+			dc.OnMessage(func(message webrtc.DataChannelMessage) {
+				if p.ctx.Err() != nil {
+					return
+				}
+				if name == "control" && (!message.IsString || len(message.Data) > maximumMessage) ||
+					name == "bulk" && (message.IsString || len(message.Data) < 8 || len(message.Data) > bulkMessage) {
+					e.retire(id, p)
+					return
+				}
+				p.received.Add(uint64(len(message.Data)))
+				select {
+				case b.queue <- message:
+				default:
+					e.retire(id, p)
+				}
+			})
+			dc.OnClose(func() { e.retire(id, p) })
 		})
 		if pc.SetRemoteDescription(offer) != nil {
 			e.remove(id)
@@ -150,6 +302,10 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if len(parts) == 4 && parts[2] == "channels" && r.Method == "GET" {
+		e.connect(w, r, id, p, parts[3])
+		return
+	}
 	if len(parts) == 2 && r.Method == "DELETE" {
 		e.remove(id)
 		w.WriteHeader(204)
@@ -169,7 +325,8 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(parts) == 2 && r.Method == "GET" {
-		status := map[string]any{"state": p.pc.ConnectionState().String(), "path": "unavailable"}
+		status := map[string]any{"state": p.pc.ConnectionState().String(), "path": "unavailable",
+			"receivedBytes": p.received.Load(), "sentBytes": p.sent.Load(), "maximumBufferedBytes": p.maximumBuffered.Load()}
 		if transport := p.pc.SCTP(); transport != nil && transport.Transport() != nil {
 			if pair, err := transport.Transport().ICETransport().GetSelectedCandidatePair(); err == nil && pair != nil {
 				status["localCandidateType"] = pair.Local.Typ.String()

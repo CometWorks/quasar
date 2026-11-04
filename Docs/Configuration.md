@@ -2352,9 +2352,11 @@ push delivery. Automatic application does not require notifications to be enable
 
 ## Hosted public panel
 
-The development `Quasar:WebRtc:Enabled` flag defaults to `false`. The authenticated
-setup/lease proof does not yet move SDK application traffic. See
-[direct transport status and security](QuasarWebRtc.md) before enabling it.
+On the RTC development branch, Nebula-hosted sessions automatically use WebRTC
+for SDK operations, streaming and downloads. There is no separate user toggle.
+Local HTTP remains independent. Direct failure is reported without silently
+relaying bulk data. Packaging and installed acceptance are still required; see
+[direct transport status and security](QuasarWebRtc.md).
 
 Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
 access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,

@@ -279,12 +279,12 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 
 ## Hosted public access
 
-The optional WebRTC development setup uses the existing authenticated browser
+The WebRTC development adapter uses the existing authenticated browser
 session and current `CanView` policy. It does not give a native peer a Steam role
 or machine API access. Hosted peers additionally need a renewable Nebula lease;
-logout, permission loss or lease expiry closes access. The direct application
-adapter and production packaging remain pending; leave `Quasar:WebRtc:Enabled`
-off for normal deployments. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
+logout, permission loss or lease expiry closes access. Nebula-hosted SDK sessions select it automatically, with no separate user toggle.
+Direct failure is visible without automatic bulk HTTP fallback. Production
+packaging and installed acceptance remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
 
 **Security → Manage access setup** lets an admin enroll the installation with Nebula, which publishes it at `https://dash.se-servers.net/<panel-name>/`. Requests through that address always need a Steam sign-in with a role from `rbac.json`. They never get the trusted network bypass, and Quasar refuses them with 403 while authentication or Steam sign-in is off. Nebula platform rights, including free hosting, do not create a Quasar role. All Steam IDs mapped to `admin` can manage the panel in Nebula. See [Hosted access](HostedPanel.md).
 

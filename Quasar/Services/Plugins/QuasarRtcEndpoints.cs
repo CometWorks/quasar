@@ -13,6 +13,7 @@ public static class QuasarRtcEndpoints
         services.Configure<QuasarRtcOptions>(configuration.GetSection("Quasar:WebRtc"));
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<QuasarPeerProcess>();
+        services.AddSingleton<QuasarRtcAdapter>();
         services.AddSingleton<QuasarRtcSessions>();
         return services;
     }

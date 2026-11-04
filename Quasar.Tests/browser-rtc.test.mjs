@@ -67,7 +67,7 @@ test(`RTC 2 real Quasar cookie/session boundary: ${mode}`, { timeout: 90000 }, a
                 if (replayed.status !== 409) throw new Error("Setup grant replay succeeded");
                 const status = await (await response(`_quasar/sdk/v1/rtc/attempts/${setup.id}`, null, "GET")).json();
                 if (!status.active) throw new Error("Peer was not activated");
-                return { pc, id: setup.id };
+                return { pc, id: setup.id, control, bulk };
             };
             if (mode === "hosted") {
                 const abandoned = await pair(false);
@@ -100,6 +100,15 @@ test(`RTC 2 real Quasar cookie/session boundary: ${mode}`, { timeout: 90000 }, a
             const view = await pair();
             view.pc.close();
             await countZero();
+            for (const invalid of ["duplicate", "credit", "depth"]) {
+                const malformed = await pair();
+                if (invalid === "duplicate") {
+                    const frame = JSON.stringify({ v: 1, type: "request", id: 1, plugin: "rtc.fixture", operation: "echo", payload: {} });
+                    malformed.control.send(frame); malformed.control.send(frame);
+                } else if (invalid === "credit") malformed.control.send(JSON.stringify({ v: 1, type: "credit", id: 99, bytes: 1 }));
+                else malformed.control.send('{"v":1,"type":"request","id":1,"plugin":"rtc.fixture","operation":"echo","payload":' + '['.repeat(40) + '0' + ']'.repeat(40) + '}');
+                await countZero(); malformed.pc.close();
+            }
             const logout = await pair();
             globalThis.testPeerId = logout.id;
             // Leave this connection alive until the second browser's ownership check.

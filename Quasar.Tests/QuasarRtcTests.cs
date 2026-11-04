@@ -29,7 +29,7 @@ using Xunit;
 namespace Quasar.Tests;
 
 [Collection("Exact server creation")]
-public sealed class QuasarRtcTests : IDisposable
+public sealed partial class QuasarRtcTests : IDisposable
 {
     private const string Prefix = "/rtc-test-panel";
     private const string Alice = "76561198000000001";
@@ -93,7 +93,7 @@ public sealed class QuasarRtcTests : IDisposable
         await UntilAsync(() => hosted.Services.GetRequiredService<QuasarRtcSessions>().PeerCount == 0);
     }
 
-    private async Task<WebApplication> StartAsync(bool network, FakeTimeProvider? fakeTime = null)
+    private async Task<WebApplication> StartAsync(bool network, FakeTimeProvider? fakeTime = null, bool hosted = false)
     {
         await rbac.UpdateAsync(config =>
         {
@@ -104,6 +104,7 @@ public sealed class QuasarRtcTests : IDisposable
         builder.Logging.ClearProviders();
         if (network) builder.WebHost.UseUrls("http://127.0.0.1:0");
         else builder.WebHost.UseTestServer();
+        RegisterDataOperations(builder.Services);
         builder.Services.AddSingleton(rbac);
         builder.Services.AddSingleton(new QuasarAuthOptions());
         builder.Services.AddSingleton<QuasarRoleMapper>();
@@ -124,7 +125,7 @@ public sealed class QuasarRtcTests : IDisposable
         if (fakeTime is not null) builder.Services.AddSingleton<TimeProvider>(fakeTime);
         builder.Services.AddQuasarRtc(builder.Configuration);
         builder.Services.PostConfigure<QuasarRtcOptions>(options =>
-        { options.Enabled = true; options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer"); });
+        { options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer"); });
         var manager = new Manager();
         builder.Services.AddSingleton(manager);
         builder.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => manager);
@@ -132,10 +133,12 @@ public sealed class QuasarRtcTests : IDisposable
         app.Use((context, next) =>
         {
             // Model frpc's private local hop on the server. No connector proof enters JS.
-            if (fakeTime is not null) context.Request.Headers[HostedPanelRequest.Header] = HostedPanelState.Read()!.LocalProxySecret;
+            if (fakeTime is not null || hosted) context.Request.Headers[HostedPanelRequest.Header] = HostedPanelState.Read()!.LocalProxySecret;
             return HostedPanelRequest.InvokeAsync(context, next, new QuasarAuthOptions());
         });
         app.UsePathBase(Prefix);
+        app.UseStaticFiles(new StaticFileOptions { FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
+            Path.GetFullPath("../../../../Quasar/wwwroot", AppContext.BaseDirectory)) });
         app.UseRouting();
         app.UseAuthentication();
         app.UseAuthorization();
@@ -156,6 +159,8 @@ public sealed class QuasarRtcTests : IDisposable
         fixture.MapGet("/count", (QuasarRtcSessions peers) => Results.Json(new { count = peers.PeerCount }));
         fixture.MapPost("/deny", async () => { await rbac.UpdateAsync(config => { config.PolicyOverrides[QuasarPolicyNames.CanView] = []; return Task.CompletedTask; }); return Results.NoContent(); });
         fixture.MapPost("/allow", async () => { await rbac.UpdateAsync(config => { config.PolicyOverrides.Remove(QuasarPolicyNames.CanView); return Task.CompletedTask; }); return Results.NoContent(); });
+        fixture.MapPost("/file-deny", async () => { await rbac.UpdateAsync(config => { config.OperationOverrides["rtc.fixture/file"] = new() { Enabled = false, RequiredPolicies = [QuasarPolicyNames.CanView] }; return Task.CompletedTask; }); return Results.NoContent(); });
+        fixture.MapPost("/file-allow", async () => { await rbac.UpdateAsync(config => { config.OperationOverrides.Remove("rtc.fixture/file"); return Task.CompletedTask; }); return Results.NoContent(); });
         fixture.MapPost("/outage", () => { manager.Outage = true; return Results.NoContent(); });
         fixture.MapPost("/resume", () => { manager.Outage = false; return Results.NoContent(); });
         fixture.MapPost("/replace", async () => { await HostedPanelState.SaveAsync(HostedPanelState.Read()! with { Credential = Prefix[1..] + "." + new string('b', 64) }); return Results.NoContent(); });
@@ -170,15 +175,17 @@ public sealed class QuasarRtcTests : IDisposable
         var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
         var info = new ProcessStartInfo("node") { UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true };
         info.ArgumentList.Add("--test");
-        info.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "browser-rtc.test.mjs"));
+        info.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, mode == "data" ? "browser-rtc-data.test.mjs" : "browser-rtc.test.mjs"));
         info.Environment["QUASAR_RTC_TEST_URL"] = address + Prefix + "/";
         info.Environment["QUASAR_RTC_TEST_KEY"] = fixtureKey;
         info.Environment["QUASAR_RTC_TEST_MODE"] = mode;
         using var node = Process.Start(info)!;
         var output = node.StandardOutput.ReadToEndAsync();
         var error = node.StandardError.ReadToEndAsync();
-        await node.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(2));
-        Assert.True(node.ExitCode == 0, (await output) + (await error));
+        await node.WaitForExitAsync().WaitAsync(TimeSpan.FromMinutes(4));
+        var evidence = (await output) + (await error);
+        Console.WriteLine(evidence);
+        Assert.True(node.ExitCode == 0, evidence);
     }
 
     private static async Task UntilAsync(Func<bool> condition)

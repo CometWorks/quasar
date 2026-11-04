@@ -16,7 +16,7 @@ public sealed record QuasarRtcSetup(string Id, string Grant, QuasarRtcDescriptio
 /// <summary>Owns the exact core browser binding; native peer messages cannot supply a principal.</summary>
 public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeerProcess native,
     IServiceScopeFactory scopes, IHttpClientFactory clients, IHostApplicationLifetime application,
-    IOptions<QuasarRtcOptions> options, TimeProvider clock, ILogger<QuasarRtcSessions> logger) : IAsyncDisposable
+    TimeProvider clock, ILogger<QuasarRtcSessions> logger) : IAsyncDisposable
 {
     private readonly object gate = new();
     private readonly Dictionary<string, Peer> peers = new(StringComparer.Ordinal);
@@ -26,7 +26,6 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
 
     public async Task<QuasarRtcSetup> CreateAsync(QuasarBrowserSession binding, bool hosted, QuasarRtcOffer request, CancellationToken token)
     {
-        if (!options.Value.Enabled) throw new QuasarOperationException(409, "Direct connections are not enabled on this installation.");
         sessions.Verify(binding, token);
         await CheckCallerAsync(binding, token);
         if (request.Version != 1 || request.Nonce is not { Length: 64 } || request.Nonce.Any(c => !char.IsAsciiHexDigit(c))
@@ -107,6 +106,9 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             if (peer.Hosting is not null) ArmLease(peer, peer.LeaseStarted);
             else peer.LeaseExpiry.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             peer.Active = true;
+            peer.Status = status;
+            peer.Application = RunApplicationAsync(peer);
+            await peer.Ready.Task.WaitAsync(peer.Token);
         }
         finally { peer.ConfirmGate.Release(); }
     }
@@ -182,6 +184,22 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             throw new QuasarOperationException(403, "Panel access is no longer permitted.");
     }
 
+    private async Task RunApplicationAsync(Peer peer)
+    {
+        try
+        {
+            using var scope = scopes.CreateScope();
+            await scope.ServiceProvider.GetRequiredService<QuasarRtcAdapter>().RunAsync(peer);
+        }
+        catch (OperationCanceledException) when (peer.Token.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            logger.LogDebug("Direct SDK channel closed ({Reason}).", error.GetType().Name);
+            peer.Ready.TrySetException(new QuasarOperationException(503, "The direct SDK channel is unavailable."));
+        }
+        finally { peer.Cancel(); peer.Ready.TrySetCanceled(peer.Token); }
+    }
+
     private void ArmLease(Peer peer, long started)
     {
         var remaining = TimeSpan.FromSeconds(120) - clock.GetElapsedTime(started);
@@ -234,6 +252,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         try
         {
             await native.CloseAsync(peer.Id);
+            await peer.Application;
             if (peer.Hosting is { } hosting)
             {
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
@@ -300,6 +319,8 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         internal SemaphoreSlim ConfirmGate { get; } = new(1, 1);
         internal string? Grant { get; set; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         internal Task Monitor { get; set; } = Task.CompletedTask;
+        internal Task Application { get; set; } = Task.CompletedTask;
+        internal TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal HostedLease? Hosting { get; set; }
         internal ITimer LeaseExpiry { get; }
         internal int Retiring;

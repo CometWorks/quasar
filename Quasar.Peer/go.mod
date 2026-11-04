@@ -2,7 +2,10 @@ module github.com/CometWorks/quasar/peer
 
 go 1.27.3
 
-require github.com/pion/webrtc/v4 v4.2.26
+require (
+	github.com/coder/websocket v1.8.15
+	github.com/pion/webrtc/v4 v4.2.26
+)
 
 require (
 	github.com/google/uuid v1.6.0 // indirect

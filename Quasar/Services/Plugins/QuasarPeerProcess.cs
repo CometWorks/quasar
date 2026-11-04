@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Net.Http.Headers;
+using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
@@ -9,7 +10,6 @@ namespace Quasar.Services.Plugins;
 
 public sealed class QuasarRtcOptions
 {
-    public bool Enabled { get; set; }
     public string PeerExecutable { get; set; } = Path.Combine(AppContext.BaseDirectory, "Peer",
         OperatingSystem.IsWindows() ? "quasar-peer.exe" : "quasar-peer");
 }
@@ -82,6 +82,21 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
         catch (Exception error) when (error is HttpRequestException or OperationCanceledException or ObjectDisposedException) { }
     }
 
+    public async Task<ClientWebSocket> ConnectChannelAsync(string id, string channel, CancellationToken token)
+    {
+        if (channel is not ("control" or "bulk")) throw new ArgumentException("Unknown private peer channel.");
+        var current = Current();
+        var uri = new UriBuilder(new Uri(current.Http.BaseAddress!, Route(id) + "/channels/" + channel)) { Scheme = "ws" }.Uri;
+        var socket = new ClientWebSocket();
+        socket.Options.Proxy = null;
+        socket.Options.AddSubProtocol("quasar.peer.v1");
+        socket.Options.SetRequestHeader("Authorization", current.Http.DefaultRequestHeaders.Authorization!.ToString());
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
+        deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        try { await socket.ConnectAsync(uri, deadline.Token); return socket; }
+        catch { socket.Dispose(); throw; }
+    }
+
     private Connection Current()
     {
         var current = Volatile.Read(ref connection);
@@ -91,7 +106,6 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
 
     private async Task<Connection> StartAsync(CancellationToken token)
     {
-        if (!options.Value.Enabled) throw new QuasarOperationException(409, "Direct connections are not enabled on this installation.");
         await startGate.WaitAsync(token);
         try
         {
