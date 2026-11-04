@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Guided installer routing with fake dialogs/elevation. No native installs or GUI."""
 import getpass
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 
@@ -33,8 +35,12 @@ class GuidedInstaller(unittest.TestCase):
         self.executable(self.package / 'install.sh', '#!/bin/bash\nexec /usr/bin/python3 - "$@" <<\'PY\'\nimport json,os,sys\nfrom pathlib import Path\nPath(os.environ["CALLS"]).write_text(json.dumps(sys.argv))\nraise SystemExit(int(os.environ.get("BACKEND_EXIT","0")))\nPY\n')
         self.executable(self.bin / 'kdialog', '#!/usr/bin/python3\nimport json,os,sys\nwith open(os.environ["DIALOGS"],"a") as f: f.write(json.dumps(sys.argv)+"\\n")\nraise SystemExit(int(os.environ.get("CHOICE","0")) if "--yesnocancel" in sys.argv else 0)\n')
         self.executable(self.bin / 'pkexec', '#!/usr/bin/python3\nimport json,os,sys\nfrom pathlib import Path\nPath(os.environ["CALLS"]).write_text(json.dumps(sys.argv))\nraise SystemExit(int(os.environ.get("BACKEND_EXIT","0")))\n')
+        # Browser commands stay inert even when a desktop is available on the test machine.
+        self.executable(self.bin / 'xdg-open', '#!/usr/bin/python3\nimport os,sys\nfrom pathlib import Path\nPath(os.environ["BROWSER_CALL"]).write_text(sys.argv[1])\nraise SystemExit(int(os.environ.get("BROWSER_EXIT","0")))\n')
+        self.executable(self.bin / 'gio', '#!/bin/sh\nexit 1\n')
         self.env = dict(os.environ, HOME=str(self.home), PATH=str(self.bin)+os.pathsep+os.defpath,
                         CALLS=str(self.root / 'calls'), DIALOGS=str(self.root / 'dialogs'),
+                        BROWSER_CALL=str(self.root / 'browser'),
                         XDG_STATE_HOME=str(self.root / 'state'))
 
     def tearDown(self):
@@ -81,6 +87,45 @@ class GuidedInstaller(unittest.TestCase):
         for choice in ['1','2']:
             self.assertEqual(self.run_gui(CHOICE=choice).returncode, 0)
             self.assertFalse((self.root / 'calls').exists())
+            self.assertFalse((self.root / 'browser').exists())
+
+    def test_success_opens_configured_address_after_health_check(self):
+        calls = []
+        browser = self.root / 'browser'
+        class Health(BaseHTTPRequestHandler):
+            def do_GET(self):
+                calls.append(self.path)
+                assert not browser.exists(), 'Browser opened before readiness check'
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"status":"ok"}')
+
+            def log_message(self, *_):
+                pass
+
+        with ThreadingHTTPServer(('127.0.0.1', 0), Health) as server:
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            try:
+                url = f'http://127.0.0.1:{server.server_port}'
+                installed = self.home / '.local/share/Quasar'
+                installed.mkdir(parents=True)
+                protected = self.root / 'metadata.json'
+                protected.write_text(json.dumps(dict(installDirectory=str(installed), healthUrl=url,
+                    account=getpass.getuser(), mainService='quasar.service', userService=False)))
+                (installed / 'service-installation.json').write_text(json.dumps(dict(metadataPath=str(protected))))
+                result = self.run_gui()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(calls, ['/api/health'])
+                self.assertEqual(browser.read_text(), url)
+                self.assertIn('Opening Quasar in your browser', (self.root / 'dialogs').read_text())
+                browser.unlink()
+                result = self.run_gui(BROWSER_EXIT='1')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('Could not open the browser', (self.root / 'dialogs').read_text())
+            finally:
+                server.shutdown()
+                thread.join()
 
     def test_zenity_manual_and_cancel_choices_remain_unelevated(self):
         (self.bin / 'kdialog').unlink()
@@ -101,11 +146,13 @@ class GuidedInstaller(unittest.TestCase):
         dialogs = (self.root / 'dialogs').read_text()
         self.assertIn('Installation did not complete', dialogs)
         self.assertNotIn('are installed.', dialogs)
+        self.assertFalse((self.root / 'browser').exists())
         self.assertEqual(len(list((self.root / 'state/Quasar').glob('install-*.log'))), 1)
 
     def test_polkit_cancel_never_reports_success(self):
         self.assertEqual(self.run_gui(BACKEND_EXIT='126').returncode, 0)
         self.assertNotIn('are installed.', (self.root / 'dialogs').read_text())
+        self.assertFalse((self.root / 'browser').exists())
 
     def test_existing_user_scope_path_and_name_survive(self):
         protected = self.root / 'metadata.json'

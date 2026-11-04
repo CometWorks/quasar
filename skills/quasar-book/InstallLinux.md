@@ -31,9 +31,9 @@ For a new install it shows the plan and asks for polkit approval:
 - Scope: system services (`quasar.service` and `quasar-updater.service` in `/etc/systemd/system`).
 - It runs `install.sh --system --user <you> --install-dependencies --yes --start`, so CA certificates, SteamCMD's 32-bit libraries, polkit and the .NET 10 runtime are installed through the package manager when missing.
 
-If `~/.local/share/Quasar` (or the package folder) already holds an installation, the guided installer reads its `service-installation.json` and keeps its path, account, service name and user or system scope. Reading it needs `python3`. An installation that runs as another account needs the manual install.
+If `~/.local/share/Quasar` (or the package folder) already holds an installation, the guided installer reads its `service-installation.json` and keeps its path, account, service name and user or system scope. Reading it needs `python3`. Automatic browser opening also needs `python3`; a new installation still succeeds without it and shows manual access guidance. An installation that runs as another account needs the manual install.
 
-On success it shows `Quasar and its updater are installed.` with the log path. Every run writes a private log to `${XDG_STATE_HOME:-~/.local/state}/Quasar/install-*.log`. Canceling the polkit prompt leaves the system unchanged. **Manual install** shows the terminal commands instead. A server without a desktop uses the manual commands below.
+On success it waits up to 90 seconds for Quasar to answer its health check, then opens the configured address, including a custom port, in your desktop browser through `xdg-open` or `gio`. The success dialog shows the address and log path. If Quasar is not ready or the browser cannot open, it gives manual access guidance; the installation remains installed. Ordinary service restarts do not open browsers. Every run writes a private log to `${XDG_STATE_HOME:-~/.local/state}/Quasar/install-*.log`. Canceling the polkit prompt leaves the system unchanged. **Manual install** shows the terminal commands instead. A server without a desktop uses the manual commands below.
 
 ## Prerequisites
 

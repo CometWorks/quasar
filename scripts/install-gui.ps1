@@ -1,11 +1,16 @@
 #!/usr/bin/env pwsh
 # A graphical entry point only; install.ps1 owns files, migration and services.
 [CmdletBinding()]
-param([string]$InstallDir, [string]$DataDir, [switch]$Elevated, [switch]$Manual)
-function Get-ElevatedInstallCommand([string]$Script, [string]$ApplicationPath, [string]$DataPath) {
+param([string]$InstallDir, [string]$DataDir, [switch]$Elevated, [switch]$Manual, [string]$ResultFile)
+function Get-ElevatedInstallCommand([string]$Script, [string]$ApplicationPath, [string]$DataPath, [string]$ResultPath) {
     function Literal([string]$Value) { return "'" + $Value.Replace("'", "''") + "'" }
-    $command = '& ' + (Literal $Script) + ' -Elevated -InstallDir ' + (Literal $ApplicationPath) + ' -DataDir ' + (Literal $DataPath)
+    $command = '& ' + (Literal $Script) + ' -Elevated -InstallDir ' + (Literal $ApplicationPath) + ' -DataDir ' + (Literal $DataPath) + ' -ResultFile ' + (Literal $ResultPath)
     return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+}
+function Open-QuasarBrowser([string]$Url) {
+    $uri = $null
+    if (-not [Uri]::TryCreate($Url, [UriKind]::Absolute, [ref]$uri) -or $uri.Scheme -notin @('http','https')) { throw 'Invalid Quasar address.' }
+    Start-Process -FilePath $uri.AbsoluteUri
 }
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows -and $PSVersionTable.PSEdition -ne 'Desktop') { throw 'Windows only.' }
@@ -41,7 +46,9 @@ try {
             $arguments.UpdaterServiceName = $existing.updaterService
         }
         & $backend @arguments
-        [void][Windows.Forms.MessageBox]::Show('Quasar and its updater are installed and running. Open the configured Quasar address (http://localhost:8080 by default). Keep this package until you have checked your installation.', 'Quasar installed', 'OK', 'Information')
+        # Only the address crosses back to the desktop process, never the health token.
+        $installed = Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json
+        [IO.File]::WriteAllText($ResultFile, $installed.healthUrl)
         exit 0
     }
     $form = New-Object Windows.Forms.Form
@@ -81,10 +88,24 @@ try {
     }
     # Encode PowerShell literals, not command-line interpolation. Apostrophes and
     # shell metacharacters in user-selected paths remain data through UAC.
-    $encoded = Get-ElevatedInstallCommand $PSCommandPath $InstallDir $DataDir
-    $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
-    $process = Start-Process -FilePath $powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded) -Verb RunAs -Wait -PassThru
-    exit $process.ExitCode
+    $resultPath = [IO.Path]::GetTempFileName()
+    try {
+        $encoded = Get-ElevatedInstallCommand $PSCommandPath $InstallDir $DataDir $resultPath
+        $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
+        $process = Start-Process -FilePath $powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded) -Verb RunAs -Wait -PassThru
+        if ($process.ExitCode -ne 0) { exit $process.ExitCode }
+        $message = 'Quasar and its updater are installed and running. Keep this package until you have checked your installation.'
+        try {
+            $url = [IO.File]::ReadAllText($resultPath).Trim()
+            # Launch as the original desktop user, after the elevated installer exits.
+            Open-QuasarBrowser $url
+            $message += "`r`n`r`nOpening Quasar in your browser: $url"
+        } catch {
+            $message += "`r`n`r`nCould not open the browser. Open the configured Quasar address manually ($url)."
+        }
+        [void][Windows.Forms.MessageBox]::Show($message, 'Quasar installed', 'OK', 'Information')
+        exit 0
+    } finally { Remove-Item -LiteralPath $resultPath -Force -ErrorAction SilentlyContinue }
 } catch {
     if ($_.Exception.NativeErrorCode -eq 1223) { exit 0 } # UAC cancelled, no installation.
     [void][Windows.Forms.MessageBox]::Show($_.Exception.Message + "`r`n`r`nUse Manual install for custom names, accounts or legacy task migration. Run install.ps1 from an elevated PowerShell to retain full diagnostic output.", 'Quasar installation failed', 'OK', 'Error')

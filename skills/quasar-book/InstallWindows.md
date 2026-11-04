@@ -29,7 +29,7 @@ Open **Install.cmd** in the extracted `Quasar` folder. It starts `install-gui.ps
 | Application folder | `%ProgramFiles%\Quasar` |
 | Data folder (worlds and settings) | `%ProgramData%\Quasar` |
 
-Choose **Install** and approve the UAC prompt. The elevated part runs `install.ps1 -InstallDir <application> -DataDir <data> -Start` and shows `Quasar and its updater are installed and running.` with the address (`http://localhost:8080` by default). Keep the extracted package until you have checked the installation.
+Choose **Install** and approve the UAC prompt. The elevated part runs `install.ps1 -InstallDir <application> -DataDir <data> -Start` and waits for the service health checks. After it succeeds, the original desktop process opens the configured address, including a custom port, in your default browser. The browser runs as your desktop user. The success dialog shows `Quasar and its updater are installed and running.` and the address, or manual access guidance if the browser cannot open. Ordinary service restarts do not open browsers. Keep the extracted package until you have checked the installation.
 
 When a service named `Quasar` already exists, the folder fields show `Existing installation (read after administrator approval)`. After UAC the installer reads the installation record and keeps its folders and service names. Custom service names, a service under a named account and a Scheduled Task migration need the manual install. Canceling UAC installs nothing. On failure an error dialog shows the message, and the console window waits for a key; run `install.ps1` from an elevated PowerShell to keep the full output. **Manual install** shows the commands.
 

@@ -75,7 +75,42 @@ log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/Quasar"
 mkdir -p -- "$log_dir"
 log="$(mktemp "$log_dir/install-XXXXXXXX.log")"
 if "${arguments[@]}" >"$log" 2>&1; then
-    message msgbox "Quasar and its updater are installed. Open the configured Quasar address (http://localhost:8080 by default).
+    # Read the configured address, including custom ports, without exposing credentials.
+    if url="$(python3 - "$install_dir/service-installation.json" 2>>"$log" <<'PY'
+import json, sys, time, urllib.parse, urllib.request
+from pathlib import Path
+path = Path(sys.argv[1])
+value = json.loads(path.read_text())
+if 'installDirectory' not in value:
+    value = json.loads(Path(value['metadataPath']).read_text())
+url = value['healthUrl'].rstrip('/')
+if urllib.parse.urlparse(url).scheme not in ('http', 'https'):
+    raise ValueError('Invalid Quasar address')
+print(url, flush=True)
+deadline = time.monotonic() + 90
+opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+while True:
+    try:
+        with opener.open(url + '/api/health', timeout=2) as response:
+            if json.load(response).get('status') == 'ok':
+                break
+    except (OSError, ValueError):
+        pass
+    if time.monotonic() >= deadline:
+        sys.exit('Quasar did not become ready within 90 seconds')
+    time.sleep(.5)
+PY
+    )"; then
+        if { command -v xdg-open >/dev/null 2>&1 && xdg-open "$url" >>"$log" 2>&1; } ||
+           { command -v gio >/dev/null 2>&1 && gio open "$url" >>"$log" 2>&1; }; then
+            browser_message="Opening Quasar in your browser: $url"
+        else
+            browser_message="Could not open the browser. Open Quasar manually: $url"
+        fi
+    else
+        browser_message="Could not open Quasar automatically. Check the installation log and open the configured address manually${url:+: $url}."
+    fi
+    message msgbox "Quasar and its updater are installed. $browser_message
 
 Installation log: $log"
 else
