@@ -2182,10 +2182,8 @@ named at once in Stopping, because no clean proof can follow it.
 `POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
 panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
-rollback is an ordinary new update. After abandoning a start where no node ever ran, the next
-update waits in Stopping, because a Gateway whose World Authority never ran lists `global` as
-unsaved: abandon that update too and apply it with `acceptDirtyShutdown` (**Update despite the
-recorded dirty shutdown**). Abandon is refused while a deployment activation is half applied on the
+rollback is an ordinary new update. After abandoning a start where no node ever ran, apply the
+next update as usual. Abandon is refused while a deployment activation is half applied on the
 Hosts; resume that activation or recover the cluster instead.
 The one command an update accepts is an emergency shutdown (`cluster command NAME REQUEST.json`
 with `{"action":"shutdown","parameters":{"emergency":true}}`) while it stops or starts the cluster.
