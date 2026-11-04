@@ -66,7 +66,7 @@
             var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
             var result = await JS.InvokeAsync<ChartResult?>("quasarCharts.sync", new
             {
-                endpoint = "api/analytics/series", from = now - 1800, to = now, maxPoints = 180,
+                from = now - 1800, to = now, maxPoints = 180,
                 servers = _sources.Keys.ToArray(),
                 names = _sources,
                 metrics = new[] { new { key = "simspeed", containerId = _containerId, height = 220 } },

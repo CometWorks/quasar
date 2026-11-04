@@ -17,11 +17,13 @@ test('fleet chart reuses analytics data, leaves gaps, follows custom palettes, a
         destroy() { this.destroyed = true; }
     }
     const context = vm.createContext({
-        window: { addEventListener() {} },
+        window: { addEventListener() {}, quasarSdk: { async request(plugin, operation, input) {
+            assert.equal(plugin, 'quasar.core'); assert.equal(operation, 'analytics.series.read');
+            assert.equal(input.metrics[0], "simspeed"); return payload;
+        } } },
         document: { baseURI: 'https://dash.test/my-server-panel/', getElementById: () => ({ clientWidth: 700, clientHeight: 220, getBoundingClientRect: () => ({ width: 700, height: 220 }) }) },
         getComputedStyle: () => ({ getPropertyValue: key => styles.get(key.replace('--quasar-palette-', '')) || '' }),
         uPlot: Plot, URLSearchParams, URL, ResizeObserver: class { observe() {} disconnect() {} },
-        fetch: async url => { assert.match(String(url), /metrics=simspeed/); assert.equal(url.pathname, '/my-server-panel/api/analytics/series'); return { ok: true, text: async () => JSON.stringify(payload) }; },
     });
     vm.runInContext(source, context);
     const charts = context.window.quasarCharts;

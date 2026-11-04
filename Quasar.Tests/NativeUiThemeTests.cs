@@ -619,7 +619,10 @@ public sealed class NativeAppearanceTests : IDisposable
         page.WaitForAssertion(() => Assert.Contains("Historical server output", page.Markup));
         Assert.True(page.FindAll("button").Single(x => x.TextContent == "Refresh").HasAttribute("disabled"));
         page.Find("button[title='Download full server log']").Click();
-        Assert.Contains("SpaceEngineersDedicated-old.log", context.JSInterop.Invocations["quasarConfigs.downloadFile"].Single().Arguments[0]!.ToString());
+        var download = context.JSInterop.Invocations["quasarSdk.download"].Single();
+        Assert.Equal("quasar.core", download.Arguments[0]);
+        Assert.Equal("logs.server.read", download.Arguments[1]);
+        Assert.Contains("SpaceEngineersDedicated-old.log", System.Text.Json.JsonSerializer.Serialize(download.Arguments[2]));
         page.FindAll(".quasar-console-tabs button")[1].Click();
         page.WaitForAssertion(() => Assert.Contains("Magnetar plugin output", page.Markup));
         page.WaitForAssertion(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarConfigs.detachRolloverLog"]));

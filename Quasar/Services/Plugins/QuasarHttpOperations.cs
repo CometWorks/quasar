@@ -44,7 +44,16 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
     {
         public async Task ExecuteAsync(HttpContext http)
         {
-            if (claim) owner.Transfers.Get(await owner.Sessions.BindHttpSessionAsync(http), transfer.Id, claim: true);
+            if (claim)
+            {
+                try { owner.Transfers.Get(await owner.Sessions.BindHttpSessionAsync(http), transfer.Id, claim: true); }
+                catch (QuasarOperationException error)
+                {
+                    owner.Transfers.Remove(transfer);
+                    await Results.Problem(statusCode: error.StatusCode, detail: error.Message).ExecuteAsync(http);
+                    return;
+                }
+            }
             http.Response.Headers.CacheControl = "private, no-store";
             using var stop = CancellationTokenSource.CreateLinkedTokenSource(transfer.Token, http.RequestAborted);
             Func<CancellationToken, Task>? featureCheck = null;

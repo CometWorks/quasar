@@ -17,6 +17,24 @@ A UI plugin can:
 
 UI plugins are loaded once per worker start. Install, update, enable, disable and remove all change files on disk only, and take effect after a Quasar restart.
 
+## Browser operation SDK
+
+Plugins can register protected operations with Quasar browser SDK v1. Quasar
+handles authentication, requests, streaming limits and cancellation. Plugins
+retain their feature rules, such as asset consent and ownership. Entity Viewer
+uses the SDK for scenes, asset setup/downloads and recording history.
+
+**Security**, **Plugin endpoint authorization**, lists plugin and adopted core
+operations. Administrators can disable an operation or change its required
+policies. Missing or invalid rules deny access. The same rule applies to adopted
+legacy URLs. See [Access control](AccessControl.md#plugin-endpoint-authorization).
+
+A plugin can require `browserSdkVersion: 1`. Quasar rejects unsupported versions
+before loading its assembly. An update error in a viewer means Quasar and the
+plugin need matching versions. Old plugins without this declaration keep their
+existing interfaces and routes. The SDK currently uses HTTP; WebRTC is separate
+work. Developers can use [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
+
 ## The UI Plugins page
 
 Open **UI Plugins** in the **Infrastructure & tools** section of the navigation (`/settings/ui-plugins`). The page needs the `CanManageSecurity` permission; see [Access control](AccessControl.md).
@@ -274,3 +292,4 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar.Tests/QuasarShutdownTests.cs`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`

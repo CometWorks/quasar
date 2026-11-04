@@ -333,3 +333,4 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 - `Shared/Networking/MachineEndpointPolicy.cs`
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`

@@ -88,6 +88,7 @@ public sealed partial class QuasarSdkTests : IDisposable
         builder.Services.AddQuasarOperation<JsonElement, object>("example.plugin", "unconfigured", [],
             (context, input, token) => throw new Exception("An unconfigured handler must not execute."));
         RegisterTransfers(builder.Services);
+        RegisterCore(builder.Services);
         var app = builder.Build();
         app.UsePathBase(Prefix);
         app.UseRouting();
@@ -102,6 +103,8 @@ public sealed partial class QuasarSdkTests : IDisposable
         });
         app.UseAuthorization();
         app.MapQuasarSdk();
+        app.MapQuasarCoreOperations();
+        new LegacyPlugin().ConfigureEndpoints(app, null!);
         foreach (var prefix in new[] { "/_quasar/plugins/example.plugin", "/_content/Example" })
         {
             app.MapQuasarOperationRead(prefix + "/api/read", "example.plugin", "read");

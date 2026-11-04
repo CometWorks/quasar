@@ -214,6 +214,7 @@ public class Program
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarHttpOperations>(services => services.GetRequiredService<QuasarHttpOperations>());
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
                 services.GetRequiredService<QuasarOperationService>());
+            builder.Services.AddQuasarCoreOperations();
             var hostedState = HostedPanelState.Read() ?? new HostedPanelState();
             builder.Services.AddAntiforgery(options => options.Cookie.Name = ".Quasar.Csrf." + hostedState.LocalProxySecret[..16]);
             builder.Services.AddHttpClient("Nebula", http => { http.Timeout = TimeSpan.FromSeconds(15); http.MaxResponseContentBufferSize = 64 * 1024; })
@@ -444,20 +445,7 @@ public class Program
             app.MapClusterApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 
-            // Analytics chart data, fetched directly by the browser (uPlot) instead of being pushed
-            // through the Blazor SignalR circuit. Averaged down to maxPoints per series server-side.
-            var analyticsSeries = app.MapGet("/api/analytics/series", (HttpContext context, AnalyticsSeriesService seriesService) =>
-            {
-                var query = context.Request.Query;
-                _ = long.TryParse(query["from"], out var fromUnix);
-                _ = long.TryParse(query["to"], out var toUnix);
-                _ = int.TryParse(query["maxPoints"], out var maxPoints);
-                var servers = query["servers"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
-                var metrics = query["metrics"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
-                return Results.Json(seriesService.Build(fromUnix, toUnix, servers, metrics, maxPoints));
-            });
-            if (authOptions.Enabled)
-                analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
+            app.MapQuasarCoreOperations();
 
             // Chartable plugin-statistics metrics discovered at runtime from what plugins have
             // published (provider/group/field), so the Analytics page can offer them as panels.
@@ -468,28 +456,6 @@ public class Program
             });
             if (authOptions.Enabled)
                 pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
-
-            var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
-                DownloadLogFile(ResolveDedicatedServerLogPath(
-                    uniqueName,
-                    catalog,
-                    context.Request.Query["name"].FirstOrDefault())));
-
-            var magnetarLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/magnetar/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
-                DownloadLogFile(ResolveMagnetarInfoLogPath(
-                    uniqueName,
-                    catalog,
-                    context.Request.Query["name"].FirstOrDefault())));
-
-            var discordLogDownload = app.MapGet("/api/discord/log/download", (WebServiceOptions options) =>
-                DownloadLogFile(QuasarLoggingConfigurator.ResolveDiscordLogPath(options)));
-
-            if (authOptions.Enabled)
-            {
-                serverLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
-                magnetarLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
-                discordLogDownload.RequireAuthorization(QuasarPolicyNames.CanManageDiscord);
-            }
 
             // Generates a fresh configuration backup and streams it as a download.
             var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>
@@ -964,67 +930,6 @@ public class Program
             return;
 
         options.KnownIPNetworks.Add(new System.Net.IPNetwork(prefix, prefixLength));
-    }
-
-    private static IResult DownloadLogFile(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            return Results.NotFound();
-
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return Results.File(stream, "text/plain; charset=utf-8", Path.GetFileName(path));
-    }
-
-    private static string? ResolveDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
-    {
-        var server = catalog.GetServer(uniqueName);
-        if (server is null)
-            return null;
-
-        var appDataPath = DedicatedServerPathResolver.Resolve(server).DedicatedServerAppDataPath;
-
-        if (!Directory.Exists(appDataPath))
-            return null;
-
-        return ResolveLogPath(appDataPath, "SpaceEngineersDedicated*.log", fileName);
-    }
-
-    private static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
-    {
-        var server = catalog.GetServer(uniqueName);
-        if (server is null)
-            return null;
-
-        var appDataPath = DedicatedServerPathResolver.Resolve(server).MagnetarAppDataPath;
-
-        if (!Directory.Exists(appDataPath))
-            return null;
-
-        return ResolveLogPath(appDataPath, "info*.log", fileName);
-    }
-
-    private static string? ResolveLogPath(string directory, string searchPattern, string? fileName)
-    {
-        if (!string.IsNullOrWhiteSpace(fileName))
-        {
-            var trimmedFileName = fileName.Trim();
-            if (!string.Equals(trimmedFileName, Path.GetFileName(trimmedFileName), StringComparison.Ordinal) ||
-                trimmedFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                return null;
-            }
-
-            return Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
-                .FirstOrDefault(path => string.Equals(
-                    Path.GetFileName(path),
-                    trimmedFileName,
-                    StringComparison.OrdinalIgnoreCase));
-        }
-
-        return Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .ThenByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
     }
 
     private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable

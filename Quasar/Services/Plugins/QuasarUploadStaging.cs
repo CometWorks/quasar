@@ -27,10 +27,10 @@ public static class QuasarUploadStaging
             if (File.GetLastWriteTimeUtc(file) < DateTime.UtcNow.AddHours(-1))
                 try { File.Delete(file); } catch (IOException) { }
         var path = Path.Combine(directory, Guid.NewGuid().ToString("N") + ".upload");
-        var stream = new FileStream(path, new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.ReadWrite,
-            Share = FileShare.None, Options = FileOptions.Asynchronous | FileOptions.DeleteOnClose,
-            UnixCreateMode = OperatingSystem.IsWindows() ? null : UnixFileMode.UserRead | UnixFileMode.UserWrite });
-        return stream;
+        var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.ReadWrite,
+            Share = FileShare.None, Options = FileOptions.Asynchronous | FileOptions.DeleteOnClose };
+        if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+        return new FileStream(path, options);
     }
 
     private static async Task CopyUploadAsync(Stream source, Stream destination, long maximum, CancellationToken token)
