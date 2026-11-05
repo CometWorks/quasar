@@ -26,10 +26,12 @@ public sealed class QuasarAgentIdentity : ClaimsIdentity
         string? discordUserId,
         string conversationId,
         string request,
-        IEnumerable<string> roles
+        IEnumerable<string> roles,
+        string? server = null
     )
         : base(Claims(kind, roles), Provider)
     {
+        Server = server;
         Kind = kind;
         Asker = asker;
         PlayerSteamId = playerSteamId;
@@ -52,10 +54,14 @@ public sealed class QuasarAgentIdentity : ClaimsIdentity
     /// <summary>The text that led to the call, for the audit log.</summary>
     public string Request { get; }
 
+    /// <summary>The standalone server or cluster (unique name) a player's game request came from; null otherwise.
+    /// Player operations default to it.</summary>
+    public string? Server { get; }
+
     public string Subject => Kind == QuasarAgentKind.Assistant ? "agent:assistant" : "agent:player";
 
     internal QuasarAgentIdentity With(IEnumerable<string> roles, ClaimsPrincipal? asker) =>
-        new(Kind, asker, PlayerSteamId, PlayerName, DiscordUserId, ConversationId, Request, roles);
+        new(Kind, asker, PlayerSteamId, PlayerName, DiscordUserId, ConversationId, Request, roles, Server);
 
     // Keeps the agent type when ASP.NET Core clones a principal.
     public override ClaimsIdentity Clone() =>

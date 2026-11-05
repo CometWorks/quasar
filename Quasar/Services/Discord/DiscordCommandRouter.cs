@@ -1,5 +1,6 @@
 using Discord;
 using Discord.WebSocket;
+using Quasar.Services.Assistant;
 
 namespace Quasar.Services.Discord;
 
@@ -7,8 +8,13 @@ public sealed class DiscordCommandRouter
 {
     private const string WhisperCommandName = "whisper";
     private const string FactionChannelCommandName = "faction-channel";
+    private const string LinkCommandName = "link";
+    private const string AskCommandName = "ask";
+    private const string AssistantCommandName = "assistant";
     private readonly DiscordOptionsCatalog _optionsCatalog;
     private readonly DiscordCommandDispatcher _dispatcher;
+    private readonly QuasarPlayerRequests _requests;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<DiscordCommandRouter> _logger;
     private readonly object _messageSync = new();
     private Task _messageTask = Task.CompletedTask;
@@ -16,10 +22,14 @@ public sealed class DiscordCommandRouter
     public DiscordCommandRouter(
         DiscordOptionsCatalog optionsCatalog,
         DiscordCommandDispatcher dispatcher,
+        QuasarPlayerRequests requests,
+        IHostApplicationLifetime lifetime,
         ILogger<DiscordCommandRouter> logger)
     {
         _optionsCatalog = optionsCatalog;
         _dispatcher = dispatcher;
+        _requests = requests;
+        _lifetime = lifetime;
         _logger = logger;
     }
 
@@ -147,7 +157,30 @@ public sealed class DiscordCommandRouter
             .AddOption("server", ApplicationCommandOptionType.String, "Server name, or cluster:<name>", isRequired: true)
             .AddOption("faction", ApplicationCommandOptionType.String, "Space Engineers faction tag", isRequired: true);
 
-        await guild.BulkOverwriteApplicationCommandAsync([whisper.Build(), factionChannel.Build()]);
+        var link = new SlashCommandBuilder()
+            .WithName(LinkCommandName)
+            .WithDescription("Link your Discord account to your Space Engineers player. Type !link in game for a code.")
+            .WithContextTypes(InteractionContextType.Guild)
+            .AddOption("code", ApplicationCommandOptionType.String, "The code !link whispered to you in game", isRequired: true);
+
+        List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build(), link.Build()];
+        // The assistant commands exist only while a UI plugin answers them.
+        if (_requests.HasPlayerHandlers)
+            commands.Add(new SlashCommandBuilder()
+                .WithName(AskCommandName)
+                .WithDescription("Ask the server's assistant.")
+                .WithContextTypes(InteractionContextType.Guild)
+                .AddOption("question", ApplicationCommandOptionType.String, "Your question", isRequired: true)
+                .Build());
+        if (_requests.HasAdminHandlers)
+            commands.Add(new SlashCommandBuilder()
+                .WithName(AssistantCommandName)
+                .WithDescription("Ask the admin assistant (mapped Quasar admins only).")
+                .WithContextTypes(InteractionContextType.Guild)
+                .AddOption("question", ApplicationCommandOptionType.String, "Your question", isRequired: true)
+                .Build());
+
+        await guild.BulkOverwriteApplicationCommandAsync(commands.ToArray());
     }
 
     public async Task HandleSlashCommandAsync(SocketSlashCommand command)
@@ -165,6 +198,17 @@ public sealed class DiscordCommandRouter
                     break;
                 case FactionChannelCommandName:
                     await HandleFactionChannelAsync(command, options);
+                    break;
+                case LinkCommandName:
+                    await HandleLinkAsync(command);
+                    break;
+                case AskCommandName:
+                    await HandleAssistantAsync(command, ephemeral: true, (user, channel, text, reply, token) =>
+                        _requests.AskFromDiscordAsync(user, channel, text, reply, token));
+                    break;
+                case AssistantCommandName:
+                    await HandleAssistantAsync(command, ephemeral: false, (user, channel, text, reply, token) =>
+                        _requests.AskAdminFromDiscordAsync(user, channel, text, reply, token));
                     break;
             }
         }
@@ -198,6 +242,52 @@ public sealed class DiscordCommandRouter
 
         await _dispatcher.SendWhisperAsync(server, recipient, message, author);
         await command.ModifyOriginalResponseAsync(properties => properties.Content = $"Whisper sent to {recipient}.");
+    }
+
+    private async Task HandleLinkAsync(SocketSlashCommand command)
+    {
+        await command.DeferAsync(ephemeral: true);
+        var link = await _requests.LinkDiscordAsync(command.User.Id.ToString(), GetOption(command, "code"), _lifetime.ApplicationStopping);
+        await command.ModifyOriginalResponseAsync(properties => properties.Content = link is null
+            ? "That code is unknown or expired. Type !link in game for a new one."
+            : "Linked. The assistant now knows your Space Engineers player.");
+    }
+
+    // Players' answers stay private (ephemeral); /assistant answers in the admin channel. The answer can take
+    // minutes, so it runs off the gateway's event handler.
+    private async Task HandleAssistantAsync(SocketSlashCommand command, bool ephemeral,
+        Func<string, string, string, Func<string, CancellationToken, Task>, CancellationToken, Task> ask)
+    {
+        await command.DeferAsync(ephemeral: ephemeral);
+        var question = GetOption(command, "question");
+        var responded = 0;
+        async Task ReplyAsync(string text, CancellationToken token)
+        {
+            foreach (var part in QuasarTextSplitter.Split(text, QuasarTextSplitter.DiscordLength, QuasarTextSplitter.MaxDiscordMessages))
+            {
+                if (Interlocked.Exchange(ref responded, 1) == 0)
+                    await command.ModifyOriginalResponseAsync(properties => properties.Content = part);
+                else
+                    await command.FollowupAsync(part, ephemeral: ephemeral, allowedMentions: AllowedMentions.None);
+            }
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await ask(command.User.Id.ToString(), command.ChannelId?.ToString() ?? string.Empty, question, ReplyAsync,
+                    _lifetime.ApplicationStopping);
+                if (Volatile.Read(ref responded) == 0)
+                    await command.DeleteOriginalResponseAsync();
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Discord /{CommandName} failed", command.Data.Name);
+                try { await ReplyAsync("The assistant could not answer: " + exception.Message, CancellationToken.None); }
+                catch (Exception) { }
+            }
+        });
     }
 
     private async Task HandleFactionChannelAsync(SocketSlashCommand command, DiscordOptions options)

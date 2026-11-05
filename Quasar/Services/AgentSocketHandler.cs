@@ -30,6 +30,7 @@ public sealed class AgentSocketHandler
     private readonly PluginLogStream _pluginLogStream;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<AgentSocketHandler> _logger;
+    private readonly Assistant.QuasarPlayerRequests? _playerRequests;
 
     public AgentSocketHandler(
         AgentRegistry registry,
@@ -38,8 +39,10 @@ public sealed class AgentSocketHandler
         DedicatedServerSupervisor supervisor,
         PluginLogStream pluginLogStream,
         IHostApplicationLifetime lifetime,
-        ILogger<AgentSocketHandler> logger)
+        ILogger<AgentSocketHandler> logger,
+        Assistant.QuasarPlayerRequests? playerRequests = null)
     {
+        _playerRequests = playerRequests;
         _registry = registry;
         _authenticator = authenticator;
         _pluginConfigService = pluginConfigService;
@@ -280,6 +283,12 @@ public sealed class AgentSocketHandler
                         connectionId);
                 }
 
+                break;
+
+            case WireMessageKind.PlayerRequest when message.PlayerRequest is not null:
+                // The assistant's answer can take minutes: never on the receive loop.
+                _playerRequests?.Accept(connectionId, message.PlayerRequest, _lifetime.ApplicationStopping);
+                _registry.TouchConnection(connectionId);
                 break;
 
             case WireMessageKind.Ping:

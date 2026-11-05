@@ -424,6 +424,18 @@ public sealed class AgentRegistry
         }
     }
 
+    /// <summary>The authenticated agent speaking on a connection: the only trusted source of a message's server.</summary>
+    public bool TryGetConnectedAgent(string connectionId, out AgentRuntimeState agent)
+    {
+        lock (_sync)
+        {
+            var state = string.IsNullOrWhiteSpace(connectionId) ? null : _agents.Values.FirstOrDefault(current =>
+                current.IsConnected && current.Hello is not null && current.ConnectionId == connectionId);
+            agent = state?.Clone()!;
+            return state is not null;
+        }
+    }
+
     public bool IsCurrentConnection(string agentId, string connectionId)
     {
         lock (_sync) return _agents.TryGetValue(agentId, out var state)

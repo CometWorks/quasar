@@ -4,6 +4,7 @@ using Quasar.Models;
 using Quasar.Networking;
 using Quasar.Services;
 using Quasar.Services.Analytics;
+using Quasar.Services.Assistant;
 using Quasar.Services.Auth;
 using Quasar.Services.ServerList;
 using Quasar.Services.Backup;
@@ -302,6 +303,7 @@ public class Program
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
+            builder.Services.AddQuasarPlayerAssistance();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarPluginHubCatalog>();
