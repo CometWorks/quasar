@@ -278,7 +278,9 @@ public sealed class WorldBackupTests : IDisposable
         var provider = context.Render<MudDialogProvider>();
         // Exercise the real page handler without rendering unrelated backup schedule controls.
         var page = new Backup();
-        foreach (var service in new object[] { supervisor, queue, context.Services.GetRequiredService<IDialogService>(), context.Services.GetRequiredService<ISnackbar>() })
+        var operations = new ServiceCollection().AddSingleton(servers).AddSingleton(supervisor).AddSingleton(queue)
+            .AddDirectCoreOperations().BuildServiceProvider();
+        foreach (var service in new object[] { supervisor, queue, context.Services.GetRequiredService<IDialogService>(), context.Services.GetRequiredService<ISnackbar>(), operations })
         {
             var property = typeof(Backup).GetProperties(BindingFlags.NonPublic | BindingFlags.Instance)
                 .Single(p => p.PropertyType.IsInstanceOfType(service));

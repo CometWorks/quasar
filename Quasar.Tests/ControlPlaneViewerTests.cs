@@ -122,6 +122,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         IHttpClientFactory? workshopHttp = null)
     {
         context.Services.AddSingleton(profiles);
+        context.Services.AddDirectCoreOperations();
         var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
         context.Services.AddSingleton(devFolders);
         var pluginHubs = new QuasarPluginHubCatalog(NullLogger<QuasarPluginHubCatalog>.Instance);
