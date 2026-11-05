@@ -1,6 +1,6 @@
 # Access control
 
-This page covers who can use the Quasar web UI and API: Steam sign-in, the trusted-network bypass, the three roles and what each can do, the `rbac.json` file, the **Security** page, API tokens for automation, the separate policy for machine endpoints, and how to recover when you lock yourself out. For first-time admin setup see [First setup](FirstSetup.md#set-the-first-administrator).
+This page covers who can use the Quasar web UI and API: Steam sign-in, the trusted-network bypass, the three roles and what each can do, the `rbac.json` file, the **Security** page, the assistant and player agent principals, the **Audit log**, API tokens for automation, the separate policy for machine endpoints, and how to recover when you lock yourself out. For first-time admin setup see [First setup](FirstSetup.md#set-the-first-administrator).
 
 ## How Quasar identifies a caller
 
@@ -39,6 +39,8 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | `CanManageAppearance` | editor, admin | **Appearance** page |
 | `CanManageSecurity` | admin | **Security**, **UI Plugins**, **Backups**, **Updates**, host enrollment, listing changes, backup downloads |
 | `CanShutdownQuasar` | admin | Power button in the top bar (**Restart Quasar**, **Shutdown Quasar**) |
+| `CanUseAssistant` | editor, admin | Chatting with the admin assistant of an assistant UI plugin |
+| `CanActAsPlayer` | none; only the player agent | Player-scoped operations of the player agent |
 | `ClusterQuery` | viewer, editor, admin, or scope `cluster.query`/`cluster.manage` | Viewing clusters and the cluster query API |
 | `ClusterManage` | editor, admin, or scope `cluster.manage` | Changing clusters |
 | `ClusterMaintenance` | authenticated admin | Offline profiling, deliberate compensation prediction and per-key production-rate cache clear |
@@ -88,6 +90,24 @@ asset administration and history default to `CanManageSecurity`. Asset consent
 and user ownership still apply after you change an operation policy. WebRTC
 remains a separate implementation. See [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
 
+### Assistant and player agent
+
+An assistant UI plugin acts through two agent principals that Quasar builds
+itself; no cookie, token or request header can claim to be one. The admin
+assistant acts for the person chatting with it, who needs `CanUseAssistant`.
+The player agent acts for one player and only gets `CanActAsPlayer` operations.
+
+**Assistant roles** under **Plugin endpoint authorization** sets the roles each
+agent acts with: the admin assistant has `editor` and the player agent none by
+default. Neither can hold `admin`; saving it fails with "An assistant or player
+agent can never hold the admin role." and Quasar drops it from a hand-edited
+file. On top of its roles, a call from either agent is refused with "Assistants
+cannot use this operation." when the operation needs `CanManageSecurity` or
+`CanShutdownQuasar`, its plugin closed it to agents, or it belongs to security,
+RBAC, auth settings, service principals, updates, Workshop credentials, the
+Discord bot token or the assistant's LLM settings. The assistant also never does
+more than the person asking it could do by hand.
+
 ## The rbac.json file
 
 `rbac.json` lives in the Quasar data directory (the install root, `QUASAR_INSTALL_DIR`), next to `appsettings.json`. See [Configuration](Configuration.md#where-files-live) for paths.
@@ -99,7 +119,8 @@ remains a separate implementation. See [the SDK guide](https://github.com/CometW
     { "provider": "Steam", "subject": "76561198000000001", "roles": ["viewer"] }
   ],
   "claimRoleMappings": [],
-  "policyOverrides": {}
+  "policyOverrides": {},
+  "agentRoles": { "assistant": ["editor"], "player": [] }
 }
 ```
 
@@ -109,6 +130,7 @@ Rules Quasar applies when it reads the file:
 - Role names are lowercased. Unknown role names are dropped. A mapping with no valid role or an empty subject is dropped. Duplicate provider and subject pairs keep the first.
 - A subject can have several roles; the highest one decides in practice, since each role grants a superset of the one below.
 - `claimRoleMappings` and `policyOverrides` are read and saved but do not change who can do what. The permission table above is fixed.
+- `agentRoles` keeps only `assistant` and `player`. A missing entry gets its default, and `admin` is dropped.
 
 Quasar watches the file. Saving it while Quasar runs applies the change within moments, and the log shows "Reloaded RBAC config from disk after external edit." If the file is not valid JSON, Quasar logs "Failed loading RBAC config from <path>" and treats it as having no mappings, so no Steam user has a role until the file is fixed.
 
@@ -135,6 +157,16 @@ The **Provider** list also offers "Oidc", but such mappings have no effect, see 
 ### The first administrator
 
 When `rbac.json` has no mapping with the `admin` role, the access setup dialog ("Set up administrator access") opens for anyone with admin rights. Without a mapping that means the trusted network bypass, usually a browser on the Quasar machine. Its first step asks for an **Administrator SteamID64 or profile URL**; **Save administrator and continue** resolves a profile URL and writes the numeric SteamID64 mapping to `rbac.json`. A failed lookup leaves the step open and saves nothing. A Steam sign-in alone cannot claim an installation that has no administrator, because an unmapped account has no role. The dialog also opens while no access method (self-deploy or hosted) has been chosen yet; **Cancel** dismisses it. See also [First setup](FirstSetup.md#set-the-first-administrator).
+
+## Audit log
+
+**Audit log** (`/audit`, admin only, under **Infrastructure & tools**) lists every change made through Quasar's operation registry, by people, the admin assistant and the player agent. Reads are not recorded. Areas of Quasar whose pages don't call the operation registry yet are not audited either; the page says so at the top.
+
+Each entry shows the time (UTC), who acted, who asked (the person behind the assistant, or the player's Steam ID and name), the operation, the server, the mode (applied, proposed by an agent, or approved by an admin) and the result (ok, refused, failed). **Details** shows the arguments, with passwords, tokens and keys replaced by `<redacted>`, the error, and the undo data. Filter by time range, principal, requester, operation, server and result.
+
+**Undo** appears on changes whose operation can reverse them. It needs `CanManageSecurity` and the permissions of the original operation. Quasar first checks that the current state is still what the change left. If not, the page shows the difference and offers **Undo anyway** or **Leave it**. An undo is a new entry; entries are never rewritten, and a change can be undone once.
+
+Entries and their undo files are kept for `Quasar:Audit:RetentionDays` days (default 30) in `audit/<yyyy-MM>.jsonl` and `audit/blobs/` in the data directory. An entry whose undo data has expired can no longer be undone.
 
 ## Trusted network bypass
 
@@ -367,6 +399,12 @@ Keep the complete Quasar package and peer component together when updating.
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Quasar/Services/Plugins/QuasarOperationService.cs`
+- `Quasar/Services/Auth/QuasarAgentPrincipals.cs`
+- `Quasar/Services/Auth/RbacConfig.cs`
+- `Quasar/Services/Audit/QuasarAuditLog.cs`
+- `Quasar/Components/Pages/Audit.razor`
+- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
 
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar/Components/Pages/ServerWorldImportDialog.razor`

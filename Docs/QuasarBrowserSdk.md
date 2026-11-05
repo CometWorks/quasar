@@ -39,6 +39,81 @@ This maps to the same dispatcher rather than adding an independent handler or
 static policy gate. Preserve any additional feature checks in the registered
 handler. Other existing plugin endpoints remain supported.
 
+## Operation metadata, audit and undo
+
+Every registration helper takes an optional `QuasarOperationMetadata`:
+
+```csharp
+services.AddQuasarOperation<SetMotdRequest, SetMotdResponse>(
+    context.PluginId, "servers.motd.set", [QuasarPolicyNames.CanEditConfigs],
+    async (caller, request, token) =>
+    {
+        var service = caller.Services.GetRequiredService<MotdService>();
+        caller.Undo!.SetData(new { request.Server, before = service.Get(request.Server), after = request.Text });
+        caller.Undo.Server = request.Server;
+        return await service.SetAsync(request.Server, request.Text, token);
+    },
+    new QuasarOperationMetadata { Reversal = QuasarReversal.Undo, Undo = new MotdUndo() });
+```
+
+- `Effect` is `Read` or `Change`. Read and subscription operations default to
+  `Read`, JSON and upload operations to `Change`. Declare `Effect = Read` on a
+  JSON operation that changes nothing. Quasar writes an audit entry for every
+  change operation call, and an assistant can only propose a change.
+- `Area` is a lowercase identifier such as `servers` or `config`. It defaults to
+  the first `.`-separated segment of the operation ID.
+- `Reversal` is `NotReversible` (the default), `NothingToReverse` (a save, a
+  kick, a chat message) or `Undo`, which needs an `IQuasarUndoHandler` in `Undo`.
+- `Deadline` replaces the 30-second deadline of JSON operations; 1 to 300 seconds.
+  An invalid value fails registration.
+- `AgentAccess = Denied` closes the operation to both agent principals.
+
+During a change operation, `QuasarOperationContext.Undo` records what an undo
+needs: `SetData` for small values kept inline in the audit entry,
+`AddBlobAsync` for files, such as a replaced file or a grid blueprint, and
+`Server` for the audit page's server filter. An `Undo` operation that records
+nothing is audited as not reversible.
+
+Undo is for admins only, from the **Audit log** page. Quasar first calls the
+handler's `CheckAsync`: null means the current state is still what the change
+left; otherwise it returns a short description of the difference, which the
+admin sees before choosing **Undo anyway**. Then it calls `ReverseAsync` and
+writes a new entry that points at the reversed one. The handler gets the
+recorded data and the entry's blob folder in `QuasarUndoContext`. The admin
+needs `CanManageSecurity` and the original operation's current policies. Undo
+data and blobs expire with the entry, after `Quasar:Audit:RetentionDays`
+(default 30).
+
+The audit log is `audit/<yyyy-MM>.jsonl` in the Quasar data folder, one JSON
+object per line, with blobs in `audit/blobs/<entry id>/`. Argument values whose
+names look like a password, token, secret or key are stored as `<redacted>`.
+`IQuasarAuditLog` lets a plugin record an agent's proposal and query entries.
+Only changes made through the operation registry are audited.
+
+### Agent principals
+
+Quasar core builds two agent principals in process: the admin assistant, which
+acts for a person, and the player agent, which acts for one player. Nothing
+read from a cookie, token, header or the SDK wire can be one. A plugin creates
+the assistant with `IQuasarAgentPrincipals.CreateAssistantAsync`, which needs a
+person allowed `CanUseAssistant` (editor and admin by default). Test for an agent
+with `principal.IsQuasarAgent(out var agent)`.
+
+For an agent call the dispatcher also:
+
+- refuses operations declared `AgentAccess = Denied`, operations whose
+  effective rule requires `CanManageSecurity` or `CanShutdownQuasar`, and
+  operation IDs starting with `security.`, `rbac.`, `auth.`,
+  `service-principals.`, `update.`, `updates.`, `workshop.credentials`,
+  `discord.token`, `assistant.settings` or `llm.`, under any plugin ID;
+- checks the agent's own roles from `agentRoles` in `rbac.json` (assistant
+  `editor`, player none by default; never `admin`);
+- checks the assistant's asker too, so it never does more than the asker could
+  do by hand, and the approver of a proposal (`QuasarOperationContext.ApprovedBy`).
+
+Player-scoped operations use the `CanActAsPlayer` policy. No role grants it and
+a role override cannot; only the player agent satisfies it.
+
 ## Browser requests
 
 In `ConfigureEndpoints`, expose a Quasar-owned discovery module at each plugin
