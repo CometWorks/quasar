@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.IO.Compression;
 using System.Xml.Linq;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
@@ -109,6 +110,18 @@ public sealed record ExistingServerImportResult(
     IReadOnlyList<QuasarWorldTemplate> WorldTemplates,
     IReadOnlyList<string> Warnings);
 
+/// <summary>Uploaded server files retained through review and removed on disposal.</summary>
+public sealed class StagedServerImport : IDisposable
+{
+    private readonly string _root;
+    public ExistingServerImportAnalysis Analysis { get; }
+
+    internal StagedServerImport(string root, ExistingServerImportAnalysis analysis)
+        => (_root, Analysis) = (root, analysis);
+
+    public void Dispose() => WorldSaveFiles.Cleanup(_root);
+}
+
 public sealed class ExistingServerImportService(
     DedicatedServerCatalog servers,
     QuasarWorldTemplateCatalog worldTemplates,
@@ -118,15 +131,121 @@ public sealed class ExistingServerImportService(
     public ExistingServerImportAnalysis Analyze(ExistingServerKind kind, string sourcePath) =>
         ExistingServerImportAnalyzer.Analyze(kind, sourcePath);
 
-    public async Task<ExistingServerImportResult> ImportAsync(
-        ExistingServerImportRequest request,
+    public Task<StagedServerImport> StageZipAsync(ExistingServerKind kind, Stream input, string stagingParent,
+        IProgress<WorldImportProgress>? progress = null, CancellationToken cancellationToken = default)
+        => Task.Run(async () =>
+        {
+            if (!input.CanSeek) throw new InvalidOperationException("Server ZIP import requires seekable access to the selected file.");
+            string root = WorldSaveFiles.CreateStagingRoot(stagingParent);
+            try
+            {
+                progress?.Report(new("Checking ZIP contents", 0));
+                cancellationToken.ThrowIfCancellationRequested();
+                using var archive = new ZipArchive(input, ZipArchiveMode.Read, leaveOpen: true);
+                var entries = WorldSaveFiles.ReadZipEntries(archive, cancellationToken);
+                string marker = kind == ExistingServerKind.Torch ? "Torch.cfg" : "SpaceEngineers-Dedicated.cfg";
+                var configs = entries.Where(item => !item.Path.Split('/').Any(part => part.Equals("Backup", StringComparison.OrdinalIgnoreCase))
+                    && Path.GetFileName(item.Path) == marker).ToList();
+                if (configs.Count != 1)
+                    throw new InvalidOperationException($"ZIP must contain exactly one {marker}. Archive one server instance, including its Saves folder.");
+                string prefix = configs[0].Path[..^marker.Length];
+                string source = Path.Combine(root, "Server");
+                Directory.CreateDirectory(source);
+                var files = entries.Where(item => !item.Path.EndsWith('/') && item.Path.StartsWith(prefix, StringComparison.Ordinal))
+                    .ToDictionary(item => Path.Combine(source, item.Path[prefix.Length..].Replace('/', Path.DirectorySeparatorChar)),
+                        item => item.Entry, PathComparer);
+                var directories = new HashSet<string>(PathComparer) { source };
+                foreach (string file in files.Keys)
+                    for (string? parent = Path.GetDirectoryName(file); parent is not null && directories.Add(parent); parent = Path.GetDirectoryName(parent))
+                        if (PathsEqual(parent, source)) break;
+
+                long bytes = 0, compressedBytes = 0, declaredBytes = 0;
+                var copied = new HashSet<string>(PathComparer);
+                await CopyConfigAsync(Path.Combine(source, marker));
+                string appData = kind == ExistingServerKind.Torch
+                    ? ExistingServerImportAnalyzer.FindTorchLayout(source, source, files.ContainsKey, directories.Contains).AppDataPath
+                    : source;
+                await CopyConfigAsync(Path.Combine(appData, "SpaceEngineers-Dedicated.cfg"));
+                var worlds = ExistingServerImportAnalyzer.FindArchiveWorldPaths(source, appData,
+                    files.ContainsKey, directories.Contains,
+                    path => directories.Where(directory => PathComparer.Equals(Path.GetDirectoryName(directory), path)));
+                if (worlds.Count == 0) throw new InvalidOperationException("ZIP contains no world folders referenced by the server configuration or its Saves folder.");
+                var worldRoots = worlds.ToHashSet(PathComparer);
+                var required = files.Where(item => !copied.Contains(item.Key) && IsWorldFile(item.Key)).ToList();
+                // Check declared sizes before requesting any world contents from the browser.
+                if (checked(compressedBytes + required.Sum(item => item.Value.CompressedLength)) > WorldSaveFiles.MaxUploadBytes
+                    || checked(declaredBytes + required.Sum(item => item.Value.Length)) > WorldSaveFiles.MaxWorldBytes)
+                    throw new InvalidOperationException("Required server files exceed the import size limit (10 GiB compressed, 50 GiB extracted).");
+                foreach (string world in worlds)
+                {
+                    await CopyAsync(Path.Combine(world, "Sandbox.sbc"), "Validating world checkpoints");
+                    WorldSaveFiles.ValidateWorld(world, cancellationToken);
+                }
+                foreach (var item in required)
+                    await CopyAsync(item.Key, "Transferring required world files");
+                foreach (var item in entries.Where(item => item.Path.EndsWith('/') && item.Path.StartsWith(prefix, StringComparison.Ordinal)))
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    string directory = Path.Combine(source, item.Path[prefix.Length..].TrimEnd('/').Replace('/', Path.DirectorySeparatorChar));
+                    if (IsWorldFile(directory)) Directory.CreateDirectory(directory);
+                }
+                var analysis = ExistingServerImportAnalyzer.Analyze(kind, source, restrictToSource: true);
+                return new StagedServerImport(root, analysis);
+
+                bool IsWorldFile(string path)
+                {
+                    for (string? parent = Path.GetDirectoryName(path); parent is not null; parent = Path.GetDirectoryName(parent))
+                    {
+                        if (worldRoots.Contains(parent))
+                            return !Path.GetRelativePath(parent, path).Split(Path.DirectorySeparatorChar)[0]
+                                .Equals("Backup", StringComparison.OrdinalIgnoreCase);
+                        if (PathsEqual(parent, source)) break;
+                    }
+                    return false;
+                }
+
+                async Task CopyConfigAsync(string path)
+                {
+                    if (!files.TryGetValue(path, out var entry)) throw new InvalidOperationException($"ZIP is missing {Path.GetFileName(path)} in the server instance.");
+                    if (entry.Length > 16 * 1024 * 1024) throw new InvalidOperationException("Server configuration exceeds 16 MiB.");
+                    await CopyAsync(path, "Reading server configuration");
+                }
+
+                async Task CopyAsync(string path, string phase)
+                {
+                    if (!copied.Add(path)) return;
+                    var entry = files[path];
+                    compressedBytes = checked(compressedBytes + entry.CompressedLength);
+                    declaredBytes = checked(declaredBytes + entry.Length);
+                    if (compressedBytes > WorldSaveFiles.MaxUploadBytes || declaredBytes > WorldSaveFiles.MaxWorldBytes)
+                        throw new InvalidOperationException("Required server files exceed the import size limit (10 GiB compressed, 50 GiB extracted).");
+                    bytes += await WorldSaveFiles.CopyZipEntryAsync(entry, input, path, WorldSaveFiles.MaxWorldBytes - bytes,
+                        count => progress?.Report(new(phase, bytes + count)), cancellationToken);
+                }
+            }
+            catch { WorldSaveFiles.Cleanup(root); throw; }
+        }, cancellationToken);
+
+    public Task<ExistingServerImportResult> ImportAsync(ExistingServerImportRequest request,
+        CancellationToken cancellationToken = default) => ImportCoreAsync(request, false, cancellationToken);
+
+    public Task<ExistingServerImportResult> ImportArchiveAsync(StagedServerImport source, ExistingServerImportRequest request,
         CancellationToken cancellationToken = default)
+    {
+        if (request.Kind != source.Analysis.Kind || !PathsEqual(request.SourcePath, source.Analysis.SourcePath)
+            || request.TransferMode != ExistingServerTransferMode.Copy)
+            throw new InvalidOperationException("Uploaded servers must be copied from their staged source.");
+        return ImportCoreAsync(request, true, cancellationToken);
+    }
+
+    private async Task<ExistingServerImportResult> ImportCoreAsync(ExistingServerImportRequest request,
+        bool restrictToSource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!request.SourceServerStoppedConfirmed)
             throw new InvalidOperationException("Confirm that the source server is stopped before importing it.");
 
-        var analysis = Analyze(request.Kind, request.SourcePath);
+        var analysis = ExistingServerImportAnalyzer.Analyze(request.Kind, request.SourcePath, restrictToSource);
         var selectedWorlds = ResolveSelectedWorlds(analysis, request.SelectedWorldPaths);
         var primaryWorld = selectedWorlds.FirstOrDefault(world => PathsEqual(world.Path, request.PrimaryWorldPath))
             ?? throw new InvalidOperationException("Primary world must be one of the selected worlds.");
@@ -438,7 +557,7 @@ public sealed class ExistingServerImportService(
 
 public static class ExistingServerImportAnalyzer
 {
-    public static ExistingServerImportAnalysis Analyze(ExistingServerKind kind, string sourcePath)
+    public static ExistingServerImportAnalysis Analyze(ExistingServerKind kind, string sourcePath, bool restrictToSource = false)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
             throw new InvalidOperationException("Source server folder required.");
@@ -447,18 +566,19 @@ public static class ExistingServerImportAnalyzer
         if (!Directory.Exists(sourceRoot))
             throw new DirectoryNotFoundException($"Source server folder not found: {sourceRoot}");
 
+        string? boundary = restrictToSource ? sourceRoot : null;
         var warnings = new List<string>();
         var torch = kind == ExistingServerKind.Torch
-            ? FindTorchLayout(sourceRoot)
+            ? FindTorchLayout(sourceRoot, boundary)
             : null;
         var appDataPath = torch?.AppDataPath ?? FindVanillaAppDataPath(sourceRoot, warnings);
         var configPath = Path.Combine(appDataPath, "SpaceEngineers-Dedicated.cfg");
         var config = ReadDedicatedConfig(configPath);
-        var worldPaths = FindWorldPaths(sourceRoot, appDataPath, config.LoadWorld);
+        var worldPaths = FindWorldPaths(sourceRoot, appDataPath, config.LoadWorld, boundary);
         if (worldPaths.Count == 0)
             throw new InvalidOperationException($"No world folders containing Sandbox.sbc found under '{appDataPath}'.");
 
-        var configuredPath = ResolveForeignPath(config.LoadWorld, appDataPath, sourceRoot);
+        var configuredPath = ResolveForeignPath(config.LoadWorld, appDataPath, sourceRoot, boundary);
         var worlds = new List<ExistingServerWorldCandidate>();
         foreach (var worldPath in worldPaths)
         {
@@ -560,13 +680,16 @@ public static class ExistingServerImportAnalyzer
         };
     }
 
-    private static TorchLayout FindTorchLayout(string sourceRoot)
+    internal static TorchLayout FindTorchLayout(string sourceRoot, string? boundary,
+        Func<string, bool>? configExists = null, Func<string, bool>? directoryExists = null)
     {
+        configExists ??= File.Exists;
+        directoryExists ??= Directory.Exists;
         var torchConfigPath = Path.Combine(sourceRoot, "Torch.cfg");
         if (!File.Exists(torchConfigPath))
         {
             var parent = Directory.GetParent(sourceRoot)?.FullName;
-            if (!string.IsNullOrWhiteSpace(parent) && File.Exists(Path.Combine(parent, "Torch.cfg")))
+            if (boundary is null && !string.IsNullOrWhiteSpace(parent) && File.Exists(Path.Combine(parent, "Torch.cfg")))
             {
                 torchConfigPath = Path.Combine(parent, "Torch.cfg");
                 sourceRoot = parent;
@@ -584,14 +707,14 @@ public static class ExistingServerImportAnalyzer
             {
                 sourceRoot,
                 Path.Combine(sourceRoot, "Instance"),
-                ResolveForeignPath(configuredInstance, sourceRoot, sourceRoot),
+                ResolveForeignPath(configuredInstance, sourceRoot, sourceRoot, boundary, directoryExists),
             }
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => Path.GetFullPath(path!))
             .Distinct(PathComparer)
             .ToList();
         var appDataPath = candidates.FirstOrDefault(path =>
-            File.Exists(Path.Combine(path, "SpaceEngineers-Dedicated.cfg")));
+            configExists(Path.Combine(path, "SpaceEngineers-Dedicated.cfg")));
         if (appDataPath is null)
             throw new InvalidOperationException($"Torch instance SpaceEngineers-Dedicated.cfg not found below '{sourceRoot}'.");
 
@@ -623,16 +746,28 @@ public static class ExistingServerImportAnalyzer
         return matches[0];
     }
 
-    private static IReadOnlyList<string> FindWorldPaths(string sourceRoot, string appDataPath, string loadWorld)
+    internal static IReadOnlyList<string> FindArchiveWorldPaths(string sourceRoot, string appDataPath,
+        Func<string, bool> fileExists, Func<string, bool> directoryExists, Func<string, IEnumerable<string>> enumerateDirectories)
+        => FindWorldPaths(sourceRoot, appDataPath,
+            ReadDedicatedConfig(Path.Combine(appDataPath, "SpaceEngineers-Dedicated.cfg")).LoadWorld,
+            sourceRoot, fileExists, directoryExists, enumerateDirectories);
+
+    private static IReadOnlyList<string> FindWorldPaths(string sourceRoot, string appDataPath, string loadWorld, string? boundary,
+        Func<string, bool>? fileExists = null, Func<string, bool>? directoryExists = null,
+        Func<string, IEnumerable<string>>? enumerateDirectories = null)
     {
+        fileExists ??= File.Exists;
+        directoryExists ??= Directory.Exists;
+        enumerateDirectories ??= Directory.EnumerateDirectories;
         var results = new List<string>();
-        var configured = ResolveForeignPath(loadWorld, appDataPath, sourceRoot);
+        var seen = new HashSet<string>(PathComparer);
+        var configured = ResolveForeignPath(loadWorld, appDataPath, sourceRoot, boundary, directoryExists);
         AddWorld(configured);
 
         var savesPath = Path.Combine(appDataPath, "Saves");
-        if (Directory.Exists(savesPath))
+        if (directoryExists(savesPath))
         {
-            foreach (var directory in Directory.EnumerateDirectories(savesPath))
+            foreach (var directory in enumerateDirectories(savesPath))
                 AddWorld(directory);
         }
 
@@ -643,9 +778,9 @@ public static class ExistingServerImportAnalyzer
             if (string.IsNullOrWhiteSpace(path))
                 return;
             var fullPath = Path.GetFullPath(path);
-            if (!File.Exists(Path.Combine(fullPath, "Sandbox.sbc")))
+            if (!fileExists(Path.Combine(fullPath, "Sandbox.sbc")))
                 return;
-            if (results.All(existing => !PathsEqual(existing, fullPath)))
+            if (seen.Add(fullPath))
                 results.Add(fullPath);
         }
     }
@@ -728,8 +863,10 @@ public static class ExistingServerImportAnalyzer
         }
     }
 
-    private static string? ResolveForeignPath(string? value, string appDataPath, string sourceRoot)
+    private static string? ResolveForeignPath(string? value, string appDataPath, string sourceRoot, string? boundary,
+        Func<string, bool>? directoryExists = null)
     {
+        directoryExists ??= Directory.Exists;
         if (string.IsNullOrWhiteSpace(value))
             return null;
         var normalized = value.Trim().Replace('\\', '/');
@@ -756,10 +893,10 @@ public static class ExistingServerImportAnalyzer
             candidates.Add(Path.Combine(sourceRoot, leaf));
         }
 
-        return candidates
-            .Select(Path.GetFullPath)
-            .FirstOrDefault(Directory.Exists)
-            ?? candidates.Select(Path.GetFullPath).FirstOrDefault();
+        var allowed = candidates.Select(Path.GetFullPath)
+            .Where(path => boundary is null || DedicatedServerPathResolver.IsPathWithinRoot(path, boundary))
+            .ToList();
+        return allowed.FirstOrDefault(directoryExists) ?? allowed.FirstOrDefault();
     }
 
     private static string ReadWorldName(string sandboxConfigPath, string fallback)
@@ -827,7 +964,7 @@ public static class ExistingServerImportAnalyzer
     private static StringComparer PathComparer =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
-    private sealed record TorchLayout(
+    internal sealed record TorchLayout(
         string AppDataPath,
         bool Autostart,
         bool RestartOnCrash,

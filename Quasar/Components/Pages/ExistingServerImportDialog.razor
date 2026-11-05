@@ -1,5 +1,8 @@
+@implements IAsyncDisposable
 @inject ExistingServerImportService Importer
 @inject IDialogService DialogService
+@inject QuasarPermissionService Permissions
+@inject IJSRuntime JS
 
 <MudDialog>
     <TitleContent>
@@ -22,8 +25,14 @@
             }
             @if (_busy)
             {
-                <QuasarOperationLoader Title="@(_step == 1 ? "Finding your server and worlds" : "Importing your server")"
+                <QuasarOperationLoader Title="@(_step == 1 ? (_zipMode ? "Uploading and checking your server" : "Finding your server and worlds") : "Importing your server")"
                                        Message="@(_step == 1 ? "Reading the server configuration and checking save folders. Your source files stay unchanged during discovery. Review the detected worlds and settings next." : "Rechecking the source, copying selected worlds and creating the matching configuration and stopped server. Large saves can take several minutes; keep the source server stopped and this dialog open.")" />
+            }
+
+            @if (_busy && _step == 1 && _zipMode)
+            {
+                <p role="status" aria-live="polite">@(_progress?.Phase ?? "Reading ZIP") · @((_progress?.Bytes ?? 0) / 1048576) MiB</p>
+                <MudButton OnClick="CancelTransfer">Cancel upload</MudButton>
             }
 
             @if (_step == -1)
@@ -71,7 +80,7 @@
                                    Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.Storage"
                                    Style="width: 100%; min-height: 72px;"
-                                   OnClick="@(() => _kind = ExistingServerKind.Vanilla)">
+                                   OnClick="@(() => SetKind(ExistingServerKind.Vanilla))">
                             Vanilla Dedicated Server
                         </MudButton>
                     </MudItem>
@@ -80,7 +89,7 @@
                                    Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.Build"
                                    Style="width: 100%; min-height: 72px;"
-                                   OnClick="@(() => _kind = ExistingServerKind.Torch)">
+                                   OnClick="@(() => SetKind(ExistingServerKind.Torch))">
                             Torch
                         </MudButton>
                     </MudItem>
@@ -89,35 +98,49 @@
             else if (_step == 1)
             {
                 <h3 class="quasar-text quasar-type-subtitle1">Locate @KindLabel server</h3>
-                <div class="quasar-layout quasar-layout-row quasar-align-start quasar-gap-1">
-                    <MudTextField @bind-Value="_sourcePath"
-                                  Label="Source server folder"
-                                  Variant="Variant.Outlined"
-                                  Class="mono flex-grow-1"
-                                  Immediate="true"
-                                  HelperText="@(IsTorch ? "Select folder containing Torch.cfg." : "Select DS app-data folder containing SpaceEngineers-Dedicated.cfg, or its parent.")" />
-                    <MudButton Variant="Variant.Outlined"
-                               Color="Color.Primary"
-                               StartIcon="@Icons.Material.Filled.FolderOpen"
-                               OnClick="BrowseAsync">
-                        Browse
-                    </MudButton>
+                <div class="world-source-tabs" role="group" aria-label="Server source">
+                    <button type="button" aria-pressed="@(!_zipMode)" class="quasar-button @(!_zipMode ? "quasar-button-primary" : "")" disabled="@_busy" @onclick="@(() => SetSourceMode(false))">Server Folder</button>
+                    <button type="button" aria-pressed="@_zipMode" class="quasar-button @(_zipMode ? "quasar-button-primary" : "")" disabled="@_busy" @onclick="@(() => SetSourceMode(true))">Upload ZIP</button>
                 </div>
-
-                <h3 class="quasar-text quasar-type-subtitle2">Transfer mode</h3>
-                <MudRadioGroup T="ExistingServerTransferMode" @bind-Value="_transferMode">
-                    <MudRadio T="ExistingServerTransferMode" Value="ExistingServerTransferMode.Copy" Color="Color.Primary">
-                        Copy — keep source world folders unchanged
-                    </MudRadio>
-                    <MudRadio T="ExistingServerTransferMode" Value="ExistingServerTransferMode.Move" Color="Color.Warning">
-                        Move — remove selected source world folders after successful import
-                    </MudRadio>
-                </MudRadioGroup>
-                @if (_transferMode == ExistingServerTransferMode.Move)
+                @if (_zipMode)
                 {
-                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-                        Move keeps source install, config, plugins, and logs for recovery. Only selected world folders are removed, and only after Quasar commits managed copies.
-                    </MudAlert>
+                    <label class="quasar-field">
+                        <span>Server ZIP file</span>
+                        <InputFile @ref="_zipInput" OnChange="SelectZip" accept=".zip,application/zip" disabled="@_busy" />
+                        <small>@(IsTorch ? "Include Torch.cfg, the instance configuration and Saves folder." : "Include SpaceEngineers-Dedicated.cfg and its Saves folder.") One server instance, at the ZIP root or inside an enclosing folder. Only server configs and detected saves transfer, up to 10 GiB compressed.</small>
+                    </label>
+                    @if (_staged is not null)
+                    {
+                        <span role="status">@_zipName was read. Required files are ready to analyze again.</span>
+                    }
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Quasar reads the ZIP index first. Unneeded binaries, plugins, logs, caches and world backups stay on your PC. Required files are copied; your ZIP stays unchanged.</MudAlert>
+                }
+                else
+                {
+                    <div class="world-path-field">
+                        <label class="quasar-field" for="@_pathId">Source server folder</label>
+                        <div class="world-path-controls">
+                            <input id="@_pathId" class="world-text-input mono" @bind="_sourcePath" @bind:event="oninput" disabled="@_busy" aria-describedby="@(_pathId + "-help")" />
+                            <button type="button" class="quasar-button" disabled="@_busy" @onclick="BrowseAsync"><QuasarIcon Icon="@Icons.Material.Filled.FolderOpen" />Browse</button>
+                        </div>
+                        <small id="@(_pathId + "-help")">@(IsTorch ? "Folder on the Quasar machine containing Torch.cfg." : "DS app-data folder on the Quasar machine containing SpaceEngineers-Dedicated.cfg, or its parent.")</small>
+                    </div>
+
+                    <h3 class="quasar-text quasar-type-subtitle2">Transfer mode</h3>
+                    <MudRadioGroup T="ExistingServerTransferMode" @bind-Value="_transferMode">
+                        <MudRadio T="ExistingServerTransferMode" Value="ExistingServerTransferMode.Copy" Color="Color.Primary" Disabled="@_busy">
+                            Copy — keep source world folders unchanged
+                        </MudRadio>
+                        <MudRadio T="ExistingServerTransferMode" Value="ExistingServerTransferMode.Move" Color="Color.Warning" Disabled="@_busy">
+                            Move — remove selected source world folders after successful import
+                        </MudRadio>
+                    </MudRadioGroup>
+                    @if (_transferMode == ExistingServerTransferMode.Move)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            Move keeps source install, config, plugins, and logs for recovery. Only selected world folders are removed, and only after Quasar commits managed copies.
+                        </MudAlert>
+                    }
                 }
             }
             else if (_step == 2 && _analysis is not null)
@@ -211,7 +234,7 @@
             {
                 <h3 class="quasar-text quasar-type-subtitle1">Ready to import</h3>
                 <MudList T="string" Dense="true">
-                    <MudListItem T="string">Source: @KindLabel · @_sourcePath</MudListItem>
+                    <MudListItem T="string">Source: @KindLabel · @(_zipMode ? _zipName : _sourcePath)</MudListItem>
                     <MudListItem T="string">Mode: @_transferMode</MudListItem>
                     <MudListItem T="string">Managed server: @_displayName (@_uniqueName)</MudListItem>
                     <MudListItem T="string">Primary world: @PrimaryWorld?.Name</MudListItem>
@@ -279,6 +302,15 @@
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
+    private readonly string _pathId = "server-source-" + Guid.NewGuid().ToString("N");
+    private bool _zipMode, _disposed;
+    private IBrowserFile? _zip;
+    private InputFile? _zipInput;
+    private string _zipName = string.Empty;
+    private StagedServerImport? _staged;
+    private WorldImportProgress? _progress;
+    private CancellationTokenSource? _cancellation;
+    private Task? _pending;
     private int _step;
     private ExistingServerKind? _kind;
     private ExistingServerTransferMode _transferMode = ExistingServerTransferMode.Copy;
@@ -322,7 +354,7 @@
     private bool CanContinue => _step switch
     {
         0 => _kind is not null,
-        1 => !string.IsNullOrWhiteSpace(_sourcePath),
+        1 => _zipMode ? _zip is not null || _staged is not null : !string.IsNullOrWhiteSpace(_sourcePath),
         2 => SelectedWorlds.Count > 0 && PrimaryWorld is not null &&
              !string.IsNullOrWhiteSpace(_displayName) && !string.IsNullOrWhiteSpace(_uniqueName),
         3 => _sourceStoppedConfirmed,
@@ -340,16 +372,20 @@
 
     private async Task NextAsync()
     {
+        if (_busy || !CanContinue || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers))
+            return;
         _error = string.Empty;
         if (_step == 1)
         {
-            await AnalyzeAsync();
+            _pending = AnalyzeAsync();
+            await _pending;
             return;
         }
 
         if (_step == 3)
         {
-            await ImportAsync();
+            _pending = ImportAsync();
+            await _pending;
             return;
         }
 
@@ -360,6 +396,8 @@
     private async Task Back()
     {
         _error = string.Empty;
+        // Browser file handles do not survive removing their InputFile component.
+        if (_step == 1) _zip = null;
         if (_step > 0)
             _step--;
         else if (_step == 0 && OfferCreateNew)
@@ -383,6 +421,7 @@
 
     private async Task BrowseAsync()
     {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)) return;
         var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
             "Pick existing server folder",
             new DialogParameters
@@ -402,9 +441,31 @@
         if (_kind is null)
             return;
         _busy = true;
+        _progress = null;
+        _cancellation = new();
         try
         {
-            _analysis = await Task.Run(() => Importer.Analyze(_kind.Value, _sourcePath));
+            if (_zipMode)
+            {
+                if (_staged is not null && _staged.Analysis.Kind != _kind.Value) ResetUpload();
+                if (_staged is null)
+                {
+                    if (_zip is null) throw new InvalidOperationException("Choose a ZIP file first.");
+                    var progress = new Progress<WorldImportProgress>(value =>
+                    {
+                        if (_disposed) return;
+                        if (_progress is null || value.Phase != _progress.Phase || value.Bytes - _progress.Bytes >= 4 * 1048576)
+                        { _progress = value; _ = InvokeAsync(StateHasChanged); }
+                    });
+                    await using var stream = await BrowserZipFileStream.OpenAsync(JS, _zipInput!.Element!.Value, _cancellation.Token);
+                    _staged = await Importer.StageZipAsync(_kind.Value, stream,
+                        Path.Combine(Path.GetTempPath(), "quasar-server-imports"), progress, _cancellation.Token);
+                    _zip = null;
+                }
+                _analysis = _staged.Analysis;
+            }
+            else
+                _analysis = await Task.Run(() => Importer.Analyze(_kind.Value, _sourcePath), _cancellation.Token);
             _displayName = _analysis.ServerName;
             _uniqueName = _analysis.ServerName;
             _selectedWorldPaths.Clear();
@@ -421,12 +482,11 @@
                 _sections |= ExistingServerImportSections.TorchLifecycle;
             _step = 2;
         }
-        catch (Exception exception)
-        {
-            _error = exception.Message;
-        }
+        catch (OperationCanceledException) { _error = "Server upload canceled. Choose the ZIP again to retry."; _zip = null; }
+        catch (Exception exception) { _error = exception.Message; }
         finally
         {
+            _cancellation.Dispose(); _cancellation = null;
             _busy = false;
         }
     }
@@ -440,15 +500,18 @@
         {
             var request = new ExistingServerImportRequest(
                 _kind.Value,
-                _sourcePath,
-                _transferMode,
+                _analysis.SourcePath,
+                _zipMode ? ExistingServerTransferMode.Copy : _transferMode,
                 _displayName,
                 _uniqueName,
                 _selectedWorldPaths.ToList(),
                 _primaryWorldPath,
                 _sections,
                 _sourceStoppedConfirmed);
-            _result = await Task.Run(() => Importer.ImportAsync(request));
+            _result = await Task.Run(() => _staged is not null
+                ? Importer.ImportArchiveAsync(_staged, request)
+                : Importer.ImportAsync(request));
+            ResetUpload();
             _step = 4;
             await ImportCompleted.InvokeAsync(_result);
         }
@@ -490,6 +553,37 @@
 
     private static StringComparer PathComparer =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+
+    private void SetKind(ExistingServerKind kind)
+    {
+        if (_kind == kind) return;
+        ResetUpload(); _zip = null; _kind = kind;
+    }
+
+    private void SetSourceMode(bool zip)
+    {
+        if (_busy || _zipMode == zip) return;
+        ResetUpload(); _zip = null; _zipMode = zip;
+        _transferMode = ExistingServerTransferMode.Copy;
+        _error = string.Empty;
+    }
+
+    private void SelectZip(InputFileChangeEventArgs args)
+    {
+        ResetUpload(); _zip = args.File; _zipName = args.File.Name;
+        _error = string.Empty;
+    }
+
+    private void ResetUpload() { _staged?.Dispose(); _staged = null; }
+    private void CancelTransfer() => _cancellation?.Cancel();
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        CancelTransfer();
+        if (_pending is not null) await _pending;
+        ResetUpload();
+    }
 
     private void Cancel() { if (!_busy) MudDialog.Cancel(); }
 

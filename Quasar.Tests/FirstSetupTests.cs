@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Components.Forms;
 using Bunit;
 using Bunit.TestDoubles;
 using Magnetar.Protocol.Runtime;
@@ -10,6 +11,7 @@ using MudBlazor;
 using MudBlazor.Services;
 using Quasar.Components.Dashboard;
 using Quasar.Components.Pages;
+using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Xunit;
@@ -350,6 +352,75 @@ public sealed class FirstSetupTests : IDisposable
             response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
             return Task.FromResult(response);
         }
+    }
+
+    [Theory]
+    [InlineData(true, ExistingServerKind.Vanilla)]
+    [InlineData(false, ExistingServerKind.Torch)]
+    public async Task ExistingServerZipWorksFromFirstSetupAndStandaloneImport(bool firstSetup, ExistingServerKind kind)
+    {
+        await using var context = Context();
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ExistingServerImportDialog>("Import",
+            new DialogParameters { [nameof(ExistingServerImportDialog.OfferCreateNew)] = firstSetup }));
+        if (firstSetup)
+            await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import Existing Server").ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == (kind == ExistingServerKind.Torch ? "Torch" : "Vanilla Dedicated Server")).ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
+        Assert.Single(dialogs.FindAll(".world-path-controls input"));
+        Assert.Single(dialogs.FindAll(".world-path-controls button"));
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Upload ZIP").ClickAsync(new());
+        Assert.Empty(dialogs.FindAll("input[type=radio]"));
+        using var zip = ExistingServerZipImportTests.CreateServerZip(kind, "Wrapper/");
+        BrowserZipTestFile.Setup(context, zip.ToArray());
+        dialogs.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(zip.ToArray(), "server.zip"));
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
+        Assert.Contains("Review detected data", dialogs.Markup);
+        string configPath = dialogs.FindAll("p").Single(element => element.TextContent.StartsWith("Config: ")).TextContent[8..].Trim();
+        Assert.True(File.Exists(configPath));
+        // Returning to the upload step retains the staged files; no second browser upload is needed.
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Back").ClickAsync(new());
+        Assert.Contains("server.zip was read", dialogs.Markup);
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
+        Assert.Contains("server.zip", dialogs.Markup);
+        await dialogs.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").ClickAsync(new());
+        Assert.Contains("Imported 'Uploaded Server'", dialogs.Markup);
+        var server = Assert.Single(context.Services.GetRequiredService<DedicatedServerCatalog>().GetServers());
+        Assert.False(server.AutoStart);
+        Assert.Equal(DedicatedServerGoalState.Off, server.GoalState);
+        Assert.Equal("voxels", File.ReadAllText(Path.Combine(DedicatedServerPathResolver.Resolve(server).WorldSavePath, "Planet.vx2")));
+        Assert.False(File.Exists(configPath));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancelingOrSwitchingServerZipSourceRemovesUploadedFiles(bool switchSource)
+    {
+        await using var context = Context();
+        var dialogs = context.Render<MudDialogProvider>();
+        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ExistingServerImportDialog>("Import"));
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Vanilla Dedicated Server").ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Upload ZIP").ClickAsync(new());
+        using var zip = ExistingServerZipImportTests.CreateServerZip(ExistingServerKind.Vanilla);
+        BrowserZipTestFile.Setup(context, zip.ToArray());
+        dialogs.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(zip.ToArray(), "server.zip"));
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
+        string configPath = dialogs.FindAll("p").Single(element => element.TextContent.StartsWith("Config: ")).TextContent[8..].Trim();
+        Assert.True(File.Exists(configPath));
+        if (switchSource)
+        {
+            await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Back").ClickAsync(new());
+            await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Server Folder").ClickAsync(new());
+        }
+        else
+            await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Cancel").ClickAsync(new());
+        await dialogs.WaitForAssertionAsync(() => Assert.False(File.Exists(configPath)));
+        Assert.Empty(context.Services.GetRequiredService<DedicatedServerCatalog>().GetServers());
     }
 
     private BunitContext Context(bool clusterPermission = true, ClusterGatewayClient? playerGateway = null)

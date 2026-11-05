@@ -110,40 +110,12 @@ public static class WorldSaveFiles
             // ZIP enumeration and XML validation must not block the Blazor circuit.
             return await Task.Run(async () =>
             {
-                using var archive = ZipFile.OpenRead(zipPath);
-                if (archive.Entries.Count > MaxEntries) throw new InvalidOperationException("ZIP has too many entries.");
-                var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                var portablePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                long declaredBytes = 0;
-                var entries = new List<(ZipArchiveEntry Entry, string Path)>();
-                foreach (var entry in archive.Entries)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    string path = entry.FullName.Replace('\\', '/');
-                    ValidateRelativePath(path.TrimEnd('/'));
-                    RegisterPortablePath(path.TrimEnd('/'), portablePaths);
-                    if (!seen.Add(path.TrimEnd('/'))) throw new InvalidOperationException($"Duplicate ZIP path: {path}");
-                    int kind = (entry.ExternalAttributes >> 16) & 0xF000;
-                    if (kind is not (0 or 0x8000 or 0x4000) || (entry.ExternalAttributes & 0x400) != 0)
-                        throw new InvalidOperationException("ZIP links and special files are not supported.");
-                    if (!path.EndsWith('/')) files.Add(path);
-                    declaredBytes = checked(declaredBytes + entry.Length);
-                    if (declaredBytes > MaxWorldBytes) throw new InvalidOperationException("Extracted world exceeds 50 GiB.");
-                    entries.Add((entry, path));
-                }
-                foreach (var (_, path) in entries)
-                {
-                    string? parent = Path.GetDirectoryName(path.TrimEnd('/'));
-                    while (!string.IsNullOrEmpty(parent))
-                    {
-                        if (files.Contains(parent.Replace('\\', '/')))
-                            throw new InvalidOperationException("ZIP contains conflicting file and folder paths.");
-                        parent = Path.GetDirectoryName(parent);
-                    }
-                }
+                using var zipInput = File.OpenRead(zipPath);
+                using var archive = new ZipArchive(zipInput, ZipArchiveMode.Read);
+                var entries = ReadZipEntries(archive, cancellationToken);
+                if (entries.Sum(item => item.Entry.Length) > MaxWorldBytes)
+                    throw new InvalidOperationException("Extracted ZIP exceeds 50 GiB.");
                 var candidates = entries.Where(item => !item.Path.Split('/').Any(part => part.Equals("Backup", StringComparison.OrdinalIgnoreCase))
-                    && item.Path.EndsWith("Sandbox.sbc", StringComparison.OrdinalIgnoreCase)
                     && Path.GetFileName(item.Path).Equals("Sandbox.sbc", StringComparison.OrdinalIgnoreCase)).ToList();
                 if (candidates.Count != 1) throw new InvalidOperationException("ZIP must contain exactly one world with Sandbox.sbc, outside Backup folders.");
                 string prefix = candidates[0].Path[..^"Sandbox.sbc".Length];
@@ -158,13 +130,8 @@ public static class WorldSaveFiles
                     if (relative.Length == 0 || relative.Split('/')[0].Equals("Backup", StringComparison.OrdinalIgnoreCase)) continue;
                     string target = Path.Combine(world, relative.Replace('/', Path.DirectorySeparatorChar));
                     if (path.EndsWith('/')) { Directory.CreateDirectory(target); continue; }
-                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                    await using var source = entry.Open();
-                    await using var destination = OpenPrivateFile(target);
-                    long copied = await CopyBoundedAsync(source, destination, MaxWorldBytes - bytes,
-                        count => progress?.Report(new("Extracting world", bytes + count)), cancellationToken);
-                    if (copied != entry.Length) throw new InvalidOperationException("ZIP entry size does not match its contents.");
-                    bytes += copied;
+                    bytes += await CopyZipEntryAsync(entry, zipInput, target, MaxWorldBytes - bytes,
+                        count => progress?.Report(new("Extracting ZIP", bytes + count)), cancellationToken);
                 }
                 cancellationToken.ThrowIfCancellationRequested();
                 ValidateWorld(world, cancellationToken);
@@ -172,6 +139,51 @@ public static class WorldSaveFiles
             }, cancellationToken);
         }
         catch { Cleanup(root); throw; }
+    }
+
+    internal static List<(ZipArchiveEntry Entry, string Path)> ReadZipEntries(ZipArchive archive, CancellationToken cancellationToken)
+    {
+        if (archive.Entries.Count > MaxEntries) throw new InvalidOperationException("ZIP has too many entries.");
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var files = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var portablePaths = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var entries = new List<(ZipArchiveEntry Entry, string Path)>();
+        foreach (var entry in archive.Entries)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            string path = entry.FullName.Replace('\\', '/');
+            ValidateRelativePath(path.TrimEnd('/'));
+            RegisterPortablePath(path.TrimEnd('/'), portablePaths);
+            if (!seen.Add(path.TrimEnd('/'))) throw new InvalidOperationException($"Duplicate ZIP path: {path}");
+            int kind = (entry.ExternalAttributes >> 16) & 0xF000;
+            if (kind is not (0 or 0x8000 or 0x4000) || (entry.ExternalAttributes & 0x400) != 0)
+                throw new InvalidOperationException("ZIP links and special files are not supported.");
+            if (!path.EndsWith('/')) files.Add(path);
+            entries.Add((entry, path));
+        }
+        foreach (var (_, path) in entries)
+        {
+            string? parent = Path.GetDirectoryName(path.TrimEnd('/'));
+            while (!string.IsNullOrEmpty(parent))
+            {
+                if (files.Contains(parent.Replace('\\', '/')))
+                    throw new InvalidOperationException("ZIP contains conflicting file and folder paths.");
+                parent = Path.GetDirectoryName(parent);
+            }
+        }
+        return entries;
+    }
+
+    internal static async Task<long> CopyZipEntryAsync(ZipArchiveEntry entry, Stream archiveStream, string destination,
+        long limit, Action<long> progress, CancellationToken token)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(destination)!);
+        await using var source = entry.Open();
+        if (archiveStream is BrowserZipFileStream browser) browser.BeginEntry(entry.CompressedLength);
+        await using var output = OpenPrivateFile(destination);
+        long copied = await CopyBoundedAsync(source, output, limit, progress, token);
+        if (copied != entry.Length) throw new InvalidOperationException("ZIP entry size does not match its contents.");
+        return copied;
     }
 
     public static void ValidateSaveName(string name)
@@ -217,7 +229,7 @@ public static class WorldSaveFiles
                 throw new InvalidOperationException("World import does not support symbolic links or junctions.");
     }
 
-    private static string CreateStagingRoot(string parent)
+    internal static string CreateStagingRoot(string parent)
     {
         parent = Path.GetFullPath(parent);
         EnsureNoLinks(parent);
@@ -253,7 +265,7 @@ public static class WorldSaveFiles
         return total;
     }
 
-    private static void ValidateWorld(string path, CancellationToken token)
+    internal static void ValidateWorld(string path, CancellationToken token)
     {
         token.ThrowIfCancellationRequested();
         string checkpoint = Path.Combine(path, "Sandbox.sbc");

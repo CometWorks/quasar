@@ -185,9 +185,14 @@ vanilla Dedicated Server or Torch instance:
    two levels above it). For Torch, select the folder containing `Torch.cfg`;
    Quasar follows its instance path and also recognizes the usual `Instance`
    subfolder.
-2. Choose **Copy** to leave source worlds intact, or **Move** to remove only
-   selected source world folders after the managed import commits. Move keeps
-   the old install, DS/Torch config, plugins, and logs for recovery.
+2. Choose **Server Folder** to read a folder on the Quasar machine, or **Upload
+   ZIP** to choose a `.zip` from your PC. Include one server instance with its
+   config and `Saves` folder; Torch archives also need `Torch.cfg`. The files can
+   be at the ZIP root or inside an enclosing folder. ZIP uploads always copy;
+   the file on your PC stays unchanged. For server folders, choose **Copy** to
+   leave source worlds intact, or **Move** to remove only selected source world
+   folders after the managed import commits. Move keeps the old install,
+   DS/Torch config, plugins, and logs for recovery. Click **Analyze**.
 3. Review detected worlds. The primary selection becomes the new managed
    server save; other selected worlds become reusable world templates.
 4. Choose transfer categories with the checkboxes: server/world names,
@@ -195,6 +200,24 @@ vanilla Dedicated Server or Torch instance:
    administrators, reserved players, banned players, gameplay settings, mods,
    and Torch crash-restart behavior. The source server must be stopped so its
    world files form a consistent snapshot.
+
+Quasar reads the ZIP index from your browser, validates the server configuration,
+then transfers only `Torch.cfg` when needed, the instance's
+`SpaceEngineers-Dedicated.cfg`, and the detected worlds. It validates world
+checkpoints before transferring terrain and mod storage. All detected worlds are
+read for review; you choose which to keep in Quasar on the next step. Runtime
+binaries, plugins, logs, caches, unrelated worlds and each world's `Backup`
+folder stay on your PC. Quasar requests ZIP metadata and needed file ranges without storing a complete
+copy of the ZIP. Index and header reads can include a small amount of neighboring
+data.
+
+Transfers show progress and offer **Cancel upload**. Required data is limited to
+10 GiB transferred (including ZIP metadata) and 50 GiB extracted; the original
+ZIP can be larger. Archives can have up to 100,000 entries, and each server
+configuration can be at most 16 MiB. Unsafe paths, links, case-conflicting names
+and ambiguous server configs are rejected before file contents transfer.
+Uploaded configs can only refer to files inside the extracted server folder.
+Temporary files are removed after success, cancellation or closing the importer.
 
 Imported servers remain stopped for review. Existing DS password hashes cannot
 be reversed, so set a new password in the imported config profile. Torch
