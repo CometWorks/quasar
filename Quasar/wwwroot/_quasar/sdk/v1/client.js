@@ -49,10 +49,11 @@ export function createClient({ baseUrl }) {
     const state = panelState(base);
     const active = new Set();
     let disposed = false;
-    let direct, directConnection, directModule;
+    let direct, directConnection, directModule, directRequired = false;
     let connectionLifetime = new AbortController();
     async function transport(tokens, entry) {
         if (!tokens.directEnabled) return null;
+        directRequired = true;
         if (directConnection?.closed) { direct = null; directConnection = null; }
         if (!direct) {
             directModule ||= import("./rtc.js");
@@ -186,6 +187,7 @@ export function createClient({ baseUrl }) {
     }
     const client = {
         version: 1,
+        get transport() { return Object.freeze(directConnection ? { ...directConnection.stats } : { path: directRequired ? "unavailable" : "http", receivedBytes: 0, sentBytes: 0, maximumQueuedBytes: 0 }); },
         async request(plugin, operation, payload = {}, { signal } = {}) {
             const body = input(plugin, operation, payload);
             const entry = begin(signal);

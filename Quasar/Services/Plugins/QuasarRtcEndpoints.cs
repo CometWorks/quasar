@@ -53,7 +53,7 @@ public static class QuasarRtcEndpoints
         rtc.MapGet("/attempts/{id}", async (string id, HttpContext http, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
         {
             var peer = peers.Get(await sessions.BindHttpSessionAsync(http), id, http.RequestAborted);
-            return Results.Json(new { id = peer.Id, version = 1, active = peer.Active, peer.Status.State, peer.Status.Path });
+            return Results.Json(new { id = peer.Id, version = 1, active = peer.Active, peer.Status.State, peer.Status.Path, peer.Status.ReceivedBytes, peer.Status.SentBytes, peer.Status.MaximumBufferedBytes });
         });
         rtc.MapDelete("/attempts/{id}", async (string id, HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
         {

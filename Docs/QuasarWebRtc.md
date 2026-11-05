@@ -177,3 +177,12 @@ recorded zero feature-payload HTTP requests. These are loopback fixture results,
 not Internet NAT or capacity measurements. `go vet` and the vulnerability scan
 pass, with zero reachable/imported-package vulnerabilities and 11 advisories in
 unused module code. The next task is real Viewer acceptance (RTC4).
+
+RTC4's actual Viewer browser/handler fixture additionally measures a 16 MiB
+archive through a real isolated Caddy boundary: 290 bytes of SDK session metadata
+and zero asset-body bytes at the proxy; 16,785,936 framed bytes at the receiving
+peer. Native sender counters and buffer maxima corroborate the direct path.
+The SDK's read-only `transport` snapshot exposes path/byte/maximum-queue counters;
+authenticated peer status exposes native byte/buffer totals without addresses.
+This is feature/transport evidence; live Steam, actual game rendering, retained
+history RTC replay and the complete Nebula gateway chain remain acceptance gates.

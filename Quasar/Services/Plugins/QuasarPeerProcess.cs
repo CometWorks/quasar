@@ -41,7 +41,7 @@ public sealed record QuasarRtcDescription(string Type, string Sdp)
     }
 }
 
-public sealed record QuasarRtcPeerStatus(string State, string Path, string? LocalCandidateType, string? RemoteCandidateType);
+public sealed record QuasarRtcPeerStatus(string State, string Path, string? LocalCandidateType, string? RemoteCandidateType, long ReceivedBytes = 0, long SentBytes = 0, long MaximumBufferedBytes = 0);
 
 /// <summary>Private, fixed-route IPC to the worker's native peer; never an application HTTP proxy.</summary>
 public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsyncDisposable
