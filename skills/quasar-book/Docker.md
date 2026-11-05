@@ -6,12 +6,15 @@ How to run Quasar from the official container image with Docker Compose: the ima
 
 - Name: `ghcr.io/cometworks/quasar`. Platform: `linux/amd64` only. There is no ARM or Windows image.
 - Tags: `latest`, `<version>` (for example `1.1.0.31`) and `v<version>`. Quasar publishes them for full releases built from `main`. Pull-request and manual draft releases get no image.
-- Contents: the checksummed `quasar-web-linux-x64.tar.gz` worker from the matching GitHub release, on top of `mcr.microsoft.com/dotnet/sdk:10.0`, plus `curl`, `procps` and the 32-bit libraries `lib32gcc-s1` and `lib32stdc++6`.
+- Contents: the complete `quasar-linux-x64.tar.gz` package from the matching GitHub release, checked against its `SHA256SUMS` and extracted to `/opt/quasar`, on top of `mcr.microsoft.com/dotnet/sdk:10.0`. The image adds `ca-certificates`, `curl`, `procps` and the 32-bit libraries `lib32gcc-s1` and `lib32stdc++6`.
 - The base is the .NET 10 SDK, so QuasarHub UI plugin builds use that SDK and never ask to download Quasar's private SDK.
-- The image runs the web worker (`/opt/quasar/Quasar`) directly. It has no Bootstrap launcher.
-- It has no local Host executor, so clusters need an enrolled Linux host machine. See [Cluster hosts](ClusterHosts.md#the-local-host).
+- The entry point is the Quasar application, `/opt/quasar/Quasar`, with no arguments. The image installs no services, so the updater in the package doesn't run and Quasar can't restart itself.
+- The local Host executor is off in a container (the image sets `DOTNET_RUNNING_IN_CONTAINER=true`), so clusters need an enrolled Linux host machine. See [Cluster hosts](ClusterHosts.md#the-local-host).
 - The Dockerfile has no `USER` line, so Quasar runs as root inside the container.
 - Built-in health check: `curl http://127.0.0.1:8080/api/health` every 30 seconds.
+- Label `org.opencontainers.image.licenses` is `AGPL-3.0-only`. See [Licensing](Licensing.md).
+
+Quasar 1.5 and later check for the 1.4.1 migration receipt, `Updates/migration-1.4.1.json` in the data directory, when they start, in a container too. A 1.4.1 image writes it to `quasar-data/Updates/` after its first successful start. Without it Quasar stops at startup with `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`. Run the 1.4.1 image once on the same `quasar-data` before you move to 1.5. See [Install on Linux](InstallLinux.md).
 
 ## Start with Docker Compose
 
@@ -72,6 +75,7 @@ Any other Quasar setting works too: either a documented `QUASAR_*` variable or t
 | `QUASAR_OPEN_BROWSER_ON_START` | `false` | |
 | `QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN` | `false` | Managed servers stop with the container |
 | `QUASAR_UPDATES_ENABLED` | `false` | In-app Quasar updater off; the image is the release unit |
+| `DOTNET_RUNNING_IN_CONTAINER` | `true` | Turns off the local Host executor |
 
 Because the fixed `ASPNETCORE_URLS` value is public inside the container,
 `Quasar:Auth:Enabled=false` is rejected at startup. Keep authentication enabled.
@@ -129,7 +133,7 @@ Back up `quasar-data` as one unit (and the diagnostics folder if you use the ove
 
 ## Build an image locally
 
-The Dockerfile downloads the given release's `quasar-web-linux-x64.tar.gz` and `SHA256SUMS` from GitHub and verifies the checksum:
+The Dockerfile downloads the given release's `quasar-linux-x64.tar.gz` and `SHA256SUMS` from GitHub, verifies the checksum and extracts the package in a separate `debian:bookworm-slim` build stage:
 
 ```bash
 docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
@@ -139,10 +143,11 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 
 ## Differences from a native install
 
-- No Bootstrap launcher. The **Quasar power** dialog disables **Restart Quasar** with `Restart needs the Quasar launcher. This standalone process can only be shut down.`
+- No services and no installation record, so the updater doesn't run. The **Quasar power** dialog disables **Restart Quasar** because this standalone process must be restarted manually. Unsupported restart requests leave Quasar running.
 - No in-app Quasar updates; change the image tag instead.
 - Managed servers stop when the container stops (`QUASAR_PRESERVE_SERVERS_ON_SHUTDOWN=false`). A native service leaves them running.
-- Console logging is on, so `docker compose logs quasar` shows Quasar's log output.
+- Console logging is on, so `docker compose logs quasar` shows Quasar's log output. A native service writes only to the log files.
+- No local Host executor for clusters.
 - Linux AMD64 only.
 
 ## Common problems
@@ -152,6 +157,7 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 - `env_file` errors on older Compose: the `path`/`required` form needs Docker Compose 2.24 or newer.
 - Players cannot connect: check the host firewall for each server's UDP game port. Host networking means no Docker port mapping is involved.
 - A server's priority does not go above Normal: `SYS_NICE` is missing, or a container-wide CPU limit is set.
+- The container exits at once and the log says `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`: `quasar-data` has no 1.4.1 migration receipt. Run the 1.4.1 image on it once (see [The image](#the-image)).
 
 ## Sources
 - `Docs/Docker.md`
@@ -172,3 +178,9 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 - `Quasar/Services/ServerManagementActions.cs`
 - `Quasar/Components/Layout/QuasarControlDialog.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `scripts/package-linux-release.sh`
+- `Quasar/Services/QuasarApplicationEntry.cs`
+- `Quasar/Services/ClusterLocalHost.cs`
+- `Shared/Updates/QuasarUpgradePath.cs`
+- `Shared/Updates/QuasarServiceInstallation.cs`
+- `Docs/ReleaseNotes1.5.md`

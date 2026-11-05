@@ -12,12 +12,25 @@ internal static class ClusterOverview
         Admin.NodePlan? Plan, ClusterFleetNode? Fleet);
     internal sealed record ServiceEndpoint(string Process, string Service, string Address, string? Bind = null);
 
+    internal static bool IsIdle(ClusterFleetNode? node) => node is
+        { Registry: { Role: Admin.NodeRole.Regular, State: Admin.NodeState.Active, LeaseFresh: true },
+          Telemetry: { Connected: true, TelemetryPaused: true } }
+        && node.Registry.LeaseExpires > DateTimeOffset.UtcNow;
+
     internal static JsonDocument? Specification(ClusterDefinition cluster)
     {
         // A staged update may change ports or placement. Never describe it as the running deployment.
         var preparation = cluster.ActiveDeployment is { } active ? active.Provenance?.Preparation : cluster.Preparation;
         try { return preparation is null ? null : JsonDocument.Parse(preparation.SpecificationJson); }
         catch (JsonException) { return null; }
+    }
+
+    internal static int? GamePort(ClusterDefinition cluster)
+    {
+        using var spec = Specification(cluster);
+        return spec?.RootElement is { ValueKind: JsonValueKind.Object } root
+            && Text(root, "steamListen") is { } listen && IPEndPoint.TryParse(listen, out var endpoint) && endpoint.Port > 0
+                ? endpoint.Port : null;
     }
 
     internal static Node[] Nodes(ClusterDefinition cluster, Admin.NodePlan[] plan, ClusterFleetNode[] fleet)
@@ -78,18 +91,18 @@ internal static class ClusterOverview
         {
             Add("Gateway", "Cluster Registry administration", Text(configuration, "gatewayControl"));
             Add("Gateway", "Steam player connections", Text(configuration, "steamListen"), gatewayAddress);
-            Add("Gateway", "Direct Transport player connections", Text(configuration, "directListen"), gatewayAddress);
+            Add("Gateway", "Additional player connections", Text(configuration, "directListen"), gatewayAddress);
             if (configuration.TryGetProperty("nodes", out var configured) && configured.ValueKind == JsonValueKind.Array)
                 foreach (var node in configured.EnumerateArray())
                 {
                     string name = Text(node, "slotKey") ?? Text(node, "nodeId") ?? "Node";
-                    Add(name, "Internal Direct Transport", Text(node, "backend"));
+                    Add(name, "Internal cluster connection", Text(node, "backend"));
                     Add(name, "Node management", Text(node, "control"));
                 }
         }
         foreach (var node in nodes.Where(n => n.Fleet is not null))
         {
-            Add(node.Name, "Internal Direct Transport", node.Fleet!.Registry.Endpoint);
+            Add(node.Name, "Internal cluster connection", node.Fleet!.Registry.Endpoint);
             Add(node.Name, "Node management", node.Fleet.Registry.ControlEndpoint);
         }
         var deployedHosts = cluster.ActiveDeployment?.Hosts;

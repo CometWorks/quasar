@@ -6,6 +6,7 @@ using System.Reflection.Metadata;
 using System.Reflection.PortableExecutable;
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text;
 using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
@@ -1336,7 +1337,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 var result = await WaitForSteamCmdProcessAsync(
                     process,
                     $"managed DS install attempt {attempt}/{DedicatedServerInstallMaxAttempts}",
-                    cancellationToken);
+                    cancellationToken, line =>
+                    {
+                        if (ParseDedicatedServerInstallProgress(line, dedicatedServer64Path) is { } update)
+                            progress?.Report(update);
+                    });
 
                 if (result.ExitCode != 0)
                 {
@@ -1584,13 +1589,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
     private async Task<SteamCmdProcessResult> WaitForSteamCmdProcessAsync(
         Process process,
         string action,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<string>? outputLine = null)
     {
         using var linkedCancellation = CancellationTokenSource.CreateLinkedTokenSource(
             cancellationToken,
             _lifetime.ApplicationStopping);
 
-        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stdoutTask = ReadSteamCmdOutputAsync(process.StandardOutput, outputLine);
         var stderrTask = process.StandardError.ReadToEndAsync();
 
         try
@@ -1607,6 +1613,38 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         var stdout = await stdoutTask;
         var stderr = await stderrTask;
         return new SteamCmdProcessResult(process.ExitCode, stdout, stderr);
+    }
+
+    private static async Task<string> ReadSteamCmdOutputAsync(StreamReader reader, Action<string>? outputLine)
+    {
+        var output = new StringBuilder();
+        while (await reader.ReadLineAsync() is { } line)
+        {
+            outputLine?.Invoke(line);
+            output.AppendLine(line);
+            if (output.Length > 65536) output.Remove(0, output.Length - 65536);
+        }
+        return output.ToString();
+    }
+
+    internal static ManagedRuntimeInstallProgress? ParseDedicatedServerInstallProgress(string line, string path)
+    {
+        var match = Regex.Match(line, @"^\s*Update state \([^)]+\) ([^,]+), progress:\s*(\d+(?:\.\d+)?)(?=\s|$)", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase);
+        if (!match.Success || !double.TryParse(match.Groups[2].Value, NumberStyles.AllowDecimalPoint,
+                CultureInfo.InvariantCulture, out var percent) || !double.IsFinite(percent) || percent is < 0 or > 100)
+            return null;
+        string? activity = match.Groups[1].Value.Trim().ToLowerInvariant() switch
+        {
+            "downloading" => "Downloading Space Engineers server files",
+            "verifying install" or "verifying update" => "Validating Space Engineers server files",
+            "preallocating" or "staging" => "Preparing Space Engineers server files",
+            "committing" => "Finalizing the Space Engineers installation",
+            _ => null,
+        };
+        return activity is null ? null : new(ManagedRuntimeInstallComponent.DedicatedServer,
+            match.Groups[1].Value.Trim().Equals("downloading", StringComparison.OrdinalIgnoreCase)
+                ? ManagedRuntimeInstallPhase.Downloading : ManagedRuntimeInstallPhase.Installing,
+            activity + ".", (int)percent, path);
     }
 
     private void KillSteamCmdProcessTree(Process process, string action)

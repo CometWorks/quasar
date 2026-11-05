@@ -155,7 +155,7 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
     }
 
     /// <summary>Removes what the Host keeps of a deleted cluster once its retention has ended: the named
-    /// preparation workspaces with their runtime, and its snapshots and detached records. Refused while the
+    /// preparation workspaces with their runtime, and its snapshots, detached and launch records. Refused while the
     /// Host still supervises the cluster or a workspace serves an attachment. Paths that are not preparation
     /// workspaces are an operator's directories and stay. Returns the workspaces removed.</summary>
     internal string[] ReleaseDeleted(string clusterId, string[] workspaces)
@@ -190,6 +190,18 @@ internal sealed class DeploymentActivation(string stateDirectory, string hostId,
         if (Directory.Exists(detached))
             foreach (string record in Directory.EnumerateDirectories(detached, "*-" + clusterId))
                 if (Path.GetFileName(record).Split('-', 2)[1] == clusterId) Directory.Delete(record, true);
+        // A failed launch record stays in the Host status, and a cluster that gets this ID again reads its slots' records.
+        string launches = Path.Combine(stateDirectory, "launch-records");
+        if (Directory.Exists(launches))
+            foreach (string record in Directory.EnumerateFiles(launches, "*.json"))
+                try
+                {
+                    using var document = JsonDocument.Parse(File.ReadAllBytes(record));
+                    if (document.RootElement.TryGetProperty("clusterId", out var id) && id.GetString() == clusterId) File.Delete(record);
+                }
+                catch (Exception exception) when (exception is IOException or JsonException or UnauthorizedAccessException) { }
+        string gatewayLaunch = Path.Combine(stateDirectory, "gateway-launch-records", ExecutionBundle.Hash(Encoding.UTF8.GetBytes(clusterId)) + ".json");
+        if (File.Exists(gatewayLaunch)) File.Delete(gatewayLaunch);
         Console.Error.WriteLine($"cluster={clusterId} released {removed.Count} workspaces of the deleted cluster");
         return removed.ToArray();
     }

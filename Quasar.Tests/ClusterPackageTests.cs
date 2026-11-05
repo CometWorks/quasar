@@ -17,6 +17,45 @@ namespace Quasar.Tests;
 
 public sealed class ClusterPackageTests
 {
+    [LinuxTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ReleaseMonitorChecksPublishedPackagesWithOrWithoutAToken(bool authenticated)
+    {
+        using var fixture = new Fixture { Token = authenticated ? "private-repo-token" : "" };
+        string catalogPath = Path.Combine(fixture.Root, "catalog");
+        Directory.CreateDirectory(Path.Combine(catalogPath, "demo"));
+        File.WriteAllText(Path.Combine(catalogPath, "demo", "cluster.json"), JsonSerializer.Serialize(new Quasar.Models.ClusterDefinition
+        {
+            UniqueName = "demo", GatewayUrl = "http://gateway.test",
+            PackageSelection = new(1, fixture.Request.Version, fixture.Request.Sha256, new string('c', 40), "selection"),
+        }));
+        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance,
+            new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
+                { ["Quasar:ClusterCatalogPath"] = catalogPath }).Build());
+        Assert.NotNull(Assert.Single(catalog.GetClusters()).PackageSelection);
+        using var monitor = new ClusterReleaseMonitor(catalog, fixture.Service, new(), NullLogger<ClusterReleaseMonitor>.Instance);
+
+        await monitor.CheckNowAsync();
+        Assert.Equal(fixture.Request.Version, monitor.GetSnapshot().Release?.Version);
+        Assert.Equal(fixture.Request.Sha256, monitor.GetSnapshot().Release?.Sha256);
+        Assert.Null(monitor.GetSnapshot().Error);
+        Assert.NotNull(monitor.GetSnapshot().LastCheckedUtc);
+        Assert.Equal(0, fixture.Downloads); // Observation must not stage or activate a package.
+
+        fixture.FailurePath = "/latest";
+        fixture.FailureStatus = HttpStatusCode.Forbidden;
+        await monitor.CheckNowAsync();
+        Assert.Null(monitor.GetSnapshot().Release);
+        Assert.Contains("HTTP 403", monitor.GetSnapshot().Error);
+        Assert.DoesNotContain("private-repo-token", monitor.GetSnapshot().Error);
+
+        fixture.FailurePath = null;
+        await monitor.CheckNowAsync();
+        Assert.Equal(fixture.Request.Version, monitor.GetSnapshot().Release?.Version);
+        Assert.Null(monitor.GetSnapshot().Error);
+    }
+
     [Fact]
     public void ReleaseNoticeFollowsPublishedIdentityAcrossBetaRenumbering()
     {
@@ -488,12 +527,13 @@ public sealed class ClusterPackageTests
         public string? FailurePath;
         public HttpStatusCode FailureStatus;
         public Exception? RequestFailure;
+        public string Token = "private-repo-token";
 
         public Fixture(byte[]? archive = null, string version = "1.0.3")
         {
             _archive = archive ?? CreateArchive();
             Request = new(version, Convert.ToHexString(SHA256.HashData(_archive)).ToLowerInvariant());
-            Service = new(this, () => "private-repo-token", Root);
+            Service = new(this, () => Token, Root);
         }
 
         public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
@@ -503,7 +543,8 @@ public sealed class ClusterPackageTests
             if (RequestFailure is not null) throw RequestFailure;
             if (Offline) throw new InvalidOperationException("Offline verification must not contact GitHub.");
             Assert.Equal("api.github.com", request.RequestUri!.Host);
-            Assert.Equal("private-repo-token", request.Headers.Authorization!.Parameter);
+            if (Token.Length == 0) Assert.Null(request.Headers.Authorization);
+            else Assert.Equal(Token, request.Headers.Authorization!.Parameter);
             HttpContent content;
             string path = request.RequestUri.AbsolutePath;
             if (FailurePath is not null && path.EndsWith(FailurePath))

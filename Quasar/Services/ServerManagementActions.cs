@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
+using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using Quasar.Components.Pages;
 using Quasar.Models;
@@ -13,9 +14,11 @@ public sealed class ServerManagementActions(
     WebServiceOptions options,
     AgentRegistry registry,
     QuasarWorldTemplateCatalog worldTemplates,
+    ServerWorldImportService worldImports,
     QuasarPermissionService permissions,
     IDialogService dialogService,
-    ISnackbar snackbar)
+    ISnackbar snackbar,
+    NavigationManager navigation)
 {
     private bool _creatingWorldTemplate;
 
@@ -42,6 +45,29 @@ public sealed class ServerManagementActions(
         };
 
         await dialogService.ShowAsync<ServerConsoleDialog>($"Console — {uniqueName}", parameters, dialogOptions);
+    }
+
+    public async Task OpenNewServerDialogAsync()
+    {
+        if (!await permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
+            && !await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+            return;
+
+        var dialog = await dialogService.ShowAsync<NewServerDialog>("New server",
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not NewServerDialog.ServerKind kind)
+            return;
+
+        if (kind == NewServerDialog.ServerKind.Cluster)
+        {
+            if (await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
+                navigation.NavigateTo("clusters/new");
+        }
+        else
+        {
+            await OpenCreateDialogAsync();
+        }
     }
 
     public async Task OpenCreateDialogAsync(string configProfileId = "", string worldTemplateId = "")
@@ -120,6 +146,25 @@ public sealed class ServerManagementActions(
         {
             snackbar.Add($"Server cloned, but world preparation failed: {exception.Message}", Severity.Error);
         }
+    }
+
+    public bool CanImportWorld(DedicatedServerDefinition definition) => worldImports.CanImport(definition);
+
+    public async Task OpenWorldImportDialogAsync(DedicatedServerDefinition definition)
+    {
+        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers)) return;
+        var current = serverCatalog.GetServer(definition.UniqueName);
+        if (current is null || !CanImportWorld(current))
+        {
+            snackbar.Add("Stop the server and set its goal Off before importing a world. Wait for any backup, restore or import to finish.", Severity.Warning);
+            return;
+        }
+        var dialog = await dialogService.ShowAsync<ServerWorldImportDialog>(
+            $"Import World — {GetDisplayName(current)}",
+            new DialogParameters { [nameof(ServerWorldImportDialog.Target)] = current },
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
+        if (await dialog.Result is { Canceled: false, Data: DedicatedServerDefinition updated })
+            snackbar.Add($"World '{updated.WorldSaveName}' imported and selected. Previous save retained; server remains stopped.", Severity.Success);
     }
 
     public async Task CreateWorldTemplateAsync(DedicatedServerDefinition definition)

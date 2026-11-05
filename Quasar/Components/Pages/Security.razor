@@ -18,14 +18,21 @@
 </QuasarPageHeading>
 
 <section class="quasar-panel pa-4 mb-4">
-    <h2 class="quasar-text quasar-type-h6">Public panel access</h2>
-    <p>Use your own reverse proxy, or enroll with Nebula for a public dashboard address.</p>
-    <MudButton OnClick="ManageAccessAsync" Variant="Variant.Outlined">Manage access setup</MudButton>
-    @if (Hosted.State.EnrollmentId is not null)
-    {
-        <MudButton Href="https://dash.se-servers.net/account" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Manage Nebula hosting and billing</MudButton>
-        <p>All configured Steam administrators can manage this panel in Nebula. One payer controls its subscription. Other administrators can request a billing transfer; the payer approves it and the new payer uses their own payment details. Enable browser push on Notifications to receive billing updates.</p>
-    }
+    <div class="quasar-stack">
+        <h2 class="quasar-text quasar-type-h6">Public panel access</h2>
+        <p>Use your own reverse proxy, or enroll with Nebula for a public dashboard address.</p>
+        <div class="quasar-row">
+            <MudButton OnClick="ManageAccessAsync" Variant="Variant.Outlined">Manage access setup</MudButton>
+            @if (Hosted.State.EnrollmentId is not null)
+            {
+                <MudButton Href="https://dash.se-servers.net/account" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Manage Nebula hosting and billing</MudButton>
+            }
+        </div>
+        @if (Hosted.State.EnrollmentId is not null)
+        {
+            <p>All configured Steam administrators can manage this panel in Nebula. One payer controls its subscription. Other administrators can request a billing transfer; the payer approves it and the new payer uses their own payment details. Enable browser push on Notifications to receive billing updates.</p>
+        }
+    </div>
 </section>
 
 <MudGrid>
@@ -284,6 +291,9 @@
             </div>
         </section>
     </MudItem>
+    <MudItem xs="12">
+        <QuasarSdkAuthorization />
+    </MudItem>
 </MudGrid>
 
 @code
@@ -442,14 +452,14 @@
 
     private async Task AddMappingAsync()
     {
-        _config.SubjectRoleMappings.Add(new SubjectRoleMapping
+        var mapping = new SubjectRoleMapping
         {
             Provider = _newProvider,
             Subject = _newSubject.Trim(),
             Roles = [_newRole],
-        });
+        };
 
-        await SaveAsync("Added RBAC mapping.");
+        await SaveAsync("Added RBAC mapping.", config => config.SubjectRoleMappings.Add(mapping));
         _newSubject = string.Empty;
         _newRole = QuasarRoles.Viewer;
     }
@@ -465,11 +475,12 @@
         if (confirmed != true)
             return;
 
-        _config.SubjectRoleMappings.Remove(mapping);
-        await SaveAsync("Removed RBAC mapping.");
+        await SaveAsync("Removed RBAC mapping.", config => config.SubjectRoleMappings.RemoveAll(candidate =>
+            string.Equals(candidate.Provider, mapping.Provider, StringComparison.OrdinalIgnoreCase)
+            && string.Equals(candidate.Subject, mapping.Subject, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private async Task SaveAsync(string message)
+    private async Task SaveAsync(string message, Action<RbacConfig> change)
     {
         if (!await EnsureAuthorizedAsync())
         {
@@ -479,7 +490,12 @@
 
         try
         {
-            await RbacConfigCatalog.SaveAsync(_config);
+            await RbacConfigCatalog.UpdateAsync(async config =>
+            {
+                if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+                    throw new UnauthorizedAccessException("Security administration permission is required.");
+                change(config);
+            });
             _config = RbacConfigCatalog.GetConfig();
             Snackbar.Add(message, Severity.Success);
         }

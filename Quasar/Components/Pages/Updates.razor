@@ -36,6 +36,34 @@
         @_snapshot.Message
     </MudAlert>
 
+    <MudAlert Severity="@(_snapshot.RestartCapability.CanRestart ? Severity.Success : Severity.Info)" Variant="Variant.Outlined">
+        <strong>@_snapshot.RestartCapability.Supervisor</strong>: @_snapshot.RestartCapability.Detail
+        @if (!_snapshot.RestartCapability.CanRestart)
+        {
+            <p>@_snapshot.RestartCapability.Repair See advanced recovery for status and migration instructions.</p>
+        }
+    </MudAlert>
+    @if (_snapshot.Operation is { } operation)
+    {
+        <MudAlert Severity="@(operation.Stage == Quasar.Updates.UpdateStage.Failed ? Severity.Error : Severity.Info)" Variant="Variant.Outlined">
+            <strong>Quasar @operation.Version · @operation.Stage</strong>: @operation.Message
+            <p class="quasar-type-caption">Operation @operation.Id · @FormatTimestamp(operation.UpdatedAtUtc)</p>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(WebOptions.BootstrapVersion))
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            Quasar 1.4.1 prepares migration to native Quasar and updater services. Install and successfully start the complete 1.4.1 package before upgrading to 1.5 or later. Updating this legacy worker alone does not complete migration.
+            <p><a href="https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#migrating-existing-installations" target="_blank" rel="noopener noreferrer">Read the migration instructions</a>. Save worlds and stop the old installation before running the new installer.</p>
+            @if (_snapshot.Operation is { PackageDirectory.Length: > 0 } migration)
+            {
+                <p>Prepared package:</p>
+                <CopyablePath Value="@migration.PackageDirectory" />
+            }
+        </MudAlert>
+    }
+
     @if (_snapshot.AppSettingsConflict)
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
@@ -124,25 +152,16 @@
     @if (_includePrerelease)
     {
         <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
-            Prerelease updates are enabled. This should not be used by regular users. Builds from this stream may be unstable, may require manual recovery, and may update both the UI worker and Bootstrap launcher.
+            Prerelease updates are enabled. This should not be used by regular users. Builds from this stream may be unstable, may require manual recovery, and replace the complete Quasar application.
         </MudAlert>
     }
 
     <MudGrid>
-        <MudItem xs="12" md="6">
-            <section class="quasar-panel pa-4" style="height:100%">
+        <MudItem xs="12">
+            <section class="quasar-panel pa-4">
                 <div class="quasar-layout quasar-gap-3">
-                    <h2 class="quasar-text quasar-type-h6">Quasar UI</h2>
-                    <p class="quasar-text quasar-type-body2">
-                        Current version: <strong>@_snapshot.CurrentVersion</strong>
-                    </p>
-
-                    @if (_snapshot.WebReleases.Count == 0)
-                    {
-                        <p class="quasar-text quasar-type-body2">No UI releases detected.</p>
-                    }
-                    else
-                    {
+                    <h2 class="quasar-text quasar-type-h6">Update Quasar</h2>
+                    <p>Running Quasar @_snapshot.CurrentVersion. The complete application package is verified before the updater stops and replaces Quasar. Running game servers stay alive.</p>
                         <MudSelect T="string"
                                    Value="_selectedWebVersion"
                                    ValueChanged="HandleSelectedWebVersionChanged"
@@ -155,99 +174,30 @@
                             }
                         </MudSelect>
 
-                        @if (_snapshot.Web is not null)
-                        {
-                            <MudTable Items="new[] { _snapshot.Web }" Dense="true" Hover="true">
-                                <HeaderContent>
-                                    <MudTh>Version</MudTh>
-                                    <MudTh>Asset</MudTh>
-                                    <MudTh>Status</MudTh>
-                                </HeaderContent>
-                                <RowTemplate>
-                                    <MudTd DataLabel="Version">@context.Version</MudTd>
-                                    <MudTd DataLabel="Asset">@context.AssetName</MudTd>
-                                    <MudTd DataLabel="Status">@FormatWebReleaseStatus(context)</MudTd>
-                                </RowTemplate>
-                            </MudTable>
 
-                            @if (!string.IsNullOrWhiteSpace(_snapshot.Web.StagedDirectory))
-                            {
-                                <span class="quasar-text quasar-type-caption">Staged at @_snapshot.Web.StagedDirectory</span>
-                            }
-                            @if (_snapshot.Web is { IsNewer: false, IsCurrent: false })
-                            {
-                                <p class="quasar-text quasar-type-body2">Activating this rollback restores both Quasar UI and Bootstrap to the selected release. The matching installer is required; automatic updates never downgrade either component.</p>
-                            }
-                        }
-
-                        <div class="quasar-layout quasar-layout-row quasar-gap-2">
-                            <MudButton Variant="Variant.Outlined"
-                                       Color="Color.Primary"
-                                       StartIcon="@Icons.Material.Filled.Download"
-                                       Disabled="_busy || _snapshot.Web is null || _snapshot.Web.IsStaged || _snapshot.Web.IsCurrent"
-                                       OnClick="StageAsync">
-                                Stage
-                            </MudButton>
-                            <MudButton Variant="Variant.Filled"
-                                       Color="Color.Warning"
-                                       StartIcon="@Icons.Material.Filled.RestartAlt"
-                                       Disabled="@(!CanActivateWebUpdate)"
-                                       OnClick="ActivateAsync">
-                                Activate
-                            </MudButton>
-                        </div>
-                        @if (_snapshot.Web is { IsStaged: true, IsCurrent: false } && !IsUnderBootstrap)
+                    <div class="quasar-layout quasar-layout-row quasar-gap-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanUpdateQuasar)" OnClick="UpdateQuasarAsync">Update Quasar</MudButton>
+                        @if (_snapshot.Operation?.Stage is Quasar.Updates.UpdateStage.Failed or Quasar.Updates.UpdateStage.Ready)
                         {
-                            <span class="quasar-text quasar-type-caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</span>
+                            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="RetryQuasarAsync">Retry update</MudButton>
                         }
-                    }
+                    </div>
+                    <p class="quasar-type-caption">Progress and failures survive reconnects and restarts. Without verified native main and updater services, updates are staged for manual restart.</p>
                 </div>
             </section>
         </MudItem>
-
-        <MudItem xs="12" md="6">
-            <section class="quasar-panel pa-4" style="height:100%">
-                <div class="quasar-layout quasar-gap-3">
-                    <h2 class="quasar-text quasar-type-h6">Bootstrap</h2>
-                    <p class="quasar-text quasar-type-body2">
-                        Bootstrap updates are installed automatically by the launcher when a newer primary Quasar release is available. Force activation asks the launcher to run that update now.
-                    </p>
-                    <p class="quasar-text quasar-type-body2">
-                        Current version: <strong>@FormatBootstrapVersion()</strong>
-                    </p>
-
-                    @if (_snapshot.Bootstrap is null)
-                    {
-                        <p class="quasar-text quasar-type-body2">No bootstrap update detected.</p>
-                    }
-                    else
-                    {
-                        <MudTable Items="new[] { _snapshot.Bootstrap }" Dense="true" Hover="true">
-                            <HeaderContent>
-                                <MudTh>Version</MudTh>
-                                <MudTh>Asset</MudTh>
-                                <MudTh>Action</MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Version">@context.Version</MudTd>
-                                <MudTd DataLabel="Asset">@context.AssetName</MudTd>
-                                <MudTd DataLabel="Action">Ready for launcher restart</MudTd>
-                            </RowTemplate>
-                        </MudTable>
-                        <MudButton Variant="Variant.Filled"
-                                   Color="Color.Warning"
-                                   StartIcon="@Icons.Material.Filled.RestartAlt"
-                                   Disabled="@(!CanForceActivateBootstrap)"
-                                   OnClick="ForceActivateBootstrapAsync">
-                            Force activate
-                        </MudButton>
-                        @if (!IsUnderBootstrap)
-                        {
-                            <span class="quasar-text quasar-type-caption">Quasar is not running under Bootstrap, so this update cannot be activated from the UI.</span>
-                        }
-                    }
-                </div>
-            </section>
+        <MudItem xs="12">
+            <details class="quasar-panel pa-4">
+                <summary>Advanced recovery</summary>
+                <p>Use <code>Quasar update --status</code> to inspect the durable operation and <code>Quasar update --retry</code> after correcting a failure. The updater retains the complete previous application until the requested release passes health checks. Application data and running game servers are preserved.</p>
+                <p>Older Bootstrap installations must migrate using the complete platform package and its installer. A running application never rewrites its updater service.</p>
+                @if (!string.IsNullOrWhiteSpace(WebOptions.BootstrapVersion) && _snapshot.Web?.AssetName == Options.WebAssetName)
+                {
+                    <p>Legacy worker-only recovery keeps the existing Bootstrap and supervision. It does not migrate the installation to the unified application.</p>
+                    <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="StageAsync">Stage legacy worker recovery</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@(!CanActivateWebUpdate)" OnClick="ActivateAsync">Activate legacy worker recovery</MudButton>
+                }
+            </details>
         </MudItem>
 
         @if (OperatingSystem.IsLinux() && ClusterRows.Count > 0)
@@ -309,6 +259,10 @@
                         </div>
                     </div>
 
+                    @foreach (var component in ManagedRuntimeRows.Where(c => c.State is ManagedRuntimeComponentState.Checking or ManagedRuntimeComponentState.Downloading or ManagedRuntimeComponentState.Installing))
+                    {
+                        <QuasarOperationLoader @key="component.Component" Title="@component.DisplayName" Message="@component.Message" Percent="@((double?)component.Percent)" />
+                    }
                     <MudTable Items="@ManagedRuntimeRows" Dense="true" Hover="true">
                         <HeaderContent>
                             <MudTh>Component</MudTh>
@@ -454,24 +408,21 @@
                     <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
                         Prerelease versions are for testing only and should not be used by regular users.
                     </MudAlert>
-                    <label class="quasar-check"><input type="checkbox" checked="@Options.AutoApplyUpdates" disabled="@_busy" @onchange="HandleAutoApplyUpdatesChanged" />Automatically update Quasar UI and Bootstrap together</label>
+                    <label class="quasar-check"><input type="checkbox" checked="@Options.AutoApplyUpdates" disabled="@_busy" @onchange="HandleAutoApplyUpdatesChanged" />Automatically update Quasar</label>
                     <p class="quasar-muted quasar-caption">Applies matching releases after checks and restarts Quasar while keeping game servers online. Appsettings conflicts require manual resolution.</p>
                     <MudCheckBox T="bool"
                                  Value="_autoStageWebUpdates"
                                  ValueChanged="HandleAutoStageWebUpdatesChanged"
                                  Disabled="_busy"
-                                 Label="Automatically stage UI updates after checks" />
+                                 Label="Automatically stage Quasar updates after checks" />
                     <span class="quasar-text quasar-type-caption">
-                        Turn this off to only queue detected versions, then stage and activate the selected version manually.
+                        Turn this off to leave detected releases unstaged until you select Update Quasar.
                     </span>
                     <p class="quasar-text quasar-type-body2">
                         Last check: @(FormatTimestamp(_snapshot.LastCheckedUtc))
                     </p>
                     <p class="quasar-text quasar-type-body2">
-                        UI asset: @Options.WebAssetName
-                    </p>
-                    <p class="quasar-text quasar-type-body2">
-                        Bootstrap asset: @Options.BootstrapAssetName
+                        Application package: @Options.PackageAssetName
                     </p>
                 </div>
             </section>
@@ -605,6 +556,24 @@
         {
             _busy = false;
         }
+    }
+
+    private bool CanUpdateQuasar => !_busy && !string.IsNullOrWhiteSpace(_selectedWebVersion) &&
+        _snapshot.Operation?.Stage is not (Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Restarting);
+
+    private Task UpdateQuasarAsync() => SubmitQuasarUpdateAsync(false);
+    private Task RetryQuasarAsync() => SubmitQuasarUpdateAsync(true);
+    private async Task SubmitQuasarUpdateAsync(bool retry)
+    {
+        _busy = true;
+        try
+        {
+            await UpdateService.UpdateAsync(_selectedWebVersion, retry);
+            _snapshot = UpdateService.GetSnapshot();
+            Snackbar.Add("Update queued. Progress and any recovery instructions will appear here.", Severity.Info);
+        }
+        catch (Exception exception) { Snackbar.Add(exception.Message, Severity.Error); }
+        finally { _busy = false; }
     }
 
     private async Task ActivateAsync()
@@ -772,7 +741,7 @@
         {
             var confirmed = await DialogService.ShowMessageBoxAsync(
                 "Enable prerelease updates?",
-                "Prerelease updates are for testing only and should not be used by regular users. They may be unstable, may require manual recovery, and may update both the UI worker and Bootstrap launcher.",
+                "Prerelease updates are for testing only and should not be used by regular users. They may be unstable, may require manual recovery, and replace the complete Quasar application.",
                 yesText: "Enable prereleases",
                 cancelText: "Cancel");
 
@@ -1052,11 +1021,13 @@
         !_busy &&
         !_bootstrapActivationRequested &&
         IsUnderBootstrap &&
+        WebOptions.BootstrapUpdateUnavailableReason is null &&
         _snapshot.Bootstrap is { IsNewer: true };
 
     private bool CanActivateWebUpdate =>
         !_busy &&
         IsUnderBootstrap &&
+        (_snapshot.Web?.IsNewer == true || WebOptions.BootstrapUpdateUnavailableReason is null) &&
         _snapshot.Web is { IsStaged: true, IsCurrent: false };
 
     private static string FormatWebReleaseOption(QuasarUpdateCandidate release)

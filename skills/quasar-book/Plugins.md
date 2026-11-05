@@ -6,7 +6,7 @@ This page covers the plugins that run inside each managed Dedicated Server (DS):
 
 | | Magnetar server plugins (this page) | Quasar UI plugins |
 | --- | --- | --- |
-| Runs in | Each DS process, loaded by Magnetar | The Quasar web worker |
+| Runs in | Each DS process, loaded by Magnetar | The Quasar process |
 | Catalog | MagnetarHub, https://github.com/CometWorks/magnetar-hub, plus the plugin hubs you register | QuasarHub, https://github.com/CometWorks/quasar-hub |
 | Where you pick them | **Configs** page, per config profile | **UI Plugins** page, for the whole Quasar install |
 | API | Magnetar PluginSdk | `Quasar.Plugin.Abstractions` |
@@ -65,7 +65,7 @@ Each server has its own Magnetar app-data folder, by default `{Quasar install di
 | `Profiles/Current.xml` | Profile named after the config profile: selected hub plugins of any hub under `GitHub`, selected dev folders under `DevFolder`, and Quasar.Agent plus UI plugin companions under `Local` |
 | `Local/` | `Quasar.Agent.dll`, `Magnetar.Protocol.dll`, `0Harmony.dll` and built companions of enabled UI plugins |
 
-If you saved a GitHub token on the **Updates** page, Quasar passes it to Magnetar in the `PULSAR_GITHUB_TOKEN` environment variable for plugin hub downloads. It never puts the token on the command line for current Magnetar builds. See [Updates](Updates.md).
+Quasar uses one GitHub token for its own hub reads and passes the same token to Magnetar in the `PULSAR_GITHUB_TOKEN` environment variable for plugin hub downloads. It takes `QUASAR_GITHUB_TOKEN` from its environment first, then the token saved on the **Updates** page, then `GITHUB_TOKEN`. It never puts the token on the command line for current Magnetar builds. See [Updates](Updates.md).
 
 ## Plugin versions and updates
 
@@ -78,7 +78,7 @@ Clusters work differently. Staging a cluster profile freezes the exact plugin bu
 The **Plugins** page (navigation **Plugins**, title "Plugin configuration") edits live settings of plugins that expose a configuration to Quasar.
 
 1. Pick the server in **Server**. Only connected servers that report at least one configurable plugin are listed. With none, the page shows "No connected server is exposing editable plugin configuration."
-2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries). Values that have no dedicated field type are edited as raw JSON text.
+2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries), with padded sections and space between fields and tab content. Values that have no dedicated field type are edited as raw JSON text.
 3. Click the apply button. **Reset defaults** fills in the plugin's default values; you still have to apply them.
 
 Quasar sends the new values to the server through the agent and the plugin applies them on the game thread. The success message ("Applied configuration to ...") means Quasar delivered the values to the server.
@@ -87,7 +87,7 @@ Who may see and edit configuration:
 
 - Any user with `CanView` can open the **Plugins** page and see the plugin list and logs.
 - Configuration values need `CanEditConfigs`, because plugin settings may contain credentials. Others see "Configuration values require editor access because they may contain credentials."
-- Cluster nodes are not edited here. The page shows "Plugin configuration is managed for the whole cluster." with a link to the cluster's configuration, which needs the `ClusterManage` permission. See [Clusters](Clusters.md).
+- Cluster nodes are not edited here. The page shows "Plugin configuration is managed for the whole cluster." and **Open cluster plugin settings**. This opens **Settings** on the cluster page; expand **Plugin configuration** to use the normal settings editor, which needs the `ClusterManage` permission. Node views never show the raw configuration document. The cluster settings editor calls the built-in networking plugin **Cluster networking**. See [Clusters](Clusters.md).
 
 ### Configuration snapshots
 
@@ -118,7 +118,7 @@ A plugin hub is a list of plugin manifests: a GitHub repository and branch, or a
 Rules and errors:
 
 - Each manifest needs an `<Id>`, plus `RepoId` and `Commit`, like a MagnetarHub manifest. Quasar and Magnetar read every `.xml` manifest in the hub, in subfolders too.
-- A private repository needs a GitHub token with read access on the **Updates** page. Without one, the download fails with "Repository or branch not found. A private repository needs a GitHub token with read access in Updates.". See [Updates](Updates.md).
+- A private repository needs a GitHub token with read access, saved on the **Updates** page or set in `QUASAR_GITHUB_TOKEN`. Without one, the download fails with "Repository or branch not found. A private repository needs a GitHub token with read access in Updates.". See [Updates](Updates.md).
 - A repository can be registered once, whatever the branch: "This repository is already a registered hub. Magnetar reads one branch per repository." MagnetarHub itself can't be added, and hub names must be unique.
 - A local hub folder must be an absolute path that exists.
 
@@ -202,7 +202,7 @@ The agent connects to Quasar's `/ws/agent` WebSocket. It finds Quasar through `Q
 
 Quasar accepts the connection only with an agent token in the `X-Quasar-Agent-Token` header. The agent reads it from `QUASAR_AGENT_TOKEN`. For a standalone server, Quasar derives the token from the server's unique name and a key it keeps in `cluster-credentials.json` in the Quasar install directory, and sets it when it launches the server. For a cluster node, the Host executor derives the token from its enrollment credential (see [Cluster hosts](ClusterHosts.md)). The first message on the socket has to be the agent's Hello, and its server name, or its Host, cluster, slot, node, role and launch attempt for a cluster node, has to match the token. A cluster Host is accepted only while it belongs to that cluster's active deployment, and live telemetry must come from the Host the Gateway assigned to the node. Quasar also refuses a second connection for a server whose agent is still connected and sent data in the last 30 seconds. A server that Quasar did not launch has no token, so its agent can't connect.
 
-Messages from Quasar to the agent must be text WebSocket messages and may be at most 64 MiB across all fragments. The agent closes the connection on a binary, mixed-type, or oversized message and reconnects normally.
+Messages in both directions must be text WebSocket messages of at most 64 MiB across all fragments; the first Hello may be at most 64 KiB. The agent closes the connection on a binary, mixed-type, or oversized message and reconnects normally. When a command reply, such as a large companion response, would go over the limit, the agent sends a failed result instead ("Agent command response is too large ...") and keeps the connection.
 
 Every 2 seconds it sends:
 
@@ -210,7 +210,9 @@ Every 2 seconds it sends:
 - the plugin configuration snapshot, when it changed since the last one
 - buffered plugin log lines
 
-It runs commands from Quasar: refresh, send chat, whisper and faction chat, save world, stop server, kick, ban, unban, promote, demote, set promote level, clear kick cooldown, list and delete entities, change profiler mode, apply plugin configuration, and companion requests from UI plugins. Cluster nodes reject the agent-local save and stop commands.
+A cluster node that owns no partitions (a hot spare, or a node still starting) leaves profiler samples and plugin statistics out of its snapshots, and Quasar records no analytics for it.
+
+It runs commands from Quasar: refresh, send chat, whisper and faction chat, run a chat command (a `!` line typed on the **Chat** page), save world, stop server, kick, ban, unban, promote, demote, set promote level, clear kick cooldown, list and delete entities, change profiler mode, apply plugin configuration, and companion requests from UI plugins. Cluster nodes reject the agent-local save and stop commands.
 
 Plugin statistics appear on **Analytics**; players, chat and entities on their own pages. See [Monitoring](Monitoring.md).
 
@@ -223,6 +225,8 @@ On standalone servers the agent registers three chat commands:
 | `!stop` | Saves the world and shuts the server down. Quasar sets the server's goal state to Off, so it stays stopped. |
 | `!restart [seconds]` | Saves and restarts after the delay (default 10, 0 to 3600), with countdown announcements. Quasar keeps the goal state On. "Restart already scheduled." if one is pending. |
 | `!quit` | Quits immediately without saving. |
+
+The agent also takes over the stops and restarts that other plugins request through PluginSdk `ServerControl`, such as `!ess restart` and `!ess stop`, so Quasar restarts the server or keeps it off instead of counting a crash. See [Servers](Servers.md#stops-and-restarts-requested-by-plugins).
 
 ### When Quasar is unreachable
 
@@ -327,3 +331,6 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Tests/PluginConfigSnapshotPersistenceTests.cs`
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
+- `Quasar.Agent/SupervisedLifecycle.cs`
+- `Quasar/Services/GitHubUpdateCredentialsCatalog.cs`
+- `Magnetar.Protocol/Transport/AgentMessageLimits.cs`

@@ -71,6 +71,7 @@ public sealed class ClusterCliTests
     [Theory]
     [InlineData("conversion-plugins", "/api/v1/clusters/demo/convert/plugins")]
     [InlineData("fleet", "/api/v1/clusters/demo/fleet")]
+    [InlineData("rotation", "/api/v1/clusters/demo/rotation")]
     [InlineData("package-release", "/api/v1/clusters/demo/package-release")]
     [InlineData("package-selection", "/api/v1/clusters/demo/package-selection")]
     [InlineData("dependency-candidate", "/api/v1/clusters/demo/dependency-candidate")]
@@ -128,6 +129,21 @@ public sealed class ClusterCliTests
         });
         Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "package-select", "demo", "1.0.3", new string('a', 64),
             "7", "--url", "http://quasar.test", "--idempotency-key", "select-1"], handler, new StringWriter(), new StringWriter()));
+    }
+
+    // SE-968: no idempotency key, it ends the operation history that would replay one.
+    [Fact]
+    public async Task PurgeDeletesRetainedDataWithTheIdAsConfirmation()
+    {
+        var handler = new Handler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Delete, request.Method);
+            Assert.Equal("/api/v1/clusters/demo/retained-data?confirmation=demo", request.RequestUri!.PathAndQuery);
+            Assert.False(request.Headers.Contains("Idempotency-Key"));
+            return Response(HttpStatusCode.OK, """{"protocolVersion":1,"data":{"clusterId":"demo"}}""");
+        });
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "purge", "demo", "--url", "http://quasar.test"],
+            handler, new StringWriter(), new StringWriter()));
     }
 
     [Fact]

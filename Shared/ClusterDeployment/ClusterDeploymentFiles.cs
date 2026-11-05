@@ -126,8 +126,7 @@ internal static partial class ClusterDeploymentFiles
     {
         var actual = (await InspectAsync(package, token)).ToDictionary(x => "Package/" + x.Key, x => x.Value);
         foreach (var (path, pin) in await InspectAsync(dependencies, token)) actual.Add("Dependencies/" + path, pin);
-        if (actual.Count != inputs.Files.Count || actual.Any(x => !inputs.Files.TryGetValue(x.Key, out var pin) || pin != x.Value))
-            throw new InvalidDataException("Deployment files do not match approved inputs.");
+        VerifyFiles(inputs.Files, actual, $"package {package}; dependencies {dependencies}");
         if (!actual.TryGetValue("Dependencies/manifest.json", out var manifestPin) || manifestPin.Sha256 != inputs.DependencyManifestSha256)
             throw new InvalidDataException("Dependency manifest pin does not match deployment inputs.");
         if (actual.Keys.Any(path => path.StartsWith("Dependencies/", StringComparison.Ordinal)
@@ -162,6 +161,35 @@ internal static partial class ClusterDeploymentFiles
         ValidateCapabilities(package);
         if (PluginSdkMismatch(package, Path.Combine(dependencies, "payload/Magnetar/Libraries/MagnetarInterim/PluginSdk.dll")) is { } mismatch)
             throw new InvalidDataException("The frozen Magnetar cannot run this cluster release: " + mismatch);
+    }
+
+    // Keep diagnostics bounded even for an entirely different tree, while counting every mismatch.
+    internal static void VerifyFiles(Dictionary<string, DeploymentFile> expected,
+        Dictionary<string, DeploymentFile> actual, string location)
+    {
+        const int limit = 10;
+        int missing = 0, unexpected = 0, changed = 0;
+        var details = new List<string>();
+        foreach (string path in expected.Keys.Union(actual.Keys).Order(StringComparer.Ordinal))
+        {
+            expected.TryGetValue(path, out var approved);
+            actual.TryGetValue(path, out var found);
+            if (approved == found) continue;
+            string kind = approved is null ? "Unexpected" : found is null ? "Missing" : "Changed";
+            if (approved is null) unexpected++;
+            else if (found is null) missing++;
+            else changed++;
+            if (details.Count < limit)
+                details.Add($"{kind}: {path}\n  Expected: {Describe(approved)}\n  Actual: {Describe(found)}");
+        }
+        int total = missing + unexpected + changed;
+        if (total == 0) return;
+        if (total > limit) details.Add($"{total - limit} more mismatches omitted.");
+        throw new InvalidDataException($"Deployment files do not match approved inputs: {missing} missing, {unexpected} unexpected, {changed} changed.\n"
+            + $"Location: {location}\n" + string.Join("\n", details));
+
+        static string Describe(DeploymentFile? pin) => pin is null ? "absent"
+            : $"SHA-256 {pin.Sha256}, {pin.Bytes} bytes, executable={pin.Executable}";
     }
 
     /// <summary>

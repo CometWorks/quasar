@@ -14,6 +14,9 @@ This page covers what Quasar records about its own errors and crashes, the conse
 
 Consent lives in the **Data Handling Consent** section of **Security** (`/settings/security`, needs the security management permission, see [Access control](AccessControl.md)). The **Dashboard** also shows a **Data Handling Consent** prompt with YES and NO buttons while no decision is stored, or while statistics consent is on but diagnostic reports are off.
 
+The Dashboard prompt keeps its text and buttons inside the standard panel padding;
+the buttons wrap below the text when space is limited.
+
 | Choice | Default | What it controls |
 | --- | --- | --- |
 | **YES** / **NO** buttons | no choice | YES turns on plugin usage statistics and diagnostic reports, and starts automatic enrollment with the backoffice. It does not turn on crash dumps or listings. NO turns off statistics, diagnostic reports and crash dumps. |
@@ -80,9 +83,10 @@ logs cannot be recalled. See the delivery contract for failure/recovery limits.
 
 | Source | Captured locally | Uploaded with diagnostic consent |
 | --- | --- | --- |
-| Quasar worker Error and Critical log messages | Yes, as incident files | Yes |
+| Quasar's own Error and Critical log messages | Yes, as incident files | Yes |
 | Quasar fatal (unhandled) exceptions | Yes, written immediately | Yes |
-| Exit of Quasar, Dedicated Servers started by Quasar, and Host-managed processes | Yes, with exit code and whether the stop was expected | Yes |
+| Exit of Dedicated Servers started by Quasar and of Host-managed processes | Yes, with exit code and whether the stop was expected | Yes |
+| Hang evidence of a cluster node a Host kills for hanging | Yes, see [Hung cluster nodes](#hung-cluster-nodes) | Yes; the minidump only with **Include crash dumps** |
 | Standard output of supervised processes (batched application logs) | Only while consent is on | Yes, as log batches |
 | Recent process log attached to an incident | Yes | Yes, only for runs that started after consent |
 | Crash dumps | Only for processes started while dump consent was on | Only with **Include crash dumps** |
@@ -93,11 +97,12 @@ Details:
 - Each Quasar run keeps at most 256 incident files and accepts at most 32 ordinary error reports per minute. Fatal exceptions bypass the limit. Messages are truncated (8,192 characters for the message, 32,768 for the exception text).
 - Reports contain error details, recent logs, software versions, and host, cluster and server identifiers. Logs can contain player names, chat and other private data. Crash dumps can contain process memory, credentials, player data and world content.
 - Log batches from all running processes are delivered every ten minutes. The first batch after startup or after a new consent goes out right away. Error and crash reports go out on every poll.
-- Crash dumps: .NET processes get a full CoreCLR dump in their run folder. On Linux, native crashes are imported from systemd-coredump (`coredumpctl`) when it is installed and readable by the service account. On Windows x64, the launcher attaches a crash monitor that writes a minidump on an unhandled exception. Quasar does not change system-wide core dump or Windows Error Reporting settings. Dumps over 2 GiB stay local and the report says so.
+- Quasar records its own process as a run too, with its fatal exceptions and a fatal exit. Since 1.5 Quasar runs as the service itself rather than under a launcher, so nothing starts it with the dump settings below and its own crashes leave no CoreCLR dump.
+- Crash dumps: .NET processes that Quasar or a Host starts get a full CoreCLR dump in their run folder. On Linux, native crashes are imported from systemd-coredump (`coredumpctl`) when it is installed and readable by the service account. On Windows x64, the process that starts a server or node attaches a crash monitor that writes a minidump on an unhandled exception. Quasar does not change system-wide core dump or Windows Error Reporting settings. Dumps over 2 GiB stay local and the report says so.
 
 ## Upload and queues
 
-- Quasar polls its own collector and every connected host every 30 seconds, and immediately after a consent change.
+- Quasar polls its own collector and every connected host every 30 seconds, and immediately after a consent change. A host that is not connected is skipped, so polling never starts the local Host; its reports wait there until it connects.
 - Each report is copied into Quasar's outbound queue, checked against its declared length and SHA-256, and only then acknowledged to the source. The source deletes it after the acknowledgment.
 - Uploads use `PUT /v1/reports/{reportId}` on the backoffice. A failed upload stays queued and retries with the same report ID.
 - If the backoffice rejects one report (HTTP 400, 409, 413, 415, 422 or 507), Quasar keeps it and moves on to the next one.
@@ -135,7 +140,7 @@ To disable uploads entirely without touching consent, set `Quasar:Diagnostics:Ba
 
 ### Storage on a separate disk
 
-Set `QUASAR_DIAGNOSTICS_DIRECTORY` to an absolute path for the Quasar service. Bootstrap reads it too and passes its resolved directory to the worker, so both use the same place. `installation-id`, `machine-key.pem`, `policy.json` and the consent file stay in their normal locations.
+Set `QUASAR_DIAGNOSTICS_DIRECTORY` to an absolute path in the Quasar service's environment, or `Quasar:Diagnostics:StorageDirectory` in `appsettings.json`. The variable wins. `installation-id`, `machine-key.pem`, `policy.json` and the consent file stay in their normal locations.
 
 Quasar does not move existing evidence when the directory changes. To move it: stop Quasar and its servers, copy `runs/`, `incoming/` and `outbound/` to the new directory keeping permissions, set the variable, start again.
 
@@ -153,6 +158,17 @@ The host directory must already exist. See [Docker](Docker.md).
 ### Quasar.Host machines
 
 Each Host captures its own processes into `<stateDirectory>/diagnostics` by default. Override it with `diagnosticsDirectory` in the Host's JSON configuration (a relative path resolves against the config file's folder) or with the `QUASAR_HOST_DIAGNOSTICS_DIRECTORY` environment variable, which wins. See [Cluster hosts](ClusterHosts.md).
+
+### Hung cluster nodes
+
+Before a Host kills a cluster node for hanging, it collects evidence. That happens when the Cluster Registry declared the node dead, and when the node missed its startup deadline. A planned stop, an operator's kill or an emergency shutdown collects nothing.
+
+- The Host writes `hang-evidence.txt` in the node's run folder under `runs/` and names the file in its log.
+- On Linux the file has each thread's state, kernel wait channel, CPU use over one second and stack, plus the process memory and the machine load. Stacks come from the `createdump` next to the node's runtime and hold method names only, so they need no dump consent. If the OS refuses the tool, as Ubuntu's default `kernel.yama.ptrace_scope=1` does, the Host asks the node's runtime to run it. A runtime frozen as a whole can't answer, and then the file has thread states only.
+- With **Include crash dumps** on, a minidump (`hang.dmp`, under 2 GiB, with enough free disk) is kept as well.
+- The incident report is `node_hung` or `ready_timeout`. It carries the start of the text and the whole file as `log-002.txt`, and the minidump only under dump consent.
+- The capture runs in the background for at most 20 seconds while the slot reports `Spawning`, then the kill follows with whatever it got.
+- On other operating systems the file and the report only say that the node hung.
 
 ## Server listing on se-servers.net
 
@@ -177,7 +193,9 @@ If any of 1 to 3 is missing, Quasar sends a withdrawal instead.
 3. For each server to publish, tick **Publish this server**, check **Public server name** (max 128 characters), enter **Public hostname or IP address** (no scheme, no port) and confirm **Public game port**. For a cluster use the Steam gateway address and port, not the Cluster Registry admin endpoint.
 4. Click **Save listings**. Changes apply without a restart. The page says delivery may take up to two minutes.
 
-**Reload** refreshes the source list and discards unsaved edits. Unticking a server removes it from the next publication. Unticking all servers withdraws the installation's listings. Names, addresses and listing IDs stay saved.
+The page refreshes automatically as servers, clusters, saved settings, consent or Steam-admin mappings change. Source changes preserve unsaved edits. If another session saves settings while you have edits, a warning preserves your draft and blocks saving over the newer settings. Choose **Discard edits** in that warning to load the latest settings. There is no Reload button. **Save listings** sits in a separate action bar below the cards.
+
+Unticking a server removes it from the next publication. Unticking all servers withdraws the installation's listings. Names, addresses and listing IDs stay saved.
 
 The page warns when diagnostic consent or a Steam admin mapping is missing, and when a saved source no longer exists ("This source no longer exists. Its listing will be omitted from publication.").
 
@@ -227,7 +245,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 ## Common problems
 
 - **The Listings page says "Saved listing settings could not be loaded. Publishing is disabled until you save valid settings."** `server-list.json` is unreadable or invalid. Quasar does not fall back to `appsettings.json`. Fix the entries on the page and save.
-- **"Listing settings changed in another session. Reload before saving."** Someone else saved in the meantime. Click **Reload** and redo the edit.
+- **"Listing settings changed in another session."** Someone else saved in the meantime. The page keeps your edits but blocks saving. Click **Discard edits** to load the latest settings, then redo the edit.
 - **"Invalid server list identity, source, name or public join address."** A selected listing has an empty name, a name over 128 characters, a port outside 1 to 65535, or a host that is not a valid hostname or IP, or is localhost or loopback.
 - **"You no longer have permission to manage server listings."** The signed-in account lacks the security management permission.
 - **The server is selected but not on se-servers.net.** Check the four requirements above. Quasar log delivery must be working, so check the log for `Diagnostic uplink retry pending`, `Diagnostic key unavailable` and `Server list update deferred` warnings.
@@ -253,8 +271,9 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar/Components/Pages/ServerListing.razor`
 - `Quasar/Components/Pages/Home.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
-- `Quasar.Bootstrap/Program.cs`
 - `Quasar.Host/Program.cs`
+- `Quasar.Host/HungNodeEvidence.cs`
+- `Quasar.Host/NodeActualizer.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
 - `Shared/Diagnostics/DiagnosticStorage.cs`
 - `Shared/Diagnostics/NativeDumpCapture.cs`

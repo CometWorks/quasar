@@ -9,7 +9,7 @@ namespace Quasar.Services.Analytics;
 ///
 /// Each series is averaged down to at most <c>maxPoints</c> samples (default 1000). Samples are
 /// bucketed onto a single shared timeline so every series in a chart is aligned for uPlot's
-/// columnar data format (<c>[x[], y0[], y1[], ...]</c>); buckets with no samples are dropped.
+/// columnar data format (<c>[x[], y0[], y1[], ...]</c>); empty buckets inside the observed window remain gaps.
 ///
 /// A requested server can be a cluster slot (<see cref="AgentRuntimeState.AnalyticsKey"/>): its node
 /// instances and epochs are merged into one series under the slot's key.
@@ -171,13 +171,8 @@ public sealed class AnalyticsSeriesService
             serverBuckets.Add(new ServerBuckets(source.Key, sums, counts));
         }
 
-        // Compact to the buckets that actually hold data; this X axis is shared by every chart.
-        var kept = new List<int>(bucketCount);
-        for (var bucket = 0; bucket < bucketCount; bucket++)
-        {
-            if (bucketHasData[bucket])
-                kept.Add(bucket);
-        }
+        // Keep internal empty buckets so line charts do not bridge telemetry outages.
+        var kept = ObservedWindowBuckets(bucketHasData);
 
         if (kept.Count == 0)
             return [];
@@ -292,12 +287,7 @@ public sealed class AnalyticsSeriesService
             serverBuckets.Add(new ServerBuckets(source.Key, sums, counts));
         }
 
-        var kept = new List<int>(bucketCount);
-        for (var bucket = 0; bucket < bucketCount; bucket++)
-        {
-            if (bucketHasData[bucket])
-                kept.Add(bucket);
-        }
+        var kept = ObservedWindowBuckets(bucketHasData);
 
         var x = new long[kept.Count];
         for (var i = 0; i < kept.Count; i++)
@@ -400,12 +390,7 @@ public sealed class AnalyticsSeriesService
         for (var mi = 0; mi < metrics.Count; mi++)
         {
             var metric = metrics[mi];
-            var kept = new List<int>(bucketCount);
-            for (var bucket = 0; bucket < bucketCount; bucket++)
-            {
-                if (bucketHasDataByMetric[mi][bucket])
-                    kept.Add(bucket);
-            }
+            var kept = ObservedWindowBuckets(bucketHasDataByMetric[mi]);
 
             var x = new long[kept.Count];
             for (var i = 0; i < kept.Count; i++)
@@ -516,12 +501,7 @@ public sealed class AnalyticsSeriesService
             if (field is null)
                 continue;
 
-            var kept = new List<int>(bucketCount);
-            for (var bucket = 0; bucket < bucketCount; bucket++)
-            {
-                if (bucketHasData[bucket])
-                    kept.Add(bucket);
-            }
+            var kept = ObservedWindowBuckets(bucketHasData);
 
             if (kept.Count == 0)
                 continue;
@@ -601,6 +581,15 @@ public sealed class AnalyticsSeriesService
         }
 
         return metric.FixedMax;
+    }
+
+    private static IReadOnlyList<int> ObservedWindowBuckets(bool[] observed)
+    {
+        var first = Array.FindIndex(observed, static hasData => hasData);
+        if (first < 0)
+            return [];
+        var last = Array.FindLastIndex(observed, static hasData => hasData);
+        return Enumerable.Range(first, last - first + 1).ToArray();
     }
 
     private static (long BucketWidth, long AlignedFrom, int BucketCount) ResolveBuckets(long fromUnix, long toUnix, int maxPoints)

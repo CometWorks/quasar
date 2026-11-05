@@ -35,7 +35,18 @@
                         @if (context.Fleet?.Telemetry is { } telemetry)
                         {
                             <p class="quasar-text quasar-type-body2">@(telemetry.Connected ? "Connected" : "Telemetry unavailable")</p>
-                            <p class="quasar-text quasar-type-body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · Memory @telemetry.Metrics?.MemoryWorkingSetMb MB</p>
+                            @if (telemetry.Connected)
+                            {
+                                @if (ClusterOverview.IsIdle(context.Fleet))
+                                {
+                                    <p class="cluster-idle-label">Idle · waiting for work</p>
+                                    <p class="quasar-text quasar-type-body2">Memory @telemetry.Metrics?.MemoryWorkingSetMb MB</p>
+                                }
+                                else
+                                {
+                                    <p class="quasar-text quasar-type-body2">Sim speed @telemetry.Metrics?.SimSpeed.ToString("0.00") · Memory @telemetry.Metrics?.MemoryWorkingSetMb MB</p>
+                                }
+                            }
                             @if (telemetry.ReadinessVerified == false) { <p class="quasar-text quasar-type-body1 quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Deployment not ready</p> }
                             @if (!string.IsNullOrWhiteSpace(telemetry.DeploymentFailure)) { <p class="quasar-text quasar-type-body1 quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">@telemetry.DeploymentFailure</p> }
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary" OnClick="@(() => _selectedNode = context.Fleet!.Registry.Node)">Details</MudButton>
@@ -49,9 +60,6 @@
                             <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
                                        Disabled="@(!_available || fleetNode.Registry.Role != Admin.NodeRole.Regular || fleetNode.Registry.State != Admin.NodeState.Active || string.IsNullOrWhiteSpace(fleetNode.Registry.SlotKey))"
                                        OnClick="@(() => CloseAsync(fleetNode.Registry))">Drain</MudButton>
-                            <MudMenu Label="More" Dense="true" Size="Size.Small" Variant="Variant.Outlined" Disabled="@(!_available)">
-                                <MudMenuItem OnClick="@(() => KillAsync(fleetNode.Registry))">Force remove node…</MudMenuItem>
-                            </MudMenu>
                         </AuthorizeView>
                         }
                     </MudTd>
@@ -167,11 +175,6 @@
                 $"Drain slot {node.SlotKey} (node {node.Node}, epoch {node.Epoch})? Gateway selects an active replacement node at execution time.",
                 yesText: "Drain", cancelText: "Cancel") == true)
             await Command.InvokeAsync(ClusterAdminCommand.Create("node-close", target: node.SlotKey));
-    }
-    private async Task KillAsync(Admin.NodeStatus node)
-    {
-        if (await Dialogs.ShowMessageBoxAsync("Force remove node?", $"Remove {node.Node}, epoch {node.Epoch}? Unsaved simulation state may be lost.", yesText: "Force remove", cancelText: "Cancel") == true)
-            await Command.InvokeAsync(ClusterAdminCommand.Create("node-kill", new Admin.KillNodeRequest(node.Node, node.Epoch), node.SlotKey));
     }
     public async ValueTask DisposeAsync()
     {

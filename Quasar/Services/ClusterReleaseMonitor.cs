@@ -5,7 +5,7 @@ namespace Quasar.Services;
 
 /// <summary>Observes published cluster packages; never stages or activates them.</summary>
 public sealed class ClusterReleaseMonitor(ClusterCatalog catalog, ClusterPackageService packages,
-    GitHubUpdateCredentialsCatalog credentials, QuasarUpdateOptions options,
+    QuasarUpdateOptions options,
     ILogger<ClusterReleaseMonitor> logger) : BackgroundService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -48,13 +48,6 @@ public sealed class ClusterReleaseMonitor(ClusterCatalog catalog, ClusterPackage
         await _gate.WaitAsync(token);
         try
         {
-            if (!credentials.HasToken)
-            {
-                SetSnapshot(new(null, DateTimeOffset.UtcNow,
-                    "A GitHub token with access to CometWorks/cluster is required."));
-                return;
-            }
-
             try
             {
                 var release = await packages.GetReleaseAsync(null, token);

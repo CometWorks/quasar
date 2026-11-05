@@ -13,10 +13,14 @@
         <div><strong>@(MemorySamples.Any() ? $"{MemorySamples.Sum() / 1073741824d:0.0} GB" : "—")</strong><span>reported RAM</span></div>
         <div><strong>@(CpuSamples.Any() ? $"{CpuSamples.Sum():0}%" : "—")</strong><span>reported CPU @(CpuSamples.Any() ? $"· {CpuSamples.Sum() / 100:0.00} cores" : "unavailable")</span></div>
     </div>
-    <p class="quasar-muted quasar-caption">Resource coverage: @MemorySamples.Count()/@(Nodes.Length + 1) processes report RAM; @CpuSamples.Count() report CPU. Missing or stale readings are excluded.</p>
+    <p class="quasar-muted quasar-caption">Resource coverage: @MemorySamples.Count()/@(Nodes.Length + 1) processes report RAM; @CpuSamples.Count() report CPU. Missing or stale readings are excluded. Idle processes still contribute their reported RAM and background CPU usage.</p>
     <div class="cluster-map-scroll" role="region" aria-label="Gateway, nodes and World Authority topology" tabindex="0">
     <div class="cluster-map" style="@($"--cluster-node-count:{Math.Max(1, GameNodes.Length)}")">
         <div class="cluster-player-entry"><strong>Players</strong><span>@(Status is null ? "Connections unavailable" : $"{Status.Counts.ConnectedClients} connected")</span></div>
+        @if (_unassignedPlayers > 0)
+        {
+            <p class="cluster-routing-status quasar-text-warning" role="status">Node assignments are not reported for @_unassignedPlayers connected @(_unassignedPlayers == 1 ? "player" : "players"). Node counts are incomplete; + means at least that many.</p>
+        }
         <div class="cluster-entry-link" aria-hidden="true"></div>
         <article class="cluster-process cluster-gateway" data-tone="@(Status is null ? "unknown" : Status.Health.ToString().ToLowerInvariant())">
             <div class="quasar-row quasar-justify-spacebetween"><h4>Gateway</h4><span class="cluster-health-badge">@(Gateway?.Observed.ToString() ?? (Status is null ? "Unknown" : "Online"))</span></div>
@@ -37,7 +41,7 @@
                 @foreach (var node in GameNodes)
                 {
                     <div class="cluster-node-column">
-                        <div class="cluster-edge-label"><strong>@Count(Clients, node, c => c.Node) routed players</strong><span>Direct Transport</span><span>Internal node link · @LinkState(node)</span></div>
+                        <div class="cluster-edge-label"><strong>@RoutedPlayerCount(node) routed players</strong><span>Internal node link · @LinkState(node)</span></div>
                         @Process(node)
                         <div class="cluster-edge-label cluster-partition-label"><strong>@Count(Partitions?.Where(p => !p.Retired).ToArray(), node, p => p.Node) partitions</strong><span>World synchronization</span></div>
                     </div>
@@ -57,13 +61,13 @@
                 @foreach (var authority in AuthorityNodes) { @Process(authority) }
             }
             else { <article class="cluster-process" data-tone="unknown"><h4>World Authority</h4><p>Unavailable</p><ClusterResourceUsage /></article> }
-            <p class="quasar-muted quasar-caption">Gateway ↔ World Authority: internal Direct Transport · @(Status?.WorldAuthority.Node is null ? "unavailable" : "registered")</p>
+            <p class="quasar-muted quasar-caption">Gateway ↔ World Authority: internal connection · @(Status?.WorldAuthority.Node is null ? "unavailable" : "registered")</p>
         </div>
     </div>
     </div>
     <p class="quasar-muted quasar-caption">Solid links show player routing; dashed links show partition synchronization. Counts describe Registry placement, not transport socket counts. CPU is total process usage: 100% equals one core. Each bar holds one core equivalent, up to four bars; these are not measurements of individual cores.</p>
     <details class="quasar-details" open>
-        <summary>Service addresses <span class="quasar-muted">Steam, Direct Transport and management</span></summary>
+        <summary>Service addresses <span class="quasar-muted">Player connections and management</span></summary>
         <p class="quasar-muted quasar-caption">Active deployment configuration and current registered node endpoints. Configured addresses do not prove a port is listening or publicly reachable. Wildcard binds use the enrolled host address where known.</p>
         <div class="quasar-table-scroll"><table class="quasar-server-table cluster-service-table">
             <thead><tr><th scope="col">Process / host</th><th scope="col">Service</th><th scope="col">Host or IP : port</th></tr></thead>
@@ -85,11 +89,20 @@
     [Parameter] public HostContract.HostStatus? Host { get; set; }
     [Parameter] public IReadOnlyList<EnrolledClusterHost> Hosts { get; set; } = [];
     private ClusterOverview.Node[] Nodes = [], GameNodes = [], AuthorityNodes = [];
+    private IReadOnlyDictionary<string, int> _routedPlayers = new Dictionary<string, int>();
+    private int _unassignedPlayers;
     protected override void OnParametersSet()
     {
         Nodes = ClusterOverview.Nodes(Cluster, Plan, Status is null ? [] : Fleet?.Nodes ?? []);
         GameNodes = Nodes.Where(n => n.Role == Admin.NodeRole.Regular).ToArray();
         AuthorityNodes = Nodes.Where(n => n.Role == Admin.NodeRole.WorldAuthority).ToArray();
+        var currentNodes = GameNodes.Where(n => n.Fleet?.Registry is { LeaseFresh: true, State: not Admin.NodeState.Dead })
+            .Select(n => n.Fleet!.Registry.Node).ToHashSet(StringComparer.Ordinal);
+        var clients = Clients?.DistinctBy(client => client.ClientId).ToArray();
+        _routedPlayers = (clients ?? []).Where(client => client.Node is not null && currentNodes.Contains(client.Node))
+            .GroupBy(client => client.Node!, StringComparer.Ordinal).ToDictionary(group => group.Key, group => group.Count(), StringComparer.Ordinal);
+        _unassignedPlayers = Status is null || clients is null ? 0
+            : Math.Max(0, Math.Max(Status.Counts.ConnectedClients, clients.Length) - _routedPlayers.Values.Sum());
     }
     private int MapWidth => Math.Max(1, GameNodes.Length) * 240;
     private bool MultipleHosts => Nodes.Select(n => n.Host).OfType<string>().Concat(Cluster.ActiveDeployment?.Hosts.Select(h => h.HostId) ?? []).Distinct().Count() > 1;
@@ -97,26 +110,35 @@
     private HostContract.GatewayProcessMetrics? GatewayMetrics => Gateway is { Observed: HostContract.GatewayObservedState.Running, Metrics: { } metrics }
         && DateTimeOffset.UtcNow - metrics.CapturedAt < TimeSpan.FromSeconds(15) ? metrics : null;
     private static ServerMetrics? Metrics(ClusterOverview.Node node) => node.Fleet?.Telemetry is { Connected: true } telemetry ? telemetry.Metrics : null;
+    private static bool IsIdle(ClusterOverview.Node node) => ClusterOverview.IsIdle(node.Fleet);
     private IEnumerable<long> MemorySamples => Nodes.Select(n => Metrics(n)?.MemoryWorkingSetMb * 1048576)
         .Append(GatewayMetrics?.MemoryWorkingSetBytes).OfType<long>().Where(m => m >= 0);
     private IEnumerable<double> CpuSamples => Nodes.Select(n => (double?)Metrics(n)?.ServerCpuLoadPercent)
         .Append(GatewayMetrics?.CpuPercent).OfType<double>().Where(c => double.IsFinite(c) && c >= 0);
     private string Count<T>(T[]? values, ClusterOverview.Node node, Func<T, string?> owner) => Status is null || values is null || node.Fleet is null
         ? "—" : values.Count(v => owner(v) == node.Fleet.Registry.Node).ToString();
+    private string RoutedPlayerCount(ClusterOverview.Node node)
+    {
+        if (Status is null || Clients is null || node.Fleet is null) return "—";
+        int count = _routedPlayers.GetValueOrDefault(node.Fleet.Registry.Node);
+        return _unassignedPlayers == 0 ? count.ToString() : count > 0 ? count + "+" : "—";
+    }
     private string LinkState(ClusterOverview.Node node) => node.Fleet?.Registry.LeaseFresh switch { true => "registered", false => "lease stale", _ => "unavailable" };
     private string Tone(ClusterOverview.Node node) => node.Plan?.FailureAlert == true || node.Fleet?.Registry is { State: Admin.NodeState.Dead } ? "unhealthy"
         : node.Fleet?.Registry is not { LeaseFresh: true } ? "unknown"
         : node.Fleet.Registry.QuarantinedPartitions > 0 || node.Fleet.Telemetry is not { Connected: true }
             || node.Fleet.Telemetry.ReadinessVerified == false || node.Plan is { Observed: not Admin.NodeObservation.Ready } ? "warning" : "healthy";
-    private string LinkWidth(ClusterOverview.Node node) => (Clients is null || node.Fleet is null ? 1 : 1 + Math.Min(Clients.Count(c => c.Node == node.Fleet.Registry.Node), 50) / 10d).ToString("0.0", CultureInfo.InvariantCulture);
-    private RenderFragment Process(ClusterOverview.Node node) => @<article class="cluster-process" data-tone="@Tone(node)" data-node="@(node.Fleet?.Registry.Node ?? node.Name)">
-        <div class="quasar-row quasar-justify-spacebetween"><h4>@(node.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : node.Name)</h4><span class="cluster-health-badge">@(node.Fleet?.Registry.State.ToString() ?? node.Plan?.Observed.ToString() ?? "Unobserved")</span></div>
+    private string LinkWidth(ClusterOverview.Node node) => (Clients is null || node.Fleet is null ? 1
+        : 1 + Math.Min(_routedPlayers.GetValueOrDefault(node.Fleet.Registry.Node), 50) / 10d).ToString("0.0", CultureInfo.InvariantCulture);
+    private RenderFragment Process(ClusterOverview.Node node) => @<article class="cluster-process" data-tone="@Tone(node)" data-activity="@(IsIdle(node) ? "idle" : null)" data-node="@(node.Fleet?.Registry.Node ?? node.Name)">
+        <div class="quasar-row quasar-justify-spacebetween"><h4>@(node.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : node.Name)</h4><span class="cluster-health-badge">@(IsIdle(node) ? "Idle" : node.Fleet?.Registry.State.ToString() ?? node.Plan?.Observed.ToString() ?? "Unobserved")</span></div>
         @if (node.Spare) { <p class="cluster-spare-label">Hot spare</p> }
+        @if (IsIdle(node)) { <p class="cluster-idle-label">Waiting for work</p> }
         @if (MultipleHosts) { <p class="quasar-muted cluster-process-host">Host: @(Hosts.FirstOrDefault(h => h.Id == node.Host)?.Name ?? node.Host ?? "Unknown")</p> }
         @if (node.Fleet is { } fleet) { <p class="quasar-muted quasar-caption">@fleet.Registry.Node · @LinkState(node)</p> }
         @if (node.Role == Admin.NodeRole.WorldAuthority) { <p class="quasar-muted">World-wide state and partition coordination</p> }
-        <ClusterResourceUsage CpuPercent="@((double?)Metrics(node)?.ServerCpuLoadPercent)" MemoryBytes="@(Metrics(node)?.MemoryWorkingSetMb * 1048576)" />
-        @if (Metrics(node) is { } metrics) { <p class="quasar-caption">Simulation speed @metrics.SimSpeed.ToString("0.00")</p> }
+        <ClusterResourceUsage CpuPercent="@((double?)Metrics(node)?.ServerCpuLoadPercent)" MemoryBytes="@(Metrics(node)?.MemoryWorkingSetMb * 1048576)" CpuPaused="@IsIdle(node)" />
+        @if (!IsIdle(node) && Metrics(node) is { } metrics) { <p class="quasar-caption">Simulation speed @metrics.SimSpeed.ToString("0.00")</p> }
         @if (node.Fleet?.Telemetry is not { Connected: true }) { <p class="quasar-muted quasar-caption">Live process telemetry unavailable</p> }
         @if (node.Plan?.LastFailure is { } failure) { <p class="quasar-text-warning quasar-caption">@failure</p> }
     </article>;

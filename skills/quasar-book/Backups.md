@@ -38,15 +38,24 @@ It does not include `appsettings.json`, `backup-settings.json`, `github-updates.
 
 ### World backups of running servers
 
-You can take a world backup while the server runs. If the world folder has a Space Engineers `Backup` subfolder, Quasar copies the newest snapshot folder in it that contains `Sandbox.sbc`, instead of the live save. Otherwise it copies the live world folder. The server needs a selected world save, or the backup fails with "Server '<name>' has no world save selected."
+When you press **Back up world** for a running server, Quasar opens a modal with three choices:
+
+- **Save and back up** requests a world save and waits for the agent to confirm completion before creating the ZIP. The server keeps running. Quasar uses a valid Space Engineers snapshot at least as recent as the current save, or the current world folder when no such snapshot exists.
+- **Stop and back up** first waits for a successful save, then stops the server gracefully and waits for it to exit. It backs up the current world folder and leaves the server stopped with auto-start disabled. Start it yourself when ready.
+- **Cancel** closes the modal without queuing a backup, saving, or stopping the server.
+
+A stopped server queues its backup immediately, without this modal. Wait for a server that is starting, stopping, or restarting to finish that transition before making a manual world backup. A missing agent, rejected save, disconnection, timeout, or incomplete stop fails the requested operation without creating a backup ZIP. If stopping has already begun, the server's goal remains Off even if the operation later fails.
+
+Automatic world backups keep their existing behavior: if the world folder has a Space Engineers `Backup` subfolder, Quasar copies the newest snapshot folder in it that contains `Sandbox.sbc`, instead of requesting a new save. Otherwise it copies the live world folder. World ZIPs exclude nested `Backup` history and the `.new` save staging folder. The server needs a selected world save containing `Sandbox.sbc`.
 
 ## Making backups by hand
 
 - **Back up Quasar configuration to file** builds the ZIP in memory and downloads it. Nothing is written to the backup folder.
-- **Back up server** and **Back up world** queue a job and show "Server backup queued." or "World backup queued.". The ZIP lands in the backup folder. When the job finishes, the page (if still open) shows "Server backup created in the configured backup folder." or the failure, such as "World backup failed: <reason>".
+- **Back up server** and **Back up world** queue a job and show "Server backup queued." or "World backup queued.". For a running world's backup, first choose an action in the modal described above. The selected save and stop actions run in the background queue, so closing the page after queuing does not cancel them. The ZIP lands in the backup folder. When the job finishes, the page (if still open) shows "Server backup created in the configured backup folder." or the failure, such as "World backup failed: <reason>".
 - **Run enabled rules now** queues all enabled automatic rules at once ("Enabled backup rules queued."). These count as automatic backups: they get the `-auto` suffix, count toward retention, and reset each rule's schedule from now.
 
 Backup jobs run one at a time in the background. A queued job is Queued, then Running, then Succeeded or Failed.
+World backups and restores of the same server cannot overlap. Quasar also defers starting that server until its world backup finishes.
 
 ## Automatic backups
 
@@ -130,7 +139,11 @@ Take a fresh configuration backup after each Quasar update that changes the majo
 
 Managed clusters follow the **Servers** rule's schedule and retention. A cluster that is proven stopped gets a clean backup. A running cluster is copied without downtime at up to **Running cluster copy rate (MiB/s)** (default 32, range 1 to 4096) and restores to the state of a crash at the start of the copy. Retention always keeps the newest clean backup in addition to the last N. A failed scheduled cluster backup is retried one hour later.
 
-Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster name>/<snapshot id>/` and do not appear in the **Stored backups** table. Restoring a cluster and taking manual cluster backups happen from the cluster's own page. See [Clusters](Clusters.md).
+Quasar also backs up a cluster before each managed update and before converting it to a standalone server. It keeps the three newest backups of each of these two kinds; older ones are deleted when a new one is taken. The backup just taken is never deleted, since it is the way back from that update or conversion.
+
+**Keep deleted clusters (days)**, in the Servers rule (default 7, range 0 to 3650), sets how long a deleted cluster's backups, world and Host data stay. After that Quasar removes them all, manual backups included. 0 keeps them forever. See [Delete or forget a cluster](Clusters.md#delete-or-forget-a-cluster).
+
+Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster name>/<snapshot id>/` and do not appear in the **Stored backups** table. Conversion receipts and working copies live in `<backup folder>/Conversions/<id>/` and stay until you remove them. Restoring a cluster and taking manual cluster backups happen from the cluster's own page. See [Clusters](Clusters.md).
 
 ## Common problems
 
@@ -146,7 +159,21 @@ Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster 
 - **"QUASAR_BACKUP_DIR is set; remove it before editing the backup folder from the web UI."** Remove the environment variable and restart Quasar, or change the variable instead.
 - **Steam Workshop API key missing after restoring on another machine.** Data Protection keys are not in backups. Enter the key again.
 
+On the RTC development branch, backup download buttons use the core browser SDK.
+Nebula-hosted sessions stream through the peer; local downloads retain HTTP.
+The operation keeps its Admin default, named-file checks and ranges. Direct
+failure is reported without silently relaying the archive over HTTP.
+
+## Direct world import
+
+To load a raw world folder or ZIP into an existing standalone server without a
+Quasar backup manifest, use [direct world import](ConfigProfiles.md#importing-a-world-directly-to-a-server).
+It creates a new save and retains the previous one. Backups, restores and imports share a
+maintenance slot, so they cannot run together or race a server start.
+
 ## Sources
+
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`
 - `Docs/StateMachines/BackupJobs.md`
 - `Docs/Configuration.md`
 - `Docs/Docker.md`
@@ -155,11 +182,15 @@ Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster 
 - `Quasar/Services/Backup/QuasarBackupSettingsService.cs`
 - `Quasar/Services/Backup/BackupCompatibility.cs`
 - `Quasar/Services/Backup/ServerRestoreCoordinator.cs`
+- `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Models/QuasarBackupSettings.cs`
 - `Quasar/Models/QuasarBackupManifest.cs`
 - `Quasar/Services/ClusterBackupService.cs`
+- `Quasar/Services/ClusterConversionService.cs`
+- `Docs/ClusterConversion.md`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Program.cs`
 - `Quasar/Components/Pages/Backup.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/ServerWorldImportService.cs`

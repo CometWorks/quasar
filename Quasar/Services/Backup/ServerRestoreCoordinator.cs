@@ -3,15 +3,39 @@ using System.Diagnostics.CodeAnalysis;
 namespace Quasar.Services.Backup;
 
 /// <summary>
-/// Tracks which managed servers currently have a backup restore in progress.
-/// A restore rewrites a server's files in place, so the supervisor must refuse
-/// to start that server until the restore finishes. Restores and starts are
-/// triggered from independent requests/threads, so all access is synchronized.
+/// Reserves managed servers during restores, world backups and world imports. The supervisor
+/// must refuse to start a server until its file operation finishes. Operations
+/// and starts come from independent requests/threads, so all access is synchronized.
 /// </summary>
 public sealed class ServerRestoreCoordinator
 {
     private readonly object _sync = new();
     private readonly HashSet<string> _restoring = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _backingUp = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _importing = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsWorldImportInProgress(string uniqueName)
+    {
+        lock (_sync) return _importing.Contains(uniqueName);
+    }
+
+    public bool TryBeginWorldImport(string uniqueName, [NotNullWhen(true)] out IDisposable? scope) =>
+        TryBegin(uniqueName, _importing, out scope);
+
+    public bool IsFileOperationInProgress(string uniqueName)
+    {
+        lock (_sync)
+            return _restoring.Contains(uniqueName) || _backingUp.Contains(uniqueName) || _importing.Contains(uniqueName);
+    }
+
+    public bool IsBackupInProgress(string uniqueName)
+    {
+        lock (_sync)
+            return _backingUp.Contains(uniqueName);
+    }
+
+    public bool TryBeginBackup(string uniqueName, [NotNullWhen(true)] out IDisposable? scope) =>
+        TryBegin(uniqueName, _backingUp, out scope);
 
     /// <summary>True while a restore is running for the given server.</summary>
     public bool IsRestoreInProgress(string uniqueName)
@@ -26,42 +50,43 @@ public sealed class ServerRestoreCoordinator
     /// <summary>
     /// Claims the restore slot for a server, returning a scope that releases it
     /// on dispose. Returns <c>false</c> when another restore already holds the
-    /// slot, so callers never run two restores against the same server at once.
+    /// slot, or a world backup is running, so conflicting file operations cannot overlap.
     /// </summary>
-    public bool TryBeginRestore(string uniqueName, [NotNullWhen(true)] out IDisposable? scope)
+    public bool TryBeginRestore(string uniqueName, [NotNullWhen(true)] out IDisposable? scope) =>
+        TryBegin(uniqueName, _restoring, out scope);
+
+    private bool TryBegin(string uniqueName, HashSet<string> operations, [NotNullWhen(true)] out IDisposable? scope)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(uniqueName);
 
         lock (_sync)
         {
-            if (!_restoring.Add(uniqueName))
+            if (_restoring.Contains(uniqueName) || _backingUp.Contains(uniqueName) || _importing.Contains(uniqueName))
             {
                 scope = null;
                 return false;
             }
+            operations.Add(uniqueName);
         }
 
-        scope = new RestoreScope(this, uniqueName);
+        scope = new OperationScope(this, uniqueName, operations);
         return true;
     }
 
-    private void Release(string uniqueName)
+    private void Release(string uniqueName, HashSet<string> operations)
     {
         lock (_sync)
-            _restoring.Remove(uniqueName);
+            operations.Remove(uniqueName);
     }
 
-    private sealed class RestoreScope(ServerRestoreCoordinator owner, string uniqueName) : IDisposable
+    private sealed class OperationScope(ServerRestoreCoordinator owner, string uniqueName, HashSet<string> operations) : IDisposable
     {
-        private bool _disposed;
+        private int _disposed;
 
         public void Dispose()
         {
-            if (_disposed)
-                return;
-
-            _disposed = true;
-            owner.Release(uniqueName);
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                owner.Release(uniqueName, operations);
         }
     }
 }

@@ -1,146 +1,106 @@
 # Hosted access
 
-Nebula exposes the complete local Quasar at
-`https://dash.se-servers.net/my-server-panel/`. Servers and worlds remain
-local. You need no per-panel DNS entry, inbound router port or certificate.
+Nebula publishes the complete local Quasar at a public address such as `https://dash.se-servers.net/my-server-panel/`. Servers, worlds, supervision and credentials stay on the Quasar machine. You need no DNS entry, router port forwarding or certificate. The alternative is your own HTTPS reverse proxy, see [Access control](AccessControl.md#behind-a-reverse-proxy). This page covers availability, setup, how the connection works, what changes for security, shared administration and billing, moving a panel, and the local files.
 
-Open **Security → Manage access setup**. The same dialog appears in the first
-interactive admin session. When no administrator mapping exists, first enter your
-17-digit SteamID64 and choose **Save administrator and continue**. Existing
-subject or claim admin mappings skip that step. Setup requires security-management
-permission, normally through the existing trusted-network session on a fresh
-installation; a remote Steam sign-in alone cannot claim it. Then choose
-**Self-deploy** or **Use hosted panel** from the two large choices, then **Next**.
-The layout and step progress indicator follow the server import wizard. **Back**
-returns from hosted settings without clearing your panel name; **Cancel** closes
-setup. Headless startup remains unattended.
-For hosted access choose a globally unique 3 to 63 character lowercase name using
-letters/digits separated by single dashes, then follow the Steam enrollment link.
-The reference expires after 15 minutes; retry locally if it expires or the name
-is taken. Quasar retrieves its private connector credential automatically.
+## Availability and price
 
-After **Start hosted enrollment**, the larger dialog shows a progress bar, live
-status and stages for enrollment, activation, tunnel connection and dashboard
-verification. Use **Continue enrollment with Steam** if the new tab is blocked.
-While connecting, **Cancel** is the only footer action. It stops hosted setup and
-the connection, preserves the private identity and does not cancel an existing
-subscription. **Open Quasar dashboard** becomes a primary button only after active
-hosting and fresh health for this panel confirm both the tunnel and local worker
-are ready. **Done** closes setup; **Self-deploy** disconnects hosting and opens
-Security. Expired or disconnected enrollments return to the setup form to retry.
+The hosted service is still being integrated. Stripe billing is implemented in Nebula, but checkout stays disabled until the operator's onboarding and acceptance are done. Until then only Nebula's configured platform super admins can enroll, for free. Other accounts stay pending until a verified payment activates them. Free hosting does not grant any role in Quasar.
 
-**Current availability:** Nebula's configured platform super admins can enroll
-free. Stripe billing is implemented; checkout stays disabled
-until operator onboarding and acceptance. Ordinary users remain pending until
-verified payment activates access. Free hosting does not grant Quasar roles.
-Live deployment and provider checks still gate customer launch. The operator
-accepts shared-origin plugin risk without customer preapproval and uses
-retrospective suspension/revocation.
+The setup dialog shows the price: €2.99 per month or €29.99 per year, in EUR including applicable taxes. You choose the plan on Nebula, which shows the recurring total, the seller and the tax treatment before payment. One subscription covers one panel and its tunnel. Before checkout Quasar says: "Your subscription provides hosted access to your Quasar panel and also supports ongoing development and future CometWorks projects." It does not entitle you to unreleased projects. Seller and tax details are in [Nebula's billing setup](https://github.com/CometWorks/nebula/blob/main/docs/billing.md).
 
-The EUR price includes applicable customer taxes; processing fees are
-absorbed. Nebula offers monthly or yearly billing when configured, displaying
-the exact recurring price before consent. One customer corresponds to one panel/tunnel and one subscription.
-Quasar explains before checkout: "Your subscription provides hosted access to
-your Quasar panel and also supports ongoing development and future CometWorks
-projects." This is a paid service with no entitlement to unreleased projects.
+## Set up hosted access
 
-Qualifying private EU consumer purchases can use ordinary Stripe under Dutch KOR
-while the operator's dated, whole-business eligibility approval is current. Other
-supported purchases use Stripe Managed Payments (Sold through Link) as merchant of
-record. Nebula shows the seller/tax treatment before checkout and binds it to the
-billing account. KOR does not exempt Link's sales. Renewals beyond KOR approval
-pause at Stripe; valid paid access remains. Explicit owner cancellations remain
-canceled after an operator approval update. Customer-type or region changes never
-automatically change the seller; contact support to review an incompatible change.
-Cards, Apple Pay, Google Pay and Link are supported where available. Paid checkout
-stays disabled pending runtime credentials, real payment/country controls and
-existing release acceptance. See [Nebula billing setup](https://github.com/CometWorks/nebula/blob/main/docs/billing.md).
+You need admin permission in Quasar. On a fresh install that is normally the trusted network bypass, a browser on the Quasar machine. Quasar authentication and Steam sign-in must be on; otherwise the dialog warns "Enable Steam authentication in Quasar before enrolling a public panel." and won't start.
 
-Run the packaged Bootstrap launcher/service, which manages the verified frpc
-0.71.1 process independently of web-worker updates. Direct worker runs do not
-start a connector. Linux x64 and Windows x64 are supported by provisioning code;
-live Windows operation remains an acceptance check. Local access and game-server
-goal state continue through hosting outages or expiry. Readiness requires fresh tunnel-registration and local-worker health reports;
-enrollment alone does not confirm connectivity.
+1. Open **Security → Manage access setup**. The same dialog ("Set up administrator access") opens by itself for an admin while `rbac.json` has no administrator or no access method has been chosen yet. Headless Quasar shows no dialog and doesn't wait for one.
+2. If no mapping grants `admin`, enter your 17-digit **Administrator SteamID64** and choose **Save administrator and continue**. See [The first administrator](AccessControl.md#the-first-administrator).
+3. Choose **Use hosted panel**, then **Next**. (**Self-deploy** closes the dialog and opens the **Security** page. **Cancel** closes the dialog.)
+4. Enter the **Public panel name**: 3 to 63 lowercase letters and digits, in groups separated by single dashes. Names that Nebula uses for its own pages, such as `account`, `api`, `login` or `billing`, are refused. The dialog previews the public address.
+5. Choose **Start hosted enrollment**. Quasar stores its private installation identity, registers the name with Nebula and opens the Nebula account page in a new tab. If the browser blocks the tab, use **Continue enrollment with Steam**. Sign in with Steam on Nebula, confirm this installation and activate hosting.
+6. The dialog follows four stages: **Create enrollment**, **Confirm Steam account and hosting activation**, **Connect secure tunnel** and **Verify Quasar dashboard**. Once the tunnel and the local Quasar both report healthy, it shows **Open Quasar dashboard**, **Done** and **Manage Nebula hosting and billing**.
 
-Hosted requests never use loopback/LAN admin bypass. Steam/RBAC and existing
-machine credentials/Origin restrictions still apply. Public browser URLs do not
-replace existing local Agent/Host addresses. Explicit hosted HTTPS control
-addresses preserve the exact panel prefix for enrollment, Host updates and
-Host/Agent WebSockets. Core links, cookies, service workers and the
-matching Entity Viewer use the enrolled prefix. URL paths do not isolate arbitrary
-plugin scripts from other same-origin panels or the portal. This is an accepted
-operator risk, not browser isolation supplied by login or RBAC. Retrospective
-suspension/revocation stops further hosted access within the transport limits;
-it does not undo earlier actions.
+**Cancel** while connecting stops hosted setup and the connector. It keeps the private identity and does not cancel a subscription. Start again with the same name to resume. The Nebula link expires after 15 minutes ("Enrollment link expired. Choose hosted setup again."); start hosted enrollment again. Nebula reports a name that is already taken before activation; pick another one. An enrolled installation can't switch to a different name: "This installation is already enrolled. Use its existing public name to reconnect."
 
-Keep `HostedPanel/` under the data/install root private: it contains installation,
-connector and local proxy secrets, generated configuration and the verified
-connector download. Unix uses owner-only permissions; Windows grants the service
-identity, SYSTEM and Administrators. Protect backups and run only one restored
-connector for a copied enrollment identity. Corrupt state preserves its file and
-disables hosting while local Quasar remains available. Restore a private backup
-before editing enrollment. Self-deploy disconnects hosting and retains the local
-identity; selecting the same hosted name resumes it. Renaming is not implemented.
+After that, sign in at the public address with Steam. Your roles from `rbac.json` apply there as on the local address.
 
-All configured Steam administrators share this panel in Nebula. Quasar sends
-current Steam admin mappings over its private installation channel every ten
-seconds; Nebula requires a snapshot from the last two minutes for management.
-Other provider/trusted-network sessions can run setup, but membership uses
-configured Steam IDs. These roles do not grant Nebula platform super-admin rights.
-**Manage Nebula hosting and billing** on Security or the ready wizard opens the
-account page.
+## How the connection works
 
-Exactly one payer sees billing details and controls renewal. Another current
-admin can request a billing transfer there. The current payer approves or declines;
-requests expire after seven days. Approval stops the old subscription without
-refund or proration and keeps existing verified paid access. The new payer checks
-out with their own details and payment method after that paid period ends and
-must finish checkout to continue hosting. Cards and historical invoices are not
-transferred. Refunds/disputes still reconcile against the old paid periods.
+- Quasar runs the frp client (`frpc` 0.71.1) as its own child process on Linux x64 and Windows x64. On first use it downloads the official release archive from GitHub, checks it against a pinned SHA-256 and keeps the binary with its license in `HostedPanel/frp-0.71.1/`. You run no frp commands and paste no credentials.
+- The connector connects out over WSS to `dash.se-servers.net` port 443. It verifies the server certificate against the machine's trusted root certificates, which Quasar exports to `HostedPanel/trusted-roots.pem`. With no trusted roots, hosting stays off.
+- Quasar checks the connector every 10 seconds and restarts it when it exited or its configuration changed. When Quasar stops, it stops the connector, so the public address is down while Quasar restarts or updates. A connector left behind by a crash is recognized by its PID, start time and path and stopped at the next start.
+- Each check reports two things to Nebula and to `HostedPanel/connector-health.json`: whether the tunnel is registered, and whether the local `/api/ready` answers. The panel counts as ready only when both are true in a report younger than 35 seconds. Enrollment alone does not mean it is reachable.
+- Quasar also asks Nebula every 10 seconds for the enrollment state, and picks up the connector credential once hosting is active.
+- If Nebula is down, or hosting expires or is suspended, only the public address stops working. Local access and the servers' goal state don't change.
 
-Billing requests and results use the bell/page and existing Steam browser push
-subscriptions. Enable push on **Notifications** through the hosted URL to register
-that browser in this panel's scope; local-origin subscriptions are separate.
-Quasar must run and the browser must grant permission. An existing subscription
-can still receive targeted billing notices after its payer loses local roles.
-Trusted-network push subscriptions do not receive Steam billing notices.
-The request stays visible on Nebula if push is off or delivery fails. Automated
-routing/targeting checks exist; real browser delivery through live Nebula remains
-an acceptance test.
+Status texts in the dialog:
 
-To recover or move a panel, choose its existing public name in the new Quasar
-installation and confirm replacement on Nebula as the current payer or a currently
-verified administrator. The payer can recover when the old deployment is offline,
-including after billing ownership has changed. This revokes old connector and
-installation proofs and automatically deletes their registration/health records.
-The old admin roster is dropped; the new deployment publishes its own roles.
-The subscription, billing details, URL and paid dates remain. Game servers, worlds
-and local settings are not moved or deleted. Disconnecting alone does not cancel
-renewal. A revoked local enrollment clears credentials and permits fresh pairing.
-Deploy the matching Nebula manager before the Quasar update.
+| Status | Meaning |
+| --- | --- |
+| "Waiting for Steam enrollment" | Continue on the Nebula page. |
+| "Waiting for hosted access activation. Continue on the Nebula account page." | The Steam confirmation or the activation (payment) is not done yet. |
+| "Enrolled; Bootstrap is connecting the hosted tunnel" | Hosting is active; the tunnel is not registered yet. The text names Bootstrap, but Quasar itself runs the connector. |
+| "Tunnel connected; local Quasar is restarting" | The tunnel is up, `/api/ready` does not answer. |
+| "Hosted dashboard ready" | Both are healthy. |
+| "Hosting service unavailable; local Quasar continues working" | Quasar can't reach Nebula. |
+| "Installation disconnected. Restart hosted setup to relink your panel." | Nebula no longer knows this installation, for example after a disconnect or a recovery on another machine. Quasar has cleared its connector credential. |
 
-See [the detailed deployment and recovery guide](https://github.com/CometWorks/quasar/blob/main/Docs/HostedPanel.md).
+## Security of hosted requests
+
+- The connector forwards requests for `/<panel-name>/` to Quasar on loopback and adds a private header with a secret only it and Quasar know. Quasar treats a request as hosted only with that exact secret, from a loopback socket, for the enrolled prefix, and while authentication and Steam sign-in are on. Any other request with that header gets 403.
+- Quasar uses the prefix as the application base, so links, redirects, the Steam callback, downloads and the browser push service worker stay under `/<panel-name>/`. Cookies get the panel name as a suffix, the prefix as their path, and are always Secure.
+- Hosted requests never get the [trusted network bypass](AccessControl.md#trusted-network-bypass), although they arrive from loopback. Everyone signs in with Steam and gets roles from `rbac.json`.
+- Machine routes stay protected by their credentials and the [machine endpoint](AccessControl.md#machine-endpoints) policy, which counts a hosted request as `127.0.0.1:<port>`. A Host executor or agent can use the exact hosted panel URL, with its trailing slash, as its Quasar address; enrollment, Host updates and the Host and agent WebSockets keep the prefix. Quasar never replaces existing local Host or agent addresses with the public one.
+- URL paths are not browser origins. Every panel and the Nebula portal share the origin `https://dash.se-servers.net`, so a script that a UI plugin brings into one panel can reach the others in the same browser. Sign-in and RBAC don't change that. The operator accepts this risk and answers abuse by suspending or revoking access afterwards, which does not undo what already happened. See [Nebula's operating decision](https://github.com/CometWorks/nebula/blob/main/docs/architecture.md#shared-origin-operating-decision) and [UI plugins](UiPlugins.md).
+
+## Administrators and billing
+
+- Every 10 seconds Quasar sends Nebula the Steam IDs that `rbac.json` maps to `admin`. They all can manage the panel in Nebula. Per the Quasar docs, Nebula stops accepting management when it has had no list for two minutes. Nebula membership comes only from these Steam IDs; a trusted-network session can run the setup but is not a member. Quasar roles never grant Nebula platform super admin rights.
+- **Manage Nebula hosting and billing** on **Security** and in the ready dialog opens `https://dash.se-servers.net/account`.
+- One payer holds the subscription, sees the billing details and controls renewal. Another current admin can request a billing transfer there. The payer approves or declines; a request expires after seven days. Approval stops the old subscription without refund or proration and keeps the paid access until the paid period ends. The new payer then has to check out with their own details and payment method to keep hosting. Cards and old invoices are not transferred.
+- Billing requests and results reach the payer's Steam ID in Quasar's notification bell and through browser push. Enable push on **Notifications** through the hosted address to subscribe that browser for this panel; a subscription made through the local address is separate. Push needs Quasar running and the browser's permission. A payer who lost their Quasar role still gets the notices on an existing subscription. Trusted-network subscriptions don't get them. If push is off, the request is still waiting on the Nebula account page. See [Browser push notifications](Monitoring.md#browser-push-notifications).
+
+## Move or recover a panel
+
+To move Quasar to another machine or reinstall it, start hosted setup in the new installation and enter the existing public name. Follow the Steam link and confirm the replacement on Nebula, as the current payer or as a currently verified admin. The payer can do this even while the old installation is offline. The confirmation revokes the old connector and installation credentials, deletes the old registration and health records, and drops the old admin list; the new installation sends its own. The URL, subscription, billing details and paid period stay with the panel. Game servers, worlds and local settings are not moved or deleted.
+
+Disconnecting an installation on the Nebula account page does not cancel renewal; manage billing separately. Quasar then clears its connector credential, and you can enroll again. Renaming a panel is not implemented.
+
+## Local files
+
+`HostedPanel/` in the Quasar data directory holds:
+
+| File | Content |
+| --- | --- |
+| `enrollment.json` | Access choice, panel name, installation secret, local proxy secret, enrollment ID, connector credential and payer SteamID. |
+| `frpc.toml` | Generated connector configuration, including secrets. |
+| `trusted-roots.pem` | Exported trusted root certificates. |
+| `connector-health.json`, `connector-process.json` | Last health report and the running connector's PID record. |
+| `frp-0.71.1/` | The verified `frpc` binary and its license. |
+
+On Linux the folder is owner-only. On Windows only the account running Quasar, SYSTEM and Administrators have access. Treat backups of it as secrets. A copy restores the same identity, so run only one restored copy per enrollment.
+
+If `enrollment.json` can't be read, Quasar keeps it, turns hosting off and keeps running locally ("Hosted enrollment state is unreadable; local Quasar continues working"). Changing the setup is refused until you restore it from a backup: "Hosted state is unreadable. Restore its private backup before changing enrollment. Local Quasar remains available."
+
+The detailed operator guide, including the acceptance checks for push delivery, is `Docs/HostedPanel.md` in the Quasar repository.
 
 ## Sources
 
+- `Docs/HostedPanel.md`
 - `Shared/Hosting/HostedPanelState.cs`
 - `Quasar/Services/HostedPanelService.cs`
+- `Quasar/Services/HostedPanelRequest.cs`
+- `Quasar.Bootstrap/HostedPanelConnector.cs`
+- `Quasar/Program.cs`
 - `Quasar/Services/Updates/PushNotificationService.cs`
 - `Quasar/wwwroot/quasar-push.js`
 - `Quasar/wwwroot/push-worker.js`
-- `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
-- `Quasar/Components/Shared/AccessSetupDialog.razor.css`
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Pages/Security.razor`
-- `Quasar.Bootstrap/HostedPanelConnector.cs`
 - `Shared/Networking/QuasarControlAddress.cs`
 - `Quasar.Host/HostConnection.cs`
-- `Quasar.Agent/AgentConnection.cs`
 - `Quasar.Agent/WebServiceLocator.cs`
 - `Quasar/Assets/host-update.py`
-- `Docs/HostedPanel.md`

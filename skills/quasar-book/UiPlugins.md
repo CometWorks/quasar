@@ -4,7 +4,7 @@ Quasar UI plugins add pages, navigation links and panels to the Quasar web inter
 
 ## What a UI plugin is
 
-A UI plugin is a .NET assembly that the Quasar web worker loads at startup. It runs with the same rights as Quasar and is not sandboxed. Install only plugins you trust; QuasarHub lists reviewed plugins pinned to a commit.
+A UI plugin is a .NET assembly that Quasar loads at startup. It runs with the same rights as Quasar and is not sandboxed. Install only plugins you trust; QuasarHub lists reviewed plugins pinned to a commit.
 
 A UI plugin can:
 
@@ -17,6 +17,27 @@ A UI plugin can:
 
 UI plugins are loaded once per worker start. Install, update, enable, disable and remove all change files on disk only, and take effect after a Quasar restart.
 
+## Browser operation SDK
+
+Plugins can register protected operations with Quasar browser SDK v1. Quasar
+handles authentication, requests, streaming limits and cancellation. Plugins
+retain their feature rules, such as asset consent and ownership. Entity Viewer
+uses the SDK for scenes, asset setup/downloads and recording history.
+
+**Security**, **Plugin endpoint authorization**, lists plugin and adopted core
+operations. Administrators can disable an operation or change its required
+policies. Missing or invalid rules deny access. The same rule applies to adopted
+legacy URLs. See [Access control](AccessControl.md#plugin-endpoint-authorization).
+
+Entity Viewer 0.1.13 requires Quasar 1.6.0 or later. Upgrade Quasar first, then
+update the viewer adapter, assets and companion together.
+
+A plugin can require `browserSdkVersion: 1`. Quasar rejects unsupported versions
+before loading its assembly. An update error in a viewer means Quasar and the
+plugin need matching versions. Old plugins without this declaration keep their
+existing interfaces and routes. The SDK currently uses HTTP; WebRTC is separate
+work. Developers can use [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
+
 ## The UI Plugins page
 
 Open **UI Plugins** in the **Infrastructure & tools** section of the navigation (`/settings/ui-plugins`). The page needs the `CanManageSecurity` permission; see [Access control](AccessControl.md).
@@ -24,7 +45,7 @@ Open **UI Plugins** in the **Infrastructure & tools** section of the navigation 
 The page has:
 
 - Header chips: **Dynamic plugins enabled** or **Safe boot active**, and the .NET SDK state (**.NET 10 SDK global**, **.NET 10 SDK managed** or **.NET SDK on demand**).
-- **Restart Quasar**: restarts the web worker so plugin changes load. Only available when Quasar runs under Bootstrap (the normal service install).
+- **Restart Quasar**: beside **Refresh Hub** in the QuasarHub Catalog header. It stays grayed out until an installed, removed, enabled or disabled plugin, or a safe-boot marker change, needs a worker restart. A hub update being available alone does not enable it. It also needs a verified native restart capability for this Quasar process (1.4.1 and later) or the legacy Bootstrap launcher, and remains disabled during plugin operations or SDK installation. Pending changes survive leaving the page and clear when the worker restarts.
 - Counters for **Loaded** plugins, **Load Errors**, **Extensions** and **Nav Items**.
 - **Safe Boot**: create or clear the safe boot marker file.
 - **QuasarHub Catalog**: browse, install, update, enable, disable and remove plugins, and the automatic update checkbox.
@@ -56,11 +77,16 @@ Recommended entries sort near the top and show a **Recommended** badge. Hidden e
 
 ## Installing and updating
 
+Plugin changes and private .NET SDK installation show an activity panel with
+elapsed time and a note after 30 seconds for longer waits. Restart feedback shows
+a progress bar for completed stages, the current status and elapsed time, and
+continues working while Quasar is offline.
+
 1. On **UI Plugins**, find the plugin in **QuasarHub Catalog**.
 2. Click **Install** (or **Update**, or **Reinstall** when the installed commit already matches).
 3. If no .NET 10 SDK is available, answer the SDK prompt (see [.NET 10 SDK](#net-10-sdk)).
 4. Wait for "{name} installed. Restart Quasar to load it."
-5. Click **Restart Quasar**. The browser shows restart progress and reloads the page when `/api/health` answers again. Running game servers stay online.
+5. Click **Restart Quasar**. A native service install hands the restart to its updater service; a legacy install hands it to Bootstrap. The browser shows restart progress and reloads the page when `/api/health` answers again. Running game servers stay online.
 
 What the install does:
 
@@ -92,13 +118,13 @@ Automatic UI plugin updates are off by default. Turn them on with **Automaticall
 
 With the policy on, each 15-minute hub check updates a plugin when all of these hold:
 
-- Quasar runs under Bootstrap
+- Quasar has verified native restart capability for the current process, or runs under the legacy Bootstrap launcher
 - the plugin is installed, enabled and not invalid
 - the hub pins a different commit than the installed one
 - the hub entry's `QuasarVersion` is empty, an exact version equal to the running Quasar, or a `>=` minimum the running Quasar meets (other forms need a manual update)
 - safe boot is off
 
-After a successful automatic update, Quasar restarts its worker through Bootstrap. Running game servers stay online. Failed builds keep the old package and are logged as "Scheduled Quasar UI plugin {name} install or update failed."
+After a successful automatic update, Quasar restarts itself the same way as **Restart Quasar**. If capability becomes unavailable, the restart stays pending until verification succeeds again. Running game servers stay online. Failed builds keep the old package and are logged as "Scheduled Quasar UI plugin {name} install or update failed."
 
 To get a notice instead, enable **Quasar UI plugin updates** on the **Notifications** page. That notice lists installed plugins whose hub commit changed. See [Monitoring](Monitoring.md).
 
@@ -128,7 +154,8 @@ Safe boot is on when any of these is set:
 | Marker file | `{Quasar install directory}/ui-plugins.safe-mode` exists. **Enable marker** and **Clear marker** on the UI Plugins page create and delete it. |
 | Environment | `QUASAR_SAFE_MODE` or `QUASAR_DISABLE_UI_PLUGINS` set to `1`, `true`, `yes` or `on` |
 | Configuration | `Quasar:Plugins:SafeMode` = `true` |
-| Bootstrap | Bootstrap creates the marker file after 3 worker startup failures within 5 minutes (the worker does not become healthy, or exits with an error soon after start) and starts the worker again |
+| Command line | `--safe-mode=true` |
+| Bootstrap | Legacy installs only: Bootstrap creates the marker file after 3 worker startup failures within 5 minutes (the worker does not become healthy, or exits with an error soon after start) and starts the worker again. Native service installs (1.4.1 and later) have no Bootstrap, so nothing creates the marker for you. |
 
 The page lists the active reasons. Environment and configuration triggers must be removed outside the page. Every change needs a Quasar restart. While safe boot is on, automatic and implicit plugin installs pause.
 
@@ -155,7 +182,7 @@ For clusters, guided setup includes owned companions only of UI plugins installe
 
 UI plugins get live data from their companions through `IQuasarCompanionChannel`, which Quasar registers as a service. It rides on the existing Quasar.Agent connection:
 
-- `GetConnectedServers()` lists connected servers with a `ServerId`, the current `AgentId` and a display name. For standalone servers the `ServerId` is the server's unique name, which stays the same across restarts; for cluster nodes it identifies one node incarnation, not the whole cluster.
+- `GetConnectedServers()` lists connected servers with a `ServerId`, the current `AgentId` and a display name. For standalone servers the `ServerId` is the server's unique name, which stays the same across restarts; for cluster nodes it identifies one node incarnation. Cluster entries also include an explicit `ClusterId`, configured `ClusterDisplayName` and stable `ClusterSlot`. Entity Viewer uses these fields to show one server per cluster, combine retained node histories and apply recording settings to current and future nodes. Node commands still use exact agent IDs. Install matching Quasar and Entity Viewer versions for this grouping.
 - `SendAsync(serverId, companionPluginId, operation, request, ...)` sends a JSON request to the companion and returns its JSON response. Pass a `ServerId` from `GetConnectedServers()` or a live `AgentId`. Standalone servers also accept their server key or unique name. Unknown, disconnected or ambiguous ids fail; Quasar never picks a different server.
 - On the server, the agent hands the request to the loaded Magnetar plugin whose `IQuasarCompanionRequestHandler.PluginId` matches. Requests time out after 30 seconds.
 
@@ -166,6 +193,7 @@ Errors a plugin author or admin may see:
 | "No connected agent matched server id '...'." | Server not connected, or the id is ambiguous |
 | "Companion plugin '...' is not loaded or does not expose a Quasar handler." | The companion is not in the server, failed to load, or does not implement the handler |
 | "The companion plugin returned a mismatched correlation id." / "...an invalid response." | Protocol mismatch between UI plugin and companion versions |
+| "Agent command response is too large (N bytes; limit M bytes)." | The companion's reply is over the 64 MiB agent message limit. The agent sends this failure instead and stays connected |
 
 A navigation item's policy only hides the link. Each plugin's pages and endpoints must enforce their own authorization.
 
@@ -195,7 +223,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - Conflict rules: when several plugins `Replace` the same target, Quasar renders all of them in priority order. There is no single winner and no startup error.
 - Navigation zones: plugins can use `nav.main`, `nav.tools`, `nav.settings` and `nav.admin`. Admin links default to `CanManageSecurity`. `nav.hidden` is never rendered.
 - Trust checks: Quasar does not show a plugin's contributions before enabling it, does not ask for extra approval for plugins that replace pages, and does not show update diffs. It records the installed commit, not a package hash.
-- Last-known-good activation: Quasar does not mark a plugin set as good after a healthy start. The only automatic fallback is the Bootstrap crash-loop safe boot marker.
+- Last-known-good activation: Quasar does not mark a plugin set as good after a healthy start. The only automatic fallback is the Bootstrap crash-loop safe boot marker, which native service installs don't have.
 - Hub fields `DependencyIds`, `CompanionPluginIds` and `Platforms`, and the package manifest's `dependencies`, are read but not acted on. `QuasarVersion` only gates automatic updates; a manual install does not check it.
 
 ## Common problems
@@ -208,10 +236,10 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - **"Only root quasar-plugin.json package manifests are supported in this installer."** The hub entry's `PackageManifest` points elsewhere. The plugin author must fix it.
 - **"Quasar plugin manifest ... is missing '...'."** `quasar-plugin.json` lacks a required field: `id`, `displayName`, `version`, `entryAssembly`, `entryType`, `projectPath`, and `companionPlugins[].id` (plus `projectPath` for owned companions).
 - **Build output in the error message.** `dotnet build` failed; the message is the compiler output. The old package stays installed.
-- **"Quasar is not running under Bootstrap, so restart is not available from the UI."** You started the worker directly. Restart Quasar by hand.
+- **Restart is disabled or rejected.** Read the restart capability and repair instructions on Updates. Native service verification must belong to this Quasar process. Missing, stale, unreadable or denied verification leaves Quasar running; repair the existing services with the current installer, or restart a foreground process by hand. A pending update also blocks a manual restart.
 - **A plugin is installed but not loaded.** Restart Quasar, then check **Load Errors** and the Quasar log for "Quasar UI plugin safe mode is enabled" or the plugin's load error. Typical load errors: "Quasar plugin entry assembly was not found", "Plugin entry type not found", "Plugin entry type does not implement IQuasarPlugin".
 - **An update loaded but the browser still runs old plugin JavaScript.** Quasar sends plugin files with `Cache-Control: no-store`. A reverse proxy that caches anyway serves stale files: turn off **Cache Assets** in Nginx Proxy Manager, or add a Cloudflare cache rule to bypass `/_quasar/plugins/`, purge the cache once, and reload the page with the browser cache disabled.
-- **Automatic updates never happen.** Check that the checkbox is on, Quasar runs under Bootstrap, safe boot is off, the plugin is enabled, and its hub `QuasarVersion` is empty, exact or `>=`.
+- **Automatic updates never happen.** Check that the checkbox is on, Quasar runs as its installed service (or under Bootstrap), safe boot is off, the plugin is enabled, and its hub `QuasarVersion` is empty, exact or `>=`.
 
 ## Sources
 - `README.md`
@@ -241,6 +269,10 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Components/Layout/PluginNavItems.razor`
 - `Quasar/Components/Shared/QuasarExtensionOutlet.razor`
 - `Quasar.Bootstrap/Program.cs`
+- `Quasar/Services/QuasarShutdownService.cs`
+- `Shared/Updates/QuasarServiceInstallation.cs`
+- `Docs/QuasarUpdates.md`
+- `Magnetar.Protocol/Transport/AgentMessageLimits.cs`
 - `Quasar.Agent/GameBridge.cs`
 - `Quasar.Plugin.Abstractions/IQuasarPlugin.cs`
 - `Quasar.Plugin.Abstractions/QuasarPluginContext.cs`
@@ -259,3 +291,9 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar.Tests/QuasarManagedDotNetSdkServiceTests.cs`
 - `Quasar.Tests/QuasarUiPluginStateStoreTests.cs`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
+- `Quasar/Services/WebServiceOptions.cs`
+- `Quasar.Tests/QuasarShutdownTests.cs`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Docs/BrowserSdkRollout.md`

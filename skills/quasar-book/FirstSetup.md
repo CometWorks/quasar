@@ -4,32 +4,17 @@ This page covers the first steps after installing Quasar: giving yourself admini
 
 ## Open the web UI
 
-Quasar prints its URL when it starts. With the shipped `appsettings.json` the UI listens on all interfaces on port `8080`, and the printed URL is `http://127.0.0.1:8080`. From another machine use `http://<quasar-host>:8080`. To change the port or the listen address see [Configuration](Configuration.md#web-ui-address-and-port).
+With the shipped `appsettings.json` the UI listens on all interfaces on port `8080`. On the Quasar machine open `http://127.0.0.1:8080`; from another machine use `http://<quasar-host>:8080`. The guided installers end with the address, and a foreground run prints it. To change the port or the listen address see [Configuration](Configuration.md#web-ui-address-and-port).
 
-The installed services and `Quasar serve` do not open a browser on their own. `Quasar ensure-running --open-browser` opens one when a desktop session is available (see [Configuration](Configuration.md#command-line)).
+The installed services never open a browser. A foreground run (`Quasar serve --foreground`) opens one when a desktop session is available (see [Configuration](Configuration.md#browser-launch)).
 
 ## Choose public access
 
-A first interactive administrator session shows **Set up administrator access**.
-If no subject or claim mapping grants the admin role, its first step asks for
-your 17-digit **Administrator SteamID64**. **Save administrator and continue**
-saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**.
-Existing administrator mappings skip this step. The access-method screen uses
-two large choices and a step progress indicator, like the server import wizard.
-Both wizards use the same Large dialog width; the import wizard no longer uses
-ExtraLarge.
-Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back**
-returns from hosted settings and retains the name you entered. **Cancel** closes setup without
-configuring public access; setup returns on the next page load while no admin is
-configured. Headless startup is not blocked. Reopen it at
-**Security → Manage access setup**. See [Hosted access](HostedPanel.md)
-for automatic enrollment and its current availability limits.
+A first interactive administrator session shows **Set up administrator access**. If no subject or claim mapping grants the admin role, its first step asks for your 17-digit **Administrator SteamID64**. **Save administrator and continue** saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**. Existing administrator mappings skip this step. See [The first administrator](AccessControl.md#the-first-administrator).
 
-Starting hosted enrollment switches the dialog to a progress screen with live
-updates and **Cancel** as its only footer action while connecting. The primary
-**Open Quasar dashboard** button appears after hosting activation and fresh
-tunnel/worker readiness checks succeed. Canceling setup does not cancel a paid
-subscription.
+Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back** returns from the hosted settings and keeps the name you entered. **Cancel** closes setup without configuring public access; setup comes back on the next page load while no admin is configured. Headless startup is not blocked. Reopen setup at **Security → Manage access setup**. See [Hosted access](HostedPanel.md) for automatic enrollment and its current availability.
+
+Starting hosted enrollment switches the dialog to a progress screen with live updates and **Cancel** as its only button while connecting. **Open Quasar dashboard** appears once the hosted panel is active and its connection checks pass, and opens the dashboard in the current tab. **Self-deploy** appears only on the access-method screen, never on later hosted steps or when reopening a completed enrollment. Canceling setup does not cancel a paid subscription.
 
 ## Set the first administrator
 
@@ -52,7 +37,7 @@ reverse proxies also need correctly configured forwarding. See
 
 ### Option 2: create `rbac.json` by hand
 
-Create `rbac.json` in the Quasar install directory (the data directory, next to `appsettings.json`). Replace the subject with your 17-digit SteamID64:
+Create `rbac.json` in the Quasar data directory, next to `appsettings.json`. Replace the subject with your 17-digit SteamID64:
 
 ```json
 {
@@ -68,8 +53,9 @@ Typical locations:
 
 | Install | `rbac.json` path |
 | --- | --- |
-| Linux user service | `~/.local/share/Quasar/rbac.json` (the folder set as `QUASAR_INSTALL_DIR` in the unit) |
-| Windows | the folder Quasar was extracted to and installed from, for example `C:\quasar\Quasar\rbac.json` |
+| Linux | the install directory, `~/.local/share/Quasar/rbac.json` for the guided installer (the folder set as `QUASAR_INSTALL_DIR` in the unit) |
+| Windows, guided install | the data folder, `%ProgramData%\Quasar\rbac.json` by default. Only Administrators and the service accounts can open it, so use an elevated editor. |
+| Windows, `install.ps1` without `-DataDir` | the folder Quasar was extracted to and installed from, for example `C:\quasar\Quasar\rbac.json` |
 | Docker Compose | `./quasar-data/rbac.json` on the host (`/data/rbac.json` in the container) |
 
 Quasar watches `rbac.json`, so a running instance picks up the change without a restart.
@@ -95,22 +81,32 @@ Click the sign-in icon in the top bar (or open `/login`). Quasar sends you to th
 The **Dashboard** (`/`) shows two things before the first server exists:
 
 - **Data Handling Consent** with **YES** and **NO** buttons. The choice controls Magnetar statistics, diagnostic reports to CometWorks and server listings. Until you choose, sharing stays off. You can change it later on the **Security** page. See [Diagnostics](Diagnostics.md).
-- **Managed Runtime** panel with progress rows for **SteamCMD**, **Magnetar** and **Dedicated Server**. Quasar downloads these into its data directory in the background. Server starts are blocked with "Managed SteamCMD, Magnetar, and Dedicated Server runtime are still preparing." until they are ready. A failed component shows a **Retry** button.
+- Preparation feedback for **SteamCMD**, **Dedicated Server** and **Magnetar**. In the first-world step this appears beside **Choose DS World** and explains the automatic checks, downloads and validation. Other Dashboard views use the **Managed Runtime** panel. Downloads and validation show SteamCMD percentages when available, plus elapsed time. The first run can take several minutes. Server starts remain blocked until the required runtime is ready. Failed steps show the error, troubleshooting guidance and **Retry preparation** (or **Retry** in Managed Runtime). Retrying requires server-edit permission and keeps your setup choices.
 
 ## The first-server dialog
 
-When no server or cluster exists, the Dashboard opens the **Set Up First Server** dialog once per browser (Quasar remembers this in browser storage). It asks "How should Quasar set up its first server?" with two buttons:
+When no server or cluster exists, the Dashboard opens **Set Up First Server**. It
+remembers the chosen flow in this browser and resumes it after refresh, including
+after a server has been created. Clicking outside the dialog or pressing Escape
+does not dismiss it. Use **Skip setup**, **Cancel**, or the close button to stop;
+use **Done** or **Close** when finished. Background refreshes never dismiss setup.
 
-- **Create New Server**: closes the dialog and shows the inline **First Setup** wizard on the Dashboard.
+- **Single Magnetar**: continues in the inline **First Setup** wizard on the Dashboard.
+- **Cluster**: on Linux, with cluster-management permission, opens [guided cluster setup](ClusterSetup.md). The Dashboard keeps a **Continue cluster setup** panel until explicitly skipped or closed. It links to controls once a cluster is deployed.
 - **Import Existing Server**: continues in the same dialog with the importer (see below).
 
-The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from the Dashboard buttons **Setup guide** (both choices) and **Import server** (import only). **New server** opens the plain server editor.
+The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from **Setup guide** (all available choices) or **Import server** (import only). Refreshing during import returns to source selection so the source is read again and its stopped state must be confirmed again. After a completed import, refresh resumes the server setup guide instead of starting another import. **New server** separately opens the server-kind chooser, where **Cluster** stays visible but grayed out on Windows with a Linux requirement explanation.
 
 ## Create a new server with the wizard
 
-The **First Setup** wizard has five steps and a progress bar ("Step N of 5"). It picks up where you are: a step that is already done is skipped. **Back** returns to the previous step and **Hide Wizard** closes it.
+The **First Setup** wizard has five steps and a progress bar ("Step N of 5"). It
+remembers the selected world and a step chosen with **Back**. **Next** advances
+through reviewed, completed steps. The guide uses saved worlds,
+profiles and servers to resume progress. Creating a server or finishing startup
+does not close it. **Skip setup** explicitly dismisses it; **Close** finishes it
+after the agent connects.
 
-1. **Create world template**. Click **Choose DS World** and pick one of the worlds shipped with the Dedicated Server. Quasar copies it into its managed world template storage. The button stays disabled until the managed Dedicated Server download is finished.
+1. **Create world template**. Click **Choose DS World** and pick one of the worlds shipped with the Dedicated Server. Quasar copies it into its managed world template storage. The button stays disabled until Dedicated Server files are installed and validated. Magnetar can still be preparing when you choose a world. The chooser searches in the background and checks again automatically when the Dedicated Server becomes ready. Choose **Use this world**; copy progress shows completed files. If no worlds appear, expand **Where Quasar looked**, check folder access, use **Updates > Check Dedicated Server**, then **Refresh**. **Custom import** accepts an existing save folder containing `Sandbox.sbc`.
 2. **Create matching config profile**. Click **Create From World**. Quasar builds a config profile from the template's `Sandbox_config.sbc`, so session settings and mods match the world. Workshop mod dependencies are resolved and added. Online Mode is not copied: new profiles start as Public. If a profile was already created from this template, the step shows as done and the button reads **Review Config Profile**.
 3. **Create server**. Click **Create Server**. The server editor opens with the template and the matching profile preselected. Fill in the identity and ports, then use **Create From Template** next to **World save** to create the server's save from the template. See [Servers](Servers.md).
 4. **Start server**. A **Start <server>** button appears for each stopped server. It is disabled until the managed runtime is ready and the server has a world save.
@@ -120,9 +116,15 @@ More on templates and profiles is in [Config profiles](ConfigProfiles.md).
 
 ## Import an existing vanilla DS or Torch server
 
+To import only a world into an already managed server, use **Worlds > Server worlds >
+Import World...** instead. It accepts a folder or browser-uploaded ZIP, retains
+the old save and does not create a template. See [direct world import](ConfigProfiles.md#importing-a-world-directly-to-a-server).
+
 The importer turns an existing server's world and `SpaceEngineers-Dedicated.cfg` into a Quasar server, a config profile and world templates. Stop the source server first. The source folder must be on the machine that runs Quasar, because Quasar reads it directly (**Browse** shows that machine's file system).
 
 ### Steps
+
+Discovery and import show an operation loader with elapsed time and next-step guidance. Large saves can take several minutes. Keep the source server stopped throughout import.
 
 1. **Source type**: choose **Vanilla Dedicated Server** or **Torch**.
 2. **Location and transfer mode**:
@@ -181,9 +183,15 @@ With **Network** selected, the world's online mode is copied as is, including Of
 | `Managed world target already exists: <path>` | A save folder with that name already exists for the server. Choose another identifier. |
 | "this account has no Quasar role" after Steam sign-in | No mapping for your SteamID in `rbac.json`. Use one of the options in [Set the first administrator](#set-the-first-administrator). |
 | `QUASAR_ADMIN_STEAM_ID must be a 17-digit SteamID64.` at startup | Fix or remove the variable. |
-| Choose DS World or Start buttons disabled | The managed Dedicated Server download is not finished, or the server has no world save. Check the Managed Runtime panel. |
+| Choose DS World or Start buttons disabled | The managed Dedicated Server download is not finished, or the server has no world save. Check preparation feedback beside the world choice or in the Managed Runtime panel. |
 
 ## Sources
+- `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
+- `Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor`
+- `Quasar/Services/WorldTemplateImportLocationService.cs`
+- `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
+- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar/Services/ServerManagementActions.cs`
 - `Docs/QuickStart.md`
 - `Docs/Docker.md`
 - `Docs/Configuration.md`
@@ -210,5 +218,9 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Models/QuasarConfigProfile.cs`
-- `Quasar.Bootstrap/Program.cs`
+- `Quasar/Services/BrowserLauncher.cs`
+- `Quasar/Services/WebServiceManifestHostedService.cs`
+- `scripts/install-gui.ps1`
+- `scripts/install-gui.sh`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Components/Pages/WorldTemplates.razor`

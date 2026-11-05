@@ -6,7 +6,7 @@ This page covers config profiles (the reusable world settings, mod list and plug
 
 - A **config profile** holds world settings, access lists, the Steam Workshop mod list and the Magnetar plugin selection. Several servers can share one profile.
 - A **world template** is a stored copy of a Space Engineers world folder. Quasar never runs a template directly.
-- A **world save** is the world folder one server actually runs. You usually create it from a template.
+- A **world save** is the world folder one server actually runs. Create it from a template or import it directly into an existing server.
 
 Each server definition points to one profile (**Configuration profile**) and one save (**World save**). On every start Quasar renders the profile into the server's DS config and into the save's `Sandbox_config.sbc`, so the profile wins over whatever the world had before.
 
@@ -40,6 +40,9 @@ The profile editor has four tabs plus a **Developer** panel:
 - **Developer**: local plugin dev folders and extra plugin hubs. See [Plugins](Plugins.md).
 
 The profile does not hold the game port, listen IP, server and world names, restart or health policy. Those belong to the server definition (see [Servers](Servers.md#creating-a-server)).
+
+Expanded sections keep space below the final field and its help text, including
+**Solar Radiation Intensity** and its oxygen pressurization and radiation requirements.
 
 ### Command aliases
 
@@ -85,17 +88,25 @@ application.
 | `<quasar-root>/ConfigProfiles/<profile id>/profile.json` | The profile. |
 | `<quasar-root>/ConfigProfiles/<profile id>/History/<timestamp>.json` | A copy on every save. Delete writes `<timestamp>-deleted.json` here and removes `profile.json`. |
 
-The profile id is a slug made from the name when the profile is created. Quasar writes profiles and their history atomically and owner-readable/writable only on Unix, then checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Quasar does not create or restore built-in default profiles.
+The profile id is a slug made from the name when the profile is created. Quasar writes profiles and their history atomically and owner-readable/writable only on Unix, then checks every `ConfigProfiles/<profile id>/profile.json` for changes every 2 seconds: editing `profile.json` by hand works, and the UI reloads the change. Only a `profile.json` directly in a profile folder counts. World templates work the same way with `WorldTemplates/<template id>/template.json`. Quasar does not create or restore built-in default profiles.
 
 ### Unsaved changes
 
-When you switch to another profile in the list, or close the **Config Profiles** dialog with **Done** or the back arrow, while the editor has unsaved changes, Quasar shows **Unsaved config changes** with:
+When you switch to another profile in the list, navigate to another Quasar page
+(including browser Back and Forward), or close the **Config Profiles** dialog with
+**Done** or the back arrow while the editor has unsaved changes, Quasar shows
+**Unsaved config changes** with:
 
 - **Cancel**: stay and keep the edits.
 - **Discard**: drop the edits and continue.
 - **Save**: save the profile, then continue.
 
-This dialog is only about unsaved edits in the editor. It does not appear when you leave the page through the navigation menu.
+If saving fails or the profile has invalid values, you stay in the editor with
+your changes. Refreshing, closing the browser tab or leaving Quasar shows the
+browser's standard unsaved-changes warning instead. Saved profiles do not prompt.
+Opening a profile only checks mod dependencies; that check does not create
+unsaved edits. **Auto Sort Dependencies** saves the profile, including any other
+pending edits, after validation.
 
 ### When profile changes take effect
 
@@ -137,17 +148,17 @@ The Mods tab has these panels:
 
 Dependency handling:
 
-- When a profile is opened, saved, cloned or receives imported mods, Quasar reads the declared Workshop dependencies (needs the API key), adds missing dependency mods and marks them as dependencies. It does not reorder the list.
-- **Auto Sort Dependencies** sorts the list so dependencies load before the mods that need them. Quasar warns when a dependency is listed after its dependent, when Steam reports a circular dependency, or when a dependency cannot be satisfied.
+- Opening a profile checks the declared Workshop dependencies (needs the API key) and shows an outline and warnings without changing the profile. Saving, cloning or importing mods adds missing dependencies and marks them as dependencies. These checks do not reorder the list.
+- **Auto Sort Dependencies** sorts the list so dependencies load before the mods that need them, then saves the profile and any other pending edits. Invalid values or a failed save leave edits pending. Quasar warns when a dependency is listed after its dependent, when Steam reports a circular dependency, or when a dependency cannot be satisfied.
 - After a check, a **Dependency outline** panel shows the dependency tree. It is not saved.
-- Quasar manages the DS **Autodetect Dependencies** setting (hidden in the World tab). It turns it off after a clean check or a successful sort, so the DS loads exactly the list Quasar wrote. It turns it on when the list was changed by hand, the API key is missing, the check failed or warnings remain.
+- Quasar manages the DS **Autodetect Dependencies** setting (hidden in the World tab). Applying a clean check or a successful sort turns it off, so the DS loads exactly the list Quasar wrote. It turns it on when the list was changed by hand, the API key is missing, the check failed or warnings remain. The check on opening a profile leaves it unchanged.
 - Without an API key or when Steam is unreachable, Quasar keeps the list as it is and shows a warning; saving still works.
 - Opening the Mods tab refreshes mod display names from Steam (no API key needed). The new names are unsaved edits until you save.
 - **Remove Dead Mods** asks Steam about every selected mod and removes the ones Steam reports as unavailable. Save the profile to keep the change.
 
 ## World templates
 
-Open **Worlds** in the navigation menu (page title "World templates"). Templates are stored here:
+Open **Worlds**, then **Templates**. **Add Template...** opens predefined worlds and custom folder/ZIP import. The **Server worlds** tab lists the saves selected by standalone servers and supports [direct import](#importing-a-world-directly-to-a-server). Templates are stored here:
 
 | Path | Contents |
 | --- | --- |
@@ -155,16 +166,22 @@ Open **Worlds** in the navigation menu (page title "World templates"). Templates
 | `<quasar-root>/WorldTemplates/<template id>/World/` | The copied world files. |
 | `<quasar-root>/WorldTemplates/<template id>/History/` | `<timestamp>-deleted.json` after a delete. |
 
-When Quasar copies a world into a template, it skips the world's `Backup` subfolder. The source must contain `Sandbox.sbc`, otherwise: "Source directory '<path>' does not contain Sandbox.sbc." or "Source world directory not found: <path>".
+When Quasar copies a world into a template, it skips the world's `Backup` subfolder. The source must contain valid XML `Sandbox.sbc`, otherwise: "Source directory '<path>' does not contain Sandbox.sbc." or "Source world directory not found: <path>".
 
 Ways to create a template:
 
-- **Predefined worlds** tab: lists the worlds shipped with the installed Dedicated Server (`Content/CustomWorlds`, `Content/QuickStarts` and `Content/Scenarios`, shown as DS Custom Worlds, DS Quick Starts and DS Scenarios). **Add template** copies one and then offers to create a config profile from it.
-- **Custom import** tab: enter **Template name**, **Description** and **Source world path** (an absolute path to a Space Engineers save folder; **Browse** opens a folder picker), then click **Import**.
+- **Predefined worlds** tab: lists the worlds shipped with the installed Dedicated Server (`Content/CustomWorlds`, `Content/QuickStarts` and `Content/Scenarios`, shown as DS Custom Worlds, DS Quick Starts and DS Scenarios). **Use this world** selects one and then offers to create a config profile from it.
+- **Custom import** tab in Add Template: enter **Template name** and **Description (optional)**. Choose **Server Folder** or **Upload ZIP**, then **Read World**. A folder must be on the Quasar machine; confirm the source is stopped. Continue to review the profile choice, then create the template.
 - **Create world template** in a server's menu on the Dashboard: copies the server's current save. The server must be stopped with goal Off ("Stop the server before creating a world template from its current state."). The default name is "<server name> Snapshot <date time>".
 - **New Template** in the **Create World Save** dialog opens a quick import dialog with the same two tabs (see [Quick import](#quick-import)). The Dashboard setup guide uses the same dialog, titled **Choose Dedicated Server World**.
 
-The **World Templates** table lists templates with size, update time, name and description. Row actions:
+While the managed runtime is still being prepared, the **Predefined worlds** tab of the quick import dialog (and the Dashboard setup guide) shows the preparation steps: SteamCMD, the Dedicated Server files with their starting worlds, and Magnetar. You can pick a world once the Dedicated Server files are ready; Magnetar only has to be ready when the server starts. If preparation fails, fix the reported problem and click **Retry preparation**.
+
+Discovery runs in the background and uses the runtime-selected Dedicated Server installation as well as configured and managed locations. The chooser checks again automatically when server files become ready. **Where Quasar looked** lists searched folders; unreadable folders show warnings. **Refresh** retries discovery, and **Clear search** removes a filter with no matches. If no worlds are found after preparation, use **Updates > Check Dedicated Server**, then refresh, or choose **Custom import**.
+
+Import progress shows the number of copied files. The source stays unchanged; a canceled or failed copy removes the incomplete template and publishes no template entry.
+
+The **Templates** table lists templates with size, update time, name and description. Row actions:
 
 - **Create config profile from world settings**: reads the template's `Sandbox_config.sbc` and shows how many session settings and mods it found. Creates a profile with those settings and mods, except Online Mode, which stays Public.
 - **Clone template**: copies it as "<name> (Copy)".
@@ -188,6 +205,48 @@ A server's saves live in its saves path, by default `<quasar-root>/Magnetars/<Se
 
 You can also copy any Space Engineers save folder into the saves path by hand and then select it.
 
+### Importing a world directly to a server
+
+Use **Import World...** in a server's menu on Dashboard or Servers, or open
+**Worlds > Server worlds** and use a row's import action. **Import World to
+Server...** opens a target picker. This requires server editing permission, an
+inactive target with goal Off, and no backup/restore/import already in progress.
+
+Choose **Server Folder** on the Quasar machine or **Upload ZIP** from your
+browser, then **Read World**. Confirm that folder sources are stopped or completed
+snapshots. The ZIP may contain world files at root or in an enclosing folder;
+multiple worlds outside Backup are rejected. **Save folder name** must name a
+new folder. Read progress and **Cancel transfer** appear during copying/upload.
+
+Explicitly choose:
+
+- **Keep current profile**: its settings and mod list apply on the next start,
+  replacing imported settings/mods. A missing or unreadable `Sandbox_config.sbc`
+  requires this choice if you continue.
+- **Create a separate profile using imported world settings and mods**: copies
+  the current profile, applies readable source session settings and the source
+  mod list, and assigns the new profile to this server. Plugins, access settings,
+  aliases and Online Mode stay as they were. Other servers keep their existing
+  profile. This requires configuration editing permission. Steam dependency
+  autodetection is enabled for the imported mods.
+
+**Import and Select** copies a complete save into the configured saves path,
+selects it immediately and leaves the server stopped. It does not create a world
+template or change the source. Previous saves stay on disk; select the old save
+and profile in the server editor to return to them.
+
+Quasar rejects unsafe ZIP paths, links/junctions, reserved names and duplicate or
+case-conflicting paths. Limits are 10 GiB uploaded ZIP, 50 GiB world data and
+100,000 entries. Checkpoint XML is bounded to 256 MiB characters and world config
+to 16 MiB characters. `Backup` history is skipped; voxel and mod-storage files
+are included. Custom saves paths work but cannot use links.
+
+Failed/canceled imports keep the old selection and remove owned staging and
+unselected profiles. Starts/backups/restores and conflicting definition changes are
+excluded during activation. A process crash can leave unselected private
+`.world-import-*` staging or an unselected complete save. Remove leftovers only
+when no import is running. Cluster worlds use their cluster deployment flow.
+
 ### Creating a world save from a template
 
 In the server editor, click **Create From Template** under **World save**. The **Create World Save** dialog asks for a **World template** ("Template world files will be copied into a new save folder.") and has **New Template** to import one first. **Create Save**:
@@ -200,17 +259,18 @@ The folder is created right away, even if you then cancel the server editor.
 
 ## What Quasar writes on every start
 
-Before each launch Quasar prepares the server's files in this order:
+Before each launch Quasar prepares the server's files in this order. If the profile has command aliases and the server's Magnetar is too old for them, it stops before step 1 (see [Command aliases](#command-aliases)).
 
 1. Repairs the Steam Workshop cache if needed (see [Servers](Servers.md#workshop-cache-repair)).
-2. Renders `SpaceEngineers-Dedicated.cfg` in the DS app-data folder. It starts from the existing file (or an empty one) and sets: `IgnoreLastSession` false, `ServerPort`, `SteamPort` (game port + 1000), `RemoteApiPort` (game port + 2000), `IP` (`127.0.0.1` when Offline), every World-tab option, block type limits, `GroupID`, `Administrators`, `Reserved`, `Banned`, the password hash and salt, `ServerName` and `WorldName`.
-3. Writes the profile's `CommandAliases.json` snapshot, then Magnetar's `Sources/sources.xml` and `Profiles/Current.xml` from the profile's plugin selection and deploys Quasar.Agent into `Local/`.
-4. Rewrites the save's `Sandbox_config.sbc`: `SessionName` (the in-game world name), every session setting from the profile, and the `Mods` list in the profile's order. If the save has no `Sandbox_config.sbc`, Quasar skips this step and logs a warning.
-5. Writes `Saves/LastSession.sbl` pointing at the selected save.
+2. Writes the profile's `CommandAliases.json` snapshot into the Magnetar app-data folder.
+3. Renders `SpaceEngineers-Dedicated.cfg` in the DS app-data folder. It starts from the existing file (or an empty one) and sets: `IgnoreLastSession` false, `ServerPort`, `SteamPort` (game port + 1000), `RemoteApiPort` (game port + 2000), `IP` (`127.0.0.1` when Offline), every World-tab option, block type limits, `GroupID`, `Administrators`, `Reserved`, `Banned`, the password hash and salt, `ServerName` and `WorldName`.
+4. Writes Magnetar's `Sources/sources.xml` and `Profiles/Current.xml` from the profile's plugin selection and deploys Quasar.Agent into `Local/`.
+5. Rewrites the save's `Sandbox_config.sbc`: `SessionName` (the in-game world name), every session setting from the profile, and the `Mods` list in the profile's order. If the save has no `Sandbox_config.sbc`, Quasar skips this step and logs a warning.
+6. Writes `Saves/LastSession.sbl` pointing at the selected save.
 
-Because of step 4, world settings or mods changed outside the profile (in-game admin changes, a tool that edits the save) are overwritten at the next start. Make such changes in the profile.
+Because of step 5, world settings or mods changed outside the profile (in-game admin changes, a tool that edits the save) are overwritten at the next start. Make such changes in the profile.
 
-Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides whether a world with oxygen blocks may start (see [Servers](Servers.md#launch-failures-that-fault-a-server)).
+Step 5 runs before the oxygen check, so the profile's **Enable Oxygen** decides whether a world with oxygen blocks may start (see [Servers](Servers.md#launch-failures-that-fault-a-server)).
 
 ## Common problems
 
@@ -218,13 +278,14 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - **Save Profile disabled**: an Access list has an entry that is not a 17-digit SteamID64. Fix or remove it.
 - **Settings changed but the server still uses the old ones**: restart the server. Profiles apply only at start.
 - **Mods disappeared from a world**: the server's profile does not list them. Add them to the profile or use **Merge Into <profile>** in the server editor.
-- **Mods tab greyed out**: **Cross Platform** is on. Turn it off to edit mods.
+- **Mods tab grayed out**: **Cross Platform** is on. Turn it off to edit mods.
 - **"Workshop API key needed"**: add a Steam Web API key in the Mods tab. Dependency checks, search and **Auto Sort Dependencies** need it.
 - **A ban or admin added in-game is gone after restart**: Quasar replaces these lists from the profile on every start. Add the SteamID64 to the profile's Access lists.
 - **Players cannot join, profile is Offline**: Offline restricts the server to connections from the same machine. Use Public, Friends or Private.
 - **"Selected world save is missing Sandbox.sbc."**: the folder is not a valid save. Create a save from a template or copy a complete save folder.
 
 ## Sources
+- `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
 - `Quasar/Services/QuasarDefaultPlugins.cs`
 - `Docs/StateMachines/ConfigProfileChanges.md`
 - `Docs/Configuration.md`
@@ -244,6 +305,7 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Services/ServerManagementActions.cs`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Components/Pages/Configs.razor`
+- `Quasar/Components/Pages/Configs.razor.css`
 - `Quasar/Components/Pages/ConfigsPageDialog.razor`
 - `Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor`
 - `Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor`
@@ -263,3 +325,11 @@ Step 4 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Services/ClusterSetupService.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterUpdatePreparationService.cs`
+- `Docs/WorldImport.md`
+- `Quasar/Services/WorldSaveFiles.cs`
+- `Quasar/Services/ServerWorldImportService.cs`
+- `Quasar/Services/ServerWorldImportApi.cs`
+- `Quasar/Services/Backup/ServerRestoreCoordinator.cs`
+- `Quasar/Components/Shared/WorldImportSourcePicker.razor`
+- `Quasar/Components/Pages/ServerWorldImportDialog.razor`
+- `Quasar/Components/Pages/ServerWorldImportTargetDialog.razor`

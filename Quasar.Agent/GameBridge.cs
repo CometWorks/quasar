@@ -1758,7 +1758,7 @@ namespace Quasar.Agent
         private ServerCommandResult ListEntities(ServerCommandEnvelope command)
         {
             var filter = DeserializePayload<EntityListFilter>(command.Payload) ?? new EntityListFilter();
-            var result = EntityInspector.Query(filter);
+            var result = EntityInspector.Query(filter, _options.ClusterMode);
             var message = $"Returned {result.Entities.Count} of {result.TotalCount} matching ({result.TotalEntityCount} total).";
             return CreateResult(command, true, message, SerializePayload(result));
         }
@@ -1768,6 +1768,9 @@ namespace Quasar.Agent
             var request = DeserializePayload<EntityDeleteRequest>(command.Payload);
             if (request == null || request.EntityId == 0)
                 return CreateResult(command, false, "Delete request is missing an entity id.");
+
+            if (_options.ClusterMode && EntityInspector.ClusterResidence(request.EntityId) != "Local")
+                return CreateResult(command, false, "This node no longer owns the entity, or it is moving. Refresh the entity list and try again.");
 
             var success = EntityInspector.TryDelete(request.EntityId, out var message);
             return CreateResult(command, success, message);

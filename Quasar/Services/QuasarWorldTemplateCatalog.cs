@@ -5,6 +5,8 @@ using Quasar.Models;
 
 namespace Quasar.Services;
 
+public sealed record WorldTemplateImportProgress(int CompletedFiles, int TotalFiles);
+
 public sealed class QuasarWorldTemplateCatalog : IDisposable
 {
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -75,7 +77,8 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
         string name,
         string description,
         string sourcePath,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        IProgress<WorldTemplateImportProgress>? progress = null)
     {
         sourcePath = sourcePath.Trim();
 
@@ -86,41 +89,61 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
         if (!File.Exists(sandboxPath))
             throw new InvalidOperationException($"Source directory '{sourcePath}' does not contain Sandbox.sbc.");
 
-        var template = Normalize(new QuasarWorldTemplate
+        cancellationToken.ThrowIfCancellationRequested();
+        QuasarWorldTemplate template;
+        string destWorldDir;
+        lock (_sync)
         {
-            WorldTemplateId = GenerateUniqueTemplateId(name),
-            Name = name,
-            Description = description,
-        });
+            template = Normalize(new QuasarWorldTemplate
+            {
+                WorldTemplateId = GenerateUniqueTemplateId(name),
+                Name = name,
+                Description = description,
+            });
+            destWorldDir = MagnetarPaths.GetQuasarWorldTemplateWorldDirectory(template.WorldTemplateId);
+            if (Path.GetFullPath(destWorldDir).StartsWith(
+                Path.TrimEndingDirectorySeparator(Path.GetFullPath(sourcePath)) + Path.DirectorySeparatorChar,
+                OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
+                throw new InvalidOperationException("Choose a world folder outside the destination template directory.");
+            // Reserve the ID before yielding so simultaneous imports cannot share a destination.
+            Directory.CreateDirectory(Path.GetDirectoryName(destWorldDir)!);
+        }
 
-        var destWorldDir = MagnetarPaths.GetQuasarWorldTemplateWorldDirectory(template.WorldTemplateId);
-        Directory.CreateDirectory(destWorldDir);
-
-        foreach (var sourceFile in Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories))
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            var relative = Path.GetRelativePath(sourcePath, sourceFile);
-
-            // Skip the world's Backup/ subdirectory — it holds only historical backup
-            // copies of the save, which are unused as long as the top-level save is good.
-            var firstSegment = relative.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0];
-            if (string.Equals(firstSegment, "Backup", StringComparison.OrdinalIgnoreCase))
-                continue;
-
-            var destFile = Path.Combine(destWorldDir, relative);
-            Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-            File.Copy(sourceFile, destFile, overwrite: true);
+            using var staged = await WorldSaveFiles.FromFolderAsync(sourcePath,
+                Path.GetDirectoryName(destWorldDir)!,
+                progress is null ? null : new TemplateCopyProgress(progress), cancellationToken);
+            staged.Publish(destWorldDir);
+            await SaveTemplateAsync(template, cancellationToken);
+        }
+        catch
+        {
+            try { Directory.Delete(MagnetarPaths.GetQuasarWorldTemplateDirectory(template.WorldTemplateId), recursive: true); }
+            catch (Exception cleanupError) { _logger.LogWarning(cleanupError, "Could not remove incomplete world template {TemplateId}.", template.WorldTemplateId); }
+            throw;
         }
 
         lock (_sync)
         {
+            _templates.RemoveAll(t => string.Equals(t.WorldTemplateId, template.WorldTemplateId, StringComparison.OrdinalIgnoreCase));
             _templates.Add(Clone(template));
             _snapshot = CreateSnapshot(_templates);
         }
 
-        await SaveTemplateAsync(template, cancellationToken);
         Changed?.Invoke();
         return Clone(template);
+    }
+
+    private sealed class TemplateCopyProgress(IProgress<WorldTemplateImportProgress> target) : IProgress<WorldImportProgress>
+    {
+        private int _completed = -1;
+        public void Report(WorldImportProgress value)
+        {
+            if (_completed == value.CompletedFiles) return;
+            _completed = value.CompletedFiles;
+            target.Report(new(value.CompletedFiles, value.TotalFiles));
+        }
     }
 
     public async Task DeleteAsync(string worldTemplateId, CancellationToken cancellationToken = default)
@@ -199,11 +222,11 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
         var historyDirectory = MagnetarPaths.GetQuasarWorldTemplateHistoryDirectory(template.WorldTemplateId);
         var json = JsonSerializer.Serialize(template, JsonOptions);
 
-        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
-
         Directory.CreateDirectory(historyDirectory);
         var historyPath = Path.Combine(historyDirectory, $"{template.UpdatedAtUtc:yyyyMMddHHmmssfff}.json");
         await AtomicFileWriter.WriteTextAsync(historyPath, json, cancellationToken);
+        // Publish only after the copy and its history are complete.
+        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
 
         _logger.LogInformation("Saved Quasar world template to {Path}", path);
     }

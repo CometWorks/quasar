@@ -10,6 +10,7 @@ function harness(replies, base = '/') {
     const requests = [], timers = [], storage = new Map();
     const window = {
         location: { href: '' },
+        dispatchEvent() {},
         sessionStorage: {
             getItem: key => storage.get(key),
             setItem: (key, value) => storage.set(key, value),
@@ -18,7 +19,7 @@ function harness(replies, base = '/') {
         setTimeout(callback) { timers.push(callback); }
     };
     vm.runInNewContext(script, {
-        window, document: { baseURI: 'https://quasar.test' + base }, URL,
+        window, document: { baseURI: 'https://quasar.test' + base }, URL, Event,
         async fetch(url, options) {
             requests.push({ path: url.pathname, ...options });
             assert.ok(replies.length, 'Unexpected request: ' + url);
@@ -43,6 +44,30 @@ function harness(replies, base = '/') {
         }
     };
 }
+
+test('restart feedback shows completed stages in an accessible progress bar', () => {
+    const element = tag => ({
+        tag, children: [], attributes: {}, classList: { toggle() {} },
+        appendChild(child) { this.children.push(child); },
+        replaceChildren() { this.children = []; },
+        setAttribute(key, value) { this.attributes[key] = value; }
+    });
+    const document = { body: { appendChild() {}, contains: () => true }, createElement: element };
+    const events = [];
+    const window = { setTimeout() {}, dispatchEvent(event) { events.push(event.type); } };
+    vm.runInNewContext(script, { window, document, URL, Event });
+    window.quasarConfigs.showRestartFeedback();
+    const state = window.quasarRestartFeedback;
+    assert.equal(state.progress.tag, 'progress');
+    assert.equal(state.progress.attributes['aria-label'], 'Restart steps completed');
+    assert.equal(state.progress.max, 4);
+    assert.equal(state.progress.value, 0);
+    assert.deepEqual(events, ['quasar-restart-feedback-changed']);
+    window.quasarConfigs.updateRestartFeedback('Checking worker health', 'health');
+    assert.equal(state.progress.value, 2);
+    window.quasarConfigs.updateRestartFeedback('Reloading', 'reload');
+    assert.equal(state.progress.value, 3);
+});
 
 for (const base of ['/', '/my-panel/']) {
     test(`update waits for the target version with status-only health at ${base}`, async () => {

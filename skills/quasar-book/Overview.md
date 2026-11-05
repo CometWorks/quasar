@@ -6,24 +6,25 @@ Quasar runs and manages Space Engineers 1 (SE1) dedicated servers. This page say
 
 Quasar is a supervisor with a web UI (Blazor Server) and a REST API. One Quasar install manages several dedicated servers on the same machine. It starts, stops, restarts and health-checks them, edits their configuration, downloads and updates the server software, keeps backups, and shows telemetry, chat and players. Admins open the UI in a browser, by default on port 8080.
 
-It runs on Linux (as a systemd service) and on Windows (as a Scheduled Task), and also as a Docker image on Linux AMD64. It can run in the foreground from a terminal, or in the background as a service. Windows Service hosting is out of scope.
+It runs on Linux and Windows as a native service: a systemd unit on Linux and a Windows Service on Windows, each with a second, small updater service next to it. It also runs from a terminal in the foreground, and as a Docker image on Linux AMD64. Installations from before 1.4.1 ran a Bootstrap launcher instead, as a systemd unit or a Windows Scheduled Task. They must migrate through the 1.4.1 release. See [Updates](Updates.md#required-141-migration-before-15).
 
 Source and releases: https://github.com/CometWorks/quasar
 
-The current distribution uses `AGPL-3.0-only`. The previous MIT snapshot is
-preserved on `archive/mit`. See [Licensing](Licensing.md) for source availability,
-modified hosted versions and redistribution.
+The current distribution uses `AGPL-3.0-only`. The previous MIT snapshot is preserved by the `archive/mit` tag. See [Licensing](Licensing.md) for source availability, modified hosted versions and redistribution.
 
 ## The parts
 
 | Part | Where it runs | What it does |
 | --- | --- | --- |
-| Quasar (web worker) | The server machine | The supervisor: web UI, REST API, server process management, config editing, the WebSocket endpoint the agents connect to. |
-| Quasar.Bootstrap | The server machine | The launcher started by the service or by `Quasar serve`. It owns the public port, starts the web worker, and swaps in a new worker version during self-update. It also implements the `Quasar cluster ...` command line. |
+| Quasar | The server machine | The supervisor in one process: web UI, REST API, server process management, config editing, the WebSocket endpoint the agents connect to. It also implements the `Quasar update ...` and `Quasar cluster ...` command lines. |
+| Quasar.Updater | The server machine | A separate small service that installs Quasar updates. It verifies the downloaded package, stops Quasar, replaces its files, starts it and checks its health, and restores the previous version on failure. See [Updates](Updates.md). |
+| Quasar.Bootstrap | Old installations only | The launcher of installations before 1.4.1. It started a separate web worker and swapped it during self-update. Current packages don't use it. |
 | Quasar.Agent | Inside each dedicated server | A server plugin. It connects back to Quasar over a WebSocket, reports state and telemetry, and runs commands on the game thread. If Quasar is not running, the agent waits and retries. It never starts Quasar. |
 | Magnetar | Each dedicated server | The plugin loader and launcher of the SE1 dedicated server, built on Pulsar. Quasar downloads it and runs every server through it. See https://github.com/CometWorks/magnetar |
 | Space Engineers Dedicated Server (DS) | Each dedicated server | The game server itself. Quasar downloads it with SteamCMD (app 298740) and keeps a managed copy. |
 | Quasar.Host | Each cluster machine | The host executor of clusters. A separate background service on every machine that runs cluster processes. See [Cluster hosts](ClusterHosts.md). |
+
+Each release has one complete package per platform, `quasar-linux-x64.tar.gz` and `quasar-win-x64.zip`. It holds Quasar, the updater, Quasar.Host and the installers.
 
 Servers run detached from Quasar. By default restarting or updating Quasar does not stop them, and the agents reconnect when Quasar is back. The Docker image is the exception: there servers stop with the container. An agent that can't reach Quasar for an hour saves the world and stops its server. See [Servers](Servers.md#servers-survive-quasar-restarts) and [Updates](Updates.md).
 
@@ -53,6 +54,7 @@ A cluster splits one world across several server processes, possibly on several 
 | Config profile | A reusable set of server and world settings (session settings, mods, password, access lists) that one or more servers use. See [Config profiles](ConfigProfiles.md). |
 | World template | A stored world that new server saves are copied from. See [Config profiles](ConfigProfiles.md#world-templates). |
 | Agent | Quasar.Agent, the plugin inside each server. "Connected agents" on the UI means servers whose agent is talking to Quasar. |
+| Updater | The Quasar.Updater service that installs Quasar updates next to the main Quasar service. |
 | Host machine | A computer that runs cluster processes. |
 | Host executor | The Quasar.Host service on a host machine. |
 | Cluster Gateway, Cluster Registry | The cluster's player entry point, and the service that coordinates the cluster's processes. |
@@ -63,12 +65,19 @@ A cluster splits one world across several server processes, possibly on several 
 ## Sources
 - `README.md`
 - `Docs/QuickStart.md`
+- `Docs/Installation.md`
 - `Docs/QuasarArchitecture.md`
+- `Docs/QuasarUpdates.md`
+- `Docs/ReleaseNotes1.5.md`
 - `Docs/ClusterTerminology.md`
 - `Quasar/appsettings.json`
+- `Quasar/Quasar.csproj`
+- `Quasar/Services/QuasarApplicationEntry.cs`
+- `Quasar.Updater/QuasarUpdater.cs`
 - `Quasar.Bootstrap/Program.cs`
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
 - `Quasar/Services/ClusterBetaNoticeCatalog.cs`
 - `Dockerfile`
 - `Quasar.Agent/AgentConnection.cs`
+- `Quasar.Agent/AgentOptions.cs`

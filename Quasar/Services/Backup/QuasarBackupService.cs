@@ -9,6 +9,13 @@ namespace Quasar.Services.Backup;
 /// <summary>An in-memory backup archive ready to stream to the browser.</summary>
 public sealed record QuasarBackupArchive(byte[] Content, string FileName);
 
+public enum WorldBackupAction
+{
+    LatestSave,
+    SaveAndBackUp,
+    StopAndBackUp,
+}
+
 /// <summary>A backup ZIP found in the configured backup directory.</summary>
 public sealed record QuasarBackupFileInfo(
     string Name,
@@ -171,16 +178,45 @@ public sealed class QuasarBackupService
             cancellationToken);
     }
 
-    public Task<string> WriteWorldBackupFileAsync(
+    public async Task<string> WriteWorldBackupFileAsync(
         string uniqueName,
         DateTimeOffset timestamp,
         bool automatic = false,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WorldBackupAction action = WorldBackupAction.LatestSave)
     {
+        if (!Enum.IsDefined(action))
+            throw new ArgumentOutOfRangeException(nameof(action));
         var definition = RequireServer(uniqueName);
-        return WriteBackupFileAsync(
+        var worldPath = RequireWorldSavePath(definition);
+        if (!File.Exists(Path.Combine(worldPath, "Sandbox.sbc")))
+            throw new InvalidOperationException($"Server '{uniqueName}' has no valid world save to back up.");
+        if (!_restoreCoordinator.TryBeginBackup(uniqueName, out var scope))
+            throw new InvalidOperationException($"A backup or restore is already in progress for '{uniqueName}'.");
+        using var backupScope = scope;
+
+        if (action != WorldBackupAction.LatestSave)
+        {
+            await _supervisor.SaveWorldAsync(uniqueName, cancellationToken);
+            if (action == WorldBackupAction.StopAndBackUp)
+            {
+                await _supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off,
+                    reconcile: false, cancellationToken);
+                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                timeout.CancelAfter(TimeSpan.FromMinutes(6));
+                await _supervisor.StopServerAsync(uniqueName, forceAfter: null, timeout.Token);
+                if (_supervisor.IsServerProcessActive(uniqueName))
+                    throw new InvalidOperationException("The server has not stopped. No backup was created.");
+                definition = RequireServer(uniqueName);
+            }
+        }
+
+        var source = action == WorldBackupAction.StopAndBackUp
+            ? worldPath
+            : ResolveWorldSnapshotSource(worldPath, requireCurrentSave: action == WorldBackupAction.SaveAndBackUp);
+        return await WriteBackupFileAsync(
             BuildFileName(timestamp, automatic, QuasarBackupKind.World, definition.UniqueName),
-            archive => BuildWorldArchive(archive, definition, timestamp, includeWorldConfig: false, cancellationToken),
+            archive => BuildWorldArchive(archive, definition, timestamp, source, cancellationToken),
             cancellationToken);
     }
 
@@ -542,18 +578,21 @@ public sealed class QuasarBackupService
         ZipArchive archive,
         DedicatedServerDefinition definition,
         DateTimeOffset timestamp,
-        bool includeWorldConfig,
+        string sourceDirectory,
         CancellationToken cancellationToken)
     {
-        var worldPath = RequireWorldSavePath(definition);
+        if (!File.Exists(Path.Combine(sourceDirectory, "Sandbox.sbc")))
+            throw new InvalidOperationException("The world save is no longer available. No backup was created.");
         WriteServerManifest(archive, definition, timestamp, QuasarBackupKind.World);
         WriteEntry(archive, ServerDefinitionEntryName, JsonSerializer.SerializeToUtf8Bytes(definition, JsonOptions));
         AddDirectory(
             archive,
             WorldPrefix,
-            ResolveWorldSnapshotSource(worldPath),
+            sourceDirectory,
             cancellationToken,
-            includeWorldConfig ? null : IsWorldConfigPath);
+            path => IsWorldConfigPath(path) ||
+                StartsWithEntrySegment(ToEntryPath(Path.GetRelativePath(sourceDirectory, path)), "Backup") ||
+                StartsWithEntrySegment(ToEntryPath(Path.GetRelativePath(sourceDirectory, path)), ".new"));
     }
 
     private async Task<string> WriteBackupFileAsync(
@@ -647,7 +686,7 @@ public sealed class QuasarBackupService
         if (!_restoreCoordinator.TryBeginRestore(target.UniqueName, out var scope))
         {
             refusal = QuasarRestoreReport.Failed(
-                $"A restore is already in progress for '{target.DisplayName}'. Wait for it to finish before restoring again.",
+                $"A backup or restore is already in progress for '{target.DisplayName}'. Wait for it to finish before restoring again.",
                 manifest.QuasarVersion,
                 _options.Version);
             return false;
@@ -1055,7 +1094,7 @@ public sealed class QuasarBackupService
         return StartsWithEntrySegment(remainder, secondSegment);
     }
 
-    private static string ResolveWorldSnapshotSource(string worldPath)
+    private static string ResolveWorldSnapshotSource(string worldPath, bool requireCurrentSave = false)
     {
         var backupDirectory = Path.Combine(worldPath, "Backup");
         if (!Directory.Exists(backupDirectory))
@@ -1064,6 +1103,9 @@ public sealed class QuasarBackupService
         var latestBackup = Directory
             .EnumerateDirectories(backupDirectory)
             .Where(directory => File.Exists(Path.Combine(directory, "Sandbox.sbc")))
+            .Where(directory => !requireCurrentSave ||
+                File.GetLastWriteTimeUtc(Path.Combine(directory, "Sandbox.sbc")) >=
+                File.GetLastWriteTimeUtc(Path.Combine(worldPath, "Sandbox.sbc")))
             .OrderByDescending(Directory.GetLastWriteTimeUtc)
             .FirstOrDefault();
 

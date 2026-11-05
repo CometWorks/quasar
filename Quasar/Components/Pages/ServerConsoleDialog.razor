@@ -139,8 +139,6 @@
     private bool _loadInitialInfoErrors;
     private CancellationTokenSource? _autoRefreshCts;
     private Task? _autoRefreshTask;
-    private string ServerLogDownloadHref => BuildLogDownloadHref("server", _serverLogSelection);
-    private string InfoLogDownloadHref => BuildLogDownloadHref("magnetar", _infoLogSelection);
     private bool IsWatchingLatestServerLog => IsLatestLogSelection(_serverLogSelection);
     private bool IsWatchingLatestInfoLog => IsLatestLogSelection(_infoLogSelection);
     private bool CanRefreshServerLog => IsWatchingLatestServerLog;
@@ -313,7 +311,12 @@
         var fileName = string.IsNullOrWhiteSpace(_serverLogPath)
             ? "SpaceEngineersDedicated.log"
             : Path.GetFileName(_serverLogPath);
-        await JS.InvokeVoidAsync("quasarConfigs.downloadFile", ServerLogDownloadHref, fileName);
+        try
+        {
+            await JS.InvokeVoidAsync("quasarSdk.download", "quasar.core", "logs.server.read",
+                new { uniqueName = UniqueName, name = IsLatestLogSelection(_serverLogSelection) ? null : _serverLogSelection }, new { fileName });
+        }
+        catch (JSException error) { _serverLogError = error.Message; }
     }
 
     private async Task HandleServerLogSelectionChanged(string value)
@@ -579,7 +582,12 @@
         var fileName = string.IsNullOrWhiteSpace(_infoLogPath)
             ? "info.log"
             : Path.GetFileName(_infoLogPath);
-        await JS.InvokeVoidAsync("quasarConfigs.downloadFile", InfoLogDownloadHref, fileName);
+        try
+        {
+            await JS.InvokeVoidAsync("quasarSdk.download", "quasar.core", "logs.magnetar.read",
+                new { uniqueName = UniqueName, name = IsLatestLogSelection(_infoLogSelection) ? null : _infoLogSelection }, new { fileName });
+        }
+        catch (JSException error) { _infoLogError = error.Message; }
     }
 
     private async Task HandleInfoLogSelectionChanged(string value)
@@ -1127,14 +1135,6 @@
         return !string.IsNullOrWhiteSpace(fileName) &&
                string.Equals(fileName, Path.GetFileName(fileName), StringComparison.Ordinal) &&
                fileName.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
-    }
-
-    private string BuildLogDownloadHref(string logKind, string selection)
-    {
-        var href = $"api/servers/{Uri.EscapeDataString(UniqueName)}/logs/{logKind}/download";
-        return IsLatestLogSelection(selection)
-            ? href
-            : $"{href}?name={Uri.EscapeDataString(selection)}";
     }
 
     private static string FormatLogFileOption(FileInfo file)

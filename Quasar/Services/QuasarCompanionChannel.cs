@@ -11,10 +11,12 @@ public sealed class QuasarCompanionChannel : IQuasarCompanionChannel
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(30);
 
     private readonly AgentRegistry _registry;
+    private readonly ClusterCatalog _clusters;
 
-    public QuasarCompanionChannel(AgentRegistry registry)
+    public QuasarCompanionChannel(AgentRegistry registry, ClusterCatalog clusters)
     {
         _registry = registry;
+        _clusters = clusters;
     }
 
     public async Task<TResponse> SendAsync<TRequest, TResponse>(
@@ -77,7 +79,12 @@ public sealed class QuasarCompanionChannel : IQuasarCompanionChannel
 
     public IReadOnlyList<QuasarCompanionServer> GetConnectedServers() => _registry.GetAgents()
         .Where(agent => agent.IsConnected && !string.IsNullOrWhiteSpace(agent.UniqueNameKey))
-        .Select(agent => new QuasarCompanionServer(agent.TelemetryKey, agent.AgentId, agent.IsCluster ? $"{agent.ServerDisplayName} / {agent.ClusterSlot}" : agent.ServerDisplayName))
+        .Select(agent => new QuasarCompanionServer(agent.TelemetryKey, agent.AgentId, agent.IsCluster ? $"{agent.ServerDisplayName} / {agent.ClusterSlot}" : agent.ServerDisplayName)
+        {
+            ClusterId = agent.IsCluster ? agent.ClusterId : string.Empty,
+            ClusterSlot = agent.IsCluster ? agent.ClusterSlot : string.Empty,
+            ClusterDisplayName = agent.IsCluster ? _clusters.GetCluster(agent.ClusterId)?.DisplayName ?? agent.ClusterId : string.Empty
+        })
         .ToArray();
 
     private AgentRuntimeState? ResolveConnectedAgent(string serverId)

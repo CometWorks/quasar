@@ -31,12 +31,19 @@
 <body>
     <Routes @rendermode="InteractiveServer" />
     <ReconnectModal />
+    <script src="@Assets["quasar-sdk.js"]"></script>
     <script src="@Assets["quasar-configs.js"]"></script>
     <script src="@Assets["quasar-push.js"]"></script>
     <script src="@Assets["lib/uplot/uPlot.iife.min.js"]"></script>
     <script src="@Assets["quasar-charts.js"]"></script>
-    <script src="@Assets["_framework/blazor.web.js"]"></script>
+    <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
+    <script id="quasar-connection" type="application/json">@((MarkupString)("{\"hosted\":" + (RequestContext is not null && HostedPanelRequest.IsHosted(RequestContext) ? "true" : "false") + "}"))</script>
+    <script type="module" src="_quasar/sdk/v1/boot.js"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
 
 </html>
+
+@code {
+    [CascadingParameter] private Microsoft.AspNetCore.Http.HttpContext? RequestContext { get; set; }
+}

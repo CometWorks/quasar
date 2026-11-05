@@ -75,12 +75,15 @@ existing release acceptance. See [Nebula billing setup](https://github.com/Comet
    connector. Readiness requires fresh confirmation of both frpc registration and
    local worker readiness. Enrollment alone does not confirm connectivity.
    **Open Quasar dashboard** appears as a primary button only after active hosting
-   and fresh health for this panel confirm both are ready. **Done** closes setup;
-   **Self-deploy** disconnects hosted access and opens Security.
+   and fresh health for this panel confirm both are ready. It opens the dashboard
+   in the current browser tab. **Done** closes setup;
+   **Manage Nebula hosting and billing** opens your Nebula account. **Self-deploy**
+   is available only on the access-method selection screen, never on later hosted
+   steps or when reopening a completed enrollment.
 
-There are no customer frp commands or pasted credentials. Selecting Self-deploy
-later stops the connector without deleting the private identity; selecting the
-same hosted name reconnects it. An enrolled public name cannot currently be
+There are no customer frp commands or pasted credentials. Canceling an incomplete
+connection stops the connector without deleting the private identity; selecting
+the same hosted name reconnects it. An enrolled public name cannot currently be
 renamed through the wizard.
 
 ## Security and routing

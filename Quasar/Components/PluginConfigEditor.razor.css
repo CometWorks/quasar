@@ -1,3 +1,7 @@
+.plugin-config-editor ::deep .mud-expand-panel .mud-expand-panel-content {
+    padding: 16px;
+}
+
 .plugin-config-container {
     min-width: 0;
 }

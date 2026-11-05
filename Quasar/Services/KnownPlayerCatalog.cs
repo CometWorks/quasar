@@ -178,7 +178,8 @@ public sealed class KnownPlayerCatalog
     }
 
     public void ObserveClusterPlayers(ClusterDefinition cluster,
-        CometWorks.ClusterGateway.AdminContract.V1.ClientSummary[] clients, ulong[] banned, DateTimeOffset observedAt)
+        CometWorks.ClusterGateway.AdminContract.V1.ClientSummary[] clients, ulong[] banned, DateTimeOffset observedAt,
+        CometWorks.ClusterGateway.AdminContract.V1.PlayerModerationStatus? moderation = null)
     {
         var changed = false;
         var bans = banned.ToHashSet();
@@ -214,8 +215,29 @@ public sealed class KnownPlayerCatalog
                     changed = true;
                 }
             }
+            // Cooldowns and saved roles include players who are no longer connected.
+            foreach (ulong userId in (moderation?.Promotions?.Select(entry => entry.UserId) ?? [])
+                .Concat(moderation?.KickCooldowns.Select(entry => entry.UserId) ?? []).Distinct())
+            {
+                if (userId is 0 or > long.MaxValue) continue;
+                string key = $"cluster::{BuildPlayerKey(cluster.UniqueName, (long)userId)}";
+                if (_players.ContainsKey(key)) continue;
+                _players[key] = new KnownPlayerRecord
+                {
+                    PlayerKey = key, UniqueName = cluster.UniqueName, IsCluster = true, ServerName = cluster.DisplayName,
+                    SteamId = (long)userId, FirstSeenUtc = observedAt, LastSeenUtc = observedAt,
+                };
+                changed = true;
+            }
+            var promotions = moderation?.Promotions?.ToDictionary(entry => entry.UserId, entry => entry.Level);
             foreach (var record in _players.Values.Where(player => player.IsCluster && BelongsToServer(player, cluster.UniqueName)))
+            {
                 changed |= Assign(record.IsBanned, bans.Contains((ulong)record.SteamId), value => record.IsBanned = value);
+                if (promotions is null) continue;
+                var level = promotions.GetValueOrDefault((ulong)record.SteamId);
+                changed |= Assign(record.PromoteLevel, level.ToString(), value => record.PromoteLevel = value);
+                changed |= Assign(record.IsAdmin, level >= CometWorks.ClusterGateway.AdminContract.V1.PlayerPromotionLevel.Moderator, value => record.IsAdmin = value);
+            }
         }
         if (!changed) return;
         ScheduleSave();

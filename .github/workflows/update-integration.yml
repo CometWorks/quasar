@@ -1,0 +1,87 @@
+name: Native update recovery
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'Directory.Build.props'
+      - 'scripts/package-linux-release.sh'
+      - 'scripts/package-windows-release.ps1'
+      - 'Shared/Updates/**'
+      - 'Quasar.Bootstrap/**'
+      - 'Quasar.Updater/**'
+      - 'Quasar/Program.cs'
+      - 'Quasar/Services/QuasarShutdownService.cs'
+      - 'Quasar/Services/DedicatedServerSupervisor.cs'
+      - 'Quasar/Services/ClusterLocalHost.cs'
+      - 'Shared/ServiceHosting/**'
+      - 'Quasar/Services/Updates/**'
+      - 'scripts/*supervisor*'
+      - 'scripts/install.ps1'
+      - 'scripts/install-gui.*'
+      - 'scripts/Install.*'
+      - 'install.sh'
+      - 'Tests/Updates/**'
+      - '.github/workflows/update-integration.yml'
+permissions:
+  contents: read
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install native authorization dependency
+        run: sudo apt-get update && sudo apt-get install -y polkitd
+      - name: Real isolated systemd install, replacement and recovery
+        run: sudo --preserve-env=PATH,DOTNET_ROOT python3 Tests/Updates/systemd.py --system
+  linux-user:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Install desktop launcher test dependency
+        run: sudo apt-get update -qq && sudo apt-get install -y python3-gi gir1.2-glib-2.0
+      - name: Guided installer command and cancellation fixtures
+        run: |
+          python3 Tests/Updates/install_gui.py
+          pwsh -NoProfile -File Tests/Updates/install-gui.ps1
+          pwsh -NoProfile -File Tests/Updates/install-copy.ps1
+      - name: Start isolated user manager and test user-scope permissions
+        run: |
+          sudo loginctl enable-linger "$USER"
+          sudo systemctl start "user@$(id -u).service"
+          export XDG_RUNTIME_DIR="/run/user/$(id -u)"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
+          python3 Tests/Updates/systemd.py
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        data-layout: [colocated, nested]
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Guided installer elevation argument validation
+        shell: pwsh
+        run: Tests/Updates/install-gui.ps1
+      - name: Repeated installation and recovery copy fixture
+        shell: pwsh
+        run: Tests/Updates/install-copy.ps1
+      - name: Real isolated native Windows Services, migration, locks, ACLs and recovery
+        shell: pwsh
+        run: |
+          if ('${{ matrix.data-layout }}' -eq 'nested') {
+            Tests/Updates/windows-services.ps1 -NestedData
+          } else {
+            Tests/Updates/windows-services.ps1
+          }

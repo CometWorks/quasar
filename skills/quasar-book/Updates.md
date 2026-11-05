@@ -1,163 +1,178 @@
 # Updates
 
-How Quasar updates itself (the web UI worker and the Bootstrap launcher), how it keeps the managed Magnetar and Space Engineers Dedicated Server (DS) runtime current, and what to do when an update fails. Cluster Hosts and Docker installs have their own update paths, linked below.
+How Quasar updates itself, how it keeps the managed Magnetar and Space Engineers Dedicated Server (DS) runtime current, and what to do when an update fails. Cluster Hosts and Docker installs have their own update paths, linked below.
+
+## Required 1.4.1 migration before 1.5
+
+Quasar 1.4.1 is a migration release. It replaces the old Bootstrap launcher and web worker pair with one Quasar application that runs as a native service, plus a separate updater service. Quasar 1.5 and later refuse to stage, install or start until an installation has completed this migration:
+
+1. Install the complete 1.4.1 platform package with its installer, keeping the existing install path, data path, service names, and the Linux account and user/system scope. See [Migrating from Bootstrap](#migrating-from-bootstrap).
+2. Start 1.4.1 successfully.
+3. Then update to 1.5 or later.
+
+Completion is recorded in `<data directory>/Updates/migration-1.4.1.json`. With native services, the updater writes it once the 1.4.1 main service passes the service ownership and health checks. A manual (foreground) 1.4.1 installation writes it at startup. Keep this file with the data directory. Updating an old Bootstrap installation to the 1.4.1 web worker alone does not complete the migration.
+
+Without the receipt, a 1.5 update fails with "Quasar 1.5 and later require a completed Quasar 1.4.1 migration first..." The same check runs on the Updates page, in `Quasar update`, in the updater service, in both installers and at application startup, where Quasar exits with code 3. Run the 1.4.1 installer and start 1.4.1 to fix it. Don't write the receipt by hand.
+
+Each 1.5 release contains only `quasar-linux-x64.tar.gz`, `quasar-win-x64.zip` and `SHA256SUMS`. The legacy `quasar-web-*` worker archives exist only on 1.4.1 releases, so an old Bootstrap installation that looks for a worker update finds 1.4.1. Release cleanup always keeps the newest full 1.4.1 release, and the release workflow refuses to publish a full 1.5 or later release until such a 1.4.1 release exists.
+
+Release notes start with installation instructions. The **Quasar 1.5** section includes the required upgrade order and a link to the migration guide.
+
+### Broken 1.4.1.1 package
+
+The published `v1.4.1.1` package records `1.4.1-1` in `release.json`, but its application reports `1.4.1.1`. Neither the foreground nor native-service path can record migration with those different identities. Its Windows installer can also remove file access when application and data share a folder. Do not rerun it. Use the corrected [1.4.1.2 migration release](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2) or a newer full 1.4.1 package, preserving paths and service names. Stop both services and any old task first; restore administrator file access if the old installer removed it. Keep data, credentials, keys and the recovery copy. Start the corrected bridge and confirm `Updates/migration-1.4.1.json` in the intended data folder before installing 1.5 or later. Do not fabricate the receipt. See [bridge recovery](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#broken-1411-package).
+
+Release publication rejects the broken 1.4.1.1 bridge. Cleanup keeps the newest complete 1.4.1 bridge, including both platform packages, both legacy workers and checksums, even when a newer incomplete bridge exists.
 
 ## What gets updated and by whom
 
 | Component | Source | Who checks | Who installs |
 | --- | --- | --- | --- |
-| Quasar UI worker (the web app) | GitHub releases of `CometWorks/quasar` | Worker, every 15 minutes and on **Check Quasar** | Worker stages, Bootstrap cuts over |
-| Bootstrap launcher | Same GitHub release | Worker, same check | Bootstrap, only when the worker asks |
-| Magnetar | Latest full GitHub release of `CometWorks/magnetar` | Worker: startup, every hour, **Check Magnetar**, each managed server start | Worker |
-| Dedicated Server | Steam app `298740` through SteamCMD | Worker: startup (install only), each managed server start, **Check Dedicated Server** | Worker |
-| Quasar UI plugins | QuasarHub catalog | Worker, every 15 minutes | Worker (opt-in), see [UI plugins](UiPlugins.md) |
-| Cluster packages and Hosts | GitHub releases / Quasar origin | See [Cluster hosts](ClusterHosts.md) and [Clusters](Clusters.md) | |
+| Quasar application | GitHub releases of `CometWorks/quasar` | Quasar, 10 seconds after start, then every 15 minutes, and on **Check Quasar** | Quasar downloads and verifies, the updater service replaces and health-checks |
+| Updater service | Complete platform package | Nobody automatically | The installer, with both services stopped |
+| Magnetar | Latest full GitHub release of `CometWorks/magnetar` | Quasar: startup, every hour, **Check Magnetar**, each managed server start | Quasar |
+| Dedicated Server | Steam app `298740` through SteamCMD | Quasar: startup (install only), each managed server start, **Check Dedicated Server** | Quasar |
+| Quasar UI plugins | QuasarHub catalog | Quasar, every 15 minutes | Quasar (opt-in), see [UI plugins](UiPlugins.md) |
+| Cluster packages and Hosts | GitHub releases / Quasar | See [Cluster hosts](ClusterHosts.md) and [Clusters](Clusters.md) | |
 
 The Quasar release checks need Linux or Windows. On other platforms the Updates page shows "Automatic updates are not supported on this platform."
 
 ## The Updates page
 
-Open **Updates** in the nav menu (Settings group). The URL is `/settings/updates`. Only the Admin role can open it.
+**Updates** (`/settings/updates`, in the Tools & settings group, admins only) has, from top to bottom:
 
-The page has these panels:
+- **Check Quasar**, and the result of the last check.
+- The restart capability: whether Quasar verified its native services. It names the supervisor, for example "systemd user units quasar.service + quasar-updater.service" or "Windows Services Quasar + QuasarUpdater", or says what is wrong and how to repair it. See [Native service checks](#native-service-checks).
+- The current update operation: target version, stage, message, operation ID and time.
+- An appsettings.json conflict editor, when a merge failed (see below).
+- **Update Quasar**: pick a release in **Version to install** and press **Update Quasar**. **Retry update** appears when the last operation failed or is staged.
+- **Advanced recovery**, a collapsed panel with the command-line commands. On an old Bootstrap installation it also has **Stage legacy worker recovery** and **Activate legacy worker recovery**. They update only the web worker and do not migrate the installation.
+- **Cluster packages** (Linux, when clusters exist), the **Managed Runtime** table with **Check Magnetar** and **Check Dedicated Server**, the update switches and the GitHub token.
 
-- **Quasar UI**: current version, a **Version to install** dropdown, and **Stage** and **Activate** buttons. Each entry in the dropdown is tagged `current`, `newer` or `rollback`, plus `prerelease` and `staged` where they apply.
-- **Bootstrap**: current launcher version (or "not managed by Bootstrap") and a **Force activate** button when a newer launcher exists.
-- **Cluster packages** (Linux, only when a cluster has a package selected): latest cluster release and **Check cluster release**. Release checks here only notify. Staging and updating a cluster happens on the cluster's page, see [Clusters](Clusters.md).
-- **Managed Runtime**: installed Magnetar and Dedicated Server versions, status, install path and last check time, with **Check Magnetar** and **Check Dedicated Server** buttons, and the **Dedicated Server update on launch** setting.
-- **Source**: GitHub owner/repository, check interval, release stream, the GitHub token field, **Include prerelease versions**, **Automatically update Quasar UI and Bootstrap together**, **Automatically stage UI updates after checks**, last check time and the asset names.
+An old Bootstrap installation also shows a warning that 1.4.1 prepares the migration, with a link to the migration instructions.
 
 ## How a Quasar UI update works
 
-1. **Check.** The worker reads up to 100 releases from `https://api.github.com/repos/<Owner>/<Repository>/releases`, skips drafts, and skips prereleases unless prereleases are enabled. It finds the platform asset by name: `quasar-web-linux-x64.tar.gz` on Linux, `quasar-web-win-x64.zip` on Windows. The first check runs 10 seconds after startup, then every `CheckIntervalSeconds` (default 900).
-2. **Stage.** Quasar downloads the asset into `<install root>/ManagedRuntime/Cache/`, verifies it against the release's `SHA256SUMS` file, extracts it to `<install root>/Updates/Staged/<version>/`, and merges `appsettings.json` (see below). With **Automatically stage UI updates after checks** on (the default), staging happens right after a check finds a newer version. With it off, the newer version waits as "ready to download" until you press **Stage**.
-3. **Activate.** Press **Activate**. Quasar copies the staged files to `<install root>/ManagedRuntime/WebService/<version>/`, copies the resolved `appsettings.json` back to the install root, and writes `<install root>/Updates/active-release.json`.
-4. **Cutover.** Bootstrap sees the pointer change, asks the old worker to drain, starts the new worker on the same port and waits up to 60 seconds for `/api/health`. The browser shows a progress overlay, checks health and the protected `/api/version` endpoint, then reloads the Updates page when the selected version answers. Public health responses stay status-only. Rollback also accepts older releases that include their version in health. After a successful cutover Bootstrap keeps the active release and the previous healthy release under `ManagedRuntime/WebService/`, then deletes other inactive release folders.
+The UI and the server supervisor run in one application process. An update replaces that whole application.
 
-Activation needs Quasar to run under Bootstrap (the installed systemd service or Scheduled Task). Otherwise the page shows "Quasar is not running under Bootstrap, so this update cannot be activated from the UI."
+1. **Update Quasar**, `Quasar update --version <v>` or an automatic check writes an operation to `<data directory>/Updates/operation.json` (stage `Queued`). A second request for the same version reuses it.
+2. Quasar downloads the complete package for the platform (`Downloading`), checks it against the release's `SHA256SUMS`, checks that every file in its manifest exists and that its version matches (`Verified`), and merges `appsettings.json` (see below).
+3. The operation becomes `Ready`.
+4. The updater service picks up `Ready` operations. It does nothing while the main service is stopped, so a staged update never starts a Quasar you stopped on purpose. It checks the services again, downloads `SHA256SUMS` from the release repository recorded at install time, and verifies its own private copy of the archive. A staged folder alone is not trusted.
+5. The updater stops the main service (`Restarting`), keeps a complete copy of the current application and settings, replaces the application files, writes the merged settings, starts the service, and waits up to 60 seconds for the new process to report the requested version and the service's PID on a token-protected loopback endpoint.
+6. On success the operation becomes `Healthy`. On failure, or if the updater itself was interrupted, it restores the previous application and settings, starts it again and marks the operation `Failed`.
+
+The updater never replaces its own files or the installation metadata (`service-installation.json`). Upgrade the updater by running the installer from a newer complete package with both services stopped.
+
+Quasar records its version with all four parts, for example `1.5.0.0`. The sidebar shows `1.5.0`, while Updates, the command line, packages and health checks keep the full version.
 
 ### Running game servers during a cutover
 
-Managed servers keep running. Quasar starts them detached, so the web worker can restart under them. `Quasar.Agent` inside each server reconnects to the new worker, so expect a short disconnect in the UI.
+Application updates and restarts leave detached game servers running and save their adoption state before Quasar stops, even when Quasar is set to stop servers on an ordinary shutdown. The local cluster Host keeps running as well. A machine reboot still stops everything; the servers' goal states apply after it. Some security upgrades need a server restart anyway. Follow the [DIS-0042 instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md) when crossing that boundary.
 
-A running server keeps the `Quasar.Agent.dll` it loaded at start. When the new release bundles a different agent DLL, the server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL; restart this server manually to load the bundled agent." Quasar does not schedule that restart. Use the server's **Restart** action when convenient. Quasar then does a full stop and start and deploys the new agent.
+### Native service checks
 
-**Urgent DIS-0042 upgrade:** save and stop worlds before activating this security release. Back up `cluster-credentials.json` together with `DataProtection-Keys/`, even for standalone-only installs. Update Quasar first, then every Host. Existing clusters must use **Stage profile changes** with the existing profile to re-pin the bundled agent, then **Apply pending update**; a node restart alone retains the old pin. Finally start standalone servers and verify authenticated telemetry everywhere. Follow the complete [security upgrade instructions](https://github.com/CometWorks/quasar/blob/main/Docs/SecurityUpgradeDIS0042.md).
+Updates go through the updater only when both native services are verified. Quasar checks this at startup and every 30 seconds. The power dialog and UI Plugins enable restart only when verification belongs to the current Quasar process. Missing, stale, unreadable or denied capability disables restart with repair guidance; a rejected request leaves Quasar running. Manual restart also refuses while an update is pending:
 
-Old tokenless agents are refused even on loopback. An adopted server stays disconnected until its agent can authenticate. Automatic attach recovery, health restarts and planned restarts wait for authenticated running telemetry; explicit admin actions remain possible. If you already upgraded with servers running, save in game before restarting because Quasar cannot save through a refused agent. An old standalone agent that had connected can save and stop after its own offline window (one hour by default). Current cluster agents never self-stop for a Quasar outage; Gateway/Host owns their lifecycle.
+
+- **Linux:** the main PID must belong to the configured systemd unit, the unit's executable and account must match the installation, and the unit needs `Restart=on-failure` and `KillMode=process`, with exit code 75 not counted as success. The updater unit must run the installed updater as its configured account with `Restart=on-failure`. System installs run the updater as the main account, with a polkit rule that lets that account start, stop and restart only its Quasar unit.
+- **Windows:** both services must be running, the main service must own the Quasar process, executables and accounts must match, and both services need restart-on-failure recovery that also covers reported service failures. New installs use `NT SERVICE\<service name>` virtual accounts.
+
+A token, a launch flag or an environment variable is not enough. If the check fails, the page shows the reason and says to run the current installer in repair mode with the existing names, paths and account (`install.sh --repair-supervision`, `install.ps1 -RepairSupervision`). Until then updates are only staged: "Staged safely. Stop Quasar, run Quasar update --retry, then start Quasar manually."
 
 ### Rolling back Quasar UI and Bootstrap
 
-Pick an older version (tagged `rollback`) in **Version to install**, press **Stage**, then **Activate**. This restores both the UI and Bootstrap to that exact release. Quasar requires its platform installer as well as the staged UI; it does not fall back to a UI-only rollback. The request binds the prepared UI to the selected installer version, and Bootstrap verifies the installer's `SHA256SUMS` before replacing itself and switching the UI pointer. Managed game servers keep running.
+To go back, select an older release and press **Update Quasar**. It installs that complete package the same way. Only releases with the complete package layout can be installed. Automatic checks never downgrade.
 
-The running launcher must support coordinated rollbacks (introduced with Quasar 1.3.2). An older launcher shows "Update Bootstrap before rolling back" instead of silently leaving components on different versions. Upgrade Bootstrap first. Bootstrap keeps the replaced launcher as `Quasar.previous` (`Quasar.exe.previous` on Windows), and keeps the previous UI pointer through the startup health check for recovery. Live Windows/Linux rollback and recovery remain release acceptance checks.
+`Quasar rollback` (or `Quasar --rollback`) from the install folder queues a rollback to the application kept from the last update ("Rollback queued. Use Quasar update --status to confirm its outcome."). It needs the native services and refuses while an update is pending. To stay on an older release, turn off automatic updates.
 
-Automatic staging never picks an older version, and automatic activation never downgrades either component. If automatic updates remain enabled, they can upgrade an intentionally rolled-back installation again; turn that policy off first to stay on the older release. The release workflow keeps only the two newest full releases on GitHub, so the dropdown offers few rollback targets.
+An installation that was migrated from Bootstrap can only go back to the Bootstrap era from the complete backup kept during migration, with its old supervision.
 
 ### Command-line UI recovery
 
-From the install directory, run `./Quasar --rollback` on Linux or
-`.\Quasar.exe --rollback` on Windows. `rollback` is also accepted as a command.
-This local recovery command restores the previous healthy UI without downloading
-an installer or changing Bootstrap. It differs from the coordinated rollback on
-the Updates page above: current settings, worlds and plugin data stay unchanged,
-and managed game servers keep running. A running launcher applies the request
-asynchronously through its normal health-checked cutover.
+Run these from the install folder, as the service account on Linux or from an elevated shell on Windows (`Quasar.exe` there):
 
-Bootstrap retains the previous healthy UI pointer as
-`Updates/active-release.json.rollback` across ordinary restarts and combined
-updates, starting with its first successful cutover using this feature.
-If a cutover was interrupted, `Updates/active-release.json.previous` takes
-precedence as the most recent healthy recovery target. A missing or unusable
-target fails without changing the active selection; stage an older version on
-Updates instead. Disable automatic application if you want to stay on the older UI.
+```sh
+./Quasar update --version 1.5.0.0
+./Quasar update --status
+./Quasar update --retry
+```
+
+The command finds the data directory through the installation metadata. The running Quasar does the work; the command waits for the outcome. Exit codes:
+
+| Code | Meaning |
+| --- | --- |
+| 0 | Status read, or the requested release is healthy and running |
+| 2 | Invalid command or version |
+| 3 | Quasar not running, access denied, or recovery needs an operator |
+| 4 | Staged; a manual restart is needed |
+| 5 | Update failed |
+| 6 | Still pending when the command stopped waiting; check `--status` |
+| 130 | Waiting was canceled; the update may continue |
+
+If the application files are broken, stop both services and run `Quasar activate-release --restore` (or `Updater/Quasar.Updater recover --installation <install folder>/service-installation.json`). It restores the files kept from the last update. Start Quasar afterward and check `update --status`. See the [update and migration guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
 
 ### appsettings.json merge during staging
 
-Staging does a three-way merge of `appsettings.json`:
+Quasar merges `appsettings.json` three ways: the previous release's defaults, your current settings and the new release's defaults. When a key conflicts, the update stops and Updates shows **Current appsettings.json**, **Incoming appsettings.json** and an editable **Final appsettings.json**, with **Take current**, **Take incoming** and **Save resolution**. Save valid JSON without conflict markers, then press **Retry update**. The resolution is kept across reconnects and restarts. On Linux the files are owner-only, since settings can hold credentials. A failed update also restores your previous settings.
 
-- base: the previous release's defaults, stored in `<install root>/Updates/appsettings.base.json`
-- current: your `<install root>/appsettings.json`
-- incoming: the new release's `appsettings.json`
+## Migrating from Bootstrap
 
-Settings that only you changed, or only the release changed, merge on their own. If both changed the same key differently, staging stops with status Failed and a message like "appsettings.json rollover conflict at <keys>. Resolve it manually or force the release defaults." The Updates page then shows the current and incoming files side by side and an editable **Final appsettings.json** box:
+Installations from before 1.4.1 run a Bootstrap launcher that starts a separate web worker, on Linux under systemd and on Windows as a Scheduled Task. Updating only the web worker does not install the updater or replace the Scheduled Task. To migrate:
 
-1. Press **Take current** or **Take incoming** to copy one of them into the final box (this does not save).
-2. Edit the final box as needed. It must be valid JSON with no `<<<<<<<`, `=======` or `>>>>>>>` markers left, or saving fails with "Resolve all conflict markers before saving appsettings.json."
-3. Press **Save resolution**. The version becomes staged and you can activate it.
+1. Save worlds. Back up the old installation, including `appsettings.json`, credentials and the Data Protection keys, together.
+2. Extract the complete 1.4.1 package to a temporary folder.
+3. Run its installer against the existing installation. It keeps the existing `appsettings.json` and data.
+   - Linux: `./install.sh --no-build --install-dir /path/to/Quasar --service-name quasar --start`. For a system unit add `sudo`, `--system` and `--user <account>`.
+   - Windows, elevated PowerShell: `.\install.ps1 -InstallDir 'C:\Quasar' -ServiceName Quasar -MigrateScheduledTask -TaskName Quasar -Start`. Stop the old task and its game servers first; the installer refuses a running task. It disables the task, keeps a backup and checks the new service. On failure it restores the old application and the task's previous state.
+4. Check Updates and `Quasar update --status` before removing the old copy or task.
 
-Automatic activation never proceeds past an unresolved conflict.
-
-Quasar creates rewritten and merged `appsettings.json` files owner-readable/writable only on Unix because operator settings can contain credentials. Existing custom Unix modes are preserved by other atomic file rewrites.
-
-## Bootstrap launcher updates
-
-Bootstrap is the small launcher that owns the public port and runs the worker. It installs a launcher only when the worker asks it to, by writing `<install root>/Updates/bootstrap-update-request.json`. That happens when you press **Force activate** on the Updates page, activate a staged rollback, or through the automatic update policy below. Bootstrap does not apply releases on its own timer.
-
-When Bootstrap handles a request it:
-
-1. Finds the requested release and the installer asset (`quasar-installer-linux.tar.gz` or `quasar-installer-windows.zip`). Ordinary updates require a newer version. An explicit rollback can install an older or matching launcher only with a prepared UI pointer bound to the same release.
-2. Downloads it into `ManagedRuntime/Cache/`, verifies `SHA256SUMS`, and extracts it under `Updates/Staged/Bootstrap-<version>/`.
-3. Skips the restart if the new launcher binary is byte-identical to the installed one.
-4. Copies the archive files into the install root. It never overwrites the root `appsettings.json` or anything under `WebService/`. The old launcher binary stays next to it as `Quasar.previous` (`Quasar.exe.previous` on Windows).
-5. Drains the worker (20 second grace) without stopping game servers, then restarts itself. On Linux it exits with code 75 and systemd restarts the service. On Windows it starts a detached `Quasar.exe serve --quiet` and exits with 0. If that replacement executable is missing, it exits with 75 and the Scheduled Task's restart-on-failure policy brings it back.
-
-Bootstrap does not rerun `install.sh` or `install.ps1`, so service unit or Scheduled Task changes in a new release need a manual reinstall.
+Moving off a Windows Scheduled Task can need one game server restart, because running servers may belong to the task's job object. The new virtual accounts get access to the install and data folders only. Grant the main account access to worlds, backup folders or network shares outside them before starting servers. Details are in [Install on Linux](InstallLinux.md), [Install on Windows](InstallWindows.md) and the [migration guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#migrating-existing-installations).
 
 ## Automatic updates (opt-in)
 
-Two policies, both off by default and both needing Bootstrap:
+**Automatically update Quasar** (`Quasar:Updates:AutoApplyUpdates`, default off) installs the newest release after a check and restarts Quasar while game servers keep running. **Automatically stage Quasar updates after checks** (`AutoStageWebUpdates`, default on) only downloads and verifies the newest release. **Update Quasar** then installs the staged operation without a new download.
 
-| Setting (UI) | Page | Key in `Quasar:Updates` | Env override |
-| --- | --- | --- | --- |
-| Automatically update Quasar UI and Bootstrap together | Updates | `AutoApplyUpdates` | `QUASAR_UPDATES_AUTO_APPLY` |
-| Automatically update installed UI plugins and restart Quasar | UI Plugins | `AutoUpdateUiPlugins` | `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS` |
+Checks never downgrade, and they don't repeat a failed or completed operation. A settings conflict always needs an admin.
 
-With automatic Quasar updates on, every check:
-
-- Picks the newest release that has both the UI asset and the Bootstrap asset at the same version, where at least one of them is newer than what runs now. It never downgrades either one.
-- Stages the UI (including the appsettings merge), even if automatic staging is off. A merge conflict stops here.
-- If the launcher is current, activates the staged UI as in a manual update.
-- If the launcher is newer, sends Bootstrap one request with the prepared UI attached. Bootstrap installs itself first, then publishes the UI pointer and restarts into that release. A worker started by an older launcher does not attach the UI. In that case the launcher updates first and the next check activates the staged UI.
-
-Running game servers stay up through all of this.
-
-UI plugin auto-updates reuse the 15-minute QuasarHub catalog refresh. Only installed, enabled catalog plugins with a new commit and compatible requirements update. Successful updates restart the worker through Bootstrap. Quasar updates and plugin builds share a maintenance lock (`<install root>/maintenance.lock`), so one cannot interrupt the other. Details are in [UI plugins](UiPlugins.md).
+UI plugin auto-updates are a separate opt-in. Plugin builds and Quasar updates share the same maintenance lock. After a successful plugin update the application restarts through verified native services or legacy Bootstrap. Missing capability pauses automatic plugin updates and leaves any automatic restart pending until a later catalog refresh sees successful verification.
 
 ## Update settings
 
-All keys live under `Quasar:Updates` in `<install root>/appsettings.json`. The worker and Bootstrap both read that file. Environment variables override it.
+All keys live under `Quasar:Updates` in the data directory's `appsettings.json`. Environment variables override them.
 
 | Key | Default | Env override | Notes |
 | --- | --- | --- | --- |
-| `Enabled` | `true` | `QUASAR_UPDATES_ENABLED` | `false` stops UI/Bootstrap release checks and Bootstrap update requests. Magnetar and DS checks still run. |
+| `Enabled` | `true` | `QUASAR_UPDATES_ENABLED` | `false` stops Quasar release checks and updates. Magnetar and DS checks still run. |
 | `Owner` | `CometWorks` | `QUASAR_UPDATES_OWNER` | GitHub owner |
 | `Repository` | `quasar` | `QUASAR_UPDATES_REPOSITORY` | GitHub repository |
 | `IncludePrerelease` | `false` | `QUASAR_UPDATES_INCLUDE_PRERELEASE` | Also the **Include prerelease versions** switch |
-| `AutoStageWebUpdates` | `true` | `QUASAR_UPDATES_AUTO_STAGE_WEB` | Also the **Automatically stage UI updates after checks** box |
+| `AutoStageWebUpdates` | `true` | `QUASAR_UPDATES_AUTO_STAGE_WEB` | Also the **Automatically stage Quasar updates after checks** box |
 | `AutoApplyUpdates` | `false` | `QUASAR_UPDATES_AUTO_APPLY` | See above |
 | `AutoUpdateUiPlugins` | `false` | `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS` | See above |
 | `CheckIntervalSeconds` | `900` | `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS` | Values below 60 fall back to 900 |
-| `LinuxWebAssetName` | `quasar-web-linux-x64.tar.gz` | `QUASAR_UPDATES_LINUX_WEB_ASSET` | |
-| `LinuxBootstrapAssetName` | `quasar-installer-linux.tar.gz` | `QUASAR_UPDATES_LINUX_BOOTSTRAP_ASSET` | |
-| `WindowsWebAssetName` | `quasar-web-win-x64.zip` | `QUASAR_UPDATES_WINDOWS_WEB_ASSET` | |
-| `WindowsBootstrapAssetName` | `quasar-installer-windows.zip` | `QUASAR_UPDATES_WINDOWS_BOOTSTRAP_ASSET` | |
+| `LinuxPackageAssetName` | `quasar-linux-x64.tar.gz` | `QUASAR_UPDATES_LINUX_PACKAGE_ASSET` | Complete package |
+| `WindowsPackageAssetName` | `quasar-win-x64.zip` | `QUASAR_UPDATES_WINDOWS_PACKAGE_ASSET` | Complete package |
+| `LinuxWebAssetName` | `quasar-web-linux-x64.tar.gz` | `QUASAR_UPDATES_LINUX_WEB_ASSET` | Legacy Bootstrap installs only |
+| `WindowsWebAssetName` | `quasar-web-win-x64.zip` | `QUASAR_UPDATES_WINDOWS_WEB_ASSET` | Legacy Bootstrap installs only |
 
-The switches and check boxes on the Updates page write to the install-root `appsettings.json` and apply at once in the worker. Bootstrap reads `IncludePrerelease` again only after it restarts.
+The switches and check boxes on Updates write to the data directory's `appsettings.json` and apply at once. The updater does not read `Owner`, `Repository` or the package names from there. The installer records them in the installation metadata, so run the installer in repair mode after changing them.
 
 Prerelease builds are for testing. The page shows a red warning while they are enabled, and asks for confirmation before turning them on.
 
 ## GitHub token for update checks
 
-Quasar works without a token, but GitHub rate-limits unauthenticated API calls per IP address, which shared hosts and cloud IPs can hit. On a fresh install the limit can block the first UI download before there is a page to save a token on; Bootstrap then waits for GitHub's reset and continues, see [Install on Linux](InstallLinux.md#common-problems). To add one:
+Cluster release discovery also works without a token for public `CometWorks/cluster` releases. The cluster page shows the result of the actual GitHub request; a missing token alone does not make the latest version unavailable. Private releases still require repository read access.
+
+Quasar works without a token, but GitHub rate-limits unauthenticated API calls per IP address, which shared hosts and cloud IPs can hit. To add one:
 
 1. Open <https://github.com/settings/tokens/new> and create a classic personal access token. Give it a note such as `Quasar update checks`, pick an expiration you will renew, and select no scopes at all.
 2. On **Updates**, paste it into **GitHub token** and press **Save token**.
 3. Press **Check Quasar** to test it.
 
-Before the first start, or when the UI isn't reachable, give Bootstrap the token in its environment instead. Bootstrap uses `QUASAR_GITHUB_TOKEN` first, then the saved token, then `GITHUB_TOKEN`, for the first web UI download and for its own update checks, and the web worker uses the same order for everything below. The page then says "Quasar uses the GitHub token from the <variable> environment variable"; a token in `QUASAR_GITHUB_TOKEN` wins over one saved on the page, so change the variable instead, while a saved token wins over `GITHUB_TOKEN`. On Linux, add `EnvironmentFile=%h/.config/quasar-github-token.env` under `[Service]` with `systemctl --user edit quasar.service`, write `QUASAR_GITHUB_TOKEN=<token>` into that file, `chmod 600` it and restart the service. On Windows, run `setx QUASAR_GITHUB_TOKEN <token>` as the account the Scheduled Task runs as and restart the task.
+Token precedence for Quasar and its updater is `QUASAR_GITHUB_TOKEN`, then the saved token, then `GITHUB_TOKEN`. The page then says "Quasar uses the GitHub token from the <variable> environment variable". A token in `QUASAR_GITHUB_TOKEN` wins over one saved on the page, so change the variable instead, while a saved token wins over `GITHUB_TOKEN`. Prefer the saved token, which both services read. To use an environment variable on Linux, add `EnvironmentFile=%h/.config/quasar-github-token.env` under `[Service]` in both user units (a system unit needs an absolute path the account can read), protect the file with `chmod 600` and restart both services. Windows virtual accounts don't see a user's `setx` variables, so set the variable in both services' environments.
 
-Quasar encrypts the saved token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** is available only when a saved token exists. It removes that token; environment tokens still apply. Bootstrap, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads, and uses it to read [plugin hubs](Plugins.md#plugin-hubs) other than MagnetarHub, so a private hub repository needs a token that can read it.
+Quasar encrypts the saved token with its Data Protection keyring (`<install root>/DataProtection-Keys/`) and stores it in `<install root>/github-updates.json` (owner-only permissions on Linux). **Clear** is available only when a saved token exists. It removes that token; environment tokens still apply. The updater, the Magnetar release check and the cluster release check use the same token. Quasar also passes it to every managed Magnetar start in the `PULSAR_GITHUB_TOKEN` environment variable for plugin downloads, and uses it to read [plugin hubs](Plugins.md#plugin-hubs) other than MagnetarHub, so a private hub repository needs a token that can read it.
 
 The token chip shows `not set`, `set`, `expires <date>`, `expires soon`, `expired` or `rejected`. Quasar warns 14 days before expiry, using the expiry date GitHub reports. The warnings are:
 
@@ -165,8 +180,7 @@ The token chip shows `not set`, `set`, `expires <date>`, `expires soon`, `expire
 - "GitHub update token expired on <date>. Save a new token."
 - "GitHub update token was rejected. It may be expired or revoked. Save a new token."
 
-For a token from the environment they end in "Set a new token in <variable> and restart Quasar." instead.
-Saving or clearing a token on this page does not dismiss a warning for the overriding `QUASAR_GITHUB_TOKEN`; replace that variable and restart Quasar.
+For a token from the environment they end in "Set a new token in <variable> and restart Quasar." instead. Saving or clearing a token on this page does not dismiss a warning for the overriding `QUASAR_GITHUB_TOKEN`; replace that variable and restart Quasar.
 
 GitHub requests retry network errors and HTTP 408, 429 and 5xx up to four times, with delays from 1 second up to 30 seconds and respect for `Retry-After`.
 
@@ -177,13 +191,15 @@ The bell in the app bar and the **Notifications** page (`/notifications`) list u
 | Notice title | When |
 | --- | --- |
 | Quasar update credentials | The GitHub token is expiring, expired or rejected |
-| Quasar update available | A newer UI exists: "Quasar UI <v> is ready to download." or "Quasar UI <v> is staged. Open Updates to activate." |
-| Quasar launcher update available | A newer Bootstrap exists |
+| Quasar update available | A newer release exists: "Quasar UI <v> is ready to download." or "Quasar UI <v> is staged. Open Updates to activate." |
+| Quasar launcher update available | A newer launcher package exists. On current installs this is the newer complete package, so it shows together with the notice above. |
 | Cluster update available | A newer cluster package exists for a cluster you can query |
 | Cluster content changes available | Mods or plugins of a deployed cluster changed |
 | Quasar UI plugin update available | Admins only, opt-in |
 
 Under **Notification preferences**, **Quasar and cluster updates** is on by default. **Quasar UI plugin updates** is off by default and only shown to admins. Preferences are per account. Browser push uses the same choices. Push and the instance alerts on that page are covered in [Monitoring](Monitoring.md).
+
+During a planned restart, a restart progress panel replaces the normal lost-connection popup, checks health and version, and reloads the page. Clearing a failed restart brings back the normal reconnect handling. An unexpected connection loss still shows the usual Retry and Resume controls.
 
 ## Managed runtime warmup
 
@@ -195,7 +211,9 @@ At startup Quasar prepares SteamCMD, the Dedicated Server and Magnetar under `<i
 | Dedicated Server | `ManagedRuntime/Tools/SpaceEngineersDedicatedServer/DedicatedServer64/` |
 | Magnetar | `ManagedRuntime/Tools/Magnetar/` |
 
-The Dashboard shows a **Managed Runtime** panel with progress for each component until all are ready. While warmup is not complete, starting a managed server stops with "Managed SteamCMD, Magnetar, and Dedicated Server runtime are still preparing." If warmup fails, the start shows the failure message instead, and the Dashboard shows a **Retry** button on a failed Dedicated Server or Magnetar row (needs permission to edit servers).
+The Dashboard shows a **Managed Runtime** panel with progress for each component until all are ready. Running tasks on the Dashboard and Updates show the current step, the elapsed time and the download percentage SteamCMD reports. Steps without a percentage show a moving bar, and a note appears after 30 seconds. The elapsed time is not an estimate. A first-time download can take several minutes.
+
+While warmup is not complete, starting a managed server stops with "Managed SteamCMD, Magnetar, and Dedicated Server runtime are still preparing." If warmup fails, the start shows the failure message instead, and the Dashboard shows a **Retry** button on a failed Dedicated Server or Magnetar row (needs permission to edit servers).
 
 At startup Quasar downloads the DS only when `DedicatedServer64` is missing or incomplete. The DS download runs SteamCMD up to three times before it gives up. A valid install needs the dedicated server executable plus `VRage.dll`, `Sandbox.Game.dll` and `SpaceEngineers.Game.dll`. On Linux, warmup also prepares SteamCMD's `linux64` native runtime.
 
@@ -232,44 +250,34 @@ The launch mode applies only to the managed DS install. A server whose executabl
 
 ## Cluster Hosts and Docker
 
-- Enrolled cluster Hosts update their `Quasar.Host` binary from Quasar through a `quasar-host-<id>-update.timer` systemd user timer (2 minutes after boot, then 15 minutes after each run). The local Host on the Quasar machine has no timer: after an update Quasar restarts it from the new release. Cluster processes keep running in both cases. See [Cluster hosts](ClusterHosts.md).
+- Enrolled cluster Hosts update their `Quasar.Host` binary from Quasar through a `quasar-host-<id>-update.timer` systemd user timer (2 minutes after boot, then 15 minutes after each run). The local Host on the Quasar machine has no timer: Quasar restarts it when its binary or configuration changed, for example after an update. Cluster processes keep running in both cases. See [Cluster hosts](ClusterHosts.md).
 - The Docker image sets `QUASAR_UPDATES_ENABLED=false`, so the in-app Quasar updater is off. Upgrade by pulling a new image (`docker compose pull` then `docker compose up -d`) or pin `QUASAR_VERSION`. Magnetar and DS updates inside the container work as described above. See [Docker](Docker.md).
 
 ## Completed update cleanup
 
-After the worker passes its startup health check, Bootstrap automatically removes
-completed payloads from `<install root>/Updates/Staged/`. UI versions at or below
-the running UI version and `Bootstrap-<version>` folders at or below the running
-launcher version are removed. This runs after manual and combined updates and
-on ordinary startup, so older leftovers are cleared too.
+On current installations, leave `Updates/operation.json` and `Updates/application-maintenance` in the data directory, and the retained application copy in `Updates/LauncherTransaction` under the install folder, alone. The updater needs them for recovery and replaces the retained copy at the next update.
 
-Newer staged updates stay available for activation. A directory containing the
-running worker is also kept, including older installs that run from Staged.
-Cleanup also preserves directories referenced by the persistent `.rollback`
-pointer or the transient `.previous` recovery pointer.
-Failed worker starts do not trigger cleanup. If files cannot be removed,
-Bootstrap logs a warning and retries after the next successful worker start.
+Legacy Bootstrap installations clean up on their own. After the worker passes its startup health check, Bootstrap removes completed payloads from `<install root>/Updates/Staged/`: UI versions at or below the running UI version and `Bootstrap-<version>` folders at or below the running launcher version. Newer staged updates, the folder of the running worker, and folders named by the `.rollback` or `.previous` pointers stay. If a file cannot be removed, Bootstrap logs a warning and tries again after the next successful worker start.
 
 ## When an update fails
 
-Bootstrap protects the running UI:
+Read the operation ID, target, stage and message on Updates, with `Quasar update --status`, or in `<data directory>/Updates/operation.json`. The stages are `Queued`, `Downloading`, `Verified`, `Ready`, `Restarting`, `Healthy`, `Failed` and `Abandoned`.
 
-- On a manual activation, if the new worker fails to answer `/api/health` within 60 seconds (or exits), Bootstrap kills it, starts the previous version again and rewrites `active-release.json` to it. The log says "Rolled Quasar worker back to version <v>."
-- On a combined UI and Bootstrap update, Bootstrap saves the old pointer as `Updates/active-release.json.previous`. If the new UI cannot start after the launcher restart, Bootstrap restores it and logs "Coordinated UI update failed health checks; restoring <v>."
-- After 3 worker startup failures within 5 minutes, Bootstrap creates `<install root>/ui-plugins.safe-mode` and tries once more with UI plugins disabled. See [UI plugins](UiPlugins.md).
+- `Ready` with a "Staged safely" message means the native services are missing or not verified. Repair them with the installer, or stop Quasar, run `Quasar update --retry` and start Quasar by hand.
+- `Failed` stays recorded after the previous application is restored. Fix the cause (permissions, service setup, download, settings conflict), then press **Retry update** or run `update --retry`. A retry downloads and verifies again.
+- If Quasar restarts during `Downloading` or `Verified`, the operation fails with "Update preparation was interrupted. Use update --retry to download and verify again."
+- If the updater stops during `Restarting`, it finishes or rolls back that update when it starts again, before it accepts a new one.
 
-What to do:
-
-1. Read the status line at the top of **Updates**. A failed check or download shows the error there, with status Failed. Press **Check Quasar** to retry.
-2. "Release asset has no SHA256SUMS entry." or "SHA256 mismatch for <file>." means the download did not match the published checksum. Retry later. Quasar never installs an unverified archive.
-3. Check the logs. Bootstrap mirrors the worker's output to its own console, so on Linux run `journalctl --user -u quasar.service` (or `sudo journalctl -u quasar.service` for a `--system` install). Log locations are in [Troubleshooting](Troubleshooting.md).
-4. For an appsettings conflict, resolve it on the Updates page as described above.
-5. If the UI is gone entirely, restart the service: `systemctl --user restart quasar.service` on Linux, `Start-ScheduledTask -TaskName Quasar` on Windows. Bootstrap starts the release that `Updates/active-release.json` points to.
+Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTransaction` to force an update. If the Quasar executable does not load at all, stop both services and use `Quasar activate-release --restore` (see [Command-line UI recovery](#command-line-ui-recovery)).
 
 ## Common problems
 
-- **"Quasar is not running under Bootstrap, so staged UI updates cannot be activated from the UI."** Quasar was started directly (development run or a custom launch). Install and run it as the service or Scheduled Task.
-- **"No Bootstrap update is available to activate."** The last check found no newer launcher. Press **Check Quasar** first.
+- **"Quasar 1.5 and later require a completed Quasar 1.4.1 migration first..."** Install and start the complete 1.4.1 package first. See [Required 1.4.1 migration before 1.5](#required-141-migration-before-15).
+- **"Release <v> has no complete quasar-linux-x64.tar.gz package..."** (or the Windows zip). The selected release has no complete package for this platform, or it is a prerelease while prereleases are off.
+- **"The previous application replacement still needs recovery..."** The updater has not finished restoring an interrupted update. Make sure the updater service runs, then check `update --status`.
+- **"Staged safely. This is a legacy Bootstrap installation..."** A Bootstrap installation cannot install the complete package from the UI. [Migrate](#migrating-from-bootstrap) with the installer.
+- **"Quasar is not running under Bootstrap, so staged UI updates cannot be activated from the UI."** Shown by the legacy worker recovery controls. Current installations use **Update Quasar**.
+- **"No Bootstrap update is available to activate."** Legacy recovery only. The last check found no newer launcher. Press **Check Quasar** first.
 - **"Quasar UI <v> is already active."** You selected the running version.
 - **"No GitHub release found."** The check found no release with your platform's asset. Check `Owner`, `Repository` and the asset names, and whether the release is a prerelease while prereleases are off.
 - **Update checks fail with HTTP 403 or 429.** GitHub rate limit. Add a GitHub token.
@@ -279,6 +287,9 @@ What to do:
 - **A server shows "Bundled Quasar.Agent differs from the deployed Magnetar local DLL..."** Restart that server after a Quasar update.
 
 ## Sources
+- `Docs/QuasarUpdates.md`
+- `Docs/ReleaseNotes1.5.md`
+- `Docs/Installation.md`
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/SelfUpdateAndRelease.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
@@ -286,16 +297,23 @@ What to do:
 - `Docs/WindowsDeploymentAndUpdates.md`
 - `Docs/Configuration.md`
 - `Docs/Docker.md`
+- `Docs/BuildingAndDevelopment.md`
 - `Dockerfile`
+- `Directory.Build.props`
 - `.github/workflows/release.yml`
+- `.github/workflows/update-integration.yml`
 - `scripts/cleanup-releases.py`
+- `install.sh`
+- `scripts/install.ps1`
+- `Quasar/Program.cs`
+- `Quasar/Services/QuasarApplicationEntry.cs`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
-- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`
 - `Quasar/Services/Updates/QuasarUpdateSnapshot.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
 - `Quasar/Services/Updates/PushNotificationService.cs`
 - `Quasar/Services/Updates/NotificationPreferences.cs`
+- `Quasar/Services/AgentSocketHandler.cs`
 - `Quasar/Services/GitHubUpdateCredentialsCatalog.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
@@ -307,7 +325,6 @@ What to do:
 - `Quasar/Services/ClusterLocalHost.cs`
 - `Quasar/Services/Plugins/QuasarUiPluginHubCatalogService.cs`
 - `Quasar/Services/Plugins/QuasarUiPluginHubRefreshService.cs`
-- `Quasar/Program.cs`
 - `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/Components/Pages/Updates.razor`
@@ -315,9 +332,37 @@ What to do:
 - `Quasar/Components/Pages/Home.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar/Components/Layout/ReconnectModal.razor.js`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
 - `Quasar.Bootstrap/Program.cs`
+- `Quasar.Bootstrap/UpdateCli.cs`
+- `Quasar.Updater/Program.cs`
+- `Quasar.Updater/QuasarUpdater.cs`
+- `Quasar.Updater/TrustedUpdatePackage.cs`
+- `Quasar.Updater/RecoverInstallation.cs`
+- `Quasar.Updater/ConfigureInstallation.cs`
+- `Shared/Updates/QuasarUpgradePath.cs`
+- `Shared/Updates/QuasarUpdateOperation.cs`
+- `Shared/Updates/QuasarServiceInstallation.cs`
+- `Shared/Updates/NativeQuasarServices.cs`
+- `Shared/Updates/LauncherReplacement.cs`
+- `Shared/Updates/VerifiedUpdatePackage.cs`
+- `Shared/Updates/QuasarApplicationPackage.cs`
+- `Shared/Updates/UpdateDurability.cs`
+- `Shared/Updates/GitHubUpdateTokenReader.cs`
 - `Shared/Updates/QuasarMaintenanceLease.cs`
+- `Shared/ServiceHosting/NativeServiceFailures.cs`
 - `Shared/Networking/GitHubRetryHandler.cs`
+- `Magnetar.Protocol/Runtime/QuasarReleaseVersion.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar.Tests/AutomaticUpdateTests.cs`
 - `Quasar.Tests/BootstrapUpdateTests.cs`
+- `Quasar.Tests/ReliableUpdateTests.cs`
+- `Tests/Updates/systemd.py`
+- `Tests/Updates/windows-services.ps1`
+- `Quasar/Services/WebServiceOptions.cs`
+- `Quasar/Services/QuasarShutdownService.cs`
+- `Tests/Updates/NativeFixture.cs`
+- `scripts/test_cleanup_releases.py`
+- `Tests/Updates/Program.cs`

@@ -11,6 +11,8 @@ using Quasar.Services.Discord;
 using Quasar.Services.PluginSdk;
 using Quasar.Services.Plugins;
 using Quasar.Services.Updates;
+using Quasar.Updates;
+using System.Diagnostics;
 using Quasar.Plugin.Abstractions.Companion;
 using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
@@ -34,11 +36,32 @@ public class Program
 {
     public static void Main(string[] args)
     {
+        try { QuasarServiceInstallation.Load(applyEnvironment: true); }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidDataException or ArgumentException)
+        {
+            Console.Error.WriteLine("Cannot read this installation: " + exception.Message + " Use an elevated Windows shell or the configured Linux service account; repair installation metadata if needed.");
+            Environment.ExitCode = 3;
+            return;
+        }
+        if (QuasarApplicationEntry.TryRunCommand(args, out var exitCode)) { Environment.ExitCode = exitCode; return; }
+        try { QuasarUpgradePath.EnsureAllowed(QuasarReleaseVersion.GetEntryAssemblyVersion(), MagnetarPaths.GetQuasarDirectory()); }
+        catch (InvalidOperationException exception) { Console.Error.WriteLine(exception.Message); Environment.ExitCode = 3; return; }
+        if (args.Any(arg => arg is "--foreground" or "--console"))
+        {
+            Environment.SetEnvironmentVariable("QUASAR_MODE", "Console");
+            Environment.SetEnvironmentVariable("QUASAR_OPEN_BROWSER_ON_START", "true");
+        }
+        args = args.Where(arg => arg is not ("serve" or "ensure-running" or "--service" or "--quiet" or "--foreground" or "--console")).ToArray();
         QuasarDiagnosticLoggerProvider? diagnosticCapture = null;
         try
         {
             string[] workerArgs = NormalizeWorkerArguments(args);
             var builder = WebApplication.CreateBuilder(workerArgs);
+            if (OperatingSystem.IsWindows() && QuasarServiceInstallation.Current is { } serviceInstallation)
+                {
+                builder.Services.AddWindowsService(options => options.ServiceName = serviceInstallation.MainService);
+                builder.Services.Configure<Microsoft.Extensions.Logging.EventLog.EventLogSettings>(options => { if (OperatingSystem.IsWindows()) options.SourceName = serviceInstallation.MainService; });
+                }
             Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory();
             AddDeploymentConfigurationSources(builder.Configuration, builder.Environment.EnvironmentName, workerArgs);
             MachineEndpointSecurity.DisableAutomaticForwarding(builder.Configuration);
@@ -106,12 +129,16 @@ public class Program
                     options.SlidingExpiration = true;
                     options.ExpireTimeSpan = TimeSpan.FromHours(12);
                     options.Events.OnRedirectToLogin = context =>
-                        IsClusterApi(context.Request.Path)
+                        context.Request.Path.StartsWithSegments("/_quasar/sdk")
+                            ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 401)
+                            : IsClusterApi(context.Request.Path)
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 401,
                                 "authentication_required", "A valid Quasar credential is required.")
                             : Redirect(context.Response, context.RedirectUri);
                     options.Events.OnRedirectToAccessDenied = context =>
-                        IsClusterApi(context.Request.Path)
+                        context.Request.Path.StartsWithSegments("/_quasar/sdk")
+                            ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 403)
+                            : IsClusterApi(context.Request.Path)
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 403,
                                 "scope_forbidden", "The credential cannot access this cluster operation.")
                             : Redirect(context.Response, context.RedirectUri);
@@ -179,6 +206,16 @@ public class Program
                     };
                 });
             builder.Services.AddAuthorization(ConfigureAuthorizationPolicies);
+            builder.Services.AddSingleton<IAuthorizationPolicyProvider, QuasarAuthorizationPolicyProvider>();
+            builder.Services.AddScoped<QuasarOperationService>();
+            builder.Services.AddSingleton<QuasarTransferRegistry>();
+            builder.Services.AddSingleton<QuasarBrowserSessions>();
+            builder.Services.AddQuasarRtc(builder.Configuration);
+            builder.Services.AddScoped<QuasarHttpOperations>();
+            builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarHttpOperations>(services => services.GetRequiredService<QuasarHttpOperations>());
+            builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
+                services.GetRequiredService<QuasarOperationService>());
+            builder.Services.AddQuasarCoreOperations();
             var hostedState = HostedPanelState.Read() ?? new HostedPanelState();
             builder.Services.AddAntiforgery(options => options.Cookie.Name = ".Quasar.Csrf." + hostedState.LocalProxySecret[..16]);
             builder.Services.AddHttpClient("Nebula", http => { http.Timeout = TimeSpan.FromSeconds(15); http.MaxResponseContentBufferSize = 64 * 1024; })
@@ -273,6 +310,7 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ExistingServerImportService>();
+            builder.Services.AddSingleton<ServerWorldImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<ClusterPlayerService>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterPlayerService>());
@@ -287,6 +325,7 @@ public class Program
             builder.Services.AddHostedService<ClusterOperationReconciler>();
             builder.Services.AddSingleton<ClusterCommandService>();
             builder.Services.AddSingleton<ClusterDeploymentService>();
+            builder.Services.AddSingleton<ClusterPurgeService>();
             builder.Services.AddSingleton<ClusterConversionService>();
             builder.Services.AddSingleton<ClusterBackupService>();
             builder.Services.AddSingleton<ClusterUpdateService>();
@@ -347,6 +386,8 @@ public class Program
             app.Lifetime.ApplicationStopping.Register(app.Services.GetRequiredService<QuasarDiagnosticLoggerProvider>().MarkExpectedStop);
             StopWebServerOnStopping(app);
             _ = app.Services.GetRequiredService<RbacConfigCatalog>();
+            using (var sdkScope = app.Services.CreateScope())
+                _ = sdkScope.ServiceProvider.GetRequiredService<QuasarOperationService>();
 
             if (!webServiceOptions.Headless && !app.Environment.IsDevelopment())
                 app.UseExceptionHandler("/Error");
@@ -402,23 +443,13 @@ public class Program
                 app.UseAntiforgery();
 
             app.MapWebServiceProbes(authOptions);
+            app.MapQuasarSdk();
+            app.MapQuasarRtc();
             app.MapClusterApi(authOptions);
+            app.MapServerWorldImportApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 
-            // Analytics chart data, fetched directly by the browser (uPlot) instead of being pushed
-            // through the Blazor SignalR circuit. Averaged down to maxPoints per series server-side.
-            var analyticsSeries = app.MapGet("/api/analytics/series", (HttpContext context, AnalyticsSeriesService seriesService) =>
-            {
-                var query = context.Request.Query;
-                _ = long.TryParse(query["from"], out var fromUnix);
-                _ = long.TryParse(query["to"], out var toUnix);
-                _ = int.TryParse(query["maxPoints"], out var maxPoints);
-                var servers = query["servers"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
-                var metrics = query["metrics"].Where(value => !string.IsNullOrWhiteSpace(value)).Select(value => value!).ToArray();
-                return Results.Json(seriesService.Build(fromUnix, toUnix, servers, metrics, maxPoints));
-            });
-            if (authOptions.Enabled)
-                analyticsSeries.RequireAuthorization(QuasarPolicyNames.CanView);
+            app.MapQuasarCoreOperations();
 
             // Chartable plugin-statistics metrics discovered at runtime from what plugins have
             // published (provider/group/field), so the Analytics page can offer them as panels.
@@ -430,52 +461,15 @@ public class Program
             if (authOptions.Enabled)
                 pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
 
-            var serverLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/server/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
-                DownloadLogFile(ResolveDedicatedServerLogPath(
-                    uniqueName,
-                    catalog,
-                    context.Request.Query["name"].FirstOrDefault())));
-
-            var magnetarLogDownload = app.MapGet("/api/servers/{uniqueName}/logs/magnetar/download", (string uniqueName, HttpContext context, DedicatedServerCatalog catalog) =>
-                DownloadLogFile(ResolveMagnetarInfoLogPath(
-                    uniqueName,
-                    catalog,
-                    context.Request.Query["name"].FirstOrDefault())));
-
-            var discordLogDownload = app.MapGet("/api/discord/log/download", (WebServiceOptions options) =>
-                DownloadLogFile(QuasarLoggingConfigurator.ResolveDiscordLogPath(options)));
-
-            if (authOptions.Enabled)
-            {
-                serverLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
-                magnetarLogDownload.RequireAuthorization(QuasarPolicyNames.CanView);
-                discordLogDownload.RequireAuthorization(QuasarPolicyNames.CanManageDiscord);
-            }
-
-            // Generates a fresh configuration backup and streams it as a download.
-            var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>
-            {
-                var archive = backup.CreateBackup(DateTimeOffset.Now);
-                return Results.File(archive.Content, "application/zip", archive.FileName);
-            });
-
-            // Downloads an existing backup ZIP from the configured backup directory by file name.
-            var backupDownloadByName = app.MapGet("/api/backup/download/{name}", (string name, QuasarBackupService backup) =>
-            {
-                var path = backup.ResolveBackupPath(name);
-                return path is null
-                    ? Results.NotFound()
-                    : Results.File(path, "application/zip", name);
-            });
-
-            if (authOptions.Enabled)
-            {
-                backupDownload.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
-                backupDownloadByName.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
-            }
-
             if (!webServiceOptions.Headless)
                 MapAuthenticationEndpoints(app, authOptions);
+
+            app.MapGet("/api/internal/update-health", (HttpContext context, WebServiceOptions options) =>
+            {
+                if (!QuasarApplicationEntry.IsUpdaterAuthorized(context, options.LauncherToken)) return Results.Unauthorized();
+                return Results.Json(new { pid = Environment.ProcessId, version = options.Version,
+                    started = Process.GetCurrentProcess().StartTime.ToUniversalTime() });
+            }).AllowAnonymous();
 
             app.MapPost("/api/internal/drain", async (HttpContext context, DedicatedServerSupervisor supervisor, QuasarShutdownService shutdownService, IHostApplicationLifetime lifetime) =>
             {
@@ -595,7 +589,10 @@ public class Program
             foreach (var warning in Quasar.Diagnostics.SystemLimits.Check())
                 startupLogger.LogWarning("{Warning}", warning);
 
+            app.Lifetime.ApplicationStarted.Register(() => QuasarApplicationEntry.ConfirmManualUpdate(webServiceOptions.Version));
             using var gracefulShutdownSignals = RegisterGracefulShutdownSignals(app.Services);
+            NativeServiceFailures.Observe(app);
+            StartHostedConnector(app, webServiceOptions, startupLogger);
             app.Run();
         }
         catch (Exception exception)
@@ -616,6 +613,13 @@ public class Program
         {
             LogManager.Shutdown();
         }
+    }
+
+    private static void StartHostedConnector(WebApplication app, WebServiceOptions options, Microsoft.Extensions.Logging.ILogger logger)
+    {
+        var connector = new Quasar.Bootstrap.HostedPanelConnector(options.Port, logger);
+        connector.Start();
+        app.Lifetime.ApplicationStopped.Register(() => connector.DisposeAsync().AsTask().GetAwaiter().GetResult());
     }
 
     internal static void ConfigureNotificationServices(IServiceCollection services, WebServiceOptions options)
@@ -665,6 +669,8 @@ public class Program
                 return Results.BadRequest();
             }
 
+            if (context.User.Identity?.IsAuthenticated == true && context.RequestServices.GetService<QuasarBrowserSessions>() is { } sessions)
+                await sessions.RevokeAsync(context);
             await context.SignOutAsync(QuasarAuthSchemes.Cookie);
             return Results.Redirect(context.Request.PathBase + "/");
         }).AllowAnonymous();
@@ -774,7 +780,6 @@ public class Program
 
         var shutdownService = services.GetRequiredService<QuasarShutdownService>();
         var lifetime = services.GetRequiredService<IHostApplicationLifetime>();
-        var options = services.GetRequiredService<WebServiceOptions>();
         var logger = services.GetRequiredService<ILogger<Program>>();
         var started = 0;
 
@@ -792,7 +797,7 @@ public class Program
                     // stop and let the preserve-aware DedicatedServerSupervisor.StopAsync
                     // leave the detached Magnetars running. Only stop the servers when
                     // the policy says to take them down with Quasar.
-                    if (options.PreserveManagedServersOnShutdown)
+                    if (services.GetRequiredService<DedicatedServerSupervisor>().PreserveServersOnShutdown)
                         lifetime.StopApplication();
                     else
                         await shutdownService.ShutdownAsync(cancellationToken: CancellationToken.None);
@@ -829,6 +834,7 @@ public class Program
         AddRolePolicy(options, QuasarPolicyNames.CanManageDiscord, QuasarRoles.Editor, QuasarRoles.Admin);
         AddRolePolicy(options, QuasarPolicyNames.CanManageAppearance, QuasarRoles.Editor, QuasarRoles.Admin);
         AddRolePolicy(options, QuasarPolicyNames.CanManageSecurity, QuasarRoles.Admin);
+        options.AddPolicy(QuasarPolicyNames.ClusterMaintenance, policy => policy.RequireAuthenticatedUser().RequireRole(QuasarRoles.Admin));
         AddRolePolicy(options, QuasarPolicyNames.CanShutdownQuasar, QuasarRoles.Admin);
     }
 
@@ -906,67 +912,6 @@ public class Program
             return;
 
         options.KnownIPNetworks.Add(new System.Net.IPNetwork(prefix, prefixLength));
-    }
-
-    private static IResult DownloadLogFile(string? path)
-    {
-        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-            return Results.NotFound();
-
-        var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
-        return Results.File(stream, "text/plain; charset=utf-8", Path.GetFileName(path));
-    }
-
-    private static string? ResolveDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
-    {
-        var server = catalog.GetServer(uniqueName);
-        if (server is null)
-            return null;
-
-        var appDataPath = DedicatedServerPathResolver.Resolve(server).DedicatedServerAppDataPath;
-
-        if (!Directory.Exists(appDataPath))
-            return null;
-
-        return ResolveLogPath(appDataPath, "SpaceEngineersDedicated*.log", fileName);
-    }
-
-    private static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
-    {
-        var server = catalog.GetServer(uniqueName);
-        if (server is null)
-            return null;
-
-        var appDataPath = DedicatedServerPathResolver.Resolve(server).MagnetarAppDataPath;
-
-        if (!Directory.Exists(appDataPath))
-            return null;
-
-        return ResolveLogPath(appDataPath, "info*.log", fileName);
-    }
-
-    private static string? ResolveLogPath(string directory, string searchPattern, string? fileName)
-    {
-        if (!string.IsNullOrWhiteSpace(fileName))
-        {
-            var trimmedFileName = fileName.Trim();
-            if (!string.Equals(trimmedFileName, Path.GetFileName(trimmedFileName), StringComparison.Ordinal) ||
-                trimmedFileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-            {
-                return null;
-            }
-
-            return Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
-                .FirstOrDefault(path => string.Equals(
-                    Path.GetFileName(path),
-                    trimmedFileName,
-                    StringComparison.OrdinalIgnoreCase));
-        }
-
-        return Directory.EnumerateFiles(directory, searchPattern, SearchOption.TopDirectoryOnly)
-            .OrderByDescending(File.GetLastWriteTimeUtc)
-            .ThenByDescending(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-            .FirstOrDefault();
     }
 
     private sealed class CompositeDisposable(params IDisposable[] disposables) : IDisposable

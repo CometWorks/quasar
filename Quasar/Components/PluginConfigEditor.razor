@@ -18,14 +18,14 @@ else if (_tabs.Count == 0)
 }
 else
 {
-    <div class="quasar-layout quasar-gap-2">
+    <div class="plugin-config-editor quasar-layout quasar-gap-4">
         @if (_tabs.Count == 1)
         {
             @RenderContainerBody(_tabs[0])
         }
         else
         {
-            <MudTabs Elevation="0" Rounded="true">
+            <MudTabs Elevation="0" Rounded="true" TabPanelsClass="pt-4">
                 @foreach (var tab in _tabs)
                 {
                     <MudTabPanel Text="@tab.Caption">
@@ -175,7 +175,7 @@ else
     private bool HasContent(ContainerModel container)
         => container.Fields.Count > 0 || container.Children.Any(HasContent);
 
-    private RenderFragment RenderContainerBody(ContainerModel container) => @<div class="quasar-layout quasar-gap-2 plugin-config-container">
+    private RenderFragment RenderContainerBody(ContainerModel container) => @<div class="quasar-layout quasar-gap-4 plugin-config-container">
         @foreach (var group in container.Children.Where(child => string.Equals(child.Kind, "column", StringComparison.OrdinalIgnoreCase)).Chunk(3))
         {
             <MudGrid Spacing="2">
@@ -202,7 +202,7 @@ else
     private RenderFragment RenderContainerContent(ContainerModel container, bool framed) => @<div>
         @if (framed || string.Equals(container.Kind, "section", StringComparison.OrdinalIgnoreCase))
         {
-            <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
+            <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true">
                 <MudExpansionPanel Text="@container.Caption" Expanded="true">
                     @RenderContainerBody(container)
                 </MudExpansionPanel>

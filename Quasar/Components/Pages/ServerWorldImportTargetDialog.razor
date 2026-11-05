@@ -1,0 +1,32 @@
+@inject DedicatedServerCatalog Servers
+@inject ServerWorldImportService Imports
+
+<MudDialog>
+    <DialogContent>
+        <div class="world-import-form">
+            <p>Choose the standalone server that will receive the imported world.</p>
+            <label class="quasar-field" for="world-target">Target server</label>
+            <select id="world-target" class="world-text-input" @bind="_selected">
+                <option value="">Choose a server</option>
+                @foreach (var server in Servers.GetServers())
+                {
+                    <option value="@server.UniqueName" disabled="@(!Imports.CanImport(server))">@(string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName) · @server.WorldSaveName@(!Imports.CanImport(server) ? " (unavailable)" : "")</option>
+                }
+            </select>
+            <small>Stop the target server and set its goal Off first. Cluster worlds use the cluster deployment flow.</small>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => MudDialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" Disabled="@string.IsNullOrWhiteSpace(_selected)" OnClick="Continue">Continue</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    private string _selected = "";
+    private void Continue()
+    {
+        if (Servers.GetServer(_selected) is { } server && Imports.CanImport(server)) MudDialog.Close(DialogResult.Ok(server));
+    }
+}

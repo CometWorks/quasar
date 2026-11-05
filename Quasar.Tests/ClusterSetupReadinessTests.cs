@@ -83,7 +83,12 @@ public sealed class ClusterSetupReadinessTests : IDisposable
         else Assert.NotNull(clusters.GetCluster("demo")!.ActiveDeployment);
         Assert.Equal(ready ? "Ready to start" : "Setup interrupted", setup.GetStatus("demo")!.Phase);
         if (ready) Assert.Null(result.Error);
-        else { Assert.NotNull(result.Error); Assert.NotNull(setup.GetStatus("demo")!.Error); }
+        else
+        {
+            Assert.NotNull(result.Error);
+            Assert.NotNull(setup.GetStatus("demo")!.Error);
+            Assert.Equal("Checking cluster hosts", setup.GetStatus("demo")!.FailedPhase);
+        }
         if (fault == "offline")
         {
             Assert.Contains("Host executor 'two'", result.Error!.Message);

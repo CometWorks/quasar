@@ -23,7 +23,11 @@ public sealed record ClusterConversionHost(string HostId, string CommandUrl, str
 public sealed record ServerToClusterRequest(Guid Id, string Server, string SourceRevision, string BinaryVersion,
     string GatewayHost, int SteamPort, string JoinTokenEnvironmentVariable, string AdminTokensFileEnvironmentVariable,
     string[] InternalNetworks, ClusterConversionHost[] Hosts, string? DependencySha256 = null, long? PackageRevision = null,
-    int? NodePortBase = null, int HotSpares = 0);
+    int? NodePortBase = null, int HotSpares = 0, bool Automatic = false, bool CreateCluster = false)
+{
+    public static ServerToClusterRequest ForServer(Guid id, string server, bool createCluster) =>
+        new(id, server, "", "", "", 0, "", "", [], [], Automatic: true, CreateCluster: createCluster);
+}
 public sealed record ClusterToServerRequest(Guid Id, string UniqueName, string DisplayName, int Port,
     string ConfigProfileId, string SourceLifecycle);
 public sealed record ClusterConversionReview(string SourceRevision, string ProfileName, string[] Plugins,
@@ -36,7 +40,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
     DedicatedServerSupervisor supervisor, ServerRestoreCoordinator stoppedServers, QuasarConfigProfileCatalog profiles,
     PluginConfigService pluginConfigs, ClusterDependencyService dependencies, ClusterHostClient hosts,
     ClusterDeploymentService deployments, ClusterBackupService clusterBackups, QuasarBackupService serverBackups,
-    ClusterOperationStore operations, WebServiceOptions options, ClusterWorkshopModStager modStager)
+    ClusterOperationStore operations, WebServiceOptions options, ClusterWorkshopModStager modStager, ClusterSetupService? setup = null)
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private readonly ConcurrentDictionary<Guid, ClusterConversionStatus> progress = new();
@@ -93,11 +97,45 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
     }
 
     public Task<ClusterOperation> ToClusterAsync(string clusterId, ServerToClusterRequest request, string key, string actor, CancellationToken token) =>
-        RunAsync(clusterId, request.Id, "to-cluster", key, actor, request, async ct =>
+        RunAsync(clusterId, request.Id, "to-cluster", key, actor, request,
+            ct => ConvertToClusterAsync(clusterId, request, key, actor, ct), token);
+
+    private async Task<ClusterConversionStatus> ConvertToClusterAsync(string clusterId, ServerToClusterRequest request,
+        string key, string actor, CancellationToken ct)
+    {
+        if (Completed(request.Id) is { } completed) return completed;
+        if (!stoppedServers.TryBeginRestore(request.Server, out var reservation))
+            throw new InvalidOperationException("Source server has another offline operation in progress.");
+        using (reservation)
         {
-            if (!stoppedServers.TryBeginRestore(request.Server, out var reservation))
-                throw new InvalidOperationException("Source server has another offline operation in progress.");
-            using (reservation)
+            if (request.Automatic)
+            {
+                var source = servers.GetServer(request.Server) ?? throw new KeyNotFoundException("Source server was not found.");
+                // Refuse known unsafe migrations before interrupting the running source.
+                var review = ReviewServer(request.Server);
+                if (review.Warnings.Length != 0) throw new InvalidOperationException(string.Join(" ", review.Warnings));
+                ValidateAdmission(profiles.GetProfile(source.ConfigProfileId)!);
+                if (setup is null) throw new InvalidOperationException("Automatic cluster provisioning is unavailable.");
+                if (request.CreateCluster)
+                    await setup.CreateConversionTargetAsync(clusterId, source.DisplayName, ct);
+                RequireEmptyOrResuming(clusters.GetCluster(clusterId) ?? throw new KeyNotFoundException("Cluster was not found."), request.Id);
+                await StageAsync(request.Id, clusterId, "to-cluster", "Saving and stopping the source server", ct);
+                using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                deadline.CancelAfter(TimeSpan.FromMinutes(5));
+                // StopServerAsync marks the process Stopping before its first await. Do that before
+                // publishing Off so reconciliation cannot start a competing stop with a kill timeout.
+                var stopping = supervisor.IsServerProcessActive(request.Server)
+                    ? supervisor.StopServerAsync(request.Server, forceAfter: null, cancellationToken: deadline.Token)
+                    : Task.CompletedTask;
+                try
+                {
+                    if (source.GoalState != DedicatedServerGoalState.Off || source.AutoStart)
+                        await servers.SetGoalStateAsync(request.Server, DedicatedServerGoalState.Off, ct);
+                }
+                finally { await stopping; }
+                while (supervisor.IsServerProcessActive(request.Server))
+                    await Task.Delay(TimeSpan.FromMilliseconds(250), deadline.Token);
+            }
             return await clusters.WithLifecycleAsync(clusterId, async cluster =>
             {
                 if (Completed(request.Id) is { } done) return done;
@@ -111,6 +149,23 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                     return await CompleteAsync(request.Id, clusterId, "to-cluster", "/clusters/" + Uri.EscapeDataString(clusterId), ct);
                 }
                 RequireEmpty(cluster);
+                if (request.Automatic)
+                {
+                    string plan = Path.Combine(Workspace(request.Id), "automatic-request.json");
+                    if (!File.Exists(plan))
+                    {
+                        var stopped = servers.GetServer(request.Server)!;
+                        RequireStopped(stopped);
+                        var reviewed = ReviewServer(request.Server);
+                        if (reviewed.Warnings.Length != 0) throw new InvalidOperationException(string.Join(" ", reviewed.Warnings));
+                        var preparedRequest = await setup!.PrepareConversionAsync(cluster, stopped, profiles.GetProfile(stopped.ConfigProfileId)!,
+                            request.Id, reviewed.SourceRevision, Workspace(request.Id),
+                            phase => StageAsync(request.Id, clusterId, "to-cluster", phase, ct), ct);
+                        await WriteAsync(plan, preparedRequest, ct);
+                    }
+                    request = JsonSerializer.Deserialize<ServerToClusterRequest>(await File.ReadAllBytesAsync(plan, ct), Json)!;
+                    cluster = clusters.GetCluster(clusterId)!;
+                }
                 var source = servers.GetServer(request.Server) ?? throw new KeyNotFoundException("Source server was not found.");
                 RequireStopped(source);
                 var review = ReviewServer(source.UniqueName);
@@ -199,7 +254,8 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 await deployments.ActivateCoreAsync(cluster, activation, ct);
                 return await CompleteAsync(request.Id, clusterId, "to-cluster", "/clusters/" + Uri.EscapeDataString(clusterId), ct);
             }, ct);
-        }, token);
+        }
+    }
 
     public Task<ClusterOperation> ToServerAsync(string clusterId, ClusterToServerRequest request, string key, string actor, CancellationToken token) =>
         RunAsync(clusterId, request.Id, "to-server", key, actor, request, ct => clusters.WithLifecycleAsync(clusterId, async cluster =>
@@ -276,8 +332,14 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             string work = Workspace(id); Directory.CreateDirectory(work); ClusterWorldFiles.Private(work);
             string identity = Path.Combine(work, "request.json");
             string content = JsonSerializer.Serialize(new { cluster, direction, request }, Json);
-            if (File.Exists(identity) && await File.ReadAllTextAsync(identity, ct) != content)
-                throw new ClusterOperationConflictException(409, "conversion_identity_conflict", "Conversion ID is already bound to another request.");
+            if (File.Exists(identity))
+            {
+                using var saved = JsonDocument.Parse(await File.ReadAllTextAsync(identity, ct));
+                var root = saved.RootElement;
+                if (root.GetProperty("cluster").GetString() != cluster || root.GetProperty("direction").GetString() != direction
+                    || JsonSerializer.Serialize(root.GetProperty("request").Deserialize<T>(Json), Json) != JsonSerializer.Serialize(request, Json))
+                    throw new ClusterOperationConflictException(409, "conversion_identity_conflict", "Conversion ID is already bound to another request.");
+            }
             if (!File.Exists(identity)) await AtomicFileWriter.WriteTextAsync(identity, content, ct);
             try { return new Admin.AdminEnvelope<ClusterConversionStatus>(1, DateTimeOffset.UtcNow, await action(ct)); }
             catch (Exception error)
@@ -285,7 +347,7 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 var failed = new ClusterConversionStatus(id, cluster, direction, "Failed", null, error.Message, DateTimeOffset.UtcNow);
                 await WriteAsync(Path.Combine(work, "progress.json"), failed, CancellationToken.None);
                 progress[id] = failed; Changed?.Invoke();
-                if (error is InvalidOperationException or IOException or ArgumentException or KeyNotFoundException)
+                if (error is InvalidOperationException or IOException or InvalidDataException or ArgumentException or KeyNotFoundException)
                     throw new ClusterOperationConflictException(409, "conversion_failed", error.Message);
                 throw;
             }
@@ -342,11 +404,21 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
         if (server.GoalState != DedicatedServerGoalState.Off || supervisor.IsServerProcessActive(server.UniqueName))
             throw new InvalidOperationException("Stop the source server and wait for its process to exit before converting.");
     }
-    private static void RequireEmpty(ClusterDefinition cluster)
+    private void RequireEmptyOrResuming(ClusterDefinition cluster, Guid id)
     {
-        if (cluster.GoalState != DedicatedServerGoalState.Off || cluster.ActiveDeployment is not null || cluster.Gateway is not null
-            || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
-            throw new InvalidOperationException("Choose an empty stopped cluster with a verified release and dependency snapshot.");
+        if (!File.Exists(Path.Combine(Workspace(id), "activation.json"))) RequireEmpty(cluster);
+        else if (cluster.GoalState != DedicatedServerGoalState.Off)
+            throw new InvalidOperationException("The destination must remain stopped while conversion resumes.");
+    }
+    internal static bool IsEmpty(ClusterDefinition cluster) => cluster.GoalState == DedicatedServerGoalState.Off
+        && cluster.ActiveDeployment is null && cluster.Gateway is null
+        && cluster.PendingDeploymentHash is null && cluster.PendingRestoreHash is null
+        && cluster.Update is not { Phase: not ClusterUpdatePhase.Complete };
+
+    internal static void RequireEmpty(ClusterDefinition cluster)
+    {
+        if (!IsEmpty(cluster))
+            throw new InvalidOperationException("Choose an empty stopped cluster. An existing deployment cannot be overwritten by conversion.");
     }
     private static ClusterDefinition Target(ClusterDefinition cluster, ClusterConversionHost host)
     { var target = cluster.Clone(); target.HostCommandUrl = host.CommandUrl; target.HostCommandTokenEnvironmentVariable = host.TokenEnvironmentVariable; return target; }

@@ -33,13 +33,20 @@ public sealed class QuasarUiPluginHubCatalogService
     private readonly Quasar.Services.Updates.QuasarUpdateOptions _updateOptions;
     private readonly WebServiceOptions _webOptions;
     private bool AutomaticRestartPending { get; set; }
+    private volatile bool _packageChangesPending;
+    private readonly HashSet<string> _initialDisabledPlugins;
+    private readonly bool _initialSafeModeMarker;
+
+    public bool RestartRequired => _packageChangesPending
+        || !_initialDisabledPlugins.SetEquals(_pluginStates.GetStates().Where(state => !state.Enabled).Select(state => state.PluginId))
+        || _initialSafeModeMarker != File.Exists(QuasarUiPluginCatalog.SafeModeMarkerPath);
 
     public async Task RestartAfterAutomaticUpdatesAsync(QuasarShutdownService shutdown, CancellationToken cancellationToken)
     {
         await _installGate.WaitAsync(cancellationToken);
         try
         {
-            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode)
+            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode && _webOptions.RestartCapability.CanRestart)
             {
                 await shutdown.RestartWorkerAsync();
                 AutomaticRestartPending = false;
@@ -79,6 +86,9 @@ public sealed class QuasarUiPluginHubCatalogService
         _configuration = configuration;
         _environment = environment;
         _pluginStates = pluginStates;
+        _initialDisabledPlugins = pluginStates.GetStates().Where(state => !state.Enabled)
+            .Select(state => state.PluginId).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        _initialSafeModeMarker = File.Exists(QuasarUiPluginCatalog.SafeModeMarkerPath);
         _uiPluginCatalog = uiPluginCatalog;
         _dedicatedServerRuntimeResolver = dedicatedServerRuntimeResolver;
         _managedDotNetSdk = managedDotNetSdk;
@@ -356,6 +366,7 @@ public sealed class QuasarUiPluginHubCatalogService
                 entry.RepoId,
                 entry.Commit,
                 installDirectory);
+            _packageChangesPending = true;
         }
         catch
         {
@@ -395,7 +406,7 @@ public sealed class QuasarUiPluginHubCatalogService
             try
             {
                 var installState = GetInstallState(entry);
-                var autoUpdate = _updateOptions.AutoUpdateUiPlugins && !string.IsNullOrWhiteSpace(_webOptions.LauncherToken)
+                var autoUpdate = _updateOptions.AutoUpdateUiPlugins && _webOptions.RestartCapability.CanRestart
                     && CanAutomaticallyUpdate(entry, installState, _webOptions.Version);
                 if (!autoUpdate && !ShouldInstallImplicitPlugin(entry, _pluginStates)) continue;
                 // Implicit catalog entries may install initially; all installed revisions follow the update policy.
@@ -452,6 +463,7 @@ public sealed class QuasarUiPluginHubCatalogService
             if (!string.IsNullOrWhiteSpace(installState.RuntimePluginId))
                 await _pluginStates.RemoveAsync(installState.RuntimePluginId, cancellationToken);
 
+            _packageChangesPending = true;
             Changed?.Invoke();
             _logger.LogInformation("Removed Quasar UI plugin package {Plugin} from {Directory}.", entry.FriendlyName, installDirectory);
         }

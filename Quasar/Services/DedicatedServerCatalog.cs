@@ -3,6 +3,7 @@ using System.Text.Json.Serialization;
 using System.Text.RegularExpressions;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
+using Quasar.Services.Backup;
 
 namespace Quasar.Services;
 
@@ -20,13 +21,15 @@ public sealed class DedicatedServerCatalog : IDisposable
     private readonly object _sync = new();
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ILogger<DedicatedServerCatalog> _logger;
+    private readonly ServerRestoreCoordinator? _maintenance;
     private List<DedicatedServerDefinition> _servers;
     private string _snapshot;
     private ChildFileWatcher? _watcher;
 
-    public DedicatedServerCatalog(ILogger<DedicatedServerCatalog> logger)
+    public DedicatedServerCatalog(ILogger<DedicatedServerCatalog> logger, ServerRestoreCoordinator? maintenance = null)
     {
         _logger = logger;
+        _maintenance = maintenance;
         _servers = LoadServers();
         _snapshot = CreateSnapshot(_servers);
         StartWatching();
@@ -75,6 +78,8 @@ public sealed class DedicatedServerCatalog : IDisposable
     {
         ArgumentNullException.ThrowIfNull(definition);
 
+        RefuseImportMutation(definition.UniqueName);
+        RefuseImportMutation(definition.OriginalUniqueName);
         var normalized = Normalize(definition.Clone());
         if (string.IsNullOrWhiteSpace(normalized.WorldSaveName))
             throw new InvalidOperationException("World save required.");
@@ -121,6 +126,59 @@ public sealed class DedicatedServerCatalog : IDisposable
         ReloadFromDisk();
     }
 
+    private void RefuseImportMutation(string uniqueName)
+    {
+        if (_maintenance?.IsWorldImportInProgress(uniqueName) == true)
+            throw new InvalidOperationException("A world import is in progress. Wait before editing or starting this server.");
+    }
+
+    internal async Task<DedicatedServerDefinition> ActivateImportedWorldAsync(
+        DedicatedServerDefinition expected, string saveName, string profileId, Action publishWorld, CancellationToken token)
+    {
+        WorldSaveFiles.ValidateSaveName(saveName);
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            var current = GetServer(expected.UniqueName)
+                ?? throw new InvalidOperationException("The target server no longer exists.");
+            string path = MagnetarPaths.GetQuasarServerDefinitionPath(expected.UniqueName);
+            var disk = Normalize(JsonSerializer.Deserialize<DedicatedServerDefinition>(await File.ReadAllTextAsync(path, token), JsonOptions)
+                ?? throw new InvalidOperationException("The target server definition is invalid."));
+            string expectedJson = JsonSerializer.Serialize(expected, JsonOptions);
+            if (JsonSerializer.Serialize(current, JsonOptions) != expectedJson || JsonSerializer.Serialize(disk, JsonOptions) != expectedJson
+                || current.GoalState != DedicatedServerGoalState.Off)
+                throw new InvalidOperationException("The server changed during import. Reopen Import World and try again.");
+            if (_maintenance?.IsWorldImportInProgress(expected.UniqueName) != true)
+                throw new InvalidOperationException("World import does not hold the server maintenance slot.");
+            // Claim the destination while holding the same write gate for every server.
+            // This also serializes imports to custom saves paths shared by several servers.
+            token.ThrowIfCancellationRequested();
+            publishWorld();
+            current.WorldSaveName = saveName;
+            current.WorldTemplateId = string.Empty;
+            current.ConfigProfileId = profileId;
+            current.AutoStart = false;
+            current.UpdatedAtUtc = DateTimeOffset.UtcNow;
+            string json = JsonSerializer.Serialize(current, JsonOptions);
+            // History precedes publication so a later history failure cannot roll back a selected world.
+            string history = Path.Combine(MagnetarPaths.GetQuasarServerHistoryDirectory(current.UniqueName),
+                $"{current.UpdatedAtUtc:yyyyMMddHHmmssfff}.json");
+            await AtomicFileWriter.WriteTextAsync(history, json, token);
+            await AtomicFileWriter.WriteTextAsync(path, json, token);
+            lock (_sync)
+            {
+                int index = _servers.FindIndex(server => string.Equals(server.UniqueName, current.UniqueName, StringComparison.OrdinalIgnoreCase));
+                if (index >= 0) _servers[index] = current.Clone();
+                _snapshot = CreateSnapshot(_servers);
+            }
+            // Publication succeeded. A UI event failure must never delete the selected save.
+            try { Changed?.Invoke(); }
+            catch (Exception exception) { _logger.LogWarning(exception, "World import notification failed for {Server}", current.UniqueName); }
+            return current.Clone();
+        }
+        finally { _writeGate.Release(); }
+    }
+
     public async Task SetGoalStateAsync(
         string uniqueName,
         DedicatedServerGoalState goalState,
@@ -144,6 +202,7 @@ public sealed class DedicatedServerCatalog : IDisposable
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
+            RefuseImportMutation(uniqueName);
             if (GetServer(uniqueName) is null) return;
             await ArchiveAndDeleteCurrentDefinitionAsync(uniqueName, cancellationToken);
             ReloadFromDisk();

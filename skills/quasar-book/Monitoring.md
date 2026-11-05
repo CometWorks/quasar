@@ -4,7 +4,7 @@ This page covers the pages Quasar has for watching and running live servers: the
 
 ## Where the data comes from
 
-Quasar.Agent runs inside every managed server and sends Quasar a telemetry snapshot about every 2 seconds: players, sim speed, CPU, memory, PCU, grid and entity counts, recent chat, registered chat commands and profiler data. Every live view on these pages needs a connected agent. A server without one shows "Waiting for Quasar.Agent..." texts or "Selected server has no connected agent snapshot yet." See [Plugins](Plugins.md#quasaragent) for how the agent is deployed and [Troubleshooting](Troubleshooting.md#the-agent-never-connects) when it does not connect.
+Quasar.Agent runs inside every managed server and sends Quasar a telemetry snapshot about every 2 seconds: players, sim speed, CPU, memory, PCU, grid and entity counts, recent chat, registered chat commands and profiler data. Standalone process telemetry needs a connected agent. Cluster-wide player counts and operating status come from the Cluster Registry, independently of node-agent telemetry. A standalone server without an agent shows "Waiting for Quasar.Agent..." texts or "Selected server has no connected agent snapshot yet." See [Plugins](Plugins.md#quasaragent) for how the agent is deployed and [Troubleshooting](Troubleshooting.md#the-agent-never-connects) when it does not connect.
 
 All pages below need at least the `viewer` role. Changing anything needs the permission named in each section. See [Access control](AccessControl.md#roles-and-permissions).
 
@@ -16,14 +16,16 @@ The **Dashboard** (`/`, page title **Fleet overview**) is the landing page.
 
 | Tile | Shows |
 | --- | --- |
-| **Servers** (**Standalone servers** when clusters exist) | Running servers out of all servers, configured count, connected agents |
-| **Players online** | Players across connected standalone servers, out of their total slots |
-| **Average sim speed** | Average sim speed of connected standalone servers, and the count of health warnings and errors |
-| **Memory usage** | Sum of the working sets the agents report, in GiB |
+| **Servers** | Running standalone servers and serving/degraded clusters, out of the total configured fleet. Each cluster counts once; unavailable cluster status is identified. |
+| **Players online** | Reported standalone players plus each cluster's Registry player count. A cluster's shared player limit counts once, not once per node. Reporting coverage is shown; an unknown limit displays a dash. |
+| **Average sim speed** | Average across running standalone game processes and active regular cluster nodes. World Authority, hot spares and paused telemetry do not affect it. Health warnings and errors include clusters. |
+| **Game process memory** | Sum of fresh standalone and current cluster-node working sets in GiB, including World Authority and hot spares. The Gateway is not a game process and is excluded. Reporting process count is shown. |
+
+Cluster totals reuse the background Registry observations collected for Players, with no extra polling. Node resource readings must be less than 15 seconds old and match the Registry's current host, slot, node and epoch. Replaced nodes, duplicate identity claims and stale/disconnected agents are excluded. Missing readings stay unavailable instead of being counted as zero.
 
 ### Card view and list view
 
-The **Cards** and **List** buttons switch the server view. List is the default. The choice is stored per browser (`quasar.dashboard.serverView` in local storage), and `?view=cards` or `?view=list` in the URL selects it too. List view embeds the same table as the **Servers** page. Card view shows one card per server and one per cluster.
+The **Cards** and **List** buttons switch the server view. List is the default. The choice is stored per browser (`quasar.dashboard.serverView` in local storage), and `?view=cards` or `?view=list` in the URL selects it too. List view embeds the same table as the **Servers** page, with one fixed row spacing and no density toggle. Card view shows one card per server and one per cluster.
 
 A server card has:
 
@@ -35,13 +37,13 @@ A server card has:
   - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the UTC time. Hover for the reason.
   - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
 - Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime.
-- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures.
+- **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures. A process priority warning, such as "Install /usr/local/bin/quasar-renice to use High process priority on Linux.", stays here until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).
 - **Console** opens the log console (see [Servers](Servers.md#the-server-console)).
 - **Start**, **Stop**, **Restart** and **Kill** buttons (need `CanControlServers`). Their behavior is in [Servers](Servers.md#dashboard-and-server-controls).
 
 ### Latest error line
 
-When a server crashes or faults, Quasar reads the last 256 KiB of the newest `SpaceEngineersDedicated*.log` in the DS app-data folder and of the newest `info*.log` in the Magnetar app-data folder. It takes the last line written since the server started that contains "exception", "fatal", "critical" or "error", from whichever file changed last. Starting the server again clears it.
+When a server crashes or faults, Quasar reads the last 256 KiB of the newest `SpaceEngineersDedicated*.log` in the DS app-data folder and of the newest `info*.log` in the Magnetar app-data folder. A file not written since the server started is skipped. From each file it takes the last line of this run that contains "exception", "fatal", "critical", "error", "failed", "failure", "crash", "could not" or "unable to" (any case), cut to 500 characters. Normally the line from whichever file changed last wins. For a failed start, a process that exited before the world was ready, the DS log line wins when there is one: Magnetar writes its teardown lines last, but the reason the world didn't load is in the DS log. Starting the server again clears it.
 
 ### Problem banner
 
@@ -50,11 +52,17 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 ### Other panels
 
 - **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
-- **Simulation speed** charts the last 30 minutes for standalone servers (1.00x is real time) and links to Analytics.
-- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped".
+- **Simulation speed** charts the last 30 minutes for standalone servers and cluster node slots (1.00x is real time) and links to Analytics. Each cluster line is labeled with the cluster name and slot. Node replacements and restarts share the same slot history; missing samples stay missing.
+- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions.
 - **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
 
 ## Analytics
+
+Analytics and fleet charts read data through Quasar browser SDK v1. Their
+`quasar.core/analytics.series.read` operation requires `CanView` by default and
+can be disabled or rebound on Security. The existing analytics URL uses that
+same rule. Local charts work without Nebula; SignalR and background collection
+keep their existing lifecycle.
 
 **Analytics** (`/analytics`) charts the metrics history of the servers you select.
 
@@ -64,13 +72,26 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 | --- | --- |
 | **Time range** | 30s, 1m, 2m, 5m, 15m, 30m, 1h (default), 6h, 24h, 7d, 30d, **Custom** (from and to date and time) |
 | **Auto refresh** | Off, 5s, 15s, 30s, 60s |
-| **Servers** | Check boxes, **Select all**, **Select none**. A cluster has one check box per slot (`cluster / slot`); its chart line joins every node instance and epoch that served the slot. |
+| **Servers and clusters** | Standalone server check boxes and one check box per cluster, using its configured name. Selecting a cluster includes all its node slots, including newly discovered slots. Colored node labels identify each series. **Select all** and **Select none** act on both servers and clusters. |
 | **Grid** | **Columns** 1 to 6 (default 2), **Rows** 1 to 12 (default 4), **Row height (px)** 180 to 960 (default 320), **Reset panels** |
 | **Add panel** | Shows a hidden panel again. The tune icon on each chart opens its panel settings. |
 | **Reset layout** | Back to 2 columns, 4 rows, 320 px |
 | **Export** | Writes the in-memory analytics to disk now ("Analytics persisted to disk."). It does not download a file. |
 
-The layout, selected servers and range are stored per browser in local storage (`quasar.analytics.view.v2`), not on the server.
+The layout, selected servers/clusters and range are stored per browser in local storage (`quasar.analytics.view.v2`), not on the server. Saved per-node or per-epoch selections are upgraded to selecting their whole cluster when the agent identity is known. An explicit empty selection stays empty.
+
+Each metric has one chart with the selected cluster nodes overlaid as separate
+colored lines. The same node slot keeps its color across charts and refreshes,
+even when a metric is missing on another node. World Authority has its own named
+series. Replacements and epochs share their slot's history; missing samples are
+not replaced with zero. Profiler and plugin statistics use the same selected
+nodes. Standalone servers can be compared alongside clusters.
+
+Idle regular cluster nodes pause new analytics samples until they own partitions
+again. Their live-map cards and Nodes table show **Idle** instead of presenting
+their reduced simulation rate as a performance problem. CPU bars are paused on
+those cards; live RAM and background CPU remain part of resource totals. See
+[cluster monitoring](Clusters.md#cluster-pages).
 
 ### Panels
 
@@ -88,7 +109,13 @@ The layout, selected servers and range are stored per browser in local storage (
 | **Profiler: Frame / Update / Physics / Scripts / Network / Other ms** | Simple profiler buckets |
 | **Profiler: Top Grids ms**, **Profiler: Entity Types ms** | Extensive profiler only |
 
-Summary chips above the charts show the latest values averaged over the selected servers. A **Plugin statistics** section appears when Magnetar plugins on the selected servers publish their own metrics. **Show plugin statistics charts** adds them, one line per instance.
+Summary chips show selected server, cluster and node-series counts, process
+averages and total process memory. With clusters selected, process CPU is summed
+across the selected processes. Player, PCU, grid and entity totals are omitted
+from these chips because nodes can report shared world data; their charts keep
+the individual node readings. A **Plugin statistics** section appears when
+Magnetar plugins on the selected processes publish metrics. **Show plugin
+statistics charts** adds them, one line per instance.
 
 ### Process CPU and simulation CPU
 
@@ -115,7 +142,7 @@ History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`.
 
 ### Profiler mode
 
-Expand **Analytics Profiles** to see one row per selected server with **Mode**, **Live state** and where the data appears. The mode (**Startup and live mode**) is:
+Expand **Analytics Profiles** to see one row per selected standalone server or cluster node with **Mode**, **Live state** and where the data appears. These controls apply to individual processes. The mode (**Startup and live mode**) is:
 
 | Option | Value | Fills |
 | --- | --- | --- |
@@ -127,11 +154,13 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 
 ## Players
 
-**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. When a cluster is unavailable, its actions are disabled. Cluster access restrictions still apply.
+**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. Cluster access restrictions still apply.
 
 - Filters: **Server**, **Type** (All, Online, Offline, Banned, Kick cooldown) and **Search players**.
-- The standalone row menu (needs `CanControlServers` and a connected agent): **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown**, **Ban** or **Unban**. A row of a server without a connected agent shows "agent offline" and has no actions.
-- The cluster row menu needs `ClusterManage`, a reachable Gateway with management scope and support for the action: **Kick** (online only), **Ban** or **Unban**, including saved offline players. These commands go through the Gateway and apply to the whole cluster. Cluster rows show admission state and node/partition routing when online; role edits and individual-node kick cooldown controls do not apply. The Registry does not supply every standalone metadata field.
+- Open the ellipsis at the end of a row for player actions. The menu still opens when the Agent or Gateway is unavailable, with disabled actions and a reason. Cluster messages distinguish a failed connection, stale status, a credential without management scope and a Gateway that does not support player actions. Viewers do not receive moderation menus.
+- The standalone row menu needs `CanControlServers`: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Actions need a connected Agent. Kick and ban ask for confirmation. Quasar waits up to 15 seconds for the Agent's reply and shows success, the game error, a disconnect or a timeout. A timeout does not prove the action failed; check the player's status before retrying.
+- The cluster row menu needs `ClusterManage`, access to that cluster, fresh Gateway status with management scope and support for the action: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Saved offline players can have their role, ban or cooldown changed. Role changes, kick and ban ask for confirmation. Quasar checks permissions, cluster access and capabilities again after confirmation, then reports the Gateway operation status or error. A stale role revision fails and needs a refresh. Unconfirmed role changes remain in progress while Quasar reconciles the same request, including after a restart.
+- Cluster roles come from the World Authority and survive node movement, player reconnect and cluster restart through its saves and journal. Cooldowns come from Gateway admission, last five minutes and reset on Gateway restart. Clearing one does not unban the player or clear another player's deadline. Older Gateways keep unsupported actions disabled with an update explanation; an unavailable or older World Authority disables role changes while supported admission actions remain usable. Cluster rows show admission state and current node/partition routing when online. The Registry does not supply every standalone metadata field.
 - **Clean Server** and **Clean All** delete saved known players from accessible servers, including cluster history when cluster management is allowed. Players still online are recorded again on the next observation.
 - **Auto clear after** removes players not seen for that many days (default 30, range 1 to 3650). Click **Save** next to it (needs `CanControlServers`).
 
@@ -141,7 +170,7 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 
 **Chat** (`/chat`) shows the recent chat of one server or cluster node and lets you send to it.
 
-- Pick the server in **Server**. Only servers with a connected agent show chat. The page shows the agent's last 100 chat messages; Quasar does not store chat history.
+- Pick the server in **Server**. Only servers with a connected agent show chat. The page shows the agent's last 100 chat messages; Quasar does not store chat history. Multi-line messages, such as the reply of `!ess playerlist`, keep their line breaks here. Player names and the Discord relay still get a single line.
 - **Refresh** asks the agent for a new snapshot. **Save** and **Restart** act on the server (need `CanControlServers`). Cluster saves and restarts are done from the cluster details page.
 - The input box (needs `CanControlServers`) broadcasts to global chat. Messages appear from **Server**. Press Enter to send.
 - Text that starts with `!` switches the box to **Command text** and suggests matching chat commands registered on that server (Quasar.Agent and Magnetar plugin commands), up to 30 at a time.
@@ -151,16 +180,20 @@ Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone s
 
 ## Entities
 
-**Entities** (`/entities`) lists live world entities of a connected server.
+**Entities** (`/entities`) lists live world entities of a standalone server or a registered cluster.
 
-- Choose **Server**, **Type** (Grids, Characters, Floating objects, Voxels) and optionally **Search name / id / owner**, then press **Refresh**. The list does not refresh by itself.
-- Quasar asks the agent for up to 500 entities. Chips show **Matching**, **Shown** and **Live total**.
-- Columns: type, entity ID, sub-type, blocks, PCU, size, owner, position, name.
+- Choose **Server / cluster**, **Type** (Grids, Characters, Dropped items, Terrain, Other entities) and optionally **Search name / id / owner**, then press **Refresh**. Each cluster appears once with its configured name. The list does not refresh by itself.
+- Standalone queries return up to 500 entities. A cluster query checks every active node against the Registry and loads all result pages from its connected agents. Shared copies are merged by entity ID into one row. **Node(s)** shows where the entity was observed; viewer buttons use that row's node automatically.
+- Chips show **Matching** and **Shown**. Standalone servers also show **Live total**. Clusters show **Nodes checked**; their shared live totals are not added together. A **Partial cluster view** warning identifies unreachable nodes, failures or a changing world during paging. The loader shows progress and elapsed time, with **Cancel** to stop querying.
+- This is a live view of loaded entities on responding nodes. Saved entities in offline partitions are not listed. Moving entities can change during discovery; refresh for an updated view.
+- Columns start with **Name**, then type, optional cluster node locations, viewer, details, quantity, blocks, PCU, size, owner and position. **Entity ID** is near the end, before actions. Types and details use admin-facing labels such as **Dropped item**, **Large-grid station** and **Antenna relay**, rather than internal game type names. Unknown details show a dash.
+- **Quantity** shows a dropped item's stack amount, including fractional amounts for resources. It is separate from the item name and details. Older agents' `x10` values also appear here. Updated agents send the numeric amount and use the item definition's display name when available. Other entity types show a dash for quantity. Search accepts readable labels as well as raw identifiers.
 - Deleting (row delete button, or select and delete several) needs `CanControlServers`. It asks "Permanently delete N selected entities? This cannot be undone." There is no undo; take a world backup first if unsure.
+- Cluster discovery also needs cluster query permission and access to that cluster. Cluster deletion needs cluster management permission and one verified owning node. It is disabled for shared, frozen, ambiguous or unknown ownership. Updated agents report ownership and check it again on the game thread before deleting. Older agents can still be browsed; update them before cluster deletion. If an entity moves or a node is replaced, refresh rather than picking a node manually.
 
 The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
 
-Hovering or selecting a row changes its icon colors without changing their shapes. The viewer's eye and close icons stay visible when the originating row is highlighted.
+Unavailable entities show a disabled, crossed-out viewer eye with a fixed muted color, including when the row is hovered or selected. Its tooltip explains the reason; planets are not supported. Supported grids and asteroids keep the normal eye button. This behavior requires the updated Entity Viewer UI plugin.
 
 ## Notifications
 
@@ -358,7 +391,7 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **Whispers or faction chat never reach Discord**: the channel is not admin-only. Look for "Refused to relay private" in `discord.log`.
 - **`/faction-channel` fails**: the bot lacks Manage Channels.
 - **Push button disabled**: open the UI over HTTPS or on `localhost`, or remove an old subscription when at 16.
-- **Player actions greyed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
+- **Player actions grayed out**: the server's agent is not connected, or your role lacks `CanControlServers`.
 
 ## Profile command aliases
 
@@ -369,6 +402,12 @@ See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
 collisions, limits and the required Magnetar version.
 
 ## Sources
+- `Quasar/Services/FleetSummary.cs`
+- `Quasar/Services/ClusterOperationStore.cs`
+- `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/ClusterPlayerService.cs`
+- `Quasar/Services/KnownPlayerCatalog.cs`
+- `Contracts/ClusterGateway.AdminContract/PlayerModerationContract.cs`
 - `Quasar/wwwroot/app.css`
 - `Docs/AnalyticsCpuLoad.md`
 - `Docs/StateMachines/ProfilerMode.md`
@@ -383,9 +422,16 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Components/Dashboard/ServerDetailPanel.razor`
 - `Quasar/Components/Dashboard/FleetTelemetryChart.razor`
 - `Quasar/Components/Pages/Analytics.razor`
+- `Quasar/Components/Pages/Analytics.razor.css`
+- `Quasar/wwwroot/quasar-charts.js`
 - `Quasar/Components/Pages/Players.razor`
 - `Quasar/Components/Pages/Chat.razor`
+- `Quasar/Services/TextSanitizer.cs`
 - `Quasar/Components/Pages/Entities.razor`
+- `Quasar/Services/EntityPresentation.cs`
+- `Quasar/Services/EntityService.cs`
+- `Quasar.Agent/EntityInspector.cs`
+- `Magnetar.Protocol/Model/EntitySummary.cs`
 - `Quasar/Components/Pages/Notifications.razor`
 - `Quasar/Components/Pages/Discord.razor`
 - `Quasar/Components/Pages/DiscordConsoleDialog.razor`
@@ -436,3 +482,9 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Tests/AnnouncementBrowserReceiptTests.cs`
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
+- `Quasar/Components/Dashboard/ClusterHealthOverview.razor`
+- `Quasar/Components/Dashboard/ClusterResourceUsage.razor`
+- `Quasar/Services/ClusterFleetService.cs`
+- `Quasar/Services/ClusterOverview.cs`
+- `Docs/QuasarBrowserSdk.md`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`

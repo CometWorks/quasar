@@ -11,6 +11,9 @@ public sealed record InstalledWorldTemplateSource(
     string SourceDisplayPath,
     string Description);
 
+public sealed record InstalledWorldTemplateDiscovery(IReadOnlyList<InstalledWorldTemplateSource> Templates,
+    IReadOnlyList<string> Locations, IReadOnlyList<string> Warnings);
+
 public sealed class WorldTemplateImportLocationService
 {
     private const string StorageKey = "quasar.worldTemplates.lastSourceFolder";
@@ -24,11 +27,14 @@ public sealed class WorldTemplateImportLocationService
 
     private readonly ManagedRuntimeOptions _options;
     private readonly BrowserStorageService _storage;
+    private readonly ManagedDedicatedServerRuntimeResolver? _runtime;
 
-    public WorldTemplateImportLocationService(ManagedRuntimeOptions options, BrowserStorageService storage)
+    public WorldTemplateImportLocationService(ManagedRuntimeOptions options, BrowserStorageService storage,
+        ManagedDedicatedServerRuntimeResolver? runtime = null)
     {
         _options = options;
         _storage = storage;
+        _runtime = runtime;
     }
 
     public IReadOnlyList<FileBrowserShortcut> GetContentShortcuts()
@@ -53,22 +59,26 @@ public sealed class WorldTemplateImportLocationService
         return shortcuts;
     }
 
-    public IReadOnlyList<InstalledWorldTemplateSource> GetInstalledWorldTemplates()
+    public IReadOnlyList<InstalledWorldTemplateSource> GetInstalledWorldTemplates() => DiscoverInstalledWorldTemplates().Templates;
+
+    public InstalledWorldTemplateDiscovery DiscoverInstalledWorldTemplates(CancellationToken cancellationToken = default)
     {
         var templates = new List<InstalledWorldTemplateSource>();
+        var locations = new List<string>();
+        var warnings = new List<string>();
         var seenPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var seenTemplates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var root in GetDedicatedServerInstallRoots())
+        foreach (var root in GetDedicatedServerInstallRoots().Distinct(StringComparer.OrdinalIgnoreCase))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             foreach (var (label, relativePath) in DedicatedServerContentShortcuts)
             {
                 var categoryRoot = Path.Combine(root, relativePath);
-                if (!Directory.Exists(categoryRoot))
-                    continue;
-
-                foreach (var sandboxPath in EnumerateSandboxFiles(categoryRoot))
+                locations.Add(categoryRoot);
+                foreach (var sandboxPath in EnumerateSandboxFiles(categoryRoot, warnings, cancellationToken))
                 {
+                    cancellationToken.ThrowIfCancellationRequested();
                     var sourcePath = Path.GetDirectoryName(sandboxPath) ?? string.Empty;
                     if (string.IsNullOrWhiteSpace(sourcePath))
                         continue;
@@ -98,11 +108,11 @@ public sealed class WorldTemplateImportLocationService
             }
         }
 
-        return templates
+        return new(templates
             .OrderBy(template => template.Category, StringComparer.OrdinalIgnoreCase)
             .ThenBy(template => template.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(template => template.SourcePath, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ToList(), locations, warnings);
     }
 
     public async Task<string> GetInitialPathAsync(string? currentPath)
@@ -154,6 +164,12 @@ public sealed class WorldTemplateImportLocationService
 
     private IEnumerable<string> GetDedicatedServerInstallRoots()
     {
+        var installed = _runtime?.ResolveInstalledDedicatedServer64Path();
+        if (!string.IsNullOrWhiteSpace(installed))
+        {
+            yield return installed;
+            if (Directory.GetParent(installed) is { } parent) yield return parent.FullName;
+        }
         if (!string.IsNullOrWhiteSpace(_options.DedicatedServerInstallDirectory))
             yield return _options.DedicatedServerInstallDirectory;
 
@@ -175,14 +191,20 @@ public sealed class WorldTemplateImportLocationService
         yield return MagnetarPaths.GetQuasarManagedDedicatedServerInstallDirectory();
     }
 
-    private static IEnumerable<string> EnumerateSandboxFiles(string categoryRoot)
+    private static IEnumerable<string> EnumerateSandboxFiles(string categoryRoot, ICollection<string> warnings, CancellationToken cancellationToken)
     {
         try
         {
-            return Directory.EnumerateFiles(categoryRoot, "Sandbox.sbc", SearchOption.AllDirectories).ToList();
+            return Directory.EnumerateFiles(categoryRoot, "Sandbox.sbc", SearchOption.AllDirectories)
+                .Select(path => { cancellationToken.ThrowIfCancellationRequested(); return path; }).ToList();
+        }
+        catch (DirectoryNotFoundException)
+        {
+            return [];
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
+            warnings.Add($"Could not read '{categoryRoot}'. Check that the Quasar service account can read this folder, then refresh.");
             return [];
         }
     }

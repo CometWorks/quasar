@@ -14,6 +14,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting.Internal;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
+using MudBlazor.Extensions;
 using MudBlazor.Services;
 using Quasar.Components;
 using Quasar.Components.Layout;
@@ -98,16 +99,8 @@ public sealed class ControlPlaneViewerTests : IDisposable
             Plugins = [new() { PluginId = "example", DisplayName = "Example plugin" }],
             Mods = [new() { WorkshopId = 123, DisplayName = "Example mod" }] };
         await profiles.UpsertAsync(profile);
-        context.Services.AddSingleton(profiles);
-        var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
-        context.Services.AddSingleton(devFolders);
-        var pluginHubs = new QuasarPluginHubCatalog(NullLogger<QuasarPluginHubCatalog>.Instance);
-        context.Services.AddSingleton(pluginHubs);
-        context.Services.AddSingleton(new QuasarPluginCatalogService(NullLogger<QuasarPluginCatalogService>.Instance, null!, devFolders, pluginHubs));
-        context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
-        var credentials = new SteamWorkshopCredentialsCatalog(NullLogger<SteamWorkshopCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
+        var credentials = ConfigureConfigServices(context, profiles);
         await credentials.SaveAsync(new() { WebApiKey = "secret-workshop-key", SteamPassword = "secret-steam-password" });
-        context.Services.AddSingleton(credentials);
         context.Render<MudPopoverProvider>();
         var page = context.Render<Configs>(p => p.Add(x => x.InitialProfileId, profile.ConfigProfileId));
         Assert.Contains("Survival", page.Markup);
@@ -123,6 +116,189 @@ public sealed class ControlPlaneViewerTests : IDisposable
             page.Find("input[type=search]").Input("max players");
             Assert.Contains("Max Players", page.Markup);
         }
+    }
+
+    private static SteamWorkshopCredentialsCatalog ConfigureConfigServices(BunitContext context, QuasarConfigProfileCatalog profiles,
+        IHttpClientFactory? workshopHttp = null)
+    {
+        context.Services.AddSingleton(profiles);
+        var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
+        context.Services.AddSingleton(devFolders);
+        var pluginHubs = new QuasarPluginHubCatalog(NullLogger<QuasarPluginHubCatalog>.Instance);
+        context.Services.AddSingleton(pluginHubs);
+        context.Services.AddSingleton(new QuasarPluginCatalogService(NullLogger<QuasarPluginCatalogService>.Instance, null!, devFolders, pluginHubs));
+        var credentials = new SteamWorkshopCredentialsCatalog(NullLogger<SteamWorkshopCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
+        context.Services.AddSingleton(credentials);
+        context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), credentials, workshopHttp!, NullLogger<QuasarWorkshopModResolver>.Instance));
+        return credentials;
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task OpeningConfigWithModsDoesNotCreatePendingChanges(bool hasKey, bool apiFails)
+    {
+        await using var context = Context(editor: true);
+        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var profile = new QuasarConfigProfile { Name = "Survival", RootSettings = new() { AutodetectDependencies = false },
+            Mods = [new() { WorkshopId = 123456, DisplayName = "Root mod" }] };
+        await profiles.UpsertAsync(profile);
+        using var http = new DependencyWorkshopHttp(apiFails);
+        var credentials = ConfigureConfigServices(context, profiles, http);
+        if (hasKey) await credentials.SaveAsync(new() { WebApiKey = "test-key" });
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/configs");
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Configs>();
+
+        Assert.False(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+        Assert.Single(profiles.GetProfile(profile.ConfigProfileId)!.Mods);
+        var editor = (QuasarConfigProfile)typeof(Configs).GetField("_editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!;
+        Assert.Single(editor.Mods);
+        Assert.False(editor.RootSettings.AutodetectDependencies);
+        if (hasKey && !apiFails)
+            Assert.NotEmpty((IReadOnlyList<QuasarModDependencyTreeRow>)typeof(Configs)
+                .GetField("_modDependencyTreeRows", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!);
+        await page.InvokeAsync(() => navigation.NavigateTo("/"));
+        Assert.EndsWith("/", navigation.Uri);
+        Assert.Empty(dialogs.FindComponents<ConfigProfilePendingChangesDialog>());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AutoSortSavesProfileAndDoesNotPromptWhenLeaving(bool invalid)
+    {
+        await using var context = Context(editor: true);
+        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var profile = new QuasarConfigProfile { Name = "Survival", Description = "Original",
+            RootSettings = new() { AutodetectDependencies = true },
+            Mods = [new() { WorkshopId = 123456, DisplayName = "Root mod" }, new() { WorkshopId = 654321, DisplayName = "Dependency" }] };
+        await profiles.UpsertAsync(profile);
+        using var http = new DependencyWorkshopHttp();
+        var credentials = ConfigureConfigServices(context, profiles, http);
+        await credentials.SaveAsync(new() { WebApiKey = "test-key" });
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Configs>();
+        var field = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == (invalid ? "Profile name" : "Description"));
+        await page.InvokeAsync(() => field.Instance.ValueChanged.InvokeAsync(invalid ? "" : "Edited"));
+        await page.InvokeAsync(() => (Task)typeof(Configs).GetMethod("AutoSortModDependenciesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .Invoke(page.Instance, null)!);
+
+        using var reloaded = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var saved = reloaded.GetProfile(profile.ConfigProfileId)!;
+        Assert.Equal(invalid ? new long[] { 123456, 654321 } : [654321, 123456], saved.Mods.Select(m => m.WorkshopId));
+        Assert.Equal(invalid ? "Original" : "Edited", saved.Description);
+        Assert.Equal(invalid, saved.RootSettings.AutodetectDependencies);
+        Assert.Equal(invalid, page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+        if (!invalid)
+        {
+            Assert.True(saved.Mods[0].IsDependency);
+            Assert.True(await page.InvokeAsync(() => page.Instance.ConfirmPendingChangesBeforeLeavingAsync()));
+        }
+    }
+
+    private sealed class DependencyWorkshopHttp(bool fails = false) : HttpMessageHandler, IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => new(this, disposeHandler: false);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(fails ? System.Net.HttpStatusCode.ServiceUnavailable : System.Net.HttpStatusCode.OK)
+            {
+                Content = new StringContent("""
+                    {"response":{"publishedfiledetails":[
+                        {"publishedfileid":"123456","result":1,"consumer_app_id":244850,"title":"Root mod","children":[{"publishedfileid":"654321"}]},
+                        {"publishedfileid":"654321","result":1,"consumer_app_id":244850,"title":"Dependency"}
+                    ]}}
+                    """)
+            });
+    }
+
+    [Theory]
+    [InlineData("Cancel", false, false)]
+    [InlineData("Discard", true, false)]
+    [InlineData("Save", true, true)]
+    public async Task LeavingConfigsRequiresAChoiceBeforeNavigation(string choice, bool leaves, bool saves)
+    {
+        await using var context = Context(editor: true);
+        var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var profile = new QuasarConfigProfile { Name = "Survival", Description = "Original" };
+        await profiles.UpsertAsync(profile);
+        ConfigureConfigServices(context, profiles);
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/configs");
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Configs>();
+        var description = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Description");
+        await page.InvokeAsync(() => description.Instance.ValueChanged.InvokeAsync("Edited"));
+        Assert.True(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+
+        bool allowed = false;
+        var leaving = page.InvokeAsync(async () => allowed = await page.Instance.ConfirmPendingChangesBeforeLeavingAsync());
+        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Unsaved config changes", dialogs.Markup));
+        Assert.False(leaving.IsCompleted);
+        await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == choice).ClickAsync();
+        await leaving;
+
+        Assert.Equal(leaves, allowed);
+        Assert.Equal(saves ? "Edited" : "Original", profiles.GetProfile(profile.ConfigProfileId)!.Description);
+        if (!leaves)
+            Assert.Equal("Edited", description.Instance.GetState(c => c.Value));
+        if (saves)
+            Assert.False(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+    }
+
+    [Fact]
+    public async Task InvalidProfileCannotLeaveThroughSaveAndRepeatedNavigationSharesOnePrompt()
+    {
+        await using var context = Context(editor: true);
+        var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var profile = new QuasarConfigProfile { Name = "Survival" };
+        await profiles.UpsertAsync(profile);
+        ConfigureConfigServices(context, profiles);
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/configs");
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Configs>();
+        var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Profile name");
+        await page.InvokeAsync(() => name.Instance.ValueChanged.InvokeAsync(""));
+        await page.InvokeAsync(() => navigation.NavigateTo("/servers"));
+        await dialogs.WaitForAssertionAsync(() => Assert.Single(dialogs.FindComponents<ConfigProfilePendingChangesDialog>()));
+        await page.InvokeAsync(() => navigation.NavigateTo("/plugins"));
+        Assert.Single(dialogs.FindComponents<ConfigProfilePendingChangesDialog>());
+        await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == "Save").ClickAsync();
+        await dialogs.WaitForAssertionAsync(() => Assert.Empty(dialogs.FindComponents<ConfigProfilePendingChangesDialog>()));
+        Assert.EndsWith("/configs", navigation.Uri);
+        Assert.Equal("", name.Instance.GetState(c => c.Value));
+        Assert.Equal("Survival", profiles.GetProfile(profile.ConfigProfileId)!.Name);
+
+        // A canceled navigation must not retain the completed confirmation task.
+        await page.InvokeAsync(() => navigation.NavigateTo("/servers"));
+        await dialogs.WaitForAssertionAsync(() => Assert.Single(dialogs.FindComponents<ConfigProfilePendingChangesDialog>()));
+        await dialogs.FindAll("button").Single(b => b.TextContent.Trim() == "Cancel").ClickAsync();
+        Assert.EndsWith("/configs", navigation.Uri);
+    }
+
+    [Fact]
+    public async Task UnchangedConfigCanLeaveWithoutPrompting()
+    {
+        await using var context = Context(editor: true);
+        var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        await profiles.UpsertAsync(new() { Name = "Survival" });
+        ConfigureConfigServices(context, profiles);
+        var navigation = context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>();
+        navigation.NavigateTo("/configs");
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Configs>();
+        Assert.False(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
+        await page.InvokeAsync(() => navigation.NavigateTo("/servers"));
+        await page.WaitForAssertionAsync(() => Assert.EndsWith("/servers", navigation.Uri));
+        Assert.Empty(dialogs.FindComponents<ConfigProfilePendingChangesDialog>());
     }
 
     [Theory]
@@ -176,11 +352,12 @@ public sealed class ControlPlaneViewerTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task PluginInventoryDoesNotExposeUnclassifiedConfigurationValues(bool cluster)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PluginInventoryDoesNotExposeUnclassifiedConfigurationValues(bool cluster, bool editor)
     {
-        await using var context = Context();
+        await using var context = Context(editor);
         var registry = Registered<AgentRegistry>(context);
         registry.UpsertHello(new() { AgentId = "agent", UniqueName = "server", ClusterMode = cluster, ClusterId = cluster ? "fleet" : "" }, "connection", (_, _) => Task.CompletedTask);
         var configs = new PluginConfigService(registry, NullLogger<PluginConfigService>.Instance);
@@ -191,8 +368,16 @@ public sealed class ControlPlaneViewerTests : IDisposable
         var page = context.Render<Plugins>();
         await page.InvokeAsync(() => page.FindComponent<MudExpansionPanel>().Instance.ExpandedChanged.InvokeAsync(true));
         Assert.Contains("Example plugin", page.Markup);
-        Assert.Contains("may contain credentials", page.Markup);
+        if (editor)
+        {
+            Assert.Contains("Plugin configuration is managed for the whole cluster", page.Markup);
+            var link = Assert.Single(page.FindAll("a"), a => a.TextContent.Trim() == "Open cluster plugin settings");
+            Assert.Equal("clusters/fleet#cluster-settings", link.GetAttribute("href"));
+        }
+        else
+            Assert.Contains("may contain credentials", page.Markup);
         Assert.DoesNotContain("secret-plugin-token", page.Markup);
+        Assert.Empty(page.FindAll("pre"));
         Assert.Empty(page.FindComponents<PluginConfigEditor>());
     }
 
@@ -209,7 +394,18 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         context.Services.AddSingleton(new WorldTemplateImportLocationService(new(), new BrowserStorageService(context.JSInterop.JSRuntime)));
+        var maintenance = new Quasar.Services.Backup.ServerRestoreCoordinator();
+        var supervisor = new DedicatedServerSupervisor(Registered<DedicatedServerCatalog>(context), Registered<AgentRegistry>(context),
+            null!, null!, null!, new(), maintenance, NullLogger<DedicatedServerSupervisor>.Instance);
+        context.Services.AddSingleton(supervisor);
+        context.Services.AddSingleton(maintenance);
+        context.Services.AddSingleton(new WebServiceOptions());
+        context.Services.AddSingleton<ServerWorldImportService>();
+        context.Services.AddScoped<ServerManagementActions>();
+        context.Render<MudPopoverProvider>();
         var page = context.Render<WorldTemplates>();
+        Assert.DoesNotContain("Import World to Server...", page.Markup);
+        await page.InvokeAsync(() => page.FindComponent<MudTabs>().Instance.ActivatePanelAsync(1));
         Assert.Contains("Viewer world", page.Markup);
         Assert.Contains("World description", page.Markup);
         Assert.DoesNotContain("Custom import", page.Markup);
@@ -240,6 +436,9 @@ public sealed class ControlPlaneViewerTests : IDisposable
     public async Task ViewerCanQueryLiveEntitiesWithoutReceivingDeleteControls()
     {
         await using var context = Context();
+        using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(_root, "entity-clusters") }).Build());
+        context.Services.AddSingleton(clusters);
         var registry = new AgentRegistry(new KnownPlayerCatalog(NullLogger<KnownPlayerCatalog>.Instance), null!, null!, null!);
         var commands = new List<ServerCommandEnvelope>();
         registry.UpsertHello(new() { AgentId = "agent", UniqueName = "server" }, "connection", (message, _) =>
@@ -284,13 +483,14 @@ public sealed class ControlPlaneViewerTests : IDisposable
     public static TheoryData<Type, string> WriteHandlers => new()
     {
         { typeof(Configs), "CreateProfileAsync" }, { typeof(Configs), "SaveTemplateInternalAsync" },
+        { typeof(Configs), "AutoSortModDependenciesAsync" },
         { typeof(Configs), "CloneProfileAsync" }, { typeof(Configs), "CloneCurrentProfileForCrossplayAsync" },
         { typeof(Configs), "DeleteProfileAsync" }, { typeof(Configs), "RefreshPluginCatalogAsync" },
         { typeof(Configs), "OpenWorkshopApiKeyDialogAsync" }, { typeof(Configs), "OpenSteamAccountDialogAsync" },
         { typeof(Configs), "AddDevFolderAsync" }, { typeof(Configs), "SetDevFolderDebugAsync" }, { typeof(Configs), "RemoveDevFolder" },
-        { typeof(WorldTemplates), "ImportAsync" }, { typeof(WorldTemplates), "CloneAsync" },
-        { typeof(WorldTemplates), "ImportInstalledTemplateAsync" }, { typeof(WorldTemplates), "CreateConfigProfileFromTemplateAsync" },
-        { typeof(WorldTemplates), "CreateConfigProfileAsync" }, { typeof(WorldTemplates), "OpenFolderPickerAsync" }, { typeof(WorldTemplates), "DeleteAsync" },
+        { typeof(WorldTemplates), "OpenImportToServerAsync" }, { typeof(WorldTemplates), "CloneAsync" },
+        { typeof(WorldTemplates), "OpenAddTemplateAsync" }, { typeof(WorldTemplates), "CreateConfigProfileFromTemplateAsync" },
+        { typeof(WorldTemplates), "CreateConfigProfileAsync" }, { typeof(WorldTemplates), "DeleteAsync" },
         { typeof(Players), "SaveRetentionDaysAsync" }, { typeof(Players), "CleanSelectedServerAsync" },
         { typeof(Players), "CleanAllAsync" }, { typeof(Players), "SendPlayerCommandAsync" },
         { typeof(Chat), "RestartSelectedServerAsync" }, { typeof(PluginConfigEditor), "ApplyAsync" },

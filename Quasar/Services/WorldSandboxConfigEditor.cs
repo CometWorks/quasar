@@ -37,6 +37,14 @@ public static class WorldSandboxConfigEditor
         return new ConfigProfileImport(profile, sessionSettingCount, profile.Mods.Count);
     }
 
+    internal static ConfigProfileImport ApplyWorldToProfile(string sandboxConfigPath, QuasarConfigProfile profile)
+    {
+        var root = GetRoot(LoadDocument(sandboxConfigPath), sandboxConfigPath);
+        int count = ApplyImportedSessionSettings(root, profile.SessionSettings, includeOnlineMode: false);
+        profile.Mods = ReadMods(root).ToList();
+        return new(profile, count, profile.Mods.Count);
+    }
+
     private static IReadOnlyList<QuasarModSelection> ReadMods(XElement root)
     {
         var modsElement = ElementIgnoreCase(root, "Mods");
@@ -110,7 +118,9 @@ public static class WorldSandboxConfigEditor
 
         try
         {
-            return XDocument.Load(sandboxConfigPath, LoadOptions.PreserveWhitespace);
+            using var reader = XmlReader.Create(sandboxConfigPath, new XmlReaderSettings
+            { DtdProcessing = DtdProcessing.Prohibit, XmlResolver = null, MaxCharactersInDocument = 16L * 1024 * 1024 });
+            return XDocument.Load(reader, LoadOptions.PreserveWhitespace);
         }
         catch (Exception exception)
         {

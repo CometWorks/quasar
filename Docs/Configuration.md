@@ -254,6 +254,13 @@ server definition's configured Listen IP.
 `0.0.0.0` means “listen on every local interface”; it is not a valid remote
 client address and is not treated as localhost by the join guard.
 
+**New server** on the Dashboard and Servers pages offers **Single Magnetar** or
+**Cluster**, using the same choice-button layout as the Torch/vanilla import wizard.
+Single Magnetar opens the server editor; Cluster opens guided cluster setup at
+`/clusters/new`. Each choice requires its existing server-edit or cluster-management
+permission. The first-setup wizard keeps its world/profile selections when opening
+the standalone server editor.
+
 New server dialogs fill **Server name** and **Server ID** with editable generated
 suggestions. Clearing Server name fills a new suggestion when the field loses focus
 or the form is saved. The suggestion is a saved value, not a placeholder. Existing
@@ -288,13 +295,16 @@ its saved deployment is left unbound after restore; choose a matching profile be
 staging another update. For existing managed clusters, profile staging records the
 verified active inputs before replacing them with candidate inputs.
 
-When a config profile with Workshop mods is opened, saved, or receives imported
-mods, Quasar checks declared Steam Workshop child/dependency metadata, adds
+Opening a config profile with Workshop mods checks declared Steam Workshop
+child/dependency metadata and shows an outline and warnings without changing the
+profile or creating unsaved changes. Saving a profile or importing mods adds
 missing dependency mods, and marks dependency rows in the profile JSON and the
 world's generated `Sandbox_config.sbc`. It does not reorder the profile
 automatically during this check; the Mods tab provides an **Auto Sort
 Dependencies** action that applies a topological dependency order when the
-operator wants it. If Quasar finds a dependency listed after its dependent, or
+operator wants it, then saves the profile, including other pending edits. Normal
+profile validation still applies; invalid values or a failed save leave edits
+pending. If Quasar finds a dependency listed after its dependent, or
 Steam reports a circular dependency chain that prevents a clean topological
 order, the UI shows a warning. The Steam Workshop API key configured from the
 Mods tab is required for this automatic dependency check. If the key is missing
@@ -309,12 +319,13 @@ unchanged.
 
 Space Engineers Dedicated Server also has its own **Autodetect Dependencies**
 setting. Quasar manages that setting in the profile instead of showing it as a
-manual world option: it is disabled after a clean dependency check or a
+manual world option: it is disabled when applying a clean dependency check or a
 successful auto-sort, so DS receives the exact generated `Sandbox_config.sbc`
 mod list and load order. Quasar enables it as a fallback when the mod list is
 manually changed, the Workshop API key is missing, dependency checks fail, or
 dependency warnings remain after sorting. Auto-sort reorder notices do not keep
 the fallback enabled when the final sorted order is otherwise valid.
+The read-only check on opening a profile leaves this setting unchanged.
 
 After a dependency check or auto-sort, the Mods tab also shows a collapsed,
 flattened dependency outline. Rows are tagged as root mods, dependency mods,
@@ -369,17 +380,17 @@ operator-configured `180`-second inactivity timeout.
 
 ## Where configuration is read from
 
-Both the **Bootstrap launcher** (`Quasar`/`Quasar.exe`) and the replaceable **web
-worker** read JSON config from the Quasar install root. Auto-updates preserve
-`appsettings.json` during Bootstrap self-updates, and UI-worker activation
-updates it from the staged, resolved `appsettings.json` so Bootstrap and the
-managed worker keep the same base settings. Set `QUASAR_INSTALL_DIR`, or create
-the ignored `.quasar-install-dir` file used by the development launch profile,
-for direct worker/dev runs that need to target a deployed Quasar root.
+The unified **Quasar application** reads JSON configuration from its configured
+data directory. Native installation metadata records application/data paths and
+the updater's health endpoint and trusted release source. Application updates
+merge settings before activation and restore the prior settings on failure.
+Set `QUASAR_INSTALL_DIR`, or use the development profile's ignored
+`.quasar-install-dir`, for a manual/development run targeting a specific data root.
+Legacy Bootstrap installations still use their shared install-root configuration.
 
 The shipped defaults are defined in [`Quasar/appsettings.json`](../Quasar/appsettings.json).
 
-During UI-worker staging, Quasar performs a three-way merge for `appsettings.json`:
+During application staging, Quasar performs a three-way merge for `appsettings.json`:
 the previous release base stored under the install root is the merge base, the
 current install-root `appsettings.json` supplies local values, and the new
 release file supplies new defaults. Clean local changes are carried into the
@@ -500,8 +511,7 @@ Proxy credentials can be supplied through the environment proxy URL, for example
 `http://user:password@proxy.example:3128`; percent-encode special characters.
 
 For systemd, set the environment in the service configuration; for Docker, pass it
-to the Quasar container; on Windows, ensure the account running the Scheduled Task
-has the settings. Restart Quasar after changing environment or system proxy
+to the Quasar container; on Windows, configure the native service environment. Restart Quasar after changing environment or system proxy
 settings. The proxy must allow HTTPS tunneling (CONNECT) and long-lived Discord
 gateway connections. This setting controls outbound Discord traffic; the Security
 page's trusted reverse proxies control inbound web requests separately.
@@ -846,18 +856,15 @@ restart Quasar:
 
 Restart the deployment:
 
-- Windows (installed Scheduled Task): `Stop-ScheduledTask -TaskName Quasar; Start-ScheduledTask -TaskName Quasar`
-- Linux (systemd): `sudo systemctl restart quasar.service`
+- Windows: stop both native services, run `install.ps1 -RepairSupervision -Start` with the existing paths and service names.
+- Linux: stop both units and run `install.sh --repair-supervision --start`, retaining the existing name and user/system scope/account.
 - Foreground run: stop the process (Ctrl+C) and start it again.
 
-**Edit `appsettings.json`, not an environment variable.** The launcher and worker
-must agree on the port — the launcher starts the worker and then health-checks it
-on the configured port. `appsettings.json` is read by both, so they stay in sync.
-The `QUASAR_WEB_PORT` / `QUASAR_WEB_HOST` environment variables and `ASPNETCORE_URLS`
-are honored only by the worker, not by the Bootstrap launcher, so using them in a
-supervised install desynchronizes the two and the launcher will report the worker
-as unhealthy. They are fine only when running the worker directly (e.g.
-`dotnet run --project Quasar/Quasar.csproj`) without Bootstrap.
+**Edit `appsettings.json` and repair installation metadata.** Quasar and the
+native updater must agree on the health endpoint. Run installer repair with both
+services stopped after changing the host/port, then start them. Manual runs can
+use `QUASAR_WEB_PORT` / `QUASAR_WEB_HOST`; service-only environment overrides must
+also be reflected in updater metadata. Do not change one role's endpoint alone.
 
 > **Port 8080 and Space Engineers:** `8080` is also the Space Engineers Dedicated
 > Server **Remote API** default port. Quasar assigns each managed server a derived,
@@ -867,14 +874,10 @@ as unhealthy. They are fine only when running the worker directly (e.g.
 
 ## Outbound proxies
 
-Bootstrap's local worker discovery, startup health checks, and graceful-drain
-requests bypass HTTP proxies explicitly. Corporate proxy settings therefore
-cannot redirect these control requests and cause Bootstrap to kill a healthy
-worker when its 60-second startup health-check window expires.
-
-Bootstrap's GitHub release queries, checksum downloads, and worker/bootstrap
-archive downloads continue to use the configured outbound proxy. Disabling proxy
-use for local control requests does not change proxy settings for downloads.
+The native updater's authenticated local health checks and CLI health requests
+bypass HTTP proxies. Release queries, checksum downloads and archives use the
+configured outbound proxy. Configure proxy settings for both native roles.
+Legacy Bootstrap also bypasses proxies for local worker discovery and drain.
 
 ## Reverse proxy auth
 
@@ -1059,6 +1062,16 @@ Trusted-network access uses the roles configured under
 `Quasar:Auth:TrustedNetworkBypass:Roles`; it defaults to `admin`. Treat every
 trusted address as a full operator unless that role list is reduced explicitly.
 
+**Security > Plugin endpoint authorization** controls registered SDK operations:
+disable an operation or change its required policies while retaining mandatory
+authentication. **Shared policy role grants** edits runtime `rbac.json` policy
+overrides and affects every endpoint using the policy. These overrides now take
+effect during authorization; review existing values before upgrading. Invalid
+SDK rules deny access, and scope/resource restrictions remain enforced. See
+[the SDK settings and recovery behavior](QuasarBrowserSdk.md#administrator-authorization-settings).
+An explicit list replaces the default role: `["viewer"]` grants read-only access
+without retaining `admin`. Restart Quasar after changing this list.
+
 ### Development port
 
 Running the worker directly with `dotnet run --project Quasar/Quasar.csproj` uses
@@ -1072,14 +1085,19 @@ direct-worker override.
 
 ## Browser auto-open on start
 
-Quasar **prints the UI URL on startup** so it can be clicked to open in a browser;
-the deployed app does **not** open a browser automatically.
+Quasar prints the UI URL on startup. Native services never open a browser;
+interactive console runs can open one according to the setting below.
 
-- The installed **Windows Scheduled Task** and **Linux systemd** services run in
+The guided installer opens the configured Quasar address from your desktop session
+after a successful installation, once Quasar is ready. If the browser cannot open,
+the installer provides the address for manual access. This is separate from the
+service startup setting.
+
+- The installed **Windows native services** and **Linux systemd** services run in
   service mode with `QUASAR_OPEN_BROWSER_ON_START=false` — they never open a
   browser, and they run quietly in the background.
-- A foreground launcher run (e.g. `Quasar ensure-running`) prints the URL and
-  does not open a browser.
+- A foreground run (`Quasar serve --foreground`) follows the interactive browser
+  setting.
 
 The URL is always printed regardless of the auto-open setting. To restrict the web
 UI to the local machine, set `Quasar:Host` to `127.0.0.1` as described above.
@@ -1690,8 +1708,9 @@ Quasar checks the latest published cluster release on the configured update inte
 are enabled and at least one cluster has a selected package. A different release
 identity from that selected pin lights the top-bar update bell, opens the affected cluster page,
 and appears under **Settings → Updates → Cluster packages** for users with access
-to that page. This check uses the GitHub token with access to the
-private `CometWorks/cluster` repository. The Updates page also has a manual
+to that page. Public `CometWorks/cluster` releases are checked without a token.
+When configured, the shared GitHub update token is used for higher rate limits
+and access to private releases. The Updates page also has a manual
 **Check cluster release** button with the same refresh icon as **Check Magnetar**. Release checks only notify; they never stage,
 select, prepare, or activate a cluster package. The comparison is against the
 selected package, which may differ from the active deployment.
@@ -1709,8 +1728,9 @@ Equivalent API: `GET /api/v1/clusters/{name}/package-release`, then
 `PUT /api/v1/clusters/{name}/package` with `{ "version": "1.0.3", "sha256": "..." }`
 and `Idempotency-Key`. Discovery needs cluster-query access; staging needs
 cluster-manage access. Both enforce the principal's cluster allow-list. The existing
-GitHub update credential must have read access to the private `CometWorks/cluster`
-repository. Asset downloads use GitHub's authenticated release-asset API.
+GitHub update credential is optional for public `CometWorks/cluster` releases;
+private releases require repository read access. Asset downloads use GitHub's
+release-asset API, with authentication when a token is configured.
 
 Staging waits for verification and returns a durable operation record, including the
 installation receipt on success. Allow a longer HTTP timeout for cold downloads.
@@ -2172,10 +2192,8 @@ named at once in Stopping, because no clean proof can follow it.
 `POST /api/v1/clusters/{name}/update/abandon`, the **Abandon update** button on the deployment
 panel) closes such an update and unlocks those tools. Nothing is rolled back: before activation
 the cluster stays stopped on its current deployment, afterwards it keeps the new one and a
-rollback is an ordinary new update. After abandoning a start where no node ever ran, the next
-update waits in Stopping, because a Gateway whose World Authority never ran lists `global` as
-unsaved: abandon that update too and apply it with `acceptDirtyShutdown` (**Update despite the
-recorded dirty shutdown**). Abandon is refused while a deployment activation is half applied on the
+rollback is an ordinary new update. After abandoning a start where no node ever ran, apply the
+next update as usual. Abandon is refused while a deployment activation is half applied on the
 Hosts; resume that activation or recover the cluster instead.
 The one command an update accepts is an emergency shutdown (`cluster command NAME REQUEST.json`
 with `{"action":"shutdown","parameters":{"emergency":true}}`) while it stops or starts the cluster.
@@ -2299,19 +2317,17 @@ On **Updates**, enable **Automatically update Quasar UI and Bootstrap together**
 to apply a matching release after a successful check. This is independent of the
 existing stage-only option. On **UI Plugins**, enable **Automatically update
 installed UI plugins and restart Quasar** for enabled catalog plugins. Both
-application policies default to off and require Bootstrap. They are stored under
+application policies default to off. Native application updates require the installed main/updater services; UI plugin automatic updates require verified native restart capability for the current process or the legacy Bootstrap launcher. They are stored under
 `Quasar:Updates` as `AutoApplyUpdates` and `AutoUpdateUiPlugins`; environment
 variables `QUASAR_UPDATES_AUTO_APPLY` and `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS`
 provide startup overrides. UI saves update the install-root `appsettings.json`.
 
-Quasar selects a release containing both platform assets and never automatically
-downgrades either component. It stages and validates the UI, including the normal
-appsettings merge, before requesting launcher activation. Conflicts stop automatic
-activation. Bootstrap verifies and installs its archive, publishes the prepared UI
-pointer, and restarts into that release. Failed UI health checks on startup restore
-the previous UI pointer. Bootstrap no longer independently applies releases on a
-timer; the worker owns automatic policy. When migrating from an older launcher,
-the launcher is upgraded first, and the next worker check activates the staged UI.
+Quasar selects a complete platform package and never automatically downgrades the
+application. It stages the package and appsettings merge through the same durable
+operation as the UI and CLI. The native updater independently verifies provenance,
+stops Quasar, replaces its files and confirms the requested version and service
+identity. Conflicts and failures require explicit recovery/retry; checks do not
+replay them. See [native services and migration](QuasarUpdates.md).
 
 Plugin checks reuse the 15-minute catalog refresh. Only already-installed, enabled
 plugins with a different catalog commit are automatically updated; unknown version
@@ -2319,8 +2335,10 @@ constraints, incompatible requirements, invalid installs, and safe boot pause th
 path. Exact numeric versions and `>=` minimums are supported for unattended
 compatibility checks. Builds finish before installed files are replaced; build
 failures retain the old package. Successful automatic updates request a worker
-restart through Bootstrap. Quasar updates and plugin builds share a maintenance
-lock. Running game servers are preserved by the existing launcher drain protocol.
+restart through the verified native updater service or legacy Bootstrap. Missing
+or denied restart capability pauses automatic plugin updates and keeps a pending
+restart queued until verification succeeds again. Quasar updates and plugin builds
+share a maintenance lock. Running game servers are preserved by the existing state-persistence and drain protocol.
 Local/source-only plugins remain manual. Implicit catalog entries can still install
 initially; updating an installed revision follows this policy. The launcher also
 shares an OS-owned file lease with plugin publication, so a downloaded update
@@ -2333,6 +2351,12 @@ revisions, disappear after installation, and use revision keys to avoid repeated
 push delivery. Automatic application does not require notifications to be enabled.
 
 ## Hosted public panel
+
+On the RTC development branch, Nebula-hosted sessions automatically use WebRTC
+for SDK operations, streaming and downloads. There is no separate user toggle.
+Local HTTP remains independent. Direct failure is reported without silently
+relaying bulk data. Packaging and installed acceptance are still required; see
+[direct transport status and security](QuasarWebRtc.md).
 
 Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
 access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,

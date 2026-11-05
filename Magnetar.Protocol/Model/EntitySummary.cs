@@ -11,11 +11,17 @@ public class EntitySummary
 
     public string DisplayName { get; set; } = string.Empty;
 
-    /// <summary>"Grid" | "Character" | "Float" | "Voxel" | "Other".</summary>
+    /// <summary>Transport identifiers: "Grid" | "Character" | "Float" | "Voxel" | "Other".</summary>
     public string TypeTag { get; set; } = string.Empty;
 
-    /// <summary>e.g. "LargeStatic" | "LargeShip" | "SmallShip" | "Player" | "Bot" | "Asteroid".</summary>
+    /// <summary>Raw kind or item definition subtype, e.g. "LargeStatic", "Player", "Asteroid", "SteelPlate".</summary>
     public string SubType { get; set; } = string.Empty;
+
+    /// <summary>Quantity of a floating item stack; null for other entities or when unavailable.</summary>
+    public decimal? ItemAmount { get; set; }
+
+    /// <summary>Cluster placement: Local, Frozen, Unowned, Absent or Unknown. Null on older agents and standalone servers.</summary>
+    public string? ClusterResidence { get; set; }
 
     public int? BlockCount { get; set; }
 

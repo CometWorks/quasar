@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Quasar.Plugin.Abstractions.Operations;
 
 namespace Quasar.Services.Auth;
 
@@ -7,6 +8,8 @@ public sealed class RbacConfig
     public List<SubjectRoleMapping> SubjectRoleMappings { get; set; } = [];
     public List<ClaimRoleMapping> ClaimRoleMappings { get; set; } = [];
     public Dictionary<string, List<string>> PolicyOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+    public Dictionary<string, QuasarOperationRule?> OperationOverrides { get; set; } = new(StringComparer.Ordinal);
+    [JsonIgnore] internal bool SdkRulesValid { get; set; } = true;
 
     public RbacConfig Clone() => new()
     {
@@ -16,6 +19,8 @@ public sealed class RbacConfig
             pair => pair.Key,
             pair => pair.Value.ToList(),
             StringComparer.OrdinalIgnoreCase),
+        OperationOverrides = OperationOverrides.ToDictionary(pair => pair.Key, pair => pair.Value?.Clone(), StringComparer.Ordinal),
+        SdkRulesValid = SdkRulesValid,
     };
 
     public static RbacConfig Normalize(RbacConfig? config)

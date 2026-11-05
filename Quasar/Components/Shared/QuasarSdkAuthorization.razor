@@ -1,0 +1,99 @@
+@using Quasar.Plugin.Abstractions.Operations
+@inject AuthenticationStateProvider Authentication
+@inject QuasarOperationService Operations
+@inject RbacConfigCatalog Rbac
+
+<section class="quasar-panel pa-4">
+    <div class="quasar-stack">
+        <h2 class="quasar-text quasar-type-h6">Plugin endpoint authorization</h2>
+        <p>SDK endpoints require authentication. Change their required policies or disable an operation for every supported transport.</p>
+        @if (_message is not null)
+        {
+            <p role="status">@_message</p>
+        }
+        @foreach (var row in _rows)
+        {
+            <fieldset class="pa-3">
+                <legend>@row.Settings.PluginId / @row.Settings.OperationId</legend>
+                <p>Declared policies: @string.Join(", ", row.Settings.DefaultPolicies)</p>
+                <p>Effective policies: @string.Join(", ", row.Settings.EffectiveRule?.RequiredPolicies ?? []) (@(row.Settings.Overridden ? "installation override" : "plugin defaults"))</p>
+                @if (row.Settings.Error is not null)
+                {
+                    <p role="alert">@row.Settings.Error</p>
+                }
+                <label><input type="checkbox" @bind="row.Enabled" /> Enabled</label>
+                <label>Required policies, separated by commas <input type="text" @bind="row.Policies" /></label>
+                <div class="quasar-row">
+                    <MudButton OnClick="@(() => SaveAsync(row))" Disabled="@_saving" Variant="Variant.Outlined">Save endpoint rule</MudButton>
+                    <MudButton OnClick="@(() => ResetAsync(row))" Disabled="@_saving" Variant="Variant.Outlined">Restore declared policies</MudButton>
+                </div>
+            </fieldset>
+        }
+        @if (_rows.Count == 0 && _message is null)
+        {
+            <p>No plugins have registered SDK operations.</p>
+        }
+        <h3 class="quasar-text quasar-type-subtitle1">Shared policy role grants</h3>
+        <p>Changing a shared policy affects every endpoint using it, including existing Quasar endpoints. Empty role grants deny that policy. Security administration must retain the admin role.</p>
+        @foreach (var policy in _policyOverrides)
+        {
+            <p>@policy.Key: @(policy.Value.Count == 0 ? "deny all" : string.Join(", ", policy.Value))</p>
+        }
+        <label>Policy name <input type="text" @bind="_policyName" /></label>
+        <label>Roles, separated by commas <input type="text" @bind="_policyRoles" /></label>
+        <MudButton OnClick="SaveRolesAsync" Disabled="@_saving" Variant="Variant.Outlined">Save policy role grants</MudButton>
+    </div>
+</section>
+
+@code {
+    private List<EditRule> _rows = [];
+    private Dictionary<string, List<string>> _policyOverrides = new();
+    private string _policyName = "";
+    private string _policyRoles = "";
+    private string? _message;
+    private bool _saving;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { await ReloadAsync(); }
+        catch (UnauthorizedAccessException) { _message = "Security administration permission is required."; }
+    }
+
+    private async Task ReloadAsync()
+    {
+        var caller = (await Authentication.GetAuthenticationStateAsync()).User;
+        _rows = (await Operations.GetSettingsAsync(caller)).Select(settings => new EditRule(settings)).ToList();
+        _policyOverrides = Rbac.GetConfig().PolicyOverrides;
+    }
+
+    private Task SaveAsync(EditRule row) => ChangeAsync(user => Operations.SaveRuleAsync(user,
+        row.Settings.PluginId, row.Settings.OperationId, new QuasarOperationRule { Enabled = row.Enabled, RequiredPolicies = Split(row.Policies) }));
+
+    private Task ResetAsync(EditRule row) => ChangeAsync(user => Operations.SaveRuleAsync(user,
+        row.Settings.PluginId, row.Settings.OperationId, null));
+
+    private Task SaveRolesAsync() => ChangeAsync(user => Operations.SavePolicyRolesAsync(user, _policyName.Trim(), Split(_policyRoles)));
+
+    private async Task ChangeAsync(Func<System.Security.Claims.ClaimsPrincipal, Task> change)
+    {
+        _saving = true;
+        try
+        {
+            await change((await Authentication.GetAuthenticationStateAsync()).User);
+            await ReloadAsync();
+            _message = "Authorization settings saved.";
+        }
+        catch (Exception error) when (error is UnauthorizedAccessException or ArgumentException or InvalidOperationException or IOException)
+        { _message = error.Message; }
+        finally { _saving = false; }
+    }
+
+    private static List<string> Split(string value) => value.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+
+    private sealed class EditRule(QuasarOperationSettings settings)
+    {
+        public QuasarOperationSettings Settings { get; } = settings;
+        public bool Enabled { get; set; } = settings.EffectiveRule?.Enabled == true;
+        public string Policies { get; set; } = string.Join(", ", settings.EffectiveRule?.RequiredPolicies ?? []);
+    }
+}

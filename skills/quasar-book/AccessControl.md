@@ -1,6 +1,6 @@
 # Access control
 
-This page covers who can use the Quasar web UI and API: Steam sign-in, the trusted-network bypass, the three roles and what each can do, the `rbac.json` file, the **Security** page, API tokens for automation, and how to recover when you lock yourself out. For first-time admin setup see [First setup](FirstSetup.md#set-the-first-administrator).
+This page covers who can use the Quasar web UI and API: Steam sign-in, the trusted-network bypass, the three roles and what each can do, the `rbac.json` file, the **Security** page, API tokens for automation, the separate policy for machine endpoints, and how to recover when you lock yourself out. For first-time admin setup see [First setup](FirstSetup.md#set-the-first-administrator).
 
 ## How Quasar identifies a caller
 
@@ -21,7 +21,7 @@ In headless mode (`--headless`) the `/login` page does not exist. Only the trust
 - `/login` redirects to Steam (`https://steamcommunity.com/openid/`) and back. Any Steam account can complete the sign-in. Quasar then gives it the roles mapped to its SteamID64 in `rbac.json`.
 - The top bar shows your Steam profile name beside the sign-out button and in its tooltip. Quasar looks it up from your public Steam Community profile at sign-in without an API key and keeps it in the session cookie. If the lookup fails or takes more than five seconds, it shows `Steam <SteamID64>`. Sign out and back in to refresh the name, including after upgrading. Permissions and audit records still use SteamID64.
 - An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (an antiforgery-protected `POST /logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
-- The sign-in cookie is `Quasar.Auth`, HTTP-only, valid for 12 hours with sliding renewal. With `RequireHttpsForPublicAccess` enabled it is also always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
+- The sign-in cookie is `Quasar.Auth`, HTTP-only, `SameSite=Lax`, valid for 12 hours with sliding renewal. With `RequireHttpsForPublicAccess` enabled it is also always Secure. Through a [hosted panel](HostedPanel.md) its name gets the panel name as a suffix, its path is the panel prefix, and it is always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
 - If `Quasar:Auth:Steam:Enabled` is `false`, or `Quasar:Auth:DefaultProvider` is not `Steam`, `/login` shows "Login unavailable. Steam is not enabled as the active Quasar auth provider."
 
@@ -33,7 +33,7 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | --- | --- | --- |
 | `CanView` | viewer, editor, admin | Opening any UI page, read APIs, log downloads for DS and Magnetar logs |
 | `CanEditConfigs` | editor, admin | Config profiles, world templates, Magnetar plugin settings |
-| `CanEditServers` | editor, admin | Creating, editing, importing and deleting servers |
+| `CanEditServers` | editor, admin | Creating, editing, importing and deleting servers; direct world import |
 | `CanControlServers` | editor, admin | Start, stop, restart, chat and commands, player actions, entity deletion, profiler mode |
 | `CanManageDiscord` | editor, admin | Discord bot settings, Discord log download |
 | `CanManageAppearance` | editor, admin | **Appearance** page |
@@ -41,6 +41,7 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | `CanShutdownQuasar` | admin | Power button in the top bar (**Restart Quasar**, **Shutdown Quasar**) |
 | `ClusterQuery` | viewer, editor, admin, or scope `cluster.query`/`cluster.manage` | Viewing clusters and the cluster query API |
 | `ClusterManage` | editor, admin, or scope `cluster.manage` | Changing clusters |
+| `ClusterMaintenance` | authenticated admin | Offline profiling, deliberate compensation prediction and per-key production-rate cache clear |
 
 With authentication on, every UI page requires at least `viewer`.
 
@@ -51,7 +52,7 @@ Viewers see all pages under **Control plane** in the navigation: **Dashboard**, 
 | Page | Viewer sees | Change needs |
 | --- | --- | --- |
 | Configs | Profile settings, mods, plugins, access lists; passwords hidden | `CanEditConfigs` |
-| Worlds | Managed and installed world templates | `CanEditConfigs` |
+| Worlds | Selected server saves, status and profiles; reusable templates | `CanEditServers` for direct world import; `CanEditConfigs` for templates and imported profile creation |
 | Plugins | Plugin inventory and logs; plugin configuration values hidden | `CanEditConfigs`, `ClusterManage` for cluster details |
 | Players | Known players and status | `CanControlServers` |
 | Chat | Recent chat, refresh | `CanControlServers` to send chat or commands, save, restart |
@@ -63,6 +64,29 @@ Viewers see all pages under **Control plane** in the navigation: **Dashboard**, 
 Viewers do not see **Security**, **UI Plugins**, **Backups**, **Updates** or **Appearance** in the navigation. Chat and plugin logs can contain player names and private messages, so give `viewer` only to people allowed to read them.
 
 Plugin-provided UI pages follow the permission each plugin declares (see [UI plugins](UiPlugins.md)).
+
+### Plugin endpoint authorization
+
+On **Security**, **Plugin endpoint authorization** lists operations registered
+with Quasar's browser SDK. They require authentication by default. You can disable
+an operation or replace its required policies; every selected policy must pass.
+Both its SDK route and adopted legacy URLs use that rule. **Restore declared
+policies** removes the operation override but keeps shared role grants.
+
+**Shared policy role grants** changes the roles allowed by a role-based policy
+for every endpoint using it. Empty role grants deny access. The editor keeps the
+`admin` role for `CanManageSecurity` and retains scope/resource requirements.
+Only callers with current `CanManageSecurity` permission can view or save these
+settings. A stale administrator page cannot save a change after access is lost.
+
+Settings are stored in `rbac.json`. Earlier builds saved `policyOverrides` without
+using them; they now affect authorization. Review existing overrides before an
+upgrade. Invalid SDK rules deny access. If the RBAC file is malformed, restore a
+valid backup before editing SDK rules. The viewer registers all 15 scene, asset
+setup/streaming and replay operations. View operations default to `CanView`;
+asset administration and history default to `CanManageSecurity`. Asset consent
+and user ownership still apply after you change an operation policy. WebRTC
+remains a separate implementation. See [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
 
 ## The rbac.json file
 
@@ -92,12 +116,19 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 ## The Security page
 
-**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has four panels.
+**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has five panels.
 
+- **Public panel access**: **Manage access setup** opens the access setup dialog, where you choose self-deployment behind your own reverse proxy or a hosted Nebula panel. Once the installation is enrolled with Nebula, **Manage Nebula hosting and billing** opens the Nebula account page. See [Hosted access](HostedPanel.md).
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
+
+The **Provider** list also offers "Oidc", but such mappings have no effect, see [How Quasar identifies a caller](#how-quasar-identifies-a-caller).
+
+### The first administrator
+
+When `rbac.json` has no mapping with the `admin` role, the access setup dialog ("Set up administrator access") opens for anyone with admin rights. Without a mapping that means the trusted network bypass, usually a browser on the Quasar machine. Its first step asks for an **Administrator SteamID64** (17 digits); **Save administrator and continue** writes that mapping to `rbac.json`. A Steam sign-in alone cannot claim an installation that has no administrator, because an unmapped account has no role. The dialog also opens while no access method (self-deploy or hosted) has been chosen yet; **Cancel** dismisses it. See also [First setup](FirstSetup.md#set-the-first-administrator).
 
 ## Trusted network bypass
 
@@ -110,13 +141,15 @@ When a request has no bearer token and no signed-in user, Quasar checks whether 
 | `TrustedProxies` | `[]` | Reverse proxy IPs or CIDR ranges whose `X-Forwarded-*` headers Quasar accepts; loopback proxies are always trusted |
 | `Roles` | `["admin"]` | Roles given to trusted callers; unknown names fall back to `admin` |
 
+An explicit role list replaces the default. Set `Roles` to `["viewer"]` for read-only trusted access, then restart Quasar. The default `admin` role is not retained.
+
 Treat every trusted address as a full admin unless you reduce `Roles`. Trusted addresses also need an intended destination and same-origin browser context. With `AllowSameSubnet` on (the default), LAN users at an accepted destination can manage Quasar over HTTP without signing in. This includes `192.168.1.10` connecting to `http://192.168.1.80:8080`, all `192.168.x.x`, `10.x.x.x`, `172.16.x.x` through `172.31.x.x`, and private IPv6 ULA addresses. Turn off **Trust private LAN access** to opt out; an explicit `AllowSameSubnet: false` disables LAN bypass. Browser push still requires HTTPS or localhost.
 
-Quasar checks the original Host and scheme before proxy forwarding and checks the effective destination again before granting roles. Accepted destinations are the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or localhost, loopback or the actual socket destination IP at its local port. A wildcard listener does not authorize arbitrary DNS aliases. Set the public BaseUrl to the URL browsers should use.
+Quasar checks the destination twice: the original Host and scheme before proxy forwarding, and the effective destination after it. Both must be an accepted destination: the public BaseUrl (`QUASAR_PUBLIC_BASE_URL`, legacy `MAGNETAR_WEB_BASE_URL`), a concrete listener URL, or `localhost`, a loopback address or the socket's own destination IP at the socket's local port. A wildcard listener (`0.0.0.0`) does not accept arbitrary DNS names. To keep passwordless access through a DNS name, set the public BaseUrl to the URL browsers use.
 
-A supplied Origin must match the effective scheme, host and port. A supplied `Sec-Fetch-Site` must be `same-origin` or `none`. Without Origin, a supplied Referer must be same-origin. Same-origin Viewer iframes and direct navigation or bootstrap clients without context headers still work. A rejected context gets no automatic roles; existing signed-in users and service principals keep their normal authentication and permissions. The separate machine endpoint policy is unchanged.
+The browser context must be same-origin too. A supplied `Origin` must match the effective scheme, host and port. A supplied `Sec-Fetch-Site` must be `same-origin` or `none`. Without `Origin`, a supplied `Referer` must be same-origin. Requests without these headers, such as direct navigation, same-origin iframes and scripts, still qualify. A request that fails any check gets no automatic roles and has to sign in. Signed-in users and service principals are not affected.
 
-The Viewer follow-up needs both the Quasar shared auth update and the Viewer plugin path update. It does not delay the original urgent agent/Host fix. See [Viewer follow-up rollout](https://github.com/CometWorks/quasar/blob/dis-0042-viewer-guards/Docs/SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
+Requests through a [hosted panel](HostedPanel.md) never get the bypass, even though they arrive from the local connector on loopback.
 
 ### Behind a reverse proxy
 
@@ -161,9 +194,43 @@ Configure them in `appsettings.json`. Store only the name of an environment vari
 
 Send the token as `Authorization: Bearer <token>`. The `Quasar cluster ...` CLI reads it from `QUASAR_API_TOKEN` (or the variable named with `--token-env`) and sends nothing when the variable is empty, which works from the Quasar machine through the loopback bypass. See [Configuration](Configuration.md#command-line) and [Clusters](Clusters.md).
 
-Public health and readiness probes expose only status. The update overlay uses
-`/api/version` to confirm the running release; that endpoint requires the same
-read permission as the dashboard and does not cache its response.
+## Machine endpoints
+
+Agents of managed servers, Host executors and Quasar's own local tools use a separate set of routes: `/ws/agent`, `/api/internal/...`, `/api/discovery`, `/api/v1/hosts/...` and the one-use enrollment download `/api/v1/host-enrollment/<ticket>`. Apart from `/api/discovery`, which only local tools read, each of them requires its own credential: the per-server or per-node agent token, the Host's enrollment credential, the enrollment ticket, or the launcher secret. There is no tokenless access, not even from loopback. Signed-in users, the trusted network bypass and service principals don't grant access to them.
+
+On top of the credential, Quasar checks every request on these routes before any proxy header is applied. It answers 403 unless:
+
+- the socket peer address is in `Quasar:MachineEndpoints:AllowedSources`,
+- the `Host` header exactly matches an entry of `Quasar:MachineEndpoints:AllowedHosts`, and
+- the request has no `Origin` header at all, not even an empty one or `null`.
+
+| Key | Environment variable | Default |
+| --- | --- | --- |
+| `AllowedSources` | `QUASAR_MACHINE_ALLOWED_SOURCES` | `127.0.0.1`, `::1` |
+| `AllowedHosts` | `QUASAR_MACHINE_ALLOWED_HOSTS` | The public BaseUrl's authority, plus `127.0.0.1:<port>`, `localhost:<port>` and `[::1]:<port>` |
+
+The environment variables take a semicolon-separated list and replace the whole list. Sources are IP addresses or CIDR ranges inside loopback, RFC 1918 or IPv6 ULA space, at least `/16` for IPv4 and `/48` for IPv6. Quasar refuses to start with a public, broader or malformed entry, or with an empty list. Host entries are exact authorities, compared case-insensitively, with the port when the client sends one; wildcards, `0.0.0.0` and a trailing dot are refused.
+
+With the defaults only processes on the Quasar machine get through, which covers standalone servers and the [local Host](ClusterHosts.md#the-local-host). Before you enroll a Host executor on another machine, add its address (or its site's subnet) to `AllowedSources` and the Quasar address it uses to `AllowedHosts`:
+
+```json
+{
+  "Quasar": {
+    "MachineEndpoints": {
+      "AllowedSources": [ "127.0.0.1", "::1", "10.42.0.12", "10.43.8.0/24" ],
+      "AllowedHosts": [ "127.0.0.1:8080", "localhost:8080", "quasar.vpn:8080" ]
+    }
+  }
+}
+```
+
+Behind a reverse proxy, Quasar sees the proxy as the source, so list the proxy's own address and the backend `Host` it sends, and don't let the proxy strip the `Origin` header: it is what keeps browser requests off these routes. A [hosted panel](HostedPanel.md) needs no entry: its traffic arrives from the local connector on loopback and counts as `127.0.0.1:<port>`.
+
+Use HTTPS/WSS for agent and Host traffic that leaves the machine, or a private encrypted VPN. The source list does not encrypt anything. The background and the upgrade order are in `Docs/SecurityUpgradeDIS0042.md` in the Quasar repository.
+
+## Probe endpoints
+
+`/api/health` and `/api/ready` need no sign-in and return only a status (`ready` or `not-ready`, with 503 while not ready). `/api/version` returns the running version for the update overlay; with authentication on it needs `CanView`, and it is never cached.
 
 ## Turning authentication off
 
@@ -191,6 +258,8 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | `ServicePrincipals` | `[]` | See [API authentication](#api-authentication-for-automation) |
 | `Workshop:*` | | Steam Workshop browsing for mods, see [Config profiles](ConfigProfiles.md) |
 
+The machine endpoint lists are under `Quasar:MachineEndpoints` instead, see [Machine endpoints](#machine-endpoints).
+
 Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDNETWORKBYPASS__ALLOWSAMESUBNET=false`.
 
 ## Common problems
@@ -200,24 +269,41 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | "this account has no Quasar role" after Steam sign-in | No mapping for that SteamID64. Add it on **Security** or in `rbac.json`. |
 | Steam sign-in works locally but remote users land on the wrong URL | The reverse proxy does not send `X-Forwarded-Host`/`X-Forwarded-Proto`, or its address is not in `TrustedProxies` (restart after adding). |
 | Everyone on the LAN can change settings without signing in | `AllowSameSubnet` is on. Turn it off on **Security**. |
-| Local browser is asked to sign in | The request went through a proxy with a non-LAN forwarded address, used an unaccepted destination/context, or its applicable LAN trust option is off. |
+| Local browser is asked to sign in | The request went through a proxy with a non-LAN forwarded address, used a host name that is not an accepted destination, came from another site's page, or the matching LAN trust option is off. |
+| Plain text "HTTPS is required for non-LAN Quasar access." (HTTP 400) | `RequireHttpsForPublicAccess` is on and the request came over HTTP from a non-LAN address. Use the HTTPS proxy URL. |
+| Agent, Host enrollment or Host connection gets 403 | The machine endpoint policy refused it: the source address or the `Host` header is not listed under `Quasar:MachineEndpoints`, or the client sent an `Origin` header. See [Machine endpoints](#machine-endpoints). |
+| Quasar doesn't start after editing `MachineEndpoints` | An entry is public, broader than `/16` (IPv4) or `/48` (IPv6), malformed, or a wildcard. |
 | All Steam users lost access after an edit | `rbac.json` is not valid JSON. Check the Quasar log for "Failed loading RBAC config". |
 | Cluster API returns 401 with a token | Token variable missing in the Quasar service environment, shorter than 32 characters, shared by two principals, or Quasar not restarted after the change. |
 | `Login unavailable` page | `Quasar:Auth:Steam:Enabled` is `false` or `DefaultProvider` is not `Steam`. |
 
 ## Hosted public access
 
-All configured Steam administrators share their hosted Nebula panel; one payer controls billing. Billing transfers need that payer’s approval. Recovery onto another deployment retains its subscription and removes the old registration. See [Hosted access](HostedPanel.md).
+The WebRTC development adapter uses the existing authenticated browser
+session and current `CanView` policy. It does not give a native peer a Steam role
+or machine API access. Hosted peers additionally need a renewable Nebula lease;
+logout, permission loss or lease expiry closes access. Nebula-hosted SDK sessions select it automatically, with no separate user toggle.
+Initial direct failure can use Nebula's bounded TURN fallback before any
+application work runs. Established writes are never replayed, and there is no
+automatic bulk HTTP fallback. Relay credentials are temporary and carry no user
+or machine role; relay exhaustion remains visible. Default NAT discovery uses
+`stun:rtc.se-servers.net:3478`, a DNS-only hostname separate from the proxied
+dashboard. DDNS may update its public IPv4; the Nebula relay refreshes it every
+minute and closes old relay allocations after a verified change. The RTC branch
+also carries Blazor circuits using the same stored session and renews current
+roles on reconnect after RBAC changes. Installed and native Windows acceptance
+remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
 
-**Security → Manage access setup** lets an admin choose self-deployment or Nebula
-hosted enrollment at `https://dash.se-servers.net/<panel-name>/`. Hosted
-traffic always uses Steam/RBAC and endpoint credentials, even though frpc runs
-on loopback. Platform super-admin/free-hosting rights do not create a local role.
-Stripe billing is implemented in Nebula; checkout remains
-disabled until operator onboarding and acceptance.
-See [Hosted access](HostedPanel.md) for setup, private files and release gates.
+**Security → Manage access setup** lets an admin enroll the installation with Nebula, which publishes it at `https://dash.se-servers.net/<panel-name>/`. Requests through that address always need a Steam sign-in with a role from `rbac.json`. They never get the trusted network bypass, and Quasar refuses them with 403 while authentication or Steam sign-in is off. Nebula platform rights, including free hosting, do not create a Quasar role. All Steam IDs mapped to `admin` can manage the panel in Nebula. See [Hosted access](HostedPanel.md).
 
 ## Sources
+
+- `Docs/QuasarWebRtc.md`
+- `Docs/QuasarWebRtcFramework.md`
+- `Quasar/Services/Plugins/QuasarRtcCircuits.cs`
+- `Quasar/Services/Plugins/QuasarRtcEndpoints.cs`
+- `Quasar/Services/Plugins/QuasarRtcSessions.cs`
+- `Quasar/Services/Plugins/QuasarPeerProcess.cs`
 
 - `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Docs/Configuration.md`
@@ -233,6 +319,10 @@ See [Hosted access](HostedPanel.md) for setup, private files and release gates.
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
+- `Quasar/Services/Auth/QuasarAuthorizationPolicyProvider.cs`
+- `Quasar/Services/Plugins/QuasarOperationService.cs`
+- `Quasar/Services/Plugins/QuasarSdkEndpoints.cs`
+- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
@@ -262,3 +352,10 @@ See [Hosted access](HostedPanel.md) for setup, private files and release gates.
 - `Quasar/Components/Pages/Appearance.razor`
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Shared/Networking/MachineEndpointPolicy.cs`
+- `Quasar/Services/HostedPanelRequest.cs`
+- `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+
+- `Quasar/Services/ServerWorldImportApi.cs`
+- `Quasar/Components/Pages/ServerWorldImportDialog.razor`

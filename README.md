@@ -1,8 +1,8 @@
 # Quasar
 
 Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
-(`AGPL-3.0-only`). The previous MIT distribution is preserved on
-[`archive/mit`](https://github.com/CometWorks/quasar/tree/archive/mit).
+(`AGPL-3.0-only`). The previous MIT distribution is preserved by the
+[`archive/mit` tag](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 See [licensing and source availability](Docs/Licensing.md) for the transition,
 redistribution, and modified hosted versions.
 
@@ -14,7 +14,7 @@ processes on a single host — starting, stopping, health-checking, configuring,
 auto-updating them through goal-state reconciliation — while an in-process plugin
 (`Quasar.Agent`) attaches to each server to report telemetry and execute commands.
 
-It runs on **Linux** (systemd service) and **Windows** (Scheduled Task), in
+It runs on **Linux** (systemd service) and **Windows** (native main and updater services), in
 foreground console or unattended background mode.
 
 Each server uses the **[Magnetar](https://github.com/CometWorks/magnetar)** plugin loader and launcher.
@@ -31,6 +31,9 @@ Quasar UI plugins are discovered and managed through [QuasarHub](https://github.
 
 See the [Quick Start](Docs/QuickStart.md) guide to download a release, run Quasar
 from the terminal, install it as a background service, or run the GHCR image.
+For guided service installation, extract the platform package and open
+**Install.cmd** (Windows UAC) or **Install.desktop** (Linux polkit). See
+[installation](Docs/Installation.md) for manual options and migration.
 <!-- END packaged install instructions -->
 
 Viewers have read-only access to every built-in Control Plane page. Editing,
@@ -42,21 +45,24 @@ Private LAN access bypasses sign-in by default, including `192.168.x.x`, `10.x.x
 LAN access** on Security to opt out; an explicit `AllowSameSubnet: false` disables it.
 See [trusted-network configuration](Docs/Configuration.md#reverse-proxy-auth).
 
-Run `Quasar --rollback` from the install directory to restore the previous healthy
-UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
+Run `Quasar --rollback` from the install directory to restore the previous complete
+application release retained by the native updater. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
 
 ## Documentation
 
 | Page | What it covers |
 | --- | --- |
-| [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Scheduled Task). |
+| [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Windows Services). |
 | [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
+| [World import](Docs/WorldImport.md) | Direct folder/ZIP import to existing servers, Worlds page, configuration choices and safety limits. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Hosted panel](Docs/HostedPanel.md) | Optional Nebula enrollment, public path URLs, connector lifecycle and current launch gates. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, headless mode, browser behavior, and optional instance health notifications. |
 | [Server directory uplink](Docs/ServerList.md) | Consent, diagnostics availability, public statistics, admin authority and directory rollout requirements. |
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |
 | [Quasar Plugin System](Docs/QuasarPluginSystem.md) | Planned UI plugin loader, hub manifest model, component replacement points, companion data channel, and UI migration compatibility. |
+| [Browser SDK](Docs/QuasarBrowserSdk.md) | Protected plugin/core operations, binary streams, subscriptions and editable authorization rules. |
+| [Direct transport development](Docs/QuasarWebRtc.md) | Authenticated WebRTC setup, browser-session ownership, hosting leases and pending direct-data/packaging gates. |
 | [Entity Viewer](https://github.com/CometWorks/viewer/blob/main/Docs/EntityViewer.md) | Fullscreen metadata-only entity viewer, local Space Engineers `Content` folder requirement, and fallback behavior. |
 | [Diagnostic Consent & Upload](Docs/DiagnosticsUplink.md) | Separate statistics/report/dump consent, configurable storage paths, central upload configuration, durable queues and host leases. |
 | [CometWorks announcements](Docs/Announcements.md) | Consent-gated operational notices in the existing bell, page, browser push and headless service logs; delivery and withdrawal limits. |
@@ -67,11 +73,13 @@ UI release retained by Bootstrap. See [command-line rollback](Docs/LinuxDeployme
 | [Guided Cluster Setup](Docs/ClusterGuidedSetupPlan.md) | Machine enrollment, local/SSH/command installation, automatic provisioning and release prerequisites. |
 | [Cluster Terminology](Docs/ClusterTerminology.md) | Terminology occurrences and continuity findings across cluster setup, hosts, controls and contracts. |
 | [Cluster Health Overview](Docs/ClusterOverview.md) | Live cluster topology, resource readings, service addresses and grouped controls. |
-| [Cluster Conversion](Docs/ClusterConversion.md) | Guided standalone/cluster conversion, backups, resume and plugin configuration limits. |
+| [Cluster Conversion](Docs/ClusterConversion.md) | One-click standalone-to-cluster conversion, reverse conversion, backups and resume. |
+| [Client Diagnostics](Docs/ClientDiagnostics.md) | F11 diagnostics, secure mod messages and leased Manager rotation publications. |
+| [Offline partitions and compensation](Docs/ClusterOfflineCompensation.md) | Profile readiness, predictions, shared power/fuel/production/zone accounting and rate-cache administration. |
 | [Cluster Plugins](Docs/ClusterPlugins.md) | One-server plugin/config consistency, Agent monitoring, existing SDK compatibility and remaining integration work. |
 | [Cluster Content Updates Plan](https://git.cometworks.se/CometWorks/clustering-plan/src/branch/main/Plan/ClusterContentUpdatesPlan.md) | Proposed Workshop byte pinning, scheduled mod/plugin notices, explicit maintenance updates and compatible rollovers including World Authority. |
 | [Linux Deployment & Updates](Docs/LinuxDeploymentAndUpdates.md) | systemd install, release assets, and the auto-updater flow. |
-| [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Scheduled Task install, release assets, and the auto-updater flow. |
+| [Windows Deployment & Updates](Docs/WindowsDeploymentAndUpdates.md) | Windows Services install, migration, release assets, and the auto-updater flow. |
 | [State Machine Diagrams](Docs/StateMachines/Index.md) | Object states and state machines (server lifecycle, agent connection, self-update, runtime provisioning, backups, …) as Mermaid + PNG. |
 | [Admin handbook](skills/quasar-book/TOC.md) | Task-oriented handbook for server admins, written from the code: install, servers, plugins, updates, backups, clusters, troubleshooting. Also an AI skill (`quasar-book`), used by the Clangy support bot. |
 
@@ -79,13 +87,23 @@ Entity Viewer companion plugins can now discover connected servers through
 `IQuasarCompanionChannel.GetConnectedServers()` and collect recording batches in
 background hosted services without an open browser. Stable server IDs are paired
 with current agent IDs. Cluster nodes use separate incarnation IDs, which can be
-passed directly back to the companion channel. The Entity Viewer owns replay contracts, capture,
+passed directly back to the companion channel. Discovery also includes explicit
+cluster IDs, configured cluster display names and stable slots so the viewer can
+present one logical server and apply recording controls across all its nodes. The Entity Viewer owns replay contracts, capture,
 24-hour storage, admin-only history endpoints, and playback; Quasar core supplies
 server discovery and the existing companion request transport. Install matching
 Quasar and Entity Viewer revisions to enable continuous history collection.
 
 Quasar and UI plugin automatic updates are separately opt-in on **Updates** and
-**UI Plugins**. Automatic Quasar application coordinates UI and Bootstrap releases;
-plugin updates can restart the worker after a successful build. Administrators can
+**UI Plugins**. Automatic Quasar updates replace the unified application through its native updater;
+plugin updates can restart Quasar after a successful build. Administrators can
 opt into UI plugin notices on **Notifications**. See
 [automatic update configuration](Docs/Configuration.md#automatic-quasar-and-ui-plugin-updates).
+
+Application releases now contain the UI and supervisor together, with an external native updater. See [updates and migration](Docs/QuasarUpdates.md) before upgrading an older Bootstrap/Scheduled Task installation.
+
+**Required migration release: 1.4.1.** Install and successfully start its complete
+package before moving to 1.5 or later. See [upgrade order and migration](Docs/QuasarUpdates.md#required-141-migration-before-15).
+
+[Quasar 1.5 release preparation](Docs/ReleaseNotes1.5.md) describes package changes,
+validation gates and the required 1.4.1 upgrade path.

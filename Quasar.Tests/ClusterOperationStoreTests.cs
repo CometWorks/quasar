@@ -8,6 +8,49 @@ namespace Quasar.Tests;
 public sealed class ClusterOperationStoreTests
 {
     [Fact]
+    public async Task RecentOperationsNotifyAfterPublicationAndRemainScopedAfterReload()
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "quasar-recent-operations-" + Guid.NewGuid());
+        var finish = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var published = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            var store = new ClusterOperationStore(directory);
+            var states = new List<ClusterOperationState>();
+            store.Changed += () =>
+            {
+                if (store.GetRecent(["DEMO"], 1).FirstOrDefault() is { } operation)
+                {
+                    states.Add(operation.State);
+                    if (operation.State == ClusterOperationState.Running) published.TrySetResult();
+                }
+            };
+            var running = store.ExecuteAsync("demo", "cluster.save-all", "save", "admin", "request", async _ =>
+            {
+                await finish.Task;
+                return new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "saved");
+            }, default);
+            await published.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(ClusterOperationState.Running, Assert.Single(store.GetRecent(["demo"], 5)).State);
+            await store.ExecuteAsync("other", "cluster.save-all", "save", "admin", "request",
+                _ => Task.FromResult(new AdminEnvelope<string>(1, DateTimeOffset.UtcNow, "saved")), default);
+            Assert.Equal("demo", Assert.Single(store.GetRecent(["demo"], 5)).Cluster);
+            finish.SetResult();
+            await running;
+            Assert.Contains(ClusterOperationState.Running, states);
+            Assert.Equal(ClusterOperationState.Succeeded, states.Last());
+            var reloaded = new ClusterOperationStore(directory);
+            Assert.Equal(ClusterOperationState.Succeeded, Assert.Single(reloaded.GetRecent(["DEMO"], 5)).State);
+            Assert.Empty(reloaded.GetRecent(["unknown"], 5));
+        }
+        finally
+        {
+            finish.TrySetResult();
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+        }
+    }
+
+    [Fact]
     public void OldTerminalRecordsArePrunedAtStartupExceptTheNewestOfAKind()
     {
         string directory = Path.Combine(Path.GetTempPath(), "quasar-cluster-operation-" + Guid.NewGuid());

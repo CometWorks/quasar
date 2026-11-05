@@ -33,13 +33,6 @@
                      Variant="Variant.Outlined">
                 @GetDotNetSdkChipText()
             </MudChip>
-            <MudButton Variant="Variant.Outlined"
-                       Color="Color.Warning"
-                       StartIcon="@Icons.Material.Filled.RestartAlt"
-                       Disabled="@(!IsRestartAvailable || _restartRequested)"
-                       OnClick="RestartQuasarAsync">
-                Restart Quasar
-            </MudButton>
         </div>
     </div>
 
@@ -60,10 +53,7 @@
                 </div>
                 @if (DotNetSdkInstallerBusy)
                 {
-                    <div class="quasar-layout quasar-gap-1">
-                        <p class="quasar-text quasar-type-body2">Downloading and verifying the private .NET SDK...</p>
-                        <MudProgressLinear Indeterminate="true" Color="Color.Warning" />
-                    </div>
+                    <QuasarOperationLoader Title="Installing private .NET SDK" Message="Downloading and verifying the private .NET SDK." />
                 }
                 @if (_lastDotNetSdkInstallResult is not null)
                 {
@@ -190,8 +180,20 @@
                                OnClick="RefreshHubCatalogAsync">
                         @(_hubRefreshing ? "Refreshing..." : "Refresh Hub")
                     </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               Disabled="@(!CanRestart)"
+                               OnClick="RestartQuasarAsync">
+                        Restart Quasar
+                    </MudButton>
                 </div>
             </div>
+
+            @if (!IsRestartAvailable)
+            {
+                <p class="quasar-muted quasar-caption">@WebOptions.RestartCapability.Detail @WebOptions.RestartCapability.Repair</p>
+            }
 
             @if (!string.IsNullOrWhiteSpace(HubCatalog.LastError))
             {
@@ -200,6 +202,10 @@
                 </MudAlert>
             }
 
+            @if (HubOperationInProgress)
+            {
+                <QuasarOperationLoader Title="Applying UI plugin change" Message="Applying the selected plugin change. Installation can include downloading and building source files." />
+            }
             <div class="ui-plugin-hub-filter-row">
                 <label class="quasar-field ui-plugin-search-field"><span>Search hub</span>
                     <input type="search" @bind="_hubSearch" @bind:event="oninput" />
@@ -207,7 +213,7 @@
                 <a class="quasar-button ui-plugin-hub-open-button" href="https://github.com/CometWorks/quasar-hub" target="_blank" rel="noopener noreferrer"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />Open Hub</a>
             </div>
             <label class="quasar-check"><input type="checkbox" checked="@UpdateOptions.AutoUpdateUiPlugins" disabled="@_savingUpdatePolicy" @onchange="SetAutomaticPluginUpdatesAsync" />Automatically update installed UI plugins and restart Quasar</label>
-            <p class="quasar-muted quasar-caption">Applies to enabled catalog plugins after scheduled checks. Requires Bootstrap; safe boot pauses automatic plugin updates. Running game servers stay online. Configure update notices on the <a href="notifications">Notifications page</a>.</p>
+            <p class="quasar-muted quasar-caption">Applies to enabled catalog plugins after scheduled checks. Requires verified native services or legacy Bootstrap; safe boot pauses automatic plugin updates. Running game servers stay online. Configure update notices on the <a href="notifications">Notifications page</a>.</p>
 
             @if (HubEntries.Count == 0)
             {
@@ -604,7 +610,9 @@
 
     private bool SafeModeMarkerExists => File.Exists(SafeModeMarkerPath);
 
-    private bool IsRestartAvailable => !string.IsNullOrWhiteSpace(WebOptions.LauncherToken);
+    private bool IsRestartAvailable => WebOptions.RestartCapability.CanRestart;
+    private bool CanRestart => IsRestartAvailable && HubCatalog.RestartRequired && !_restartRequested
+        && !HubOperationInProgress && !DotNetSdkInstallerBusy;
 
     private IReadOnlyList<QuasarUiPluginHubEntry> HubEntries => HubCatalog.GetEntries();
 
@@ -692,9 +700,10 @@
     {
         if (!IsRestartAvailable)
         {
-            Snackbar.Add("Quasar is not running under Bootstrap, so restart is not available from the UI.", Severity.Warning);
+            Snackbar.Add(WebOptions.RestartCapability.Detail + " " + WebOptions.RestartCapability.Repair, Severity.Warning);
             return;
         }
+        if (!CanRestart) return;
 
         _restartRequested = true;
         await InvokeAsync(StateHasChanged);
@@ -719,6 +728,8 @@
         catch (Exception exception)
         {
             _restartRequested = false;
+            try { await JS.InvokeVoidAsync("quasarConfigs.clearRestartFeedback"); }
+            catch (JSException) { }
             Snackbar.Add($"Failed restarting Quasar: {exception.Message}", Severity.Error);
         }
     }

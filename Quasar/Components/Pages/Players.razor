@@ -188,12 +188,34 @@
                         {
                             <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="clusterPermissionContext">
                                 <MudTooltip Text="Cluster player actions">
-                                    <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert" Disabled="@(!context.CanModerate)"
+                                    <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert" AriaLabel="Cluster player actions"
                                              OpenChanged="@(open => _menuOpen = open)" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                        @if (context.ModerationUnavailableReason is { } reason)
+                                        {
+                                            <p class="quasar-text quasar-type-caption pa-3" role="status">@reason</p>
+                                        }
+                                        <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                                        @foreach (var promoteLevel in PromoteLevels)
+                                        {
+                                            <MudMenuItem Disabled="@(!context.CanRunClusterAction("set-player-promotion") || IsCurrentPromoteLevel(context.Record, promoteLevel))"
+                                                         OnClick="@(() => SetClusterPlayerPromotionAsync(context, promoteLevel))">@promoteLevel</MudMenuItem>
+                                        }
+                                        <hr class="quasar-divider" />
                                         <MudMenuItem Disabled="@(!context.IsOnline || !context.CanRunClusterAction("kick"))"
                                                      OnClick="@(() => SendClusterPlayerCommandAsync(context, "kick"))">Kick</MudMenuItem>
+                                        <MudMenuItem Disabled="@(!context.IsKickCooldownActive || !context.CanRunClusterAction("clear-kick-cooldown"))"
+                                                     OnClick="@(() => SendClusterPlayerCommandAsync(context, "clear-kick-cooldown"))">Clear kick cooldown</MudMenuItem>
                                         <MudMenuItem Disabled="@(!context.CanRunClusterAction(context.Record.IsBanned ? "unban" : "ban"))"
                                                      OnClick="@(() => SendClusterPlayerCommandAsync(context, context.Record.IsBanned ? "unban" : "ban"))">@(context.Record.IsBanned ? "Unban" : "Ban")</MudMenuItem>
+                                        @if (context.ClusterSnapshot?.Capabilities?.Operations.Contains(ClusterOperation("set-player-promotion")) != true
+                                            || context.ClusterSnapshot?.Capabilities?.Operations.Contains(ClusterOperation("clear-kick-cooldown")) != true)
+                                        {
+                                            <p class="quasar-text quasar-type-caption pa-3">This Gateway does not advertise cluster role changes or kick cooldown clearing. Update the cluster to enable these actions.</p>
+                                        }
+                                        else if (context.ClusterSnapshot.Moderation?.Promotions is null)
+                                        {
+                                            <p class="quasar-text quasar-type-caption pa-3" role="status">@(context.ClusterSnapshot.Moderation?.PromotionError ?? "Waiting for World Authority promotion state.")</p>
+                                        }
                                     </MudMenu>
                                 </MudTooltip>
                             </AuthorizeView>
@@ -204,28 +226,32 @@
                         <MudTooltip Text="Player actions">
                             <MudMenu Dense="true"
                                      Icon="@Icons.Material.Filled.MoreVert"
-                                     Disabled="@(!context.CanModerate)"
+                                     AriaLabel="Player actions"
                                      OpenChanged="@(open => _menuOpen = open)"
                                      AnchorOrigin="Origin.BottomRight"
                                      TransformOrigin="Origin.TopRight">
+                                @if (context.ModerationUnavailableReason is { } reason)
+                                {
+                                    <p class="quasar-text quasar-type-caption pa-3" role="status">@reason</p>
+                                }
                                 <MudMenuItem Disabled="true">Set role</MudMenuItem>
                                 @foreach (var promoteLevel in PromoteLevels)
                                 {
-                                    <MudMenuItem Disabled="@IsCurrentPromoteLevel(context.Record, promoteLevel)"
+                                    <MudMenuItem Disabled="@(!context.CanModerate || IsCurrentPromoteLevel(context.Record, promoteLevel))"
                                                  OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.SetPlayerPromoteLevel, promoteLevel))">
                                         @promoteLevel
                                     </MudMenuItem>
                                 }
                                 <hr class="quasar-divider" />
-                                <MudMenuItem Disabled="@(!context.IsOnline)"
+                                <MudMenuItem Disabled="@(!context.CanModerate || !context.IsOnline)"
                                              OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.KickPlayer))">
                                     Kick
                                 </MudMenuItem>
-                                <MudMenuItem Disabled="@(!context.IsKickCooldownActive)"
+                                <MudMenuItem Disabled="@(!context.CanModerate || !context.IsKickCooldownActive)"
                                              OnClick="@(() => SendPlayerCommandAsync(context, ServerCommandType.ClearKickCooldown))">
                                     Clear kick cooldown
                                 </MudMenuItem>
-                                <MudMenuItem OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
+                                <MudMenuItem Disabled="@(!context.CanModerate)" OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? ServerCommandType.UnbanPlayer : ServerCommandType.BanPlayer))">
                                     @(context.Record.IsBanned ? "Unban" : "Ban")
                                 </MudMenuItem>
                             </MudMenu>
@@ -385,7 +411,9 @@
                             ClusterSnapshot = clusterSnapshot,
                             ClusterClient = clusterSnapshot?.Available == true
                                 ? clusterSnapshot.Clients.FirstOrDefault(client => client.ClientId == (ulong)record.SteamId) : null,
-                            KickCooldownExpiresUtc = record.IsCluster ? null : kickCooldownExpiresUtc,
+                            KickCooldownExpiresUtc = record.IsCluster
+                                ? clusterSnapshot?.Available == true ? clusterSnapshot.Moderation?.KickCooldowns.FirstOrDefault(kick => kick.UserId == (ulong)record.SteamId)?.ExpiresAt : null
+                                : kickCooldownExpiresUtc,
                             ConfiguredServerName = record.IsCluster ? cluster?.DisplayName : configuredServerName,
                         };
                     })
@@ -553,25 +581,41 @@
                 }
             }
 
-            private async Task SendClusterPlayerCommandAsync(KnownPlayerView view, string action)
+            private Task SendClusterPlayerCommandAsync(KnownPlayerView view, string action) =>
+                SendClusterPlayerCommandCoreAsync(view, action, null);
+
+            private Task SetClusterPlayerPromotionAsync(KnownPlayerView view, string level) =>
+                SendClusterPlayerCommandCoreAsync(view, "set-player-promotion", level);
+
+            private async Task SendClusterPlayerCommandCoreAsync(KnownPlayerView view, string action, string? level)
             {
                 if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
                 var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
                 var cluster = Clusters.GetCluster(view.Record.UniqueName);
-                if (cluster is null || !user.CanQueryCluster(cluster.UniqueName)
-                    || !view.CanRunClusterAction(action)) return;
-                var type = action == "kick" ? ServerCommandType.KickPlayer : ServerCommandType.BanPlayer;
-                if (action != "unban" && !await ConfirmPlayerCommandAsync(view, type)) return;
+                if (!view.Record.IsCluster || cluster is null || !user.CanQueryCluster(cluster.UniqueName)) return;
+                if (!CanSendClusterPlayerCommand(view, action)) return;
+                Admin.SetPlayerPromotionRequest? promotion = null;
+                if (action == "set-player-promotion")
+                {
+                    if (!PromoteLevels.Contains(level) || !Enum.TryParse<Admin.PlayerPromotionLevel>(level, out var parsed)) return;
+                    promotion = new(parsed, ClusterPlayers.GetSnapshot(cluster.UniqueName)!.Moderation!.Promotions!
+                        .FirstOrDefault(entry => entry.UserId == (ulong)view.Record.SteamId)?.Revision ?? 0);
+                }
+                var type = action switch
+                {
+                    "kick" => ServerCommandType.KickPlayer,
+                    "set-player-promotion" => ServerCommandType.SetPlayerPromoteLevel,
+                    _ => ServerCommandType.BanPlayer,
+                };
+                if (action is "kick" or "ban" or "set-player-promotion" && !await ConfirmPlayerCommandAsync(view, type, level)) return;
                 try
                 {
                     if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)) return;
                     user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
                     if (!user.CanQueryCluster(cluster.UniqueName)) return;
-                    var snapshot = ClusterPlayers.GetSnapshot(cluster.UniqueName);
-                    if (snapshot?.CanRun(ClusterOperation(action)) != true) return;
-                    if (action == "kick" && !snapshot.Clients.Any(client => client.ClientId == (ulong)view.Record.SteamId)) return;
+                    if (!CanSendClusterPlayerCommand(view, action)) return;
                     var operation = await ClusterCommands.SubmitAsync(cluster.UniqueName,
-                        ClusterAdminCommand.Create(action, target: view.Record.SteamId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+                        ClusterAdminCommand.Create(action, promotion, target: view.Record.SteamId.ToString(System.Globalization.CultureInfo.InvariantCulture)),
                         Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", CancellationToken.None);
                     Snackbar.Add(operation.Error?.Message ?? $"Cluster player {action}: {operation.State}.",
                         operation.State == ClusterOperationState.Failed ? Severity.Error : Severity.Info);
@@ -579,17 +623,51 @@
                 catch (Exception error) { Snackbar.Add(error.Message, Severity.Error); }
             }
 
+            private bool CanSendClusterPlayerCommand(KnownPlayerView view, string action)
+            {
+                var snapshot = ClusterPlayers.GetSnapshot(view.Record.UniqueName);
+                if (snapshot?.CanRun(ClusterOperation(action)) != true
+                    || action == "set-player-promotion" && snapshot.Moderation?.Promotions is null
+                    || action == "clear-kick-cooldown" && snapshot.Moderation?.KickCooldowns.Any(kick => kick.UserId == (ulong)view.Record.SteamId && kick.ExpiresAt > DateTimeOffset.UtcNow) != true)
+                {
+                    Snackbar.Add(ClusterModerationUnavailableReason(snapshot)
+                        ?? "This player action is not supported by the cluster Gateway.", Severity.Warning);
+                    return false;
+                }
+                if (action == "kick" && !snapshot.Clients.Any(client => client.ClientId == (ulong)view.Record.SteamId))
+                {
+                    Snackbar.Add("This player is no longer connected to the cluster.", Severity.Warning);
+                    return false;
+                }
+                return true;
+            }
+
+            private static string? ClusterModerationUnavailableReason(ClusterPlayerSnapshot? snapshot) => snapshot switch
+            {
+                null => "Waiting for cluster player status.",
+                { Error: { } error } => error,
+                { Available: false } => "Cluster player status is stale. Wait for a fresh Gateway connection.",
+                { Capabilities.Scope: not Admin.AdminScope.Manage } => "The cluster Gateway credential needs management scope for player actions.",
+                _ when snapshot.Capabilities is null => "Cluster Gateway capabilities are unavailable.",
+                _ when !snapshot.CanRun(ClusterOperation("kick")) && !snapshot.CanRun(ClusterOperation("ban"))
+                    && !snapshot.CanRun(ClusterOperation("unban")) => "This cluster Gateway does not support player actions.",
+                _ => null,
+            };
+
             private static string ClusterOperation(string action) => action switch
             {
                 "kick" => "POST /admin/v1/clients/{id}/kick",
                 "ban" => "POST /admin/v1/admission/bans",
                 "unban" => "DELETE /admin/v1/admission/bans/{userId}",
+                "set-player-promotion" => "PUT /admin/v1/players/{userId}/promotion",
+                "clear-kick-cooldown" => "DELETE /admin/v1/admission/kicks/{userId}",
                 _ => string.Empty,
             };
 
             private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
             {
                 if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
+                if (view.Record.IsCluster) return;
                 if (view.Agent is null)
                 {
                     Snackbar.Add($"Server '{view.Record.UniqueName}' is not connected.", Severity.Error);
@@ -605,17 +683,25 @@
                 try
                 {
                     if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-                    await Registry.SendCommandAsync(new ServerCommandEnvelope
+                    var agent = Registry.GetAgents().FirstOrDefault(agent => agent.AgentId == view.Agent.AgentId
+                        && !agent.IsCluster && agent.IsConnected
+                        && string.Equals(agent.UniqueNameKey, view.Record.UniqueName, StringComparison.OrdinalIgnoreCase));
+                    if (agent is null)
                     {
-                        UniqueName = view.Agent.UniqueNameKey,
-                        AgentId = view.Agent.AgentId,
-                        ServerId = view.Agent.ServerKey,
+                        Snackbar.Add($"Server '{view.Record.UniqueName}' is not connected.", Severity.Error);
+                        return;
+                    }
+                    var result = await Registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
+                    {
+                        UniqueName = agent.UniqueNameKey,
+                        AgentId = agent.AgentId,
+                        ServerId = agent.ServerKey,
                         CommandType = commandType,
                         Text = text,
                         SteamId = view.Record.SteamId,
-                    });
+                    }, TimeSpan.FromSeconds(15));
 
-                    Snackbar.Add($"{commandType} sent for {GetPlayerName(view.Record)} ({view.Record.SteamId}).", Severity.Info);
+                    Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Error);
                 }
                 catch (Exception exception)
                 {
@@ -623,12 +709,13 @@
                 }
             }
 
-            private async Task<bool> ConfirmPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType)
+            private async Task<bool> ConfirmPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string? level = null)
             {
                 var action = commandType switch
                 {
                     ServerCommandType.KickPlayer => "Kick",
                     ServerCommandType.BanPlayer => "Ban",
+                    ServerCommandType.SetPlayerPromoteLevel => $"Set role to {level}",
                     _ => commandType.ToString(),
                 };
                 var playerName = GetPlayerName(view.Record);
@@ -760,7 +847,8 @@
                 public bool IsOnline => OnlinePlayer is not null || ClusterClient is not null;
                 public string ServerFilterKey => (Record.IsCluster ? "cluster::" : "") + NormalizeFilterValue(Record.UniqueName);
                 public bool CanRunClusterAction(string action) => Cluster is not null
-                    && ClusterSnapshot?.CanRun(ClusterOperation(action)) == true;
+                    && ClusterSnapshot?.CanRun(ClusterOperation(action)) == true
+                    && (action != "set-player-promotion" || ClusterSnapshot.Moderation?.Promotions is not null);
 
                 public bool IsKickCooldownActive => KickCooldownExpiresUtc is { } expires && expires > DateTimeOffset.UtcNow;
 
@@ -773,6 +861,10 @@
                 public bool CanModerate => Record.IsCluster
                     ? CanRunClusterAction("kick") || CanRunClusterAction("ban") || CanRunClusterAction("unban")
                     : Agent?.IsConnected == true;
+
+                public string? ModerationUnavailableReason => Record.IsCluster
+                    ? Cluster is null ? "This cluster is no longer configured." : ClusterModerationUnavailableReason(ClusterSnapshot)
+                    : Agent?.IsConnected == true ? null : $"Server '{Record.UniqueName}' is not connected.";
 
                 public string ServerDisplayName => !string.IsNullOrWhiteSpace(ConfiguredServerName)
                     ? ConfiguredServerName

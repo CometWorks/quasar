@@ -779,7 +779,18 @@ internal static class DeploymentSelfTest
             string record = Path.Combine(state, "detached/20261031000000000-gone"), other = Path.Combine(state, "detached/20261031000000000-not-gone");
             Directory.CreateDirectory(record);
             Directory.CreateDirectory(other);
+            Directory.CreateDirectory(Path.Combine(state, "launch-records"));
+            string launch = Path.Combine(state, "launch-records/a.json"), liveLaunch = Path.Combine(state, "launch-records/b.json");
+            byte[] Launch(string cluster) => JsonSerializer.SerializeToUtf8Bytes(new LaunchRecord(1, cluster, "node-1", "a", null, null, null, "r", "s",
+                "/x", "s", "/run", null, null, DateTimeOffset.UtcNow, LaunchStatus.Failed, "exited"), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            File.WriteAllBytes(launch, Launch("gone"));
+            File.WriteAllBytes(liveLaunch, Launch("live"));
+            Directory.CreateDirectory(Path.Combine(state, "gateway-launch-records"));
+            string gatewayLaunch = Path.Combine(state, "gateway-launch-records", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes("gone")) + ".json");
+            File.WriteAllBytes(gatewayLaunch, JsonSerializer.SerializeToUtf8Bytes(new GatewayLaunchRecord(1, "gone", "r", "s", "c",
+                "/x", "s", "/run", [], null, null, DateTimeOffset.UtcNow, GatewayLaunchStatus.Stopped, null), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
             string[] removed = activation.ReleaseDeleted("gone", [deleted, foreign, Path.Combine(deleted, "runtime"), conversions]);
+            Assert(!File.Exists(launch) && !File.Exists(gatewayLaunch) && File.Exists(liveLaunch), "release removed the wrong launch records");
             Assert(removed.SequenceEqual([deleted]) && !Directory.Exists(deleted), "release did not remove the workspace, read-only directories included");
             Assert(Directory.Exists(foreign) && Directory.Exists(conversions), "release touched a directory that is no workspace");
             Assert(!Directory.Exists(snapshots) && !Directory.Exists(record) && Directory.Exists(other), "release removed the wrong records");

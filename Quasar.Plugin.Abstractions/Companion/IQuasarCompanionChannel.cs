@@ -22,4 +22,11 @@ public interface IQuasarCompanionChannel
         CancellationToken cancellationToken);
 }
 
-public sealed record QuasarCompanionServer(string ServerId, string AgentId, string DisplayName);
+public sealed record QuasarCompanionServer(string ServerId, string AgentId, string DisplayName)
+{
+    /// <summary>Logical cluster identity for grouping; never a companion request target.</summary>
+    public string ClusterId { get; init; } = string.Empty;
+    public string ClusterDisplayName { get; init; } = string.Empty;
+    /// <summary>Stable slot within the cluster, shared by replacement node incarnations.</summary>
+    public string ClusterSlot { get; init; } = string.Empty;
+}

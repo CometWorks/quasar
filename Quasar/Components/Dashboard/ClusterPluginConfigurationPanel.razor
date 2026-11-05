@@ -60,12 +60,12 @@
     }
     private string PluginDisplayName(string pluginId)
     {
+        if (pluginId.Equals("direct-transport", StringComparison.OrdinalIgnoreCase)) return "Cluster networking";
         string? name = Profiles.GetProfile(Current.ConfigProfileId)?.Plugins
             .FirstOrDefault(plugin => plugin.PluginId.Equals(pluginId, StringComparison.OrdinalIgnoreCase))?.DisplayName;
         if (!string.IsNullOrWhiteSpace(name)) return name;
         return pluginId switch
         {
-            "direct-transport" => "Direct Transport",
             "dotnet-compat" => ".NET Compatibility",
             "linux-compat" => "Linux Compatibility",
             "quasar-agent" => "Quasar Agent",

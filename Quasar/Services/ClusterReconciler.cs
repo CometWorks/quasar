@@ -29,7 +29,7 @@ public sealed class ClusterReconciler : BackgroundService
     public ClusterReconcileStatus GetStatus(string uniqueName) =>
         _status.GetValueOrDefault(uniqueName)
         ?? new(uniqueName, DedicatedServerGoalState.Off, ClusterReconcileState.Pending,
-            null, null, DateTimeOffset.UtcNow, null, "Waiting for the first reconcile pass.");
+            null, null, DateTimeOffset.UtcNow, null, "Waiting for Quasar's first automatic cluster check.");
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -49,39 +49,49 @@ public sealed class ClusterReconciler : BackgroundService
 
     internal async Task ReconcileAllAsync(CancellationToken cancellationToken)
     {
-        foreach (ClusterDefinition cluster in _catalog.GetClusters())
+        foreach (var cluster in _catalog.GetClusters())
+            await ReconcileNowAsync(cluster.UniqueName, cancellationToken);
+    }
+
+    // Uses the same lifecycle gate and clean-stop proof as the background loop.
+    // Null means a backup, deployment or another reconcile pass currently owns the gate.
+    internal async Task<ClusterReconcileStatus?> ReconcileNowAsync(string uniqueName, CancellationToken cancellationToken)
+    {
+        var cluster = _catalog.GetCluster(uniqueName);
+        if (cluster is null)
+            return null;
+        try
         {
-            try
-            {
-                await _catalog.TryWithLifecycleAsync(cluster.UniqueName,
-                    current => ReconcileAsync(current, cancellationToken), cancellationToken);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (ClusterGatewayException exception)
-            {
-                Failed(cluster, exception.Code, exception.Message);
-            }
-            catch (ClusterHostException exception)
-            {
-                Failed(cluster, exception.Code, exception.Message);
-            }
-            catch (ClusterOperationConflictException exception)
-            {
-                Failed(cluster, exception.Code, exception.Message);
-            }
-            catch (ClusterOperationStoreUnavailableException exception)
-            {
-                Failed(cluster, "operation_store_unavailable", exception.Message);
-            }
-            catch (Exception exception)
-            {
-                Failed(cluster, "reconcile_failed", exception.Message);
-                _logger.LogWarning(exception, "Cluster {Cluster} reconciliation failed.", cluster.UniqueName);
-            }
+            if (!await _catalog.TryWithLifecycleAsync(cluster.UniqueName,
+                current => ReconcileAsync(current, cancellationToken), cancellationToken))
+                return null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (ClusterGatewayException exception)
+        {
+            Failed(cluster, exception.Code, exception.Message);
+        }
+        catch (ClusterHostException exception)
+        {
+            Failed(cluster, exception.Code, exception.Message);
+        }
+        catch (ClusterOperationConflictException exception)
+        {
+            Failed(cluster, exception.Code, exception.Message);
+        }
+        catch (ClusterOperationStoreUnavailableException exception)
+        {
+            Failed(cluster, "operation_store_unavailable", exception.Message);
+        }
+        catch (Exception exception)
+        {
+            Failed(cluster, "reconcile_failed", exception.Message);
+            _logger.LogWarning(exception, "Cluster {Cluster} reconciliation failed.", cluster.UniqueName);
+        }
+        return GetStatus(uniqueName);
     }
 
     private async Task ReconcileAsync(ClusterDefinition cluster, CancellationToken cancellationToken)

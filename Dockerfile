@@ -9,12 +9,12 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/* \
     && case "$QUASAR_VERSION" in ''|*[!0-9A-Za-z.-]*) echo "Invalid QUASAR_VERSION" >&2; exit 1;; esac \
     && release_url="https://github.com/CometWorks/quasar/releases/download/v${QUASAR_VERSION}" \
-    && curl -fsSL "$release_url/quasar-web-linux-x64.tar.gz" -o /tmp/quasar-web-linux-x64.tar.gz \
+    && curl -fsSL "$release_url/quasar-linux-x64.tar.gz" -o /tmp/quasar-linux-x64.tar.gz \
     && curl -fsSL "$release_url/SHA256SUMS" -o /tmp/SHA256SUMS \
     && cd /tmp \
-    && grep ' quasar-web-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict - \
+    && grep ' quasar-linux-x64.tar.gz$' SHA256SUMS | sha256sum --check --strict - \
     && mkdir /opt/quasar \
-    && tar -xzf quasar-web-linux-x64.tar.gz -C /opt/quasar
+    && tar -xzf quasar-linux-x64.tar.gz -C /opt/quasar --strip-components=1
 
 # The SDK is intentional: Quasar compiles reviewed UI plugin sources on demand.
 FROM mcr.microsoft.com/dotnet/sdk:10.0

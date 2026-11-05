@@ -5,11 +5,29 @@ separate from Magnetar Dedicated Server plugins. The first target plugin is the
 Entity Viewer: a heavy, mostly independent UI surface that should live outside the
 Quasar core repository while still feeling native inside Quasar.
 
+The [browser SDK](QuasarBrowserSdk.md) provides protected typed JSON operations,
+binary reads, staged uploads, subscriptions, runtime endpoint authorization
+settings and a versioned browser client. All 15 viewer operations and built-in
+analytics/server-log consumers share it. Plugins declare policies with
+`AddQuasarOperation`/`AddQuasarRead`/`AddQuasarUpload`/`AddQuasarSubscription` and
+import the Quasar-owned `MapQuasarSdkClient` bridge. Authentication, CSRF, transfer
+limits and cancellation belong to Quasar; feature validation remains in the
+plugin. Administrators edit effective endpoint rules on Security; missing or
+invalid policies deny by default. Declare `browserSdkVersion: 1` and a matching
+minimum Quasar release before publication. Legacy plugins remain supported.
+WebRTC and SignalR transport migration are separate steps. The service-side
+companion channel continues independently of browser views.
+
 For clustered servers, owned companion plugins of UI plugins installed from QuasarHub
 are part of the common pinned plugin set (see below). Joining the cluster config
 revision is planned work, and so is the rule that UI extension code uses the cluster
 management boundary for shared edits rather than writing to one node Agent; see [Cluster Plugins](ClusterPlugins.md) for the Magnetar PluginSdk
 audit and the distinction between server and UI-host APIs.
+
+The **UI Plugins** page places **Restart Quasar** next to **Refresh Hub**. It
+stays disabled until an applied package, enabled-state or safe-boot marker change
+needs a restart. Available hub updates alone do not enable it. Pending changes
+are tracked for the worker lifetime, so navigating away does not clear them.
 
 ## Goals
 
@@ -401,6 +419,12 @@ the whole entities page. Their component parameters are intentionally primitive:
 - `OwnerSteamId`
 - `CanViewEntity`
 
+For a whole-cluster entity list, `AgentId` is resolved per row to a current node
+that supplied the entity, preferring its unique reported owner. `ServerName` is
+the logical cluster's display name. `EntityType` and `EntitySubType` retain their
+transport identifiers. Plugins should use the supplied agent ID rather than
+interpreting the selected server name as a node address.
+
 This lets viewer plugins render a button and open their own dialog/static asset
 route without taking a dependency on Quasar page internals. Quasar core does not
 ship a fallback browser viewer route.
@@ -675,6 +699,12 @@ public interface IQuasarCompanionChannel
         CancellationToken cancellationToken);
 }
 ```
+
+Discovery entries retain per-node `ServerId` and `AgentId` request targets and add
+`ClusterId`, `ClusterDisplayName` and `ClusterSlot` metadata. Standalone entries
+leave these fields empty. Consumers can group by explicit cluster ID and preserve
+stable slots across node replacements without parsing display names or weakening
+exact-agent routing. A logical cluster ID is not a companion request target.
 
 The channel rides on the existing Quasar.Agent WebSocket transport. Quasar sends
 `ServerCommandType.PluginRequest` to the selected agent; the command payload is a

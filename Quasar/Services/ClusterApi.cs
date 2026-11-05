@@ -1,6 +1,7 @@
 using Quasar.Models;
 using Quasar.Services.Auth;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
@@ -117,6 +118,10 @@ internal static class ClusterApi
         routes.MapGet("/{uniqueName}/config", (string uniqueName, HttpContext context,
             ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken cancellationToken) =>
             Query(uniqueName, context, catalog, client.GetPolicyAsync, cancellationToken));
+        MapRead("rotation", (c, d, t) => c.GetRotationAsync(d, t));
+        routes.MapGet("/{uniqueName}/client-diagnostics", (string uniqueName, string node, HttpContext context,
+            ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetClientDiagnosticsAsync(c, node, t), token));
         MapRead("diagnostics", (c, d, t) => c.GetDiagnosticsAsync(d, t));
         MapRead("handover-config", (c, d, t) => c.GetHandoverConfigAsync(d, t));
         MapRead("artifacts", (c, d, t) => c.GetArtifactsAsync(d, t));
@@ -128,6 +133,14 @@ internal static class ClusterApi
         MapRead("world-authority", (c, d, t) => c.GetWorldAuthorityAsync(d, t));
         MapRead("snapshots", (c, d, t) => c.GetSnapshotsAsync(d, t));
         MapRead("partitions", (c, d, t) => c.GetPartitionsAsync(d, t));
+        MapRead("offline/partitions", (c, d, t) => c.GetOfflinePartitionsAsync(d, t));
+        MapRead("offline/cache", (c, d, t) => c.GetOfflineCacheAsync(d, t));
+        routes.MapGet("/{uniqueName}/offline/details", (string uniqueName, string node, ulong partition,
+            HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+            Query(uniqueName, context, catalog, (c, t) => client.GetOfflineDetailsAsync(c, node, partition, t), token));
+        // Deliberate UI/API action. The authenticated Gateway request is prediction-only GET.
+        var predictOffline = routes.MapPost("/{uniqueName}/offline/prediction", PredictOffline);
+        predictOffline.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.ClusterMaintenance);
         MapRead("clients", (c, d, t) => c.GetClientsAsync(d, t));
         MapRead("admission/bans", (c, d, t) => c.GetBansAsync(d, t));
         MapRead("gateway-operations", (c, d, t) => c.GetOperationsAsync(d, t));
@@ -271,6 +284,7 @@ internal static class ClusterApi
         RouteHandlerBuilder createCluster = routes.MapPost("/", CreateCluster);
         RouteHandlerBuilder deleteCluster = routes.MapDelete("/{uniqueName}", DeleteCluster);
         RouteHandlerBuilder forgetCluster = routes.MapDelete("/{uniqueName}/registration", ForgetCluster);
+        RouteHandlerBuilder purgeCluster = routes.MapDelete("/{uniqueName}/retained-data", PurgeCluster);
         RouteHandlerBuilder prepareDeployment = routes.MapPost("/{uniqueName}/deployment-preparation", PrepareDeployment);
         RouteHandlerBuilder recoverCluster = routes.MapPost("/{uniqueName}/recover", (string uniqueName, ClusterRecoveryRequest request,
             HttpContext context, [FromServices] ClusterDeploymentService deployments, CancellationToken token) => RunBackup(uniqueName, context,
@@ -288,6 +302,7 @@ internal static class ClusterApi
         });
         RouteHandlerBuilder stageDependencies = routes.MapPut("/{uniqueName}/dependencies", StageDependencies);
         RouteHandlerBuilder submitCommand = routes.MapPost("/{uniqueName}/commands", SubmitCommand);
+        RouteHandlerBuilder setRotation = routes.MapPut("/{uniqueName}/rotation", SetRotation);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
         RouteHandlerBuilder setAdministration = routes.MapPut("/{uniqueName}/administration", SetAdministration);
         RouteHandlerBuilder stageProfile = routes.MapPost("/{uniqueName}/config-profile-preparation", StageProfile);
@@ -324,6 +339,7 @@ internal static class ClusterApi
             createCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deleteCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             forgetCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            purgeCluster.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             captureBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             prepareRestore.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             archiveExport.RequireAuthorization(QuasarPolicyNames.ClusterManage);
@@ -332,6 +348,7 @@ internal static class ClusterApi
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            setRotation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setAdministration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageHotSpares.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
@@ -520,6 +537,22 @@ internal static class ClusterApi
         catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Cluster was not found."); }
         catch (Exception error) when (error is InvalidOperationException or IOException)
         { return Error(409, "cluster_forget_conflict", error.Message); }
+    }
+
+    private static async Task<IResult> PurgeCluster(string uniqueName, string confirmation, HttpContext context,
+        [FromServices] ClusterPurgeService purge, CancellationToken token)
+    {
+        SetProtocolHeader(context);
+        if (!context.User.CanQueryCluster(uniqueName)) return Error(403, "cluster_forbidden", "Cluster access denied.");
+        if (!string.Equals(confirmation, uniqueName, StringComparison.Ordinal))
+            return Error(400, "confirmation_required", "Enter the exact cluster ID to purge its retained data.");
+        try { return Results.Json(Envelope(await purge.PurgeAsync(uniqueName, token)), JsonOptions); }
+        catch (KeyNotFoundException) { return Error(404, "unknown_cluster", "Nothing of this cluster ID is left to purge."); }
+        catch (ArgumentException error) { return Error(400, "invalid_cluster_id", error.Message); }
+        catch (Exception error) when (error is ClusterHostException or JsonException or InvalidDataException)
+        { return Error(409, "cluster_purge_unverified", error.Message); }
+        catch (Exception error) when (error is InvalidOperationException or IOException or UnauthorizedAccessException)
+        { return Error(409, "cluster_purge_conflict", error.Message); }
     }
 
     private static async Task<IResult> DeleteCluster(string uniqueName, HttpContext context,
@@ -774,6 +807,9 @@ internal static class ClusterApi
             return Error(404, "unknown_cluster", "Cluster was not found.");
         if (!context.User.CanQueryCluster(uniqueName))
             return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
+        if (command.RequiresAdministrator && !(await context.RequestServices.GetRequiredService<IAuthorizationService>()
+                .AuthorizeAsync(context.User, null, QuasarPolicyNames.ClusterMaintenance)).Succeeded)
+            return Error(403, "administrator_required", "Offline maintenance requires the Administrator role.");
         try
         {
             var operation = await commands.SubmitAsync(uniqueName, command,
@@ -782,7 +818,13 @@ internal static class ClusterApi
         }
         catch (ClusterOperationConflictException error) { return Error(error.StatusCode, error.Code, error.Message); }
         catch (ClusterOperationStoreUnavailableException error) { return Error(503, "operation_store_unavailable", error.Message); }
+        catch (ClusterGatewayException error) { return Error((int)error.StatusCode, error.Code, error.Message); }
     }
+
+    private static Task<IResult> PredictOffline(string uniqueName, [FromBody] ClusterOfflinePredictionRequest request,
+        HttpContext context, ClusterCatalog catalog, ClusterGatewayClient client, CancellationToken token) =>
+        Query(uniqueName, context, catalog,
+            (cluster, ct) => client.GetOfflinePredictionAsync(cluster, request.Node, request.Partition, request.Hours, ct), token);
 
     private static async Task<IResult> Query<T>(string uniqueName, HttpContext context, ClusterCatalog catalog,
         Func<ClusterDefinition, CancellationToken, Task<Admin.AdminEnvelope<T>>> query,
@@ -804,6 +846,10 @@ internal static class ClusterApi
             return Error((int)exception.StatusCode, exception.Code, exception.Message);
         }
     }
+
+    private static Task<IResult> SetRotation(string uniqueName, Admin.RotationPublication publication,
+        HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>
+        SubmitCommand(uniqueName, ClusterAdminCommand.Create("rotation-set", publication), context, catalog, commands, token);
 
     private static Task<IResult> SetPolicy(string uniqueName, Admin.AdminConfigUpdate policy,
         HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>

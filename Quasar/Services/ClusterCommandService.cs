@@ -163,6 +163,16 @@ public sealed class ClusterCommandService
                     if (_operations.HasPendingShutdown(cluster.UniqueName))
                         throw Invalid("shutdown_pending", "Wait for the pending shutdown before restarting the Gateway.");
                     route = "gateway/restart"; body = new { }; break;
+                case "rotation-set":
+                    method = "PUT"; route = "rotation";
+                    var rotation = Read<Admin.RotationPublication>();
+                    if (rotation.ExpectedRevision < 0 || string.IsNullOrWhiteSpace(rotation.Source) || rotation.Source.Length > 128
+                        || rotation.ValidUntil <= DateTimeOffset.UtcNow || rotation.ValidUntil > DateTimeOffset.UtcNow.AddMinutes(5)
+                        || rotation.Nodes is null || rotation.Nodes.Length > 4096 || !rotation.Enabled && rotation.Nodes.Length != 0
+                        || rotation.Nodes.Any(n => n is null || string.IsNullOrWhiteSpace(n.Node) || n.Epoch <= 0 || n.DueAt < DateTimeOffset.UnixEpoch)
+                        || rotation.Nodes.Select(n => n.Node).Distinct(StringComparer.Ordinal).Count() != rotation.Nodes.Length)
+                        throw Invalid("invalid_rotation", "Rotation needs a revision, a source, a lease of at most five minutes and unique incarnation-bound assignments.");
+                    body = rotation; break;
                 case "config-set":
                     method = "PUT"; route = "config";
                     var config = Read<Admin.AdminConfigUpdate>();
@@ -180,6 +190,13 @@ public sealed class ClusterCommandService
                     body = kill; break;
                 case "wa-move": route = "world-authority/move"; body = Read(new Admin.WorldAuthorityMoveRequest()); break;
                 case "kick": route = "clients/" + PlayerTarget() + "/kick"; body = Read(new Admin.KickClientRequest()); break;
+                case "set-player-promotion":
+                    method = "PUT"; route = "players/" + PlayerTarget() + "/promotion";
+                    var promotion = Read<Admin.SetPlayerPromotionRequest>();
+                    if (!Enum.IsDefined(promotion.Level) || promotion.ExpectedRevision < 0 || promotion.ExpectedRevision == long.MaxValue)
+                        throw Invalid("invalid_promotion", "Role must be None, Scripter, Moderator, SpaceMaster or Admin, with a non-negative expected revision.");
+                    body = promotion; break;
+                case "clear-kick-cooldown": method = "DELETE"; route = "admission/kicks/" + PlayerTarget(); body = new { }; break;
                 case "ban": route = "admission/bans"; body = new Admin.BanRequest(PlayerTarget()); break;
                 case "unban": method = "DELETE"; route = "admission/bans/" + PlayerTarget(); body = new { }; break;
                 case "chat":
@@ -200,18 +217,39 @@ public sealed class ClusterCommandService
                         throw Invalid("invalid_config", "Handover settings exceed supported limits.");
                     method = "PUT"; route = "handover-config"; body = values; break;
                 case "trigger":
-                    if (command.Target is not ("balance" or "save" or "split-sweep" or "membership-eval" or "conceal-eval" or "compact" or "catalog-gc" or "rotation-check"))
+                    if (command.Target is not ("balance" or "save" or "split-sweep" or "membership-eval" or "conceal-eval" or "compact" or "catalog-gc" or "rotation-check" or "profile"))
                         throw Invalid("invalid_trigger", "Unknown maintenance task.");
                     var scope = Read(new ClusterMaintenanceScope());
                     if (scope.Node?.Length > 200 || scope.Partition == 0) throw Invalid("invalid_scope", "Invalid maintenance scope.");
+                    if (command.Target == "profile")
+                    {
+                        if (string.IsNullOrWhiteSpace(scope.Node) || scope.Partition is null || scope.Unthrottled)
+                            throw Invalid("invalid_scope", "Profile requires an exact current owner and partition; unthrottled profiling is unsupported.");
+                        await _client.RequireOfflineAsync(cluster, "POST /admin/v1/triggers/{task}", token, manage: true);
+                    }
                     route = "triggers/" + command.Target + "?unthrottled=" + (scope.Unthrottled ? "true" : "false")
                         + (scope.Node is null ? "" : "&node=" + Uri.EscapeDataString(scope.Node))
                         + (scope.Partition is null ? "" : "&partition=" + scope.Partition.Value);
                     body = new { }; break;
+                case "offline-cache-clear":
+                    var clear = Read<Admin.OfflineCacheClearRequest>();
+                    if (string.IsNullOrWhiteSpace(clear.Key) || clear.Key.Length > 4096 || clear.ExpectedEpoch < 0)
+                        throw Invalid("invalid_arguments", "Cache clear requires a key of 1–4096 characters and its current nonnegative epoch.");
+                    await _client.RequireOfflineAsync(cluster, "POST /admin/v1/offline/cache/clear", token, manage: true);
+                    route = "offline/cache/clear"; body = clear; break;
                 default: throw Invalid("unsupported_command", "Unknown cluster command.");
             }
         }
         catch (JsonException error) { throw Invalid("invalid_arguments", error.Message); }
+        if (action is "set-player-promotion" or "clear-kick-cooldown")
+        {
+            await _client.GetStatusAsync(cluster, token); // Verify endpoint identity before granting privileges.
+            var capabilities = (await _client.GetCapabilitiesAsync(cluster, token)).Data;
+            string operation = action == "set-player-promotion"
+                ? "PUT /admin/v1/players/{userId}/promotion" : "DELETE /admin/v1/admission/kicks/{userId}";
+            if (capabilities.Scope != Admin.AdminScope.Manage || !capabilities.Operations.Contains(operation, StringComparer.Ordinal))
+                throw new ClusterOperationConflictException(403, "player_action_unavailable", "The cluster Gateway does not authorize or support this player action.");
+        }
         return await _operations.ExecuteGatewayAsync(cluster, "cluster." + action, method, route, body,
             idempotencyKey, actor, _client, token);
 
@@ -239,6 +277,9 @@ public sealed record ClusterGoalResult(string ClusterId,
 
 public sealed record ClusterAdminCommand(string Action, JsonElement? Parameters = null, string? Target = null)
 {
+    [JsonIgnore]
+    public bool RequiresAdministrator => Action?.Trim().ToLowerInvariant() == "offline-cache-clear"
+        || Action?.Trim().ToLowerInvariant() == "trigger" && Target == "profile";
     public static ClusterAdminCommand Create(string action, object? parameters = null, string? target = null) =>
         new(action, parameters is null ? null : JsonSerializer.SerializeToElement(parameters,
             new JsonSerializerOptions(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } }), target);

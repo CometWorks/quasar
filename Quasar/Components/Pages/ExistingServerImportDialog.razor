@@ -4,7 +4,7 @@
 <MudDialog>
     <TitleContent>
         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
-            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Close setup" />
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" Disabled="@_busy" OnClick="Cancel" title="Close setup" />
             <h2 class="quasar-text quasar-type-h6">@DialogHeading</h2>
         </div>
     </TitleContent>
@@ -20,22 +20,36 @@
             {
                 <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
             }
+            @if (_busy)
+            {
+                <QuasarOperationLoader Title="@(_step == 1 ? "Finding your server and worlds" : "Importing your server")"
+                                       Message="@(_step == 1 ? "Reading the server configuration and checking save folders. Your source files stay unchanged during discovery. Review the detected worlds and settings next." : "Rechecking the source, copying selected worlds and creating the matching configuration and stopped server. Large saves can take several minutes; keep the source server stopped and this dialog open.")" />
+            }
 
             @if (_step == -1)
             {
                 <h3 class="quasar-text quasar-type-subtitle1">How should Quasar set up its first server?</h3>
-                <p class="quasar-text quasar-type-body2">Create a fresh managed server, or bring an existing vanilla Dedicated Server or Torch instance under Quasar management.</p>
+                <p class="quasar-text quasar-type-body2">Choose a new server, or import an existing vanilla Dedicated Server or Torch instance.</p>
                 <MudGrid>
-                    <MudItem xs="12" md="6">
+                    <MudItem xs="12" md="@(OfferCluster ? 4 : 6)">
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Primary"
                                    StartIcon="@Icons.Material.Filled.AddCircle"
                                    Style="width: 100%; min-height: 88px;"
                                    OnClick="ChooseCreateNew">
-                            Create New Server
+                            Single Magnetar
                         </MudButton>
+                        <p class="quasar-text quasar-type-body2 mt-2">One dedicated server. Continue through world, profile and server setup.</p>
                     </MudItem>
-                    <MudItem xs="12" md="6">
+                    @if (OfferCluster)
+                    {
+                        <MudItem xs="12" md="4">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
+                                       Style="width: 100%; min-height: 88px;" OnClick="ChooseCluster">Cluster</MudButton>
+                            <p class="quasar-text quasar-type-body2 mt-2">One shared world across multiple nodes. Continue to guided cluster setup.</p>
+                        </MudItem>
+                    }
+                    <MudItem xs="12" md="@(OfferCluster ? 4 : 6)">
                         <MudButton Variant="Variant.Filled"
                                    Color="Color.Secondary"
                                    StartIcon="@Icons.Material.Filled.MoveToInbox"
@@ -45,7 +59,7 @@
                         </MudButton>
                     </MudItem>
                 </MudGrid>
-                <span class="quasar-text quasar-type-caption">Create New continues through Quasar's normal world, profile, server, and launch setup.</span>
+                <span class="quasar-text quasar-type-caption">Setup stays available until you explicitly finish or skip it.</span>
             }
             else if (_step == 0)
             {
@@ -234,7 +248,7 @@
         }
         else
         {
-            <MudButton Variant="Variant.Text" Color="Color.Default" Disabled="@_busy" OnClick="Cancel">Cancel</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Default" Disabled="@_busy" OnClick="Cancel">@(_step == -1 ? "Skip setup" : "Cancel")</MudButton>
             @if (_step > 0 || (_step == 0 && OfferCreateNew))
             {
                 <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_busy" OnClick="Back">Back</MudButton>
@@ -257,6 +271,10 @@
 {
     [Parameter]
     public bool OfferCreateNew { get; set; }
+    [Parameter] public bool OfferCluster { get; set; }
+    [Parameter] public bool StartInImport { get; set; }
+    [Parameter] public EventCallback<bool> ImportModeChanged { get; set; }
+    [Parameter] public EventCallback<ExistingServerImportResult> ImportCompleted { get; set; }
 
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
@@ -276,7 +294,7 @@
     private bool _busy;
     private string _error = string.Empty;
 
-    public sealed record DialogOutcome(bool StartNewSetup, ExistingServerImportResult? ImportResult);
+    public sealed record DialogOutcome(bool StartNewSetup, ExistingServerImportResult? ImportResult, bool StartClusterSetup = false);
 
     private int Progress => _step >= 4 ? 100 : (_step + 1) * 25;
 
@@ -313,7 +331,7 @@
 
     protected override void OnInitialized()
     {
-        if (OfferCreateNew)
+        if (OfferCreateNew && !StartInImport)
             _step = -1;
     }
 
@@ -339,19 +357,29 @@
             _step++;
     }
 
-    private void Back()
+    private async Task Back()
     {
         _error = string.Empty;
         if (_step > 0)
             _step--;
         else if (_step == 0 && OfferCreateNew)
+        {
             _step = -1;
+            await ImportModeChanged.InvokeAsync(false);
+        }
     }
 
     private void ChooseCreateNew() =>
         MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartNewSetup: true, ImportResult: null)));
 
-    private void ChooseImport() => _step = 0;
+    private void ChooseCluster() =>
+        MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartNewSetup: false, ImportResult: null, StartClusterSetup: true)));
+
+    private async Task ChooseImport()
+    {
+        _step = 0;
+        await ImportModeChanged.InvokeAsync(true);
+    }
 
     private async Task BrowseAsync()
     {
@@ -410,7 +438,7 @@
         _busy = true;
         try
         {
-            _result = await Importer.ImportAsync(new ExistingServerImportRequest(
+            var request = new ExistingServerImportRequest(
                 _kind.Value,
                 _sourcePath,
                 _transferMode,
@@ -419,8 +447,10 @@
                 _selectedWorldPaths.ToList(),
                 _primaryWorldPath,
                 _sections,
-                _sourceStoppedConfirmed));
+                _sourceStoppedConfirmed);
+            _result = await Task.Run(() => Importer.ImportAsync(request));
             _step = 4;
+            await ImportCompleted.InvokeAsync(_result);
         }
         catch (Exception exception)
         {
@@ -461,7 +491,7 @@
     private static StringComparer PathComparer =>
         OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
-    private void Cancel() => MudDialog.Cancel();
+    private void Cancel() { if (!_busy) MudDialog.Cancel(); }
 
     private void Close() =>
         MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartNewSetup: false, ImportResult: _result)));

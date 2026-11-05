@@ -115,10 +115,9 @@
             {
                 @if (Hosted.IsReady)
                 {
-                    <MudButton OnClick="SelfDeployAsync" Disabled="@_busy">Self-deploy</MudButton>
                     <MudButton Href="https://dash.se-servers.net/account" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Manage Nebula hosting and billing</MudButton>
                     <MudButton OnClick="Close" Disabled="@_busy">Done</MudButton>
-                    <MudButton Href="@Hosted.State.DashboardUrl" Target="_blank" rel="noopener noreferrer" Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.OpenInNew">Open Quasar dashboard</MudButton>
+                    <MudButton Href="@Hosted.State.DashboardUrl" Variant="Variant.Filled" Color="Color.Primary">Open Quasar dashboard</MudButton>
                 }
                 else
                 {

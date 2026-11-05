@@ -9,6 +9,23 @@ namespace Quasar.Tests;
 
 public sealed class QuasarControlDialogTests
 {
+    [Fact]
+    public async Task UnavailableRestartIsDisabledAndExplainsRepair()
+    {
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var provider = context.Render<MudDialogProvider>();
+        await provider.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>()
+            .ShowAsync<QuasarControlDialog>("Quasar power", new DialogParameters
+            {
+                [nameof(QuasarControlDialog.IsRestartAvailable)] = false,
+                [nameof(QuasarControlDialog.RestartUnavailableReason)] = "Repair the native updater service.",
+            }));
+        Assert.True(provider.FindAll("button").Single(button => button.TextContent.Contains("Restart Quasar")).HasAttribute("disabled"));
+        Assert.Contains("Repair the native updater service.", provider.Markup);
+    }
+
     [Theory]
     [InlineData("Shutdown Quasar", QuasarControlAction.ShutdownQuasar)]
     [InlineData("Restart Quasar", QuasarControlAction.RestartQuasar)]

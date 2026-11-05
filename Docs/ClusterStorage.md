@@ -42,6 +42,11 @@ snapshot is released, its hard links are removed; an object whose last snapshot 
 has disappeared is unlinked immediately. Multiple clusters can retain the same world/mod
 input. A Host independently protects the artifact and configuration roots of its active
 attachments. Offline/unreachable Hosts defer cleanup with a bounded request and retry.
+For the local Host, a request starts the executor if needed and waits for its
+authenticated connection within a 30-second connection deadline. Collection can
+therefore run during Quasar startup without treating a Host that is still starting
+as offline. If launch or connection fails, collection is deferred with a one-minute
+retry backoff while Quasar keeps running.
 
 Existing dependency and Host installation copies are migrated by verified, atomic file
 replacement, preserving the approved paths and hashes. Generated configurations are pruned
@@ -61,7 +66,14 @@ Deleting a cluster keeps its data for `DeletedClusterRetentionDays` (default 7, 
 0 keeps it forever), counted from the deletion. Then Quasar removes the cluster's backups, manual
 ones and exports included, and `ClusterSetup/<Cluster ID>`. The next collection pass releases what
 they pinned, and each Host removes the cluster's preparation workspaces under `state/conversions`
-with the runtime in them, its snapshots and its `state/detached` records.
+with the runtime in them, its snapshots, its `state/detached` records and its launch records.
+
+A purge (`DELETE /api/v1/clusters/{id}/retained-data`, `Quasar cluster purge`) ends the retention at
+once and frees the ID. It asks the Hosts first, removes what the end of the retention removes, and
+moves the deleted definitions, the cluster's operation records and the profiles and templates it
+owns to `Clusters/.purged/<timestamp>-<id>/`. Without it a new cluster with the same ID would
+resume the old `ClusterSetup/<id>`, replay its setup operation and seed from the old runtime, whose
+Host workspace is derived from the ID.
 
 A Host refuses while it still supervises the cluster or a process of it runs. It leaves any path
 that is not a `state/conversions/<id>` workspace alone, so a run root an operator chose stays. A

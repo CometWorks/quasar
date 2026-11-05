@@ -67,9 +67,8 @@ public static class QuasarLoggingConfigurator
                 configuration.LoggingRules.Add(new LoggingRule(logger, NLog.LogLevel.Info, NLog.LogLevel.Info, asyncFile));
         configuration.LoggingRules.Add(new LoggingRule("Quasar.Services.Discord.*", minimumLevel, NLog.LogLevel.Fatal, asyncDiscord));
 
-        // Bootstrap launches the worker with QUASAR_CONSOLE_LOGGING=true and drains
-        // stdout/stderr so worker warnings and errors reach the Bootstrap host console
-        // (systemd journal on Linux, the Bootstrap process console on Windows).
+        // Native Linux units and legacy Bootstrap opt into this single NLog sink.
+        // systemd captures stdout in the journal; file logging remains enabled.
         if (IsConsoleLoggingRequested())
         {
             var consoleTarget = new ConsoleTarget("quasar-console")

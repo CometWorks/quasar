@@ -134,12 +134,43 @@ public sealed class ClusterOperationStore
     public ClusterOperation? Get(string operationId) =>
         _operations.GetValueOrDefault(operationId);
 
+    public event Action? Changed;
+
+    public IReadOnlyList<ClusterOperation> GetRecent(IEnumerable<string> clusters, int count)
+    {
+        var included = clusters.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return _operations.Values.Where(operation => included.Contains(operation.Cluster))
+            .OrderByDescending(operation => operation.UpdatedAt).Take(count).ToArray();
+    }
+
     internal ClusterOperation? Find(string cluster, string kind, string idempotencyKey) => _operations.Values.FirstOrDefault(o =>
         o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind && o.IdempotencyKey == idempotencyKey);
 
     internal bool HasPendingOperations(string cluster) => _operations.Values.Any(operation =>
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
         && operation.State == ClusterOperationState.Running);
+
+    // A purged cluster's records move out, so its ID starts over: no idempotent replay, no terminal failed attempt.
+    internal async Task<int> ArchiveClusterAsync(string cluster, string archive, CancellationToken token)
+    {
+        await _gate.WaitAsync(token);
+        try
+        {
+            var records = _operations.Values.Where(o => o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)).ToArray();
+            if (records.Any(o => o.State == ClusterOperationState.Running))
+                throw new InvalidOperationException("Wait for pending cluster operations to finish before purging the cluster.");
+            if (records.Length != 0) Directory.CreateDirectory(archive);
+            foreach (var record in records)
+            {
+                string path = Path.Combine(_directory, record.OperationId + ".json");
+                if (File.Exists(path)) File.Move(path, Path.Combine(archive, record.OperationId + ".json"));
+                _operations.TryRemove(record.OperationId, out _);
+            }
+            if (records.Length != 0) Changed?.Invoke();
+            return records.Length;
+        }
+        finally { _gate.Release(); }
+    }
 
     internal bool HasPendingShutdown(string cluster) => _operations.Values.Any(operation =>
         operation.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase)
@@ -236,6 +267,7 @@ public sealed class ClusterOperationStore
                     requestHash, actor, ClusterOperationState.Running, now, now, null, null);
                 await PersistAsync(existing, cancellationToken);
                 _operations[existing.OperationId] = existing;
+                Changed?.Invoke();
             }
 
             try
@@ -300,10 +332,12 @@ public sealed class ClusterOperationStore
                 };
                 _operations[existing.OperationId] = existing;
                 await PersistAsync(existing, CancellationToken.None);
+                Changed?.Invoke();
                 throw;
             }
             _operations[existing.OperationId] = existing;
             await PersistAsync(existing, CancellationToken.None);
+            Changed?.Invoke();
             return existing;
         }
         finally
@@ -396,8 +430,12 @@ public sealed class ClusterOperationStore
             return await SaveAsync(operation with { Error = new("gateway_changed", "Restore the original Gateway URL to resume this operation.") }, token);
         try
         {
+            if (operation.Kind is "cluster.set-player-promotion" or "cluster.clear-kick-cooldown")
+                await client.GetStatusAsync(cluster, token);
             Admin.AdminOperation remote;
-            if (operation.GatewayOperationId is { } id)
+            // Role commands reconcile the same WA ledger GUID even when a Gateway restarted
+            // with a Running record. CAS prevents a delayed command undoing a later decision.
+            if (operation.GatewayOperationId is { } id && operation.Kind != "cluster.set-player-promotion")
                 remote = (await client.GetOperationAsync(cluster, id, token)).Data;
             else
             {
@@ -413,6 +451,7 @@ public sealed class ClusterOperationStore
                 State = remote.State switch
                 {
                     Admin.AdminOperationState.Succeeded => ClusterOperationState.Succeeded,
+                    Admin.AdminOperationState.Failed when operation.Kind == "cluster.set-player-promotion" && remote.Error?.Code == "promotion_uncertain" => ClusterOperationState.Running,
                     Admin.AdminOperationState.Failed => ClusterOperationState.Failed,
                     _ => ClusterOperationState.Running,
                 },
@@ -443,6 +482,7 @@ public sealed class ClusterOperationStore
     {
         await PersistAsync(operation, token);
         _operations[operation.OperationId] = operation;
+        Changed?.Invoke();
         return operation;
     }
 

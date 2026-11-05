@@ -26,6 +26,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private readonly ClusterHostInstaller installer;
     private readonly ClusterHostTunnels tunnels;
     private readonly WebServiceOptions options;
+    private readonly DedicatedServerSupervisor? supervisor;
     private readonly ILogger<ClusterLocalHost> logger;
     private readonly string root;
     private readonly bool supported;
@@ -38,17 +39,18 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private string? error;
 
     public ClusterLocalHost(ClusterHostCatalog hosts, ClusterCredentialStore credentials, ClusterHostInstaller installer,
-        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger)
+        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, DedicatedServerSupervisor supervisor)
         : this(hosts, credentials, installer, tunnels, options, logger, Path.Combine(MagnetarPaths.GetQuasarDirectory(), "LocalHost"),
             OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64
-            && Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") != "true") { }
+            && Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER") != "true", supervisor) { }
 
     internal ClusterLocalHost(ClusterHostCatalog hosts, ClusterCredentialStore credentials, ClusterHostInstaller installer,
-        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, string root, bool supported)
+        ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, string root, bool supported, DedicatedServerSupervisor? supervisor = null)
     {
         (this.hosts, this.credentials, this.installer, this.tunnels, this.options, this.logger, this.root, this.supported)
             = (hosts, credentials, installer, tunnels, options, logger, root, supported);
-        tunnels.OfflineHostRequested += id => { if (id == HostId) Request(); };
+        this.supervisor = supervisor;
+        if (supported) tunnels.EnsureLocalHostConnectedAsync = EnsureConnectedAsync;
         if (!supported)
             status = OperatingSystem.IsLinux() && RuntimeInformation.ProcessArchitecture == Architecture.X64
                 ? "Quasar has no local Host executor in a container. Enroll a Linux host machine to run cluster processes."
@@ -70,6 +72,20 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     public void Request()
     {
         if (supported && !stopping.IsCancellationRequested) _ = Task.Run(() => EnsureRunningAsync(stopping.Token));
+    }
+
+    private async Task EnsureConnectedAsync(CancellationToken token)
+    {
+        using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token, stopping.Token);
+        await EnsureRunningAsync(lifetime.Token);
+        lifetime.Token.ThrowIfCancellationRequested();
+        if (error is not null) throw new IOException(error);
+        while (!Connected)
+        {
+            if (ReadPid() is null)
+                throw new IOException("The local Host executor exited before connecting; see " + Path.Combine(root, "host.log") + ".");
+            await Task.Delay(100, lifetime.Token);
+        }
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -110,14 +126,19 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
             if (token.IsCancellationRequested || !await PrepareCoreAsync(token)) return;
             wanted = true;
             string hash = BinarySha256();
+            string configurationHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(ConfigPath)));
             if (ReadPid() is { } running)
             {
-                if (running.Sha256 == hash) return;
+                if (running.Sha256 == hash && running.ConfigurationSha256 == configurationHash)
+                {
+                    error = null;
+                    return;
+                }
                 // A Host restart leaves the Gateway and nodes running; the new Host adopts them.
-                logger.LogInformation("Restarting the local Host executor with the binary of this Quasar release.");
+                logger.LogInformation("Restarting the local Host executor because its binary or configuration changed.");
                 await StopProcessAsync(running.Pid);
             }
-            Launch(installer.BinaryPath, hash);
+            Launch(installer.BinaryPath, hash, configurationHash);
             error = null;
             status = "Local Host executor started; waiting for its connection.";
         }
@@ -221,7 +242,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         catch (SocketException) { return false; }
     }
 
-    private void Launch(string binary, string hash)
+    private void Launch(string binary, string hash, string configurationHash)
     {
         string log = Path.Combine(root, "host.log");
         if (File.Exists(log) && new FileInfo(log).Length > 10 * 1024 * 1024) File.Move(log, log + ".1", true);
@@ -237,12 +258,12 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         process?.Dispose();
         process = Process.Start(start) ?? throw new IOException("Could not start the local Host executor.");
         string identity = ProcessIdentity(process.Id) ?? throw new IOException("The local Host executor exited at once; see " + log + ".");
-        WritePrivate(PidPath, JsonSerializer.Serialize(new HostPid(process.Id, identity, binary, hash)));
+        WritePrivate(PidPath, JsonSerializer.Serialize(new HostPid(process.Id, identity, binary, hash, configurationHash)));
         logger.LogInformation("Started the local Host executor (PID {Pid}).", process.Id);
     }
 
     // uninstall.sh reads "Pid" and "Identity" from this file to stop the Host.
-    internal sealed record HostPid(int Pid, string Identity, string Binary, string Sha256);
+    internal sealed record HostPid(int Pid, string Identity, string Binary, string Sha256, string? ConfigurationSha256 = null);
 
     /// <summary>The recorded Host process, or null when it no longer runs.</summary>
     internal HostPid? ReadPid()
@@ -311,7 +332,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         if (await gate.WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None)) gate.Release();
         if (ReadPid() is not { } running) return;
         bool busy = HasRunningClusters();
-        if (busy && options.PreserveManagedServersOnShutdown)
+        if (busy && (supervisor?.PreserveServersOnShutdown ?? options.PreserveManagedServersOnShutdown))
         {
             logger.LogInformation("Leaving the local Host executor running for its clusters (PID {Pid}).", running.Pid);
             return;

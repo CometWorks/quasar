@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Reflection;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -80,16 +82,8 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
         await warmup.RetryAsync();
 
         Assert.True(warmup.IsReady);
-        // Progress<T> posts its callbacks to the thread pool, so the rows can lag the result.
-        var snapshot = await WaitForAsync(
-            warmup,
-            s =>
-                s.Components.All(c =>
-                    c.State
-                        is not ManagedRuntimeComponentState.Pending
-                            and not ManagedRuntimeComponentState.Checking
-                )
-        );
+        // Final readiness must include the component states, without queued progress lag.
+        var snapshot = warmup.GetSnapshot();
         var steamCmd = snapshot.Components.Single(c =>
             c.Component == ManagedRuntimeInstallComponent.SteamCmd
         );
@@ -103,6 +97,40 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
             c => Assert.Equal(ManagedRuntimeComponentState.Ready, c.State)
         );
         Assert.Contains("SteamCMD failed", snapshot.Message);
+    }
+
+    [Fact]
+    public async Task SteamCmdOutputIsReportedBeforeTheProcessExits()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        using var process = new Process
+        {
+            StartInfo = new ProcessStartInfo("/bin/sh")
+            {
+                ArgumentList = { "-c", "printf '%s\\n' 'Update state (0x61) downloading, progress: 25.0 (25 / 100)'; read answer" },
+                RedirectStandardInput = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+            },
+        };
+        process.Start();
+        var reported = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resolver = CreateResolver(WorkingScript, withDedicatedServer: false);
+        var wait = (Task)typeof(ManagedDedicatedServerRuntimeResolver)
+            .GetMethod("WaitForSteamCmdProcessAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(resolver, [process, "test progress", CancellationToken.None, (Action<string>)(line => reported.TrySetResult(line))])!;
+        try
+        {
+            string line = await reported.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Equal(25, ManagedDedicatedServerRuntimeResolver.ParseDedicatedServerInstallProgress(line, "")!.Percent);
+            Assert.False(process.HasExited);
+        }
+        finally
+        {
+            await process.StandardInput.WriteLineAsync("finish");
+            await wait.WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     [Fact]
@@ -210,22 +238,6 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
         IEnumerable<ManagedRuntimeInstallProgress> reports,
         ManagedRuntimeInstallComponent component
     ) => reports.Last(r => r.Component == component).Phase;
-
-    private static async Task<ManagedRuntimeWarmupSnapshot> WaitForAsync(
-        ManagedRuntimeWarmupService warmup,
-        Func<ManagedRuntimeWarmupSnapshot, bool> condition
-    )
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(5);
-        var snapshot = warmup.GetSnapshot();
-        while (!condition(snapshot) && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(20);
-            snapshot = warmup.GetSnapshot();
-        }
-
-        return snapshot;
-    }
 
     private sealed class SyncProgress(Action<ManagedRuntimeInstallProgress> report)
         : IProgress<ManagedRuntimeInstallProgress>

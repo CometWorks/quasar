@@ -1,0 +1,38 @@
+@using System.Diagnostics
+@implements IDisposable
+
+<section class="quasar-operation-loader" aria-label="@Title">
+    <div class="quasar-row quasar-between">
+        <strong>@Title</strong>
+        <span class="quasar-muted quasar-caption">Elapsed @_elapsed.Elapsed.ToString(@"hh\:mm\:ss")</span>
+    </div>
+    <p role="status" aria-live="polite">@Message</p>
+    <div aria-busy="true">
+        <QuasarProgress Label="@Title" Value="@(Percent ?? 0)" Indeterminate="@(!Percent.HasValue)" />
+    </div>
+    @if (Percent is { } percent)
+    {
+        <span class="quasar-muted quasar-caption">@Math.Clamp(percent, 0, 100).ToString("0", System.Globalization.CultureInfo.InvariantCulture)%</span>
+    }
+    @if (_elapsed.Elapsed.TotalSeconds >= 30)
+    {
+        <p class="quasar-muted quasar-caption">Still working. Some operations take several minutes.</p>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string Title { get; set; } = string.Empty;
+    [Parameter, EditorRequired] public string Message { get; set; } = string.Empty;
+    [Parameter] public double? Percent { get; set; }
+    private readonly Stopwatch _elapsed = Stopwatch.StartNew();
+    private readonly PeriodicTimer _timer = new(TimeSpan.FromSeconds(1));
+    private bool _disposed;
+
+    protected override void OnInitialized() => _ = RefreshElapsedAsync();
+    private async Task RefreshElapsedAsync()
+    {
+        while (await _timer.WaitForNextTickAsync())
+            await InvokeAsync(() => { if (!_disposed) StateHasChanged(); });
+    }
+    public void Dispose() { _disposed = true; _timer.Dispose(); }
+}

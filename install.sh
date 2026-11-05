@@ -11,8 +11,10 @@ RUNTIME="linux-x64"
 ENABLE_SERVICE=true
 START_SERVICE=false
 SKIP_BUILD=false
+REPAIR_SUPERVISION=false
 INSTALL_MODE="user"
 INSTALL_RENICE_HELPER=false
+INSTALL_DEPENDENCIES=false
 ASSUME_YES=false
 RENICE_HELPER_PATH="/usr/local/bin/quasar-renice"
 RUN_USER="${USER:-}"
@@ -45,10 +47,12 @@ Options:
   --user-service            Install a user systemd service (default)
   --system                  Install a system service under /etc/systemd/system
   --install-renice-helper   Build and install /usr/local/bin/quasar-renice as setuid root
+  --install-dependencies    Install CA certificates, SteamCMD libraries and polkit using the system package manager
   --configuration <name>    Build configuration (default: Release)
   --runtime <rid>           Publish runtime identifier (default: linux-x64)
   --no-enable               Do not enable the service at boot
   --start                   Restart/start the service after installing
+  --repair-supervision      Repair only supervisor wiring; preserve installed files/config/data
   --no-build                Install from an existing publish directory
   --yes                     Run package install commands without confirmation
   -h, --help                Show this help
@@ -361,6 +365,29 @@ require_dotnet_installation() {
     exit 1
 }
 
+install_download_dependencies() {
+    local manager commands=() prefix
+    manager="$(detect_package_manager)"
+    prefix="$(privileged_prefix)"
+    case "$manager" in
+        apt) commands=("${prefix}apt-get update" "${prefix}apt-get install -y ca-certificates lib32gcc-s1 polkitd") ;;
+        dnf|yum) commands=("${prefix}$manager install -y ca-certificates glibc.i686 libgcc.i686 polkit") ;;
+        pacman) commands=("${prefix}pacman -S --needed --noconfirm ca-certificates lib32-glibc lib32-gcc-libs polkit") ;;
+        zypper) commands=("${prefix}zypper --non-interactive install ca-certificates glibc-32bit libgcc_s1-32bit polkit") ;;
+        *) echo 'No supported package manager. Install CA certificates, SteamCMD 32-bit libraries and polkit manually.' >&2; exit 1 ;;
+    esac
+    echo 'Required download and service authorization packages:'
+    printf '  %s\n' "${commands[@]}"
+    if [[ "$ASSUME_YES" != true ]]; then
+        [[ -t 0 ]] || { echo 'Use --yes to approve dependency installation in a non-interactive session.' >&2; exit 1; }
+        local answer
+        read -r -p 'Run these commands now? [y/N] ' answer
+        [[ "$answer" =~ ^[Yy]([Ee][Ss])?$ ]] || { echo 'Dependency installation cancelled.' >&2; exit 1; }
+    fi
+    local command
+    for command in "${commands[@]}"; do bash -c "$command"; done
+}
+
 warn_missing_download_packages() {
     # Quasar, Magnetar and SteamCMD download over HTTPS. SteamCMD's linux32/steamcmd is 32-bit
     # and exits 127 without the 32-bit loader. Without them Quasar can't download the Dedicated Server.
@@ -414,6 +441,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_RENICE_HELPER=true
             shift
             ;;
+        --install-dependencies)
+            INSTALL_DEPENDENCIES=true
+            shift
+            ;;
         --configuration)
             CONFIGURATION="${2:?Missing value for --configuration}"
             shift 2
@@ -428,6 +459,11 @@ while [[ $# -gt 0 ]]; do
             ;;
         --start)
             START_SERVICE=true
+            shift
+            ;;
+        --repair-supervision)
+            REPAIR_SUPERVISION=true
+            ENABLE_SERVICE=false
             shift
             ;;
         --no-build)
@@ -450,7 +486,8 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-if [[ -x "$SCRIPT_DIR/Quasar" && ! -f "$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj" ]]; then
+[[ "$SERVICE_NAME" =~ ^[A-Za-z0-9_.@-]+$ ]] || { echo "Invalid service name" >&2; exit 2; }
+if [[ -x "$SCRIPT_DIR/Quasar" && ! -f "$SCRIPT_DIR/Quasar/Quasar.csproj" ]]; then
     PACKAGED_INSTALL=true
 fi
 
@@ -508,6 +545,7 @@ if [[ -z "$INSTALL_DIR" ]]; then
     fi
 fi
 INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
+[[ "$INSTALL_DIR" != *$'\n'* && "$INSTALL_DIR" != *$'\r'* ]] || { echo "Install path cannot contain line breaks" >&2; exit 2; }
 
 case "$INSTALL_DIR" in
     ""|"/"|"/bin"|"/boot"|"/dev"|"/etc"|"/home"|"/lib"|"/lib64"|"/proc"|"/root"|"/run"|"/sbin"|"/sys"|"/tmp"|"/usr"|"/var")
@@ -516,79 +554,108 @@ case "$INSTALL_DIR" in
         ;;
 esac
 
+if [[ "$INSTALL_DEPENDENCIES" == true ]]; then install_download_dependencies; fi
 require_dotnet_installation
 warn_missing_download_packages
 
 CLUSTERS_UNIT="${SERVICE_NAME}-clusters.service"
 
+systemd_value() {
+    local value="$1"
+    value="${value//\\/\\\\}"
+    value="${value//\"/\\\"}"
+    value="${value//%/%%}"
+    printf '%s' "$value"
+}
+
 write_service_unit() {
+    local unit_install unit_metadata
+    unit_install="$(systemd_value "$INSTALL_DIR")"
+    local scope_dir main_account updater_account updater_user metadata_path
     if [[ "$INSTALL_MODE" == "system" ]]; then
-        SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}.service"
-        echo "Writing $SERVICE_PATH..."
-        cat > "$SERVICE_PATH" <<EOF
-[Unit]
-Description=Quasar Space Engineers supervisor
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=simple
-User=$RUN_USER
-Group=$RUN_GROUP
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/Quasar serve --quiet
-Restart=on-failure
-RestartSec=5
-KillSignal=SIGINT
-KillMode=process
-TimeoutStopSec=1800
-SuccessExitStatus=130 143
-Environment=QUASAR_MODE=Service
-Environment=QUASAR_OPEN_BROWSER_ON_START=false
-Environment=HOME=$RUN_HOME
-Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
-Environment=QUASAR_HOST_STOP_UNIT=/etc/systemd/system/$CLUSTERS_UNIT
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        write_clusters_unit "/etc/systemd/system/$CLUSTERS_UNIT" multi-user.target "User=$RUN_USER
+        scope_dir=/etc/systemd/system
+        main_account="User=$RUN_USER
 Group=$RUN_GROUP"
-        systemctl daemon-reload
-        return
+        updater_account="User=$RUN_USER
+Group=$RUN_GROUP"
+        updater_user="$RUN_USER"
+        metadata_path="/etc/quasar/$SERVICE_NAME.json"
+        install -d -m 0755 /etc/quasar
+        if [[ ! -d /etc/polkit-1/rules.d ]]; then
+            echo "System updater control needs polkit. Install polkit, then rerun repair-supervision." >&2
+            exit 1
+        fi
+        [[ "$SERVICE_NAME" =~ ^[A-Za-z0-9_.@-]+$ && "$RUN_USER" =~ ^[A-Za-z0-9_.@-]+$ ]] || { echo "Unsupported service/account name" >&2; exit 2; }
+        cat > "/etc/polkit-1/rules.d/60-quasar-$SERVICE_NAME.rules" <<EOF
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" && subject.user == "$RUN_USER" &&
+        action.lookup("unit") == "$SERVICE_NAME.service" &&
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) >= 0) return polkit.Result.YES;
+});
+EOF
+        chmod 0644 "/etc/polkit-1/rules.d/60-quasar-$SERVICE_NAME.rules"
+    else
+        scope_dir="$RUN_HOME/.config/systemd/user"
+        main_account=""
+        updater_account=""
+        updater_user="$RUN_USER"
+        metadata_path="$INSTALL_DIR/service-installation.json"
+        install -d -m 0755 "$scope_dir"
     fi
-
-    USER_SERVICE_DIR="$RUN_HOME/.config/systemd/user"
-    SERVICE_PATH="$USER_SERVICE_DIR/${SERVICE_NAME}.service"
-    install -d -m 0755 "$USER_SERVICE_DIR"
-    echo "Writing $SERVICE_PATH..."
-    cat > "$SERVICE_PATH" <<EOF
+    unit_metadata="$(systemd_value "$metadata_path")"
+    local user_flag=()
+    if [[ "$INSTALL_MODE" == "user" ]]; then user_flag=(--user-service); fi
+    "$INSTALL_DIR/Updater/Quasar.Updater" configure --install-dir "$INSTALL_DIR" --data-dir "$INSTALL_DIR" \
+        --metadata "$metadata_path" --main-service "$SERVICE_NAME.service" --updater-service "$SERVICE_NAME-updater.service" \
+        --account "$RUN_USER" --updater-account "$updater_user" "${user_flag[@]}"
+    if [[ "$INSTALL_MODE" == "system" ]]; then
+        chown "$RUN_USER:$RUN_GROUP" "$metadata_path" "$INSTALL_DIR/service-installation.json"
+        chmod 0600 "$metadata_path" "$INSTALL_DIR/service-installation.json"
+    fi
+    cat > "$scope_dir/$SERVICE_NAME.service" <<EOF
 [Unit]
 Description=Quasar Space Engineers supervisor
+Wants=network-online.target $SERVICE_NAME-updater.service
+After=network-online.target
+
+[Service]
+Type=simple
+$main_account
+WorkingDirectory=$unit_install
+ExecStart=/usr/bin/env "$unit_install/Quasar" serve --service
+Restart=on-failure
+RestartSec=5
+KillMode=process
+TimeoutStopSec=120
+Environment="QUASAR_INSTALL_DIR=$unit_install"
+Environment="QUASAR_HOST_STOP_UNIT=$scope_dir/$CLUSTERS_UNIT"
+Environment="QUASAR_CONSOLE_LOGGING=true"
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=$([[ "$INSTALL_MODE" == "system" ]] && echo multi-user.target || echo default.target)
+EOF
+    cat > "$scope_dir/$SERVICE_NAME-updater.service" <<EOF
+[Unit]
+Description=Quasar application updater
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/Quasar serve --quiet
+$updater_account
+WorkingDirectory=$unit_install
+ExecStart=/usr/bin/env "$unit_install/Updater/Quasar.Updater" --installation "$unit_metadata"
 Restart=on-failure
 RestartSec=5
-KillSignal=SIGINT
-KillMode=process
-TimeoutStopSec=1800
-SuccessExitStatus=130 143
-Environment=QUASAR_MODE=Service
-Environment=QUASAR_OPEN_BROWSER_ON_START=false
-Environment=HOME=$RUN_HOME
-Environment=QUASAR_INSTALL_DIR=$INSTALL_DIR
-Environment=QUASAR_HOST_STOP_UNIT=$USER_SERVICE_DIR/$CLUSTERS_UNIT
+TimeoutStopSec=120
 
 [Install]
-WantedBy=default.target
+WantedBy=$([[ "$INSTALL_MODE" == "system" ]] && echo multi-user.target || echo default.target)
 EOF
-    write_clusters_unit "$USER_SERVICE_DIR/$CLUSTERS_UNIT" default.target ""
-    systemctl --user daemon-reload
+    write_clusters_unit "$scope_dir/$CLUSTERS_UNIT" "$([[ "$INSTALL_MODE" == "system" ]] && echo multi-user.target || echo default.target)" "$main_account"
+    if [[ "$INSTALL_MODE" == "system" ]]; then systemctl daemon-reload; else systemctl --user daemon-reload; fi
 }
 
 # Quasar runs the local Host executor itself, and a Quasar stop or restart leaves its running
@@ -596,7 +663,8 @@ EOF
 # it before Quasar's service, while the Host still runs. Keep TimeoutStopSec in sync with
 # HostShutdown.StopTimeoutSeconds in Quasar.Host.
 write_clusters_unit() {
-    local path="$1" wanted_by="$2" account="$3"
+    local path="$1" wanted_by="$2" account="$3" unit_install
+    unit_install="$(systemd_value "$INSTALL_DIR")"
     echo "Writing $path..."
     cat > "$path" <<EOF
 [Unit]
@@ -608,7 +676,7 @@ Type=oneshot
 RemainAfterExit=yes
 ${account:+$account
 }ExecStart=/bin/true
-ExecStop=/bin/sh -c 'test ! -x "$INSTALL_DIR/LocalHost/stop-clusters" || exec "$INSTALL_DIR/LocalHost/stop-clusters"'
+ExecStop=/bin/sh -c 'test ! -x "\$1" || exec "\$1"' sh "$unit_install/LocalHost/stop-clusters"
 TimeoutStopSec=110
 
 [Install]
@@ -618,18 +686,20 @@ EOF
 
 enable_service() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
-        systemctl enable "$SERVICE_NAME.service"
+        systemctl enable "$SERVICE_NAME.service" "$SERVICE_NAME-updater.service"
         systemctl enable --now "$CLUSTERS_UNIT"
     else
-        systemctl --user enable "$SERVICE_NAME.service"
+        systemctl --user enable "$SERVICE_NAME.service" "$SERVICE_NAME-updater.service"
         systemctl --user enable --now "$CLUSTERS_UNIT"
     fi
 }
 
 restart_service() {
     if [[ "$INSTALL_MODE" == "system" ]]; then
+        systemctl restart "$SERVICE_NAME-updater.service"
         systemctl restart "$SERVICE_NAME.service"
     else
+        systemctl --user restart "$SERVICE_NAME-updater.service"
         systemctl --user restart "$SERVICE_NAME.service"
     fi
 }
@@ -652,7 +722,7 @@ publish_quasar() {
     local build_version="$1"
     local nuget_version="$2"
     local assembly_file_version="$3"
-    local publish_project="$SCRIPT_DIR/Quasar.Bootstrap/Quasar.Bootstrap.csproj"
+    local publish_project="$SCRIPT_DIR/Quasar/Quasar.csproj"
 
     if [[ "${EUID}" -eq 0 && "$RUN_USER" != "root" ]]; then
         chown "$RUN_USER:$RUN_GROUP" "$PUBLISH_DIR"
@@ -661,11 +731,11 @@ publish_quasar() {
                 env HOME="$RUN_HOME" \
                 dotnet publish "$publish_project" \
                     -c "$CONFIGURATION" \
-                    -r "$RUNTIME" \
+                    -r "$RUNTIME" -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
                     -p:Version="$nuget_version" \
                     -p:AssemblyVersion="$assembly_file_version" \
                     -p:FileVersion="$assembly_file_version" \
-                    -p:InformationalVersion="$nuget_version" \
+                    -p:InformationalVersion="$build_version" \
                     -o "$PUBLISH_DIR" \
                     -v minimal
             return
@@ -675,11 +745,11 @@ publish_quasar() {
             env HOME="$RUN_HOME" \
             dotnet publish "$publish_project" \
                 -c "$CONFIGURATION" \
-                -r "$RUNTIME" \
+                -r "$RUNTIME" -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
                 -p:Version="$nuget_version" \
                 -p:AssemblyVersion="$assembly_file_version" \
                 -p:FileVersion="$assembly_file_version" \
-                -p:InformationalVersion="$nuget_version" \
+                -p:InformationalVersion="$build_version" \
                 -o "$PUBLISH_DIR" \
                 -v minimal
         return
@@ -688,14 +758,32 @@ publish_quasar() {
     env HOME="$RUN_HOME" \
         dotnet publish "$publish_project" \
             -c "$CONFIGURATION" \
-            -r "$RUNTIME" \
+            -r "$RUNTIME" -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
             -p:Version="$nuget_version" \
             -p:AssemblyVersion="$assembly_file_version" \
             -p:FileVersion="$assembly_file_version" \
-            -p:InformationalVersion="$nuget_version" \
+            -p:InformationalVersion="$build_version" \
             -o "$PUBLISH_DIR" \
             -v minimal
 }
+
+if [[ "$REPAIR_SUPERVISION" == "true" && "$INSTALL_MODE" == "system" && "$RUN_USER_EXPLICIT" == "false" ]]; then
+    previous_user="$(systemctl show "$SERVICE_NAME.service" --property=User --value)"
+    if [[ -n "$previous_user" ]]; then
+        echo "Repairing a system service requires --user $previous_user to preserve its execution account." >&2
+        exit 2
+    fi
+fi
+
+# Repair mode migrates native supervision without replacing binaries or user data.
+if [[ "$REPAIR_SUPERVISION" == "true" ]]; then
+    [[ -x "$INSTALL_DIR/Quasar" && -x "$INSTALL_DIR/Updater/Quasar.Updater" && -f "$INSTALL_DIR/launcher-files.txt" ]] || { echo "Replace the complete current package before repairing native services." >&2; exit 1; }
+    "$INSTALL_DIR/Updater/Quasar.Updater" check-upgrade-path --package "$INSTALL_DIR" --data-dir "$INSTALL_DIR"
+    write_service_unit
+    if [[ "$START_SERVICE" == "true" ]]; then restart_service; fi
+    echo "Native services repaired; application configuration and data retained."
+    exit 0
+fi
 
 PUBLISH_DIR="$(mktemp -d /tmp/quasar-publish.XXXXXX)"
 cleanup() {
@@ -714,11 +802,14 @@ if [[ "$SKIP_BUILD" == "true" ]]; then
         exit 1
     fi
     if [[ "$(realpath -m "$SOURCE_DIR")" == "$INSTALL_DIR" ]]; then
-        for source_entry in Quasar appsettings.json install.sh uninstall.sh quasar-renice.c README.md WebService; do
-            if [[ -e "$SOURCE_DIR/$source_entry" ]]; then
-                cp -a -- "$SOURCE_DIR/$source_entry" "$PUBLISH_DIR/"
-            fi
-        done
+        if [[ ! -f "$SOURCE_DIR/launcher-files.txt" ]]; then echo "Use the complete current platform package." >&2; exit 1; fi
+        while IFS= read -r source_entry; do
+            [[ "$source_entry" != /* && "/$source_entry/" != */../* ]] || exit 2
+            mkdir -p "$PUBLISH_DIR/$(dirname "$source_entry")"
+            cp -a -- "$SOURCE_DIR/$source_entry" "$PUBLISH_DIR/$source_entry"
+        done < "$SOURCE_DIR/launcher-files.txt"
+        cp -a "$SOURCE_DIR/Updater" "$SOURCE_DIR/launcher-files.txt" "$PUBLISH_DIR/"
+        if [[ -f "$SOURCE_DIR/appsettings.json" ]]; then cp -a "$SOURCE_DIR/appsettings.json" "$PUBLISH_DIR/"; fi
     else
         find "$SOURCE_DIR" -mindepth 1 -maxdepth 1 \
             ! -name "quasar-*.tar.gz" \
@@ -733,11 +824,30 @@ else
     publish_quasar "$BUILD_VERSION" "$NUGET_VERSION" "$ASSEMBLY_FILE_VERSION"
 fi
 
+if [[ "$SKIP_BUILD" != "true" ]]; then
+    for component in Quasar.Updater Quasar.Host; do
+        component_dir=Updater
+        if [[ "$component" == Quasar.Host ]]; then component_dir=Host; fi
+        dotnet publish "$SCRIPT_DIR/$component/$component.csproj" -c "$CONFIGURATION" -r "$RUNTIME" \
+            -p:SelfContained=true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:Version="$NUGET_VERSION" -o "$PUBLISH_DIR/$component_dir" -v minimal
+    done
+fi
+if [[ "$SKIP_BUILD" != true ]]; then
+    release_version="$("$PUBLISH_DIR/Quasar" --version)"
+    printf '{"version":"%s","updaterProtocol":1}\n' "$release_version" > "$PUBLISH_DIR/release.json"
+fi
+[[ -x "$PUBLISH_DIR/Updater/Quasar.Updater" ]] || { echo "Use a complete unified package containing Updater/Quasar.Updater." >&2; exit 1; }
+"$PUBLISH_DIR/Updater/Quasar.Updater" check-upgrade-path --package "$PUBLISH_DIR" --data-dir "$INSTALL_DIR"
+"$PUBLISH_DIR/Updater/Quasar.Updater" check-stopped --root "$INSTALL_DIR" --data-dir "$INSTALL_DIR"
 echo "Installing Quasar to $INSTALL_DIR..."
 if [[ "${EUID}" -eq 0 ]]; then
     install -d -m 0755 -o "$RUN_USER" -g "$RUN_GROUP" "$INSTALL_DIR"
 else
     install -d -m 0755 "$INSTALL_DIR"
+fi
+if [[ -f "$INSTALL_DIR/appsettings.json" ]]; then
+    rm -f -- "$PUBLISH_DIR/appsettings.json"
 fi
 cp -a "$PUBLISH_DIR/." "$INSTALL_DIR/"
 copy_if_different "$SCRIPT_DIR/install.sh" "$INSTALL_DIR/install.sh"
@@ -746,6 +856,10 @@ if [[ -f "$SCRIPT_DIR/tools/quasar-renice.c" ]]; then
     copy_if_different "$SCRIPT_DIR/tools/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
 elif [[ -f "$SCRIPT_DIR/quasar-renice.c" ]]; then
     copy_if_different "$SCRIPT_DIR/quasar-renice.c" "$INSTALL_DIR/quasar-renice.c"
+fi
+# Track the complete application tree, excluding updater, defaults and mutable data.
+if [[ ! -f "$PUBLISH_DIR/launcher-files.txt" ]]; then
+    (cd "$PUBLISH_DIR"; find . -type f ! -path './Updater/*' ! -name appsettings.json ! -name service-installation.json ! -name launcher-files.txt -printf '%P\n' | LC_ALL=C sort) > "$INSTALL_DIR/launcher-files.txt"
 fi
 if [[ "${EUID}" -eq 0 ]]; then
     chown -R "$RUN_USER:$RUN_GROUP" "$INSTALL_DIR"
