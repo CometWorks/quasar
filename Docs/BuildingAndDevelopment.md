@@ -552,9 +552,11 @@ are simulated; no push subscription or running Quasar service is required.
 
 ### Worker restart and update regression tests
 
-Run `node --test Quasar.Tests/Browser/restart-reload.test.mjs` to check update
+Run `node --test Quasar.Tests/Browser/restart-reload.test.mjs Quasar.Tests/Browser/reconnect-modal.test.mjs` to check update
 polling against status-only health responses, protected version checks, older
-release rollback, hosted panel paths and ordinary worker restarts. Run
+release rollback, hosted panel paths and ordinary worker restarts. These tests
+also cover automatic recovery when a replacement worker becomes ready, transient
+disconnects, gateway errors, expired sign-in and cancellation of stale probes. Run
 `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter FullyQualifiedName~PublicEndpointSecurityTests`
 to check status-only public probes and the version endpoint's read permission.
 These checks do not start the Quasar web service.

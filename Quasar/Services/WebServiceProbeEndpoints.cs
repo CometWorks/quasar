@@ -20,7 +20,7 @@ internal static class WebServiceProbeEndpoints
         var version = endpoints.MapGet("/api/version", (HttpContext context, WebServiceOptions options) =>
         {
             context.Response.Headers.CacheControl = "no-store";
-            return Results.Json(new { version = options.Version });
+            return Results.Json(new { version = options.Version, workerId = options.WorkerId });
         });
         if (authOptions.Enabled)
             version.RequireAuthorization(QuasarPolicyNames.CanView);
