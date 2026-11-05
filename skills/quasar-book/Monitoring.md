@@ -161,6 +161,7 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 - The standalone row menu needs `CanControlServers`: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Actions need a connected Agent. Kick and ban ask for confirmation. Quasar waits up to 15 seconds for the Agent's reply and shows success, the game error, a disconnect or a timeout. A timeout does not prove the action failed; check the player's status before retrying.
 - The cluster row menu needs `ClusterManage`, access to that cluster, fresh Gateway status with management scope and support for the action: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Saved offline players can have their role, ban or cooldown changed. Role changes, kick and ban ask for confirmation. Quasar checks permissions, cluster access and capabilities again after confirmation, then reports the Gateway operation status or error. A stale role revision fails and needs a refresh. Unconfirmed role changes remain in progress while Quasar reconciles the same request, including after a restart.
 - Cluster roles come from the World Authority and survive node movement, player reconnect and cluster restart through its saves and journal. Cooldowns come from Gateway admission, last five minutes and reset on Gateway restart. Clearing one does not unban the player or clear another player's deadline. Older Gateways keep unsupported actions disabled with an update explanation; an unavailable or older World Authority disables role changes while supported admission actions remain usable. Cluster rows show admission state and current node/partition routing when online. The Registry does not supply every standalone metadata field.
+- **Discord Links**, below the table, lists the players who linked a Discord account with `!link` and `/link`. With `CanControlServers` you can remove a link; the player can link again.
 - **Clean Server** and **Clean All** delete saved known players from accessible servers, including cluster history when cluster management is allowed. Players still online are recorded again on the next observation.
 - **Auto clear after** removes players not seen for that many days (default 30, range 1 to 3650). Click **Save** next to it (needs `CanControlServers`).
 
@@ -176,7 +177,7 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 - Text that starts with `!` switches the box to **Command text** and suggests matching chat commands registered on that server (Quasar.Agent and Magnetar plugin commands), up to 30 at a time.
 - **Run** (or Enter) runs the command on the server as its console, with Owner rights. The players don't see the line. It and the command's replies show only in Quasar, as **Console** rows, and are not relayed to Discord. Announcements the command makes, like a restart countdown, still reach the players. Running commands needs a Magnetar release newer than 2.4.3.4; older ones answer "This Magnetar version can't run commands from Quasar. Update Magnetar."
 
-Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get them.
+Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers, and `!ask` and `!link` for every player on standalone servers and cluster nodes. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get the first three.
 
 ## Entities
 
@@ -338,10 +339,13 @@ Type the prefix and a command in the command channel, for example `;;status`. Th
 
 ### Slash commands
 
-Quasar registers two guild slash commands when the bot connects:
+Quasar registers these guild slash commands when the bot connects:
 
 - `/whisper server:<unique name> user:<online player name or Steam ID> message:<text>` sends a private message to an online player. Anyone can run it, but only in a command, chat relay, admin whisper or faction channel bound to that server ("Use /whisper in a channel configured for that server's Discord bridge."). Ambiguous names fail with "Player name '<name>' is ambiguous; use the Steam ID."
 - `/faction-channel server:<unique name> faction:<tag>` (Discord Administrator only) creates an admin-only text channel for that faction in the current category, or re-secures the existing one, and saves the binding.
+- `/link code:<code>` links the user's Discord account to the Space Engineers player who typed `!link` in game. Anyone can run it; the reply is private. An unknown or expired code gets "That code is unknown or expired. Type !link in game for a new one." Linking again replaces the old link, and a Steam account has one linked Discord account.
+- `/ask question:<text>` asks the assistant UI plugin, with a private reply. A linked user asks as their player, so the assistant can look at their own grids; without a link it answers general questions only. It exists only while an assistant plugin is installed.
+- `/assistant question:<text>` asks the admin assistant. Only Discord users mapped to a Quasar administrator on the Security page can use it ("Your Discord account is not mapped to a Quasar administrator."), and the assistant plugin decides in which channel. It exists only while an assistant plugin is installed.
 
 Use the server's unique name, not its display name. Clusters are `cluster:<name>`.
 
@@ -488,3 +492,6 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterOverview.cs`
 - `Docs/QuasarBrowserSdk.md`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Quasar/Services/Assistant/QuasarPlayerLinks.cs`
+- `Quasar/Services/Assistant/QuasarPlayerRequests.cs`
+- `Quasar/Components/Shared/PlayerDiscordLinks.razor`

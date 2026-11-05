@@ -108,6 +108,12 @@ RBAC, auth settings, service principals, updates, Workshop credentials, the
 Discord bot token or the assistant's LLM settings. The assistant also never does
 more than the person asking it could do by hand.
 
+The player agent's operations (`my.server.info`, `my.grids`, `my.grid.backups`,
+`my.grid.losses`, `my.grid.locate`, `my.grid.restore`) take no player: they use
+the Steam ID of the player who asked in game, or of the Steam account linked to
+the Discord user with `/link`. The grid ones work where the Grid Backups plugin
+is loaded.
+
 ## The rbac.json file
 
 `rbac.json` lives in the Quasar data directory (the install root, `QUASAR_INSTALL_DIR`), next to `appsettings.json`. See [Configuration](Configuration.md#where-files-live) for paths.
@@ -120,7 +126,10 @@ more than the person asking it could do by hand.
   ],
   "claimRoleMappings": [],
   "policyOverrides": {},
-  "agentRoles": { "assistant": ["editor"], "player": [] }
+  "agentRoles": { "assistant": ["editor"], "player": [] },
+  "discordSubjects": [
+    { "discordUserId": "123456789012345678", "provider": "Steam", "subject": "76561198000000000" }
+  ]
 }
 ```
 
@@ -131,6 +140,7 @@ Rules Quasar applies when it reads the file:
 - A subject can have several roles; the highest one decides in practice, since each role grants a superset of the one below.
 - `claimRoleMappings` and `policyOverrides` are read and saved but do not change who can do what. The permission table above is fixed.
 - `agentRoles` keeps only `assistant` and `player`. A missing entry gets its default, and `admin` is dropped.
+- `discordSubjects` entries need a numeric Discord user ID and a subject; others are dropped, and a Discord user keeps its first entry. A non-Steam provider grants nothing.
 
 Quasar watches the file. Saving it while Quasar runs applies the change within moments, and the log shows "Reloaded RBAC config from disk after external edit." If the file is not valid JSON, Quasar logs "Failed loading RBAC config from <path>" and treats it as having no mappings, so no Steam user has a role until the file is fixed.
 
@@ -138,12 +148,13 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 ## The Security page
 
-**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has five panels.
+**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has six panels.
 
 - **Public panel access**: **Manage access setup** opens the access setup dialog, where you choose self-deployment behind your own reverse proxy or a hosted Nebula panel. Once the installation is enrolled with Nebula, **Manage Nebula hosting and billing** opens the Nebula account page. See [Hosted access](HostedPanel.md).
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
+- **Discord Admin Mappings**: maps a Discord user ID to a Steam account, so that Discord user can use `/assistant` with that account's Quasar roles. Discord's own Administrator permission doesn't count. Only Steam accounts can be mapped.
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
 For Steam mappings, enter a 17-digit ID or a Steam Community `/id/<vanity-name>` or `/profiles/<SteamID64>` URL. Quasar resolves vanity URLs automatically through Steam Community without an API key; numeric IDs and numeric profile URLs need no network lookup. It saves only the SteamID64. Invalid input disables the plus button. If a lookup fails, an error appears, the input stays in place and no mapping is saved. Retry or enter the numeric ID if Steam is unavailable.
@@ -174,7 +185,7 @@ Not recorded: Discord commands, cluster changes and cluster player actions, crea
 
 Each entry shows the time (UTC), who acted, who asked (the person behind the assistant, or the player's Steam ID and name), the operation, the server, the mode (applied, proposed by an agent, approved or rejected by an admin) and the result (ok, refused, failed). An approved or rejected call names the proposal it decided. **Details** shows the arguments, with passwords, tokens and keys replaced by `<redacted>`, the error, and the undo data. Filter by time range, principal, requester, operation, server and result.
 
-**Undo** appears on changes whose operation can reverse them. It needs `CanManageSecurity` and the permissions of the original operation. Quasar first checks that the current state is still what the change left. If not, the page shows the difference and offers **Undo anyway** or **Leave it**. An undo is a new entry; entries are never rewritten, and a change can be undone once.
+**Undo** appears on changes whose operation can reverse them. It needs `CanManageSecurity` and the permissions of the original operation. A player's own action through the assistant, such as a grid restore, needs `CanControlServers` instead; undoing a restore removes the restored grids that are still there and gives the restore back to the player's limit. Quasar first checks that the current state is still what the change left. If not, the page shows the difference and offers **Undo anyway** or **Leave it**. An undo is a new entry; entries are never rewritten, and a change can be undone once.
 
 Entries and their undo files are kept for `Quasar:Audit:RetentionDays` days (default 30) in `audit/<yyyy-MM>.jsonl` and `audit/blobs/` in the data directory. An entry whose undo data has expired can no longer be undone.
 
@@ -422,3 +433,5 @@ Keep the complete Quasar package and peer component together when updating.
 
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar/Components/Pages/ServerWorldImportDialog.razor`
+- `Quasar/Components/Shared/DiscordSubjectMappings.razor`
+- `Quasar/Services/Plugins/QuasarMyOperations.cs`

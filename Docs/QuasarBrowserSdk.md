@@ -89,7 +89,9 @@ left; otherwise it returns a short description of the difference, which the
 admin sees before choosing **Undo anyway**. Then it calls `ReverseAsync` and
 writes a new entry that points at the reversed one. The handler gets the
 recorded data and the entry's blob folder in `QuasarUndoContext`. The admin
-needs `CanManageSecurity` and the original operation's current policies. Undo
+needs `CanManageSecurity` and the original operation's current policies; for an
+operation that declares `CanActAsPlayer`, which no person satisfies, the admin
+needs `CanControlServers` instead. Undo
 data and blobs expire with the entry, after `Quasar:Audit:RetentionDays`
 (default 30).
 
@@ -151,6 +153,85 @@ caller's roles; the dispatcher still does that at call time.
 
 Player-scoped operations use the `CanActAsPlayer` policy. No role grants it and
 a role override cannot; only the player agent satisfies it.
+
+### Player and admin requests
+
+Core builds the player agent; a plugin never does. It receives players'
+questions by registering an `IQuasarPlayerRequestHandler` in DI
+(`Quasar.Plugin.Abstractions.Assistant`). Core calls every registered handler
+with a `QuasarPlayerRequest`:
+
+- `Player`: the player-agent principal, or null for a Discord user who has not
+  linked a Steam account. Answer such a user's general questions without tools.
+- `ConversationKey`: `steam:<SteamID64>`, or `discord:<user id>` without a link.
+  A game conversation follows the player across cluster nodes.
+- `Source`: `Game` with the standalone server's or cluster's unique name and,
+  on a cluster, the node; or `Discord` with the user and channel IDs.
+- `ReplyAsync`: whispers in game, split into messages of at most 500
+  characters and 12 per answer (the last one reads `…(cut)`), or the Discord
+  reply, split at 2000 characters.
+
+Requests come from `!ask <question>` in game and `/ask` on Discord. The agent
+sends `!ask` as a `player-request` wire message; Quasar takes the server from
+the authenticated connection and the Steam ID and name from the game session.
+With no handler registered, the player is told the assistant is not enabled
+and `/ask` is not offered on Discord.
+
+`!link` whispers a one-time code (8 characters, valid 10 minutes, one per
+player) and `/link CODE` on Discord stores the pair in `player-links.json` in the
+Quasar data folder. A Discord user has one Steam ID and a Steam ID one Discord
+user; a new link replaces older ones. Admins see and remove links on the
+**Players** page.
+
+An `IQuasarAdminRequestHandler` answers `/assistant` on Discord. Only Discord
+users mapped to a Steam subject in `discordSubjects` of `rbac.json` (the
+**Discord Admin Mappings** panel on the Security page) reach it.
+`QuasarAdminRequest.Asker` is that subject's principal with its current roles,
+a person, never an agent; build the assistant from it with
+`CreateAssistantAsync`. Checking that the channel is the admin channel is the
+handler's job.
+
+### Notice sources
+
+An `IQuasarNoticeSource` registered in DI adds `QuasarNotice` entries (key,
+title, body, URL, time, severity) to web push notifications and the
+notification list of a signed-in account. A browser gets each key once.
+Keys must be 1 to 256 characters and not start with the announcement prefix,
+the URL must be a path inside Quasar (`/...`), and severity is `info`,
+`warning` or `critical`. A source that throws is skipped.
+
+### Player operations
+
+The player agent's operations are registered under `quasar.core` with the
+default policy `CanActAsPlayer` and area `my`. None takes a player: the Steam ID
+comes from the calling player agent, and a `steamId` in the request is ignored.
+A request may name a server with `uniqueName` (a standalone server or a cluster
+unique name). Without it, the server the player asked from is used; a Discord
+request with more than one candidate gets 400 with the list. The grid
+operations need Grid Backups (`9AC2F6A8-B8A7-4250-8814-BADE62C5CF3C`) loaded
+there and call its companion operations, documented in the Grid Backups
+repository's `docs/CompanionOperations.md`.
+
+| Operation | Kind | Request | Result |
+| --- | --- | --- | --- |
+| `my.server.info` | read | `uniqueName?` | name, cluster, status, players online, server description and message of the day of its config profile, whether grid tools work there |
+| `my.grids` | read | `uniqueName?` | Grid Backups `list`; on a cluster every node is asked and `present` is true when any node has the grid (`presentIncomplete` when a node did not answer) |
+| `my.grid.backups` | read | `gridId`, `uniqueName?` | Grid Backups `describe` |
+| `my.grid.losses` | read | `sinceUtc?`, `uniqueName?` | Grid Backups `losses` |
+| `my.grid.locate` | read | `gridId`, `uniqueName?` | `gps` (`GPS:name:x:y:z:`) of a grid in the world; 403 unless the player is among its big owners, 404 when it isn't there |
+| `my.grid.restore` | change, undoable, 300 s | `gridId`, `placement?`, `emptyInventories?`, `foreignExclusionMeters?`, `maxSearchMeters?`, `uniqueName?` | Grid Backups `restore` |
+
+`my.grid.restore` defaults to `original` placement, 2000 m foreign exclusion and
+10000 m search; the plugin sets these from its settings. Anything but
+`restored` fails the call with 409 and the error `refused: <reason>` or
+`no-spot: <reason>`, so the audit log records only real restores as ok. On a
+cluster the near-player placements run on the player's node. An `original`
+restore asks each node, through the agent's `ResolvePositionOwner` command, for
+the nearest grid or character it owns within the search distance of the backup
+position, and runs on the node with the nearest one; if no node owns anything
+there, it runs on the player's node. The undo removes the restored grids that
+still exist through Grid Backups' `remove-restored` on the node that has them,
+and reports grids that are gone as the difference.
 
 ## Browser requests
 

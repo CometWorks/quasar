@@ -637,6 +637,11 @@ The first useful targets:
   parameters. `ServerName` is the unique name on `servers/{name}` and
   `clusters/{name}` pages. Set the contribution's policy; the target has no default.
 
+An assistant plugin also registers DI services that core calls:
+`IQuasarPlayerRequestHandler` (players' `!ask` and Discord `/ask`),
+`IQuasarAdminRequestHandler` (Discord `/assistant`) and `IQuasarNoticeSource`
+(web push notices). See [QuasarBrowserSdk.md](QuasarBrowserSdk.md#player-and-admin-requests).
+
 ## Static Assets
 
 Plugins can ship static assets under their own package. Quasar should mount each
