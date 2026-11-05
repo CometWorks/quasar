@@ -186,3 +186,8 @@ The SDK's read-only `transport` snapshot exposes path/byte/maximum-queue counter
 authenticated peer status exposes native byte/buffer totals without addresses.
 This is feature/transport evidence; live Steam, actual game rendering, retained
 history RTC replay and the complete Nebula gateway chain remain acceptance gates.
+
+The [Blazor/framework assessment](QuasarWebRtcFramework.md) records RTC5's unresolved
+server integration gate and the remaining HTTPS traffic. The supported client
+transport hook alone does not offload the circuit, and no whole-panel completion
+claim is made.
