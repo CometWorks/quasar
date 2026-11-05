@@ -294,6 +294,11 @@ also carries Blazor circuits using the same stored session and renews current
 roles on reconnect after RBAC changes. Installed and native Windows acceptance
 remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
 
+If a hosted page displays its initial HTML but buttons remain inactive, check
+the browser's failed RTC setup requests. A rejected peer negotiation also stops
+Blazor hydration, including when opening the hosted URL on the Quasar host itself.
+Keep the complete Quasar package and peer component together when updating.
+
 **Security → Manage access setup** lets an admin enroll the installation with Nebula, which publishes it at `https://dash.se-servers.net/<panel-name>/`. Requests through that address always need a Steam sign-in with a role from `rbac.json`. They never get the trusted network bypass, and Quasar refuses them with 403 while authentication or Steam sign-in is off. Nebula platform rights, including free hosting, do not create a Quasar role. All Steam IDs mapped to `admin` can manage the panel in Nebula. See [Hosted access](HostedPanel.md).
 
 ## Sources

@@ -36,7 +36,10 @@ try
     builder.Services.AddScoped<QuasarOperationService>(); builder.Services.AddScoped<QuasarHttpOperations>();
     builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider(); builder.Services.AddAntiforgery();
     builder.Services.AddQuasarRtc(builder.Configuration);
-    builder.Services.PostConfigure<QuasarRtcOptions>(options => { options.StunUrls = []; options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER")!; });
+    builder.Services.PostConfigure<QuasarRtcOptions>(options => {
+        options.StunUrls = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_STUN") is { Length: > 0 } stun ? [stun] : [];
+        options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER")!;
+    });
     var manager = Environment.GetEnvironmentVariable("NEBULA_RTC_TEST_MANAGER");
     builder.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => manager is null ? new Leases() : new FixtureManager(new Uri(manager)));
     await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = prefix[1..], Credential = Environment.GetEnvironmentVariable("NEBULA_RTC_TEST_CREDENTIAL") ?? prefix[1..] + "." + new string('a',64) });

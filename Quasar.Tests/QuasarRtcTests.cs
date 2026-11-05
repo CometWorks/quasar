@@ -74,6 +74,24 @@ public sealed partial class QuasarRtcTests : IDisposable
     }
 
     [Fact]
+    public async Task IceConfigurationOmitsAbsentStunCredentialsAndRetainsTurnCredentials()
+    {
+        // Exercise the worker's actual HTTP JSON writer: Pion rejects a present
+        // null username before SDP negotiation, even for a STUN-only server.
+        using var content = JsonContent.Create(new { iceServers = new[] {
+            new QuasarRtcIce(["stun:rtc.example:3478"]),
+            new QuasarRtcIce(["turn:rtc.example:3478?transport=tcp"], new string('a', 32), new string('b', 64)),
+        } });
+        using var document = JsonDocument.Parse(await content.ReadAsStringAsync());
+        var servers = document.RootElement.GetProperty("iceServers");
+        Assert.Equal("stun:rtc.example:3478", servers[0].GetProperty("urls")[0].GetString());
+        Assert.False(servers[0].TryGetProperty("username", out _));
+        Assert.False(servers[0].TryGetProperty("credential", out _));
+        Assert.Equal(new string('a', 32), servers[1].GetProperty("username").GetString());
+        Assert.Equal(new string('b', 64), servers[1].GetProperty("credential").GetString());
+    }
+
+    [Fact]
     public async Task PeerIntegrityMismatchFailsBeforeExecution()
     {
         Directory.CreateDirectory(root);
@@ -138,7 +156,10 @@ public sealed partial class QuasarRtcTests : IDisposable
         if (fakeTime is not null) builder.Services.AddSingleton<TimeProvider>(fakeTime);
         builder.Services.AddQuasarRtc(builder.Configuration);
         builder.Services.PostConfigure<QuasarRtcOptions>(options =>
-        { options.StunUrls = []; options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer"); });
+        {
+            options.StunUrls = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_STUN") is { Length: > 0 } stun ? [stun] : [];
+            options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer");
+        });
         var manager = new Manager();
         builder.Services.AddSingleton(manager);
         builder.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => manager);
