@@ -37,23 +37,23 @@ public static class QuasarCoreOperations
                     try { return Task.FromResult<Stream>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, QuasarSdkLimits.TransferBufferBytes, FileOptions.Asynchronous)); }
                     catch (IOException) { throw new QuasarOperationException(404, "Backup not found."); }
                 }, "application/zip", Path.GetFileName(path), EnableRanges: true));
-            }, ReadDeniedToAgents);
+            }, ReadDeniedToAgents with { Description = "Downloads a Quasar backup archive by name, or a fresh configuration backup when no name is given." });
         services.AddQuasarOperation<AnalyticsRequest, AnalyticsSeriesResponse>(PluginId, "analytics.series.read", [QuasarPolicyNames.CanView],
             (caller, input, token) =>
             {
                 token.ThrowIfCancellationRequested();
                 return Task.FromResult(caller.Services.GetRequiredService<AnalyticsSeriesService>().Build(
                     input.From, input.To, input.Servers ?? [], input.Metrics ?? [], input.MaxPoints));
-            }, Read);
+            }, Read with { Description = "Returns analytics time series of the given servers and metrics between two Unix times in milliseconds, at most maxPoints per series." });
         services.AddQuasarRead<LogRequest>(PluginId, "logs.server.read", [QuasarPolicyNames.CanView],
             (caller, input, token) => Task.FromResult(ReadLog(ResolveDedicatedServerLogPath(input.UniqueName,
-                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))), Read);
+                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))), Read with { Description = "Downloads a server's Dedicated Server log file, the newest one unless a file name is given." });
         services.AddQuasarRead<LogRequest>(PluginId, "logs.magnetar.read", [QuasarPolicyNames.CanView],
             (caller, input, token) => Task.FromResult(ReadLog(ResolveMagnetarInfoLogPath(input.UniqueName,
-                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))), Read);
+                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))), Read with { Description = "Downloads a server's Magnetar log file, the newest one unless a file name is given." });
         services.AddQuasarRead<LogRequest>(PluginId, "logs.discord.read", [QuasarPolicyNames.CanManageDiscord],
             (caller, input, token) => Task.FromResult(ReadLog(QuasarLoggingConfigurator.ResolveDiscordLogPath(
-                caller.Services.GetRequiredService<WebServiceOptions>()))), ReadDeniedToAgents);
+                caller.Services.GetRequiredService<WebServiceOptions>()))), ReadDeniedToAgents with { Description = "Downloads Quasar's Discord bot log." });
     }
 
     public static void MapQuasarCoreOperations(this IEndpointRouteBuilder endpoints)

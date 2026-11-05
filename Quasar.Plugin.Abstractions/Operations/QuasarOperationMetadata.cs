@@ -48,6 +48,10 @@ public sealed record QuasarOperationMetadata
     /// <summary>Denied puts the operation on the hard deny list for agent principals.</summary>
     public QuasarAgentAccess AgentAccess { get; init; } = QuasarAgentAccess.Allowed;
 
+    /// <summary>One or two plain sentences for a person or a model: what the operation does, what it
+    /// returns and when it applies. An assistant shows it as the tool description.</summary>
+    public string? Description { get; init; }
+
     /// <summary>Checks the declared values and fills the defaults that depend on the operation.</summary>
     public QuasarOperationMetadata ResolveFor(QuasarOperationKind kind, string operationId)
     {

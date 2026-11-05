@@ -67,6 +67,15 @@ services.AddQuasarOperation<SetMotdRequest, SetMotdResponse>(
 - `Deadline` replaces the 30-second deadline of JSON operations; 1 to 300 seconds.
   An invalid value fails registration.
 - `AgentAccess = Denied` closes the operation to both agent principals.
+- `Description` is one or two plain sentences for a person or a model: what the
+  operation does, what it returns and when it applies. The assistant uses it as
+  the tool description, so mention defaults and limits of the request there.
+
+`QuasarOperation.RequestType` is the request type a registration helper
+deserializes, so a consumer can build the input schema with
+`JsonSchemaExporter.GetJsonSchemaAsNode(options, operation.RequestType)`. Keep
+request types plain records of strings, numbers, booleans, lists and nested
+records; nullable properties and defaults show up in the schema.
 
 During a change operation, `QuasarOperationContext.Undo` records what an undo
 needs: `SetData` for small values kept inline in the audit entry,

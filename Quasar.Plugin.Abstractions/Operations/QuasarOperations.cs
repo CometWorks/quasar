@@ -92,6 +92,8 @@ public abstract class QuasarOperation
     public IReadOnlyList<string> DefaultPolicies { get; }
     public virtual QuasarOperationKind Kind => QuasarOperationKind.Json;
     public virtual long MaximumUploadBytes => 0;
+    /// <summary>The request type the operation deserializes, for building a JSON schema of its input; null when unknown.</summary>
+    public virtual Type? RequestType => null;
     private QuasarOperationMetadata? _defaultMetadata;
     public virtual QuasarOperationMetadata Metadata => _defaultMetadata ??= new QuasarOperationMetadata().ResolveFor(Kind, OperationId);
     public static bool IsIdentifier(string? value) => value is { Length: > 0 and <= 128 } && Identifier.IsMatch(value);
@@ -104,6 +106,7 @@ public abstract class QuasarOperation
     {
         public override QuasarOperationKind Kind => kind;
         public override long MaximumUploadBytes => maximumUploadBytes;
+        public override Type? RequestType => typeof(TRequest);
         public override QuasarOperationMetadata Metadata { get; } = (metadata ?? new()).ResolveFor(kind, operationId);
         public override async Task<object?> InvokeAsync(QuasarOperationContext context, JsonElement request, CancellationToken token)
         {
