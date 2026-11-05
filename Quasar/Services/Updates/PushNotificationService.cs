@@ -5,6 +5,7 @@ using System.Text;
 using System.Security.Cryptography;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
+using Quasar.Plugin.Abstractions.Assistant;
 using Quasar.Services.Auth;
 using Quasar.Services.Plugins;
 using WebPush;
@@ -17,7 +18,8 @@ public sealed record BrowserPushSubscription(string Endpoint, string P256dh, str
 public sealed class PushNotificationService(
     IDataProtectionProvider protection, QuasarUpdateService updates, ClusterReleaseMonitor releases,
     ClusterCatalog clusters, QuasarRoleMapper roles, ILogger<PushNotificationService> logger,
-    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins, AnnouncementService announcements, HostedPanelService? hosted = null) : BackgroundService
+    ClusterContentMonitor content, AgentRegistry agents, DedicatedServerSupervisor supervisor, QuasarUiPluginHubCatalogService uiPlugins, AnnouncementService announcements, HostedPanelService? hosted = null,
+    IEnumerable<IQuasarNoticeSource>? noticeSources = null) : BackgroundService
 {
     internal const int MaxAnnouncementReceiptsPerBrowser = 4096;
     internal const int MaxReceiptKeysPerBrowser = 8192;
@@ -37,9 +39,10 @@ public sealed class PushNotificationService(
 
     internal PushNotificationService(IDataProtectionProvider protection, QuasarRoleMapper roles,
         AnnouncementService announcements, string path, Func<UpdateNotice, CancellationToken, Task> send,
-        ILogger<PushNotificationService>? testLogger = null, Func<UpdateNotice[]>? otherNotices = null, HostedPanelService? hosted = null)
+        ILogger<PushNotificationService>? testLogger = null, Func<UpdateNotice[]>? otherNotices = null, HostedPanelService? hosted = null,
+        IEnumerable<IQuasarNoticeSource>? noticeSources = null)
         : this(protection, null!, null!, null!, roles, testLogger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<PushNotificationService>.Instance,
-            null!, null!, null!, null!, announcements, hosted)
+            null!, null!, null!, null!, announcements, hosted, noticeSources)
     {
         _path = path;
         _sendOverride = send;
@@ -106,7 +109,34 @@ public sealed class PushNotificationService(
                 : [])
             .Concat(Preferences(state, provider, subject).UiPluginUpdates
                 ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []))
-            .Concat(hosted?.BillingNotices(provider, subject) ?? []), announcements);
+            .Concat(hosted?.BillingNotices(provider, subject) ?? [])
+            .Concat(PluginNotices(provider, subject)), announcements);
+
+    private readonly IQuasarNoticeSource[] _noticeSources = noticeSources?.ToArray() ?? [];
+
+    // UI plugin notices, such as an assistant proposal waiting for this admin. A failing source is skipped.
+    internal IEnumerable<UpdateNotice> PluginNotices(string provider, string subject)
+    {
+        var notices = new List<UpdateNotice>();
+        foreach (var source in _noticeSources)
+        {
+            try
+            {
+                notices.AddRange((source.GetNotices(provider, subject) ?? [])
+                    .Where(n => n is { Key.Length: > 0 and <= 256, Title.Length: > 0 }
+                        && !n.Key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal))
+                    .Select(n => new UpdateNotice(n.Key, n.Title, n.Body ?? string.Empty,
+                        n.Url is ['/', not '/', ..] or "/" ? n.Url : "/", n.Time,
+                        n.Severity is "warning" or "critical" ? n.Severity : "info")));
+            }
+            catch (Exception error)
+            {
+                logger.LogWarning("A plugin notice source failed ({FailureType}).", error.GetType().Name);
+            }
+        }
+
+        return notices.DistinctBy(n => n.Key, StringComparer.Ordinal);
+    }
 
     internal static NotificationPreferences Preferences(PushState state, string provider, string subject) =>
         state.Preferences?.FirstOrDefault(p => p.Provider == provider && p.Subject == subject)?.Options ?? new();
