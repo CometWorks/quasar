@@ -2,6 +2,11 @@ name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Optional exact four-part version for a draft maintenance release'
+        required: false
+        type: string
   push:
     branches:
       - main
@@ -135,6 +140,7 @@ jobs:
         id: release
         env:
           PR_NUMBER: ${{ github.event.pull_request.number || '' }}
+          DISPATCH_VERSION: ${{ inputs.version || '' }}
         run: |
           set -euo pipefail
 
@@ -154,6 +160,13 @@ jobs:
             prerelease="false"
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             version="${base}.${GITHUB_RUN_NUMBER}-manual"
+            if [[ -n "$DISPATCH_VERSION" ]]; then
+              if [[ ! "$DISPATCH_VERSION" =~ ^${base//./\\.}\.[0-9]+$ ]]; then
+                echo "Maintenance version must be ${base}.<build>." >&2
+                exit 1
+              fi
+              version="$DISPATCH_VERSION"
+            fi
             tag="v${version}"
             draft="true"
             prerelease="true"
