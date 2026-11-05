@@ -218,6 +218,7 @@ public class Program
             builder.Services.AddScoped<QuasarCoreOperationCaller>();
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarAgentOperations>(services =>
                 services.GetRequiredService<QuasarOperationService>());
+            builder.Services.AddQuasarMyOperations();
             builder.Services.AddSingleton(_ => Quasar.Services.Audit.QuasarAuditOptions.Create(builder.Configuration));
             builder.Services.AddSingleton<Quasar.Services.Audit.QuasarAuditLog>();
             builder.Services.AddSingleton<Quasar.Plugin.Abstractions.Operations.IQuasarAuditLog>(services =>

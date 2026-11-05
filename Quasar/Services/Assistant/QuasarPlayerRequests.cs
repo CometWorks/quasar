@@ -342,5 +342,6 @@ public static class QuasarPlayerAssistanceRegistration
     public static IServiceCollection AddQuasarPlayerAssistance(this IServiceCollection services) =>
         services
             .AddSingleton<QuasarPlayerLinks>()
-            .AddSingleton<QuasarPlayerRequests>();
+            .AddSingleton<QuasarPlayerRequests>()
+            .AddSingleton<QuasarPlayerTools>();
 }

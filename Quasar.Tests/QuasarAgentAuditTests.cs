@@ -746,9 +746,11 @@ public sealed class QuasarAgentAuditTests : IDisposable
         var third = (await QueryAsync()).First();
         await _rbac.UpdateAsync(config =>
         {
+            // Undo follows the current rule, so turning the operation off stops it.
             config.OperationOverrides[Plugin + "/servers.set"] = new()
             {
-                RequiredPolicies = [QuasarPolicyNames.CanActAsPlayer],
+                Enabled = false,
+                RequiredPolicies = [QuasarPolicyNames.CanEditServers],
             };
             return Task.CompletedTask;
         });

@@ -192,7 +192,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                     if (
                         !await services
                             .GetRequiredService<QuasarOperationService>()
-                            .CanApproveAsync(approver, operation)
+                            .CanDecideAsync(approver, operation)
                     )
                         return new(403, Error: "The approver cannot access this SDK operation.");
                 }
@@ -336,16 +336,15 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                 );
 
             await using var scope = _scopes.CreateAsyncScope();
-            var denied = await scope
-                .ServiceProvider.GetRequiredService<QuasarOperationService>()
-                .CheckAccessAsync(
-                    caller,
-                    operation.PluginId,
-                    operation.OperationId,
-                    operation.Kind
+            if (
+                !await scope
+                    .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                    .CanDecideAsync(caller, operation)
+            )
+                return new(
+                    QuasarUndoStatus.Refused,
+                    "The caller cannot access this SDK operation."
                 );
-            if (denied is not null)
-                return new(QuasarUndoStatus.Refused, denied.Error);
 
             var context = new QuasarUndoContext(
                 scope.ServiceProvider,

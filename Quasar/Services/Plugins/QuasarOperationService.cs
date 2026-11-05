@@ -151,24 +151,25 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher, IQuasar
         // The assistant never does more than its asker could do by hand.
         if (agent?.Kind == QuasarAgentKind.Assistant && !await IsAllowedPersonAsync(agent.Asker, rule))
             return new(403, Error: "The person asking the assistant cannot access this SDK operation.");
-        if (approver is not null && !await IsAllowedApproverAsync(approver, rule))
+        if (approver is not null && !await IsAllowedDeciderAsync(approver, rule))
             return new(403, Error: "The approver cannot access this SDK operation.");
 
         return null;
     }
 
-    /// <summary>Whether a person may approve or reject a proposed call of the operation.</summary>
-    public async Task<bool> CanApproveAsync(ClaimsPrincipal approver, QuasarOperation operation)
+    /// <summary>Whether a person may decide on a recorded call of the operation: approve or reject a proposal, or
+    /// undo an applied call. The person needs the operation's current rule. No person satisfies CanActAsPlayer, so
+    /// CanControlServers stands in for it there (R15): deciding on a player agent's action needs server control.</summary>
+    public async Task<bool> CanDecideAsync(ClaimsPrincipal person, QuasarOperation operation)
     {
         var config = _rbac.GetConfig();
         var rule = Rule(operation, config);
         return config.SdkRulesValid && rule?.Enabled == true && await ValidPoliciesAsync(rule.RequiredPolicies)
-            && await IsAllowedApproverAsync(approver, rule);
+            && await IsAllowedDeciderAsync(person, rule);
     }
 
-    // No person satisfies CanActAsPlayer, so a player agent's proposal needs an approver who can control servers.
-    private Task<bool> IsAllowedApproverAsync(ClaimsPrincipal approver, QuasarOperationRule rule) =>
-        IsAllowedPersonAsync(_roles.RefreshRoles(approver), new()
+    private Task<bool> IsAllowedDeciderAsync(ClaimsPrincipal person, QuasarOperationRule rule) =>
+        IsAllowedPersonAsync(_roles.RefreshRoles(person), new()
         {
             RequiredPolicies = rule.RequiredPolicies!.Select(policy =>
                 policy.Equals(QuasarPolicyNames.CanActAsPlayer, StringComparison.OrdinalIgnoreCase)
