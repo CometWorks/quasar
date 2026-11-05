@@ -46,6 +46,7 @@ public sealed class QuasarAgentAuditTests : IDisposable
     private readonly object? _previous;
     private readonly RbacConfigCatalog _rbac;
     private readonly ServiceProvider _services;
+    private readonly ServiceDescriptor[] _descriptors;
     private int _value;
     private string? _restoredBlob;
 
@@ -129,6 +130,7 @@ public sealed class QuasarAgentAuditTests : IDisposable
             },
             new() { Deadline = TimeSpan.FromSeconds(1) }
         );
+        _descriptors = [.. services];
         _services = services.BuildServiceProvider();
     }
 
@@ -495,6 +497,177 @@ public sealed class QuasarAgentAuditTests : IDisposable
     }
 
     [Fact]
+    public async Task ApprovalRunsTheProposalAsTheAgentOnce()
+    {
+        const string askerId = "76561198000000101";
+        const string adminId = "76561198000000102";
+        const string viewerId = "76561198000000103";
+        await MapSteamAsync(askerId, QuasarRoles.Editor);
+        await MapSteamAsync(adminId, QuasarRoles.Admin);
+        await MapSteamAsync(viewerId, QuasarRoles.Viewer);
+        var audit = _services.GetRequiredService<QuasarAuditLog>();
+        var assistant = await AssistantAsync(Steam(askerId));
+        var proposal = await audit.RecordProposalAsync(
+            assistant,
+            Plugin,
+            "servers.set",
+            JsonSerializer.SerializeToElement(new SetRequest(7)),
+            "asked",
+            default
+        );
+
+        var refused = await audit.ApproveAsync(Steam(viewerId), proposal.Id, default);
+        Assert.Equal(403, refused.StatusCode);
+        Assert.Equal(0, _value);
+        Assert.Equal(
+            200,
+            (await audit.ApproveAsync(Steam(adminId), proposal.Id, default)).StatusCode
+        );
+        Assert.Equal(7, _value);
+        var approved = (await QueryAsync()).Single(entry =>
+            entry.Mode == QuasarAuditMode.Approved && entry.Result == QuasarAuditResult.Ok
+        );
+        Assert.Equal(proposal.Id, approved.Proposal);
+        Assert.Equal(QuasarAuditPrincipalKind.Assistant, approved.Principal.Kind);
+        Assert.Equal(askerId, approved.Requester.Subject);
+        Assert.Equal(adminId, approved.ApprovedBy);
+        Assert.Equal("conversation", approved.ConversationId);
+        Assert.Equal(
+            409,
+            (await audit.ApproveAsync(Steam(adminId), proposal.Id, default)).StatusCode
+        );
+        Assert.Equal(
+            409,
+            (await audit.RejectAsync(Steam(adminId), proposal.Id, null, default)).StatusCode
+        );
+        Assert.Equal(
+            409,
+            (await audit.ApproveAsync(Steam(adminId), approved.Id, default)).StatusCode
+        );
+        Assert.Equal(
+            404,
+            (await audit.ApproveAsync(Steam(adminId), "missing", default)).StatusCode
+        );
+
+        // The asker is checked again at approval time.
+        var second = await audit.RecordProposalAsync(
+            assistant,
+            Plugin,
+            "servers.set",
+            JsonSerializer.SerializeToElement(new SetRequest(8)),
+            null,
+            default
+        );
+        await MapSteamAsync(askerId, QuasarRoles.Viewer);
+        Assert.Equal(
+            403,
+            (await audit.ApproveAsync(Steam(adminId), second.Id, default)).StatusCode
+        );
+        Assert.Equal(7, _value);
+    }
+
+    [Fact]
+    public async Task RejectedProposalsCannotBeApproved()
+    {
+        const string askerId = "76561198000000111";
+        const string adminId = "76561198000000112";
+        await MapSteamAsync(askerId, QuasarRoles.Editor);
+        await MapSteamAsync(adminId, QuasarRoles.Admin);
+        var audit = _services.GetRequiredService<QuasarAuditLog>();
+        var assistant = await AssistantAsync(Steam(askerId));
+        var arguments = JsonSerializer.SerializeToElement(new SetRequest(3));
+        var proposal = await audit.RecordProposalAsync(
+            assistant,
+            Plugin,
+            "servers.set",
+            arguments,
+            null,
+            default
+        );
+        var expiring = await audit.RecordProposalAsync(
+            assistant,
+            Plugin,
+            "servers.set",
+            arguments,
+            null,
+            default
+        );
+
+        Assert.Equal(
+            403,
+            (await audit.RejectAsync(assistant, proposal.Id, "no", default)).StatusCode
+        );
+        var rejected = await audit.RejectAsync(Steam(adminId), proposal.Id, " not now ", default);
+        Assert.Equal(200, rejected.StatusCode);
+        var entry = Assert.IsType<QuasarAuditEntry>(rejected.Value);
+        Assert.Equal(QuasarAuditMode.Rejected, entry.Mode);
+        Assert.Equal(proposal.Id, entry.Proposal);
+        Assert.Equal("not now", entry.Error);
+        Assert.Equal(adminId, entry.ApprovedBy);
+        Assert.Equal(
+            409,
+            (await audit.ApproveAsync(Steam(adminId), proposal.Id, default)).StatusCode
+        );
+
+        var expired = Assert.IsType<QuasarAuditEntry>(
+            (await audit.RejectAsync(null, expiring.Id, "ignored", default)).Value
+        );
+        Assert.Equal("expired", expired.Error);
+        Assert.Null(expired.ApprovedBy);
+        Assert.Equal(
+            409,
+            (await audit.ApproveAsync(Steam(adminId), expiring.Id, default)).StatusCode
+        );
+        Assert.Equal(0, _value);
+    }
+
+    [Fact]
+    public async Task ApprovedPlayerProposalRunsAsTheSamePlayer()
+    {
+        const string adminId = "76561198000000121";
+        await MapSteamAsync(adminId, QuasarRoles.Admin);
+        ClaimsPrincipal? caller = null;
+        var services = new ServiceCollection();
+        foreach (var descriptor in _descriptors)
+            ((IList<ServiceDescriptor>)services).Add(descriptor);
+        services.AddQuasarOperation<JsonElement, object?>(
+            Plugin,
+            "my.restore",
+            [QuasarPolicyNames.CanActAsPlayer],
+            (context, input, token) =>
+            {
+                caller = context.User;
+                return Task.FromResult<object?>(null);
+            },
+            new() { Reversal = QuasarReversal.NothingToReverse }
+        );
+        await using var provider = services.BuildServiceProvider();
+        var audit = provider.GetRequiredService<QuasarAuditLog>();
+        var player = provider
+            .GetRequiredService<QuasarAgentPrincipals>()
+            .CreatePlayer("76561198000000001", "Pilot", "42", "player-conversation", "!ask");
+        var proposal = await audit.RecordProposalAsync(
+            player,
+            Plugin,
+            "my.restore",
+            JsonSerializer.SerializeToElement(new { grid = 1 }),
+            null,
+            default
+        );
+
+        Assert.Equal(
+            200,
+            (await audit.ApproveAsync(Steam(adminId), proposal.Id, default)).StatusCode
+        );
+        Assert.True(caller!.IsQuasarAgent(out var agent));
+        Assert.Equal(QuasarAgentKind.Player, agent.Kind);
+        Assert.Equal("76561198000000001", agent.PlayerSteamId);
+        Assert.Equal("Pilot", agent.PlayerName);
+        Assert.Equal("42", agent.DiscordUserId);
+        Assert.Equal("player-conversation", agent.ConversationId);
+    }
+
+    [Fact]
     public async Task UndoChecksTheStateRefusesTwiceAndNeedsTheOriginalPolicy()
     {
         var admin = Person(QuasarRoles.Admin, "admin-1");
@@ -684,6 +857,17 @@ public sealed class QuasarAgentAuditTests : IDisposable
                 "test"
             )
         );
+
+    private ClaimsPrincipal Steam(string steamId) =>
+        _services.GetRequiredService<QuasarRoleMapper>().CreateSteamPrincipal(steamId);
+
+    private Task MapSteamAsync(string steamId, string role) =>
+        _rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.RemoveAll(mapping => mapping.Subject == steamId);
+            config.SubjectRoleMappings.Add(new() { Subject = steamId, Roles = [role] });
+            return Task.CompletedTask;
+        });
 
     private Task<ClaimsPrincipal> AssistantAsync(ClaimsPrincipal asker) =>
         _services

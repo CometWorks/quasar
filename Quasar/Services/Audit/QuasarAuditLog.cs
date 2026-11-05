@@ -65,6 +65,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
     private readonly ILogger<QuasarAuditLog> _logger;
     private readonly SemaphoreSlim _write = new(1, 1);
     private readonly SemaphoreSlim _undo = new(1, 1);
+    private readonly HashSet<string> _deciding = [];
 
     public QuasarAuditLog(
         QuasarAuditOptions options,
@@ -128,6 +129,175 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
             .Skip(Math.Max(0, filter.Skip))
             .Take(Math.Clamp(filter.Take, 1, 1000))
             .ToList();
+
+    public async Task<QuasarOperationResult> ApproveAsync(
+        ClaimsPrincipal approver,
+        string proposalEntryId,
+        CancellationToken token
+    ) =>
+        await DecideAsync(
+            proposalEntryId,
+            allowExpired: false,
+            async (proposal, operation, services) =>
+            {
+                if (operation.Kind != QuasarOperationKind.Json)
+                    return new(400, Error: "Only JSON operations can be approved.");
+                // Argument values with secret-like names were redacted when the proposal was recorded.
+                if (proposal.Arguments?.GetRawText().Contains("\"<redacted>\"") == true)
+                    return new(
+                        409,
+                        Error: "The proposal's arguments were redacted. Ask for the change again."
+                    );
+                ClaimsPrincipal agent;
+                try
+                {
+                    agent = await RebuildAgentAsync(services, proposal);
+                }
+                catch (Exception error)
+                    when (error is UnauthorizedAccessException or ArgumentException)
+                {
+                    return new(403, Error: error.Message);
+                }
+                return await services
+                    .GetRequiredService<QuasarOperationService>()
+                    .DispatchAsync(
+                        new(agent, services)
+                        {
+                            Kind = operation.Kind,
+                            ApprovedBy = approver,
+                            ProposalId = proposal.Id,
+                        },
+                        operation.PluginId,
+                        operation.OperationId,
+                        proposal.Arguments ?? JsonSerializer.SerializeToElement(new { }),
+                        token
+                    );
+            },
+            token
+        );
+
+    public async Task<QuasarOperationResult> RejectAsync(
+        ClaimsPrincipal? approver,
+        string proposalEntryId,
+        string? reason,
+        CancellationToken token
+    ) =>
+        await DecideAsync(
+            proposalEntryId,
+            allowExpired: approver is null,
+            async (proposal, operation, services) =>
+            {
+                if (approver is not null)
+                {
+                    if (
+                        !await services
+                            .GetRequiredService<QuasarOperationService>()
+                            .CanApproveAsync(approver, operation)
+                    )
+                        return new(403, Error: "The approver cannot access this SDK operation.");
+                }
+                var entry = proposal with
+                {
+                    Id = NewEntryId(),
+                    Time = DateTimeOffset.UtcNow,
+                    Mode = QuasarAuditMode.Rejected,
+                    ApprovedBy = approver?.FindFirstValue(ClaimTypes.NameIdentifier),
+                    Result = QuasarAuditResult.Refused,
+                    Error =
+                        approver is null ? "expired"
+                        : string.IsNullOrWhiteSpace(reason) ? "Rejected."
+                        : reason.Trim(),
+                    Reversal = QuasarReversal.NotReversible,
+                    Proposal = proposal.Id,
+                };
+                await AppendAsync(entry, CancellationToken.None);
+                return new QuasarOperationResult(200, entry);
+            },
+            token
+        );
+
+    // One decision per proposal at a time; a decided proposal stays decided.
+    private async Task<QuasarOperationResult> DecideAsync(
+        string proposalEntryId,
+        bool allowExpired,
+        Func<
+            QuasarAuditEntry,
+            QuasarOperation,
+            IServiceProvider,
+            Task<QuasarOperationResult>
+        > decide,
+        CancellationToken token
+    )
+    {
+        lock (_deciding)
+            if (!_deciding.Add(proposalEntryId))
+                return new(409, Error: "This proposal is being decided right now.");
+        try
+        {
+            var entries = await ReadAsync(null, null, token);
+            var proposal = entries.FirstOrDefault(entry => entry.Id == proposalEntryId);
+            if (proposal is null)
+                return new(404, Error: "Proposal not found.");
+            if (proposal.Mode != QuasarAuditMode.Proposed)
+                return new(409, Error: "This audit entry is not a proposal.");
+            if (
+                !allowExpired
+                && proposal.Time < DateTimeOffset.UtcNow.AddDays(-_options.RetentionDays)
+            )
+                return new(409, Error: "The proposal has expired.");
+            if (
+                entries.Any(entry =>
+                    entry.Proposal == proposal.Id
+                    && (
+                        entry.Mode == QuasarAuditMode.Rejected
+                        || entry.Result != QuasarAuditResult.Refused
+                    )
+                )
+            )
+                return new(409, Error: "The proposal was already approved or rejected.");
+            if (!_operations.TryGetValue(proposal.Operation, out var operation))
+                return new(404, Error: "The operation is no longer registered.");
+            await using var scope = _scopes.CreateAsyncScope();
+            return await decide(proposal, operation, scope.ServiceProvider);
+        }
+        finally
+        {
+            lock (_deciding)
+                _deciding.Remove(proposalEntryId);
+        }
+    }
+
+    // Built from what core recorded from the real principal, never from plugin input.
+    private async Task<ClaimsPrincipal> RebuildAgentAsync(
+        IServiceProvider services,
+        QuasarAuditEntry proposal
+    )
+    {
+        var principals = services.GetRequiredService<QuasarAgentPrincipals>();
+        var requester = proposal.Requester;
+        if (proposal.Principal.Kind == QuasarAuditPrincipalKind.PlayerAgent)
+            return principals.CreatePlayer(
+                requester.SteamId ?? string.Empty,
+                requester.PlayerName,
+                requester.DiscordUserId,
+                proposal.ConversationId ?? string.Empty,
+                proposal.Request ?? string.Empty
+            );
+        var asker = requester.Provider switch
+        {
+            QuasarAuthSchemes.Steam when RbacConfigCatalog.IsSteamId64(requester.Subject) =>
+                _roles.CreateSteamPrincipal(requester.Subject!),
+            QuasarAuthSchemes.TrustedNetwork => _roles.CreateTrustedNetworkPrincipal(),
+            _ => throw new UnauthorizedAccessException(
+                "The person who asked for this proposal can't be identified again."
+            ),
+        };
+        return await principals.CreateAssistantAsync(
+            asker,
+            proposal.ConversationId ?? string.Empty,
+            proposal.Request ?? string.Empty
+        );
+    }
 
     /// <summary>Reverses an entry. The caller needs security administration and the original operation's policies.</summary>
     public async Task<QuasarUndoOutcome> UndoAsync(
@@ -265,7 +435,8 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
         JsonElement request,
         QuasarUndoRecorder? undo,
         QuasarAuditResult result,
-        string? error
+        string? error,
+        string? proposal = null
     )
     {
         try
@@ -289,6 +460,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                     Reversal = reversal,
                     UndoData = reversal == QuasarReversal.Undo ? undo?.Data : null,
                     HasBlobs = reversal == QuasarReversal.Undo && undo?.HasBlobs == true,
+                    Proposal = proposal,
                 },
                 CancellationToken.None
             );
@@ -384,7 +556,11 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
     }
 
     private static QuasarAuditRequester Person(ClaimsPrincipal user) =>
-        new(Subject(user), user.FindFirstValue(QuasarClaimTypes.SteamId));
+        new(
+            Subject(user),
+            user.FindFirstValue(QuasarClaimTypes.SteamId),
+            Provider: user.FindFirstValue(QuasarClaimTypes.Provider)
+        );
 
     private static string Subject(ClaimsPrincipal user) =>
         user.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";

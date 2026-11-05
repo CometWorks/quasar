@@ -96,8 +96,31 @@ data and blobs expire with the entry, after `Quasar:Audit:RetentionDays`
 The audit log is `audit/<yyyy-MM>.jsonl` in the Quasar data folder, one JSON
 object per line, with blobs in `audit/blobs/<entry id>/`. Argument values whose
 names look like a password, token, secret or key are stored as `<redacted>`.
-`IQuasarAuditLog` lets a plugin record an agent's proposal and query entries.
-Only changes made through the operation registry are audited.
+`IQuasarAuditLog` lets a plugin record an agent's proposal, decide it and
+query entries. Only changes made through the operation registry are audited.
+
+### Proposals
+
+`RecordProposalAsync` writes a `proposed` entry from the agent principal. Core
+records who the agent acts for from the real principal: the asker's sign-in
+provider and subject for the assistant, the Steam ID, player name and Discord
+user ID for the player agent. A plugin never rebuilds an agent principal itself:
+
+- `ApproveAsync(approver, proposalId)` rebuilds the agent from the proposal
+  entry and dispatches the recorded operation and arguments with
+  `ApprovedBy = approver`, so the agent's role, the asker's policies and the
+  approver's policies are all checked at approval time. A player agent's
+  proposal needs an approver who satisfies `CanControlServers` in place of
+  `CanActAsPlayer`. The `approved` entry names the proposal in `proposal`.
+- `RejectAsync(approver, proposalId, reason)` writes a `rejected` entry linked
+  to the proposal, after checking that the approver could have approved it.
+  Pass a null approver when the plugin lets a proposal expire; the reason is
+  then `expired`.
+
+Both refuse an entry that is not a proposal or was already approved or
+rejected; approval also refuses one past the retention period. A refused
+approval (the approver or asker lacks a policy) leaves the proposal open.
+Proposals whose arguments had redacted values cannot be approved.
 
 ### Agent principals
 

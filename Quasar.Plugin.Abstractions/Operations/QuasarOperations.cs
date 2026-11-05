@@ -17,6 +17,8 @@ public sealed record QuasarOperationContext(ClaimsPrincipal User, IServiceProvid
     public QuasarUndoRecorder? Undo { get; init; }
     /// <summary>The person who approved a proposed call; the dispatcher checks their policies too.</summary>
     public ClaimsPrincipal? ApprovedBy { get; init; }
+    /// <summary>Set by core when it approves a recorded proposal, to link the audit entries.</summary>
+    internal string? ProposalId { get; init; }
     public Task EnsureAuthorizedAsync(CancellationToken token) => VerifyAccess?.Invoke(token)
         ?? throw new InvalidOperationException("This operation has no authorization boundary.");
 }

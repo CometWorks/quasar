@@ -15,6 +15,7 @@ public enum QuasarAuditMode
     Applied,
     Proposed,
     Approved,
+    Rejected,
 }
 
 public enum QuasarAuditResult
@@ -31,11 +32,13 @@ public sealed record QuasarAuditPrincipal(
 );
 
 /// <summary>Who asked for the action. For a person acting directly it is that person.</summary>
+/// <param name="Provider">The person's sign-in provider, so an approval can rebuild the asker.</param>
 public sealed record QuasarAuditRequester(
     string? Subject = null,
     string? SteamId = null,
     string? PlayerName = null,
-    string? DiscordUserId = null
+    string? DiscordUserId = null,
+    string? Provider = null
 );
 
 /// <summary>One line of the append-only audit log. Entries are never rewritten; a reversal is a new entry.</summary>
@@ -71,6 +74,9 @@ public sealed record QuasarAuditEntry
 
     /// <summary>The ID of the entry this one reverses.</summary>
     public string? Reverses { get; init; }
+
+    /// <summary>For an approved or rejected call, the ID of the proposal entry.</summary>
+    public string? Proposal { get; init; }
 }
 
 /// <summary>Text filters match a substring, ignoring case.</summary>
@@ -98,6 +104,26 @@ public interface IQuasarAuditLog
         string pluginId,
         string operationId,
         JsonElement arguments,
+        string? reason,
+        CancellationToken token
+    );
+
+    /// <summary>Runs a proposed call as the agent that proposed it, rebuilt by core from the proposal entry,
+    /// with <paramref name="approver"/> as <see cref="QuasarOperationContext.ApprovedBy"/>. The dispatcher checks
+    /// the agent, its asker and the approver again. The resulting <c>approved</c> entry links the proposal.
+    /// Refused (403, 404 or 409, with the reason) when the entry is no proposal, has expired, or was already
+    /// approved or rejected.</summary>
+    Task<QuasarOperationResult> ApproveAsync(
+        ClaimsPrincipal approver,
+        string proposalEntryId,
+        CancellationToken token
+    );
+
+    /// <summary>Writes a <c>rejected</c> entry linked to the proposal. The approver must be a person allowed to
+    /// run the operation. A null approver means the proposal expired; its reason is then always <c>expired</c>.</summary>
+    Task<QuasarOperationResult> RejectAsync(
+        ClaimsPrincipal? approver,
+        string proposalEntryId,
         string? reason,
         CancellationToken token
     );
