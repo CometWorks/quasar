@@ -36,7 +36,11 @@ public static class QuasarMyOperations
             PlayerPolicy,
             (context, input, token) =>
                 Task.FromResult(Tools(context).ServerInfo(Player(context), input.UniqueName)),
-            Read
+            Read with
+            {
+                Description =
+                    "Returns the name, status, online player count, description and message of the day of the player's server, and whether grid tools work there. Without uniqueName it uses the server the player asked from.",
+            }
         );
         services.AddQuasarOperation<ServerRequest, JsonNode?>(
             plugin,
@@ -44,7 +48,11 @@ public static class QuasarMyOperations
             PlayerPolicy,
             (context, input, token) =>
                 Tools(context).GridsAsync(Player(context), input.UniqueName, token),
-            Read
+            Read with
+            {
+                Description =
+                    "Lists the player's grids that have backups, newest backup first, with whether each is in the world now. Without uniqueName it uses the server the player asked from.",
+            }
         );
         services.AddQuasarOperation<GridRequest, JsonElement>(
             plugin,
@@ -53,7 +61,11 @@ public static class QuasarMyOperations
             (context, input, token) =>
                 Tools(context)
                     .DescribeAsync(Player(context), input.GridId, input.UniqueName, token),
-            Read
+            Read with
+            {
+                Description =
+                    "Returns the backups Grid Backups keeps of one of the player's grids, newest first, with their time and position. Without uniqueName it uses the server the player asked from.",
+            }
         );
         services.AddQuasarOperation<LossesRequest, JsonElement>(
             plugin,
@@ -62,7 +74,11 @@ public static class QuasarMyOperations
             (context, input, token) =>
                 Tools(context)
                     .LossesAsync(Player(context), input.SinceUtc, input.UniqueName, token),
-            Read
+            Read with
+            {
+                Description =
+                    "Lists the player's lost grids, newest first, with the time and cause (destroyed, ground, deleted, cleanup or hangar), optionally only since sinceUtc. Without uniqueName it uses the server the player asked from.",
+            }
         );
         services.AddQuasarOperation<GridRequest, object>(
             plugin,
@@ -70,7 +86,11 @@ public static class QuasarMyOperations
             PlayerPolicy,
             (context, input, token) =>
                 Tools(context).LocateAsync(Player(context), input.GridId, input.UniqueName, token),
-            Read
+            Read with
+            {
+                Description =
+                    "Returns a GPS line (GPS:name:x:y:z:) for one of the player's grids in the world. Refused unless the player is among its biggest owners. Without uniqueName it uses the server the player asked from.",
+            }
         );
         services.AddQuasarOperation<RestoreRequest, JsonElement>(
             plugin,
@@ -85,6 +105,8 @@ public static class QuasarMyOperations
                 Reversal = QuasarReversal.Undo,
                 Undo = new RestoreUndo(),
                 Deadline = QuasarOperationMetadata.MaximumDeadline,
+                Description =
+                    "Restores one of the player's grids that is gone from the world, from its newest backup before the loss. Placement is original (default), near-player or near-player-station; the near-player ones need the player in game. Defaults: 2000 m clear of other players' grids, search up to 10000 m for a free spot, inventories kept. Without uniqueName it uses the server the player asked from.",
             }
         );
     }

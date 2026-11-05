@@ -100,6 +100,28 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
     }
 
     [Fact]
+    public void MyOperationsDescribeThemselvesAndExportTheirRequestSchema()
+    {
+        var operations = _services
+            .GetServices<QuasarOperation>()
+            .Where(operation => operation.OperationId.StartsWith("my.", StringComparison.Ordinal))
+            .ToList();
+        Assert.Equal(6, operations.Count);
+        foreach (var operation in operations)
+        {
+            Assert.False(
+                string.IsNullOrWhiteSpace(operation.Metadata.Description),
+                operation.OperationId
+            );
+            var schema = System.Text.Json.Schema.JsonSchemaExporter.GetJsonSchemaAsNode(
+                JsonSerializerOptions.Web,
+                operation.RequestType!
+            );
+            Assert.NotNull(schema["properties"]?["uniqueName"]);
+        }
+    }
+
+    [Fact]
     public async Task MyOperationsAreOnlyForAPlayerAgentWithASteamId()
     {
         Connect(Standalone("alpha"));
