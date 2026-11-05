@@ -221,7 +221,12 @@ an incomplete declared payload, while older complete HTTP archives remain valid
 rollback targets. Linux packaging and Windows cross-build pass locally. Native
 Windows execution and installed upgrade/rollback remain acceptance gates.
 
-NAT discovery defaults to the self-hosted `stun:dash.se-servers.net:3478` for
-both peers, without a browser setting. The endpoint must be deployed and UDP 3478
-routed to Nebula separately from HTTPS. TURN fallback is under implementation;
-no relay is enabled by this committed foundation alone.
+NAT discovery defaults to the self-hosted `stun:rtc.se-servers.net:3478` for
+both peers, without a browser setting. This hostname must be DNS only: Cloudflare's
+ordinary HTTP proxy does not carry STUN/TURN UDP or raw TCP. The dashboard may
+retain its HTTPS proxy. The endpoint must be deployed and UDP 3478 routed to
+Nebula separately from HTTPS. Nebula's relay resolves the DDNS hostname at startup
+and every minute; a verified public IPv4 change retires old relay allocations
+without replaying application work. Automatic bounded TURN fallback is implemented
+as described above; public deployment and Internet traversal acceptance remain
+operator gates.

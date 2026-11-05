@@ -10,7 +10,7 @@ namespace Quasar.Services.Plugins;
 
 public sealed class QuasarRtcOptions
 {
-    public string[] StunUrls { get; set; } = ["stun:dash.se-servers.net:3478"];
+    public string[] StunUrls { get; set; } = ["stun:rtc.se-servers.net:3478"];
     public string[] ValidatedStunUrls() => StunUrls.Length <= 2 && StunUrls.All(url => url is { Length: > 5 and <= 256 } && url.StartsWith("stun:", StringComparison.Ordinal)
         && Uri.TryCreate("http://" + url[5..], UriKind.Absolute, out var address)
         && address.UserInfo.Length == 0 && address.AbsolutePath == "/" && address.Query.Length == 0 && address.Fragment.Length == 0)

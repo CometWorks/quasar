@@ -286,7 +286,10 @@ logout, permission loss or lease expiry closes access. Nebula-hosted SDK session
 Initial direct failure can use Nebula's bounded TURN fallback before any
 application work runs. Established writes are never replayed, and there is no
 automatic bulk HTTP fallback. Relay credentials are temporary and carry no user
-or machine role; relay exhaustion remains visible. The RTC branch
+or machine role; relay exhaustion remains visible. Default NAT discovery uses
+`stun:rtc.se-servers.net:3478`, a DNS-only hostname separate from the proxied
+dashboard. DDNS may update its public IPv4; the Nebula relay refreshes it every
+minute and closes old relay allocations after a verified change. The RTC branch
 also carries Blazor circuits using the same stored session and renews current
 roles on reconnect after RBAC changes. Installed and native Windows acceptance
 remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
