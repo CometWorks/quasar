@@ -46,8 +46,8 @@ The published `v1.4.1.1` packages use `1.4.1-1` in `release.json` while the
 application reports `1.4.1.1`. This prevents both foreground and native-service
 migration receipts. Its Windows installer also has unsafe recursive file grants
 and can leave files inaccessible when application and data share a folder.
-Do not rerun that installer. Use a corrected **1.4.1.2 or newer 1.4.1** complete
-package once published, keeping the original install/data paths and service names.
+Do not rerun that installer. Use the corrected [**1.4.1.2 migration release**](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2)
+or a newer 1.4.1 complete package, keeping the original install/data paths and service names.
 A newer 1.5/1.6 installer cannot supply a missing bridge receipt.
 
 Stop both services and any legacy task before recovery. Keep the old application
@@ -62,6 +62,16 @@ Do not create a receipt by hand or relax version/health checks.
 Release publication requires a complete corrected bridge at least 1.4.1.2. Cleanup
 retains the newest bridge with both platform packages, both legacy worker archives
 and checksums; a newer incomplete release cannot displace it.
+
+The corrected [1.4.1.2 packages](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2)
+were built from the 1.4.1 maintenance line. [Native recovery CI](https://github.com/CometWorks/quasar/actions/runs/42015116872)
+passes Linux user/system and Windows co-located/nested layouts, including effective
+file access, protected paths, service-control permissions, receipts and recovery.
+The [package build](https://github.com/CometWorks/quasar/actions/runs/42015121000)
+checks both platform identities against their executable `--version`; all four
+downloaded archive checksums, manifests and installer sources were also verified.
+Native fixtures use test-only services and production updater/shared code; the
+actual Quasar web service was not launched during this validation.
 
 The maintenance build must come from the 1.4.1 source line, with the package
 identity fix and Windows service/ACL/copy fixes backported. Do not label a current
