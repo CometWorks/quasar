@@ -659,7 +659,9 @@ public sealed class QuasarAgentAuditTests : IDisposable
     public async Task ApprovedPlayerProposalRunsAsTheSamePlayer()
     {
         const string adminId = "76561198000000121";
+        const string viewerId = "76561198000000122";
         await MapSteamAsync(adminId, QuasarRoles.Admin);
+        await MapSteamAsync(viewerId, QuasarRoles.Viewer);
         ClaimsPrincipal? caller = null;
         var services = new ServiceCollection();
         foreach (var descriptor in _descriptors)
@@ -679,7 +681,14 @@ public sealed class QuasarAgentAuditTests : IDisposable
         var audit = provider.GetRequiredService<QuasarAuditLog>();
         var player = provider
             .GetRequiredService<QuasarAgentPrincipals>()
-            .CreatePlayer("76561198000000001", "Pilot", "42", "player-conversation", "!ask");
+            .CreatePlayer(
+                "76561198000000001",
+                "Pilot",
+                "42",
+                "player-conversation",
+                "!ask",
+                "fleet"
+            );
         var proposal = await audit.RecordProposalAsync(
             player,
             Plugin,
@@ -688,12 +697,23 @@ public sealed class QuasarAgentAuditTests : IDisposable
             null,
             default
         );
+        Assert.Equal("fleet", proposal.Requester.Server);
 
+        // Deciding on a player agent's action needs server control in place of CanActAsPlayer.
+        Assert.Equal(
+            403,
+            (await audit.RejectAsync(Steam(viewerId), proposal.Id, "no", default)).StatusCode
+        );
+        Assert.Equal(
+            403,
+            (await audit.ApproveAsync(Steam(viewerId), proposal.Id, default)).StatusCode
+        );
         Assert.Equal(
             200,
             (await audit.ApproveAsync(Steam(adminId), proposal.Id, default)).StatusCode
         );
         Assert.True(caller!.IsQuasarAgent(out var agent));
+        Assert.Equal("fleet", agent.Server);
         Assert.Equal(QuasarAgentKind.Player, agent.Kind);
         Assert.Equal("76561198000000001", agent.PlayerSteamId);
         Assert.Equal("Pilot", agent.PlayerName);

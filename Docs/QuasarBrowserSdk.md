@@ -89,11 +89,10 @@ left; otherwise it returns a short description of the difference, which the
 admin sees before choosing **Undo anyway**. Then it calls `ReverseAsync` and
 writes a new entry that points at the reversed one. The handler gets the
 recorded data and the entry's blob folder in `QuasarUndoContext`. The admin
-needs `CanManageSecurity` and the original operation's current policies; for an
-operation that declares `CanActAsPlayer`, which no person satisfies, the admin
-needs `CanControlServers` instead. Undo
-data and blobs expire with the entry, after `Quasar:Audit:RetentionDays`
-(default 30).
+needs `CanManageSecurity` and the operation's current policies, checked like an
+approver's (see Proposals): no person satisfies `CanActAsPlayer`, so
+`CanControlServers` stands in for it. Undo data and blobs expire with the
+entry, after `Quasar:Audit:RetentionDays` (default 30).
 
 The audit log is `audit/<yyyy-MM>.jsonl` in the Quasar data folder, one JSON
 object per line, with blobs in `audit/blobs/<entry id>/`. Argument values whose
@@ -105,15 +104,16 @@ query entries. Only changes made through the operation registry are audited.
 
 `RecordProposalAsync` writes a `proposed` entry from the agent principal. Core
 records who the agent acts for from the real principal: the asker's sign-in
-provider and subject for the assistant, the Steam ID, player name and Discord
-user ID for the player agent. A plugin never rebuilds an agent principal itself:
+provider and subject for the assistant, the Steam ID, player name, Discord
+user ID and the server the player asked from for the player agent. A plugin never rebuilds an agent principal itself:
 
 - `ApproveAsync(approver, proposalId)` rebuilds the agent from the proposal
   entry and dispatches the recorded operation and arguments with
   `ApprovedBy = approver`, so the agent's role, the asker's policies and the
-  approver's policies are all checked at approval time. A player agent's
-  proposal needs an approver who satisfies `CanControlServers` in place of
-  `CanActAsPlayer`. The `approved` entry names the proposal in `proposal`.
+  approver's policies are all checked at approval time. The approver needs
+  the operation's current policies with `CanControlServers` in place of
+  `CanActAsPlayer`, so a player agent's proposal needs server control. Undo
+  and `RejectAsync` use the same rule. The `approved` entry names the proposal in `proposal`.
 - `RejectAsync(approver, proposalId, reason)` writes a `rejected` entry linked
   to the proposal, after checking that the approver could have approved it.
   Pass a null approver when the plugin lets a proposal expire; the reason is
@@ -214,7 +214,8 @@ unique name). Without it, the server the player asked from is used; a Discord
 request with more than one candidate gets 400 with the list. The grid
 operations need Grid Backups (`9AC2F6A8-B8A7-4250-8814-BADE62C5CF3C`) loaded
 there and call its companion operations, documented in the Grid Backups
-repository's `docs/CompanionOperations.md`.
+repository's `docs/CompanionOperations.md`. Each one has a `Description` for
+the assistant's tool list.
 
 | Operation | Kind | Request | Result |
 | --- | --- | --- | --- |

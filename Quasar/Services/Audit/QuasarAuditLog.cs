@@ -281,7 +281,8 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                 requester.PlayerName,
                 requester.DiscordUserId,
                 proposal.ConversationId ?? string.Empty,
-                proposal.Request ?? string.Empty
+                proposal.Request ?? string.Empty,
+                requester.Server
             );
         var asker = requester.Provider switch
         {
@@ -542,7 +543,8 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                 : new(
                     SteamId: agent.PlayerSteamId,
                     PlayerName: agent.PlayerName,
-                    DiscordUserId: agent.DiscordUserId
+                    DiscordUserId: agent.DiscordUserId,
+                    Server: agent.Server
                 ),
             ConversationId = agent?.ConversationId,
             Request = agent?.Request,
