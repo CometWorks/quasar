@@ -2,6 +2,7 @@
 @inject HostedPanelService Hosted
 @inject QuasarPermissionService Permissions
 @inject RbacConfigCatalog Rbac
+@inject SteamProfileClient SteamProfiles
 @inject QuasarAuthOptions Auth
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
@@ -18,9 +19,10 @@
             {
                 <header class="access-setup-header">
                     <h2>Set the first Quasar administrator</h2>
-                    <p>Add your SteamID64 so you can sign in after enabling public access.</p>
+                    <p>Add your SteamID64 or Steam Community profile URL so you can sign in after enabling public access.</p>
                 </header>
-                <MudTextField T="string" @bind-Value="_adminSteamId" Label="Administrator SteamID64" HelperText="Your 17-digit Steam account ID, not your display name or profile URL." Variant="Variant.Outlined" Immediate="true" />
+                <p class="access-setup-note">Saving the administrator refreshes this panel to apply permissions. You may briefly see a reconnect message after the change is saved.</p>
+                <MudTextField T="string" @bind-Value="_adminSteamId" Label="Administrator SteamID64 or profile URL" HelperText="Your 17-digit Steam account ID or Steam Community profile URL. URLs resolve automatically when saved." Variant="Variant.Outlined" Immediate="true" Disabled="@_busy" Error="@(!string.IsNullOrWhiteSpace(_adminSteamId) && !SteamProfileClient.IsSupportedInput(_adminSteamId))" ErrorText="Enter a 17-digit SteamID64 or a Steam Community profile URL." />
                 <p class="access-setup-note">This grants administrator access to this Quasar installation; Nebula hosting entitlement is separate. Use an existing trusted-network administrator session for initial setup. Signing in with Steam alone does not claim an unconfigured panel.</p>
             }
             else if (_connecting)
@@ -128,7 +130,7 @@
             {
                 @if (NeedsAdministrator)
                 {
-                    <MudButton OnClick="SaveAdministratorAsync" Disabled="@(_busy || !RbacConfigCatalog.IsSteamId64(_adminSteamId?.Trim()))" Variant="Variant.Filled" Color="Color.Primary">Save administrator and continue</MudButton>
+                    <MudButton OnClick="SaveAdministratorAsync" Disabled="@(_busy || !SteamProfileClient.IsSupportedInput(_adminSteamId))" Variant="Variant.Filled" Color="Color.Primary">Save administrator and continue</MudButton>
                     <MudButton OnClick="DismissAsync" Disabled="@_busy">Cancel</MudButton>
                 }
                 else if (_hosted)
@@ -186,7 +188,13 @@
         }
         StateHasChanged();
     });
-    private Task SaveAdministratorAsync() => RunAsync(() => Rbac.AddFirstSteamAdminAsync(_adminSteamId));
+    private Task SaveAdministratorAsync() => RunAsync(async () =>
+    {
+        var steamId = await SteamProfiles.ResolveSteamIdAsync(_adminSteamId);
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            throw new UnauthorizedAccessException("Administrator permission is required.");
+        await Rbac.AddFirstSteamAdminAsync(steamId);
+    });
     private async Task SelfDeployAsync() => await RunAsync(async () =>
     {
         EnsureAdministrator();

@@ -25,9 +25,11 @@ For a remote Linux server, forward the local UI with
 
 ## Choose public access
 
-A first interactive administrator session shows **Set up administrator access**. If no subject or claim mapping grants the admin role, its first step asks for your 17-digit **Administrator SteamID64**. **Save administrator and continue** saves it to `rbac.json` before showing **Self-deploy** and **Use hosted panel**. Existing administrator mappings skip this step. See [The first administrator](AccessControl.md#the-first-administrator).
+A first interactive administrator session shows **Set up administrator access**. If no subject or claim mapping grants the admin role, its first step asks for your **Administrator SteamID64 or profile URL**. Enter a 17-digit ID or a Steam Community URL such as `https://steamcommunity.com/id/rex00991/` or `https://steamcommunity.com/profiles/76561198000000000/`. **Save administrator and continue** resolves vanity URLs automatically without an API key and saves only the numeric ID to `rbac.json` before showing **Self-deploy** and **Use hosted panel**. Invalid input or a failed lookup saves nothing; retry or enter the numeric ID if Steam is unavailable. Existing administrator mappings skip this step. See [The first administrator](AccessControl.md#the-first-administrator).
 
 Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back** returns from the hosted settings and keeps the name you entered. **Cancel** closes setup without configuring public access; setup comes back on the next page load while no admin is configured. Headless startup is not blocked. Reopen setup at **Security → Manage access setup**. See [Hosted access](HostedPanel.md) for automatic enrollment and its current availability.
+
+Before you save the administrator, setup explains that the panel refreshes to apply permissions. A brief reconnect message after saving is expected, including with WebRTC. Your mapping is saved before the refresh.
 
 Starting hosted enrollment switches the dialog to a progress screen with live updates and **Cancel** as its only button while connecting. **Open Quasar dashboard** appears once the hosted panel is active and its connection checks pass, and opens the dashboard in the current tab. **Self-deploy** appears only on the access-method screen, never on later hosted steps or when reopening a completed enrollment. Canceling setup does not cancel a paid subscription.
 
@@ -37,7 +39,7 @@ Quasar access is controlled by roles (`viewer`, `editor`, `admin`) mapped to Ste
 
 ### Option 1: open the UI on the Quasar machine itself
 
-By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar and enter your SteamID64 in the administrator setup step. You can also go to **Security** and add your SteamID with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode. Setup rechecks security-management permission before saving; a remote Steam sign-in alone cannot claim an unconfigured panel.
+By default Quasar trusts requests from loopback (`127.0.0.1`, `::1`) and gives them the `admin` role without a Steam sign-in. Open `http://127.0.0.1:8080` in a browser on the machine that runs Quasar and enter your SteamID64 or profile URL in the administrator setup step. You can also go to **Security** and add it with the `admin` role under **Runtime Subject Role Mappings**. The top bar shows "Trusted network" as the user name in this mode. Setup rechecks security-management permission before saving, including after a profile lookup; a remote Steam sign-in alone cannot claim an unconfigured panel.
 
 Private LAN clients are also trusted by default. For example, a browser on
 `192.168.1.10` can open `http://192.168.1.80:8080` when Quasar runs at
@@ -231,6 +233,7 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Services/WorldSandboxConfigEditor.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
+- `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
