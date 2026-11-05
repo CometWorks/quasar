@@ -105,6 +105,15 @@ Its fake hosting provider and test-only `FakeTimeProvider` prove lease expiry
 without waiting two minutes. Nebula's separate real-process checks exercise the
 actual hosting API and retained frp/Caddy transport.
 
+The browser fixtures normally omit STUN to run on isolated loopback networks.
+Set `QUASAR_RTC_TEST_STUN=stun:rtc.se-servers.net:3478` (or a test STUN endpoint)
+for `Quasar.Tests.QuasarRtcTests` and `tests/Quasar.Rtc.CircuitChecks` to also
+exercise configured discovery through the real worker/native peer boundary.
+This mode requires that endpoint to be reachable. ICE JSON omits absent STUN
+credentials: Pion rejects a present null username before SDP negotiation, which
+otherwise prevents hosted Blazor hydration even when both peers can connect
+locally. The HTTP JSON contract check also verifies TURN credentials remain intact.
+
 Linux Chromium checks pass authentication/CSRF, exact-session ownership, nonce
 and grant replay, pending expiry, permission disablement, view closure, logout,
 manager outage and installation replacement, including a native Go race build.

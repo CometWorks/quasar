@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
 using Quasar.Hosting;
@@ -11,7 +12,9 @@ using Quasar.Services.Auth;
 namespace Quasar.Services.Plugins;
 
 public sealed record QuasarRtcOffer(int Version, string Nonce, QuasarRtcDescription Description, string? RelayTicket = null);
-public sealed record QuasarRtcIce(string[] Urls, string? Username = null, string? Credential = null);
+public sealed record QuasarRtcIce(string[] Urls,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Username = null,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Credential = null);
 public sealed record QuasarRtcRelaySetup(string Ticket, QuasarRtcIce[] IceServers, int ValidForSeconds);
 public sealed record QuasarRtcSetup(string Id, string Grant, QuasarRtcDescription Description, int Version = 1, int SetupSeconds = 30);
 
