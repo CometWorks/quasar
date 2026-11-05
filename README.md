@@ -54,6 +54,7 @@ application release retained by the native updater. See [command-line rollback](
 | --- | --- |
 | [Quick Start](Docs/QuickStart.md) | Download, run from the terminal, and install as a background service (systemd / Windows Services). |
 | [Docker Deployment](Docs/Docker.md) | Run the versioned GHCR image with Compose, persistent state, environment configuration, and upgrades. |
+| [World import](Docs/WorldImport.md) | Direct folder/ZIP import to existing servers, Worlds page, configuration choices and safety limits. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Hosted panel](Docs/HostedPanel.md) | Optional Nebula enrollment, public path URLs, connector lifecycle and current launch gates. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, headless mode, browser behavior, and optional instance health notifications. |

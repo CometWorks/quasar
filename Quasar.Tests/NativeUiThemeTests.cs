@@ -269,6 +269,8 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new WebServiceOptions());
+        context.Services.AddSingleton<Quasar.Services.Backup.ServerRestoreCoordinator>();
+        context.Services.AddSingleton<ServerWorldImportService>();
         context.Services.AddScoped<ServerManagementActions>();
         context.ComponentFactories.AddStub<ServerDetailPanel>();
         context.ComponentFactories.AddStub<ClusterDetailPanel>();
@@ -567,6 +569,8 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new WebServiceOptions());
+        context.Services.AddSingleton<Quasar.Services.Backup.ServerRestoreCoordinator>();
+        context.Services.AddSingleton<ServerWorldImportService>();
         context.Services.AddScoped<ServerManagementActions>();
         using var http = new HttpClient(new UnavailableGateway());
         var gateway = new ClusterGatewayClient(http);

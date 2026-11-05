@@ -1,6 +1,7 @@
 @implements IDisposable
 @inject ManagedRuntimeWarmupService RuntimeWarmup
 
+@inject QuasarPermissionService Permissions
 <MudDialog>
     <DialogContent>
         @if (_importing)
@@ -126,55 +127,21 @@
 
                 <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
                     <MudForm @ref="_form" @bind-IsValid="_formIsValid">
-                    <div class="quasar-layout quasar-gap-3">
-                        <p class="quasar-text quasar-type-body2">
-                            Import an existing Space Engineers save folder as a reusable world template, then select it in the server editor.
-                        </p>
-
-                        <MudTextField
-                            @bind-Value="_name"
-                            Label="Template name"
-                            Variant="Variant.Outlined"
-                            Immediate="true"
-                            AutoFocus="true"
-                            Required="true"
-                            RequiredError="Template name required." />
-
-                        <MudTextField
-                            @bind-Value="_description"
-                            Label="Description"
-                            Variant="Variant.Outlined"
-                            Immediate="true"
-                            Lines="3"
-                            Sizing="InputSizing.Auto"
-                            MaxLines="10000" />
-
-                        <div class="quasar-layout quasar-layout-row quasar-align-start quasar-gap-1">
-                            <MudTextField
-                                @bind-Value="_sourcePath"
-                                Label="Source world path"
-                                Variant="Variant.Outlined"
-                                Immediate="true"
-                                Class="flex-grow-1"
-                                Required="true"
-                                RequiredError="Source world path required."
-                                HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc." />
-                            <MudButton Variant="Variant.Outlined"
-                                       Color="Color.Default"
-                                       StartIcon="@Icons.Material.Filled.FolderOpen"
-                                       Class="world-template-browse-button"
-                                       OnClick="OpenFolderPickerAsync">
-                                Browse
-                            </MudButton>
-                        </div>
-                    </div>
+                        <fieldset class="quasar-fieldset world-import-form" disabled="@_importing">
+                            <p>Create a reusable template from a save folder or ZIP. Server saves are separate copies.</p>
+                            <label class="quasar-field" for="world-template-name">Template name</label>
+                            <input id="world-template-name" class="world-text-input" @bind="_name" @bind:event="oninput" required />
+                            <label class="quasar-field" for="world-template-description">Description (optional)</label>
+                            <textarea id="world-template-description" class="world-text-input" rows="3" @bind="_description"></textarea>
+                            <WorldImportSourcePicker RetainWorldOnDispose="true" WorldChanged="CustomWorldReady" BusyChanged="@(value => _sourceBusy = value)" />
+                        </fieldset>
                     </MudForm>
                 </MudTabPanel>
             </MudTabs>
         }
         else if (!_importing)
         {
-            <div class="quasar-layout quasar-gap-3">
+            <div class="quasar-layout quasar-gap-3 world-import-form">
                 <h3 class="quasar-text quasar-type-subtitle2">Template config profile</h3>
                 @if (!string.IsNullOrWhiteSpace(_sourceProfileLoadError))
                 {
@@ -208,22 +175,10 @@
 
                 @if (_modAction == WorldImportModAction.CreateProfile && CanCreateProfileFromSource)
                 {
-                    <MudTextField
-                        @bind-Value="_newProfileName"
-                        Label="Profile name"
-                        Variant="Variant.Outlined"
-                        Immediate="true"
-                        Required="true"
-                        RequiredError="Profile name required." />
-
-                    <MudTextField
-                        @bind-Value="_newProfileDescription"
-                        Label="Description"
-                        Variant="Variant.Outlined"
-                        Immediate="true"
-                        Lines="3"
-                        Sizing="InputSizing.Auto"
-                        MaxLines="10000" />
+                    <label class="quasar-field" for="world-profile-name">Profile name</label>
+                    <input id="world-profile-name" class="world-text-input" @bind="_newProfileName" @bind:event="oninput" disabled="@_importing" required />
+                    <label class="quasar-field" for="world-profile-description">Description (optional)</label>
+                    <textarea id="world-profile-description" class="world-text-input" @bind="_newProfileDescription" rows="3" disabled="@_importing"></textarea>
                 }
                 else if (_modAction == WorldImportModAction.ExistingProfile)
                 {
@@ -259,12 +214,12 @@
     <DialogActions>
         @if (_step == ImportStep.ConfigProfile)
         {
-            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="BackToDetails" Disabled="@_importing">Back</MudButton>
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="BackToDetails" Disabled="@(_importing || _sourceBusy)">Back</MudButton>
         }
-        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_importing">Cancel</MudButton>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@(_importing || _sourceBusy)">Cancel</MudButton>
         @if (_step == ImportStep.ConfigProfile || IsCustomImportTabActive)
         {
-            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@_importing">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ContinueAsync" Disabled="@(_importing || _sourceBusy)">
                 @GetPrimaryButtonText()
             </MudButton>
         }
@@ -332,6 +287,17 @@
     private readonly CancellationTokenSource _stop = new();
     private bool IsDedicatedServerReady => RuntimeWarmup.GetSnapshot().Components.Any(c =>
         c.Component == ManagedRuntimeInstallComponent.DedicatedServer && c.State == ManagedRuntimeComponentState.Ready);
+    private bool _sourceBusy;
+    private StagedWorld? _customWorld;
+
+    private void CustomWorldReady(StagedWorld? world)
+    {
+        _customWorld?.Dispose();
+        _customWorld = world;
+        _sourcePath = world?.WorldPath ?? string.Empty;
+        if (world is not null && string.IsNullOrWhiteSpace(_name)) _name = world.SuggestedName;
+    }
+
 
     private bool IsCustomImportTabActive => _activeDetailsTabIndex == CustomImportTabIndex;
 
@@ -369,28 +335,6 @@
         _step = ImportStep.Details;
     }
 
-    private async Task OpenFolderPickerAsync()
-    {
-        var initialPath = await ImportLocations.GetInitialPathAsync(_sourcePath);
-        var parameters = new DialogParameters
-        {
-            [nameof(FolderPickerDialog.InitialPath)] = initialPath,
-            [nameof(FolderPickerDialog.AdditionalShortcuts)] = ImportLocations.GetContentShortcuts(),
-        };
-
-        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
-            "Pick world folder",
-            parameters,
-            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
-
-        var result = await dialog.Result;
-        if (result is { Canceled: false, Data: string path })
-        {
-            _sourcePath = path;
-            await ImportLocations.RememberAsync(path);
-        }
-    }
-
     private async Task ContinueAsync()
     {
         if (_step == ImportStep.ConfigProfile)
@@ -405,6 +349,11 @@
             return;
         }
 
+        if (_sourceBusy || _customWorld is null || string.IsNullOrWhiteSpace(_name))
+        {
+            Snackbar.Add("Enter a template name and read a world folder or ZIP first.", Severity.Warning);
+            return;
+        }
         await _form!.ValidateAsync();
         if (!_formIsValid)
             return;
@@ -488,6 +437,7 @@
         _disposed = true;
         RuntimeWarmup.Changed -= RuntimeChanged;
         _stop.Cancel();
+        _customWorld?.Dispose();
         _stop.Dispose();
     }
 
@@ -510,6 +460,7 @@
     private async Task ImportAsync()
     {
         if (_importing) return;
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
         if (_modAction == WorldImportModAction.CreateProfile && _step == ImportStep.ConfigProfile && string.IsNullOrWhiteSpace(_newProfileName))
         {
             Snackbar.Add("Profile name required.", Severity.Warning);

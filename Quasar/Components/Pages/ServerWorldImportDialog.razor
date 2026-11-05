@@ -1,0 +1,116 @@
+@inject QuasarConfigProfileCatalog Profiles
+@inject QuasarPermissionService Permissions
+@inject ServerWorldImportService Imports
+
+<MudDialog>
+    <DialogContent>
+        <div class="world-import-form">
+            <fieldset class="quasar-fieldset world-import-form" disabled="@_importing">
+                <p>Import a new save into <strong>@Target.DisplayName</strong> (<code>@Target.UniqueName</code>).</p>
+                <p>Current save: <strong>@Target.WorldSaveName</strong>. It stays on disk. The server will remain stopped.</p>
+                @if (!_reading && !_importing && !Imports.CanImport(Target))
+                {
+                    <p role="alert" class="quasar-field-error">Stop the server and set its goal Off before importing a world.</p>
+                }
+                <WorldImportSourcePicker StagingParent="@DedicatedServerPathResolver.Resolve(Target).SavesPath"
+                    PermissionPolicy="@QuasarPolicyNames.CanEditServers" WorldChanged="WorldReady" BusyChanged="@(value => _reading = value)" />
+                <label class="quasar-field" for="world-save-name">Save folder name</label>
+                <input id="world-save-name" class="world-text-input" @bind="_saveName" @bind:event="oninput" disabled="@(_reading || _importing)" aria-describedby="world-save-help world-save-error" aria-invalid="@(SaveNameError is not null)" />
+                <small id="world-save-help">A new folder name, not a path. Existing saves are never overwritten.</small>
+                @if (SaveNameError is { } nameError) { <p id="world-save-error" class="quasar-field-error" role="alert">@nameError</p> }
+                @if (_world is not null)
+                {
+                    @if (_configError is not null)
+                    {
+                        <p role="alert" class="quasar-field-error">World settings could not be read: @_configError. Choose Keep current profile to continue.</p>
+                    }
+                    else
+                    {
+                        <p>Found @_settings settings and @_mods mods in Sandbox_config.sbc.</p>
+                    }
+                    <fieldset class="world-profile-options" disabled="@_importing">
+                        <legend>Configuration</legend>
+                        <label><input type="radio" name="world-profile" checked="@(_importSettings == false)" @onchange="@(() => _importSettings = false)" /> Keep current profile: @Profiles.GetProfile(Target.ConfigProfileId)?.Name</label>
+                        <label><input type="radio" name="world-profile" checked="@(_importSettings == true)" @onchange="@(() => _importSettings = true)" disabled="@(_configError is not null || !_canEditConfigs)" /> Create a separate profile using imported world settings and mods</label>
+                    </fieldset>
+                    @if (_importSettings == false)
+                    {
+                        <p class="world-import-warning">The current profile's settings and mod list replace the imported world's settings and mods at startup.</p>
+                    }
+                    else if (_importSettings == true)
+                    {
+                        <p>The new profile keeps current plugins, access settings and Online Mode. Other servers sharing the current profile are unaffected.</p>
+                    }
+                }
+                @if (_error is not null) { <p role="alert" class="quasar-field-error">@_error</p> }
+            </fieldset>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel" Disabled="@_importing">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportAsync"
+            Disabled="@(_world is null || _reading || _importing || _importSettings is null || string.IsNullOrWhiteSpace(_saveName) || SaveNameError is not null || !Imports.CanImport(Target))">@(_importing ? "Importing..." : "Import and Select")</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance MudDialog { get; set; } = default!;
+    [Parameter, EditorRequired] public DedicatedServerDefinition Target { get; set; } = default!;
+    private StagedWorld? _world;
+    private string _saveName = "";
+    private string? _error, _configError;
+    private bool _reading, _importing, _canEditConfigs;
+    private bool? _importSettings;
+    private int _settings, _mods;
+
+    private string? SaveNameError
+    {
+        get
+        {
+            if (_world is null || string.IsNullOrWhiteSpace(_saveName)) return null;
+            try { WorldSaveFiles.ValidateSaveName(_saveName.Trim()); return null; }
+            catch (InvalidOperationException exception) { return exception.Message; }
+        }
+    }
+
+    protected override async Task OnInitializedAsync() => _canEditConfigs = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs);
+
+    private void WorldReady(StagedWorld? world)
+    {
+        _world = world; _importSettings = null; _configError = null; _error = null;
+        if (world is null) return;
+        _saveName = world.SuggestedName;
+        try
+        {
+            var config = WorldSandboxConfigEditor.ReadConfigProfile(Path.Combine(world.WorldPath, WorldSandboxConfigEditor.SandboxConfigFileName));
+            _settings = config.SessionSettingCount; _mods = config.ModCount;
+        }
+        catch (Exception exception) { _configError = exception.Message; }
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_world is null || _importSettings is null || _importing || _reading) return;
+        _importing = true; _error = null;
+        try
+        {
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)
+                || (_importSettings == true && !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)))
+                throw new UnauthorizedAccessException("You do not have permission to import this world.");
+            var updated = await Imports.ImportAsync(Target, _world, _saveName.Trim(), _importSettings.Value);
+            MudDialog.Close(DialogResult.Ok(updated));
+        }
+        catch (Exception exception)
+        {
+            _error = exception.Message;
+            if (_world?.Published == true)
+            {
+                _world = null; _importSettings = null;
+                _error += " Read World again before retrying.";
+            }
+        }
+        finally { _importing = false; }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+}

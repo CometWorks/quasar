@@ -33,7 +33,7 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | --- | --- | --- |
 | `CanView` | viewer, editor, admin | Opening any UI page, read APIs, log downloads for DS and Magnetar logs |
 | `CanEditConfigs` | editor, admin | Config profiles, world templates, Magnetar plugin settings |
-| `CanEditServers` | editor, admin | Creating, editing, importing and deleting servers |
+| `CanEditServers` | editor, admin | Creating, editing, importing and deleting servers; direct world import |
 | `CanControlServers` | editor, admin | Start, stop, restart, chat and commands, player actions, entity deletion, profiler mode |
 | `CanManageDiscord` | editor, admin | Discord bot settings, Discord log download |
 | `CanManageAppearance` | editor, admin | **Appearance** page |
@@ -52,7 +52,7 @@ Viewers see all pages under **Control plane** in the navigation: **Dashboard**, 
 | Page | Viewer sees | Change needs |
 | --- | --- | --- |
 | Configs | Profile settings, mods, plugins, access lists; passwords hidden | `CanEditConfigs` |
-| Worlds | Managed and installed world templates | `CanEditConfigs` |
+| Worlds | Selected server saves, status and profiles; reusable templates | `CanEditServers` for direct world import; `CanEditConfigs` for templates and imported profile creation |
 | Plugins | Plugin inventory and logs; plugin configuration values hidden | `CanEditConfigs`, `ClusterManage` for cluster details |
 | Players | Known players and status | `CanControlServers` |
 | Chat | Recent chat, refresh | `CanControlServers` to send chat or commands, save, restart |
@@ -356,3 +356,6 @@ remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+
+- `Quasar/Services/ServerWorldImportApi.cs`
+- `Quasar/Components/Pages/ServerWorldImportDialog.razor`

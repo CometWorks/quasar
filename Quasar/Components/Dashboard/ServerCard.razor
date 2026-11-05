@@ -17,6 +17,9 @@
                 <strong>@GetDisplayName()</strong>
                 <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
                     <Authorized>
+                        <span title="@(ServerActions.CanImportWorld(Server) ? "Import a folder or ZIP directly into this server" : "Stop the server and set its goal Off; wait for any backup, restore or import")">
+                            <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Import World..." Icon="@QuasarIcons.Public" Disabled="@(!ServerActions.CanImportWorld(Server))" OnClick="@(() => ServerActions.OpenWorldImportDialogAsync(Server))" />
+                        </span>
                         <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Clone server" Icon="@QuasarIcons.ContentCopy" OnClick="CloneAsync" />
                         <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Edit server" Icon="@QuasarIcons.Edit" OnClick="EditAsync" />
                         <QuasarIconButton ShowLabel="true" ClosePopover="@_actionsId" Label="Delete server" Class="quasar-text-error" Icon="@QuasarIcons.Delete" Disabled="@IsProcessActive" OnClick="DeleteAsync" />

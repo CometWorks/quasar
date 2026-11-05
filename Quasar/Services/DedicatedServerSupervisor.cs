@@ -25,6 +25,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private static readonly TimeSpan ProcessTeardownTimeout = TimeSpan.FromSeconds(30);
     private const string ReniceHelperPath = "/usr/local/bin/quasar-renice";
     private const string RestoreInProgressMessage = "Start deferred: a backup restore is in progress for this server.";
+    private const string WorldImportInProgressMessage = "Start deferred: a world import is in progress for this server.";
     private const int MaxModDownloadFailures = 20;
     private const int ErrorLogTailBytes = 256 * 1024;
     private static readonly Regex PrefixedLogLinePattern = new(
@@ -241,9 +242,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             if (_restoreCoordinator.IsFileOperationInProgress(uniqueName))
             {
                 restoreDeferred = true;
-                var message = _restoreCoordinator.IsBackupInProgress(uniqueName)
-                    ? "Start deferred: a world backup is in progress for this server."
-                    : RestoreInProgressMessage;
+                string message = _restoreCoordinator.IsWorldImportInProgress(uniqueName)
+                    ? WorldImportInProgressMessage
+                    : _restoreCoordinator.IsBackupInProgress(uniqueName)
+                        ? "Start deferred: a world backup is in progress for this server."
+                        : RestoreInProgressMessage;
                 if (state.LastMessage != message)
                 {
                     state.LastMessage = message;
@@ -3398,6 +3401,8 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         DedicatedServerRestartInfo? restart;
         lock (_sync)
         {
+            if (_restoreCoordinator.IsWorldImportInProgress(uniqueName))
+                throw new InvalidOperationException("A world import is in progress. Wait before restarting this server.");
             if (!_states.TryGetValue(uniqueName, out var state))
                 return;
 

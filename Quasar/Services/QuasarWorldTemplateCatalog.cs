@@ -106,27 +106,15 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
                 OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal))
                 throw new InvalidOperationException("Choose a world folder outside the destination template directory.");
             // Reserve the ID before yielding so simultaneous imports cannot share a destination.
-            Directory.CreateDirectory(destWorldDir);
+            Directory.CreateDirectory(Path.GetDirectoryName(destWorldDir)!);
         }
 
         try
         {
-            var files = await Task.Run(() => Directory.EnumerateFiles(sourcePath, "*", SearchOption.AllDirectories)
-                .Where(file => !string.Equals(Path.GetRelativePath(sourcePath, file)
-                    .Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)[0], "Backup", StringComparison.OrdinalIgnoreCase))
-                .Select(file => { cancellationToken.ThrowIfCancellationRequested(); return file; }).ToArray(), cancellationToken);
-            progress?.Report(new(0, files.Length));
-            var completed = 0;
-            foreach (var sourceFile in files)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var destFile = Path.Combine(destWorldDir, Path.GetRelativePath(sourcePath, sourceFile));
-                Directory.CreateDirectory(Path.GetDirectoryName(destFile)!);
-                await using var source = new FileStream(sourceFile, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, useAsync: true);
-                await using var destination = new FileStream(destFile, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, useAsync: true);
-                await source.CopyToAsync(destination, cancellationToken);
-                progress?.Report(new(++completed, files.Length));
-            }
+            using var staged = await WorldSaveFiles.FromFolderAsync(sourcePath,
+                Path.GetDirectoryName(destWorldDir)!,
+                progress is null ? null : new TemplateCopyProgress(progress), cancellationToken);
+            staged.Publish(destWorldDir);
             await SaveTemplateAsync(template, cancellationToken);
         }
         catch
@@ -145,6 +133,17 @@ public sealed class QuasarWorldTemplateCatalog : IDisposable
 
         Changed?.Invoke();
         return Clone(template);
+    }
+
+    private sealed class TemplateCopyProgress(IProgress<WorldTemplateImportProgress> target) : IProgress<WorldImportProgress>
+    {
+        private int _completed = -1;
+        public void Report(WorldImportProgress value)
+        {
+            if (_completed == value.CompletedFiles) return;
+            _completed = value.CompletedFiles;
+            target.Report(new(value.CompletedFiles, value.TotalFiles));
+        }
     }
 
     public async Task DeleteAsync(string worldTemplateId, CancellationToken cancellationToken = default)

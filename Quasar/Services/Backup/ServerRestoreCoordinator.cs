@@ -3,7 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 namespace Quasar.Services.Backup;
 
 /// <summary>
-/// Reserves managed servers during restores and world backups. The supervisor
+/// Reserves managed servers during restores, world backups and world imports. The supervisor
 /// must refuse to start a server until its file operation finishes. Operations
 /// and starts come from independent requests/threads, so all access is synchronized.
 /// </summary>
@@ -12,11 +12,20 @@ public sealed class ServerRestoreCoordinator
     private readonly object _sync = new();
     private readonly HashSet<string> _restoring = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _backingUp = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _importing = new(StringComparer.OrdinalIgnoreCase);
+
+    public bool IsWorldImportInProgress(string uniqueName)
+    {
+        lock (_sync) return _importing.Contains(uniqueName);
+    }
+
+    public bool TryBeginWorldImport(string uniqueName, [NotNullWhen(true)] out IDisposable? scope) =>
+        TryBegin(uniqueName, _importing, out scope);
 
     public bool IsFileOperationInProgress(string uniqueName)
     {
         lock (_sync)
-            return _restoring.Contains(uniqueName) || _backingUp.Contains(uniqueName);
+            return _restoring.Contains(uniqueName) || _backingUp.Contains(uniqueName) || _importing.Contains(uniqueName);
     }
 
     public bool IsBackupInProgress(string uniqueName)
@@ -52,7 +61,7 @@ public sealed class ServerRestoreCoordinator
 
         lock (_sync)
         {
-            if (_restoring.Contains(uniqueName) || _backingUp.Contains(uniqueName))
+            if (_restoring.Contains(uniqueName) || _backingUp.Contains(uniqueName) || _importing.Contains(uniqueName))
             {
                 scope = null;
                 return false;
@@ -72,15 +81,12 @@ public sealed class ServerRestoreCoordinator
 
     private sealed class OperationScope(ServerRestoreCoordinator owner, string uniqueName, HashSet<string> operations) : IDisposable
     {
-        private bool _disposed;
+        private int _disposed;
 
         public void Dispose()
         {
-            if (_disposed)
-                return;
-
-            _disposed = true;
-            owner.Release(uniqueName, operations);
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+                owner.Release(uniqueName, operations);
         }
     }
 }

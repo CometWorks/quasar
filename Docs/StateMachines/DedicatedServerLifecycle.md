@@ -64,6 +64,19 @@ stateDiagram-v2
 
 ---
 
+## World file maintenance
+
+Backup restores and direct world imports share a per-server maintenance slot.
+`StartServerAsync` checks that slot in the same locked block that claims a start.
+A direct import claims the slot before rechecking that the process is inactive
+and the goal is Off. While import activation holds it, catalog edits, deletion,
+goal changes and restart requests are refused. A managed source world also holds
+its maintenance slot while files are copied.
+
+Import stages a complete new save and checks the server definition revision
+before selecting it; the previous save stays on disk and the goal stays Off.
+See [World import](../WorldImport.md).
+
 ## Process state
 
 The observed supervisor lifecycle. The UI treats `Starting`, `Stopping`, and

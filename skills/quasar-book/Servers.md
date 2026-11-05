@@ -64,6 +64,7 @@ New servers start with the goal **Off**. Nothing launches until you click **Star
 - Renaming the **Server ID** requires a stopped server ("Stop the server before renaming it."). Quasar moves `Magnetars/<old ID>` to `Magnetars/<new ID>`. It fails if the target folder already exists.
 - **Clone server** creates `<ID>-copy` (or `-copy-2` and so on), picks the next free port from 27016 upward, clears all path overrides and the world save, and sets the goal Off. After the editor, Quasar asks "Clone world state?": **Copy World** copies the source world into the clone; **Keep Save** uses the save chosen in the editor. If the source is running, Quasar copies the newest Space Engineers `Backup` snapshot of the world instead of the live folder, and fails if none exists.
 - **Delete server** requires a stopped server ("Stop the server before deleting its definition."). It archives `server.json` into `History/` as `<timestamp>-deleted.json` and removes the server from Quasar. Quasar does **not** delete `Magnetars/<Server ID>/`; world saves, config and logs stay on disk. Delete that folder yourself to free the space. A new server with the same Server ID reuses whatever is left in that folder.
+- **Import World...** (server menu or Worlds > Server worlds) copies a folder/ZIP directly into a new save, selects it and retains the previous world. Requires an inactive server with goal Off. See [direct world import](ConfigProfiles.md#importing-a-world-directly-to-a-server).
 - **Create world template** (server menu) needs a stopped server with goal Off. See [Config profiles](ConfigProfiles.md#world-templates).
 - **Convert to cluster** is described in [Clusters](Clusters.md).
 
@@ -445,3 +446,9 @@ collisions, limits and the required Magnetar version.
 - `Docs/QuasarUpdates.md`
 - `Docs/QuasarBrowserSdk.md`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+
+- `Docs/WorldImport.md`
+- `Quasar/Services/ServerWorldImportService.cs`
+- `Quasar/Services/ServerWorldImportApi.cs`
+- `Quasar/Services/WorldSaveFiles.cs`
+- `Quasar/Components/Pages/ServerWorldImportDialog.razor`

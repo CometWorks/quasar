@@ -41,7 +41,7 @@ public sealed class NewServerDialogTests : IDisposable
         var references = new List<IDialogReference>();
         dialogs.DialogInstanceAddedAsync += reference => { references.Add(reference); return Task.CompletedTask; };
         var navigation = context.Services.GetRequiredService<NavigationManager>();
-        var actions = new ServerManagementActions(catalog, null!, new(), null!, null!,
+        var actions = new ServerManagementActions(catalog, null!, new(), null!, null!, null!,
             context.Services.GetRequiredService<QuasarPermissionService>(), dialogs,
             context.Services.GetRequiredService<ISnackbar>(), navigation);
         var provider = context.Render<MudDialogProvider>();

@@ -164,6 +164,13 @@ Nebula-hosted sessions stream through the peer; local downloads retain HTTP.
 The operation keeps its Admin default, named-file checks and ranges. Direct
 failure is reported without silently relaying the archive over HTTP.
 
+## Direct world import
+
+To load a raw world folder or ZIP into an existing standalone server without a
+Quasar backup manifest, use [direct world import](ConfigProfiles.md#importing-a-world-directly-to-a-server).
+It creates a new save and retains the previous one. Backups, restores and imports share a
+maintenance slot, so they cannot run together or race a server start.
+
 ## Sources
 
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
@@ -186,3 +193,4 @@ failure is reported without silently relaying the archive over HTTP.
 - `Quasar/Components/Pages/Backup.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Services/ServerWorldImportService.cs`

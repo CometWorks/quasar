@@ -1,0 +1,168 @@
+@implements IAsyncDisposable
+@inject IDialogService DialogService
+@inject WorldTemplateImportLocationService ImportLocations
+@inject QuasarPermissionService Permissions
+@inject ServerWorldImportService Imports
+
+<div class="world-import-source">
+    <div class="world-source-tabs" role="group" aria-label="World source">
+        <button type="button" aria-pressed="@(!_zipMode)" class="quasar-button @(!_zipMode ? "quasar-button-primary" : "")" disabled="@_busy" @onclick="@(() => SetModeAsync(false))">Server Folder</button>
+        <button type="button" aria-pressed="@_zipMode" class="quasar-button @(_zipMode ? "quasar-button-primary" : "")" disabled="@_busy" @onclick="@(() => SetModeAsync(true))">Upload ZIP</button>
+    </div>
+    @if (_zipMode)
+    {
+        <label class="quasar-field">
+            <span>ZIP file</span>
+            <InputFile OnChange="SelectZipAsync" accept=".zip,application/zip" disabled="@_busy" />
+            <small>One world at the ZIP root or inside an enclosing folder. Maximum upload: 10 GiB.</small>
+        </label>
+    }
+    else
+    {
+        <div class="world-path-field">
+            <label class="quasar-field" for="@_pathId">Source folder</label>
+            <div class="world-path-controls">
+                <input id="@_pathId" class="world-text-input" value="@_sourcePath" @oninput="SourceChangedAsync" disabled="@_busy" aria-describedby="@(_pathId + "-help")" />
+                <button type="button" class="quasar-button" disabled="@_busy" @onclick="BrowseAsync"><QuasarIcon Icon="@Icons.Material.Filled.FolderOpen" />Browse</button>
+            </div>
+            <small id="@(_pathId + "-help")">Folder on the Quasar machine containing Sandbox.sbc. The source will be copied.</small>
+        </div>
+        <label class="world-import-checkbox"><input type="checkbox" @bind="_sourceStopped" disabled="@_busy" /> The source world is stopped or is a completed save snapshot.</label>
+    }
+    <div class="world-form-actions">
+        <button type="button" class="quasar-button" disabled="@(_busy || (_zipMode ? _zip is null : string.IsNullOrWhiteSpace(_sourcePath) || !_sourceStopped))" @onclick="LoadAsync">Read World</button>
+        @if (_busy)
+        {
+            <button type="button" class="quasar-button" @onclick="CancelLoad">Cancel transfer</button>
+        }
+    </div>
+    @if (_busy)
+    {
+        <p role="status" aria-live="polite">@(_progress?.Phase ?? "Reading world") · @((_progress?.Bytes ?? 0) / 1048576) MiB</p>
+    }
+    @if (_world is { Published: false })
+    {
+        <p class="world-import-ready" role="status">World read and validated. Ready to import.</p>
+    }
+    @if (_error is not null)
+    {
+        <p class="quasar-field-error" role="alert">@_error</p>
+    }
+</div>
+
+@code {
+    [Parameter] public bool RetainWorldOnDispose { get; set; }
+    [Parameter] public string? StagingParent { get; set; }
+    [Parameter] public string PermissionPolicy { get; set; } = QuasarPolicyNames.CanEditConfigs;
+    [Parameter] public EventCallback<StagedWorld?> WorldChanged { get; set; }
+    [Parameter] public EventCallback<bool> BusyChanged { get; set; }
+    private readonly string _pathId = "world-source-" + Guid.NewGuid().ToString("N");
+    private string _sourcePath = "";
+    private bool _zipMode, _busy, _sourceStopped, _disposed;
+    private IBrowserFile? _zip;
+    private StagedWorld? _world;
+    private string? _error;
+    private WorldImportProgress? _progress;
+    private CancellationTokenSource? _cancellation;
+    private Task? _loading;
+
+    private async Task ResetAsync()
+    {
+        _world?.Dispose(); _world = null; _error = null;
+        await WorldChanged.InvokeAsync(null);
+    }
+
+    private async Task SetModeAsync(bool zip)
+    {
+        if (_zipMode == zip) return;
+        _zipMode = zip;
+        await ResetAsync();
+    }
+
+    private async Task SourceChangedAsync(ChangeEventArgs args)
+    {
+        _sourcePath = args.Value?.ToString() ?? "";
+        _sourceStopped = false;
+        await ResetAsync();
+    }
+
+    private async Task SelectZipAsync(InputFileChangeEventArgs args)
+    {
+        await ResetAsync();
+        _zip = args.File;
+    }
+
+    private async Task BrowseAsync()
+    {
+        if (!await Permissions.IsAuthorizedAsync(PermissionPolicy)) return;
+        var dialog = await DialogService.ShowAsync<Quasar.Components.Pages.FolderPickerDialog>("Pick world folder",
+            new DialogParameters {
+                [nameof(Quasar.Components.Pages.FolderPickerDialog.InitialPath)] = await ImportLocations.GetInitialPathAsync(_sourcePath),
+                [nameof(Quasar.Components.Pages.FolderPickerDialog.AdditionalShortcuts)] = ImportLocations.GetContentShortcuts(),
+            }, new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+        if (await dialog.Result is { Canceled: false, Data: string path })
+        {
+            _sourcePath = path; _sourceStopped = false;
+            await ResetAsync();
+            if (await Permissions.IsAuthorizedAsync(PermissionPolicy)) await ImportLocations.RememberAsync(path);
+        }
+    }
+
+    private async Task LoadAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(PermissionPolicy)) return;
+        await ResetAsync();
+        _busy = true; _progress = null;
+        _cancellation = new();
+        await BusyChanged.InvokeAsync(true);
+        _loading = ReadAsync(_cancellation.Token);
+        await _loading;
+    }
+
+    private async Task ReadAsync(CancellationToken token)
+    {
+        try
+        {
+            string parent = StagingParent ?? Path.Combine(Path.GetTempPath(), "quasar-world-imports");
+            var progress = new Progress<WorldImportProgress>(value =>
+            {
+                if (_disposed) return;
+                if (_progress is null || value.Phase != _progress.Phase || value.Bytes - _progress.Bytes >= 4 * 1048576)
+                { _progress = value; _ = InvokeAsync(StateHasChanged); }
+            });
+            StagedWorld world;
+            if (_zipMode)
+            {
+                if (_zip is null) throw new InvalidOperationException("Choose a ZIP file first.");
+                await using var stream = _zip.OpenReadStream(WorldSaveFiles.MaxUploadBytes, token);
+                world = await WorldSaveFiles.FromZipAsync(stream, parent, progress, token);
+            }
+            else
+            {
+                if (!_sourceStopped) throw new InvalidOperationException("Stop the source world before reading it.");
+                world = await Imports.StageFolderAsync(_sourcePath, parent, progress, token);
+            }
+            if (_disposed) { world.Dispose(); return; }
+            _world = world;
+            await WorldChanged.InvokeAsync(world);
+        }
+        catch (OperationCanceledException) { _error = "World transfer canceled. No world was selected."; }
+        catch (Exception exception) { _error = exception.Message; }
+        finally
+        {
+            _busy = false;
+            _cancellation?.Dispose(); _cancellation = null;
+            if (!_disposed) await BusyChanged.InvokeAsync(false);
+        }
+    }
+
+    private void CancelLoad() => _cancellation?.Cancel();
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        CancelLoad();
+        if (_loading is not null) await _loading;
+        if (!RetainWorldOnDispose) _world?.Dispose();
+    }
+}
