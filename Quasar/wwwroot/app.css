@@ -261,10 +261,6 @@ h1:focus {
     cursor: pointer;
 }
 
-.world-template-browse-button {
-    margin-top: 1rem;
-}
-
 .installed-world-template-table {
     min-width: 0;
 }

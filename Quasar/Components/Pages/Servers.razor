@@ -136,6 +136,11 @@
                             <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage" Context="conversionAuth">
                                 <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Convert to cluster" Href="@("servers/" + Uri.EscapeDataString(server.UniqueName) + "/convert-to-cluster")" Icon="@QuasarIcons.AccountTree" />
                             </AuthorizeView>
+                            <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers" Context="worldImportAuth">
+                            <span title="@(ServerActions.CanImportWorld(server) ? "Import a folder or ZIP directly into this server" : "Stop the server and set its goal Off; wait for any backup, restore or import")">
+                                <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Import World..." Icon="@QuasarIcons.Public" Disabled="@(!ServerActions.CanImportWorld(server))" OnClick="@(() => ServerActions.OpenWorldImportDialogAsync(server))" />
+                            </span>
+                            </AuthorizeView>
                             <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Clone server" Icon="@QuasarIcons.ContentCopy" OnClick="@(() => OpenCloneDialogAsync(server))" />
                             <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Create world template" Icon="@QuasarIcons.Public" Disabled="@(!CanCreateWorldTemplate(server))" OnClick="@(() => CreateWorldTemplateAsync(server))" />
                             <QuasarIconButton ShowLabel="true" ClosePopover="@MenuId(context.UniqueName)" Label="Edit server" Icon="@QuasarIcons.Edit" OnClick="@(() => OpenEditDialogAsync(server))" />

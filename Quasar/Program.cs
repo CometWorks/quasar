@@ -310,6 +310,7 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<ManagedRuntimeWarmupService>());
             builder.Services.AddSingleton<DedicatedServerCatalog>();
             builder.Services.AddSingleton<ExistingServerImportService>();
+            builder.Services.AddSingleton<ServerWorldImportService>();
             builder.Services.AddSingleton<ClusterCatalog>();
             builder.Services.AddSingleton<ClusterPlayerService>();
             builder.Services.AddHostedService(provider => provider.GetRequiredService<ClusterPlayerService>());
@@ -445,6 +446,7 @@ public class Program
             app.MapQuasarSdk();
             app.MapQuasarRtc();
             app.MapClusterApi(authOptions);
+            app.MapServerWorldImportApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 
             app.MapQuasarCoreOperations();

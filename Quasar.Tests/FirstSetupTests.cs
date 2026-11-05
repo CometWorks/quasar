@@ -385,6 +385,8 @@ public sealed class FirstSetupTests : IDisposable
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new WebServiceOptions());
+        context.Services.AddSingleton<Quasar.Services.Backup.ServerRestoreCoordinator>();
+        context.Services.AddSingleton<ServerWorldImportService>();
         context.Services.AddScoped<ServerManagementActions>();
         context.ComponentFactories.AddStub<Servers>();
         context.ComponentFactories.AddStub<ServerCard>();

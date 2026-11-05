@@ -116,6 +116,10 @@ More on templates and profiles is in [Config profiles](ConfigProfiles.md).
 
 ## Import an existing vanilla DS or Torch server
 
+To import only a world into an already managed server, use **Worlds > Server worlds >
+Import World...** instead. It accepts a folder or browser-uploaded ZIP, retains
+the old save and does not create a template. See [direct world import](ConfigProfiles.md#importing-a-world-directly-to-a-server).
+
 The importer turns an existing server's world and `SpaceEngineers-Dedicated.cfg` into a Quasar server, a config profile and world templates. Stop the source server first. The source folder must be on the machine that runs Quasar, because Quasar reads it directly (**Browse** shows that machine's file system).
 
 ### Steps
@@ -219,3 +223,4 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `scripts/install-gui.ps1`
 - `scripts/install-gui.sh`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
+- `Quasar/Components/Pages/WorldTemplates.razor`

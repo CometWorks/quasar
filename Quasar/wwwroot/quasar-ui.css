@@ -679,3 +679,30 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 @media (pointer: coarse) {
     .quasar-fleet-card :is(.quasar-button, .quasar-icon-button), .quasar-card-disclosure > summary { min-height: 44px; }
 }
+
+/* World import forms share labels and controls across server and template flows. */
+.world-import-form { display: grid; gap: 8px; width: 100%; max-width: 48rem; margin-inline: auto; min-width: 0; }
+.world-import-form p { margin: 0 0 8px; }
+.world-import-form .quasar-field, .world-path-field > label { font-size: 12px; font-weight: 500; }
+.world-text-input { box-sizing: border-box; display: block; width: 100%; min-width: 0; min-height: 40px; padding: 9px 12px; border: 1px solid var(--quasar-palette-lines-inputs); border-radius: 4px; background: var(--quasar-palette-surface); color: var(--quasar-palette-text-primary); font: inherit; }
+textarea.world-text-input { min-height: 88px; resize: vertical; }
+.world-text-input:focus-visible { outline: 2px solid var(--quasar-palette-primary); outline-offset: 2px; }
+.world-import-form small, .world-path-field > small { display: block; font-size: 12px; line-height: 1.5; color: var(--quasar-palette-text-secondary); }
+.world-import-source { display: grid; gap: 12px; margin-block: 8px; min-width: 0; }
+.world-source-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+.world-path-field { display: grid; gap: 6px; min-width: 0; }
+.world-path-controls { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: 8px; }
+.world-path-controls > .quasar-button { margin: 0; min-height: 40px; }
+.world-form-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 4px; }
+.world-import-checkbox, .world-profile-options label { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; line-height: 1.5; }
+.world-import-checkbox input, .world-profile-options input { margin-top: 4px; flex-shrink: 0; accent-color: var(--quasar-palette-primary); }
+.world-profile-options { display: grid; gap: 10px; border: 1px solid var(--quasar-palette-divider); border-radius: 4px; padding: 12px; margin: 8px 0; min-width: 0; }
+.world-profile-options legend { padding-inline: 4px; font-weight: 600; }
+.world-import-ready { color: var(--quasar-palette-success); }
+.world-import-warning { padding: 10px 12px; border-inline-start: 3px solid var(--quasar-palette-warning); background: color-mix(in srgb, var(--quasar-palette-warning) 8%, transparent); }
+.worlds-tab-content { padding-top: 16px; }
+@media (max-width: 600px) {
+    .world-path-controls { grid-template-columns: minmax(0, 1fr); }
+    .world-path-controls > .quasar-button { justify-self: start; }
+    .world-import-form { max-width: 100%; }
+}

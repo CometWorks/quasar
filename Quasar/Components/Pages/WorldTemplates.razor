@@ -1,159 +1,68 @@
 @page "/world-templates"
+@page "/worlds"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
 @inject QuasarPermissionService Permissions
 @inject QuasarWorldTemplateCatalog WorldTemplateCatalog
 @inject QuasarConfigProfileCatalog ConfigProfiles
 @inject QuasarWorkshopModResolver WorkshopMods
+@inject DedicatedServerCatalog Servers
+@inject DedicatedServerSupervisor Supervisor
+@inject ServerManagementActions ServerActions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject WorldTemplateImportLocationService ImportLocations
 
-<PageTitle>World Templates</PageTitle>
-
-<QuasarPageHeading Section="Configuration"><Title>World templates</Title><Description>Import, inspect, and manage the worlds used by your servers.</Description></QuasarPageHeading>
-
-<MudGrid>
-    <MudItem xs="12" xl="5">
-        <MudTabs Elevation="0"
-                 Rounded="true"
-                 Outlined="true"
-                 ApplyEffectsToContainer="true"
-                 KeepPanelsAlive="false"
-                 TabPanelsClass="pa-4">
-            <MudTabPanel Text="Predefined worlds" Icon="@Icons.Material.Filled.Public">
-                <div class="quasar-layout quasar-gap-2">
-                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
-                        <div>
-                            <h2 class="quasar-text quasar-type-h6">Predefined Worlds</h2>
-                            <p class="quasar-text quasar-type-body2">
-                                Add a template from Dedicated Server content without entering a name or path.
-                            </p>
-                        </div>
-                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_installedTemplates.Count</MudChip>
-                    </div>
-
-                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
-                        <MudTextField
-                            @bind-Value="_installedTemplateSearch"
-                            Label="Search installed templates"
-                            Variant="Variant.Outlined"
-                            Immediate="true"
-                            Adornment="Adornment.Start"
-                            AdornmentIcon="@Icons.Material.Filled.Search"
-                            Class="flex-grow-1" />
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshInstalledTemplates">
-                            Refresh
-                        </MudButton>
-                    </div>
-
-                    @if (_installedTemplates.Count == 0)
-                    {
-                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                            No installed Dedicated Server world or scenario templates found.
-                        </MudAlert>
-                    }
-                    else
-                    {
-                        <MudTable T="InstalledWorldTemplateSource" Dense="true" Hover="true" Items="FilteredInstalledTemplates" Breakpoint="Breakpoint.Sm" Class="installed-world-template-table">
-                            <ColGroup>
-                                <col class="installed-world-template-name-column" />
-                                <col class="installed-world-template-source-column" />
-                                <col class="installed-world-template-action-column" />
-                            </ColGroup>
-                            <HeaderContent>
-                                <MudTh Class="installed-world-template-name-cell">Name</MudTh>
-                                <MudTh Class="installed-world-template-source-cell">Source</MudTh>
-                                <MudTh Class="installed-world-template-action-cell quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
-                            </HeaderContent>
-                            <RowTemplate>
-                                <MudTd DataLabel="Name" Class="installed-world-template-name-cell">
-                                    <p class="quasar-text quasar-type-body2 installed-world-template-name-text">@context.DisplayName</p>
-                                </MudTd>
-                                <MudTd DataLabel="Source" Class="installed-world-template-source-cell">
-                                    <div class="quasar-layout quasar-gap-0 installed-world-template-source-stack">
-                                        <span class="quasar-text quasar-type-caption installed-world-template-source-text">@context.Category</span>
-                                        <span class="quasar-text quasar-type-caption mono installed-world-template-source-text">@context.SourceDisplayPath</span>
-                                    </div>
-                                </MudTd>
-                                <MudTd DataLabel="" Class="installed-world-template-action-cell quasar-actions-column">
-                                    <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="addPermission">
-                                    <MudTooltip Text="Add template">
-                                        <MudIconButton Icon="@Icons.Material.Filled.Add"
-                                                       Color="Color.Primary"
-                                                       Size="Size.Small"
-                                                       Disabled="_importing"
-                                                       OnClick="@(() => ImportInstalledTemplateAsync(context))" />
-                                    </MudTooltip>
-                                    </AuthorizeView>
-                                </MudTd>
-                            </RowTemplate>
-                            <NoRecordsContent>
-                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
-                                    No installed templates match current search.
-                                </MudAlert>
-                            </NoRecordsContent>
-                        </MudTable>
-                    }
-                </div>
-            </MudTabPanel>
-
-            <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="importPermission">
-            <MudTabPanel Text="Custom import" Icon="@Icons.Material.Filled.FolderOpen">
-                <div class="quasar-layout quasar-gap-2">
-                    <div>
-                        <h2 class="quasar-text quasar-type-h6">Custom World Import</h2>
-                        <p class="quasar-text quasar-type-body2">
-                            Import an existing Space Engineers save folder from the server filesystem.
-                        </p>
-                    </div>
-
-                    <MudTextField @bind-Value="_name" Label="Template name" Variant="Variant.Outlined" />
-                    <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000" />
-                    <div class="quasar-layout quasar-layout-row quasar-align-start quasar-gap-1">
-                        <MudTextField
-                            @bind-Value="_sourcePath"
-                            Label="Source world path"
-                            Variant="Variant.Outlined"
-                            Class="flex-grow-1"
-                            HelperText="Absolute path to an existing SE save folder containing Sandbox.sbc. Quasar copies all files into managed storage." />
-                        <MudButton Variant="Variant.Outlined"
-                                   Color="Color.Default"
-                                   StartIcon="@Icons.Material.Filled.FolderOpen"
-                                   Class="world-template-browse-button"
-                                   OnClick="OpenFolderPickerAsync">
-                            Browse
-                        </MudButton>
-                    </div>
-
-                    <div class="quasar-layout quasar-layout-row quasar-gap-1">
-                        <MudButton
-                            Variant="Variant.Filled"
-                            Color="Color.Primary"
-                            OnClick="ImportAsync"
-                            Disabled="_importing">
-                            @(_importing ? "Importing…" : "Import")
-                        </MudButton>
-                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="ResetForm">Clear</MudButton>
-                    </div>
-                </div>
-            </MudTabPanel>
-            </AuthorizeView>
-        </MudTabs>
-    </MudItem>
-
-    <MudItem xs="12" xl="7">
+<PageTitle>Worlds</PageTitle>
+<QuasarPageHeading Section="Configuration">
+    <Title>Worlds</Title>
+    <Description>Import worlds directly into existing servers, or manage reusable starting templates.</Description>
+    <Actions>
+        <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers">
+            <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenImportToServerAsync"><QuasarIcon Icon="@QuasarIcons.Public" />Import World to Server...</button>
+        </AuthorizeView>
+    </Actions>
+</QuasarPageHeading>
+<MudTabs Elevation="0" Outlined="true" ApplyEffectsToContainer="true" TabPanelsClass="worlds-tab-content">
+    <MudTabPanel Text="Server worlds" Icon="@Icons.Material.Filled.Dns">
+        <section class="quasar-panel pa-4">
+            <h2 class="quasar-text quasar-type-h6">Server worlds</h2>
+            <p>Each standalone server selects its own save. Importing selects a new save and keeps the previous save on disk. Cluster worlds use the cluster deployment flow.</p>
+            <MudTable T="DedicatedServerDefinition" Items="Servers.GetServers()" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                <HeaderContent><MudTh>Server</MudTh><MudTh>Selected save</MudTh><MudTh>Configuration profile</MudTh><MudTh>Status / goal</MudTh><MudTh>Actions</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Server">@(string.IsNullOrWhiteSpace(context.DisplayName) ? context.UniqueName : context.DisplayName)<br /><small class="mono">@context.UniqueName</small></MudTd>
+                    <MudTd DataLabel="Selected save">@context.WorldSaveName</MudTd>
+                    <MudTd DataLabel="Configuration profile">@(ConfigProfiles.GetProfile(context.ConfigProfileId)?.Name ?? context.ConfigProfileId)</MudTd>
+                    <MudTd DataLabel="Status / goal">@Status(context) / @context.GoalState</MudTd>
+                    <MudTd DataLabel="Actions">
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanEditServers" Context="importPermission">
+                            <span title="@(ServerActions.CanImportWorld(context) ? "Import a save folder or ZIP" : "Stop the server and set its goal Off; wait for any backup, restore or import")">
+                                <button type="button" class="quasar-button" disabled="@(!ServerActions.CanImportWorld(context))" @onclick="@(() => ServerActions.OpenWorldImportDialogAsync(context))">Import World...</button>
+                            </span>
+                        </AuthorizeView>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><p class="pa-4">No standalone servers yet. Create a server from Dashboard before importing a world into it.</p></NoRecordsContent>
+            </MudTable>
+        </section>
+    </MudTabPanel>
+    <MudTabPanel Text="Templates" Icon="@QuasarIcons.Public">
         <section class="quasar-panel pa-4 server-card">
-            <h2 class="quasar-text quasar-type-h6 quasar-gutter">World Templates</h2>
+            <div class="quasar-panel-heading">
+                <h2 class="quasar-text quasar-type-h6">Reusable templates</h2>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanEditConfigs" Context="addTemplatePermission">
+                    <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenAddTemplateAsync">Add Template...</button>
+                </AuthorizeView>
+            </div>
             
             <div>
-                <p class="quasar-text quasar-type-body2 mb-4">Reusable world templates. Import an existing Space Engineers save folder, then create server saves from templates in the server editor.</p>
+                <p class="quasar-text quasar-type-body2 mb-4">Keep reusable starting worlds here. Add predefined worlds, a save folder or a ZIP, then create independent server saves from templates.</p>
             </div>
 
             @if (Templates.Count == 0)
             {
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    No world templates yet. Import a save folder to create a template.
+                    No world templates yet. Use Add Template to import a predefined world, save folder or ZIP.
                 </MudAlert>
             }
             else
@@ -210,17 +119,12 @@
                 </MudTable>
             }
         </section>
-    </MudItem>
-</MudGrid>
+    </MudTabPanel>
+</MudTabs>
 
 @code
 {
-    private string _name = string.Empty;
-    private string _description = string.Empty;
-    private string _sourcePath = string.Empty;
-    private string _installedTemplateSearch = string.Empty;
     private bool _importing;
-    private IReadOnlyList<InstalledWorldTemplateSource> _installedTemplates = [];
 
     private sealed record WorldTemplateRow(
         QuasarWorldTemplate Template,
@@ -240,56 +144,40 @@
             })
             .ToList();
 
-    private IReadOnlyList<InstalledWorldTemplateSource> FilteredInstalledTemplates =>
-        _installedTemplates
-            .Where(MatchesInstalledTemplateSearch)
-            .ToList();
-
     protected override void OnInitialized()
     {
-        RefreshInstalledTemplates();
         WorldTemplateCatalog.Changed += HandleChanged;
+        Servers.Changed += HandleChanged;
+        Supervisor.Changed += HandleChanged;
+        ConfigProfiles.Changed += HandleChanged;
     }
 
     public void Dispose()
     {
         WorldTemplateCatalog.Changed -= HandleChanged;
+        Servers.Changed -= HandleChanged;
+        Supervisor.Changed -= HandleChanged;
+        ConfigProfiles.Changed -= HandleChanged;
     }
 
-    private async Task ImportAsync()
+    private string Status(DedicatedServerDefinition server) =>
+        (Supervisor.GetSnapshots().FirstOrDefault(item => item.UniqueName.Equals(server.UniqueName, StringComparison.OrdinalIgnoreCase))?.State
+            ?? DedicatedServerProcessState.Stopped).ToString();
+
+    private async Task OpenImportToServerAsync()
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers)) return;
+        var dialog = await DialogService.ShowAsync<ServerWorldImportTargetDialog>("Import World to Server",
+            new DialogParameters(), new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+        if (await dialog.Result is { Canceled: false, Data: DedicatedServerDefinition server })
+            await ServerActions.OpenWorldImportDialogAsync(server);
+    }
+
+    private async Task OpenAddTemplateAsync()
     {
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
-        if (string.IsNullOrWhiteSpace(_name))
-        {
-            Snackbar.Add("Template name is required.", Severity.Warning);
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(_sourcePath))
-        {
-            Snackbar.Add("Source world path is required.", Severity.Warning);
-            return;
-        }
-
-        _importing = true;
-        try
-        {
-            var template = await WorldTemplateCatalog.ImportAsync(_name, _description, _sourcePath);
-            Snackbar.Add($"World template '{template.Name}' imported.", Severity.Success);
-            ResetForm();
-
-            var profilePrompt = await PromptForConfigProfileAsync(template, allowSkip: true);
-            if (!profilePrompt.Canceled)
-                await CreateConfigProfileAsync(profilePrompt.Profile, template.WorldTemplateId);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
-        }
-        finally
-        {
-            _importing = false;
-        }
+        await DialogService.ShowAsync<WorldTemplateQuickImportDialog>("Add World Template",
+            new DialogParameters(), new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
     }
 
     private async Task CloneAsync(WorldTemplateRow row)
@@ -302,29 +190,6 @@
         {
             await WorldTemplateCatalog.ImportAsync(newName, row.Template.Description, sourceDir);
             Snackbar.Add($"World template '{newName}' created.", Severity.Success);
-        }
-        catch (Exception ex)
-        {
-            Snackbar.Add(ex.Message, Severity.Error);
-        }
-        finally
-        {
-            _importing = false;
-        }
-    }
-
-    private async Task ImportInstalledTemplateAsync(InstalledWorldTemplateSource source)
-    {
-        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
-        _importing = true;
-        try
-        {
-            var template = await WorldTemplateCatalog.ImportAsync(source.DisplayName, source.Description, source.SourcePath);
-            Snackbar.Add($"World template '{template.Name}' added.", Severity.Success);
-
-            var profilePrompt = await PromptForConfigProfileAsync(template, allowSkip: true);
-            if (!profilePrompt.Canceled)
-                await CreateConfigProfileAsync(profilePrompt.Profile, template.WorldTemplateId);
         }
         catch (Exception ex)
         {
@@ -448,30 +313,6 @@
         await dialog.Result;
     }
 
-    private async Task OpenFolderPickerAsync()
-    {
-        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
-        var initialPath = await ImportLocations.GetInitialPathAsync(_sourcePath);
-        var parameters = new DialogParameters
-        {
-            [nameof(FolderPickerDialog.InitialPath)] = initialPath,
-            [nameof(FolderPickerDialog.AdditionalShortcuts)] = ImportLocations.GetContentShortcuts(),
-        };
-
-        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
-            "Pick world folder",
-            parameters,
-            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
-
-        var result = await dialog.Result;
-        if (result is { Canceled: false, Data: string path })
-        {
-            _sourcePath = path;
-            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
-            await ImportLocations.RememberAsync(path);
-        }
-    }
-
     private async Task DeleteAsync(QuasarWorldTemplate template)
     {
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return;
@@ -488,34 +329,6 @@
         await WorldTemplateCatalog.DeleteAsync(template.WorldTemplateId);
         Snackbar.Add("World template deleted.", Severity.Info);
     }
-
-    private void ResetForm()
-    {
-        _name = string.Empty;
-        _description = string.Empty;
-        _sourcePath = string.Empty;
-    }
-
-    private void RefreshInstalledTemplates()
-    {
-        _installedTemplates = ImportLocations.GetInstalledWorldTemplates();
-    }
-
-    private bool MatchesInstalledTemplateSearch(InstalledWorldTemplateSource template)
-    {
-        var search = _installedTemplateSearch?.Trim();
-        if (string.IsNullOrWhiteSpace(search))
-            return true;
-
-        return Contains(template.DisplayName, search) ||
-               Contains(template.Category, search) ||
-               Contains(template.SourceDisplayPath, search) ||
-               Contains(template.SourcePath, search);
-    }
-
-    private static bool Contains(string value, string search) =>
-        !string.IsNullOrWhiteSpace(value) &&
-        value.Contains(search, StringComparison.OrdinalIgnoreCase);
 
     private void HandleChanged() => _ = InvokeAsync(StateHasChanged);
 }

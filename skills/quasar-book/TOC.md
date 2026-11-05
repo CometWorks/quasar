@@ -22,7 +22,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 ## Servers
 
 - [Servers](Servers.md): creating and editing servers, start, stop, restart and kill, crash and health recovery, stops and restarts requested by plugins, the console, ports, .NET 10 or .NET Framework 4.8, SteamCMD, DS and Magnetar downloads, Workshop mods, process priority.
-- [Config profiles and worlds](ConfigProfiles.md): config profiles, world templates, world saves, mods, access lists, and what Quasar writes into the server files on every start.
+- [Config profiles and worlds](ConfigProfiles.md): config profiles, direct folder/ZIP import to servers, world templates, world saves, mods, access lists, and what Quasar writes into the server files on every start.
 - [Plugins](Plugins.md): server plugins from MagnetarHub and other plugin hubs, choosing them per config profile, plugin settings and logs, dev folders, Quasar.Agent, registering a plugin.
 - [UI plugins](UiPlugins.md): QuasarHub, the UI Plugins page, the .NET 10 SDK, safe boot, companion plugins.
 
