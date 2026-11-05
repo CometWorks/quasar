@@ -817,10 +817,11 @@ public sealed class QuasarAgentAuditTests : IDisposable
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(audit);
         context.Services.AddSingleton<AuthenticationStateProvider>(new SignedIn(admin));
-        var rows = context.Render<Audit>().FindAll("tbody > tr");
-
-        // Newest first: the later change, the reversal, the undone change.
-        Assert.Equal(3, rows.Count);
+        var page = context.Render<Audit>();
+        // The page loads the entries asynchronously. Newest first: the later change, the reversal,
+        // the undone change.
+        page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("tbody > tr").Count));
+        var rows = page.FindAll("tbody > tr");
         Assert.Contains(
             "Undo",
             rows[0].QuerySelectorAll("button").Select(b => b.TextContent.Trim())
