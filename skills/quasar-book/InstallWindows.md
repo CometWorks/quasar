@@ -254,6 +254,8 @@ If service startup reports access denied to `release.json`, or automatic recover
 
 The Updates page shows the restart capability and repair instructions when the services don't match the installation record. See also [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
 
+Reinstallation and installer recovery merge files into their original directories, including `Agent`, `Host`, `Updater` and `wwwroot`; they do not create `Host\Host` or similar nested folders. Existing settings and unrelated data stay in place. For a broken published 1.4.1.1 package without a receipt, follow [bridge recovery](Updates.md#broken-1411-package) before using a 1.5+ installer.
+
 ## Sources
 - `README.md`
 - `Docs/Installation.md`

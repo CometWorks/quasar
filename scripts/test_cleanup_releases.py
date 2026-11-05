@@ -15,20 +15,32 @@ def release(tag, draft=False, prerelease=False):
     return {"id": tag, "tag_name": tag, "draft": draft, "prerelease": prerelease}
 
 
+def bridge_release(tag):
+    return {**release(tag), "assets": [{"name": name} for name in cleanup.MIGRATION_ASSETS]}
+
+
 class ReleaseCleanupTests(unittest.TestCase):
     def test_latest_full_141_bridge_survives_newer_release_cleanup(self):
-        builds = [release("v1.4.1.1"), release("v1.4.1.2"), release("v1.5.0"), release("v1.5.1"), release("v1.5.2")]
+        builds = [bridge_release("v1.4.1.1"), bridge_release("v1.4.1.2"), release("v1.5.0"), release("v1.5.1"), release("v1.5.2")]
         deleted = {r["tag_name"] for r in cleanup.plan_cleanup(builds, "v1.5.2", set())}
         self.assertEqual({"v1.4.1.1", "v1.5.0"}, deleted)
+
+    def test_incomplete_newer_bridge_cannot_displace_complete_bridge(self):
+        builds = [bridge_release("v1.4.1.2"), release("v1.4.1.3"), release("v1.6.0.1"), release("v1.6.0.2")]
+        deleted = {r["tag_name"] for r in cleanup.plan_cleanup(builds, "v1.6.0.2", set())}
+        self.assertEqual({"v1.4.1.3"}, deleted)
 
     def test_15_publication_needs_complete_full_141_release(self):
         cleanup.require_migration_release([], "1.4.1")
         bridge = release("v1.4.1.2")
-        for builds in [[], [bridge], [release("v1.4.1.2", prerelease=True)]]:
+        for builds in [[], [bridge], [release("v1.4.1.2", prerelease=True)], [bridge_release("v1.4.1.1")]]:
             with self.assertRaisesRegex(ValueError, "Release blocker"):
                 cleanup.require_migration_release(builds, "1.5.0")
-        bridge["assets"] = [{"name": name} for name in ["quasar-linux-x64.tar.gz", "quasar-win-x64.zip", "quasar-web-linux-x64.tar.gz", "quasar-web-win-x64.zip", "SHA256SUMS"]]
+        bridge = bridge_release("v1.4.1.2")
         cleanup.require_migration_release([bridge], "1.5.0")
+        for asset in bridge["assets"]:
+            with self.subTest(missing=asset["name"]), self.assertRaisesRegex(ValueError, "Release blocker"):
+                cleanup.require_migration_release([{**bridge, "assets": [a for a in bridge["assets"] if a != asset]}], "1.6.0.2")
 
     def test_published_pr_and_manual_builds_do_not_displace_rollback(self):
         builds = [release("v1.3.1.75"), release("v1.3.1.74"), release("v1.3.1.73"),

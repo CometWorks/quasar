@@ -18,6 +18,12 @@ Each 1.5 release contains only `quasar-linux-x64.tar.gz`, `quasar-win-x64.zip` a
 
 Release notes start with installation instructions. The **Quasar 1.5** section includes the required upgrade order and a link to the migration guide.
 
+### Broken 1.4.1.1 package
+
+The published `v1.4.1.1` package records `1.4.1-1` in `release.json`, but its application reports `1.4.1.1`. Neither the foreground nor native-service path can record migration with those different identities. Its Windows installer can also remove file access when application and data share a folder. Do not rerun it. Use the corrected [1.4.1.2 migration release](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2) or a newer full 1.4.1 package, preserving paths and service names. Stop both services and any old task first; restore administrator file access if the old installer removed it. Keep data, credentials, keys and the recovery copy. Start the corrected bridge and confirm `Updates/migration-1.4.1.json` in the intended data folder before installing 1.5 or later. Do not fabricate the receipt. See [bridge recovery](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#broken-1411-package).
+
+Release publication rejects the broken 1.4.1.1 bridge. Cleanup keeps the newest complete 1.4.1 bridge, including both platform packages, both legacy workers and checksums, even when a newer incomplete bridge exists.
+
 ## What gets updated and by whom
 
 | Component | Source | Who checks | Who installs |
@@ -358,3 +364,5 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/QuasarShutdownService.cs`
 - `Tests/Updates/NativeFixture.cs`
+- `scripts/test_cleanup_releases.py`
+- `Tests/Updates/Program.cs`

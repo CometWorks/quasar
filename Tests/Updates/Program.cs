@@ -42,6 +42,19 @@ Directory.CreateDirectory(testRoot);
 Environment.SetEnvironmentVariable("QUASAR_INSTALL_DIR", testRoot);
 try
 {
+    var bridge = Path.Combine(testRoot, "bridge");
+    var bridgeData = Path.Combine(testRoot, "bridge-data");
+    Directory.CreateDirectory(bridge);
+    File.WriteAllText(Path.Combine(bridge, LauncherReplacement.ManifestName), "Quasar\nrelease.json\n");
+    File.WriteAllText(Path.Combine(bridge, "release.json"), "{\"version\":\"1.4.1-1\",\"updaterProtocol\":1}");
+    Reject(() => QuasarUpgradePath.RecordHealthy(bridge, bridgeData, "1.4.1.1"), "NuGet identity cannot prove a healthy public bridge version");
+    Require(!QuasarUpgradePath.IsCompleted(bridgeData), "Mismatched bridge must not write a receipt");
+    File.WriteAllText(Path.Combine(bridge, "release.json"), "{\"version\":\"1.4.1.2\",\"updaterProtocol\":1}");
+    QuasarUpgradePath.RecordHealthy(bridge, bridgeData, "1.4.1.2");
+    Require(QuasarUpgradePath.IsCompleted(bridgeData), "Matching complete bridge must record migration in the data directory");
+    QuasarUpgradePath.EnsureAllowed("1.6.0.2", bridgeData);
+    Reject(() => QuasarUpgradePath.EnsureAllowed("1.6.0.2", bridge), "Receipt in another data directory must not bypass migration");
+    Console.WriteLine("PASS exact four-part bridge identity, migration receipt and later-version prerequisite");
     using var lease = await QuasarMaintenanceLease.AcquireAsync(CancellationToken.None);
     var first = QuasarUpdateJournal.Submit("1.4.1", false);
     Require(QuasarUpdateJournal.Submit("1.4.1", false).Id == first.Id, "Duplicate intent must reuse operation identity");

@@ -111,6 +111,16 @@ identity/path information and owner/protection/SDDL for relevant paths; they do
 not print installation credentials. Real Windows effective access and SCM behavior
 must be verified on Windows, not inferred from a Linux PowerShell parse.
 
+Reinstallation and failed-install recovery merge each package directory into its
+existing location. They replace files under `Agent`, `Host`, `Updater` and
+`wwwroot` without creating nested copies such as `Host\Host`. Existing settings
+and unrelated data remain in place. The portable copy fixture is
+`pwsh -NoProfile -File Tests/Updates/install-copy.ps1`.
+
+For the published `v1.4.1.1` identity/permission failure with no migration receipt,
+follow [bridge recovery](QuasarUpdates.md#broken-1411-package) using the corrected
+1.4.1 package first. Supervision repair from a 1.5+ package still requires a receipt.
+
 ## Command-line UI rollback
 
 Current `Quasar --rollback` restores the retained complete application through the updater. The following worker-only behavior applies to legacy Bootstrap installations.
