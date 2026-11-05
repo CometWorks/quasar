@@ -19,11 +19,11 @@
 </MudAlert>
 
 <section class="quasar-panel pa-4 mb-4">
-    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-3">
-        <label>From (UTC) <input type="datetime-local" @bind="_from" /></label>
-        <label>To (UTC) <input type="datetime-local" @bind="_to" /></label>
-        <label>
-            Principal kind
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-3">
+        <label class="quasar-field"><span>From (UTC)</span><input type="datetime-local" @bind="_from" /></label>
+        <label class="quasar-field"><span>To (UTC)</span><input type="datetime-local" @bind="_to" /></label>
+        <label class="quasar-field">
+            <span>Principal kind</span>
             <select @bind="_principalKind">
                 <option value="">Any</option>
                 @foreach (var kind in Enum.GetValues<QuasarAuditPrincipalKind>())
@@ -32,12 +32,12 @@
                 }
             </select>
         </label>
-        <label>Principal <input type="text" @bind="_principal" /></label>
-        <label>Requester <input type="text" @bind="_requester" /></label>
-        <label>Operation <input type="text" @bind="_operation" /></label>
-        <label>Server <input type="text" @bind="_server" /></label>
-        <label>
-            Result
+        <label class="quasar-field"><span>Principal</span><input type="text" @bind="_principal" /></label>
+        <label class="quasar-field"><span>Requester</span><input type="text" @bind="_requester" /></label>
+        <label class="quasar-field"><span>Operation</span><input type="text" @bind="_operation" /></label>
+        <label class="quasar-field"><span>Server</span><input type="text" @bind="_server" /></label>
+        <label class="quasar-field">
+            <span>Result</span>
             <select @bind="_result">
                 <option value="">Any</option>
                 @foreach (var result in Enum.GetValues<QuasarAuditResult>())
@@ -58,7 +58,7 @@
     else
     {
         <div class="quasar-table-scroll" role="region" aria-label="Audit entries" tabindex="0">
-        <table class="quasar-server-table">
+        <table class="quasar-server-table audit-table">
             <thead>
                 <tr>
                     <th scope="col">Time (UTC)</th>
@@ -75,19 +75,24 @@
                 @foreach (var entry in _entries)
                 {
                     var blocker = AuditLog.UndoBlocker(entry, _entries);
+                    var undone = _entries.Any(other => other.Reverses == entry.Id && other.Result == QuasarAuditResult.Ok);
                     <tr>
-                        <td class="mono">@entry.Time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
-                        <td>@entry.Principal.Kind: @(entry.Principal.Name ?? entry.Principal.Subject)</td>
-                        <td>@Requester(entry.Requester)</td>
-                        <td class="mono">@entry.Operation</td>
-                        <td>@entry.Server</td>
-                        <td>@entry.Mode@(entry.ApprovedBy is null ? null : " by " + entry.ApprovedBy)</td>
+                        <td class="mono">@Time(entry.Time)</td>
+                        <td class="audit-wrap">@entry.Principal.Kind: @(entry.Principal.Name ?? entry.Principal.Subject)</td>
+                        <td class="audit-wrap">@Requester(entry.Requester)</td>
+                        <td class="mono audit-wrap">@entry.Operation</td>
+                        <td class="audit-wrap">@entry.Server</td>
+                        <td class="audit-wrap">@Mode(entry)</td>
                         <td>@entry.Result</td>
                         <td>
                             <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Toggle(entry.Id))">
                                 @(_expanded.Contains(entry.Id) ? "Hide" : "Details")
                             </MudButton>
-                            @if (entry.Reversal == QuasarReversal.Undo && blocker is null)
+                            @if (undone)
+                            {
+                                <span class="audit-undone">Undone</span>
+                            }
+                            else if (entry.Reversal == QuasarReversal.Undo && blocker is null)
                             {
                                 <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="@_busy"
                                            OnClick="@(() => UndoAsync(entry, force: false))">Undo</MudButton>
@@ -224,6 +229,16 @@
             await LoadAsync();
         }
         finally { _busy = false; }
+    }
+
+    private static string Time(DateTimeOffset time) => time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+
+    // A reversal names the change it undid, by its time when that entry is listed.
+    private string Mode(QuasarAuditEntry entry)
+    {
+        if (entry.Reverses is { } reversed)
+            return "Undo of " + (_entries.FirstOrDefault(other => other.Id == reversed) is { } original ? Time(original.Time) : reversed);
+        return entry.Mode + (entry.ApprovedBy is null ? null : " by " + entry.ApprovedBy);
     }
 
     private static string Requester(QuasarAuditRequester requester) => string.Join(" ", new[]
