@@ -195,7 +195,11 @@ handler's job.
 
 An `IQuasarNoticeSource` registered in DI adds `QuasarNotice` entries (key,
 title, body, URL, time, severity) to web push notifications and the
-notification list of a signed-in account. A browser gets each key once.
+notification list of a signed-in account. `GetNoticesAsync` gets that account
+as a `ClaimsPrincipal` with its current roles (the push sweep rebuilds it from
+the role mapping each time), so a source can check a policy on it with
+`IAuthorizationService`, for example to tell only the admins who could approve
+a proposal. A browser gets each key once.
 Keys must be 1 to 256 characters and not start with the announcement prefix,
 the URL must be a path inside Quasar (`/...`), and severity is `info`,
 `warning` or `critical`. A source that throws is skipped.

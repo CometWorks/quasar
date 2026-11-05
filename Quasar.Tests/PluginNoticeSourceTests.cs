@@ -1,4 +1,7 @@
+using System.Security.Claims;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Plugin.Abstractions.Assistant;
 using Quasar.Services;
@@ -28,23 +31,46 @@ public sealed class PluginNoticeSourceTests : IDisposable
 
     private sealed class Source(params QuasarNotice[] notices) : IQuasarNoticeSource
     {
-        internal readonly List<(string Provider, string Subject)> Asked = [];
+        internal readonly List<ClaimsPrincipal> Asked = [];
 
-        public IEnumerable<QuasarNotice> GetNotices(string provider, string subject)
+        public ValueTask<IReadOnlyList<QuasarNotice>> GetNoticesAsync(
+            ClaimsPrincipal subscriber,
+            CancellationToken token
+        )
         {
-            Asked.Add((provider, subject));
-            return notices;
+            Asked.Add(subscriber);
+            return ValueTask.FromResult<IReadOnlyList<QuasarNotice>>(notices);
         }
+    }
+
+    // Like an approval queue: only accounts that could approve hear about a proposal.
+    private sealed class ApproverSource(IAuthorizationService authorization) : IQuasarNoticeSource
+    {
+        public async ValueTask<IReadOnlyList<QuasarNotice>> GetNoticesAsync(
+            ClaimsPrincipal subscriber,
+            CancellationToken token
+        ) =>
+            (
+                await authorization.AuthorizeAsync(
+                    subscriber,
+                    null,
+                    QuasarPolicyNames.CanControlServers
+                )
+            ).Succeeded
+                ? [new QuasarNotice("assistant:approval:1", "Approve", "Waiting.", "/assistant")]
+                : [];
     }
 
     private sealed class Broken : IQuasarNoticeSource
     {
-        public IEnumerable<QuasarNotice> GetNotices(string provider, string subject) =>
-            throw new InvalidOperationException("down");
+        public ValueTask<IReadOnlyList<QuasarNotice>> GetNoticesAsync(
+            ClaimsPrincipal subscriber,
+            CancellationToken token
+        ) => throw new InvalidOperationException("down");
     }
 
     [Fact]
-    public async Task PluginNoticesArePushedOnceByKeyAlongsideTheOthers()
+    public async Task PluginNoticesReachOnlyTheSubscribersTheirPolicyAllowsAndArePushedOnceByKey()
     {
         var proposals = new Source(
             new QuasarNotice(
@@ -74,6 +100,11 @@ public sealed class PluginNoticeSourceTests : IDisposable
                 "/"
             )
         );
+        using var services = new ServiceCollection()
+            .AddLogging()
+            .AddAuthorization(Program.ConfigureAuthorizationPolicies)
+            .BuildServiceProvider();
+        var authorization = services.GetRequiredService<IAuthorizationService>();
         var roles = new QuasarRoleMapper(
             new QuasarAuthOptions { TrustedNetworkBypass = new() { Roles = [QuasarRoles.Viewer] } },
             null!
@@ -101,7 +132,7 @@ public sealed class PluginNoticeSourceTests : IDisposable
                 return Task.CompletedTask;
             },
             otherNotices: () => [new UpdateNotice("update:1", "Update", "New Quasar.", "/updates")],
-            noticeSources: [proposals, new Broken()]
+            noticeSources: [proposals, new ApproverSource(authorization), new Broken()]
         );
         var viewer = roles.CreateTrustedNetworkPrincipal();
         await push.SubscribeAsync(
@@ -125,11 +156,18 @@ public sealed class PluginNoticeSourceTests : IDisposable
         var second = listed.Single(n => n.Key == "assistant:proposal:2");
         Assert.Equal("/", second.Url);
         Assert.Equal("info", second.Severity);
+        Assert.True(proposals.Asked[^1].IsInRole(QuasarRoles.Viewer));
+
+        var editor = new QuasarRoleMapper(
+            new QuasarAuthOptions { TrustedNetworkBypass = new() { Roles = [QuasarRoles.Editor] } },
+            null!
+        ).CreateTrustedNetworkPrincipal();
         Assert.Contains(
-            (QuasarAuthSchemes.TrustedNetwork, QuasarAuthSchemes.TrustedNetwork),
-            proposals.Asked
+            "assistant:approval:1",
+            (await push.GetNoticesAsync(editor)).Select(n => n.Key)
         );
 
+        // The sweep rebuilds the subscriber from its roles: the viewer gets no approval notice.
         await push.SendPendingAsync(default);
         await push.SendPendingAsync(default);
         Assert.Equal(

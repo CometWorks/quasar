@@ -93,7 +93,7 @@ public sealed class PushNotificationService(
         try { state = await LoadAsync(token); }
         catch (InvalidDataException) { return MergeAnnouncements([], announcements); }
         finally { _gate.Release(); }
-        return Notices(state, identity.Provider, identity.Subject, user);
+        return await NoticesAsync(state, identity.Provider, identity.Subject, user, token);
     }
 
     internal bool IsCurrent(UpdateNotice notice) => announcements.IsCurrent(notice);
@@ -102,7 +102,15 @@ public sealed class PushNotificationService(
         existing.Concat(announcements.GetNotices()).OrderByDescending(n => n.Severity switch
             { "critical" => 2, "warning" => 1, _ => 0 }).ToArray();
 
-    private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user) =>
+    private async Task<UpdateNotice[]> NoticesAsync(PushState state, string provider, string subject, ClaimsPrincipal user,
+        CancellationToken token)
+    {
+        var plugin = await PluginNoticesAsync(user, token);
+        return Notices(state, provider, subject, user, plugin);
+    }
+
+    private UpdateNotice[] Notices(PushState state, string provider, string subject, ClaimsPrincipal user,
+        IEnumerable<UpdateNotice> plugin) =>
         MergeAnnouncements((_otherNoticesOverride?.Invoke() ?? _instances.GetNotices(provider, subject, user, DateTimeOffset.UtcNow)
             .Concat(Preferences(state, provider, subject).Updates
                 ? UpdateNotices.All(updates.GetSnapshot(), releases.GetSnapshot(), clusters.GetClusters(), user, content.GetSnapshot)
@@ -110,26 +118,26 @@ public sealed class PushNotificationService(
             .Concat(Preferences(state, provider, subject).UiPluginUpdates
                 ? UpdateNotices.UiPlugins(uiPlugins.GetEntries(), uiPlugins.GetInstallState, user) : []))
             .Concat(hosted?.BillingNotices(provider, subject) ?? [])
-            .Concat(PluginNotices(provider, subject)), announcements);
+            .Concat(plugin), announcements);
 
     private readonly IQuasarNoticeSource[] _noticeSources = noticeSources?.ToArray() ?? [];
 
     // UI plugin notices, such as an assistant proposal waiting for this admin. A failing source is skipped.
-    internal IEnumerable<UpdateNotice> PluginNotices(string provider, string subject)
+    internal async Task<IEnumerable<UpdateNotice>> PluginNoticesAsync(ClaimsPrincipal subscriber, CancellationToken token)
     {
         var notices = new List<UpdateNotice>();
         foreach (var source in _noticeSources)
         {
             try
             {
-                notices.AddRange((source.GetNotices(provider, subject) ?? [])
+                notices.AddRange((await source.GetNoticesAsync(subscriber, token) ?? [])
                     .Where(n => n is { Key.Length: > 0 and <= 256, Title.Length: > 0 }
                         && !n.Key.StartsWith(AnnouncementService.KeyPrefix, StringComparison.Ordinal))
                     .Select(n => new UpdateNotice(n.Key, n.Title, n.Body ?? string.Empty,
                         n.Url is ['/', not '/', ..] or "/" ? n.Url : "/", n.Time,
                         n.Severity is "warning" or "critical" ? n.Severity : "info")));
             }
-            catch (Exception error)
+            catch (Exception error) when (!token.IsCancellationRequested)
             {
                 logger.LogWarning("A plugin notice source failed ({FailureType}).", error.GetType().Name);
             }
@@ -268,7 +276,7 @@ public sealed class PushNotificationService(
             if (principal is null) continue;
             // Billing notices remain targeted to the payer even if their panel role was removed.
             // They reveal no card/invoice data and lead to Nebula's separately authenticated account page.
-            var notices = CanView(principal) ? Notices(state, item.Provider, item.Subject, principal)
+            var notices = CanView(principal) ? await NoticesAsync(state, item.Provider, item.Subject, principal, token)
                 : hosted?.BillingNotices(item.Provider, item.Subject) ?? [];
             var current = item;
             // Announcement IDs stay deduplicated across withdrawal, consent changes and restarts.

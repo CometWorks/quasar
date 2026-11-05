@@ -1,3 +1,5 @@
+using System.Security.Claims;
+
 namespace Quasar.Plugin.Abstractions.Assistant;
 
 /// <summary>
@@ -6,9 +8,12 @@ namespace Quasar.Plugin.Abstractions.Assistant;
 /// </summary>
 public interface IQuasarNoticeSource
 {
-    /// <param name="provider">The account's sign-in provider, such as <c>Steam</c>.</param>
-    /// <param name="subject">The account's subject, such as a SteamID64.</param>
-    IEnumerable<QuasarNotice> GetNotices(string provider, string subject);
+    /// <param name="subscriber">The account with its current roles, rebuilt on every push sweep,
+    /// so policies can be checked on it with <c>IAuthorizationService</c>.</param>
+    ValueTask<IReadOnlyList<QuasarNotice>> GetNoticesAsync(
+        ClaimsPrincipal subscriber,
+        CancellationToken token
+    );
 }
 
 /// <param name="Key">Stable per notice: a browser gets each key once. At most 256 characters.</param>
