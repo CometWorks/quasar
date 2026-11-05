@@ -18,7 +18,7 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
         try
         {
             var operation = operations.Find(pluginId, operationId) ?? throw new QuasarOperationException(404, "SDK operation not found.");
-            var denied = await operations.CheckAccessAsync(http.User, pluginId, operationId, operation.Kind);
+            var denied = await operations.CheckCallAsync(http.User, pluginId, operationId, operation.Kind);
             if (denied is not null) return denied.ToHttpResult();
             if (!HttpMethods.IsGet(http.Request.Method) && !HttpMethods.IsHead(http.Request.Method))
                 await antiforgery.ValidateRequestAsync(http);

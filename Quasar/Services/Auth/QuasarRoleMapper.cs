@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Quasar.Plugin.Abstractions.Security;
 
 namespace Quasar.Services.Auth;
 
@@ -60,6 +61,11 @@ public sealed class QuasarRoleMapper
 
     public ClaimsPrincipal RefreshRoles(ClaimsPrincipal principal)
     {
+        // An agent keeps its in-process identity type and asker; it gets only its own identity and never admin.
+        if (principal.IsQuasarAgent(out var agent))
+            return new ClaimsPrincipal(agent.With(GetAgentRoles(agent.Kind),
+                agent.Asker is null ? null : RefreshRoles(agent.Asker)));
+
         var provider = principal.FindFirst(QuasarClaimTypes.Provider)?.Value;
         IReadOnlyList<string>? roles = provider switch
         {
@@ -67,11 +73,18 @@ public sealed class QuasarRoleMapper
                 principal.FindFirst(QuasarClaimTypes.SteamId)?.Value ??
                 principal.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? string.Empty),
             QuasarAuthSchemes.TrustedNetwork => _options.TrustedNetworkBypass.Roles,
+            // Claims that only look like an agent's grant nothing.
+            QuasarAgentIdentity.Provider => [],
             _ => null,
         };
 
         return roles is null ? principal : ReplaceRoles(principal, roles);
     }
+
+    public IReadOnlyList<string> GetAgentRoles(QuasarAgentKind kind) =>
+        _rbacConfigCatalog.GetConfig().AgentRoles.GetValueOrDefault(RbacConfig.AgentRoleKey(kind), [])
+            .Where(role => !string.Equals(role, QuasarRoles.Admin, StringComparison.OrdinalIgnoreCase))
+            .ToList();
 
     internal static ClaimsPrincipal ReplaceRoles(ClaimsPrincipal principal, IEnumerable<string> roles)
     {

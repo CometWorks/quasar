@@ -214,6 +214,14 @@ public class Program
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
                 services.GetRequiredService<QuasarOperationService>());
             builder.Services.AddQuasarCoreOperations();
+            builder.Services.AddSingleton(_ => Quasar.Services.Audit.QuasarAuditOptions.Create(builder.Configuration));
+            builder.Services.AddSingleton<Quasar.Services.Audit.QuasarAuditLog>();
+            builder.Services.AddSingleton<Quasar.Plugin.Abstractions.Operations.IQuasarAuditLog>(services =>
+                services.GetRequiredService<Quasar.Services.Audit.QuasarAuditLog>());
+            builder.Services.AddHostedService(services => services.GetRequiredService<Quasar.Services.Audit.QuasarAuditLog>());
+            builder.Services.AddSingleton<QuasarAgentPrincipals>();
+            builder.Services.AddSingleton<Quasar.Plugin.Abstractions.Security.IQuasarAgentPrincipals>(services =>
+                services.GetRequiredService<QuasarAgentPrincipals>());
             var hostedState = HostedPanelState.Read() ?? new HostedPanelState();
             builder.Services.AddAntiforgery(options => options.Cookie.Name = ".Quasar.Csrf." + hostedState.LocalProxySecret[..16]);
             builder.Services.AddHttpClient("Nebula", http => { http.Timeout = TimeSpan.FromSeconds(15); http.MaxResponseContentBufferSize = 64 * 1024; })
@@ -834,6 +842,11 @@ public class Program
         AddRolePolicy(options, QuasarPolicyNames.CanManageSecurity, QuasarRoles.Admin);
         options.AddPolicy(QuasarPolicyNames.ClusterMaintenance, policy => policy.RequireAuthenticatedUser().RequireRole(QuasarRoles.Admin));
         AddRolePolicy(options, QuasarPolicyNames.CanShutdownQuasar, QuasarRoles.Admin);
+        AddRolePolicy(options, QuasarPolicyNames.CanUseAssistant, QuasarRoles.Editor, QuasarRoles.Admin);
+        // No role requirement, so a role override can never grant it.
+        options.AddPolicy(QuasarPolicyNames.CanActAsPlayer, policy => policy.RequireAssertion(context =>
+            Quasar.Plugin.Abstractions.Security.QuasarAgentPrincipalExtensions.IsQuasarAgent(context.User, out var agent)
+            && agent.Kind == Quasar.Plugin.Abstractions.Security.QuasarAgentKind.Player));
     }
 
     private static void AddRolePolicy(AuthorizationOptions options, string policyName, params string[] roles)

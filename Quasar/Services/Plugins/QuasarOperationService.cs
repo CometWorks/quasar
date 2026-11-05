@@ -4,7 +4,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.Extensions.Options;
 using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Plugin.Abstractions.Security;
+using Quasar.Services.Audit;
 using Quasar.Services.Auth;
+using QuasarPolicyNames = Quasar.Services.Auth.QuasarPolicyNames;
 
 namespace Quasar.Services.Plugins;
 
@@ -13,19 +16,33 @@ public sealed record QuasarOperationSettings(string PluginId, string OperationId
 
 public sealed class QuasarOperationService : IQuasarOperationDispatcher
 {
+    // The hard deny list for agent principals, by operation ID prefix under any plugin ID, so a plugin cannot
+    // register an agent-reachable operation in these areas: security, RBAC, auth settings, service principals,
+    // Quasar updates and their credentials, Workshop credentials, the Discord bot token, LLM provider settings
+    // and keys, and the assistant's own settings. It is code, not configuration.
+    private static readonly string[] AgentDeniedOperationPrefixes =
+    [
+        "security.", "rbac.", "auth.", "service-principals.", "update.", "updates.",
+        "workshop.credentials", "discord.token", "assistant.settings", "llm.",
+    ];
+
     private readonly Dictionary<string, QuasarOperation> _operations;
     private readonly RbacConfigCatalog _rbac;
     private readonly QuasarRoleMapper _roles;
     private readonly IAuthorizationService _authorization;
     private readonly IAuthorizationPolicyProvider _policies;
     private readonly IOptions<AuthorizationOptions> _declaredPolicies;
+    private readonly QuasarAuditLog _audit;
     private readonly ILogger<QuasarOperationService> _logger;
 
     public QuasarOperationService(IEnumerable<QuasarOperation> operations, RbacConfigCatalog rbac,
         QuasarRoleMapper roles, IAuthorizationService authorization, IAuthorizationPolicyProvider policies,
-        IOptions<AuthorizationOptions> declaredPolicies, ILogger<QuasarOperationService> logger)
+        IOptions<AuthorizationOptions> declaredPolicies, QuasarAuditLog audit, ILogger<QuasarOperationService> logger)
     {
         _operations = operations.ToDictionary(operation => operation.Key, StringComparer.Ordinal);
+        foreach (var operation in _operations.Values)
+            Meta(operation); // Refuses invalid metadata at startup.
+        _audit = audit;
         _rbac = rbac;
         _roles = roles;
         _authorization = authorization;
@@ -39,18 +56,44 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
     {
         cancellationToken.ThrowIfCancellationRequested();
         var user = _roles.RefreshRoles(context.User);
-        var denied = await CheckAccessAsync(user, pluginId, operationId, context.Kind);
-        if (denied is not null) return denied;
-        var operation = _operations[pluginId + "/" + operationId];
-        context = context with { User = user, VerifyAccess = async token =>
+        var approver = context.ApprovedBy is null ? null : _roles.RefreshRoles(context.ApprovedBy);
+        var operation = Find(pluginId, operationId);
+        var audited = IsAudited(operation, user);
+        var entryId = _audit.NewEntryId();
+        var denied = await CheckAccessAsync(user, pluginId, operationId, context.Kind, approver);
+        if (denied is not null)
+        {
+            if (audited)
+                await _audit.RecordCallAsync(entryId, user, approver, operation!, request, null, QuasarAuditResult.Refused, denied.Error);
+            return denied;
+        }
+        var undo = audited ? new QuasarUndoRecorder(_audit.BlobDirectory(entryId)) : null;
+        context = context with { User = user, ApprovedBy = approver, Undo = undo, VerifyAccess = async token =>
         {
             token.ThrowIfCancellationRequested();
-            var refused = await CheckAccessAsync(user, pluginId, operationId, context.Kind);
+            var refused = await CheckAccessAsync(user, pluginId, operationId, context.Kind, approver);
             if (refused is not null) throw new QuasarOperationException(refused.StatusCode, refused.Error!);
         }};
 
+        QuasarOperationResult result;
+        try { result = await InvokeAsync(operation!, context, request, cancellationToken); }
+        catch (Exception error)
+        {
+            if (audited)
+                await _audit.RecordCallAsync(entryId, user, approver, operation!, request, undo, QuasarAuditResult.Failed, error.Message);
+            throw;
+        }
+        if (audited)
+            await _audit.RecordCallAsync(entryId, user, approver, operation!, request, undo,
+                result.Error is null ? QuasarAuditResult.Ok : QuasarAuditResult.Failed, result.Error);
+        return result;
+    }
+
+    private static async Task<QuasarOperationResult> InvokeAsync(QuasarOperation operation, QuasarOperationContext context,
+        JsonElement request, CancellationToken cancellationToken)
+    {
         using var deadline = context.Kind == QuasarOperationKind.Json ? CancellationTokenSource.CreateLinkedTokenSource(cancellationToken) : null;
-        deadline?.CancelAfter(TimeSpan.FromSeconds(30));
+        deadline?.CancelAfter(Meta(operation).Deadline ?? QuasarOperationMetadata.DefaultDeadline);
         try
         {
             var value = await operation.InvokeAsync(context, request, deadline?.Token ?? cancellationToken);
@@ -65,8 +108,21 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
 
     public QuasarOperation? Find(string pluginId, string operationId) => _operations.GetValueOrDefault(pluginId + "/" + operationId);
 
-    public async Task<QuasarOperationResult?> CheckAccessAsync(ClaimsPrincipal caller, string pluginId,
+    /// <summary>A transport's check before it dispatches; audits a refused change operation like the dispatcher does.</summary>
+    public async Task<QuasarOperationResult?> CheckCallAsync(ClaimsPrincipal caller, string pluginId,
         string operationId, QuasarOperationKind kind)
+    {
+        var user = _roles.RefreshRoles(caller);
+        var denied = await CheckAccessAsync(user, pluginId, operationId, kind);
+        var operation = Find(pluginId, operationId);
+        if (denied is not null && IsAudited(operation, user))
+            await _audit.RecordCallAsync(_audit.NewEntryId(), user, null, operation!, default, null, QuasarAuditResult.Refused, denied.Error);
+        return denied;
+    }
+
+    /// <summary>Checks a call, also against the asker of an assistant and the approver of a proposal.</summary>
+    public async Task<QuasarOperationResult?> CheckAccessAsync(ClaimsPrincipal caller, string pluginId,
+        string operationId, QuasarOperationKind kind, ClaimsPrincipal? approver = null)
     {
         var user = _roles.RefreshRoles(caller);
         if (user.Identity?.IsAuthenticated != true) return new(401, Error: "Authentication is required.");
@@ -78,12 +134,43 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         var rule = Rule(operation, config);
         if (!config.SdkRulesValid || rule?.Enabled != true || !await ValidPoliciesAsync(rule.RequiredPolicies))
             return new(403, Error: "SDK operation is disabled or its authorization rule is invalid.");
-        foreach (var policy in rule.RequiredPolicies!)
-            if (!(await _authorization.AuthorizeAsync(user, null, policy)).Succeeded)
-                return new(403, Error: "The caller cannot access this SDK operation.");
+        var agent = user.IsQuasarAgent(out var identity) ? identity : null;
+        if (agent is not null && IsDeniedToAgents(operation, rule))
+            return new(403, Error: "Assistants cannot use this operation.");
+        if (!await SatisfiesAsync(user, rule))
+            return new(403, Error: "The caller cannot access this SDK operation.");
+        // The assistant never does more than its asker could do by hand.
+        if (agent?.Kind == QuasarAgentKind.Assistant && !await IsAllowedPersonAsync(agent.Asker, rule))
+            return new(403, Error: "The person asking the assistant cannot access this SDK operation.");
+        if (approver is not null && !await IsAllowedPersonAsync(_roles.RefreshRoles(approver), rule))
+            return new(403, Error: "The approver cannot access this SDK operation.");
 
         return null;
     }
+
+    internal static QuasarOperationMetadata Meta(QuasarOperation operation) =>
+        operation.Metadata.ResolveFor(operation.Kind, operation.OperationId);
+
+    internal static bool IsDeniedToAgents(QuasarOperation operation, QuasarOperationRule? rule) =>
+        Meta(operation).AgentAccess == QuasarAgentAccess.Denied
+        || rule?.RequiredPolicies?.Any(policy => policy.Equals(QuasarPolicyNames.CanManageSecurity, StringComparison.OrdinalIgnoreCase)
+            || policy.Equals(QuasarPolicyNames.CanShutdownQuasar, StringComparison.OrdinalIgnoreCase)) == true
+        || AgentDeniedOperationPrefixes.Any(prefix => operation.OperationId.StartsWith(prefix, StringComparison.Ordinal));
+
+    private static bool IsAudited(QuasarOperation? operation, ClaimsPrincipal user) =>
+        operation is not null && Meta(operation).Effect == QuasarOperationEffect.Change && user.Identity?.IsAuthenticated == true;
+
+    private async Task<bool> SatisfiesAsync(ClaimsPrincipal user, QuasarOperationRule rule)
+    {
+        foreach (var policy in rule.RequiredPolicies!)
+            if (!(await _authorization.AuthorizeAsync(user, null, policy)).Succeeded)
+                return false;
+        return true;
+    }
+
+    private async Task<bool> IsAllowedPersonAsync(ClaimsPrincipal? person, QuasarOperationRule rule) =>
+        person?.Identity?.IsAuthenticated == true && !person.IsQuasarServicePrincipal() && !person.IsQuasarAgent(out _)
+        && await SatisfiesAsync(person, rule);
 
     public async Task<IReadOnlyList<QuasarOperationSettings>> GetSettingsAsync(ClaimsPrincipal caller)
     {
@@ -138,6 +225,22 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         _logger.LogInformation("Policy role grants changed by {Actor} for {Policy}: {Roles}", Actor(caller), policy, string.Join(",", savedRoles));
     }
 
+    public async Task SaveAgentRolesAsync(ClaimsPrincipal caller, QuasarAgentKind kind, IReadOnlyList<string> roles,
+        CancellationToken token = default)
+    {
+        var savedRoles = roles.Select(role => role.Trim()).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        await _rbac.UpdateAsync(async config =>
+        {
+            await RequireSecurityAsync(caller);
+            if (savedRoles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase))
+                throw new ArgumentException("An assistant or player agent can never hold the admin role.");
+            if (savedRoles.Any(role => !QuasarRoles.All.Contains(role)))
+                throw new ArgumentException("Select valid Quasar roles.");
+            config.AgentRoles[RbacConfig.AgentRoleKey(kind)] = savedRoles;
+        }, token);
+        _logger.LogInformation("Agent roles changed by {Actor} for {Agent}: {Roles}", Actor(caller), kind, string.Join(",", savedRoles));
+    }
+
     private async Task RequireSecurityAsync(ClaimsPrincipal caller)
     {
         var user = _roles.RefreshRoles(caller);
@@ -154,7 +257,7 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         return true;
     }
 
-    private static QuasarOperationRule? Rule(QuasarOperation operation, RbacConfig config) =>
+    internal static QuasarOperationRule? Rule(QuasarOperation operation, RbacConfig config) =>
         config.OperationOverrides.TryGetValue(operation.Key, out var rule)
             ? rule?.Clone() : new() { RequiredPolicies = operation.DefaultPolicies.ToList() };
 

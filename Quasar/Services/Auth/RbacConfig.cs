@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Plugin.Abstractions.Security;
 
 namespace Quasar.Services.Auth;
 
@@ -9,6 +10,8 @@ public sealed class RbacConfig
     public List<ClaimRoleMapping> ClaimRoleMappings { get; set; } = [];
     public Dictionary<string, List<string>> PolicyOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, QuasarOperationRule?> OperationOverrides { get; set; } = new(StringComparer.Ordinal);
+    // Roles of the agent principals, keyed "assistant" and "player". Never admin.
+    public Dictionary<string, List<string>> AgentRoles { get; set; } = DefaultAgentRoles();
     [JsonIgnore] internal bool SdkRulesValid { get; set; } = true;
 
     public RbacConfig Clone() => new()
@@ -20,6 +23,7 @@ public sealed class RbacConfig
             pair => pair.Value.ToList(),
             StringComparer.OrdinalIgnoreCase),
         OperationOverrides = OperationOverrides.ToDictionary(pair => pair.Key, pair => pair.Value?.Clone(), StringComparer.Ordinal),
+        AgentRoles = (AgentRoles ?? DefaultAgentRoles()).ToDictionary(pair => pair.Key, pair => pair.Value?.ToList() ?? [], StringComparer.OrdinalIgnoreCase),
         SdkRulesValid = SdkRulesValid,
     };
 
@@ -51,8 +55,23 @@ public sealed class RbacConfig
                 pair => NormalizeRoles(pair.Value),
                 StringComparer.OrdinalIgnoreCase);
 
+        var agentRoles = normalized.AgentRoles;
+        normalized.AgentRoles = DefaultAgentRoles().ToDictionary(
+            pair => pair.Key,
+            pair => NormalizeRoles(agentRoles.GetValueOrDefault(pair.Key) ?? pair.Value)
+                .Where(role => role != QuasarRoles.Admin).ToList(),
+            StringComparer.OrdinalIgnoreCase);
+
         return normalized;
     }
+
+    public static string AgentRoleKey(QuasarAgentKind kind) => kind == QuasarAgentKind.Assistant ? "assistant" : "player";
+
+    private static Dictionary<string, List<string>> DefaultAgentRoles() => new(StringComparer.OrdinalIgnoreCase)
+    {
+        [AgentRoleKey(QuasarAgentKind.Assistant)] = [QuasarRoles.Editor],
+        [AgentRoleKey(QuasarAgentKind.Player)] = [],
+    };
 
     internal static List<string> NormalizeRoles(IEnumerable<string>? roles) =>
         roles?

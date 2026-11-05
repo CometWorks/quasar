@@ -14,6 +14,9 @@ public static class QuasarCoreOperations
     public sealed record AnalyticsRequest(long From, long To, string[] Servers, string[] Metrics, int MaxPoints = 1000);
     public sealed record BackupRequest(string? Name = null);
     public sealed record LogRequest(string UniqueName = "", string? Name = null);
+    private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read };
+    // Backup archives hold secrets and the Discord log is for admins only.
+    private static readonly QuasarOperationMetadata ReadDeniedToAgents = Read with { AgentAccess = QuasarAgentAccess.Denied };
 
     public static void AddQuasarCoreOperations(this IServiceCollection services)
     {
@@ -34,23 +37,23 @@ public static class QuasarCoreOperations
                     try { return Task.FromResult<Stream>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, QuasarSdkLimits.TransferBufferBytes, FileOptions.Asynchronous)); }
                     catch (IOException) { throw new QuasarOperationException(404, "Backup not found."); }
                 }, "application/zip", Path.GetFileName(path), EnableRanges: true));
-            });
+            }, ReadDeniedToAgents);
         services.AddQuasarOperation<AnalyticsRequest, AnalyticsSeriesResponse>(PluginId, "analytics.series.read", [QuasarPolicyNames.CanView],
             (caller, input, token) =>
             {
                 token.ThrowIfCancellationRequested();
                 return Task.FromResult(caller.Services.GetRequiredService<AnalyticsSeriesService>().Build(
                     input.From, input.To, input.Servers ?? [], input.Metrics ?? [], input.MaxPoints));
-            });
+            }, Read);
         services.AddQuasarRead<LogRequest>(PluginId, "logs.server.read", [QuasarPolicyNames.CanView],
             (caller, input, token) => Task.FromResult(ReadLog(ResolveDedicatedServerLogPath(input.UniqueName,
-                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))));
+                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))), Read);
         services.AddQuasarRead<LogRequest>(PluginId, "logs.magnetar.read", [QuasarPolicyNames.CanView],
             (caller, input, token) => Task.FromResult(ReadLog(ResolveMagnetarInfoLogPath(input.UniqueName,
-                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))));
+                caller.Services.GetRequiredService<DedicatedServerCatalog>(), input.Name))), Read);
         services.AddQuasarRead<LogRequest>(PluginId, "logs.discord.read", [QuasarPolicyNames.CanManageDiscord],
             (caller, input, token) => Task.FromResult(ReadLog(QuasarLoggingConfigurator.ResolveDiscordLogPath(
-                caller.Services.GetRequiredService<WebServiceOptions>()))));
+                caller.Services.GetRequiredService<WebServiceOptions>()))), ReadDeniedToAgents);
     }
 
     public static void MapQuasarCoreOperations(this IEndpointRouteBuilder endpoints)

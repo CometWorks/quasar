@@ -12,6 +12,9 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <!-- Only core builds agent principals. -->
+    <InternalsVisibleTo Include="Quasar" />
+    <InternalsVisibleTo Include="Quasar.Tests" />
   </ItemGroup>
 
 </Project>
