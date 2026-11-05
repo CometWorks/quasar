@@ -174,7 +174,10 @@ with a `QuasarPlayerRequest`:
   characters and 12 per answer (the last one reads `…(cut)`), or the Discord
   reply, split at 2000 characters.
 
-Requests come from `!ask <question>` in game and `/ask` on Discord. The agent
+Requests come from `!ask <question>` in game and `/ask` on Discord. `!ask` and
+`!link` need Magnetar 2.4.3.6 or later, the first to pass arguments to a
+command root's default command; on older Magnetar `!ask <question>` answers
+"Unknown command". The agent
 sends `!ask` as a `player-request` wire message; Quasar takes the server from
 the authenticated connection and the Steam ID and name from the game session.
 With no handler registered, the player is told the assistant is not enabled

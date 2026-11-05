@@ -121,7 +121,7 @@ On standalone servers Quasar.Agent registers these chat commands:
 
 Discord `start` and `stop` commands set the same goal state as the UI; see [Monitoring](Monitoring.md).
 
-On standalone servers and cluster nodes it also registers two commands every player can use:
+On standalone servers and cluster nodes it also registers two commands every player can use. They need Magnetar 2.4.3.6 or later; on an older Magnetar `!ask <question>` answers "Unknown command".
 
 | Command | Effect |
 | --- | --- |
