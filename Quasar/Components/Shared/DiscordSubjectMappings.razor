@@ -17,8 +17,8 @@
                               HelperText="Right-click the user in Discord with developer mode on, then Copy User ID." />
             </MudItem>
             <MudItem xs="12" md="6">
-                <MudTextField @bind-Value="_steamId" Label="SteamID64 or profile URL" Variant="Variant.Outlined" Disabled="@_saving"
-                              HelperText="The Steam account whose Quasar roles the Discord user acts with." />
+                <MudTextField @bind-Value="_steamId" Label="Steam account" Variant="Variant.Outlined" Disabled="@_saving"
+                              HelperText="SteamID64 or profile URL of the account whose Quasar roles the Discord user acts with." />
             </MudItem>
             <MudItem xs="12" md="1" Class="d-flex align-center">
                 <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary" aria-label="Add Discord admin mapping"

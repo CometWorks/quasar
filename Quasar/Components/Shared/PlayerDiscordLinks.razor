@@ -1,7 +1,8 @@
 @using System.Globalization
 @using Quasar.Services.Assistant
+@using Microsoft.Extensions.DependencyInjection
 @implements IDisposable
-@inject QuasarPlayerLinks Links
+@inject IServiceProvider Services
 @inject KnownPlayerCatalog KnownPlayers
 @inject QuasarPermissionService Permissions
 @inject ISnackbar Snackbar
@@ -38,17 +39,22 @@
 }
 
 @code {
+    // Optional: hosts without the player assistance services show no panel.
+    private QuasarPlayerLinks? _store;
     private IReadOnlyList<QuasarPlayerLink> _links = [];
 
     protected override void OnInitialized()
     {
-        _links = Links.GetLinks();
-        Links.Changed += OnChanged;
+        _store = Services.GetService<QuasarPlayerLinks>();
+        if (_store is null)
+            return;
+        _links = _store.GetLinks();
+        _store.Changed += OnChanged;
     }
 
     private void OnChanged() => _ = InvokeAsync(() =>
     {
-        _links = Links.GetLinks();
+        _links = _store!.GetLinks();
         StateHasChanged();
     });
 
@@ -64,7 +70,7 @@
             return;
         try
         {
-            await Links.RemoveAsync(link.SteamId);
+            await _store!.RemoveAsync(link.SteamId);
             Snackbar.Add("Removed the Discord link.", Severity.Success);
         }
         catch (Exception exception)
@@ -73,5 +79,9 @@
         }
     }
 
-    public void Dispose() => Links.Changed -= OnChanged;
+    public void Dispose()
+    {
+        if (_store is not null)
+            _store.Changed -= OnChanged;
+    }
 }
