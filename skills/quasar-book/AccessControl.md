@@ -160,9 +160,19 @@ When `rbac.json` has no mapping with the `admin` role, the access setup dialog (
 
 ## Audit log
 
-**Audit log** (`/audit`, admin only, under **Infrastructure & tools**) lists every change made through Quasar's operation registry, by people, the admin assistant and the player agent. Reads are not recorded. Areas of Quasar whose pages don't call the operation registry yet are not audited either; the page says so at the top.
+**Audit log** (`/audit`, admin only, under **Infrastructure & tools**) lists every change made through Quasar's operation registry, by people, the admin assistant and the player agent. Reads are not recorded.
 
-Each entry shows the time (UTC), who acted, who asked (the person behind the assistant, or the player's Steam ID and name), the operation, the server, the mode (applied, proposed by an agent, or approved by an admin) and the result (ok, refused, failed). **Details** shows the arguments, with passwords, tokens and keys replaced by `<redacted>`, the error, and the undo data. Filter by time range, principal, requester, operation, server and result.
+These pages go through the registry, so their changes appear in the log:
+
+- **Home**, **Servers** and **Chat**: start, stop, restart and save of standalone servers, and the save and player buttons in a server's details.
+- The server editor: saving an existing server under its own name.
+- **Configs**: saving a config profile.
+- **Players**: kick, ban, unban, role and kick cooldown on standalone servers.
+- **Backup**: world backups (latest save, or save and back up) and server backups.
+
+Not recorded: Discord commands, cluster changes and cluster player actions, creating, renaming, cloning and deleting servers or profiles, killing a starting server, stop and back up, restores, configuration backups, and the other pages. The page says so at the top.
+
+Each entry shows the time (UTC), who acted, who asked (the person behind the assistant, or the player's Steam ID and name), the operation, the server, the mode (applied, proposed by an agent, approved or rejected by an admin) and the result (ok, refused, failed). An approved or rejected call names the proposal it decided. **Details** shows the arguments, with passwords, tokens and keys replaced by `<redacted>`, the error, and the undo data. Filter by time range, principal, requester, operation, server and result.
 
 **Undo** appears on changes whose operation can reverse them. It needs `CanManageSecurity` and the permissions of the original operation. Quasar first checks that the current state is still what the change left. If not, the page shows the difference and offers **Undo anyway** or **Leave it**. An undo is a new entry; entries are never rewritten, and a change can be undone once.
 
@@ -399,6 +409,10 @@ Keep the complete Quasar package and peer component together when updating.
 - `Quasar/Services/HostedPanelRequest.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Quasar/Services/Plugins/QuasarServerOperations.cs`
+- `Quasar/Services/Plugins/QuasarConfigOperations.cs`
+- `Quasar/Services/Plugins/QuasarPlayerOperations.cs`
+- `Quasar/Services/Plugins/QuasarBackupOperations.cs`
 - `Quasar/Services/Plugins/QuasarOperationService.cs`
 - `Quasar/Services/Auth/QuasarAgentPrincipals.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`

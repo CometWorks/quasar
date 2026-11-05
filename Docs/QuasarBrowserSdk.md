@@ -370,6 +370,39 @@ the same browser client. Existing analytics and log URLs are dispatcher aliases;
 log selection keeps its existing server lookup, safe-filename and log-pattern
 rules. Security lists these core operations alongside plugin operations.
 
+### Core admin operations
+
+`quasar.core` also registers the admin actions the assistant uses as tools.
+The Razor pages of these areas call the same operations through
+`QuasarCoreOperationCaller`, so a person's change in the web UI is authorized
+and audited like an SDK or assistant call. Requests name their target
+explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
+
+| Operation | Policy | Effect and reversal |
+|---|---|---|
+| `servers.list`, `servers.status` | `CanView` | read |
+| `servers.start`, `servers.stop` | `CanControlServers` | undo restores the goal while it is unchanged; 120 s deadline |
+| `servers.restart`, `servers.save` | `CanControlServers` | nothing to reverse; 300 s deadline |
+| `logs.server.tail`, `logs.magnetar.tail` | `CanView` | read: `lines` (200, at most 2000) from the `tail` or `head`, an optional case-insensitive `filter`, at most `maxBytes` (16 KiB, at most 64 KiB) |
+| `servers.definition.get` | `CanView` | read, without paths or executables |
+| `servers.definition.set` | `CanEditServers` | one allow-listed field per call; undo |
+| `servers.definition.save` | `CanEditServers` | whole definition, no rename, denied to agents; undo |
+| `config.profiles.list`, `config.settings.get`, `config.plugins.list`, `config.mods.list` | `CanView` | read; passwords are never returned |
+| `config.settings.set` | `CanEditConfigs` | one option per call, checked against its kind, limits and choices, no passwords; undo |
+| `config.plugins.set`, `config.mods.add`, `config.mods.remove` | `CanEditConfigs` | undo |
+| `config.profile.save` | `CanEditConfigs` | whole profile, denied to agents; undo |
+| `players.list` | `CanView` | read |
+| `players.ban`, `players.unban`, `players.promote`, `players.demote`, `players.promotion.set` | `CanControlServers` | undo sends the inverse command while the known-player state is unchanged |
+| `players.kick`, `players.kick-cooldown.clear` | `CanControlServers` | nothing to reverse |
+| `backups.list` | `CanControlServers` | read; world and server backups only |
+| `backups.world.create`, `backups.server.create` | `CanControlServers` | queued, nothing to reverse; never stop and back up |
+| `cluster.list`, `cluster.status` | `ClusterQuery` | read |
+
+Config profile settings act on the shared profile; a change result lists every
+server that uses the profile and applies at their next start. Player operations
+cover standalone servers only. Deleting, cloning, importing, killing, restoring,
+stop and back up, and cluster changes are not operations.
+
 Normal local authentication/trusted-network behavior continues through Quasar's
 existing principal pipeline, without Nebula services or a hosting entitlement.
 SDK endpoints always require an accepted authenticated principal, including when
@@ -377,7 +410,7 @@ other legacy routes have authentication explicitly disabled. Disabling hosting
 has no effect on the local SDK. No operation adds a Nebula endpoint allowlist.
 
 Other core HTTP APIs, config-backup downloads/uploads, appearance resources,
-server lifecycle APIs and existing SignalR circuits retain their current paths.
+the server lifecycle HTTP APIs and existing SignalR circuits retain their current paths.
 The Discord log button uses its legacy alias to the SDK handler. SignalR and
 remaining core transport migration belong to later RTC steps. Existing plugins
 can keep their old interface and endpoint registration; SDK adoption is opt-in.
