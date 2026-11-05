@@ -816,10 +816,17 @@ public sealed class QuasarAgentAuditTests : IDisposable
         var operations = core.BuildServiceProvider()
             .GetServices<QuasarOperation>()
             .ToDictionary(operation => operation.OperationId);
-        Assert.All(
-            operations.Values,
-            operation => Assert.Equal(QuasarOperationEffect.Read, operation.Metadata.Effect)
-        );
+        foreach (
+            var read in new[]
+            {
+                "backup.read",
+                "analytics.series.read",
+                "logs.server.read",
+                "logs.magnetar.read",
+                "logs.discord.read",
+            }
+        )
+            Assert.Equal(QuasarOperationEffect.Read, operations[read].Metadata.Effect);
         Assert.Equal(QuasarAgentAccess.Denied, operations["backup.read"].Metadata.AgentAccess);
         Assert.Equal(
             QuasarAgentAccess.Denied,

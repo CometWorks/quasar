@@ -533,7 +533,7 @@ public sealed class KnownPlayerCatalog
         return player.FirstSeenUtc;
     }
 
-    private static string GetAdjacentPromoteLevel(string currentLevel, int direction)
+    internal static string GetAdjacentPromoteLevel(string currentLevel, int direction)
     {
         var normalized = NormalizePromoteLevel(currentLevel);
         var index = Array.FindIndex(PromoteLevels, level => string.Equals(level, normalized, StringComparison.OrdinalIgnoreCase));
@@ -543,7 +543,7 @@ public sealed class KnownPlayerCatalog
         return PromoteLevels[Math.Clamp(index + direction, 0, PromoteLevels.Length - 1)];
     }
 
-    private static string NormalizePromoteLevel(string? level)
+    internal static string NormalizePromoteLevel(string? level)
     {
         var normalized = PromoteLevels.FirstOrDefault(candidate => string.Equals(candidate, level?.Trim(), StringComparison.OrdinalIgnoreCase));
         return normalized ?? "None";

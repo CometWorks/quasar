@@ -14,12 +14,18 @@ public static class QuasarCoreOperations
     public sealed record AnalyticsRequest(long From, long To, string[] Servers, string[] Metrics, int MaxPoints = 1000);
     public sealed record BackupRequest(string? Name = null);
     public sealed record LogRequest(string UniqueName = "", string? Name = null);
+    internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read };
     // Backup archives hold secrets and the Discord log is for admins only.
     private static readonly QuasarOperationMetadata ReadDeniedToAgents = Read with { AgentAccess = QuasarAgentAccess.Denied };
 
     public static void AddQuasarCoreOperations(this IServiceCollection services)
     {
+        services.AddQuasarServerOperations();
+        services.AddQuasarConfigOperations();
+        services.AddQuasarPlayerOperations();
+        services.AddQuasarBackupOperations();
+        services.AddQuasarClusterOperations();
         services.AddQuasarRead<BackupRequest>(PluginId, "backup.read", [QuasarPolicyNames.CanManageSecurity],
             (caller, input, token) =>
             {
@@ -77,6 +83,14 @@ public static class QuasarCoreOperations
         endpoints.MapQuasarOperationRead("/api/discord/log/download", PluginId, "logs.discord.read");
     }
 
+    internal static DedicatedServerDefinition RequireServer(IServiceProvider services, string uniqueName) =>
+        services.GetRequiredService<DedicatedServerCatalog>().GetServer(uniqueName?.Trim() ?? string.Empty)
+        ?? throw new QuasarOperationException(404, $"Server '{uniqueName}' not found.");
+
+    internal static bool JsonEquals(JsonElement left, object? right) =>
+        System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(left.GetRawText()),
+            JsonSerializer.SerializeToNode(right, Json));
+
     private static QuasarRead ReadLog(string? path)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) throw new QuasarOperationException(404, "Log file not found.");
@@ -89,7 +103,7 @@ public static class QuasarCoreOperations
         }, "text/plain; charset=utf-8", Path.GetFileName(path));
     }
 
-    private static string? ResolveDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
+    internal static string? ResolveDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
     {
         var server = catalog.GetServer(uniqueName);
         if (server is null)
@@ -103,7 +117,7 @@ public static class QuasarCoreOperations
         return ResolveLogPath(appDataPath, "SpaceEngineersDedicated*.log", fileName);
     }
 
-    private static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
+    internal static string? ResolveMagnetarInfoLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
     {
         var server = catalog.GetServer(uniqueName);
         if (server is null)

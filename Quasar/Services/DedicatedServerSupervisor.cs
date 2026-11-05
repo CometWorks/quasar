@@ -3271,7 +3271,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
             .ToList();
     }
 
-    private static (int Hour, int Minute)? TryParseDailyTime(string value)
+    internal static (int Hour, int Minute)? TryParseDailyTime(string value)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
@@ -3289,7 +3289,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         return (hour, minute);
     }
 
-    private static bool TryParseDurationHoursMinutes(string value, out TimeSpan duration)
+    internal static bool TryParseDurationHoursMinutes(string value, out TimeSpan duration)
     {
         duration = TimeSpan.Zero;
         if (string.IsNullOrWhiteSpace(value))
