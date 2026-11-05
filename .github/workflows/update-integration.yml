@@ -51,6 +51,7 @@ jobs:
         run: |
           python3 Tests/Updates/install_gui.py
           pwsh -NoProfile -File Tests/Updates/install-gui.ps1
+          pwsh -NoProfile -File Tests/Updates/install-copy.ps1
       - name: Start isolated user manager and test user-scope permissions
         run: |
           sudo loginctl enable-linger "$USER"
@@ -73,6 +74,9 @@ jobs:
       - name: Guided installer elevation argument validation
         shell: pwsh
         run: Tests/Updates/install-gui.ps1
+      - name: Repeated installation and recovery copy fixture
+        shell: pwsh
+        run: Tests/Updates/install-copy.ps1
       - name: Real isolated native Windows Services, migration, locks, ACLs and recovery
         shell: pwsh
         run: |

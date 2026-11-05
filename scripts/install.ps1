@@ -17,6 +17,26 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+function Copy-InstallationItem([string]$Source, [string]$Destination) {
+    $item = Get-Item -LiteralPath $Source -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Installation source is a reparse point: $Source" }
+    if (Test-Path -LiteralPath $Destination) {
+        $target = Get-Item -LiteralPath $Destination -Force
+        if ($target.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Installation destination is a reparse point: $Destination" }
+        if ($item.PSIsContainer -ne $target.PSIsContainer) { throw "Installation file/directory conflict: $Destination" }
+    }
+    if ($item.PSIsContainer) {
+        # Merge contents into the exact destination, including on reinstall and recovery.
+        # Copy-Item -Recurse nests the source when the destination already exists.
+        New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+        foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
+            Copy-InstallationItem $child.FullName (Join-Path $Destination $child.Name)
+        }
+    } else {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force
+    }
+}
 function Set-InstallationAcl {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$AclArguments)
     $output = & icacls @AclArguments 2>&1
@@ -110,7 +130,7 @@ if ((Test-Path -LiteralPath (Join-Path $InstallDir 'Quasar.exe')) -and ($legacy 
         if (Test-Path -LiteralPath $source) {
             $destination = Join-Path $backup $file
             New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-            Copy-Item -LiteralPath $source -Destination $destination -Recurse
+            Copy-InstallationItem $source $destination
         }
     }
 }
@@ -126,7 +146,7 @@ try {
                 $sourceFile = Join-Path $source $name
                 $target = Join-Path $staging $name
                 New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-                Copy-Item -LiteralPath $sourceFile -Destination $target -Recurse -Force
+                Copy-InstallationItem $sourceFile $target
             }
             Copy-Item -LiteralPath (Join-Path $source 'appsettings.json') -Destination $staging
         } else {
@@ -149,7 +169,7 @@ try {
         & (Join-Path $staging 'Updater/Quasar.Updater.exe') check-stopped --root $InstallDir --data-dir $DataDir
         if ($LASTEXITCODE) { throw 'Stop the existing Quasar application before copying files.' }
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-        Get-ChildItem -LiteralPath $staging | Where-Object { $_.Name -ne 'appsettings.json' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
+        Get-ChildItem -LiteralPath $staging -Force | Where-Object { $_.Name -ne 'appsettings.json' } | ForEach-Object { Copy-InstallationItem $_.FullName (Join-Path $InstallDir $_.Name) }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $InstallDir 'Updater/Quasar.Updater.exe'))) { throw 'Updater missing. Replace the complete platform package before repair.' }
     New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
@@ -253,7 +273,7 @@ try {
     }
     if ($backup -and $restoreSucceeded) {
         try {
-            Get-ChildItem -LiteralPath $backup | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
+            Get-ChildItem -LiteralPath $backup -Force | ForEach-Object { Copy-InstallationItem $_.FullName (Join-Path $InstallDir $_.Name) }
             if (-not (Test-Path -LiteralPath (Join-Path $backup 'service-installation.json'))) {
                 Remove-Item -LiteralPath (Join-Path $InstallDir 'service-installation.json') -ErrorAction SilentlyContinue
             }
