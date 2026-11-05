@@ -38,7 +38,7 @@ The server editor's **Paths** section can override the DS app-data path, Magneta
 
 ## Creating a server
 
-On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. On Windows the **Cluster** button is disabled: "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows." Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
+On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. On Windows the **Cluster** button is disabled: "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows." Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install from a folder on the Quasar machine or a ZIP on your PC (only its required config and world files transfer) (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
 
 Required fields:
 

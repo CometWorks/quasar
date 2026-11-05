@@ -137,7 +137,7 @@ To import only a world into an already managed server, use **Worlds > Server wor
 Import World...** instead. It accepts a folder or browser-uploaded ZIP, retains
 the old save and does not create a template. See [direct world import](ConfigProfiles.md#importing-a-world-directly-to-a-server).
 
-The importer turns an existing server's world and `SpaceEngineers-Dedicated.cfg` into a Quasar server, a config profile and world templates. Stop the source server first. The source folder must be on the machine that runs Quasar, because Quasar reads it directly (**Browse** shows that machine's file system).
+The importer turns an existing server's world and `SpaceEngineers-Dedicated.cfg` into a Quasar server, a config profile and world templates. Stop the source server first. Choose **Server Folder** to read a folder on the Quasar machine (**Browse** shows that machine's file system), or **Upload ZIP** to choose a `.zip` from your PC. Both the first-server wizard and **Import server** support these sources.
 
 ### Steps
 
@@ -147,9 +147,14 @@ Discovery and import show an operation loader with elapsed time and next-step gu
 2. **Location and transfer mode**:
    - Vanilla: select the DS app-data folder that contains `SpaceEngineers-Dedicated.cfg`, or a folder up to two levels above it. If Quasar finds more than one config, it uses the first and warns "Import instances separately to choose another."
    - Torch: select the folder that contains `Torch.cfg` (its parent also works). Quasar looks for `SpaceEngineers-Dedicated.cfg` in that folder, in its `Instance` subfolder and in the `InstancePath` from `Torch.cfg`.
-   - Choose **Copy** (source world folders stay unchanged) or **Move** (selected source world folders are deleted after a successful import). Click **Analyze**.
+   - For **Upload ZIP**, include one server instance with its config and `Saves` folder. A Torch ZIP also needs `Torch.cfg` and the instance folder. Files can be at the ZIP root or inside an enclosing folder. The ZIP must contain exactly one `SpaceEngineers-Dedicated.cfg` for vanilla imports, or exactly one `Torch.cfg` for Torch imports.
+   - For **Server Folder**, choose **Copy** (source world folders stay unchanged) or **Move** (selected source world folders are deleted after a successful import). ZIP uploads always copy and leave the ZIP on your PC unchanged. Click **Analyze**.
 3. **Analyze and select**: review warnings, set the **Quasar display name** and **Quasar identifier**, tick the worlds to import, pick the **Primary managed world** and choose which settings to transfer.
 4. **Confirm**: tick **I confirm source server is stopped** and click **Import**.
+
+Quasar reads the ZIP index from your browser and validates the server configuration before transferring world data. It copies only `Torch.cfg` when needed, the chosen instance's `SpaceEngineers-Dedicated.cfg` and the detected worlds. World checkpoints are validated before terrain and mod-storage files transfer. All detected worlds are read for review; you choose which to keep on the next step. Runtime binaries, plugins, logs, caches, unrelated worlds and each world's `Backup` folder stay on your PC. Quasar requests ZIP metadata and needed file ranges without storing a complete copy of the ZIP. Index and header reads can include a small amount of neighboring data.
+
+Transfers show progress and offer **Cancel upload**. Limits are 10 GiB transferred, including ZIP metadata, 50 GiB of required extracted files, 100,000 archive entries and 16 MiB per server configuration. The ZIP on your PC can be larger than 10 GiB. Quasar rejects unsafe paths, links and case-conflicting names before file contents transfer. Uploaded configs can only refer to files inside the extracted server folder. Temporary files are removed after success, cancellation or closing the importer; they remain available when you use **Back** to review the same upload.
 
 Quasar finds worlds as folders containing `Sandbox.sbc`: the world named in the config's `LoadWorld` and every folder under `Saves`. The world from `LoadWorld` is marked **active** and preselected as primary. `LoadWorld` paths written on Windows, including Wine `Z:` paths, are resolved on Linux; if the path does not exist, Quasar looks for a folder with the same name under `Saves`.
 
@@ -229,6 +234,9 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Services/ExistingServerImportService.cs`
+- `Quasar/Services/WorldSaveFiles.cs`
+- `Quasar/Services/BrowserZipFileStream.cs`
+- `Quasar/wwwroot/server-import-file.js`
 - `Quasar/Services/QuasarWorldTemplateCatalog.cs`
 - `Quasar/Services/WorldSandboxConfigEditor.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
