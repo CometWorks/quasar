@@ -30,7 +30,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         _cache.SetValue(null, _root);
     }
 
-    private BunitContext Context()
+    private BunitContext Context(ProfileLookupHandler? profiles = null)
     {
         var context = new BunitContext();
         context.Services.AddMudServices();
@@ -44,6 +44,8 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddSingleton<QuasarRoleMapper>();
         context.Services.AddSingleton<QuasarPermissionService>();
         context.Services.AddHttpClient();
+        context.Services.AddHttpClient<SteamProfileClient>()
+            .ConfigurePrimaryHttpMessageHandler(() => profiles ?? new ProfileLookupHandler());
         context.Services.AddSingleton<HostedPanelService>();
         return context;
     }
@@ -133,6 +135,130 @@ public sealed class AccessSetupDialogTests : IDisposable
         await first;
         await Assert.ThrowsAsync<InvalidOperationException>(() => second);
         Assert.Equal(SteamId, Assert.Single(rbac.GetConfig().SubjectRoleMappings).Subject);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ProfileUrlSetupSavesOnlyResolvedIdAndRechecksPermission(bool revokePermission)
+    {
+        var profiles = new ProfileLookupHandler();
+        await using var context = Context(profiles);
+        if (revokePermission)
+            profiles.OnRequest = () => context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
+        var provider = await OpenAsync(context);
+        provider.Find("input").Input("https://steamcommunity.com/id/rex00991/");
+        await provider.FindAll("button").Single(b => b.TextContent.Contains("Save administrator")).ClickAsync();
+
+        var mappings = context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig().SubjectRoleMappings;
+        if (revokePermission)
+        {
+            Assert.Empty(mappings);
+            Assert.Contains("Administrator permission is required", provider.Markup);
+        }
+        else
+            Assert.Equal(SteamId, Assert.Single(mappings).Subject);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task SecurityResolvesProfileUrlBeforeSavingAndRetainsFailedInput(bool lookupFails, bool revokePermission)
+    {
+        var profiles = new ProfileLookupHandler { Fail = lookupFails };
+        await using var context = Context(profiles);
+        if (revokePermission)
+            profiles.OnRequest = () => context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
+        context.ComponentFactories.AddStub<QuasarSdkAuthorization>();
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Quasar.Components.Pages.Security>();
+        var input = page.FindComponents<MudTextField<string>>()
+            .Single(field => field.Instance.Label == "SteamID64 or profile URL").Find("input");
+        input.Input("arbitrary data");
+        Assert.True(page.Find("button[aria-label='Add role mapping']").HasAttribute("disabled"));
+        input.Input("https://steamcommunity.com/id/rex00991/");
+        await page.Find("button[aria-label='Add role mapping']").ClickAsync();
+
+        var mappings = context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig().SubjectRoleMappings;
+        if (lookupFails || revokePermission)
+        {
+            Assert.Empty(mappings);
+            Assert.Equal("https://steamcommunity.com/id/rex00991/", input.GetAttribute("value"));
+            Assert.Contains(context.Services.GetRequiredService<ISnackbar>().ShownSnackbars,
+                snackbar => snackbar.Message.Contains(lookupFails ? "Could not resolve the Steam profile" : "Access denied"));
+        }
+        else
+        {
+            Assert.Equal(SteamId, Assert.Single(mappings).Subject);
+            Assert.Equal(string.Empty, input.GetAttribute("value"));
+        }
+    }
+
+    [Fact]
+    public async Task CatalogRejectsInvalidSteamSubjectsWithoutChangingSavedRoles()
+    {
+        await using var context = Context();
+        var rbac = context.Services.GetRequiredService<RbacConfigCatalog>();
+        await rbac.SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        await Assert.ThrowsAsync<ArgumentException>(() => rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Add(new() { Subject = "https://steamcommunity.com/id/rex00991/", Roles = [QuasarRoles.Viewer] });
+            return Task.CompletedTask;
+        }));
+        using var reloaded = new RbacConfigCatalog(NullLogger<RbacConfigCatalog>.Instance);
+        Assert.Equal(SteamId, Assert.Single(reloaded.GetConfig().SubjectRoleMappings).Subject);
+
+        await rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Add(new() { Provider = "Oidc", Subject = "external-subject", Roles = [QuasarRoles.Viewer] });
+            return Task.CompletedTask;
+        });
+        Assert.Equal([QuasarRoles.Viewer], rbac.GetSubjectRoles("Oidc", "external-subject"));
+    }
+
+    [Fact]
+    public async Task LegacyInvalidAdministratorCanBeReplacedWithoutLockout()
+    {
+        var legacy = new RbacConfig
+        {
+            SubjectRoleMappings = [new() { Subject = "https://steamcommunity.com/id/rex00991/", Roles = [QuasarRoles.Admin] }],
+        };
+        Directory.CreateDirectory(_root);
+        await File.WriteAllTextAsync(Path.Combine(_root, "rbac.json"), System.Text.Json.JsonSerializer.Serialize(legacy));
+        await using var context = Context();
+        var rbac = context.Services.GetRequiredService<RbacConfigCatalog>();
+        await rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Add(new() { Subject = SteamId, Roles = [QuasarRoles.Admin] });
+            return Task.CompletedTask;
+        });
+        await rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.RemoveAll(mapping => mapping.Subject != SteamId);
+            return Task.CompletedTask;
+        });
+        using var reloaded = new RbacConfigCatalog(NullLogger<RbacConfigCatalog>.Instance);
+        Assert.Equal(SteamId, Assert.Single(reloaded.GetConfig().SubjectRoleMappings).Subject);
+        Assert.Equal([QuasarRoles.Admin], reloaded.GetSubjectRoles(QuasarAuthSchemes.Steam, SteamId));
+    }
+
+    private sealed class ProfileLookupHandler : HttpMessageHandler
+    {
+        public bool Fail { get; init; }
+        public Action? OnRequest { get; set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Assert.Equal("https://steamcommunity.com/id/rex00991?xml=1", request.RequestUri?.AbsoluteUri);
+            OnRequest?.Invoke();
+            return Task.FromResult(new HttpResponseMessage(Fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
+            {
+                Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64></profile>"),
+            });
+        }
     }
 
     private async Task<IRenderedComponent<MudDialogProvider>> HostedDialogAsync(BunitContext context, EnrollmentHandler handler)

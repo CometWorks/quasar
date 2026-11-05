@@ -6,6 +6,7 @@
 @inject QuasarAuthSettingsService AuthSettingsService
 @inject DataHandlingConsentCatalog DataHandlingConsent
 @inject RbacConfigCatalog RbacConfigCatalog
+@inject SteamProfileClient SteamProfiles
 @inject QuasarPermissionService Permissions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -231,20 +232,27 @@
                     <MudChip T="string" Variant="Variant.Outlined">@_config.SubjectRoleMappings.Count mapping(s)</MudChip>
                 </div>
 
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    Adding or removing a role mapping refreshes this panel to apply permissions. You may briefly see a reconnect message after the change is saved.
+                </MudAlert>
+
                 <MudGrid>
                     <MudItem xs="12" md="3">
-                        <MudSelect T="string" @bind-Value="_newProvider" Label="Provider" Variant="Variant.Outlined">
+                        <MudSelect T="string" @bind-Value="_newProvider" Label="Provider" Variant="Variant.Outlined" Disabled="@_addingMapping">
                             <MudSelectItem T="string" Value="@QuasarAuthSchemes.Steam">Steam</MudSelectItem>
                             <MudSelectItem T="string" Value="@OidcProviderName">Oidc</MudSelectItem>
                         </MudSelect>
                     </MudItem>
                     <MudItem xs="12" md="5">
                         <MudTextField @bind-Value="_newSubject"
-                                      Label="@(_newProvider == QuasarAuthSchemes.Steam ? "SteamID" : "Subject")"
+                                      Label="@(_newProvider == QuasarAuthSchemes.Steam ? "SteamID64 or profile URL" : "Subject")"
+                                      HelperText="@(_newProvider == QuasarAuthSchemes.Steam ? "Enter a 17-digit SteamID64 or Steam Community profile URL. URLs resolve automatically when added." : null)"
+                                      Immediate="true" Disabled="@_addingMapping"
+                                      Error="@HasInvalidSteamSubject" ErrorText="Enter a 17-digit SteamID64 or a Steam Community profile URL."
                                       Variant="Variant.Outlined" />
                     </MudItem>
                     <MudItem xs="12" md="3">
-                        <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined">
+                        <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined" Disabled="@_addingMapping">
                             @foreach (var role in QuasarRoles.All.OrderBy(role => role, StringComparer.OrdinalIgnoreCase))
                             {
                                 <MudSelectItem T="string" Value="@role">@role</MudSelectItem>
@@ -254,6 +262,7 @@
                     <MudItem xs="12" md="1" Class="d-flex align-center">
                         <MudIconButton Icon="@Icons.Material.Filled.Add"
                                        Color="Color.Primary"
+                                       aria-label="Add role mapping"
                                        Disabled="@(!CanAddMapping)"
                                        OnClick="AddMappingAsync" />
                     </MudItem>
@@ -309,6 +318,7 @@
     private string _newProvider = QuasarAuthSchemes.Steam;
     private string _newSubject = string.Empty;
     private string _newRole = QuasarRoles.Viewer;
+    private bool _addingMapping;
 
     private bool? DataHandlingConsentChoice
     {
@@ -339,8 +349,12 @@
             : string.Join(", ", _trustedNetworkSettings.TrustedProxies);
 
     private bool CanAddMapping =>
+        !_addingMapping && !HasInvalidSteamSubject &&
         !string.IsNullOrWhiteSpace(_newSubject) &&
         QuasarRoles.All.Contains(_newRole);
+
+    private bool HasInvalidSteamSubject => _newProvider == QuasarAuthSchemes.Steam &&
+        !string.IsNullOrWhiteSpace(_newSubject) && !SteamProfileClient.IsSupportedInput(_newSubject);
 
     protected override void OnInitialized()
     {
@@ -452,6 +466,9 @@
 
     private async Task AddMappingAsync()
     {
+        if (!CanAddMapping || !await EnsureAuthorizedAsync())
+            return;
+
         var mapping = new SubjectRoleMapping
         {
             Provider = _newProvider,
@@ -459,16 +476,30 @@
             Roles = [_newRole],
         };
 
-        await SaveAsync("Added RBAC mapping.", config => config.SubjectRoleMappings.Add(mapping));
-        _newSubject = string.Empty;
-        _newRole = QuasarRoles.Viewer;
+        _addingMapping = true;
+        try
+        {
+            if (mapping.Provider == QuasarAuthSchemes.Steam)
+                mapping.Subject = await SteamProfiles.ResolveSteamIdAsync(mapping.Subject);
+
+            if (await SaveAsync("Added RBAC mapping.", config => config.SubjectRoleMappings.Add(mapping)))
+            {
+                _newSubject = string.Empty;
+                _newRole = QuasarRoles.Viewer;
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally { _addingMapping = false; }
     }
 
     private async Task RemoveMappingAsync(SubjectRoleMapping mapping)
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Remove RBAC mapping?",
-            $"Mapping for '{mapping.Subject}' will be removed. The subject loses any roles granted by it.",
+            $"Mapping for '{mapping.Subject}' will be removed. The subject loses any roles granted by it. The panel will refresh to apply permissions; you may briefly see a reconnect message after the change is saved.",
             yesText: "Remove",
             cancelText: "Cancel");
 
@@ -480,12 +511,12 @@
             && string.Equals(candidate.Subject, mapping.Subject, StringComparison.OrdinalIgnoreCase)));
     }
 
-    private async Task SaveAsync(string message, Action<RbacConfig> change)
+    private async Task<bool> SaveAsync(string message, Action<RbacConfig> change)
     {
         if (!await EnsureAuthorizedAsync())
         {
             Reload();
-            return;
+            return false;
         }
 
         try
@@ -498,11 +529,13 @@
             });
             _config = RbacConfigCatalog.GetConfig();
             Snackbar.Add(message, Severity.Success);
+            return true;
         }
         catch (Exception exception)
         {
             Reload();
             Snackbar.Add($"Failed saving RBAC settings: {exception.Message}", Severity.Error);
+            return false;
         }
     }
 

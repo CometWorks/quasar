@@ -1006,6 +1006,23 @@ Names are stored in the session cookie; sign out and back in to refresh a name
 or pick up this behavior after upgrading. Permissions and audit records continue
 to use SteamID64.
 
+On **Security → Runtime Subject Role Mappings** and in first-administrator setup,
+enter either a 17-digit SteamID64 or a Steam Community profile URL. Numeric
+`/profiles/<SteamID64>` URLs are read locally. Vanity URLs such as
+`https://steamcommunity.com/id/rex00991/` are looked up automatically when added
+or saved, using Steam Community without an API key. Quasar stores only the
+resolved SteamID64. Invalid input and failed lookups show an error and do not
+save a mapping; retry or enter the numeric ID if Steam is unavailable. Runtime
+RBAC saves reject new Steam subjects that are not 17-digit IDs. Existing invalid
+mappings remain editable so you can add a corrected mapping before removing
+them. OIDC subjects are unchanged. Hand-edited `rbac.json` and
+`QUASAR_ADMIN_STEAM_ID` still require
+numeric IDs.
+
+The role-mapping editor and first-administrator setup explain before saving that
+permission changes refresh the panel. A brief reconnect message after saving is
+expected, including with WebRTC. The mapping is saved before the refresh.
+
 Steam users receive roles from the runtime `rbac.json` catalog. Quasar supports
 three roles: `viewer`, `editor`, and `admin`. Viewers can open every built-in page
 in the **Control plane** navigation: Dashboard, Configs, Worlds, Plugins, Players,
