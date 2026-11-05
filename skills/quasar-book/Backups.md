@@ -159,7 +159,14 @@ Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster 
 - **"QUASAR_BACKUP_DIR is set; remove it before editing the backup folder from the web UI."** Remove the environment variable and restart Quasar, or change the variable instead.
 - **Steam Workshop API key missing after restoring on another machine.** Data Protection keys are not in backups. Enter the key again.
 
+On the RTC development branch, backup download buttons use the core browser SDK.
+Nebula-hosted sessions stream through the peer; local downloads retain HTTP.
+The operation keeps its Admin default, named-file checks and ranges. Direct
+failure is reported without silently relaying the archive over HTTP.
+
 ## Sources
+
+- `Quasar/Services/Plugins/QuasarCoreOperations.cs`
 - `Docs/StateMachines/BackupJobs.md`
 - `Docs/Configuration.md`
 - `Docs/Docker.md`

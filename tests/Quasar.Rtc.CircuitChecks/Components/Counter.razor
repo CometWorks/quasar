@@ -1,0 +1,21 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Authorization
+@using Microsoft.JSInterop
+@using System.Security.Cryptography
+@inject IJSRuntime JS
+@inject AuthenticationStateProvider Authentication
+<div id="identity">@identity</div>
+<AuthorizeView Roles="admin"><Authorized><div id="admin-permission">admin</div></Authorized></AuthorizeView>
+<button id="increment" @onclick="Increment">Increment</button>
+<div id="count">@count</div><div id="interop">@interop</div>
+<button id="large" @onclick="() => large = new string('x', 200000)">Large render</button><div id="render">@large</div>
+<InputFile id="upload" OnChange="Upload" /><div id="hash">@hash</div>
+@code {
+    private int count, interop;
+    private string identity = "", large = "", hash = "";
+    protected override async Task OnInitializedAsync() => identity = (await Authentication.GetAuthenticationStateAsync()).User.Identity?.Name ?? "anonymous";
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (firstRender) await JS.InvokeVoidAsync("rtcProofReady"); }
+    private async Task Increment() { count++; interop = await JS.InvokeAsync<int>("rtcProofDouble", count); }
+    private async Task Upload(InputFileChangeEventArgs args) { await using var stream = args.File.OpenReadStream(1024 * 1024); hash = Convert.ToHexString(await SHA256.HashDataAsync(stream)); }
+}

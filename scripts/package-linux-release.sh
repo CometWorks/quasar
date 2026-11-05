@@ -164,6 +164,7 @@ for component in Quasar.Updater Quasar.Host; do
         -o "$PUBLISH_DIR/$component_dir" -v minimal
 done
 cp -a "$REPO_DIR/Quasar/wwwroot/." "$PUBLISH_DIR/wwwroot/"
+python3 "$SCRIPT_DIR/build-peer.py" --runtime "$RUNTIME" --output "$PUBLISH_DIR/Peer/quasar-peer"
 
 python3 "$SCRIPT_DIR/package-symbols.py" --repo "$REPO_DIR" --publish "$PUBLISH_DIR" \
     --output "$ARTIFACT_DIR/$SYMBOLS_ARCHIVE_NAME" --runtime "$RUNTIME" \
@@ -173,6 +174,13 @@ find "$PUBLISH_DIR" -type f -iname '*.pdb' -delete
 
 required_application_files=(
     "Quasar"
+    "Peer/quasar-peer"
+    "Peer/quasar-peer.json"
+    "Peer/NOTICES.txt"
+    "wwwroot/_quasar/sdk/v1/rtc.js"
+    "wwwroot/_quasar/sdk/v1/boot.js"
+    "wwwroot/_quasar/sdk/v1/circuit.js"
+    "wwwroot/_quasar/sdk/v1/download-worker.js"
     "Host/Quasar.Host"
     "Updater/Quasar.Updater"
     "wwwroot"
@@ -200,7 +208,7 @@ build_packaged_readme "$REPO_DIR/README.md" "$SCRIPT_DIR/readme-install-linux.md
 chmod +x "$PACKAGE_DIR/Quasar" "$PACKAGE_DIR/install.sh" "$PACKAGE_DIR/uninstall.sh" "$PACKAGE_DIR/install-gui.sh" "$PACKAGE_DIR/Install.desktop"
 # Public release identity differs from the NuGet-compatible build version.
 RELEASE_VERSION="$("$PUBLISH_DIR/Quasar" --version)"
-printf '{"version":"%s","updaterProtocol":1}\n' "$RELEASE_VERSION" > "$PACKAGE_DIR/release.json"
+printf '{"version":"%s","updaterProtocol":1,"browserTransport":1}\n' "$RELEASE_VERSION" > "$PACKAGE_DIR/release.json"
 (cd "$PACKAGE_DIR"; find . -type f ! -path './Updater/*' ! -name appsettings.json ! -name service-installation.json ! -name launcher-files.txt -printf '%P\n' | LC_ALL=C sort > launcher-files.txt)
 tar -C "$ARTIFACT_DIR" -czf "$ARTIFACT_DIR/$PACKAGE_ARCHIVE_NAME" "$PACKAGE_ROOT_NAME"
 

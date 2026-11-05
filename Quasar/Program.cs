@@ -210,6 +210,7 @@ public class Program
             builder.Services.AddScoped<QuasarOperationService>();
             builder.Services.AddSingleton<QuasarTransferRegistry>();
             builder.Services.AddSingleton<QuasarBrowserSessions>();
+            builder.Services.AddQuasarRtc(builder.Configuration);
             builder.Services.AddScoped<QuasarHttpOperations>();
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarHttpOperations>(services => services.GetRequiredService<QuasarHttpOperations>());
             builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services =>
@@ -442,6 +443,7 @@ public class Program
 
             app.MapWebServiceProbes(authOptions);
             app.MapQuasarSdk();
+            app.MapQuasarRtc();
             app.MapClusterApi(authOptions);
             app.MapClusterHostEnrollmentApi();
 
@@ -456,28 +458,6 @@ public class Program
             });
             if (authOptions.Enabled)
                 pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
-
-            // Generates a fresh configuration backup and streams it as a download.
-            var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>
-            {
-                var archive = backup.CreateBackup(DateTimeOffset.Now);
-                return Results.File(archive.Content, "application/zip", archive.FileName);
-            });
-
-            // Downloads an existing backup ZIP from the configured backup directory by file name.
-            var backupDownloadByName = app.MapGet("/api/backup/download/{name}", (string name, QuasarBackupService backup) =>
-            {
-                var path = backup.ResolveBackupPath(name);
-                return path is null
-                    ? Results.NotFound()
-                    : Results.File(path, "application/zip", name);
-            });
-
-            if (authOptions.Enabled)
-            {
-                backupDownload.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
-                backupDownloadByName.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
-            }
 
             if (!webServiceOptions.Headless)
                 MapAuthenticationEndpoints(app, authOptions);

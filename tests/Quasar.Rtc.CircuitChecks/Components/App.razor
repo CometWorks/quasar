@@ -1,0 +1,16 @@
+@page "/"
+@using Microsoft.AspNetCore.Components.Web
+@using static Microsoft.AspNetCore.Components.Web.RenderMode
+@inject NavigationManager Navigation
+<!doctype html>
+<html><head><base href="@Navigation.BaseUri" /><title>Isolated real Blazor RTC</title></head>
+<body>
+<Counter @rendermode="InteractiveServer" />
+<div id="components-reconnect-modal" class="components-reconnect-hide">Reconnecting</div>
+<script>window.rtcProofDouble = value => value * 2; window.rtcProofReady = () => document.body.dataset.interactive = "true";</script>
+<script src="_framework/blazor.web.js" autostart="false"></script>
+<script id="quasar-connection" type="application/json">@((MarkupString)("{\"hosted\":" + (RequestContext?.Request.PathBase.HasValue == true ? "true" : "false") + "}"))</script>
+<script type="module" src="_quasar/sdk/v1/boot.js"></script>
+</body></html>
+
+@code { [CascadingParameter] private Microsoft.AspNetCore.Http.HttpContext? RequestContext { get; set; } }

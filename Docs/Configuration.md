@@ -2352,6 +2352,12 @@ push delivery. Automatic application does not require notifications to be enable
 
 ## Hosted public panel
 
+On the RTC development branch, Nebula-hosted sessions automatically use WebRTC
+for SDK operations, streaming and downloads. There is no separate user toggle.
+Local HTTP remains independent. Direct failure is reported without silently
+relaying bulk data. Packaging and installed acceptance are still required; see
+[direct transport status and security](QuasarWebRtc.md).
+
 Use **Security → Manage access setup** to choose self-deployment or Nebula hosted
 access. See [Hosted panel](HostedPanel.md) for enrollment, Steam requirements,
 private state, connector lifetime and current launch gates. Stripe checkout is implemented in Nebula and remains disabled pending provider

@@ -49,6 +49,20 @@ export function createClient({ baseUrl }) {
     const state = panelState(base);
     const active = new Set();
     let disposed = false;
+    let direct, directConnection, directModule, directRequired = false;
+    let connectionLifetime = new AbortController();
+    async function transport(tokens, entry) {
+        if (!tokens.directEnabled) return null;
+        directRequired = true;
+        if (directConnection?.closed) { direct = null; directConnection = null; }
+        if (!direct) {
+            directModule ||= import("./rtc.js");
+            const lifetime = connectionLifetime.signal;
+            direct = directModule.then(module => module.connect(root, tokens, lifetime)).then(connection => directConnection = connection);
+            direct.catch(() => { direct = null; });
+        }
+        return untilAborted(direct, entry.controller.signal);
+    }
 
     function begin(signal) {
         if (disposed) throw new Error("The Quasar SDK client is disposed.");
@@ -104,36 +118,47 @@ export function createClient({ baseUrl }) {
             const finish = entry.finish;
             entry.finish = () => { release(); finish(); };
             const tokens = await session(entry);
-            let response;
+            const native = await transport(tokens, entry);
+            let response, result;
             // Only explicit capacity rejection may retry reservation. No feature handler has run yet.
             for (let attempt = 0; ; attempt++) {
-                try { response = await post(`resources/${plugin}/${operation}`, body, entry, tokens); break; }
+                try {
+                    if (native) result = await native.reserve(kind, plugin, operation, JSON.parse(body), entry.controller.signal);
+                    else response = await post(`resources/${plugin}/${operation}`, body, entry, tokens);
+                    break;
+                }
                 catch (error) {
                     if (error.status !== 429 || attempt >= 40) throw error;
                     await untilAborted(new Promise(resolve => setTimeout(resolve, 250)), entry.controller.signal);
                 }
             }
-            const result = await response.json();
-            const url = new URL(result.url, base);
-            if (result.kind !== kind || !/^[a-f0-9]{32}$/.test(result.id) || url.href !== new URL(`resources/${result.id}`, root).href)
+            result ||= await response.json();
+            const id = native ? result.resource : result.id;
+            const url = new URL(native ? `resources/${id}` : result.url, native ? root : base);
+            if (result.kind !== kind || !/^[a-f0-9]{32}$/.test(id) || url.href !== new URL(`resources/${id}`, root).href)
                 throw new QuasarSdkError(426, "Incompatible SDK resource response.");
             let released = false;
             entry.dispose = async () => {
                 if (released) return;
                 released = true;
                 entry.controller.abort(); entry.finish();
+                if (native) { await native.release(id); return; }
                 await fetch(url, { method: "DELETE", credentials: "same-origin", redirect: "error", cache: "no-store", keepalive: true,
                     headers: { [tokens.headerName]: tokens.requestToken } }).catch(() => {});
             };
             entry.controller.signal.addEventListener("abort", () => { void entry.dispose(); }, { once: true });
             entry.controller.signal.throwIfAborted();
-            return { entry, url, tokens };
+            return { entry, url, tokens, native, id };
         } catch (error) { release?.(); entry.finish(); throw error; }
     }
     async function readResource(kind, plugin, operation, payload, { signal, range } = {}) {
         const handle = await resource(kind, plugin, operation, payload, signal);
         try {
-            const response = await checked(await fetch(handle.url, { credentials: "same-origin", redirect: "error", cache: "no-store",
+            const transferred = handle.native ? await handle.native.read(handle.id, range, handle.entry.controller.signal) : null;
+            const response = transferred ? new Response(transferred.body, { status: transferred.status, headers: {
+                "Content-Type": transferred.contentType, ...(transferred.length != null ? { "Content-Length": String(transferred.length) } : {}),
+                ...(transferred.contentRange ? { "Content-Range": transferred.contentRange } : {}),
+            } }) : await checked(await fetch(handle.url, { credentials: "same-origin", redirect: "error", cache: "no-store",
                 signal: handle.entry.controller.signal, headers: range ? { Range: range } : {} }));
             const reader = response.body.getReader();
             const body = new ReadableStream({
@@ -146,7 +171,7 @@ export function createClient({ baseUrl }) {
                 },
                 async cancel(reason) { await reader.cancel(reason).catch(() => {}); await handle.entry.dispose(); },
             }, { highWaterMark: 0 });
-            return { body, contentType: response.headers.get("Content-Type"), length: response.headers.has("Content-Length") ? Number(response.headers.get("Content-Length")) : null,
+            return { body, native: handle.native, fileName: transferred?.fileName, contentType: response.headers.get("Content-Type"), length: response.headers.has("Content-Length") ? Number(response.headers.get("Content-Length")) : null,
                 contentRange: response.headers.get("Content-Range"), status: response.status,
                 blob: () => new Response(body, { headers: response.headers }).blob(),
                 async dispose() { await handle.entry.dispose(); await reader.cancel().catch(() => {}); } };
@@ -157,15 +182,21 @@ export function createClient({ baseUrl }) {
     }
     function pagehide(event) {
         // A restored back/forward-cache page must remain usable, without replaying its old work.
-        if (event.persisted) cancelOwned();
+        if (event.persisted) { cancelOwned(); connectionLifetime.abort(); connectionLifetime = new AbortController(); direct = null; directConnection = null; }
         else client.dispose();
     }
     const client = {
         version: 1,
+        get transport() { return Object.freeze(directConnection ? { ...directConnection.stats } : { path: directRequired ? "unavailable" : "http", receivedBytes: 0, sentBytes: 0, maximumQueuedBytes: 0 }); },
         async request(plugin, operation, payload = {}, { signal } = {}) {
             const body = input(plugin, operation, payload);
             const entry = begin(signal);
-            try { return await (await post(`operations/${plugin}/${operation}`, body, entry, await session(entry))).json(); }
+            try {
+                const tokens = await session(entry);
+                const native = await transport(tokens, entry);
+                return native ? await native.request(plugin, operation, JSON.parse(body), entry.controller.signal)
+                    : await (await post(`operations/${plugin}/${operation}`, body, entry, tokens)).json();
+            }
             finally { entry.finish(); }
         },
         openRead(plugin, operation, payload = {}, options = {}) { return readResource("read", plugin, operation, payload, options); },
@@ -177,6 +208,7 @@ export function createClient({ baseUrl }) {
                     if (used) throw new Error("SDK uploads are single-use; never replay an unknown write outcome.");
                     used = true;
                     try {
+                        if (handle.native) return await handle.native.upload(handle.id, body, handle.entry.controller.signal);
                         const options = { method: "PUT", credentials: "same-origin", redirect: "error", cache: "no-store", signal: handle.entry.controller.signal,
                             headers: { [handle.tokens.headerName]: handle.tokens.requestToken }, body };
                         if (body instanceof ReadableStream) options.duplex = "half";
@@ -208,6 +240,14 @@ export function createClient({ baseUrl }) {
         },
         async download(plugin, operation, payload = {}, { signal, fileName = "" } = {}) {
             const handle = await resource("read", plugin, operation, payload, signal);
+            if (handle.native) {
+                try {
+                    const stream = await handle.native.read(handle.id, undefined, handle.entry.controller.signal);
+                    const module = await directModule;
+                    await module.download(root, stream, fileName, handle.entry.controller.signal);
+                } finally { await handle.entry.dispose(); }
+                return;
+            }
             const anchor = document.createElement("a");
             anchor.href = handle.url.href; anchor.download = fileName; anchor.hidden = true;
             document.body.append(anchor); anchor.click(); anchor.remove();
@@ -221,7 +261,7 @@ export function createClient({ baseUrl }) {
             if (disposed) return;
             disposed = true;
             globalThis.removeEventListener?.("pagehide", pagehide);
-            cancelOwned();
+            cancelOwned(); connectionLifetime.abort(); direct = null;
         },
     };
     globalThis.addEventListener?.("pagehide", pagehide);

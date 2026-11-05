@@ -30,11 +30,15 @@ public static class QuasarSdkEndpoints
             catch (AntiforgeryValidationException) { return Results.Problem(statusCode: 400, detail: "Invalid antiforgery token."); }
             catch (QuasarOperationException error) { return Results.Problem(statusCode: error.StatusCode, detail: error.Message); }
         });
+        sdk.MapGet("/download/{ticket}", () => Results.Problem(statusCode: 409, detail: "Direct download worker is unavailable."));
         sdk.MapGet("/session", async (HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions) =>
         {
             await sessions.BindHttpSessionAsync(http);
             var tokens = antiforgery.GetAndStoreTokens(http);
-            return Results.Json(new { version = 1, requestToken = tokens.RequestToken, headerName = tokens.HeaderName });
+            // Local HTTP already avoids Nebula and remains independent of peer support.
+            var direct = HostedPanelRequest.IsHosted(http);
+            var stun = direct ? http.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<QuasarRtcOptions>>().Value.ValidatedStunUrls() : [];
+            return Results.Json(new { version = 1, requestToken = tokens.RequestToken, headerName = tokens.HeaderName, directEnabled = direct, iceServers = stun.Length == 0 ? Array.Empty<object>() : [new { urls = stun }] });
         });
         sdk.MapPost("/operations/{pluginId}/{operationId}", async (string pluginId, string operationId,
             HttpContext http, IQuasarOperationDispatcher dispatcher, IAntiforgery antiforgery) =>

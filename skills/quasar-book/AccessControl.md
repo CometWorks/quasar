@@ -279,9 +279,28 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 
 ## Hosted public access
 
+The WebRTC development adapter uses the existing authenticated browser
+session and current `CanView` policy. It does not give a native peer a Steam role
+or machine API access. Hosted peers additionally need a renewable Nebula lease;
+logout, permission loss or lease expiry closes access. Nebula-hosted SDK sessions select it automatically, with no separate user toggle.
+Initial direct failure can use Nebula's bounded TURN fallback before any
+application work runs. Established writes are never replayed, and there is no
+automatic bulk HTTP fallback. Relay credentials are temporary and carry no user
+or machine role; relay exhaustion remains visible. The RTC branch
+also carries Blazor circuits using the same stored session and renews current
+roles on reconnect after RBAC changes. Installed and native Windows acceptance
+remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
+
 **Security → Manage access setup** lets an admin enroll the installation with Nebula, which publishes it at `https://dash.se-servers.net/<panel-name>/`. Requests through that address always need a Steam sign-in with a role from `rbac.json`. They never get the trusted network bypass, and Quasar refuses them with 403 while authentication or Steam sign-in is off. Nebula platform rights, including free hosting, do not create a Quasar role. All Steam IDs mapped to `admin` can manage the panel in Nebula. See [Hosted access](HostedPanel.md).
 
 ## Sources
+
+- `Docs/QuasarWebRtc.md`
+- `Docs/QuasarWebRtcFramework.md`
+- `Quasar/Services/Plugins/QuasarRtcCircuits.cs`
+- `Quasar/Services/Plugins/QuasarRtcEndpoints.cs`
+- `Quasar/Services/Plugins/QuasarRtcSessions.cs`
+- `Quasar/Services/Plugins/QuasarPeerProcess.cs`
 
 - `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Docs/Configuration.md`
