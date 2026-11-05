@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/pion/logging"
 	"github.com/pion/webrtc/v4"
 )
 
@@ -400,6 +401,11 @@ func run() error {
 	}
 	defer listener.Close()
 	settings := webrtc.SettingEngine{}
+	// Candidate addresses are not diagnostics for the public application. Pion
+	// logs must also never fill the private stdout pipe used for readiness.
+	logs := logging.NewDefaultLoggerFactory()
+	logs.Writer = io.Discard
+	settings.LoggerFactory = logs
 	settings.SetIncludeLoopbackCandidate(true)
 	settings.SetSCTPMaxMessageSize(maximumMessage)
 	settings.SetSCTPMaxReceiveBufferSize(256 * 1024)

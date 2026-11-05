@@ -35,8 +35,9 @@ authorization on every operation and its active resources.
 
 The private child HTTP control listener binds only `127.0.0.1` on an ephemeral
 port and requires a fresh worker-only token. Its fixed routes accept peer setup,
-status, pulse and teardown; it is not an application URL proxy. The child inherits
-no Quasar configuration environment or browser cookies. Installation credentials,
+status, pulse and teardown; it is not an application URL proxy. Pion candidate logging is suppressed, so it cannot disclose addresses or fill
+the readiness pipe. The child inherits no Quasar configuration environment or
+browser cookies. Installation credentials,
 portal cookies and data-protection keys are not sent to it or to JavaScript.
 Closing the owner's stdin retires the child after normal shutdown or owner death.
 A missing worker pulse closes a peer after five seconds, with a half-second reap
@@ -72,7 +73,9 @@ Core session expiry/logout and a shorter verified ticket rebinding revoke the
 stored session token. Closing a view cancels its peer, leaving other views'
 binding intact. Current panel permission and local installation state are checked
 at one-second intervals, including while idle. Each SDK operation/resource must
-also enforce its own current policies. A committed mutation is not undone by a
+also enforce its own current policies. A transient ICE disconnected state has a five-second grace period on the
+same reliable association. Failed/closed remains terminal; no new attempt or
+feature replay runs during that grace. A committed mutation is not undone by a
 disconnect; its outcome may be unknown and must not be blindly replayed.
 
 Local requests use the existing core authentication and trusted-network rules
