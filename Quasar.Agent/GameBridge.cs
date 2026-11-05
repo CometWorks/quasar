@@ -470,12 +470,8 @@ namespace Quasar.Agent
         {
             foreach (var loaded in EnumeratePlugins())
             {
-                var handler = loaded.Plugin as IQuasarCompanionRequestHandler;
-                if (handler == null)
-                    continue;
-
-                var handlerPluginId = FirstNonEmpty(handler.PluginId, loaded.PluginId);
-                if (string.Equals(handlerPluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+                var handler = CompanionHandlers.Find(loaded.Plugin, loaded.PluginId, pluginId);
+                if (handler != null)
                     return handler;
             }
 

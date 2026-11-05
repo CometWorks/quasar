@@ -185,6 +185,7 @@ UI plugins get live data from their companions through `IQuasarCompanionChannel`
 - `GetConnectedServers()` lists connected servers with a `ServerId`, the current `AgentId` and a display name. For standalone servers the `ServerId` is the server's unique name, which stays the same across restarts; for cluster nodes it identifies one node incarnation. Cluster entries also include an explicit `ClusterId`, configured `ClusterDisplayName` and stable `ClusterSlot`. Entity Viewer uses these fields to show one server per cluster, combine retained node histories and apply recording settings to current and future nodes. Node commands still use exact agent IDs. Install matching Quasar and Entity Viewer versions for this grouping.
 - `SendAsync(serverId, companionPluginId, operation, request, ...)` sends a JSON request to the companion and returns its JSON response. Pass a `ServerId` from `GetConnectedServers()` or a live `AgentId`. Standalone servers also accept their server key or unique name. Unknown, disconnected or ambiguous ids fail; Quasar never picks a different server.
 - On the server, the agent hands the request to the loaded Magnetar plugin whose `IQuasarCompanionRequestHandler.PluginId` matches. Requests time out after 30 seconds.
+- A hub plugin, which Magnetar compiles without Magnetar.Protocol, can't implement that interface. It exposes two public members instead: `string QuasarCompanionPluginId { get; }` and `Task<string> HandleQuasarCompanionRequestAsync(string operation, string payloadJson, CancellationToken cancellationToken)`, which returns the response JSON. An exception it throws, or a null result, comes back as a failed response. The interface wins when a plugin has both.
 
 Errors a plugin author or admin may see:
 
@@ -286,6 +287,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar.Plugin.Abstractions/Extensions/QuasarPatchMode.cs`
 - `Quasar.Plugin.Abstractions/Security/QuasarPolicyNames.cs`
 - `Magnetar.Protocol/Bridge/IQuasarCompanionRequestHandler.cs`
+- `Quasar.Agent/CompanionHandlers.cs`
 - `Magnetar.Protocol/Model/CompanionPluginRequest.cs`
 - `Magnetar.Protocol/Model/CompanionPluginResponse.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
