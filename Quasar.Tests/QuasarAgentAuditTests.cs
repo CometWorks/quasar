@@ -1,10 +1,14 @@
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
+using Bunit;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using MudBlazor.Services;
+using Quasar.Components.Pages;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Plugin.Abstractions.Security;
 using Quasar.Services.Audit;
@@ -782,6 +786,43 @@ public sealed class QuasarAgentAuditTests : IDisposable
     }
 
     [Fact]
+    public async Task AuditPageShowsAReversalAsTheUndoOfItsChange()
+    {
+        var admin = Person(QuasarRoles.Admin);
+        var audit = _services.GetRequiredService<QuasarAuditLog>();
+        await CallAsync(Person(QuasarRoles.Editor), "servers.set", new SetRequest(5));
+        var change = (await QueryAsync()).Single();
+        Assert.Equal(
+            QuasarUndoStatus.Done,
+            (await audit.UndoAsync(admin, change.Id, false, default)).Status
+        );
+        await CallAsync(Person(QuasarRoles.Editor), "servers.set", new SetRequest(6));
+
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton(audit);
+        context.Services.AddSingleton<AuthenticationStateProvider>(new SignedIn(admin));
+        var rows = context.Render<Audit>().FindAll("tbody > tr");
+
+        // Newest first: the later change, the reversal, the undone change.
+        Assert.Equal(3, rows.Count);
+        Assert.Contains(
+            "Undo",
+            rows[0].QuerySelectorAll("button").Select(b => b.TextContent.Trim())
+        );
+        Assert.Contains(
+            "Undo of " + change.Time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
+            rows[1].TextContent
+        );
+        Assert.Contains("Undone", rows[2].TextContent);
+        Assert.DoesNotContain(
+            "Undo",
+            rows[2].QuerySelectorAll("button").Select(b => b.TextContent.Trim())
+        );
+    }
+
+    [Fact]
     public async Task UndoRestoresBlobsUntilTheyExpire()
     {
         var admin = Person(QuasarRoles.Admin);
@@ -976,6 +1017,12 @@ public sealed class QuasarAgentAuditTests : IDisposable
         _services.GetRequiredService<QuasarAuditLog>().QueryAsync(filter ?? new(), default);
 
     private sealed record SetRequest(int Value, bool Skip = false);
+
+    private sealed class SignedIn(ClaimsPrincipal user) : AuthenticationStateProvider
+    {
+        public override Task<AuthenticationState> GetAuthenticationStateAsync() =>
+            Task.FromResult(new AuthenticationState(user));
+    }
 
     private sealed class ValueUndo(QuasarAgentAuditTests owner) : IQuasarUndoHandler
     {
