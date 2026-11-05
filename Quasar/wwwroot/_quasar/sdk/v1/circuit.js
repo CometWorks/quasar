@@ -4,9 +4,19 @@ import { QuasarSdkError } from "./client.js";
 // SignalR's public ITransport contract. The standard framework retains its
 // negotiation, hub protocol, rendering, JS interop and circuit reconnect logic.
 export function circuitTransport(root, tokens) {
-    let lifetime, peer, pipe, reader, receiving, closing = false;
+    let lifetime, peer, pipe, reader, receiving, preparing, closing = false;
     const transport = {
         onreceive: null, onclose: null,
+        async prepare() {
+            if (peer && !peer.closed) return peer;
+            if (!preparing) {
+                closing = false; lifetime = new AbortController();
+                const pending = connect(root, tokens, lifetime.signal).then(value => peer = value);
+                preparing = pending;
+                pending.finally(() => { if (preparing === pending) preparing = null; }).catch(() => {});
+            }
+            return preparing;
+        },
         async connect(url, transferFormat) {
             if (transferFormat !== 2) throw new QuasarSdkError(426, "Blazor requires binary circuit transport.");
             const address = new URL(url);
@@ -14,9 +24,9 @@ export function circuitTransport(root, tokens) {
             const ticket = address.searchParams.get("id");
             if (address.origin !== expected.origin || address.pathname !== expected.pathname || !/^[a-zA-Z0-9_-]{16,128}$/.test(ticket || ""))
                 throw new QuasarSdkError(400, "Invalid framework circuit negotiation.");
-            closing = false; lifetime = new AbortController();
+            closing = false;
             try {
-                peer = await connect(root, tokens, lifetime.signal);
+                peer = await transport.prepare();
                 pipe = await peer.circuit(ticket);
                 reader = pipe.body.getReader();
                 const chunks = [], boundaries = [];
@@ -51,7 +61,7 @@ export function circuitTransport(root, tokens) {
             } catch (error) { lifetime.abort(error); throw error; }
         },
         send(data) {
-            if (!pipe || closing) return Promise.reject(new QuasarSdkError(503, "The direct circuit is closed."));
+            if (!pipe || closing) return Promise.reject(new QuasarSdkError(503, "The peer circuit is closed."));
             return pipe.send(typeof data === "string" ? new TextEncoder().encode(data) : new Uint8Array(data));
         },
         async stop() {
@@ -73,10 +83,42 @@ export async function startBlazor({ hosted, baseUrl = document.baseURI } = {}) {
     const response = await fetch(new URL("session", root), { credentials: "same-origin", redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30000) });
     if (!response.ok) throw new QuasarSdkError(response.status, "The authenticated hosted session is unavailable.");
     const tokens = await response.json();
-    if (!tokens.directEnabled) throw new QuasarSdkError(426, "This hosted session requires direct circuit support.");
+    if (!tokens.directEnabled) throw new QuasarSdkError(426, "This hosted session requires peer circuit support.");
+    const transport = circuitTransport(root, tokens);
     await Blazor.start({ circuit: { configureSignalR(builder) {
         builder.withUrl(new URL("circuit", root).href, {
-            transport: circuitTransport(root, tokens), headers: { [tokens.headerName]: tokens.requestToken }, withCredentials: true,
+            transport, httpClient: negotiationHttpClient(root, transport), headers: { [tokens.headerName]: tokens.requestToken }, withCredentials: true,
         });
     } } });
+}
+
+// Complete ICE before allocating the framework's short-lived negotiation token.
+// This applies to initial startup and framework reconnects without replacing its
+// negotiation protocol or depending on an internal HttpConnectionManager timeout.
+function negotiationHttpClient(root, transport) {
+    const client = {
+        getCookieString() { return ""; },
+        get(url, options) { return client.send({ ...options, url, method: "GET" }); },
+        post(url, options) { return client.send({ ...options, url, method: "POST" }); },
+        delete(url, options) { return client.send({ ...options, url, method: "DELETE" }); },
+        async send(request) {
+            const url = new URL(request.url), expected = new URL("circuit/negotiate", root);
+            if (request.method !== "POST" || url.origin !== expected.origin || url.pathname !== expected.pathname)
+                throw new QuasarSdkError(400, "Unsupported framework transport request.");
+            const abort = new AbortController();
+            const cancel = () => { abort.abort(); void transport.stop(); };
+            const timeout = setTimeout(cancel, request.timeout || 100000);
+            if (request.abortSignal) { request.abortSignal.onabort = cancel; if (request.abortSignal.aborted) cancel(); }
+            try {
+                await transport.prepare(); abort.signal.throwIfAborted();
+                const response = await fetch(url, { method: "POST", body: request.content, headers: request.headers,
+                    credentials: "same-origin", redirect: "error", cache: "no-store", signal: abort.signal });
+                const result = { statusCode: response.status, statusText: response.statusText, content: await response.text() };
+                if (!response.ok) await transport.stop();
+                return result;
+            } catch (error) { await transport.stop(); throw error; }
+            finally { clearTimeout(timeout); if (request.abortSignal) request.abortSignal.onabort = null; }
+        },
+    };
+    return client;
 }

@@ -18,25 +18,44 @@ function wait(promise, signal) {
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 
 export async function connect(root, tokens, lifetime) {
+    if (!globalThis.RTCPeerConnection) throw new QuasarSdkError(503, "This browser cannot establish a peer connection.");
+    try { return await pair(root, tokens, lifetime); }
+    catch (error) {
+        // A new transport attempt may fall back before any feature command runs.
+        // Established streams/writes are never replayed across this boundary.
+        if (tokens.relayTicket || !tokens.directEnabled || lifetime.aborted
+            || !(error.status === 503 || error.name === "TimeoutError")) throw error;
+        const response = await fetch(new URL("rtc/relay", root), { method: "POST", credentials: "same-origin", redirect: "error", cache: "no-store",
+            signal: AbortSignal.any([lifetime, AbortSignal.timeout(10000)]), headers: { [tokens.headerName]: tokens.requestToken } });
+        if (!response.ok) throw new QuasarSdkError(response.status, "Peer connectivity is unavailable or relay capacity is exhausted.");
+        const relay = await response.json();
+        if (!/^[a-f0-9]{32}$/.test(relay.ticket || "") || relay.validForSeconds !== 60) throw new QuasarSdkError(426, "Invalid relay setup.");
+        return pair(root, { ...tokens, iceServers: relay.iceServers, relayTicket: relay.ticket }, lifetime);
+    }
+}
+
+async function pair(root, tokens, lifetime) {
     if (!globalThis.RTCPeerConnection) throw new QuasarSdkError(503, "This browser cannot establish a direct connection.");
     const iceServers = tokens.iceServers || [];
-    if (!Array.isArray(iceServers) || iceServers.length > 1 || iceServers.some(server => !Array.isArray(server.urls)
-        || server.urls.length > 2 || server.urls.some(url => typeof url !== "string" || !url.startsWith("stun:"))))
-        throw new QuasarSdkError(426, "Incompatible direct NAT-discovery configuration.");
-    const pc = new RTCPeerConnection({ iceServers });
+    if (!Array.isArray(iceServers) || iceServers.length > 3 || iceServers.some(server => !Array.isArray(server.urls)
+        || server.urls.length > 3 || server.urls.some(url => typeof url !== "string" || url.length > 256
+            || !(url.startsWith("stun:") || tokens.relayTicket && (url.startsWith("turn:") || url.startsWith("turns:"))))
+        || tokens.relayTicket && (typeof server.username !== "string" || server.username.length !== 32 || typeof server.credential !== "string" || server.credential.length !== 64)))
+        throw new QuasarSdkError(426, "Incompatible peer NAT-discovery configuration.");
+    const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: tokens.relayTicket ? "relay" : "all" });
     const control = pc.createDataChannel("quasar.control.v1", { ordered: true, protocol: "quasar-sdk.v1" });
     const bulk = pc.createDataChannel("quasar.bulk.v1", { ordered: true, protocol: "quasar-sdk.v1" });
     bulk.binaryType = "arraybuffer";
     const stop = new AbortController();
     const pending = new Map();
-    let peerId, next = 0, closed = false;
+    let peerId, disconnected, next = 0, closed = false;
     const stats = { path: "unavailable", receivedBytes: 0, sentBytes: 0, maximumQueuedBytes: 0 };
     const post = async (path, body, signal = stop.signal) => {
         const response = await fetch(new URL(path, root), { method: "POST", credentials: "same-origin", redirect: "error", cache: "no-store", signal,
             headers: { "Content-Type": "application/json", [tokens.headerName]: tokens.requestToken }, body: JSON.stringify(body) });
         if (!response.ok) {
             const error = await response.json().catch(() => ({}));
-            throw new QuasarSdkError(response.status, error.detail || "Direct connection setup failed.");
+            throw new QuasarSdkError(response.status, error.detail || "Peer connection setup failed.");
         }
         return response;
     };
@@ -53,9 +72,9 @@ export async function connect(root, tokens, lifetime) {
         entry.pull?.resolve(); entry.credit.resolve();
         entry.queue.length = 0; entry.queued = 0;
     }
-    function fail(error = new QuasarSdkError(503, "Direct connection lost; a write outcome may be unknown.")) {
+    function fail(error = new QuasarSdkError(503, "Peer connection lost; a write outcome may be unknown.")) {
         if (closed) return;
-        closed = true; stats.path = "unavailable"; stop.abort(error);
+        closed = true; clearTimeout(disconnected); stats.path = "unavailable"; stop.abort(error);
         for (const entry of [...pending.values()]) reject(entry, error);
         pc.close();
         if (peerId) void fetch(new URL(`rtc/attempts/${peerId}`, root), { method: "DELETE", credentials: "same-origin", redirect: "error", cache: "no-store", keepalive: true,
@@ -70,7 +89,14 @@ export async function connect(root, tokens, lifetime) {
         channel.onbufferedamountlow = () => { buffers.get(channel).resolve(); buffers.set(channel, deferred()); };
         channel.onerror = () => fail(); channel.onclose = () => fail();
     }
-    pc.onconnectionstatechange = () => { if (["failed", "closed", "disconnected"].includes(pc.connectionState)) fail(); };
+    pc.onconnectionstatechange = () => {
+        clearTimeout(disconnected);
+        if (["failed", "closed"].includes(pc.connectionState)) fail();
+        // ICE's disconnected state is transient, including missed consent under
+        // bounded TURN pacing. Keep the same reliable session briefly; no new
+        // peer or feature replay occurs. Failed/closed remains terminal.
+        else if (pc.connectionState === "disconnected") disconnected = setTimeout(() => fail(), 5000);
+    };
     async function send(channel, data) {
         const bytes = typeof data === "string" ? new TextEncoder().encode(data).length : data.byteLength;
         while (channel.bufferedAmount + bytes > WINDOW) await wait(buffers.get(channel).promise, stop.signal);
@@ -85,7 +111,13 @@ export async function connect(root, tokens, lifetime) {
         controlSending = sending.catch(() => {});
         return sending;
     }
-    function credit(entry) { void command({ type: "credit", id: entry.id, bytes: entry.consumed }).catch(fail); }
+    function credit(entry) {
+        // Cumulative credit replenishes half a window at a time. TURN can batch
+        // arrivals; acknowledging each chunk creates avoidable control bursts.
+        if (entry.credited !== undefined && entry.consumed - entry.credited < WINDOW / 2) return;
+        entry.credited = entry.consumed;
+        void command({ type: "credit", id: entry.id, bytes: entry.consumed }).catch(fail);
+    }
     function finishStream(entry) {
         if (entry.expected === entry.received && entry.queue.length === 0 && entry.controller) {
             entry.controller.close(); remove(entry); entry.pull?.resolve();
@@ -209,15 +241,16 @@ export async function connect(root, tokens, lifetime) {
             if (pc.iceGatheringState === "complete") resolve();
         }), AbortSignal.any([stop.signal, AbortSignal.timeout(10000)]));
         const nonce = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-        const setup = await (await post("rtc/attempts", { version: 1, nonce, description: pc.localDescription.toJSON() })).json();
+        const setup = await (await post("rtc/attempts", { version: 1, nonce, description: pc.localDescription.toJSON(), ...(tokens.relayTicket ? { relayTicket: tokens.relayTicket } : {}) })).json();
         if (setup.version !== 1 || !/^[a-f0-9]{32}$/.test(setup.id) || !/^[a-fA-F0-9]{64}$/.test(setup.grant) || setup.description?.type !== "answer")
             throw new QuasarSdkError(426, "Incompatible direct SDK setup.");
         peerId = setup.id;
         await pc.setRemoteDescription(setup.description);
         await wait(opened, AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]));
         if (!pc.sctp || pc.sctp.maxMessageSize < CONTROL) throw new QuasarSdkError(426, "This browser cannot support the SDK message size.");
-        await post(`rtc/attempts/${peerId}/confirm`, { grant: setup.grant });
-        stats.path = "direct";
+        const confirmed = await post(`rtc/attempts/${peerId}/confirm`, { grant: setup.grant });
+        stats.path = confirmed.headers.get("X-Quasar-Transport");
+        if (!["direct", "relayed"].includes(stats.path)) throw new QuasarSdkError(426, "Invalid peer path confirmation.");
     } catch (error) { fail(error); throw error; }
 
     return Object.freeze({

@@ -386,12 +386,30 @@ jobs:
         with:
           node-version: "22"
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: Quasar.Peer/go.sum
+
+      - name: Prepare isolated peer and browser checks
+        run: |
+          mkdir -p "$RUNNER_TEMP/quasar-rtc"
+          python3 scripts/build-peer.py --runtime linux-x64 --race --output "$RUNNER_TEMP/quasar-rtc/quasar-peer"
+          npm install --prefix "$RUNNER_TEMP/quasar-rtc-browser" --no-save playwright@1.61.1
+          node "$RUNNER_TEMP/quasar-rtc-browser/node_modules/playwright/cli.js" install --with-deps chromium firefox
+          echo "QUASAR_RTC_TEST_PEER=$RUNNER_TEMP/quasar-rtc/quasar-peer" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/quasar-rtc-browser/node_modules/playwright/index.mjs" >> "$GITHUB_ENV"
+          node -e 'console.log("CHROME_PATH="+require(process.argv[1]).chromium.executablePath())' "$RUNNER_TEMP/quasar-rtc-browser/node_modules/playwright" >> "$GITHUB_ENV"
+          go -C Quasar.Peer vet ./...
+          go -C Quasar.Peer test -race ./...
+
       - name: Verify browser SDK before packaging
         env:
           DS64: ${{ github.workspace }}/ds64
         run: |
-          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
           node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/Browser/*.test.mjs
+          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release
 
       - name: Retain SDK test evidence
         if: always()
@@ -400,11 +418,6 @@ jobs:
           name: sdk-tests-linux
           path: artifacts/sdk-test-results
           if-no-files-found: ignore
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.27.3"
-          cache-dependency-path: Quasar.Peer/go.sum
 
       - name: Package Linux release
         env:
@@ -586,16 +599,42 @@ jobs:
         with:
           node-version: "22"
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: Quasar.Peer/go.sum
+
+      - name: Prepare isolated peer and browser checks
+        shell: pwsh
+        run: |
+          $peer = Join-Path $env:RUNNER_TEMP 'quasar-rtc/quasar-peer.exe'
+          python scripts/build-peer.py --runtime win-x64 --output $peer
+          if ($LASTEXITCODE -ne 0) { throw 'Native peer build failed.' }
+          $browser = Join-Path $env:RUNNER_TEMP 'quasar-rtc-browser'
+          npm install --prefix $browser --no-save playwright@1.61.1
+          if ($LASTEXITCODE -ne 0) { throw 'Test-only browser dependency failed.' }
+          node (Join-Path $browser 'node_modules/playwright/cli.js') install chromium firefox
+          if ($LASTEXITCODE -ne 0) { throw 'Test-only browsers failed.' }
+          "QUASAR_RTC_TEST_PEER=$peer" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "PLAYWRIGHT_MODULE=$(Join-Path $browser 'node_modules/playwright/index.mjs')" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          node -e 'console.log("CHROME_PATH="+require(process.argv[1]).chromium.executablePath())' (Join-Path $browser 'node_modules/playwright') | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          go -C Quasar.Peer vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Native peer verification failed.' }
+          go -C Quasar.Peer test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Native peer bounds failed.' }
+
       - name: Verify browser SDK before packaging
         shell: pwsh
         env:
           DS64: ${{ github.workspace }}/ds64
         run: |
-          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
           if ($LASTEXITCODE -ne 0) { throw 'SDK server checks failed.' }
           $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
           node --test @browserChecks
           if ($LASTEXITCODE -ne 0) { throw 'SDK browser checks failed.' }
+          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Real Blazor peer checks failed.' }
 
       - name: Retain SDK test evidence
         if: always()
@@ -604,11 +643,6 @@ jobs:
           name: sdk-tests-windows
           path: artifacts/sdk-test-results
           if-no-files-found: ignore
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.27.3"
-          cache-dependency-path: Quasar.Peer/go.sum
 
       - name: Package Windows release
         shell: pwsh

@@ -10,7 +10,9 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.Plugins;
 
-public sealed record QuasarRtcOffer(int Version, string Nonce, QuasarRtcDescription Description);
+public sealed record QuasarRtcOffer(int Version, string Nonce, QuasarRtcDescription Description, string? RelayTicket = null);
+public sealed record QuasarRtcIce(string[] Urls, string? Username = null, string? Credential = null);
+public sealed record QuasarRtcRelaySetup(string Ticket, QuasarRtcIce[] IceServers, int ValidForSeconds);
 public sealed record QuasarRtcSetup(string Id, string Grant, QuasarRtcDescription Description, int Version = 1, int SetupSeconds = 30);
 
 /// <summary>Owns the exact core browser binding; native peer messages cannot supply a principal.</summary>
@@ -20,9 +22,64 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
 {
     private readonly object gate = new();
     private readonly Dictionary<string, Peer> peers = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, PreparedRelay> prepared = new(StringComparer.Ordinal);
+    private Task preparedMonitor = Task.CompletedTask;
     private readonly Dictionary<string, Replay> replay = new(StringComparer.Ordinal);
     private readonly CancellationTokenSource shutdown = CancellationTokenSource.CreateLinkedTokenSource(application.ApplicationStopping);
     internal int PeerCount { get { lock (gate) return peers.Count; } }
+
+    public async Task<QuasarRtcRelaySetup> PrepareRelayAsync(QuasarBrowserSession binding, bool hosted, CancellationToken token)
+    {
+        using var setup = CancellationTokenSource.CreateLinkedTokenSource(binding.Revoked, shutdown.Token, token);
+        token = setup.Token;
+        sessions.Verify(binding, token); await CheckCallerAsync(binding, token);
+        var state = HostedPanelState.Read();
+        if (!hosted || state is not { Choice: "hosted", Credential: not null } || binding.PathBase != "/" + state.PanelId
+            || binding.User.FindFirst(QuasarClaimTypes.Provider)?.Value != QuasarAuthSchemes.Steam)
+            throw new QuasarOperationException(403, "A verified hosted Steam session is required for relay fallback.");
+        var id = Guid.NewGuid().ToString("N"); var ticket = Guid.NewGuid().ToString("N");
+        var relayBinding = new RelayBinding(1, HostedPanelState.Hash(binding.Owner + "\n" + binding.PathBase + "\n" + binding.Id), HostedPanelState.Hash(id));
+        var relay = new PreparedRelay(id, binding, state.Credential, relayBinding, clock.GetTimestamp());
+        lock (gate)
+        {
+            if (peers.Count + prepared.Count >= 64 || peers.Values.Count(p => p.Binding.Id == binding.Id) + prepared.Values.Count(p => p.Browser.Id == binding.Id) >= 4
+                || peers.Values.Count(p => p.Binding.Owner == binding.Owner) + prepared.Values.Count(p => p.Browser.Owner == binding.Owner) >= 16)
+                throw new QuasarOperationException(429, "Too many peer/relay attempts.");
+            token.ThrowIfCancellationRequested();
+            prepared.Add(ticket, relay);
+        }
+        try
+        {
+            relay.Grant = await RelayCreateAsync(state.Credential, relayBinding, token);
+            sessions.Verify(binding, token);
+            lock (gate) if (!prepared.TryGetValue(ticket, out var stored) || stored != relay || clock.GetElapsedTime(relay.Started) >= TimeSpan.FromSeconds(60))
+                throw new QuasarOperationException(503, "Relay setup expired before it arrived.");
+            return new(ticket, [new(relay.Grant.Urls, relay.Grant.Username, relay.Grant.Password)], 60);
+        }
+        catch { lock (gate) prepared.Remove(ticket); if (relay.Grant is not null) await RelayActionAsync(relay, "close", CancellationToken.None, quiet: true); throw; }
+    }
+    private async Task WatchPreparedAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1), clock);
+            while (await timer.WaitForNextTickAsync(shutdown.Token))
+            {
+                PreparedRelay[] expired;
+                lock (gate)
+                {
+                    var current = HostedPanelState.Read();
+                    var stale = prepared.Where(pair => pair.Value.Browser.Revoked.IsCancellationRequested
+                        || clock.GetElapsedTime(pair.Value.Started) >= TimeSpan.FromSeconds(60)
+                        || current?.Credential != pair.Value.Credential).ToArray();
+                    foreach (var pair in stale) prepared.Remove(pair.Key);
+                    expired = stale.Select(pair => pair.Value).ToArray();
+                }
+                await Task.WhenAll(expired.Select(relay => RelayActionAsync(relay, "close", CancellationToken.None, quiet: true)));
+            }
+        }
+        catch (OperationCanceledException) when (shutdown.IsCancellationRequested) { }
+    }
 
     public async Task<QuasarRtcSetup> CreateAsync(QuasarBrowserSession binding, bool hosted, QuasarRtcOffer request, CancellationToken token)
     {
@@ -42,19 +99,28 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             foreach (var item in replay.Where(pair => clock.GetElapsedTime(pair.Value.Started) >= TimeSpan.FromMinutes(2)).ToArray()) replay.Remove(item.Key);
             var replayKey = binding.Id + "/" + HostedPanelState.Hash(request.Nonce.ToUpperInvariant());
             if (replay.ContainsKey(replayKey)) throw new QuasarOperationException(409, "This connection attempt has already been used.");
+            PreparedRelay? relay = null;
+            if (request.RelayTicket is not null)
+            {
+                if (!hosted || !prepared.TryGetValue(request.RelayTicket, out relay) || !ReferenceEquals(relay.Browser, binding) || relay.Grant is null
+                    || state?.Credential != relay.Credential || clock.GetElapsedTime(relay.Started) >= TimeSpan.FromSeconds(60)) throw new QuasarOperationException(404, "Relay attempt not found or expired.");
+            }
+            var reserved = relay is null ? 0 : 1;
             if (replay.Count >= 4096 || replay.Values.Count(item => item.Session == binding.Id) >= 16
                 || replay.Values.Count(item => item.Owner == binding.Owner) >= 64
-                || peers.Count >= 64 || peers.Values.Count(item => item.Binding.Id == binding.Id) >= 4
-                || peers.Values.Count(item => item.Binding.Owner == binding.Owner) >= 16)
-                throw new QuasarOperationException(429, "Too many direct connection attempts. Close an existing connection first.");
-            peer = new(binding, hosted, shutdown.Token, clock);
+                || peers.Count + prepared.Count - reserved >= 64
+                || peers.Values.Count(item => item.Binding.Id == binding.Id) + prepared.Values.Count(item => item.Browser.Id == binding.Id) - reserved >= 4
+                || peers.Values.Count(item => item.Binding.Owner == binding.Owner) + prepared.Values.Count(item => item.Browser.Owner == binding.Owner) - reserved >= 16)
+                throw new QuasarOperationException(429, "Too many peer attempts. Close an existing connection first.");
+            if (request.RelayTicket is not null) prepared.Remove(request.RelayTicket);
+            peer = new(binding, hosted, shutdown.Token, clock, relay?.PeerId) { Relay = relay };
             peers.Add(peer.Id, peer);
             replay.Add(replayKey, new(binding.Id, binding.Owner, clock.GetTimestamp()));
         }
         using var setup = CancellationTokenSource.CreateLinkedTokenSource(peer.Token, token);
         try
         {
-            var answer = await native.CreateAsync(peer.Id, request.Description, setup.Token, hosted);
+            var answer = await native.CreateAsync(peer.Id, request.Description, setup.Token, hosted, peer.Relay?.Grant is { } relayGrant ? [new(relayGrant.Urls, relayGrant.Username, relayGrant.Password)] : null);
             if (answer.Type != "answer") throw new QuasarOperationException(503, "Invalid direct connection answer.");
             var fingerprint = answer.Fingerprint();
             if (state is not null)
@@ -88,8 +154,8 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             if (peer.Active || !HostedPanelState.SecretEquals(peer.Grant, grant))
                 throw new QuasarOperationException(409, "The peer setup grant is invalid or already consumed.");
             var status = await native.StatusAsync(peer.Id, peer.Token);
-            if (status.State != "connected" || status.Path != "direct")
-                throw new QuasarOperationException(409, "Direct connectivity is unavailable; no automatic relay is configured.");
+            if (status.State != "connected" || status.Path is not ("direct" or "relayed") || status.Path == "relayed" && peer.Relay is null)
+                throw new QuasarOperationException(409, "Authorized peer connectivity is unavailable.");
             if (peer.Hosting is { } hosted)
             {
                 CheckInstallation(hosted);
@@ -97,6 +163,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
                 var result = await HostingAsync(HttpMethod.Post, "/api/v1/connector/rtc/leases/" + hosted.Id + "/activate", hosted.Credential,
                     new { binding = hosted.Binding, grant = hosted.Grant }, peer.Token);
                 ValidateGrant(result, 120, requireGrant: false, hosted.Id);
+                if (peer.Relay is { } relay) await RelayActionAsync(relay, "activate", peer.Token);
                 peer.LeaseStarted = started;
                 peer.LastRenewal = started;
                 hosted.Grant = "";
@@ -156,6 +223,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
                                 var renewal = await HostingAsync(HttpMethod.Post, "/api/v1/connector/rtc/leases/" + hosting.Id + "/renew",
                                     hosting.Credential, hosting.Binding, peer.Token);
                                 ValidateGrant(renewal, 120, requireGrant: false, hosting.Id);
+                                if (peer.Relay is { } relay) await RelayActionAsync(relay, "renew", peer.Token);
                                 ArmLease(peer, started);
                             }
                             catch (QuasarOperationException error) when (error.StatusCode == 503) { }
@@ -163,7 +231,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
                     }
                 }
                 var status = await native.StatusAsync(peer.Id, peer.Token);
-                if (status.State is "closed" or "failed" || status.Path == "relayed")
+                if (status.State is "closed" or "failed" || status.Path == "relayed" && peer.Relay is null)
                     throw new QuasarOperationException(409, "Direct connectivity is unavailable.");
                 peer.Status = status;
                 await native.PulseAsync(peer.Id, peer.Token);
@@ -217,6 +285,42 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             throw new QuasarOperationException(403, "The hosted installation changed.");
     }
 
+    private async Task<RelayGrant> RelayCreateAsync(string credential, RelayBinding binding, CancellationToken token)
+    {
+        using var http = clients.CreateClient("Nebula"); using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        using var request = new HttpRequestMessage(HttpMethod.Post, HostedPanelState.Origin + "/api/v1/connector/rtc/relay/") { Content = JsonContent.Create(binding) };
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
+        try
+        {
+            using var response = await http.SendAsync(request, deadline.Token);
+            if (!response.IsSuccessStatusCode) throw new QuasarOperationException((int)response.StatusCode, "Relay fallback is unavailable or its capacity is exhausted.");
+            var grant = await response.Content.ReadFromJsonAsync<RelayGrant>(deadline.Token);
+            if (grant is not { Version: 1, ValidForSeconds: 60, Id.Length: 32, Password.Length: 64, Urls.Length: >= 1 and <= 3 } || grant.Username != grant.Id
+                || grant.Id.Any(c => !char.IsAsciiHexDigit(c)) || grant.Password.Any(c => !char.IsAsciiHexDigit(c))
+                || grant.Urls.Any(url => url is null || url.Length > 256 || url.Contains('@') || !(url.StartsWith("turn:", StringComparison.Ordinal) || url.StartsWith("turns:", StringComparison.Ordinal))))
+                throw new QuasarOperationException(503, "Invalid relay fallback grant.");
+            return grant;
+        }
+        catch (Exception error) when (error is HttpRequestException or JsonException || error is OperationCanceledException && !token.IsCancellationRequested)
+        { throw new QuasarOperationException(503, "Relay fallback is unavailable."); }
+    }
+    private async Task RelayActionAsync(PreparedRelay relay, string action, CancellationToken token, bool quiet = false)
+    {
+        if (relay.Grant is null) return;
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token); deadline.CancelAfter(TimeSpan.FromSeconds(5));
+        try
+        {
+            using var http = clients.CreateClient("Nebula");
+            using var request = new HttpRequestMessage(HttpMethod.Post, HostedPanelState.Origin + "/api/v1/connector/rtc/relay/" + relay.Grant.Id + "/" + action) { Content = JsonContent.Create(relay.Binding) };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", relay.Credential);
+            using var response = await http.SendAsync(request, deadline.Token);
+            if (response.StatusCode != HttpStatusCode.NoContent) throw new QuasarOperationException(response.StatusCode == HttpStatusCode.ServiceUnavailable ? 503 : 403, "Relay authorization is unavailable.");
+        }
+        catch (Exception error) when (quiet && error is (HttpRequestException or OperationCanceledException or QuasarOperationException)) { }
+        catch (Exception error) when (error is HttpRequestException || error is OperationCanceledException && !token.IsCancellationRequested)
+        { throw new QuasarOperationException(503, "Relay authorization is unavailable."); }
+    }
+
     private async Task<HostingGrant> HostingAsync(HttpMethod method, string path, string credential, object binding, CancellationToken token)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
@@ -253,6 +357,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         {
             await native.CloseAsync(peer.Id);
             await peer.Application;
+            if (peer.Relay is { } relay) await RelayActionAsync(relay, "close", CancellationToken.None, quiet: true);
             if (peer.Hosting is { } hosting)
             {
                 using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(3));
@@ -277,14 +382,16 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
     }
 
     private int disposed;
-    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StartAsync(CancellationToken cancellationToken) { preparedMonitor = WatchPreparedAsync(); return Task.CompletedTask; }
     public Task StopAsync(CancellationToken cancellationToken) => StopWorkAsync();
     private async Task StopWorkAsync()
     {
         try { shutdown.Cancel(); } catch (ObjectDisposedException) { return; }
-        Peer[] active;
-        lock (gate) active = peers.Values.ToArray();
-        await Task.WhenAll(active.Select(peer => peer.Retired.Task));
+        Peer[] active; PreparedRelay[] pending;
+        lock (gate) { active = peers.Values.ToArray(); pending = prepared.Values.ToArray(); prepared.Clear(); }
+        await Task.WhenAll(active.Select(peer => peer.Retired.Task)
+            .Concat(pending.Select(relay => RelayActionAsync(relay, "close", CancellationToken.None, quiet: true))));
+        await preparedMonitor;
     }
     public async ValueTask DisposeAsync()
     {
@@ -293,6 +400,17 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         shutdown.Dispose();
     }
 
+    internal sealed record RelayBinding(int Version, string Session, string Attempt);
+    internal sealed record RelayGrant(string Id, string Username, string Password, string[] Urls, int ValidForSeconds, int Version);
+    internal sealed class PreparedRelay(string peerId, QuasarBrowserSession browser, string credential, RelayBinding binding, long started)
+    {
+        internal string PeerId { get; } = peerId;
+        internal QuasarBrowserSession Browser { get; } = browser;
+        internal string Credential { get; } = credential;
+        internal RelayBinding Binding { get; } = binding;
+        internal long Started { get; } = started;
+        internal RelayGrant? Grant { get; set; }
+    }
     internal sealed record HostingBinding(int Version, string Session, string Attempt, string Browser, string Peer);
     private sealed record Replay(string Session, string Owner, long Started);
     private sealed record HostingGrant(string Id, string? Grant, int ValidForSeconds, int Version);
@@ -307,15 +425,16 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
 
     public sealed class Peer
     {
-        internal Peer(QuasarBrowserSession binding, bool hosted, CancellationToken stopping, TimeProvider clock)
+        internal Peer(QuasarBrowserSession binding, bool hosted, CancellationToken stopping, TimeProvider clock, string? id = null)
         {
+            Id = id ?? Guid.NewGuid().ToString("N");
             Binding = binding;
             Hosted = hosted;
             Stop = CancellationTokenSource.CreateLinkedTokenSource(binding.Revoked, stopping);
             Token = Stop.Token;
             LeaseExpiry = clock.CreateTimer(_ => Cancel(), null, TimeSpan.FromSeconds(30), Timeout.InfiniteTimeSpan);
         }
-        public string Id { get; } = Guid.NewGuid().ToString("N");
+        public string Id { get; }
         public QuasarBrowserSession Binding { get; }
         public bool Hosted { get; }
         public CancellationToken Token { get; }
@@ -330,6 +449,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         internal Task Application { get; set; } = Task.CompletedTask;
         internal TaskCompletionSource Ready { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         internal HostedLease? Hosting { get; set; }
+        internal PreparedRelay? Relay { get; set; }
         internal ITimer LeaseExpiry { get; }
         internal int Retiring;
         internal TaskCompletionSource Retired { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);

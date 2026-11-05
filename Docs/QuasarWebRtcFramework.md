@@ -42,7 +42,10 @@ boot module. Verified Nebula-hosted pages automatically choose the adapter with
 no separate user toggle. Local pages use normal Blazor startup without a Nebula
 or peer dependency. Framework negotiation and document/module loads still use
 HTTPS; interactive events, render batches, JS interop and circuit file uploads
-use the peer. SignalR retains its own circuit reconnect behavior.
+use the peer. The public SignalR HttpClient hook waits for peer/ICE setup before
+requesting the framework negotiation token, including reconnects. This avoids
+allocating a short-lived framework token while Internet/TURN setup is pending.
+The framework still owns negotiation and its reconnect protocol. SignalR retains its own circuit reconnect behavior.
 
 Core analytics, console logs and backup downloads use the public SDK. Backup
 aliases keep their admin policy, exact bytes and ranges, while the current UI
@@ -78,8 +81,9 @@ dotnet run --project tests/Quasar.Rtc.CircuitChecks
 
 The Linux release archive also builds with the native binary, integrity manifest
 and complete dependency notices. Native Windows execution, installed whole-panel
-Steam acceptance, real game rendering and representative Internet NAT/TURN/capacity
-acceptance remain release gates. This is not a deployment or whole-panel capacity
+Steam acceptance, real game rendering and representative Internet NAT/capacity
+acceptance remain release gates. Isolated real Pion TURN/UDP and TURN/TCP checks
+exercise the same circuit fixture through production Nebula lease routes. This is not a deployment or whole-panel capacity
 measurement.
 
 ## Source references

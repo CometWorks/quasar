@@ -40,6 +40,11 @@ public static class QuasarRtcEndpoints
             catch (QuasarOperationException error) { http.Response.Clear(); http.Response.Headers.CacheControl = "private, no-store"; await Results.Problem(statusCode: error.StatusCode, detail: error.Message).ExecuteAsync(http); }
             catch (AntiforgeryValidationException) { http.Response.Clear(); http.Response.Headers.CacheControl = "private, no-store"; await Results.Problem(statusCode: 400, detail: "Invalid antiforgery token.").ExecuteAsync(http); }
         }).RequireAuthorization(QuasarPolicyNames.CanView);
+        rtc.MapPost("/relay", async (HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
+        {
+            await antiforgery.ValidateRequestAsync(http);
+            return Results.Json(await peers.PrepareRelayAsync(await sessions.BindHttpSessionAsync(http), HostedPanelRequest.IsHosted(http), http.RequestAborted));
+        });
         rtc.MapPost("/attempts", async (HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
         {
             await antiforgery.ValidateRequestAsync(http);
@@ -56,7 +61,9 @@ public static class QuasarRtcEndpoints
             if (body.RootElement.ValueKind != JsonValueKind.Object || !body.RootElement.TryGetProperty("grant", out var grant)
                 || grant.ValueKind != JsonValueKind.String || grant.GetString() is not { Length: 64 } value)
                 throw new QuasarOperationException(400, "A peer setup grant is required.");
-            await peers.ConfirmAsync(await sessions.BindHttpSessionAsync(http), id, value, http.RequestAborted);
+            var binding = await sessions.BindHttpSessionAsync(http);
+            await peers.ConfirmAsync(binding, id, value, http.RequestAborted);
+            http.Response.Headers["X-Quasar-Transport"] = peers.Get(binding, id, http.RequestAborted).Status.Path;
             return Results.NoContent();
         });
         rtc.MapGet("/attempts/{id}", async (string id, HttpContext http, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>

@@ -283,7 +283,10 @@ The WebRTC development adapter uses the existing authenticated browser
 session and current `CanView` policy. It does not give a native peer a Steam role
 or machine API access. Hosted peers additionally need a renewable Nebula lease;
 logout, permission loss or lease expiry closes access. Nebula-hosted SDK sessions select it automatically, with no separate user toggle.
-Direct failure is visible without automatic bulk HTTP fallback. The RTC branch
+Initial direct failure can use Nebula's bounded TURN fallback before any
+application work runs. Established writes are never replayed, and there is no
+automatic bulk HTTP fallback. Relay credentials are temporary and carry no user
+or machine role; relay exhaustion remains visible. The RTC branch
 also carries Blazor circuits using the same stored session and renews current
 roles on reconnect after RBAC changes. Installed and native Windows acceptance
 remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).

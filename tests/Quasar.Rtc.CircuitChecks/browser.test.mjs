@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { createHash } from "node:crypto";
 const playwright = await import(pathToFileURL(process.env.PLAYWRIGHT_MODULE).href);
-for (const name of ["chromium", "firefox"]) test(`real Blazor render/interop/upload over RTC: ${name}`, { timeout: 70000 }, async () => {
-    const browser = await playwright[name].launch({ headless: true, ...(name === "chromium" ? { executablePath: process.env.CHROME_PATH, args: ["--disable-features=WebRtcHideLocalIpsWithMdns"] } : {}) });
+for (const name of (process.env.RTC_BROWSER ? [process.env.RTC_BROWSER] : ["chromium", "firefox"])) test(`real Blazor render/interop/upload over RTC: ${name}`, { timeout: 140000 }, async () => {
+    const browser = await playwright[name].launch({ headless: true, ...(name === "chromium" ? { executablePath: process.env.CHROME_PATH, args: ["--disable-features=WebRtcHideLocalIpsWithMdns"] } : { firefoxUserPrefs: { "media.peerconnection.ice.loopback": true, "media.peerconnection.ice.obfuscate_host_addresses": false } }) });
     try {
         const page = await browser.newPage(), sockets = [], errors = [], peers = [];
         page.on("response", async response => { if (response.url().endsWith("/rtc/attempts") && response.ok()) peers.push((await response.json()).id); });
@@ -42,6 +42,15 @@ for (const name of ["chromium", "firefox"]) test(`real Blazor render/interop/upl
             if (!response.ok) throw new Error("Framework negotiation failed");
             return { ticket: (await response.json()).connectionToken, headerName: tokens.headerName, requestToken: tokens.requestToken };
         });
+        if (process.env.NEBULA_RTC_TEST_MANAGER) {
+            const status = await page.evaluate(async id => {
+                return await (await fetch(new URL("_quasar/sdk/v1/rtc/attempts/" + id, document.baseURI))).json();
+            }, peers.at(-1));
+            assert.equal(status.path, "relayed", "A forced fallback must identify its actual selected TURN path");
+            const relay = await (await fetch(new URL("fixture/status", process.env.NEBULA_RTC_TEST_MANAGER))).json();
+            assert.ok(relay.payloadBytes >= bytes.length + 200000, "Real native TURN counters include the upload and render payload");
+            console.log(JSON.stringify({ browser: name, relay: process.env.NEBULA_RTC_TEST_PROTOCOL, payloadBytes: relay.payloadBytes }));
+        }
         const ticket = negotiation.ticket;
         const foreignOrigin = await page.request.post(new URL("_quasar/sdk/v1/circuit/negotiate?negotiateVersion=1", process.env.QUASAR_CIRCUIT_URL).href,
             { headers: { Origin: "https://outside.invalid", [negotiation.headerName]: negotiation.requestToken } });
@@ -76,5 +85,34 @@ for (const name of ["chromium", "firefox"]) test(`real Blazor render/interop/upl
         assert.deepEqual(sockets, [], "No browser WebSocket may carry the Blazor circuit");
         assert.deepEqual(errors, []);
         console.log(JSON.stringify({ browser: name, renderCharacters: 200000, uploadBytes: bytes.length, webSockets: sockets.length, identity: "core authenticated", jsInterop: true, reconnected: true, roleRevoked: true }));
+    } finally { await browser.close(); }
+});
+
+if (process.env.NEBULA_RTC_TEST_MANAGER) test("real hosting suspension closes TURN circuits without HTTP fallback", { timeout: 60000 }, async () => {
+    const browser = await playwright.chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH,
+        args: ["--disable-features=WebRtcHideLocalIpsWithMdns"] });
+    try {
+        const page = await browser.newPage(), peers = [], sockets = [];
+        page.on("response", async response => { if (response.url().endsWith("/rtc/attempts") && response.ok()) peers.push((await response.json()).id); });
+        page.on("websocket", socket => sockets.push(socket.url()));
+        await page.goto(new URL("fixture/login", process.env.QUASAR_CIRCUIT_URL).href);
+        await page.waitForFunction(() => document.body.dataset.interactive === "true");
+        await page.click("#increment"); await page.waitForFunction(() => document.querySelector("#count")?.textContent === "1");
+        const suspended = await fetch(new URL("fixture/suspend", process.env.NEBULA_RTC_TEST_MANAGER), { method: "POST" });
+        assert.equal(suspended.status, 204);
+        await page.waitForFunction(async id => (await fetch(new URL("_quasar/sdk/v1/rtc/attempts/" + id, document.baseURI))).status === 404,
+            peers[0], { timeout: 40000, polling: 250 });
+        assert.equal(await page.textContent("#count"), "1", "Disconnect never replays a committed click");
+        assert.deepEqual(sockets, [], "Suspension cannot reopen an HTTP/WebSocket payload transport");
+        const deadline = AbortSignal.timeout(40000);
+        let native;
+        do {
+            native = await (await fetch(new URL("fixture/status", process.env.NEBULA_RTC_TEST_MANAGER), { signal: deadline })).json();
+            if (native.allocations === 0) break;
+            deadline.throwIfAborted();
+            await new Promise(resolve => setTimeout(resolve, 250));
+        } while (true);
+        assert.equal(native.allocations, 0, "Revocation releases real TURN sockets");
+        console.log(JSON.stringify({ suspended: true, relay: process.env.NEBULA_RTC_TEST_PROTOCOL, allocations: native.allocations, replayedClicks: 0 }));
     } finally { await browser.close(); }
 });

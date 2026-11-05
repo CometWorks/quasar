@@ -37,8 +37,9 @@ try
     builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider(); builder.Services.AddAntiforgery();
     builder.Services.AddQuasarRtc(builder.Configuration);
     builder.Services.PostConfigure<QuasarRtcOptions>(options => { options.StunUrls = []; options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER")!; });
-    builder.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => new Leases());
-    await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = prefix[1..], Credential = prefix[1..] + "." + new string('a',64) });
+    var manager = Environment.GetEnvironmentVariable("NEBULA_RTC_TEST_MANAGER");
+    builder.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => manager is null ? new Leases() : new FixtureManager(new Uri(manager)));
+    await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = prefix[1..], Credential = Environment.GetEnvironmentVariable("NEBULA_RTC_TEST_CREDENTIAL") ?? prefix[1..] + "." + new string('a',64) });
     await using var app = builder.Build();
     await app.Services.GetRequiredService<RbacConfigCatalog>().UpdateAsync(config => { config.SubjectRoleMappings = [new() { Subject = user, Roles = [QuasarRoles.Admin] }, new() { Subject = "76561198000000002", Roles = [QuasarRoles.Admin] }]; return Task.CompletedTask; });
     var hosted = typeof(Quasar.Program).Assembly.GetType("Quasar.Services.HostedPanelRequest")!.GetMethod("InvokeAsync")!.CreateDelegate<Func<HttpContext, RequestDelegate, QuasarAuthOptions, Task>>();
@@ -48,7 +49,22 @@ try
     var packages = Environment.GetEnvironmentVariable("NUGET_PACKAGES") ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget/packages");
     var framework = Path.Combine(packages, "microsoft.aspnetcore.app.internal.assets", Environment.Version.ToString(3), "_framework");
     app.UseStaticFiles(new StaticFileOptions { RequestPath = "/_framework", FileProvider = new PhysicalFileProvider(framework) });
-    app.Use(async (http, next) => { if (http.Request.Path == "/_quasar/sdk/v1/rtc/attempts" && http.Request.Method == "POST") await Task.Delay(250, http.RequestAborted); await next(http); });
+    app.Use(async (http, next) => {
+        if (http.Request.Path == "/_quasar/sdk/v1/rtc/attempts" && http.Request.Method == "POST")
+        {
+            await Task.Delay(250, http.RequestAborted);
+            if (manager is not null)
+            {
+                // Deterministic initial direct failure; the subsequent pair uses
+                // only real TURN candidates and production manager grants.
+                http.Request.EnableBuffering();
+                using var offer = await System.Text.Json.JsonDocument.ParseAsync(http.Request.Body);
+                http.Request.Body.Position = 0;
+                if (!offer.RootElement.TryGetProperty("relayTicket", out _)) { http.Response.StatusCode = 503; return; }
+            }
+        }
+        await next(http);
+    });
     app.UseRouting(); app.UseAuthentication(); app.UseAuthorization(); app.UseAntiforgery();
     app.MapQuasarSdk(); app.MapQuasarRtc();
     app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();
@@ -74,5 +90,14 @@ sealed class Leases : HttpMessageHandler
         var path = request.RequestUri!.AbsolutePath.TrimEnd('/');
         return Task.FromResult(new HttpResponseMessage(request.Method == HttpMethod.Delete ? HttpStatusCode.NoContent : HttpStatusCode.OK) { Content = JsonContent.Create(new {
             id = path.EndsWith("/leases") ? Guid.NewGuid().ToString("N") : path.Split('/')[^2], version = 1, grant = path.EndsWith("/leases") ? new string('A',64) : null, validForSeconds = path.EndsWith("/leases") ? 30 : 120 }) });
+    }
+}
+
+sealed class FixtureManager(Uri manager) : DelegatingHandler(new SocketsHttpHandler { UseProxy = false, AllowAutoRedirect = false })
+{
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+    {
+        request.RequestUri = new Uri(manager, request.RequestUri!.PathAndQuery);
+        return base.SendAsync(request, token);
     }
 }

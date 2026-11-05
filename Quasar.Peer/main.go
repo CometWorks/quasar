@@ -46,11 +46,28 @@ type peer struct {
 }
 
 type bridge struct {
-	dc       *webrtc.DataChannel
-	ready    chan struct{}
-	queue    chan webrtc.DataChannelMessage
-	low      chan struct{}
-	attached bool // guarded by peer.mu
+	dc            *webrtc.DataChannel
+	ready         chan struct{}
+	queue         chan webrtc.DataChannelMessage
+	low           chan struct{}
+	queued        atomic.Int64
+	maximumQueued int64
+	attached      bool // guarded by peer.mu
+}
+
+func (b *bridge) enqueue(message webrtc.DataChannelMessage) bool {
+	n := int64(len(message.Data))
+	if b.queued.Add(n) > b.maximumQueued {
+		b.queued.Add(-n)
+		return false
+	}
+	select {
+	case b.queue <- message:
+		return true
+	default:
+		b.queued.Add(-n)
+		return false
+	}
 }
 
 func (e *endpoint) remove(id string) {
@@ -146,7 +163,9 @@ func (e *endpoint) connect(w http.ResponseWriter, r *http.Request, id string, p 
 				if message.IsString {
 					kind = websocket.MessageText
 				}
-				if err := ws.Write(p.ctx, kind, message.Data); err != nil {
+				err := ws.Write(p.ctx, kind, message.Data)
+				b.queued.Add(-int64(len(message.Data)))
+				if err != nil {
 					finished <- err
 					return
 				}
@@ -181,7 +200,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "POST" && len(parts) == 2 {
 		var offer struct {
 			webrtc.SessionDescription
-			StunURLs []string `json:"stunUrls"`
+			ICEServers []webrtc.ICEServer `json:"iceServers"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maximumMessage)
 		if json.NewDecoder(r.Body).Decode(&offer) != nil || offer.Type != webrtc.SDPTypeOffer {
@@ -200,22 +219,27 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		config := webrtc.Configuration{}
-		if len(offer.StunURLs) > 2 {
+		if len(offer.ICEServers) > 3 {
 			e.mu.Unlock()
-			http.Error(w, "invalid STUN configuration", 400)
+			http.Error(w, "invalid ICE configuration", 400)
 			return
 		}
-		for _, url := range offer.StunURLs {
-			if !strings.HasPrefix(url, "stun:") || len(url) > 256 {
+		for _, server := range offer.ICEServers {
+			if len(server.URLs) < 1 || len(server.URLs) > 3 {
 				e.mu.Unlock()
-				http.Error(w, "only STUN discovery is permitted", 400)
+				http.Error(w, "invalid ICE URLs", 400)
 				return
 			}
+			for _, url := range server.URLs {
+				if len(url) > 256 || !(strings.HasPrefix(url, "stun:") || strings.HasPrefix(url, "turn:") || strings.HasPrefix(url, "turns:")) {
+					e.mu.Unlock()
+					http.Error(w, "invalid ICE URL", 400)
+					return
+				}
+			}
 		}
-		if len(offer.StunURLs) > 0 {
-			config.ICEServers = []webrtc.ICEServer{{URLs: offer.StunURLs}}
-		}
-		pc, err := e.api.NewPeerConnection(config) // Direct candidates only; no TURN credentials.
+		config.ICEServers = offer.ICEServers
+		pc, err := e.api.NewPeerConnection(config) // Worker supplies only verified, temporary relay grants when needed.
 		if err != nil {
 			e.mu.Unlock()
 			http.Error(w, "cannot create peer", 503)
@@ -224,8 +248,8 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithCancel(context.Background())
 		p := &peer{pc: pc, expires: time.Now().Add(30 * time.Second), channels: map[string]*webrtc.DataChannel{}, ctx: ctx, cancel: cancel,
 			bridges: map[string]*bridge{
-				"control": {ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 8), low: make(chan struct{}, 1)},
-				"bulk":    {ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 16), low: make(chan struct{}, 1)},
+				"control": {maximumQueued: 8 * maximumMessage, ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 128), low: make(chan struct{}, 1)},
+				"bulk":    {maximumQueued: 16 * bulkMessage, ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 16), low: make(chan struct{}, 1)},
 			}}
 		e.peers[id] = p
 		e.mu.Unlock()
@@ -274,10 +298,11 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 					e.retire(id, p)
 					return
 				}
+
 				p.received.Add(uint64(len(message.Data)))
-				select {
-				case b.queue <- message:
-				default:
+				// Small cumulative credits can arrive together after TURN pacing.
+				// Preserve the old byte cap while admitting a bounded credit burst.
+				if !b.enqueue(message) {
 					e.retire(id, p)
 				}
 			})

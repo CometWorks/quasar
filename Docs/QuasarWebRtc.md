@@ -83,15 +83,15 @@ shortcut. No Origin header is stripped, and DIS-0042 remains in force.
 ## Development configuration
 
 Choosing Nebula automatically selects WebRTC for SDK traffic; there is no separate
-user toggle. Local sessions continue using HTTP independently. Missing direct
-connectivity reports unavailable without replay or automatic bulk HTTP fallback.
+user toggle. Local sessions continue using HTTP independently. Initial direct failure makes one bounded TURN-only setup attempt before
+application work. Unavailable connectivity fails without replay or bulk HTTP fallback.
 This branch is separate from the shipped SDK-first HTTP release.
 
 A developer can build the pinned peer with Go 1.27.3 and place it in `Peer/quasar-peer` (`Peer/quasar-peer.exe` on Windows)
 beside the worker, or set `Quasar:WebRtc:PeerExecutable` to its explicit path.
 Missing components report unavailable; no plugin/browser starts Quasar and no
-runtime download bypasses release integrity checks. Native release staging and
-rollback verification are separate pending packaging work.
+runtime download bypasses release integrity checks. Release staging supplies a checked SHA-256/runtime manifest and dependency
+notices. Older complete HTTP archives remain rollback targets.
 
 The isolated real-browser check uses `QUASAR_RTC_TEST_PEER` pointing to that built
 executable, `PLAYWRIGHT_MODULE` pointing to Playwright 1.61.1 and an optional
@@ -108,9 +108,21 @@ manager outage and installation replacement, including a native Go race build.
 Windows cross-compilation works; native Windows/browser acceptance, real Steam,
 installed packages and actual Viewer/core acceptance remain release gates.
 
-No TURN server or automatic bulk HTTP fallback is configured. The endpoint reports
-direct, relayed or unavailable from actual selected ICE candidate types, and
-refuses relayed activation in this direct-only development mode. Existing
+Nebula self-hosts STUN discovery and a Pion TURN fallback. The worker may reserve
+one-use, exact-session relay setup through `/_quasar/sdk/v1/rtc/relay`, receiving
+independent short-lived transport credentials and a 60-second ticket. Only those
+credentials reach native/browser ICE. Ticket consumption uses the worker-owned
+peer ID, exact stored browser binding and current installation. Prepared tickets
+share peer admission, expire, and retire on logout/replacement/worker stop.
+
+A connected peer activates a 120-second relay lease after hosting activation;
+renewal succeeds before extending the independent hosted deadline. Native relay
+sockets enforce expiry and shared panel/aggregate budgets, including allocations
+already open. Actual selected ICE candidates determine `direct`, `relayed` or
+`unavailable`; a relay path without its authorized grant is refused. No established
+stream or mutation is replayed. There is no automatic bulk HTTP fallback.
+The operator relay requires an explicit reviewed budget. See
+[Nebula's relay contract](https://github.com/CometWorks/nebula/blob/main/docs/webrtc-relay.md). Existing
 compatibility HTTP traffic still crosses Nebula; it is not accounted away by
 successful peer setup.
 
@@ -140,7 +152,9 @@ Binary messages contain uint32 little-endian request ID and sequence, then at
 most 16 KiB of bytes. Initial pull credit is required. Absolute consumed-byte
 acknowledgments bound outstanding read bytes to 256 KiB per call; native send
 queues also stay at or below 256 KiB per channel. Private IPC receive queues hold
-eight control or 16 bulk messages; overflow closes the peer. A stalled consumer
+at most 128 control messages within the previous 528 KiB byte cap, or 16 bulk
+messages. Cumulative read credits replenish half a window at a time so paced
+TURN delivery does not flood control IPC. Overflow closes the peer. A stalled consumer
 cannot grow a whole-file buffer. Reads retain metadata, exact bytes and single
 seekable ranges. Subscriptions use bounded NDJSON items. Control and binary
 channels are reliable and ordered independently, so EOF carries an exact byte
