@@ -313,6 +313,7 @@ namespace Quasar.Agent
                 WorldName = hello.WorldName,
                 ClusterMode = hello.ClusterMode,
                 ClusterChatReady = hello.ClusterMode && _clusterChat.IsReady,
+                PlayerCommandsReady = PlayerCommands.Registered,
                 ClusterId = hello.ClusterId,
                 ClusterNodeId = hello.ClusterNodeId,
                 ClusterNodeRole = hello.ClusterNodeRole,
@@ -1618,6 +1619,9 @@ namespace Quasar.Agent
                 case ServerCommandType.DeleteEntity:
                     return DeleteEntity(command);
 
+                case ServerCommandType.ResolvePositionOwner:
+                    return ResolvePositionOwner(command);
+
                 default:
                     return CreateResult(command, false, $"Unsupported command '{command.CommandType}'.");
             }
@@ -1761,6 +1765,18 @@ namespace Quasar.Agent
             var result = EntityInspector.Query(filter, _options.ClusterMode);
             var message = $"Returned {result.Entities.Count} of {result.TotalCount} matching ({result.TotalEntityCount} total).";
             return CreateResult(command, true, message, SerializePayload(result));
+        }
+
+        private ServerCommandResult ResolvePositionOwner(ServerCommandEnvelope command)
+        {
+            var request = DeserializePayload<PositionOwnerRequest>(command.Payload);
+            if (request == null || request.RadiusMeters <= 0)
+                return CreateResult(command, false, "Position owner request is missing a position or radius.");
+
+            var result = EntityInspector.NearestOwned(request, _options.ClusterMode);
+            return CreateResult(command, true,
+                result.Found ? $"Nearest owned entity {result.EntityId} at {result.DistanceMeters:F0} m." : "No owned entity in range.",
+                SerializePayload(result));
         }
 
         private ServerCommandResult DeleteEntity(ServerCommandEnvelope command)

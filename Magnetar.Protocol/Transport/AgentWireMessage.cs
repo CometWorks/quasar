@@ -21,4 +21,6 @@ public class AgentWireMessage
     public PluginConfigUpdateRequest? PluginConfigUpdateRequest { get; set; }
 
     public PluginLogBatch? PluginLogs { get; set; }
+
+    public PlayerRequest? PlayerRequest { get; set; }
 }

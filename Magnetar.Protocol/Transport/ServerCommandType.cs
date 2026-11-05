@@ -26,4 +26,10 @@ public enum ServerCommandType
     /// commands as the console. Replies come back as Console chat lines.
     /// </summary>
     RunChatCommand = 18,
+
+    /// <summary>
+    /// Asks a cluster node for its nearest owned grid or character to a position
+    /// (<see cref="Model.PositionOwnerRequest"/> in Payload, <see cref="Model.PositionOwnerResult"/> back).
+    /// </summary>
+    ResolvePositionOwner = 19,
 }

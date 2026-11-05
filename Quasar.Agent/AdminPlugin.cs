@@ -47,8 +47,7 @@ namespace Quasar.Agent
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
             ChatCapturePatch.Apply();
-            if (!_clusterMode)
-                ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
+            RegisterCommands(_clusterMode);
             _bridge = new GameBridge(gameServer, options);
 
             // Start capturing plugin log lines before the connection loop so any
@@ -57,6 +56,7 @@ namespace Quasar.Agent
             _outbox.Start();
 
             _connection = new AgentConnection(_bridge, new WebServiceLocator(), options, _outbox);
+            PlayerCommands.Send = request => _connection?.TrySendPlayerRequest(request) == true;
             if (!_clusterMode)
             {
                 StopCommand.AdminStopRequested = ReportAdminStop;
@@ -72,6 +72,20 @@ namespace Quasar.Agent
             }
             _connection.Start();
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
+        }
+
+        // A cluster node runs only the players' commands: the node a player is attached to
+        // dispatches their "!" lines (the cluster's chat forwarding runs after Magnetar's
+        // command prefix), and lifecycle commands belong to the Gateway.
+        internal static void RegisterCommands(bool clusterMode)
+        {
+            var assembly = typeof(AdminPlugin).Assembly;
+            if (clusterMode)
+                ServerCommands.Register(assembly, typeof(AskCommand), typeof(LinkCommand));
+            else
+                ServerCommands.Register(assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand),
+                    typeof(AskCommand), typeof(LinkCommand));
+            PlayerCommands.Registered = true;
         }
 
         public void Update()
@@ -93,6 +107,7 @@ namespace Quasar.Agent
             QuitCommand.AdminStopRequested = null;
             RestartCommand.AdminRestartRequested = null;
             RestartCommand.ClearScheduledRestart();
+            PlayerCommands.Send = null;
             MyVisualScriptLogicProvider.PlayerDied -= OnPlayerDied;
             UnsubscribeDeathHandlers();
             _connection?.Stop();

@@ -144,7 +144,10 @@ namespace Quasar.Agent
 
             var owners = grid.BigOwners;
             if (owners != null && owners.Count > 0)
+            {
                 ResolveOwner(owners[0], summary);
+                summary.BigOwnerSteamIds = BigOwnerSteamIds(owners);
+            }
 
             return summary;
         }
@@ -279,6 +282,53 @@ namespace Quasar.Agent
 
             if (players.TryGetPlayerId(identityId, out var playerId) && playerId.SteamId != 0)
                 summary.OwnerSteamId = playerId.SteamId;
+        }
+
+        private static List<ulong> BigOwnerSteamIds(List<long> owners)
+        {
+            var result = new List<ulong>();
+            var players = MySession.Static?.Players;
+            if (players == null)
+                return result;
+
+            foreach (var identityId in owners)
+            {
+                if (players.TryGetPlayerId(identityId, out var playerId) && playerId.SteamId != 0
+                    && !result.Contains(playerId.SteamId))
+                    result.Add(playerId.SteamId);
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// The nearest grid or character this process owns within the radius. On a cluster only
+        /// entities in this node's partitions count (<c>Local</c>), so the nodes can be compared.
+        /// </summary>
+        public static PositionOwnerResult NearestOwned(PositionOwnerRequest request, bool clusterMode)
+        {
+            var center = new VRageMath.Vector3D(request.X, request.Y, request.Z);
+            var candidates = new List<KeyValuePair<double, long>>();
+            var entities = MyEntities.GetEntities();
+            foreach (var entity in entities ?? Enumerable.Empty<MyEntity>())
+            {
+                if (entity == null || entity.MarkedForClose || !(entity is MyCubeGrid || entity is MyCharacter))
+                    continue;
+
+                var distance = VRageMath.Vector3D.Distance(entity.PositionComp.GetPosition(), center);
+                if (distance <= request.RadiusMeters)
+                    candidates.Add(new KeyValuePair<double, long>(distance, entity.EntityId));
+            }
+
+            foreach (var candidate in candidates.OrderBy(pair => pair.Key))
+            {
+                if (clusterMode && ClusterResidence(candidate.Value) != "Local")
+                    continue;
+
+                return new PositionOwnerResult { Found = true, DistanceMeters = candidate.Key, EntityId = candidate.Value };
+            }
+
+            return new PositionOwnerResult();
         }
 
         private static bool MatchesType(EntitySummary summary, string typeTag)

@@ -34,6 +34,9 @@ public class AgentSnapshot
     /// <summary>Fenced cluster chat handler and SDK broadcast capability are available.</summary>
     public bool ClusterChatReady { get; set; }
 
+    /// <summary>The agent registered the players' <c>!ask</c> and <c>!link</c> commands and sends them as player requests.</summary>
+    public bool PlayerCommandsReady { get; set; }
+
     public string DeploymentRevision { get; set; } = string.Empty;
     public bool? ReadinessVerified { get; set; }
     public string DeploymentFailure { get; set; } = string.Empty;

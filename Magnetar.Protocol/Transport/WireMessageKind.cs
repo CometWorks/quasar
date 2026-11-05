@@ -13,4 +13,5 @@ public static class WireMessageKind
     public const string AdminStop = "admin-stop";
     public const string AdminRestart = "admin-restart";
     public const string PluginLogs = "plugin-logs";
+    public const string PlayerRequest = "player-request";
 }

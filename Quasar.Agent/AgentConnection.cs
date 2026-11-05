@@ -284,6 +284,35 @@ namespace Quasar.Agent
             return TrySendAdminSignal(WireMessageKind.AdminRestart, "admin-restart");
         }
 
+        /// <summary>
+        /// Queues a player's <c>!ask</c> or <c>!link</c> for Quasar. Called on the game thread,
+        /// so it never waits for the socket; false when Quasar is not connected.
+        /// </summary>
+        public bool TrySendPlayerRequest(PlayerRequest request)
+        {
+            var socket = _socket;
+            if (request == null || socket == null || socket.State != WebSocketState.Open)
+                return false;
+
+            var message = new AgentWireMessage
+            {
+                Kind = WireMessageKind.PlayerRequest,
+                PlayerRequest = request,
+            };
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await SendAsync(socket, message, CancellationToken.None).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    Log($"Failed sending a player request: {exception.Message}");
+                }
+            });
+            return true;
+        }
+
         private bool TrySendAdminSignal(string kind, string label)
         {
             var socket = _socket;

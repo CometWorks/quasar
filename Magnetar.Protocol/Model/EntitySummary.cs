@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Magnetar.Protocol.Model;
 
 /// <summary>
@@ -28,6 +30,9 @@ public class EntitySummary
     public int? Pcu { get; set; }
 
     public ulong? OwnerSteamId { get; set; }
+
+    /// <summary>Steam ids of a grid's big owners that are players; null on older agents.</summary>
+    public List<ulong>? BigOwnerSteamIds { get; set; }
 
     public string OwnerName { get; set; } = string.Empty;
 
