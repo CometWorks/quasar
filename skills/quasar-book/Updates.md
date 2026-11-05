@@ -2,27 +2,29 @@
 
 How Quasar updates itself, how it keeps the managed Magnetar and Space Engineers Dedicated Server (DS) runtime current, and what to do when an update fails. Cluster Hosts and Docker installs have their own update paths, linked below.
 
-## Required 1.4.1 migration before 1.5
+## Direct installation and upgrades
 
-Quasar 1.4.1 is a migration release. It replaces the old Bootstrap launcher and web worker pair with one Quasar application that runs as a native service, plus a separate updater service. Quasar 1.5 and later refuse to stage, install or start until an installation has completed this migration:
+Install the current complete platform package directly. Fresh installs and upgrades
+need no intermediate release or migration receipt. Existing
+`Updates/migration-1.4.1.json` files are historical and are no longer read or written.
+Older published packages may still report the prerequisite; use the next release's
+complete package instead of writing a receipt by hand.
 
-1. Install the complete 1.4.1 platform package with its installer, keeping the existing install path, data path, service names, and the Linux account and user/system scope. See [Migrating from Bootstrap](#migrating-from-bootstrap).
-2. Start 1.4.1 successfully.
-3. Then update to 1.5 or later.
-
-Completion is recorded in `<data directory>/Updates/migration-1.4.1.json`. With native services, the updater writes it once the 1.4.1 main service passes the service ownership and health checks. A manual (foreground) 1.4.1 installation writes it at startup. Keep this file with the data directory. Updating an old Bootstrap installation to the 1.4.1 web worker alone does not complete the migration.
-
-Without the receipt, a 1.5 update fails with "Quasar 1.5 and later require a completed Quasar 1.4.1 migration first..." The same check runs on the Updates page, in `Quasar update`, in the updater service, in both installers and at application startup, where Quasar exits with code 3. Run the 1.4.1 installer and start 1.4.1 to fix it. Don't write the receipt by hand.
-
-Each 1.5 release contains only `quasar-linux-x64.tar.gz`, `quasar-win-x64.zip` and `SHA256SUMS`. The legacy `quasar-web-*` worker archives exist only on 1.4.1 releases, so an old Bootstrap installation that looks for a worker update finds 1.4.1. Release cleanup always keeps the newest full 1.4.1 release, and the release workflow refuses to publish a full 1.5 or later release until such a 1.4.1 release exists.
-
-Release notes start with installation instructions. The **Quasar 1.5** section includes the required upgrade order and a link to the migration guide.
+A Bootstrap or Scheduled Task install still needs the explicit
+[native-service migration](#migrating-from-bootstrap), preserving paths, account,
+service names, settings, credentials and Data Protection keys together. Package
+checksums, validation, service ownership, health checks and rollback still apply.
+The newest full 1.4.1 bridge stays available for old Bootstrap worker discovery;
+current release publication does not depend on it.
 
 ### Broken 1.4.1.1 package
 
-The published `v1.4.1.1` package records `1.4.1-1` in `release.json`, but its application reports `1.4.1.1`. Neither the foreground nor native-service path can record migration with those different identities. Its Windows installer can also remove file access when application and data share a folder. Do not rerun it. Use the corrected [1.4.1.2 migration release](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2) or a newer full 1.4.1 package, preserving paths and service names. Stop both services and any old task first; restore administrator file access if the old installer removed it. Keep data, credentials, keys and the recovery copy. Start the corrected bridge and confirm `Updates/migration-1.4.1.json` in the intended data folder before installing 1.5 or later. Do not fabricate the receipt. See [bridge recovery](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#broken-1411-package).
-
-Release publication rejects the broken 1.4.1.1 bridge. Cleanup keeps the newest complete 1.4.1 bridge, including both platform packages, both legacy workers and checksums, even when a newer incomplete bridge exists.
+Do not rerun the historical 1.4.1.1 Windows installer: its identity and file-access
+bugs can leave the installation unusable. Stop both services and any old task,
+back up data, credentials and keys together, restore administrator access only to
+the dedicated Quasar folders if needed, and install the current complete package
+with the original paths and service names. Keep the old application for recovery
+until the new service passes health checks. No receipt is needed.
 
 ## What gets updated and by whom
 
@@ -121,7 +123,7 @@ Quasar merges `appsettings.json` three ways: the previous release's defaults, yo
 Installations from before 1.4.1 run a Bootstrap launcher that starts a separate web worker, on Linux under systemd and on Windows as a Scheduled Task. Updating only the web worker does not install the updater or replace the Scheduled Task. To migrate:
 
 1. Save worlds. Back up the old installation, including `appsettings.json`, credentials and the Data Protection keys, together.
-2. Extract the complete 1.4.1 package to a temporary folder.
+2. Extract the current complete package to a temporary folder.
 3. Run its installer against the existing installation. It keeps the existing `appsettings.json` and data.
    - Linux: `./install.sh --no-build --install-dir /path/to/Quasar --service-name quasar --start`. For a system unit add `sudo`, `--system` and `--user <account>`.
    - Windows, elevated PowerShell: `.\install.ps1 -InstallDir 'C:\Quasar' -ServiceName Quasar -MigrateScheduledTask -TaskName Quasar -Start`. Stop the old task and its game servers first; the installer refuses a running task. It disables the task, keeps a backup and checks the new service. On failure it restores the old application and the task's previous state.
@@ -272,7 +274,7 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 
 ## Common problems
 
-- **"Quasar 1.5 and later require a completed Quasar 1.4.1 migration first..."** Install and start the complete 1.4.1 package first. See [Required 1.4.1 migration before 1.5](#required-141-migration-before-15).
+- **"Quasar 1.5 and later require a completed Quasar 1.4.1 migration first..."** This is an older package's removed gate. Install the current complete package directly; keep the real native-service migration and recovery precautions. See [Direct installation and upgrades](#direct-installation-and-upgrades).
 - **"Release <v> has no complete quasar-linux-x64.tar.gz package..."** (or the Windows zip). The selected release has no complete package for this platform, or it is a prerelease while prereleases are off.
 - **"The previous application replacement still needs recovery..."** The updater has not finished restoring an interrupted update. Make sure the updater service runs, then check `update --status`.
 - **"Staged safely. This is a legacy Bootstrap installation..."** A Bootstrap installation cannot install the complete package from the UI. [Migrate](#migrating-from-bootstrap) with the installer.
@@ -342,7 +344,6 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Quasar.Updater/TrustedUpdatePackage.cs`
 - `Quasar.Updater/RecoverInstallation.cs`
 - `Quasar.Updater/ConfigureInstallation.cs`
-- `Shared/Updates/QuasarUpgradePath.cs`
 - `Shared/Updates/QuasarUpdateOperation.cs`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Shared/Updates/NativeQuasarServices.cs`

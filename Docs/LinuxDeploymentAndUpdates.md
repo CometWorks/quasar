@@ -60,9 +60,7 @@ installs the 32-bit libraries.
 See [the unified application update and migration guide](QuasarUpdates.md) for
 native main/updater services, CLI commands, durable progress and recovery.
 
-**Upgrade order:** complete and successfully start the full 1.4.1 migration package
-before 1.5 or later. The legacy web worker alone is insufficient. See
-[the enforced prerequisite](QuasarUpdates.md#required-141-migration-before-15).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ## Release Assets
 
@@ -457,3 +455,11 @@ For an existing install, run `install.sh --repair-supervision` with its original
 paths, service name, account and user/system scope, then restart the main service.
 Repair rewrites the unit without changing its `Restart=on-failure` policy.
 See [safe restart and capability checks](QuasarUpdates.md#restart-quasar-safely).
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` at its configured web address. Choose
+**Self-deploy** to open Security, or **Use hosted panel** to enroll with Nebula.
+Completed setup is saved; pending, cancelled or failed enrollment stays resumable.
+Reopen it from **Security → Manage access setup**. See
+[post-install instructions](Installation.md#post-install-access-setup).

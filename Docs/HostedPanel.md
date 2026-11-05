@@ -13,6 +13,17 @@ Live deployment and provider verification remain required before customer launch
 The operator accepts shared-origin plugin risk and uses retrospective enforcement
 without customer preapproval.
 
+Post-install access setup starts at `/setup` on the configured Quasar address.
+Guided installers open it after installation and health checks; manual installs
+can open it after starting Quasar. It uses the same administrator/access dialog
+as **Security → Manage access setup**. A saved self-deploy choice completes setup
+and opens Security. Hosted setup completes only after activation and fresh
+matching tunnel/application health. The existing private enrollment file retains
+completion across restarts and repeat installs. Pending, cancelled or failed
+attempts remain resumable and may prompt again; completion stops automatic prompts.
+Cancellation preserves private identity and does not cancel a paid subscription.
+Existing saved choices remain compatible. Explicit reopening is always available.
+
 ## Subscription
 
 The confirmed price is **€2.99 per month in EUR, including applicable customer

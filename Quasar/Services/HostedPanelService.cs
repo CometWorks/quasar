@@ -63,7 +63,9 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
         try
         {
             CheckWritableState();
-            await HostedPanelState.SaveAsync(State with { Choice = choice });
+            var state = State;
+            await HostedPanelState.SaveAsync(state with { Choice = choice,
+                SetupCompleted = choice == "self" || state.IsSetupComplete });
             AccessActive = false;
         }
         finally { gate.Release(); }
@@ -82,12 +84,14 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
                 throw new InvalidOperationException("This installation is already enrolled. Use its existing public name to reconnect.");
             if (state.PanelId == panelId && state.BrowserUrl is not null && state.EnrollmentId is not null)
             {
-                await HostedPanelState.SaveAsync(state with { Choice = "hosted" }, ct);
+                await HostedPanelState.SaveAsync(state with { Choice = "hosted", SetupCompleted = false }, ct);
                 Status = "Checking hosted access and the secure tunnel";
                 Changed?.Invoke();
                 return state.BrowserUrl;
             }
-            state = new HostedPanelState { Choice = "hosted", PanelId = panelId };
+            state = state.PanelId == panelId
+                ? state with { Choice = "hosted", SetupCompleted = false }
+                : new HostedPanelState { Choice = "hosted", PanelId = panelId, SetupCompleted = false };
             AccessActive = false;
             // Save proof before contacting Nebula: a crash must not lose the installation key.
             await HostedPanelState.SaveAsync(state, ct);
@@ -179,6 +183,8 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
                     await HostedPanelState.SaveAsync(state with { Credential = credential, OwnerSteamId = result.GetProperty("ownerSteamId").GetString(), BrowserUrl = HostedPanelState.Origin + "/account" }, ct);
                 AccessActive = true;
                 var health = ConnectorHealth;
+                if (health is { Ready: true } && !state.IsSetupComplete)
+                    await HostedPanelState.SaveAsync(State with { SetupCompleted = true }, ct);
                 Status = health is { Ready: true } ? "Hosted dashboard ready"
                     : health is { TunnelRegistered: true, WorkerReady: false } ? "Tunnel connected; local Quasar is restarting"
                     : "Enrolled; Bootstrap is connecting the hosted tunnel";

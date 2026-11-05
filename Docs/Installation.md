@@ -80,9 +80,31 @@ For a portable session without service registration, run `Quasar serve
 --foreground` (`Quasar.exe` on Windows). Application updates then need a manual
 stop and restart.
 
-**Required upgrade order:** complete the 1.4.1 migration and start it successfully
-before 1.5 or later. A staged legacy worker does not satisfy the requirement. See
-[the migration prerequisite](QuasarUpdates.md#required-141-migration-before-15).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
+
+## Post-install access setup
+
+After installing and starting Quasar, open `http://localhost:8080/setup` using your
+configured port. Guided installers open this page after the health check. On a
+remote Linux server use a trusted private LAN or an SSH tunnel, for example
+`ssh -L 8080:127.0.0.1:8080 <user>@<quasar-host>`, then open the local setup URL.
+Initial setup needs an authorized administrator session; Steam sign-in alone
+cannot claim an unconfigured installation.
+
+Set the first Steam administrator if asked, then choose **Self-deploy** or
+**Use hosted panel** and press **Next**. Self-deploy saves the access choice and
+opens **Security** for trusted proxies, authentication and your own domain and
+certificate settings. Local-only use also works without public hosting. Hosted
+setup reuses Nebula enrollment: confirm Steam and any billing on Nebula, then wait
+for active hosting and fresh tunnel/application readiness. Starting enrollment,
+returning from payment, or saving an administrator alone does not complete it.
+
+Completion is saved in the existing private `HostedPanel/enrollment.json` state,
+so the first dashboard visit, browser reloads and repeat installation with the
+same data do not reopen completed setup. Pending, cancelled and failed setup can
+be resumed at `/setup` or **Security → Manage access setup**. Cancellation stops
+the hosted connection without deleting credentials or cancelling a subscription.
+Existing completed choices remain valid. Headless startup does not wait for setup.
 
 ## Existing installations and updater upgrades
 

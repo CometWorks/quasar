@@ -4,7 +4,7 @@ How to download, run and install Quasar on Linux: the release package, the guide
 
 Quasar is one application: the web UI and the server supervisor run in the same `Quasar` process. A small separate updater, `Updater/Quasar.Updater`, replaces the application during updates. The installer registers both as systemd services. Older versions had a Bootstrap launcher that downloaded a separate web worker; current packages don't use it.
 
-**Required upgrade order.** Quasar 1.5 and later start only after a completed 1.4.1 migration. Install the complete 1.4.1 package with your existing paths, account, service name and user or system scope, and start it successfully. That writes `Updates/migration-1.4.1.json` in the data directory. A 1.4.1 web worker staged by an old Bootstrap install does not count. Without a valid receipt, the 1.5 installer, the updater and Quasar itself refuse with `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...` (exit code 3). This applies to new installations too: a new installation that will run 1.5 starts with 1.4.1. Keep the receipt with the data directory. Don't write one by hand.
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ## Release assets
 
@@ -81,7 +81,7 @@ Quasar prints `Quasar` and its URL (`http://127.0.0.1:8080` with the shipped set
 - **Restart Quasar** is not available in a foreground run, because no service brings Quasar back.
 - An update started from the UI stages the release but can't swap the running files. Stop Quasar, run `./Quasar update --retry`, then start it again. See [Updates](Updates.md).
 
-A foreground run of a 1.4.1 package records the migration receipt after it starts, the same as a service install.
+Foreground installs and service installs need no intermediate-release receipt.
 
 ### Launcher commands and flags
 
@@ -123,7 +123,7 @@ With an extracted release archive, `install.sh` installs in place: the folder th
 ./install.sh --install-dir ~/.local/share/Quasar --start
 ```
 
-The script then copies the package there. Before it copies anything it checks .NET, the 1.4.1 migration requirement (`Updater/Quasar.Updater check-upgrade-path`) and that no Quasar of this installation is running (`check-stopped`, which fails with `A Quasar process from this installation is still running. Stop it before replacing files.`). An existing `appsettings.json` in the install directory is kept.
+The script then copies the package there. Before it copies anything it checks .NET, that no Quasar of this installation is running (`check-stopped`, which fails with `A Quasar process from this installation is still running. Stop it before replacing files.`). An existing `appsettings.json` in the install directory is kept.
 
 The UI is then at `http://localhost:8080` (or the port in `appsettings.json`). The script ends with a summary and the restart command.
 
@@ -234,7 +234,7 @@ On Linux the install directory is also the data directory, `QUASAR_INSTALL_DIR`.
 | `ManagedRuntime/Tools/` | Downloaded `Magnetar/`, `SteamCMD/`, `SteamCmdHome/` (private HOME for SteamCMD), `SpaceEngineersDedicatedServer/`, `DotNetSdk/` |
 | `ManagedRuntime/WebService/<version>/` | Web worker releases left from a Bootstrap install |
 | `ManagedRuntime/Cache/` | Download cache |
-| `Updates/` | `operation.json` (update status), `migration-1.4.1.json` (migration receipt), staged packages and `LauncherTransaction/` (the complete previous application) |
+| `Updates/` | `operation.json` (update status), staged packages and `LauncherTransaction/` (the complete previous application) |
 | `.update-cache/` | The updater's private copy of a downloaded package |
 | `Diagnostics/` | Diagnostic capture and queues, unless `QUASAR_DIAGNOSTICS_DIRECTORY` points elsewhere. See [Diagnostics](Diagnostics.md). |
 | `DataProtection-Keys/` | Keys that encrypt stored secrets such as `github-updates.json` and `steam-workshop.json` |
@@ -297,7 +297,7 @@ For system services use `sudo`, `--system` and the existing `--user <account>`.
 
 ### Migrating a Bootstrap install
 
-A Bootstrap-era install moves to the native services through the complete 1.4.1 package. Save and stop the worlds, back up `appsettings.json`, credentials and `DataProtection-Keys/` together, and keep a copy of the old installation. Extract the 1.4.1 package to a temporary folder and run its `install.sh` with the existing install directory, service name and scope as above. The installer keeps the existing `appsettings.json` and data and abandons any pending Bootstrap activation (`Updates/bootstrap-update-request.json` is renamed to `.migrated`). When the files were already replaced with Quasar stopped, `--repair-supervision` with the same path, name and scope rewrites only the units and metadata. Then start 1.4.1 and check **Updates** and `./Quasar update --status` before moving on to 1.5.
+A Bootstrap-era install moves to the native services through the current complete package. Save and stop the worlds, back up `appsettings.json`, credentials and `DataProtection-Keys/` together, and keep a copy of the old installation. Extract the current complete package to a temporary folder and run its `install.sh` with the existing install directory, service name and scope as above. The installer keeps the existing `appsettings.json` and data and abandons any pending Bootstrap activation (`Updates/bootstrap-update-request.json` is renamed to `.migrated`). When the files were already replaced with Quasar stopped, `--repair-supervision` with the same path, name and scope rewrites only the units and metadata. Then start Quasar and check **Updates** and `./Quasar update --status`.
 
 ### Move the install root
 
@@ -311,7 +311,6 @@ The package contains `Host/Quasar.Host`. On the Quasar machine, Quasar runs it a
 
 ## Common problems
 
-- `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`: install and start the complete 1.4.1 package first (see the top of this page).
 - `User service install is the default; run install.sh without sudo.` You ran `sudo ./install.sh` without `--system`. Run it as the normal user, or add `--system`.
 - `System service install needs root. Run: sudo ./install.sh --system`: `--system` needs `sudo`.
 - `--user is only supported with --system installs.`: drop `--user` or add `--system`.
@@ -329,6 +328,15 @@ The package contains `Host/Quasar.Host`. On the Quasar machine, Quasar runs it a
 - `./Quasar serve` stops with `Couldn't find a valid ICU package installed on the system`: install the .NET 10 runtime (see [Prerequisites](#prerequisites)), whose packages bring ICU.
 - The services don't start at boot: enable lingering for user services (`sudo loginctl enable-linger <user>`), or check that `--no-enable` was not used.
 - The UI doesn't come up after a port change: another program may use the port, or the port was changed only through an environment variable. Check `Logs/quasar.log`, set `Quasar:Port` in `appsettings.json`, and rerun the installer with `--repair-supervision`.
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` on its configured address. Guided installers
+open this page after readiness checks. Choose self-deploy or Nebula hosting using
+the existing access wizard. Completed setup is remembered across dashboard visits
+and repeat installs; cancelled, failed or pending setup can be resumed. See
+[First setup](FirstSetup.md#choose-public-access) for administrator access, SSH
+forwarding and enrollment. Reopen from **Security > Manage access setup**.
 
 ## Sources
 - `README.md`
@@ -369,7 +377,6 @@ The package contains `Host/Quasar.Host`. On the Quasar machine, Quasar runs it a
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Shared/Updates/NativeQuasarServices.cs`
-- `Shared/Updates/QuasarUpgradePath.cs`
 - `Shared/Updates/LauncherReplacement.cs`
 - `Shared/ServiceHosting/NativeServiceFailures.cs`
 - `Quasar.Updater/Program.cs`

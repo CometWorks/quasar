@@ -60,8 +60,6 @@ internal static class QuasarApplicationEntry
         if (QuasarServiceInstallation.Current is { } installation &&
             NativeQuasarServices.ReadAsync(installation, false, CancellationToken.None).GetAwaiter().GetResult().Pid == Environment.ProcessId) return;
         using var lease = QuasarMaintenanceLease.AcquireAsync(CancellationToken.None).GetAwaiter().GetResult();
-        if (QuasarServiceInstallation.Current is null)
-            QuasarUpgradePath.RecordHealthy(AppContext.BaseDirectory, Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarDirectory(), version);
         if (QuasarUpdateJournal.Read() is not { Stage: UpdateStage.Restarting, WebRelease: null } operation) return;
         if (operation.Version != version) { QuasarUpdateJournal.Fail("The started application is not the requested release. Use the retained installation for recovery."); return; }
         if (LauncherReplacement.Phase(AppContext.BaseDirectory) is "ready" or "attempted") LauncherReplacement.SetPhase(AppContext.BaseDirectory, "committed");

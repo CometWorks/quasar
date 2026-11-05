@@ -179,6 +179,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.False(File.Exists(HostedPanelState.StatePath));
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Next")).ClickAsync();
         Assert.Equal("self", HostedPanelState.Read()!.Choice);
+        Assert.True(HostedPanelState.Read()!.IsSetupComplete);
         Assert.EndsWith("/settings/security", context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().Uri);
     }
 
@@ -195,7 +196,8 @@ public sealed class AccessSetupDialogTests : IDisposable
         await provider.Find(".access-setup-actions button").ClickAsync();
         await starting;
         Assert.True(handler.CreationCanceled);
-        Assert.Equal("self", HostedPanelState.Read()!.Choice);
+        Assert.Equal("dismissed", HostedPanelState.Read()!.Choice);
+        Assert.False(HostedPanelState.Read()!.IsSetupComplete);
     }
 
     [Fact]
@@ -206,6 +208,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         var provider = await HostedDialogAsync(context, handler);
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Start hosted enrollment")).ClickAsync();
         Assert.Contains("Continue enrollment with Steam", provider.Markup);
+        Assert.False(HostedPanelState.Read()!.IsSetupComplete);
         Assert.DoesNotContain("Self-deploy", provider.Markup);
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
         Assert.Equal("Cancel", Assert.Single(provider.FindAll(".access-setup-actions button")).TextContent.Trim());
@@ -235,6 +238,8 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.Null(dashboard.GetAttribute("target"));
         Assert.Contains("mud-button-root", dashboard.ClassList);
         Assert.Equal("1", provider.Find("progress").GetAttribute("value"));
+        Assert.True(HostedPanelState.Read()!.IsSetupComplete);
+        Assert.True(new HostedPanelService(context.Services.GetRequiredService<IHttpClientFactory>(), NullLogger<HostedPanelService>.Instance).State.IsSetupComplete);
         Assert.DoesNotContain("Self-deploy", provider.Markup);
         Assert.Contains("Manage Nebula hosting and billing", provider.Markup);
 
@@ -250,6 +255,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         await service.RefreshAsync();
         await provider.WaitForAssertionAsync(() => Assert.DoesNotContain("Open Quasar dashboard", provider.Markup));
         Assert.False(service.IsReady);
+        Assert.True(HostedPanelState.Read()!.IsSetupComplete);
         Assert.NotNull(HostedPanelState.Read()!.Credential);
     }
 
@@ -257,11 +263,20 @@ public sealed class AccessSetupDialogTests : IDisposable
     public async Task FailedCreationShowsAnErrorAndPermitsRetry()
     {
         await using var context = Context();
-        var provider = await HostedDialogAsync(context, new EnrollmentHandler { FailCreation = true });
+        var handler = new EnrollmentHandler { FailCreation = true };
+        var provider = await HostedDialogAsync(context, handler);
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Start hosted enrollment")).ClickAsync();
         Assert.Contains("Nebula could not start enrollment", provider.Markup);
         Assert.Contains("Start hosted enrollment", provider.Markup);
         Assert.Empty(provider.FindAll("progress"));
+        var failed = HostedPanelState.Read()!;
+        Assert.False(failed.IsSetupComplete);
+        handler.FailCreation = false;
+        await provider.FindAll("button").Single(b => b.TextContent.Contains("Start hosted enrollment")).ClickAsync();
+        Assert.Contains("Continue enrollment with Steam", provider.Markup);
+        Assert.Equal(failed.InstallationSecret, HostedPanelState.Read()!.InstallationSecret);
+        Assert.Equal(failed.LocalProxySecret, HostedPanelState.Read()!.LocalProxySecret);
+        Assert.False(HostedPanelState.Read()!.IsSetupComplete);
     }
 
     [Fact]
@@ -269,15 +284,97 @@ public sealed class AccessSetupDialogTests : IDisposable
     {
         await using var context = Context();
         await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
-        var state = new HostedPanelState { Choice = "hosted", PanelId = "test-panel", EnrollmentId = "existing", Credential = "test-panel." + new string('a', 64) };
+        var state = new HostedPanelState { Choice = "hosted", SetupCompleted = false, PanelId = "test-panel", EnrollmentId = "existing", Credential = "test-panel." + new string('a', 64) };
         await HostedPanelState.SaveAsync(state);
         var provider = await OpenAsync(context);
         await provider.Find(".access-setup-actions button").ClickAsync();
         var canceled = HostedPanelState.Read()!;
-        Assert.Equal("self", canceled.Choice);
+        Assert.Equal("dismissed", canceled.Choice);
         Assert.Equal(state.EnrollmentId, canceled.EnrollmentId);
         Assert.Equal(state.InstallationSecret, canceled.InstallationSecret);
+        Assert.Equal(state.LocalProxySecret, canceled.LocalProxySecret);
         Assert.Equal(state.Credential, canceled.Credential);
+        Assert.False(canceled.IsSetupComplete);
+        await context.Services.GetRequiredService<HostedPanelService>().EnrollAsync(state.PanelId);
+        Assert.Equal(state.Credential, HostedPanelState.Read()!.Credential);
+        Assert.Equal(state.InstallationSecret, HostedPanelState.Read()!.InstallationSecret);
+        Assert.False(HostedPanelState.Read()!.IsSetupComplete);
+    }
+
+    [Theory]
+    [InlineData("self")]
+    [InlineData("hosted")]
+    public async Task CompletedPostInstallSetupSurvivesNewSessionButCanBeReopened(string choice)
+    {
+        await HostedPanelState.SaveAsync(new() { Choice = choice, PanelId = "test-panel", SetupCompleted = true });
+        await using var context = Context();
+        await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        var provider = context.Render<MudDialogProvider>();
+        context.Render<AccessSetupPrompt>();
+        await provider.InvokeAsync(() => Task.CompletedTask);
+        Assert.DoesNotContain("access-setup-header", provider.Markup);
+        var page = context.Render<Quasar.Components.Pages.PostInstallSetup>();
+        Assert.Contains("Access setup is saved", page.Markup);
+        await page.FindAll("button").Single(b => b.TextContent.Contains("Manage access setup")).ClickAsync();
+        Assert.Contains("access-setup-header", provider.Markup);
+    }
+
+    [Theory]
+    [InlineData("hosted")]
+    [InlineData("dismissed")]
+    public async Task IncompleteSetupPromptsAgainAfterReload(string choice)
+    {
+        await HostedPanelState.SaveAsync(new() { Choice = choice, PanelId = "test-panel", SetupCompleted = false });
+        await using var context = Context();
+        await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        var provider = context.Render<MudDialogProvider>();
+        context.Render<AccessSetupPrompt>();
+        await provider.WaitForAssertionAsync(() => Assert.Contains("access-setup-header", provider.Markup));
+        Assert.False(HostedPanelState.Read()!.IsSetupComplete);
+    }
+
+    [Fact]
+    public async Task DismissingFreshSetupDoesNotCompleteItOrGrantPermissions()
+    {
+        await using var context = Context();
+        var provider = await OpenAsync(context);
+        await provider.FindAll("button").Single(b => b.TextContent.Trim() == "Cancel").ClickAsync();
+        Assert.False(HostedPanelState.Read()!.IsSetupComplete);
+        Assert.False(RbacConfigCatalog.HasAdminMapping(context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig()));
+        context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
+        context.Render<AccessSetupPrompt>();
+        await provider.InvokeAsync(() => Task.CompletedTask);
+        Assert.DoesNotContain("access-setup-header", provider.Markup);
+    }
+
+    [Theory]
+    [InlineData("self", false, true)]
+    [InlineData("self", true, true)]
+    [InlineData("dismissed", false, false)]
+    [InlineData("hosted", true, true)]
+    [InlineData("hosted", false, false)]
+    public async Task ExistingInstallationsRetainCompletedChoices(string choice, bool credential, bool complete)
+    {
+        await HostedPanelState.SaveAsync(new() { Choice = choice, PanelId = choice == "self" && !credential ? "" : "test-panel", Credential = credential ? "test-panel." + new string('a', 64) : null });
+        Assert.Null(HostedPanelState.Read()!.SetupCompleted);
+        Assert.Equal(complete, HostedPanelState.Read()!.IsSetupComplete);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("pending")]
+    public async Task LegacyCanceledEnrollmentIsUnfinishedAndKeepsItsIdentity(string? enrollmentId)
+    {
+        var state = new HostedPanelState { Choice = "self", PanelId = "test-panel", EnrollmentId = enrollmentId, BrowserUrl = HostedPanelState.Origin + "/account" };
+        await HostedPanelState.SaveAsync(state);
+        await using var context = Context();
+        context.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => new EnrollmentHandler());
+        Assert.False(context.Services.GetRequiredService<HostedPanelService>().State.IsSetupComplete);
+        await context.Services.GetRequiredService<HostedPanelService>().EnrollAsync(state.PanelId);
+        var resumed = HostedPanelState.Read()!;
+        Assert.Equal(state.InstallationSecret, resumed.InstallationSecret);
+        Assert.Equal(state.EnrollmentId ?? "enrollment", resumed.EnrollmentId);
+        Assert.False(resumed.IsSetupComplete);
     }
 
     private sealed class EnrollmentHandler : HttpMessageHandler

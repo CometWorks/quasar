@@ -95,11 +95,6 @@ $unsafeDirectories = @([IO.Path]::GetPathRoot($InstallDir), [IO.Path]::GetPathRo
 foreach ($directory in @($InstallDir, $DataDir)) {
     if ($unsafeDirectories -contains $directory.TrimEnd('\','/')) { throw "Choose a dedicated Quasar folder, not a system or drive root: $directory" }
 }
-$prerequisitePackage = if ($RepairSupervision) { $InstallDir } elseif ($packaged) { $scriptDir } else { $null }
-if ($prerequisitePackage) {
-    & (Join-Path $prerequisitePackage 'Updater/Quasar.Updater.exe') check-upgrade-path --package $prerequisitePackage --data-dir $DataDir
-    if ($LASTEXITCODE) { throw 'Upgrade prerequisite failed. Complete and start the 1.4.1 migration package before installing 1.5 or later.' }
-}
 $legacy = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
 if ($legacy -and -not $MigrateScheduledTask) { throw 'An existing Scheduled Task needs -MigrateScheduledTask. Save worlds and stop that installation first; task-job migration may require a one-time game-server restart.' }
 if ($legacy -and $MigrateScheduledTask) {
@@ -164,8 +159,6 @@ try {
             $files = Get-ChildItem -LiteralPath $staging -File -Recurse | ForEach-Object { $_.FullName.Substring($staging.Length).TrimStart('\','/').Replace('\','/') } | Where-Object { $_ -notlike 'Updater/*' -and $_ -notin @('appsettings.json','launcher-files.txt') }
             [IO.File]::WriteAllLines((Join-Path $staging 'launcher-files.txt'), [string[]]$files)
         }
-        & (Join-Path $staging 'Updater/Quasar.Updater.exe') check-upgrade-path --package $staging --data-dir $DataDir
-        if ($LASTEXITCODE) { throw 'Complete and start the 1.4.1 migration package before installing 1.5 or later.' }
         & (Join-Path $staging 'Updater/Quasar.Updater.exe') check-stopped --root $InstallDir --data-dir $DataDir
         if ($LASTEXITCODE) { throw 'Stop the existing Quasar application before copying files.' }
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
@@ -253,6 +246,9 @@ try {
         if (-not $healthy) { throw 'The new main service failed health checks. The legacy Scheduled Task has been retained; inspect service logs before retrying migration.' }
         if ($legacy -and $MigrateScheduledTask) { Disable-ScheduledTask -TaskName $TaskName | Out-Null }
     }
+    $setupAddress = (Get-Content -LiteralPath $metadata -Raw | ConvertFrom-Json).healthUrl.TrimEnd('/') + '/setup'
+    Write-Host "Post-install setup: $setupAddress (after starting Quasar). Choose Self-deploy or Use hosted panel."
+    Write-Host 'Self-deploy opens Security. Nebula confirms enrollment and any billing; wait for hosted readiness. Resume incomplete setup at /setup; reopen later from Security > Manage access setup.'
     Write-Host "Installed native services $ServiceName and $UpdaterServiceName. Data: $DataDir. Use Quasar.exe update --status for supervision and update status."
 } catch {
     $failure = $_

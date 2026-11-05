@@ -117,7 +117,7 @@ class GuidedInstaller(unittest.TestCase):
                 result = self.run_gui()
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(calls, ['/api/health'])
-                self.assertEqual(browser.read_text(), url)
+                self.assertEqual(browser.read_text(), url + '/setup')
                 self.assertIn('Opening Quasar in your browser', (self.root / 'dialogs').read_text())
                 browser.unlink()
                 result = self.run_gui(BROWSER_EXIT='1')
@@ -165,6 +165,69 @@ class GuidedInstaller(unittest.TestCase):
         self.assertEqual(args[args.index('--install-dir')+1], str(self.root / "existing ' % data"))
         self.assertNotIn('--system', args)
         self.assertNotIn('--yes', args)
+
+@unittest.skipIf(os.geteuid() == 0, 'User-service installer requires an unelevated user')
+class InstallerProcess(unittest.TestCase):
+    """Run the real copy/repair path; service and runtime commands stay inert."""
+    def test_fresh_repeat_and_repair_preserve_private_setup_without_a_bridge(self):
+        with tempfile.TemporaryDirectory(prefix='quasar-install-') as temporary:
+            root = Path(temporary)
+            package, install, home, binaries = [root / name for name in ('package', 'install', 'home', 'bin')]
+            for folder in (package, home, binaries, package / 'Updater'):
+                folder.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(REPO / 'install.sh', package / 'install.sh')
+            def executable(path, content):
+                path.write_text(content)
+                path.chmod(0o755)
+            executable(package / 'Quasar', '#!/bin/sh\nexit 0\n')
+            executable(package / 'Updater/Quasar.Updater', '#!/bin/sh\necho "$1" >> "$CALLS"\ncase "$1" in check-upgrade-path) exit 3;; check-stopped) exit "${STOP_CHECK_EXIT:-0}";; esac\n')
+            (package / 'release.json').write_text('{"version":"1.6.0.6","updaterProtocol":1}')
+            (package / 'launcher-files.txt').write_text('Quasar\nrelease.json\n')
+            (package / 'appsettings.json').write_text('{"packageDefaults":true}')
+            executable(binaries / 'getent', '#!/bin/sh\nprintf "%s:x:1000:1000:Test:%s:/bin/bash\\n" "$USER" "$TEST_HOME"\n')
+            executable(binaries / 'systemctl', '#!/bin/sh\nexit 0\n')
+            executable(binaries / 'dotnet', '#!/bin/sh\nprintf "Microsoft.NETCore.App 10.0.0 [/fixture]\\nMicrosoft.AspNetCore.App 10.0.0 [/fixture]\\n"\n')
+            env = dict(os.environ, HOME=str(home), TEST_HOME=str(home), USER=getpass.getuser(),
+                       PATH=str(binaries)+os.pathsep+os.defpath, CALLS=str(root / 'calls'))
+            def run(*options, in_place=False, **extra_env):
+                source = install if in_place else package
+                return subprocess.run(['/bin/bash', str(source / 'install.sh'), '--no-build', '--no-enable',
+                    '--install-dir', str(install), *options], env=dict(env, **extra_env), capture_output=True, text=True, timeout=15)
+            first = run()
+            self.assertEqual(first.returncode, 0, first.stderr)
+            self.assertIn('http://localhost:8080/setup', first.stdout)
+            private = {
+                'HostedPanel/enrollment.json': '{"Choice":"hosted","SetupCompleted":false,"InstallationSecret":"private"}',
+                'rbac.json': '{"administrator":"retained"}',
+                'cluster-credentials.json': 'protected credentials',
+                'DataProtectionKeys/key.xml': 'protected keyring',
+                'appsettings.json': '{"customPort":18080}',
+            }
+            for name, value in private.items():
+                target = install / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(value)
+            for options, in_place in [((), False), ((), True), (('--repair-supervision',), False)]:
+                repeated = run(*options, in_place=in_place)
+                self.assertEqual(repeated.returncode, 0, repeated.stderr)
+                for name, value in private.items():
+                    self.assertEqual((install / name).read_text(), value)
+            # A completed choice must also survive reinstall without being reset.
+            private['HostedPanel/enrollment.json'] = '{"Choice":"self","SetupCompleted":true}'
+            (install / 'HostedPanel/enrollment.json').write_text(private['HostedPanel/enrollment.json'])
+            completed = run(in_place=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            for name, value in private.items():
+                self.assertEqual((install / name).read_text(), value)
+            self.assertNotIn('check-upgrade-path', (root / 'calls').read_text())
+            self.assertFalse((install / 'Updates/migration-1.4.1.json').exists())
+            self.assertIn('check-stopped', (root / 'calls').read_text())
+            (package / 'Quasar').write_text('replacement must not be copied')
+            failed = run(STOP_CHECK_EXIT='9')
+            self.assertNotEqual(failed.returncode, 0)
+            self.assertEqual((install / 'Quasar').read_text(), '#!/bin/sh\nexit 0\n')
+            for name, value in private.items():
+                self.assertEqual((install / name).read_text(), value)
 
 if __name__ == '__main__':
     unittest.main()

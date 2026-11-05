@@ -218,12 +218,6 @@ jobs:
           } >> "$GITHUB_OUTPUT"
           echo "Resolved release: tag=$tag version=$version draft=$draft prerelease=$prerelease"
 
-      - name: Enforce 1.4.1 migration release prerequisite
-        if: steps.release.outputs.prerelease == 'false'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/cleanup-releases.py --require-migration-release '${{ steps.release.outputs.version }}'
-
   build-linux:
     needs: metadata
     runs-on: ubuntu-latest
@@ -744,6 +738,8 @@ jobs:
 
             Linux hosts need glibc 2.38 or newer (Debian 13, Ubuntu 24.04). On Debian and Ubuntu, install SteamCMD's 32-bit libraries and the CA certificates first: `sudo apt install ca-certificates lib32gcc-s1`. Quasar also needs the .NET 10 runtime, which `install.sh` offers to install. See the [prerequisites](https://github.com/CometWorks/quasar/blob/main/Docs/LinuxDeploymentAndUpdates.md#prerequisites).
 
+            After starting Quasar, complete [post-install access setup](https://github.com/CometWorks/quasar/blob/main/Docs/Installation.md#post-install-access-setup) at `/setup`: choose self-hosted access or Nebula hosted enrollment. Completed setup is saved; pending, cancelled or failed enrollment remains resumable.
+
             ## Browser SDK v1 (Quasar 1.6)
 
             Plugin and built-in analytics/log operations share protected JSON, streaming and subscription APIs. Security offers endpoint policy overrides. Existing stored `policyOverrides` now take effect: review and back up `rbac.json` before upgrading. Entity Viewer 0.1.13 requires Quasar 1.6.0 or newer; upgrade Quasar first, then the viewer adapter/assets and companion. Existing panel URLs remain unchanged. This release uses the current HTTP transport; WebRTC is a later rollout. See [SDK rollout and rollback](https://github.com/CometWorks/quasar/blob/main/Docs/BrowserSdkRollout.md).
@@ -752,9 +748,9 @@ jobs:
 
             This release provides only the two complete platform packages. Legacy `quasar-web-*` assets remain exclusively on the retained full 1.4.1 migration release; normal updates use the complete platform package. Each platform archive includes the unified **Quasar application**, **native updater**, **Host** and installers. Legacy launcher asset names are deliberately absent so old Bootstrap versions cannot self-activate the new layout. Use **Update Quasar** or `Quasar update --version <version>` for coordinated, checksum-verified activation. Hosts are included in each platform package; debug symbols remain CI artifacts.
 
-            ### Required upgrade order
+            ### Installation and upgrades
 
-            **Complete and successfully start the full Quasar 1.4.1 migration package before 1.5 or later.** Updating only a legacy web worker does not complete migration. The application, updater, CLI and installer enforce this prerequisite. Follow the [migration guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#required-141-migration-before-15).
+            **Install this complete package directly; no intermediate Quasar release is required.** Existing Bootstrap or Scheduled Task installations still need the [native-service migration procedure](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#migrating-existing-installations). Preserve settings, credentials and Data Protection keys together.
           files: |
             release/*
 

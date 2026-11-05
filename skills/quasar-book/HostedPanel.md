@@ -2,6 +2,17 @@
 
 Nebula publishes the complete local Quasar at a public address such as `https://dash.se-servers.net/my-server-panel/`. Servers, worlds, supervision and credentials stay on the Quasar machine. You need no DNS entry, router port forwarding or certificate. The alternative is your own HTTPS reverse proxy, see [Access control](AccessControl.md#behind-a-reverse-proxy). This page covers availability, setup, how the connection works, what changes for security, shared administration and billing, moving a panel, and the local files.
 
+Post-install access setup starts at `/setup` on the configured Quasar address.
+Guided installers open it after installation and health checks; manual installs
+can open it after starting Quasar. It uses the same administrator/access dialog
+as **Security → Manage access setup**. A saved self-deploy choice completes setup
+and opens Security. Hosted setup completes only after activation and fresh
+matching tunnel/application health. The existing private enrollment file retains
+completion across restarts and repeat installs. Pending, cancelled or failed
+attempts remain resumable and may prompt again; completion stops automatic prompts.
+Cancellation preserves private identity and does not cancel a paid subscription.
+Existing saved choices remain compatible. Explicit reopening is always available.
+
 ## Availability and price
 
 The hosted service is still being integrated. Stripe billing is implemented in Nebula, but checkout stays disabled until the operator's onboarding and acceptance are done. Until then only Nebula's configured platform super admins can enroll, for free. Other accounts stay pending until a verified payment activates them. Free hosting does not grant any role in Quasar.
@@ -84,6 +95,9 @@ If `enrollment.json` can't be read, Quasar keeps it, turns hosting off and keeps
 The detailed operator guide, including the acceptance checks for push delivery, is `Docs/HostedPanel.md` in the Quasar repository.
 
 ## Sources
+
+- `Quasar/Components/Pages/PostInstallSetup.razor`
+- `Quasar/Components/Shared/AccessSetupPrompt.razor`
 
 - `Docs/HostedPanel.md`
 - `Shared/Hosting/HostedPanelState.cs`

@@ -16,7 +16,7 @@ The platform packagers write `release.json` from the published application's
 `--version` output. CI compares both identities before uploading archives.
 NuGet's build version is separate: a CI release such as `1.4.1.42` may build with
 NuGet version `1.4.1-42`, but its package and runtime identities stay `1.4.1.42`.
-Source installation follows the same rule so health checks and migration receipts
+Source installation follows the same rule so health checks
 use the version the application actually reports. The main UI shows only the
 three-part base, such as `1.4.1`; Updates, package metadata and health checks keep
 the full build identity, including a final `.0` in `1.4.1.0`.
@@ -622,7 +622,7 @@ copy plus the retained file sink, including disabled and enabled console logging
 The updater self-test starts no service or web host.
 
 Live acceptance remains a separate, explicitly authorized smoketest. On isolated
-1.4.1 and 1.5 installations, with the migration prerequisite completed:
+current installations, including fresh data directories with no intermediate-release receipt:
 
 1. On Linux, cover both user and system units, keeping custom service names,
    execution accounts, scope and paths. On Windows, use the native main/updater
@@ -682,3 +682,23 @@ On Linux, build `Tests/Updates/UpdateIntegration.csproj`, run its `self-test`, p
 the PowerShell scripts, and run `Tests/Updates/install-gui.ps1` for portable
 validation. These checks do not prove Windows effective rights. Native SCM/ACL
 results must come from the Windows job or a coordinated Windows fixture run.
+
+## Post-install access checks
+
+Run focused setup, hosted security and direct-update checks with:
+
+```sh
+dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~AccessSetupDialogTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~ReliableUpdateTests|FullyQualifiedName~PublicEndpointSecurityTests|FullyQualifiedName~BootstrapUpdateTests'
+python3 Tests/Updates/install_gui.py
+pwsh -NoProfile -File Tests/Updates/install-gui.ps1
+python3 -m unittest discover -s scripts -p test_cleanup_releases.py
+dotnet run --project Tests/Updates/UpdateIntegration.csproj -- self-test
+```
+
+These fixtures do not start the Quasar web service. The installer process checks
+use inert runtime/service commands and temporary directories. They cover fresh
+installation without a bridge receipt, repeated copy and supervision repair,
+private state/settings preservation, stopped-process rejection, post-install URL
+routing and cancellation. bUnit covers completion persistence, pending/failure
+retry, explicit reopening and authorization. Native Windows service/UAC and real
+Steam/billing/tunnel acceptance remain platform deployment checks.

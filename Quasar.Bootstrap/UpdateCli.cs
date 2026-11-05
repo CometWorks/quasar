@@ -41,7 +41,6 @@ internal static class UpdateCli
                 var previous = QuasarUpdateJournal.Read();
                 if (retry && previous is { Stage: UpdateStage.Ready, WebRelease: null } && !LocalWorkerExists() && await NativeServicesStoppedAsync(token))
                 {
-                    QuasarUpgradePath.EnsureAllowed(previous.Version, MagnetarPaths.GetQuasarDirectory());
                     await VerifiedUpdatePackage.VerifyAsync(previous.PackageDirectory, token);
                     QuasarUpdateJournal.Write(previous with { Stage = UpdateStage.Restarting, Message = "Manual application replacement prepared. Start Quasar to complete health verification." });
                     try

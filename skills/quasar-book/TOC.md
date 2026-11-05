@@ -28,7 +28,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 
 ## Keeping things current and safe
 
-- [Updates](Updates.md): the required 1.4.1 migration, Quasar updates through the native updater service, migrating from Bootstrap, automatic updates, the GitHub token, Magnetar and Dedicated Server updates, failed updates.
+- [Updates](Updates.md): direct upgrades and native-service migration, Quasar updates through the native updater service, migrating from Bootstrap, automatic updates, the GitHub token, Magnetar and Dedicated Server updates, failed updates.
 - [Backups](Backups.md): Quasar config, server, world and cluster backups, schedules and retention, restoring.
 
 ## Watching servers

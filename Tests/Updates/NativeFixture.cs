@@ -15,13 +15,6 @@ internal static class NativeFixture
 {
     internal static async Task<int> RunAsync(string[] args)
     {
-        if (args[0] == "check-upgrade-path")
-        {
-            var package = args[Array.IndexOf(args, "--package")+1];
-            var dataPath = args[Array.IndexOf(args, "--data-dir")+1];
-            QuasarUpgradePath.EnsureAllowed(QuasarUpgradePath.PackageVersion(package), dataPath);
-            return 0;
-        }
         if (args[0] == "configure") return ConfigureInstallation.Run(args.Skip(1).ToArray());
         var metadata = args[0] == "--installation" ? args[1] : Path.Combine(Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR") ?? AppContext.BaseDirectory, QuasarServiceInstallation.FileName);
         var installation = QuasarServiceInstallation.Load(metadata, true)!;

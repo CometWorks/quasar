@@ -22,8 +22,8 @@ try {
     $browser = $ast.Find({param($node) $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Open-QuasarBrowser'}, $true)
     . ([scriptblock]::Create($browser.Extent.Text))
     function Start-Process([string]$FilePath) { $script:opened = $FilePath }
-    Open-QuasarBrowser 'http://127.0.0.1:18967'
-    if ($opened -ne 'http://127.0.0.1:18967/') { throw 'Browser launch lost the configured address.' }
+    Open-QuasarBrowser 'http://127.0.0.1:18967/setup'
+    if ($opened -ne 'http://127.0.0.1:18967/setup') { throw 'Browser launch lost the configured address.' }
     foreach ($unsafe in @('file:///C:/Windows/notepad.exe', 'javascript:alert(1)', 'not a URL')) {
         $script:opened = $null
         try { Open-QuasarBrowser $unsafe; throw 'Unsafe browser address accepted.' } catch {

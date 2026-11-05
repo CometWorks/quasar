@@ -21,9 +21,7 @@ sudo apt update && sudo apt install ca-certificates lib32gcc-s1
 
 See [Prerequisites](LinuxDeploymentAndUpdates.md#prerequisites).
 
-**Required upgrade order:** complete the 1.4.1 migration and start it successfully
-before 1.5 or later. A staged legacy worker does not satisfy the requirement. See
-[the migration prerequisite](QuasarUpdates.md#required-141-migration-before-15).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ## Guided service installation
 
@@ -313,3 +311,11 @@ Use an elevated shell or an account with installation/data access:
 stopped. The updater does not replace its own files during an application update.
 Uninstall preserves data unless `-Purge` is supplied. See
 [Windows deployment](WindowsDeploymentAndUpdates.md).
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` at its configured web address. Choose
+**Self-deploy** to open Security, or **Use hosted panel** to enroll with Nebula.
+Completed setup is saved; pending, cancelled or failed enrollment stays resumable.
+Reopen it from **Security → Manage access setup**. See
+[post-install instructions](Installation.md#post-install-access-setup).

@@ -10,9 +10,7 @@ Scheduled Tasks remain only as an explicit migration source.
 See [the unified application update and migration guide](QuasarUpdates.md) for
 native main/updater services, CLI commands, durable progress and recovery.
 
-**Upgrade order:** complete and successfully start the full 1.4.1 migration package
-before 1.5 or later. The legacy web worker alone is insufficient. See
-[the enforced prerequisite](QuasarUpdates.md#required-141-migration-before-15).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ## Release Assets
 
@@ -117,9 +115,7 @@ existing location. They replace files under `Agent`, `Host`, `Updater` and
 and unrelated data remain in place. The portable copy fixture is
 `pwsh -NoProfile -File Tests/Updates/install-copy.ps1`.
 
-For the published `v1.4.1.1` identity/permission failure with no migration receipt,
-follow [bridge recovery](QuasarUpdates.md#broken-1411-package) using the corrected
-1.4.1 package first. Supervision repair from a 1.5+ package still requires a receipt.
+For the historical `v1.4.1.1` identity/permission failure, use the current complete package with the [recovery guidance](QuasarUpdates.md#broken-1411-package). No intermediate release or receipt is required.
 
 ## Command-line UI rollback
 
@@ -332,3 +328,11 @@ handled by the updater; it verifies the services again before stopping and start
 main service. Legacy Bootstrap keeps its worker-restart request path. Failed request
 writes leave Quasar running. Running game servers keep their PIDs for adoption after
 restart.
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` at its configured web address. Choose
+**Self-deploy** to open Security, or **Use hosted panel** to enroll with Nebula.
+Completed setup is saved; pending, cancelled or failed enrollment stays resumable.
+Reopen it from **Security → Manage access setup**. See
+[post-install instructions](Installation.md#post-install-access-setup).

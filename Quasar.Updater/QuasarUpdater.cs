@@ -16,11 +16,7 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
             {
                 if (File.Exists(MaintenancePath) || LauncherReplacement.Phase(installation.InstallDirectory) is "installing" or "ready" or "attempted" ||
                     QuasarUpdateJournal.Read()?.Stage == UpdateStage.Restarting) await RecoverAsync(stoppingToken);
-                else
-                {
-                    await RecordMigrationAsync(stoppingToken);
-                    await ProcessAsync(stoppingToken);
-                }
+                else await ProcessAsync(stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception exception)
@@ -33,24 +29,10 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
         }
     }
 
-    private async Task RecordMigrationAsync(CancellationToken token)
-    {
-        if (QuasarUpgradePath.IsCompleted(installation.DataDirectory)) return;
-        if (!File.Exists(Path.Combine(installation.InstallDirectory, "release.json"))) return;
-        var version = QuasarUpgradePath.PackageVersion(installation.InstallDirectory);
-        if (!QuasarUpgradePath.IsBridge(version)) return;
-        var status = await NativeQuasarServices.ReadAsync(installation, false, token);
-        if (!status.Running || !(await NativeQuasarServices.VerifyAsync(installation, status.Pid, token)).CanRestart) return;
-        await WaitHealthyAsync(version, token);
-        using var lease = await QuasarMaintenanceLease.AcquireAsync(token);
-        QuasarUpgradePath.RecordHealthy(installation.InstallDirectory, installation.DataDirectory, version);
-    }
-
     internal async Task ProcessAsync(CancellationToken token)
     {
         var operation = QuasarUpdateJournal.Read();
         if (operation?.Stage != UpdateStage.Ready || !operation.ActivateWhenReady) return;
-        QuasarUpgradePath.EnsureAllowed(operation.Version, installation.DataDirectory);
         var status = await NativeQuasarServices.ReadAsync(installation, false, token);
         if (!status.Running) return; // Respect intentional shutdown; staging is harmless.
         var capability = await NativeQuasarServices.VerifyAsync(installation, status.Pid, token);

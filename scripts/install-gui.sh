@@ -58,7 +58,7 @@ Application and data: $install_dir
 Execution account: $account
 Service: $service
 
-System installation requests administrator approval through polkit. Required runtime packages may be installed. Manual install offers custom paths and service options."
+System installation requests administrator approval through polkit. Required runtime packages may be installed. After installation, choose self-deploy or Nebula hosting in the browser. Manual install offers custom paths and service options."
 if [[ "$dialog" == kdialog ]]; then
     if "$dialog" --yesnocancel "$text" --yes-label Install --no-label 'Manual install' --title 'Install Quasar'; then choice=0; else choice=$?; fi
 else
@@ -101,6 +101,7 @@ while True:
     time.sleep(.5)
 PY
     )"; then
+        url="${url%/}/setup"
         if { command -v xdg-open >/dev/null 2>&1 && xdg-open "$url" >>"$log" 2>&1; } ||
            { command -v gio >/dev/null 2>&1 && gio open "$url" >>"$log" 2>&1; }; then
             browser_message="Opening Quasar in your browser: $url"
@@ -111,6 +112,8 @@ PY
         browser_message="Could not open Quasar automatically. Check the installation log and open the configured address manually${url:+: $url}."
     fi
     message msgbox "Quasar and its updater are installed. $browser_message
+
+Post-install setup lets you choose Self-deploy or Use hosted panel. Nebula confirms enrollment and any billing separately.
 
 Installation log: $log"
 else

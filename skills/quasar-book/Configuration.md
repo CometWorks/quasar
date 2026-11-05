@@ -39,7 +39,7 @@ Files and folders in the data directory:
 | `Clusters/`, `Operations/` | Cluster definitions and durable cluster operations, see [Clusters](Clusters.md) |
 | `ManagedRuntime/Tools/` | Downloaded `SteamCMD`, `SteamCmdHome`, `SpaceEngineersDedicatedServer` and `Magnetar` |
 | `ManagedRuntime/WebService/<version>/` | Web worker releases left from a Bootstrap install |
-| `Updates/` | Update status (`operation.json`), the 1.4.1 migration receipt (`migration-1.4.1.json`) and staged packages, see [Updates](Updates.md) |
+| `Updates/` | Update status (`operation.json`), staged packages, see [Updates](Updates.md) |
 | `Logs/` | `quasar.log` and `discord.log` |
 | `Diagnostics/` | Diagnostic capture, see [Diagnostics](Diagnostics.md) |
 | `DataProtection-Keys/` | Keys that encrypt sign-in cookies and stored secrets. Back them up with the rest; losing them signs everyone out and makes stored credentials unreadable. |
@@ -267,7 +267,7 @@ Quasar activate-release --restore (internal recovery; Quasar must be stopped)
 
 Run `update`, `rollback` and `activate-release` as the service account on Linux, and from an elevated PowerShell on Windows. Exit codes of `update`: `0` status read or the release runs healthy, `2` usage, `3` service unavailable, access denied or recovery needs you, `4` staged and a manual restart is needed, `5` update failed, `6` still pending after the wait, `130` waiting canceled (the update may continue). `rollback` exits with `3` when no previous release is retained (`No previous complete application release is retained. Select a release on Updates.`), an update is pending, or recovery is running.
 
-Quasar itself exits with `3` before it starts when it can't read its installation record (`Cannot read this installation: ...`) or when a 1.5 or later release finds no 1.4.1 migration receipt (`Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`).
+Quasar itself exits with `3` before it starts when it can't read its installation record (`Cannot read this installation: ...`).
 
 In the foreground, Ctrl+C stops Quasar. Managed servers keep running if `PreserveManagedServersOnShutdown` is on.
 
@@ -296,7 +296,6 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 | The UI doesn't come up and `quasar.log` shows `Quasar terminated unexpectedly.` with an address-in-use error | Another program uses the port. Stop it or change `Quasar:Port`, then repair the service install (see [Web UI address and port](#web-ui-address-and-port)). |
 | Updates or **Restart Quasar** fail health checks after a port change | The port was changed only with `QUASAR_WEB_PORT` or `ASPNETCORE_URLS`, or the installer's repair mode wasn't run. Change `Quasar:Port` in `appsettings.json` and run the repair. |
 | `Cannot read this installation: ...` | The command runs as a user that can't read the installation record. Use the Linux service account or an elevated Windows shell. |
-| `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...` | Install and start the complete 1.4.1 package first, see [Install on Linux](InstallLinux.md). |
 | `No running local Quasar update service. Start Quasar from this installation, then retry. ...` | `update --version` or `update --retry` found no running Quasar for this data directory. Start it, or use `update --status`. |
 | `Quasar URL is required (--url, QUASAR_URL, or local discovery).` | The cluster CLI found no URL. Pass `--url`. |
 | `Mutations require --idempotency-key <key>.` | Add `--idempotency-key`. |
@@ -343,7 +342,6 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `Quasar.Bootstrap/UpdateCli.cs`
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Shared/Updates/QuasarServiceInstallation.cs`
-- `Shared/Updates/QuasarUpgradePath.cs`
 - `Quasar.Updater/ConfigureInstallation.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `install.sh`

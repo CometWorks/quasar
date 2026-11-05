@@ -3,9 +3,7 @@
 Extract **`quasar-linux-x64.tar.gz`**. It contains the complete Quasar application,
 UI assets, Host and a separate updater under `Updater/`.
 
-**Required upgrade order:** install and successfully start the full 1.4.1 migration
-package before 1.5 or later. A legacy worker-only update does not complete it.
-See [installation and migration](INSTALL.md).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ### Guided install
 
@@ -62,3 +60,11 @@ continues to save/stop local clusters at logout or machine shutdown.
 Read [updates and migration](Docs/QuasarUpdates.md) before replacing a legacy
 Bootstrap installation. `--repair-supervision` repairs already copied files.
 Uninstall retains data unless `--purge` is supplied.
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` at its configured web address. Choose
+**Self-deploy** to open Security, or **Use hosted panel** to enroll with Nebula.
+Completed setup is saved; pending, cancelled or failed enrollment stays resumable.
+Reopen it from **Security → Manage access setup**. See
+[post-install instructions](INSTALL.md).

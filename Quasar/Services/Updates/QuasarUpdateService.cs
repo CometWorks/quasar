@@ -676,7 +676,6 @@ public sealed class QuasarUpdateService : BackgroundService
                 if (!_options.Enabled) throw new InvalidOperationException("Quasar updates are disabled in configuration.");
                 if (LauncherReplacement.Phase(QuasarServiceInstallation.Current?.InstallDirectory ?? AppContext.BaseDirectory) is "installing" or "ready" or "attempted")
                     throw new InvalidOperationException("The previous application replacement still needs recovery. Inspect updater status before retrying.");
-                QuasarUpgradePath.EnsureAllowed(operation.Version, MagnetarPaths.GetQuasarDirectory());
                 operation = operation with { Stage = UpdateStage.Downloading, PreviousVersion = _webOptions.Version, Message = $"Downloading complete Quasar {operation.Version}." };
                 QuasarUpdateJournal.Write(operation); Changed?.Invoke();
                 var releases = await GetReleasesAsync(token);

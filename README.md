@@ -48,6 +48,9 @@ See [trusted-network configuration](Docs/Configuration.md#reverse-proxy-auth).
 Run `Quasar --rollback` from the install directory to restore the previous complete
 application release retained by the native updater. See [command-line rollback](Docs/LinuxDeploymentAndUpdates.md#command-line-ui-rollback).
 
+After installation, use the [post-install setup](Docs/Installation.md#post-install-access-setup)
+to choose self-hosted access or Nebula hosting. Completed setup is remembered.
+
 ## Documentation
 
 | Page | What it covers |
@@ -102,8 +105,7 @@ opt into UI plugin notices on **Notifications**. See
 
 Application releases now contain the UI and supervisor together, with an external native updater. See [updates and migration](Docs/QuasarUpdates.md) before upgrading an older Bootstrap/Scheduled Task installation.
 
-**Required migration release: 1.4.1.** Install and successfully start its complete
-package before moving to 1.5 or later. See [upgrade order and migration](Docs/QuasarUpdates.md#required-141-migration-before-15).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 [Quasar 1.5 release preparation](Docs/ReleaseNotes1.5.md) describes package changes,
-validation gates and the required 1.4.1 upgrade path.
+validation gates, direct upgrades and native-service migration.

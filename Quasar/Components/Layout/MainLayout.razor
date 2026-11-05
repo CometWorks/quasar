@@ -17,7 +17,6 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
-@inject HostedPanelService HostedPanel
 @inject QuasarPermissionService Permissions
 
 @* Temporary compatibility providers for pages and UI plugins still being migrated. *@
@@ -89,6 +88,7 @@
         <div class="quasar-overlays">
             <MudPopoverProvider />
             <MudDialogProvider />
+            <AccessSetupPrompt />
             <MudSnackbarProvider />
         </div>
     </div>
@@ -310,10 +310,6 @@
         _themeCallback = DotNetObjectReference.Create(this);
         _themeSubscription = await _themeModule.InvokeAsync<IJSObjectReference>("observeSystemTheme", _themeCallback);
         await BrowserPush.RefreshAsync();
-        if ((!RbacConfigCatalog.HasAdminMapping(RbacConfigCatalog.GetConfig()) || HostedPanel.State.Choice == "") &&
-            await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
-            await DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access", new DialogOptions
-                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
         await InvokeAsync(StateHasChanged);
     }
 

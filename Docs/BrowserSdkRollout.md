@@ -53,7 +53,7 @@ produces a draft prerelease; it does not authorize production activation.
 6. Record the canary's current versions, automatic application/plugin-update
    settings and expected permissions. Disable automatic application/plugin updates
    for the controlled canary window, then restore its chosen policy afterward.
-   Legacy installs must complete/start full Quasar 1.4.1 migration before 1.6.
+   Legacy installs migrate to native services using the current complete package; no intermediate release is required.
 
 ## Canary acceptance
 
