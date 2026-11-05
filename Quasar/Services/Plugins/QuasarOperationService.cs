@@ -14,7 +14,7 @@ namespace Quasar.Services.Plugins;
 public sealed record QuasarOperationSettings(string PluginId, string OperationId,
     IReadOnlyList<string> DefaultPolicies, QuasarOperationRule? EffectiveRule, bool Overridden, string? Error);
 
-public sealed class QuasarOperationService : IQuasarOperationDispatcher
+public sealed class QuasarOperationService : IQuasarOperationDispatcher, IQuasarAgentOperations
 {
     // The hard deny list for agent principals, by operation ID prefix under any plugin ID, so a plugin cannot
     // register an agent-reachable operation in these areas: security, RBAC, auth settings, service principals,
@@ -104,6 +104,15 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         catch (ArgumentException) { return new(400, Error: "Invalid operation input."); }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         { return new(504, Error: "The operation deadline expired; a write outcome may be unknown."); }
+    }
+
+    public async Task<bool> IsAvailableToAgentsAsync(string pluginId, string operationId)
+    {
+        if (Find(pluginId, operationId) is not { } operation) return false;
+        var config = _rbac.GetConfig();
+        var rule = Rule(operation, config);
+        return config.SdkRulesValid && rule?.Enabled == true && await ValidPoliciesAsync(rule.RequiredPolicies)
+            && !IsDeniedToAgents(operation, rule);
     }
 
     public QuasarOperation? Find(string pluginId, string operationId) => _operations.GetValueOrDefault(pluginId + "/" + operationId);

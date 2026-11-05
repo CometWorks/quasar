@@ -143,6 +143,12 @@ For an agent call the dispatcher also:
 - checks the assistant's asker too, so it never does more than the asker could
   do by hand, and the approver of a proposal (`QuasarOperationContext.ApprovedBy`).
 
+`IQuasarAgentOperations.IsAvailableToAgentsAsync(pluginId, operationId)` tells
+a plugin whether to offer an operation to an agent at all: false when it is
+unknown, disabled, has an invalid rule, or the deny list above refuses it under
+its current effective rule, RBAC overrides included. It does not check any
+caller's roles; the dispatcher still does that at call time.
+
 Player-scoped operations use the `CanActAsPlayer` policy. No role grants it and
 a role override cannot; only the player agent satisfies it.
 

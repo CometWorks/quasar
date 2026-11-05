@@ -184,6 +184,40 @@ public sealed class QuasarAgentAuditTests : IDisposable
     }
 
     [Fact]
+    public async Task AgentAvailabilityFollowsTheDenyListAndTheEffectiveRule()
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var agents = scope.ServiceProvider.GetRequiredService<QuasarOperationService>();
+        Assert.True(await agents.IsAvailableToAgentsAsync(Plugin, "servers.read"));
+        foreach (
+            var operation in DenyPatternOperations.Concat([
+                "servers.secret",
+                "admin.read",
+                "power.read",
+                "missing",
+            ])
+        )
+            Assert.False(await agents.IsAvailableToAgentsAsync(Plugin, operation), operation);
+
+        await _rbac.UpdateAsync(config =>
+        {
+            config.OperationOverrides[Plugin + "/servers.read"] = new()
+            {
+                RequiredPolicies = [QuasarPolicyNames.CanView, QuasarPolicyNames.CanManageSecurity],
+            };
+            config.OperationOverrides[Plugin + "/servers.set"] = new()
+            {
+                Enabled = false,
+                RequiredPolicies = [QuasarPolicyNames.CanEditServers],
+            };
+            return Task.CompletedTask;
+        });
+        Assert.False(await agents.IsAvailableToAgentsAsync(Plugin, "servers.read"));
+        Assert.False(await agents.IsAvailableToAgentsAsync(Plugin, "servers.set"));
+        Assert.True(await agents.IsAvailableToAgentsAsync(Plugin, "my.grids"));
+    }
+
+    [Fact]
     public async Task AssistantNeedsBothItsRoleAndTheAskersPolicies()
     {
         var editorAssistant = await AssistantAsync(Person(QuasarRoles.Editor));
