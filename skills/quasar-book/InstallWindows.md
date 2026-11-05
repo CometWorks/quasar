@@ -4,7 +4,7 @@ How to download, run and install Quasar on Windows: the release package, the gui
 
 Quasar is one application: the web UI and the server supervisor run in the same `Quasar.exe` process. A small separate updater, `Updater\Quasar.Updater.exe`, replaces the application during updates. The installer registers both as Windows services, `Quasar` and `QuasarUpdater`, under passwordless virtual accounts. Older versions ran a Bootstrap launcher from a Scheduled Task; current packages only migrate from it.
 
-**Required upgrade order.** Quasar 1.5 and later start only after a completed 1.4.1 migration. Install the complete 1.4.1 package with your existing paths and service or task name, and start it successfully. That writes `Updates\migration-1.4.1.json` in the data folder. A 1.4.1 web worker staged by an old Bootstrap install does not count. Without a valid receipt, the 1.5 installer, the updater and Quasar itself refuse with `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`. This applies to new installations too: a new installation that will run 1.5 starts with 1.4.1. Keep the receipt with the data folder. Don't write one by hand.
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ## Release assets
 
@@ -79,7 +79,7 @@ Without `-InstallDir`, a packaged install stays in the extracted folder, and the
 What the installer does, in order:
 
 1. Checks elevation, the service names and the folders. It refuses a drive root, `%SystemRoot%`, `%ProgramFiles%`, `%ProgramFiles(x86)%`, `%ProgramData%` and `%USERPROFILE%` themselves.
-2. Checks the 1.4.1 migration requirement and refuses an existing Scheduled Task with the same name unless `-MigrateScheduledTask` is given.
+2. Refuses an existing Scheduled Task with the same name unless `-MigrateScheduledTask` is given.
 3. Refuses existing services that run under another account, and stops existing `Quasar` and `QuasarUpdater` services.
 4. Copies the previous application files to a recovery folder in `%TEMP%` when it replaces an existing installation, then copies the new files. It checks first that no `Quasar.exe` of this installation is running. An existing `appsettings.json` is kept; a new data folder gets the default one.
 5. Registers both services to start automatically, under `NT SERVICE\Quasar` and `NT SERVICE\QuasarUpdater`, with restart-on-failure recovery.
@@ -163,7 +163,7 @@ The application folder and the data folder can differ. `QUASAR_INSTALL_DIR` is t
 | `<application>\.update-cache\` | The updater's private copy of a downloaded package |
 | `%ProgramData%\Quasar-ServiceInstallations\<ServiceName>.json` | Installation record: folders, service names, accounts, trusted release repository and package, health URL and token |
 | Data folder | `appsettings.json`, `rbac.json`, `Logs\quasar.log`, servers, templates, clusters, backups, `ManagedRuntime\`, `Diagnostics\`, `DataProtection-Keys\` and the other files listed in [Install on Linux](InstallLinux.md#where-quasar-keeps-its-files) |
-| `<data>\Updates\` | `operation.json` (update status), `migration-1.4.1.json` (migration receipt), staged packages |
+| `<data>\Updates\` | `operation.json` (update status), staged packages |
 
 Permissions set by the installer:
 
@@ -238,7 +238,6 @@ When `install.ps1` fails, it prints `Installation failed before recovery: <messa
 | Message | Cause and fix |
 | --- | --- |
 | `Run this installer in an elevated PowerShell.` | Open PowerShell with Run as Administrator. |
-| `Upgrade prerequisite failed. Complete and start the 1.4.1 migration package before installing 1.5 or later.` | Install and start the complete 1.4.1 package first. |
 | `Use the existing service names when repairing/upgrading this installation.` | Pass the `-ServiceName` and `-UpdaterServiceName` the installation already uses. |
 | `Choose a dedicated Quasar folder, not a system or drive root: <dir>` | Pick a subfolder. |
 | `An existing Scheduled Task needs -MigrateScheduledTask. ...` | A task with the service name exists. Follow [Install as a Scheduled Task](#install-as-a-scheduled-task). |
@@ -254,7 +253,16 @@ If service startup reports access denied to `release.json`, or automatic recover
 
 The Updates page shows the restart capability and repair instructions when the services don't match the installation record. See also [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
 
-Reinstallation and installer recovery merge files into their original directories, including `Agent`, `Host`, `Updater` and `wwwroot`; they do not create `Host\Host` or similar nested folders. Existing settings and unrelated data stay in place. For a broken published 1.4.1.1 package without a receipt, follow [bridge recovery](Updates.md#broken-1411-package) before using a 1.5+ installer.
+Reinstallation and installer recovery merge files into their original directories, including `Agent`, `Host`, `Updater` and `wwwroot`; they do not create `Host\Host` or similar nested folders. Existing settings and unrelated data stay in place. For a broken published 1.4.1.1 package, follow [recovery guidance](Updates.md#broken-1411-package).
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` on its configured address. Guided installers
+open this page after readiness checks. Choose self-deploy or Nebula hosting using
+the existing access wizard. Completed setup is remembered across dashboard visits
+and repeat installs; cancelled, failed or pending setup can be resumed. See
+[First setup](FirstSetup.md#choose-public-access) for administrator access, SSH
+forwarding and enrollment. Reopen from **Security > Manage access setup**.
 
 ## Sources
 - `README.md`
@@ -292,7 +300,6 @@ Reinstallation and installer recovery merge files into their original directorie
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Shared/Updates/NativeQuasarServices.cs`
-- `Shared/Updates/QuasarUpgradePath.cs`
 - `Shared/Updates/LauncherReplacement.cs`
 - `Shared/ServiceHosting/NativeServiceFailures.cs`
 - `Quasar.Updater/Program.cs`

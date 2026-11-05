@@ -1,0 +1,46 @@
+@page "/setup"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@implements IDisposable
+@inject HostedPanelService Hosted
+@inject RbacConfigCatalog Rbac
+@inject IDialogService DialogService
+
+<PageTitle>Post-install setup</PageTitle>
+
+<QuasarPageHeading Section="Installation">
+    <Title>Post-install setup</Title>
+    <Description>Configure administrator access after installing and starting Quasar.</Description>
+</QuasarPageHeading>
+
+<section class="quasar-panel pa-4">
+    <h2 class="quasar-text quasar-type-h6">Choose how you reach Quasar</h2>
+    <p>Use Nebula for a hosted dashboard, or self-deploy with your own reverse proxy, domain and certificate. Local access also works without public hosting.</p>
+    @if (RbacConfigCatalog.HasAdminMapping(Rbac.GetConfig()) && Hosted.State.IsSetupComplete)
+    {
+        <p role="status">Access setup is saved. You can continue to the dashboard or reopen setup below.</p>
+    }
+    else
+    {
+        <p role="status">Access setup is not complete. Resume below if you closed it or an enrollment attempt failed. Hosted setup waits for activation and a working connection.</p>
+    }
+    <MudButton OnClick="OpenSetupAsync" Variant="Variant.Filled" Color="Color.Primary">Manage access setup</MudButton>
+    <MudButton Href="settings/security" Variant="Variant.Outlined">Configure self-hosted security</MudButton>
+    <MudButton Href="./" Variant="Variant.Outlined">Continue to dashboard</MudButton>
+    <p>Initial setup requires an administrator session, normally from loopback or a trusted private LAN. Steam sign-in alone cannot claim a new installation. Nebula confirms Steam enrollment and any billing separately.</p>
+</section>
+
+@code {
+    protected override void OnInitialized()
+    {
+        Hosted.Changed += Changed;
+        Rbac.Changed += Changed;
+    }
+    private Task<IDialogReference> OpenSetupAsync() => DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access",
+        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose()
+    {
+        Hosted.Changed -= Changed;
+        Rbac.Changed -= Changed;
+    }
+}

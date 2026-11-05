@@ -778,7 +778,6 @@ fi
 # Repair mode migrates native supervision without replacing binaries or user data.
 if [[ "$REPAIR_SUPERVISION" == "true" ]]; then
     [[ -x "$INSTALL_DIR/Quasar" && -x "$INSTALL_DIR/Updater/Quasar.Updater" && -f "$INSTALL_DIR/launcher-files.txt" ]] || { echo "Replace the complete current package before repairing native services." >&2; exit 1; }
-    "$INSTALL_DIR/Updater/Quasar.Updater" check-upgrade-path --package "$INSTALL_DIR" --data-dir "$INSTALL_DIR"
     write_service_unit
     if [[ "$START_SERVICE" == "true" ]]; then restart_service; fi
     echo "Native services repaired; application configuration and data retained."
@@ -838,7 +837,6 @@ if [[ "$SKIP_BUILD" != true ]]; then
     printf '{"version":"%s","updaterProtocol":1}\n' "$release_version" > "$PUBLISH_DIR/release.json"
 fi
 [[ -x "$PUBLISH_DIR/Updater/Quasar.Updater" ]] || { echo "Use a complete unified package containing Updater/Quasar.Updater." >&2; exit 1; }
-"$PUBLISH_DIR/Updater/Quasar.Updater" check-upgrade-path --package "$PUBLISH_DIR" --data-dir "$INSTALL_DIR"
 "$PUBLISH_DIR/Updater/Quasar.Updater" check-stopped --root "$INSTALL_DIR" --data-dir "$INSTALL_DIR"
 echo "Installing Quasar to $INSTALL_DIR..."
 if [[ "${EUID}" -eq 0 ]]; then
@@ -896,6 +894,16 @@ Service:     $SERVICE_NAME.service ($INSTALL_MODE)
 Clusters:    $CLUSTERS_UNIT saves the clusters on this PC at logout or shutdown
 Install dir: $INSTALL_DIR
 Run user:    $RUN_USER
+
+Post-install setup (after starting Quasar):
+  Open http://localhost:8080/setup (use your configured Quasar port).
+  From another machine, use a trusted private LAN or an SSH tunnel:
+    ssh -L 8080:127.0.0.1:8080 <user>@<quasar-host>
+  Set the first administrator, then choose Self-deploy or Use hosted panel.
+  Self-deploy opens Security for proxy/domain/certificate settings.
+  Nebula confirms Steam enrollment and any billing; wait for hosted readiness.
+  Resume cancelled or failed setup at /setup. Completed setup is saved.
+  Reopen later with Security > Manage access setup.
 
 Renice helper:
   $RENICE_HELPER_PATH

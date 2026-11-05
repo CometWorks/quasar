@@ -239,7 +239,7 @@
             await RunAsync(async () =>
             {
                 _enrollmentCancellation?.Cancel();
-                await Hosted.ChooseAsync("self");
+                await Hosted.ChooseAsync("dismissed");
                 Dialog.Cancel();
             });
         }

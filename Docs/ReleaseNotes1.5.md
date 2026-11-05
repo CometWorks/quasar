@@ -12,23 +12,18 @@ installer and manual install/recovery commands. Symbols stay in CI artifacts.
 Legacy worker and Bootstrap archives are not built or published for 1.5. The latest
 full 1.4.1 bridge remains available and is protected from normal release cleanup.
 
-## Required upgrade order
+## Installation and upgrade path
 
-1. Install the complete, corrected 1.4.1 migration package using the existing
-   installation paths, account, service names and Linux user/system scope.
-2. Start 1.4.1 successfully. Managed installs require verified native-service
-   ownership and authenticated health. Keep `Updates/migration-1.4.1.json` with the
-   data directory. A legacy 1.4.1 web-worker update alone is insufficient.
-3. Select the full 1.5 release on Updates or run `Quasar update --version <release>`
-   (`Quasar.exe` on Windows), using the complete version shown on the release page.
-4. Check the durable outcome with `Quasar update --status` and use `update --retry`
-   only after correcting a reported failure.
+The mandatory 1.4.1 intermediate-release gate from the initial 1.5 release is
+removed for the next release. Install the current complete package directly,
+including on fresh machines. No migration receipt is required or written.
+Existing Bootstrap or Scheduled Task installations still need the explicit
+native-service migration with their original paths, accounts and Linux scope.
 
-The main UI displays the three-part version, such as `1.5.0`. Updates, package
-metadata, CLI and health checks retain the full build version, such as `1.5.0.0`.
-The installer and application reject 1.5 without evidence of a healthy 1.4.1
-migration, including manual installation and prerelease paths. Start with 1.4.1
-for a new installation that will move to 1.5.
+Use **Update Quasar** or `Quasar update --version <release>` for an existing native
+installation. Check the durable result with `update --status`; retry only after
+correcting a reported failure. Package metadata and health checks retain the full
+public build identity and continue to validate it.
 
 Application updates preserve detached game servers and local cluster Hosts, merge
 configuration, and retain the complete previous application until replacement
@@ -41,16 +36,15 @@ for platform commands and recovery.
 
 ## Promotion gates
 
-The 1.4.1 release identity fix must be merged and published before promoting 1.5.
-It keeps `release.json`, runtime health and migration receipts on the complete
-public build identity instead of NuGet's internal version. CI compares package
-and runtime identity on both platforms.
+Package and runtime identities must match on both platforms. CI verifies the
+complete public build identity. Current release publication no longer depends on
+a retained 1.4.1 package; the existing bridge remains available for compatibility.
 
 Before a full 1.5 release, verify:
 
 - A full corrected 1.4.1 release is published with both complete packages, both
   legacy worker bridges and `SHA256SUMS`. The release workflow enforces this.
-- Migration-gate, package/health identity, complete rollback and release-retention
+- Direct-install, package/health identity, complete rollback and release-retention
   checks pass.
 - Native Linux system/user service and Windows service/task-migration integration
   pass, including failed launches, file locks/permissions and restart recovery.

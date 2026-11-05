@@ -54,7 +54,7 @@
     @if (!string.IsNullOrWhiteSpace(WebOptions.BootstrapVersion))
     {
         <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
-            Quasar 1.4.1 prepares migration to native Quasar and updater services. Install and successfully start the complete 1.4.1 package before upgrading to 1.5 or later. Updating this legacy worker alone does not complete migration.
+            This legacy worker needs the complete Quasar package to install native Quasar and updater services. Install the current release directly; no intermediate release is required.
             <p><a href="https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#migrating-existing-installations" target="_blank" rel="noopener noreferrer">Read the migration instructions</a>. Save worlds and stop the old installation before running the new installer.</p>
             @if (_snapshot.Operation is { PackageDirectory.Length: > 0 } migration)
             {

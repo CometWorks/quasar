@@ -122,7 +122,6 @@ try:
         run('systemctl', *manager, 'daemon-reload')
     fixture('verify')
     print('PASS native action, PID ownership, account and restart-policy rejection', flush=True)
-    wait(lambda: (root / 'Updates/migration-1.4.1.json').exists(), 'Healthy native 1.4.1 migration receipt')
     # The real updater identity reads the existing saved credential/keyring.
     fixture('token-create')
     run('systemctl', *manager, 'restart', updater_unit)

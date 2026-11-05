@@ -216,7 +216,7 @@ See [Access control](AccessControl.md#common-problems) and [First setup](FirstSe
 
 Open the Updates page or run `Quasar update --status` to see the recorded update operation and its cause. A failed launch or an interrupted replacement restores the complete previous application. Fix the recorded cause, then run `Quasar update --retry`. When Quasar can't restart itself through the updater, the Updates page shows an alert about it. Current Windows installations run as two native services under virtual accounts; an old Scheduled Task installation has to be migrated first. See [Updates](Updates.md#when-an-update-fails).
 
-Quasar 1.5 and later start only on an installation that completed the 1.4.1 migration, recorded in `<data dir>/Updates/migration-1.4.1.json`. Without it Quasar exits with code 3 and "Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...". Install the complete 1.4.1 package with the existing paths, account and scope, start it once, then update. Don't write the receipt by hand.
+The mandatory 1.4.1 intermediate-release gate is removed. If an older package reports that prerequisite, use the current complete package directly, preserving existing paths, accounts, settings, credentials and Data Protection keys. Native-service migration, package validation and recovery checks still apply; see [Updates](Updates.md#direct-installation-and-upgrades).
 
 ## Stopping Quasar
 

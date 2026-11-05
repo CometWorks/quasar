@@ -3,9 +3,7 @@
 Extract **`quasar-win-x64.zip`**. It contains the complete Quasar application,
 UI assets, Host, installer and a small updater under `Updater\`.
 
-**Required upgrade order:** install and successfully start the full 1.4.1 migration
-package before 1.5 or later. A legacy worker-only update does not complete it.
-See [installation and migration](INSTALL.md).
+Install the current complete package directly; no intermediate Quasar release is required. Preserve existing paths, accounts, settings, credentials and Data Protection keys when migrating to native services.
 
 ### Guided install
 
@@ -59,3 +57,11 @@ Use an elevated shell or an account with installation/data access:
 stopped. The updater does not replace its own files during an application update.
 Uninstall preserves data unless `-Purge` is supplied. See
 [Windows deployment](Docs/WindowsDeploymentAndUpdates.md).
+
+## Post-install access setup
+
+After starting Quasar, open `/setup` at its configured web address. Choose
+**Self-deploy** to open Security, or **Use hosted panel** to enroll with Nebula.
+Completed setup is saved; pending, cancelled or failed enrollment stays resumable.
+Reopen it from **Security → Manage access setup**. See
+[post-install instructions](INSTALL.md).

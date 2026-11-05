@@ -53,18 +53,18 @@ try {
     }
     $form = New-Object Windows.Forms.Form
     $form.Text = 'Install Quasar'
-    $form.ClientSize = New-Object Drawing.Size(570,290)
+    $form.ClientSize = New-Object Drawing.Size(570,310)
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedDialog'
     $form.MaximizeBox = $false
     $form.MinimizeBox = $false
     $label = New-Object Windows.Forms.Label
-    $label.Text = "Install Quasar and its updater as Windows services. No account password is needed. Windows will request administrator approval. Existing installations keep their paths and service names."
-    $label.SetBounds(20,15,530,58)
+    $label.Text = "Install Quasar and its updater as Windows services. No account password is needed. Windows will request administrator approval. Existing installations keep their paths and service names. After installation, choose self-deploy or Nebula hosting in the browser."
+    $label.SetBounds(20,15,530,78)
     $form.Controls.Add($label)
     $boxes = @()
     foreach ($field in @(@('Application folder',$InstallDir), @('Data folder (worlds and settings)',$DataDir))) {
-        $y = 80 + $boxes.Count * 62
+        $y = 100 + $boxes.Count * 62
         $caption = New-Object Windows.Forms.Label
         $caption.Text = $field[0]; $caption.SetBounds(20,$y,530,20); $form.Controls.Add($caption)
         $box = New-Object Windows.Forms.TextBox
@@ -72,11 +72,11 @@ try {
         $form.Controls.Add($box); $boxes += $box
     }
     $install = New-Object Windows.Forms.Button
-    $install.Text = 'Install'; $install.SetBounds(205,235,105,32); $install.DialogResult = 'OK'
+    $install.Text = 'Install'; $install.SetBounds(205,255,105,32); $install.DialogResult = 'OK'
     $manualButton = New-Object Windows.Forms.Button
-    $manualButton.Text = 'Manual install'; $manualButton.SetBounds(320,235,115,32); $manualButton.DialogResult = 'Retry'
+    $manualButton.Text = 'Manual install'; $manualButton.SetBounds(320,255,115,32); $manualButton.DialogResult = 'Retry'
     $cancel = New-Object Windows.Forms.Button
-    $cancel.Text = 'Cancel'; $cancel.SetBounds(445,235,105,32); $cancel.DialogResult = 'Cancel'
+    $cancel.Text = 'Cancel'; $cancel.SetBounds(445,255,105,32); $cancel.DialogResult = 'Cancel'
     $form.Controls.AddRange(@($install,$manualButton,$cancel))
     $form.AcceptButton = $install; $form.CancelButton = $cancel
     $result = $form.ShowDialog()
@@ -94,10 +94,11 @@ try {
         $powershell = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
         $process = Start-Process -FilePath $powershell -ArgumentList @('-NoProfile','-ExecutionPolicy','Bypass','-EncodedCommand',$encoded) -Verb RunAs -Wait -PassThru
         if ($process.ExitCode -ne 0) { exit $process.ExitCode }
-        $message = 'Quasar and its updater are installed and running. Keep this package until you have checked your installation.'
+        $message = 'Quasar and its updater are installed and running. Continue with post-install setup to choose Self-deploy or Use hosted panel. Nebula confirms enrollment and any billing separately. Keep this package until you have checked your installation.'
         try {
             $url = [IO.File]::ReadAllText($resultPath).Trim()
             # Launch as the original desktop user, after the elevated installer exits.
+            $url = $url.TrimEnd('/') + '/setup'
             Open-QuasarBrowser $url
             $message += "`r`n`r`nOpening Quasar in your browser: $url"
         } catch {

@@ -50,34 +50,33 @@ public sealed class ReliableUpdateTests : IDisposable
     [Theory]
     [InlineData("1.5.0")]
     [InlineData("1.5.0-rc.1")]
-    [InlineData("1.6.0.2")]
+    [InlineData("1.6.0.6")]
     [InlineData("2.0.0")]
-    public void LaterVersionsRequireACompletedHealthyBridge(string target)
+    public async Task CurrentPackagesStageWithoutAnIntermediateReleaseOrReceipt(string target)
     {
-        Assert.Throws<InvalidOperationException>(() => QuasarUpgradePath.EnsureAllowed(target, _root));
-        QuasarUpgradePath.RecordHealthy(_root, _root, "1.4.1"); // A staged worker has no complete package identity.
-        Assert.False(QuasarUpgradePath.IsCompleted(_root));
-        File.WriteAllText(Path.Combine(_root, LauncherReplacement.ManifestName), "Quasar\n");
-        File.WriteAllText(Path.Combine(_root, "release.json"), "{\"version\":\"1.4.1.0\",\"updaterProtocol\":1}");
-        QuasarUpgradePath.RecordHealthy(_root, _root, "1.4.1.0");
-        Assert.True(QuasarUpgradePath.IsCompleted(_root));
-        QuasarUpgradePath.EnsureAllowed(target, _root);
+        using var catalog = new PackageCatalog(_root, packageVersion: target, releaseVersion: target);
+        using var updater = Create(catalog, false);
+        var operation = await updater.UpdateAsync(target);
+        await updater.ProcessUpdateAsync(CancellationToken.None);
+        var state = QuasarUpdateJournal.Read()!;
+        Assert.Equal(UpdateStage.Ready, state.Stage);
+        Assert.Equal(operation.Id, state.Id);
+        Assert.Equal(target, state.Version);
+        Assert.Equal(1, catalog.Downloads);
+        await VerifiedUpdatePackage.VerifyAsync(state.PackageDirectory, CancellationToken.None);
+        Assert.Equal("{\"adminValue\":42}", File.ReadAllText(Path.Combine(_root, "appsettings.json")));
+        Assert.False(File.Exists(Path.Combine(_root, "Updates", "migration-1.4.1.json")));
     }
 
     [Fact]
-    public async Task UIAndManualCliBlockSkippingTheBridgeBeforeDownloadsOrReplacement()
+    public async Task ManualCliStillRejectsUnverifiedPackagesWithoutAnIntermediateReleaseGate()
     {
-        using var catalog = new PackageCatalog(_root);
-        using var updater = Create(catalog, false);
-        await updater.UpdateAsync("1.5.0");
-        await updater.ProcessUpdateAsync(CancellationToken.None);
-        Assert.Equal(UpdateStage.Failed, QuasarUpdateJournal.Read()!.Stage);
-        Assert.Contains("1.4.1 migration first", QuasarUpdateJournal.Read()!.Message);
-        Assert.Equal(0, catalog.Downloads);
-        QuasarUpdateJournal.Write(new QuasarUpdateOperation { Version = "1.5.0", Stage = UpdateStage.Ready });
+        var package = Path.Combine(_root, "unverified");
+        Directory.CreateDirectory(package);
+        QuasarUpdateJournal.Write(new QuasarUpdateOperation { Version = "1.6.0.6", Stage = UpdateStage.Ready, PackageDirectory = package });
         var error = new StringWriter();
         Assert.Equal(3, await UpdateCli.RunAsync(["update", "--retry"], new StringWriter(), error));
-        Assert.Contains("1.4.1 migration first", error.ToString());
+        Assert.Contains(".verified-files.json", error.ToString());
         Assert.False(File.Exists(Path.Combine(_root, "Updates", "LauncherTransaction", "phase")));
     }
 
@@ -315,8 +314,10 @@ public sealed class ReliableUpdateTests : IDisposable
         private readonly string _asset = new QuasarUpdateOptions().PackageAssetName;
         public int Downloads;
         public byte[] Archive => _archive;
-        public PackageCatalog(string root, bool corruptChecksum = false, bool missingWorker = false, int protocol = 1, string packageVersion = "1.4.1", bool omitManifestFile = false)
+        private readonly string _version;
+        public PackageCatalog(string root, bool corruptChecksum = false, bool missingWorker = false, int protocol = 1, string packageVersion = "1.4.1", bool omitManifestFile = false, string releaseVersion = "1.4.1")
         {
+            _version = releaseVersion;
             var source = Path.Combine(root, "fixture-source", "Quasar"); Directory.CreateDirectory(source);
             File.WriteAllText(Path.Combine(source, "release.json"), JsonSerializer.Serialize(new { version = packageVersion, updaterProtocol = protocol }));
             File.WriteAllText(Path.Combine(source, "launcher-files.txt"), QuasarWebReleaseLayout.WorkerExecutableFileName + "\n");
@@ -345,7 +346,7 @@ public sealed class ReliableUpdateTests : IDisposable
         {
             HttpContent content;
             if (request.RequestUri!.Host == "api.github.com")
-                content = JsonContent.Create(new[] { new { tag_name = "v1.4.1", draft = false, assets = new[] {
+                content = JsonContent.Create(new[] { new { tag_name = "v" + _version, draft = false, assets = new[] {
                     new { name = _asset, browser_download_url = "https://fixtures.test/package" },
                     new { name = "SHA256SUMS", browser_download_url = "https://fixtures.test/SHA256SUMS" } } } });
             else if (request.RequestUri.AbsolutePath == "/SHA256SUMS") content = new StringContent(_checksum + "  " + _asset + "\n", Encoding.UTF8);

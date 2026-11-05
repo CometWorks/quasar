@@ -1,0 +1,14 @@
+@inject HostedPanelService Hosted
+@inject RbacConfigCatalog Rbac
+@inject QuasarPermissionService Permissions
+@inject IDialogService DialogService
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && (!RbacConfigCatalog.HasAdminMapping(Rbac.GetConfig()) || !Hosted.State.IsSetupComplete) &&
+            await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+            await DialogService.ShowAsync<AccessSetupDialog>("Set up administrator access", new DialogOptions
+                { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
+    }
+}

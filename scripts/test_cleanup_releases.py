@@ -30,17 +30,9 @@ class ReleaseCleanupTests(unittest.TestCase):
         deleted = {r["tag_name"] for r in cleanup.plan_cleanup(builds, "v1.6.0.2", set())}
         self.assertEqual({"v1.4.1.3"}, deleted)
 
-    def test_15_publication_needs_complete_full_141_release(self):
-        cleanup.require_migration_release([], "1.4.1")
-        bridge = release("v1.4.1.2")
-        for builds in [[], [bridge], [release("v1.4.1.2", prerelease=True)], [bridge_release("v1.4.1.1")]]:
-            with self.assertRaisesRegex(ValueError, "Release blocker"):
-                cleanup.require_migration_release(builds, "1.5.0")
-        bridge = bridge_release("v1.4.1.2")
-        cleanup.require_migration_release([bridge], "1.5.0")
-        for asset in bridge["assets"]:
-            with self.subTest(missing=asset["name"]), self.assertRaisesRegex(ValueError, "Release blocker"):
-                cleanup.require_migration_release([{**bridge, "assets": [a for a in bridge["assets"] if a != asset]}], "1.6.0.2")
+    def test_current_releases_need_no_bridge_to_be_retained(self):
+        builds = [release("v1.6.0.5"), release("v1.6.0.6")]
+        self.assertEqual([], cleanup.plan_cleanup(builds, "v1.6.0.6", set()))
 
     def test_published_pr_and_manual_builds_do_not_displace_rollback(self):
         builds = [release("v1.3.1.75"), release("v1.3.1.74"), release("v1.3.1.73"),

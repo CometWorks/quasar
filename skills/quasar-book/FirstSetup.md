@@ -2,11 +2,26 @@
 
 This page covers the first steps after installing Quasar: giving yourself administrator access, opening the web UI, signing in with Steam, creating the first server with the setup wizard, and importing an existing vanilla Dedicated Server (DS) or Torch server. Installation itself is on [InstallLinux.md](InstallLinux.md), [InstallWindows.md](InstallWindows.md) and [Docker.md](Docker.md).
 
+Post-install access setup starts at `/setup` on the configured Quasar address.
+Guided installers open it after installation and health checks; manual installs
+can open it after starting Quasar. It uses the same administrator/access dialog
+as **Security → Manage access setup**. A saved self-deploy choice completes setup
+and opens Security. Hosted setup completes only after activation and fresh
+matching tunnel/application health. The existing private enrollment file retains
+completion across restarts and repeat installs. Pending, cancelled or failed
+attempts remain resumable and may prompt again; completion stops automatic prompts.
+Cancellation preserves private identity and does not cancel a paid subscription.
+Existing saved choices remain compatible. Explicit reopening is always available.
+
 ## Open the web UI
 
 With the shipped `appsettings.json` the UI listens on all interfaces on port `8080`. On the Quasar machine open `http://127.0.0.1:8080`; from another machine use `http://<quasar-host>:8080`. The guided installers end with the address, and a foreground run prints it. To change the port or the listen address see [Configuration](Configuration.md#web-ui-address-and-port).
 
 The installed services never open a browser. A foreground run (`Quasar serve --foreground`) opens one when a desktop session is available (see [Configuration](Configuration.md#browser-launch)).
+
+For a remote Linux server, forward the local UI with
+`ssh -L 8080:127.0.0.1:8080 <user>@<quasar-host>` and open
+`http://localhost:8080/setup`; use the configured port if different.
 
 ## Choose public access
 
@@ -186,6 +201,9 @@ With **Network** selected, the world's online mode is copied as is, including Of
 | Choose DS World or Start buttons disabled | The managed Dedicated Server download is not finished, or the server has no world save. Check preparation feedback beside the world choice or in the Managed Runtime panel. |
 
 ## Sources
+
+- `Quasar/Components/Pages/PostInstallSetup.razor`
+- `Quasar/Components/Shared/AccessSetupPrompt.razor`
 - `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
 - `Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`

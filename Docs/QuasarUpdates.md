@@ -15,75 +15,37 @@ Opening `Install.cmd` or `Install.desktop` installs the main and updater togethe
 manual installer commands remain available. Upgrading the updater uses this full
 package with both services stopped.
 
-## Required 1.4.1 migration before 1.5
+## Direct installation and upgrades
 
-**Upgrade requirement:** install and successfully start the complete **1.4.1**
-migration release before installing or activating **1.5 or later**. This requirement
-also applies to prerelease and manual file-replacement paths. Start with 1.4.1 for
-a new installation that will move to 1.5. An old Bootstrap installation running only
-the 1.4.1 web worker has not completed the migration.
+Install the current complete platform package directly, including on a fresh
+machine. There is no mandatory intermediate release, migration receipt or
+`check-upgrade-path` command. Existing `Updates/migration-1.4.1.json` files are
+historical records and are no longer read or written. Do not create one to install
+or update Quasar.
 
-For managed installations, the verified native updater records completion after
-checking the 1.4.1 main service's ownership, version, PID and authenticated health.
-A complete manual 1.4.1 package records completion after successful application
-startup. The durable receipt is `<data>/Updates/migration-1.4.1.json`; preserve it
-with the data directory. Missing or invalid completion evidence blocks 1.5 before
-staging/activation, installer file replacement, or application startup. Run the
-1.4.1 installer and start 1.4.1 to recover; do not fabricate a completion receipt.
+Existing Bootstrap and Scheduled Task installations still need the
+[native-service migration procedure](#migrating-existing-installations), using the
+current package with the existing paths, account, service names and Linux scope.
+A worker-only update cannot install native supervision. Package checksums,
+manifest and protocol validation, stopped-process checks, service ownership,
+authenticated health, configuration merging and rollback remain required.
 
-Only the 1.4.1 release line publishes legacy `quasar-web-*` bridge assets. Future
-releases build and publish the two complete platform packages; an old Bootstrap therefore
-selects the bridge rather than a 1.5 worker. Release cleanup retains the latest
-full 1.4.1 bridge even after newer releases arrive. CI blocks full 1.5+ publication
-until a full 1.4.1 release with both platform packages, worker bridges and checksums
-exists. PR builds remain draft prereleases for review. Download their packages
-directly; publish the draft as a prerelease before testing in-app prerelease
-discovery. Promote and validate 1.4.1 before publishing a full 1.5 release.
+Legacy `quasar-web-*` assets stay on the retained 1.4.1 bridge for compatibility
+with old Bootstrap discovery. Cleanup keeps the newest complete bridge available;
+publication of a current release does not require that bridge. PR packages remain
+draft prereleases; publish a draft as a prerelease before testing in-app discovery.
 
 ### Broken 1.4.1.1 package
 
-The published `v1.4.1.1` packages use `1.4.1-1` in `release.json` while the
-application reports `1.4.1.1`. This prevents both foreground and native-service
-migration receipts. Its Windows installer also has unsafe recursive file grants
-and can leave files inaccessible when application and data share a folder.
-Do not rerun that installer. Use the corrected [**1.4.1.2 migration release**](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2)
-or a newer 1.4.1 complete package, keeping the original install/data paths and service names.
-A newer 1.5/1.6 installer cannot supply a missing bridge receipt.
-
-Stop both services and any legacy task before recovery. Keep the old application
-and a backup of data, credentials and keys. If the old installer removed file
-access, restore administrator access to the dedicated Quasar folders first; do
-not reset permissions on a drive root or a shared system folder. Run the corrected
-bridge installer with `-Start`, or start that complete bridge in the foreground
-with `QUASAR_INSTALL_DIR` pointing to the intended data folder. Confirm
-`Updates/migration-1.4.1.json` exists there before installing 1.5 or later.
-Do not create a receipt by hand or relax version/health checks.
-
-Release publication requires a complete corrected bridge at least 1.4.1.2. Cleanup
-retains the newest bridge with both platform packages, both legacy worker archives
-and checksums; a newer incomplete release cannot displace it.
-
-The corrected [1.4.1.2 packages](https://github.com/CometWorks/quasar/releases/tag/v1.4.1.2)
-were built from the 1.4.1 maintenance line. [Native recovery CI](https://github.com/CometWorks/quasar/actions/runs/42015116872)
-passes Linux user/system and Windows co-located/nested layouts, including effective
-file access, protected paths, service-control permissions, receipts and recovery.
-The [package build](https://github.com/CometWorks/quasar/actions/runs/42015121000)
-checks both platform identities against their executable `--version`; all four
-downloaded archive checksums, manifests and installer sources were also verified.
-Native fixtures use test-only services and production updater/shared code; the
-actual Quasar web service was not launched during this validation.
-
-The maintenance build must come from the 1.4.1 source line, with the package
-identity fix and Windows service/ACL/copy fixes backported. Do not label a current
-1.6 build as 1.4.1 or overwrite the published 1.4.1.1 archives. Build the candidate
-with `VERSION=1.4.1.2 scripts/package-linux-release.sh` on Linux and
-`$env:VERSION='1.4.1.2'` followed by `scripts/package-windows-release.ps1` on Windows.
-Before publication, compare each packaged `release.json` with its application's
-`--version`, run native Windows fixtures for co-located and nested data, and verify
-foreground and native-service receipt creation against the candidate packages.
-Publish both complete packages, both legacy workers and their combined
-`SHA256SUMS` under a new `v1.4.1.2` release. Validate that this receipt permits the
-later installer before considering recovery complete.
+The historical `v1.4.1.1` package has mismatched package/runtime identities and
+unsafe Windows file grants. Do not rerun that installer. Stop both services and
+any legacy task, back up application/data/credentials/Data Protection keys
+together, and use the current complete package with the original paths and service
+names. If necessary restore administrator access to the dedicated Quasar folders
+first; never reset a drive root or shared system folder. No migration receipt is
+needed. Retain the old application and backups until the replacement passes health
+checks. Corrected 1.4.1.2 bridge packages remain available for older deployments
+that specifically need the legacy worker channel.
 
 ## Normal operation
 

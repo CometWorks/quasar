@@ -147,7 +147,6 @@ try{
  Assert-Sentinel
  Write-Host 'PASS native service DACL grant preserves audit rules and remains idempotent after repair'
  if((Get-ScheduledTask -TaskName $task).State -ne 'Disabled'){throw 'Legacy task was not retained disabled'}
- Wait-Until {Test-Path -LiteralPath (Join-Path $data 'Updates/migration-1.4.1.json')} 'Healthy native 1.4.1 migration receipt'
  & dotnet $dll token-create
  if($LASTEXITCODE){throw 'Credential fixture creation failed'}
  Restart-Service $updater

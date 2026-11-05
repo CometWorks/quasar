@@ -6,7 +6,7 @@ Quasar runs and manages Space Engineers 1 (SE1) dedicated servers. This page say
 
 Quasar is a supervisor with a web UI (Blazor Server) and a REST API. One Quasar install manages several dedicated servers on the same machine. It starts, stops, restarts and health-checks them, edits their configuration, downloads and updates the server software, keeps backups, and shows telemetry, chat and players. Admins open the UI in a browser, by default on port 8080.
 
-It runs on Linux and Windows as a native service: a systemd unit on Linux and a Windows Service on Windows, each with a second, small updater service next to it. It also runs from a terminal in the foreground, and as a Docker image on Linux AMD64. Installations from before 1.4.1 ran a Bootstrap launcher instead, as a systemd unit or a Windows Scheduled Task. They must migrate through the 1.4.1 release. See [Updates](Updates.md#required-141-migration-before-15).
+It runs on Linux and Windows as a native service: a systemd unit on Linux and a Windows Service on Windows, each with a second, small updater service next to it. It also runs from a terminal in the foreground, and as a Docker image on Linux AMD64. Installations from before 1.4.1 ran a Bootstrap launcher instead, as a systemd unit or a Windows Scheduled Task. They migrate to native services using the current complete package; no intermediate release is required. See [Updates](Updates.md#direct-installation-and-upgrades).
 
 Source and releases: https://github.com/CometWorks/quasar
 

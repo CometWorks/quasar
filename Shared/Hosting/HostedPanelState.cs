@@ -12,6 +12,12 @@ public sealed record HostedPanelState
 {
     public const string Origin = "https://dash.se-servers.net";
     public string Choice { get; init; } = "";
+    public bool? SetupCompleted { get; init; }
+    // Preserve established legacy access. Old cancellation also used "self",
+    // so an attempted hosted name without a credential is still unfinished.
+    [JsonIgnore]
+    public bool IsSetupComplete => SetupCompleted ?? (Choice == "self" && (PanelId == "" || Credential is not null)
+        || Choice == "hosted" && Credential is not null);
     public string PanelId { get; init; } = "";
     [JsonRequired]
     public string InstallationSecret { get; init; } = NewSecret();

@@ -44,8 +44,6 @@ public class Program
             return;
         }
         if (QuasarApplicationEntry.TryRunCommand(args, out var exitCode)) { Environment.ExitCode = exitCode; return; }
-        try { QuasarUpgradePath.EnsureAllowed(QuasarReleaseVersion.GetEntryAssemblyVersion(), MagnetarPaths.GetQuasarDirectory()); }
-        catch (InvalidOperationException exception) { Console.Error.WriteLine(exception.Message); Environment.ExitCode = 3; return; }
         if (args.Any(arg => arg is "--foreground" or "--console"))
         {
             Environment.SetEnvironmentVariable("QUASAR_MODE", "Console");

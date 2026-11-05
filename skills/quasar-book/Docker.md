@@ -14,7 +14,7 @@ How to run Quasar from the official container image with Docker Compose: the ima
 - Built-in health check: `curl http://127.0.0.1:8080/api/health` every 30 seconds.
 - Label `org.opencontainers.image.licenses` is `AGPL-3.0-only`. See [Licensing](Licensing.md).
 
-Quasar 1.5 and later check for the 1.4.1 migration receipt, `Updates/migration-1.4.1.json` in the data directory, when they start, in a container too. A 1.4.1 image writes it to `quasar-data/Updates/` after its first successful start. Without it Quasar stops at startup with `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`. Run the 1.4.1 image once on the same `quasar-data` before you move to 1.5. See [Install on Linux](InstallLinux.md).
+Current images need no intermediate Quasar release or migration receipt, including on a fresh data volume. Preserve existing persistent data, credentials and Data Protection keys when updating. Older published images may still enforce the removed 1.4.1 gate; use the current release instead of creating a receipt.
 
 ## Start with Docker Compose
 
@@ -157,7 +157,7 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 - `env_file` errors on older Compose: the `path`/`required` form needs Docker Compose 2.24 or newer.
 - Players cannot connect: check the host firewall for each server's UDP game port. Host networking means no Docker port mapping is involved.
 - A server's priority does not go above Normal: `SYS_NICE` is missing, or a container-wide CPU limit is set.
-- The container exits at once and the log says `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`: `quasar-data` has no 1.4.1 migration receipt. Run the 1.4.1 image on it once (see [The image](#the-image)).
+- An older published image may exit with `Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...`. The gate is removed in the next release; use that image directly with your preserved data volume. Do not create a receipt.
 
 ## Sources
 - `Docs/Docker.md`
@@ -181,6 +181,5 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 - `scripts/package-linux-release.sh`
 - `Quasar/Services/QuasarApplicationEntry.cs`
 - `Quasar/Services/ClusterLocalHost.cs`
-- `Shared/Updates/QuasarUpgradePath.cs`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Docs/ReleaseNotes1.5.md`
