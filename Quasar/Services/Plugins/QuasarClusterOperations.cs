@@ -1,5 +1,6 @@
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
+using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
@@ -50,7 +51,7 @@ public static class QuasarClusterOperations
 
     public static void AddQuasarClusterOperations(this IServiceCollection services)
     {
-        services.AddQuasarOperation<ClusterRequest, IReadOnlyList<ClusterItem>>(
+        services.AddQuasarOperation<EmptyRequest, IReadOnlyList<ClusterItem>>(
             QuasarCoreOperations.PluginId,
             "cluster.list",
             [QuasarPolicyNames.ClusterQuery],

@@ -6,14 +6,13 @@ using System.Text.Json.Serialization;
 using Quasar.Models;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
+using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
 /// <summary>Server definitions and the shared config profiles: DS config and world settings, plugins and mods.</summary>
 public static class QuasarConfigOperations
 {
-    public sealed record ServerRequest(string UniqueName = "");
-
     public sealed record DefinitionSetRequest(
         string UniqueName = "",
         string Field = "",
@@ -201,7 +200,7 @@ public static class QuasarConfigOperations
                     "Saves a whole server definition from the server editor, without renaming it.",
             }
         );
-        services.AddQuasarOperation<ProfileRequest, IReadOnlyList<ProfileSummary>>(
+        services.AddQuasarOperation<EmptyRequest, IReadOnlyList<ProfileSummary>>(
             plugin,
             "config.profiles.list",
             [QuasarPolicyNames.CanView],

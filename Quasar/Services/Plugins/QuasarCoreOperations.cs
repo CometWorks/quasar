@@ -14,6 +14,8 @@ public static class QuasarCoreOperations
     public sealed record AnalyticsRequest(long From, long To, string[] Servers, string[] Metrics, int MaxPoints = 1000);
     public sealed record BackupRequest(string? Name = null);
     public sealed record LogRequest(string UniqueName = "", string? Name = null);
+    public sealed record EmptyRequest;
+    public sealed record ServerRequest(string UniqueName = "");
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read };
     // Backup archives hold secrets and the Discord log is for admins only.

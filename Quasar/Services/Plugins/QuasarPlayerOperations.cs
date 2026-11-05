@@ -4,14 +4,13 @@ using Magnetar.Protocol.Transport;
 using Quasar.Models;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
+using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
 /// <summary>Player moderation on standalone servers, through the server's agent. Cluster players are not here.</summary>
 public static class QuasarPlayerOperations
 {
-    public sealed record ServerRequest(string UniqueName = "");
-
     /// <param name="SteamId">The player's SteamID64, as a string.</param>
     public sealed record PlayerRequest(string UniqueName = "", string SteamId = "");
 

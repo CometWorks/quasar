@@ -3,14 +3,13 @@ using System.Text.Json;
 using Quasar.Models;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
+using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
 /// <summary>Server lifecycle, status and log reads of standalone servers.</summary>
 public static class QuasarServerOperations
 {
-    public sealed record ServerRequest(string UniqueName = "");
-
     public sealed record ServerListItem(
         string UniqueName,
         string DisplayName,
@@ -78,7 +77,7 @@ public static class QuasarServerOperations
     public static void AddQuasarServerOperations(this IServiceCollection services)
     {
         const string plugin = QuasarCoreOperations.PluginId;
-        services.AddQuasarOperation<ServerRequest, IReadOnlyList<ServerListItem>>(
+        services.AddQuasarOperation<EmptyRequest, IReadOnlyList<ServerListItem>>(
             plugin,
             "servers.list",
             [QuasarPolicyNames.CanView],
