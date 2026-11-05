@@ -204,6 +204,15 @@ Keys must be 1 to 256 characters and not start with the announcement prefix,
 the URL must be a path inside Quasar (`/...`), and severity is `info`,
 `warning` or `critical`. A source that throws is skipped.
 
+### Discord channels
+
+`IQuasarDiscordChannels.PostAsync(channelId, text)` posts through Quasar's bot
+to a text channel of the configured guild, for example a proposal with a link
+to the approvals page. Text over 2000 characters is split into up to 5
+messages. Mentions are never resolved, so a model-written `@everyone` or role
+mention pings nobody. It returns false when the bot isn't connected, the text
+is empty, or the channel isn't in the guild.
+
 ### Player operations
 
 The player agent's operations are registered under `quasar.core` with the

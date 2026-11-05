@@ -640,7 +640,8 @@ The first useful targets:
 An assistant plugin also registers DI services that core calls:
 `IQuasarPlayerRequestHandler` (players' `!ask` and Discord `/ask`),
 `IQuasarAdminRequestHandler` (Discord `/assistant`) and `IQuasarNoticeSource`
-(web push notices). See [QuasarBrowserSdk.md](QuasarBrowserSdk.md#player-and-admin-requests).
+(web push notices). Core provides `IQuasarDiscordChannels` for posting to the
+guild's channels. See [QuasarBrowserSdk.md](QuasarBrowserSdk.md#player-and-admin-requests).
 
 ## Static Assets
 

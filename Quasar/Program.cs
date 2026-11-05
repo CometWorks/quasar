@@ -367,6 +367,7 @@ public class Program
             builder.Services.AddSingleton<DiscordStatusRelayService>();
             builder.Services.AddSingleton<DiscordSimSpeedAlertService>();
             builder.Services.AddSingleton<DiscordLogRelayService>();
+            builder.Services.AddSingleton<Quasar.Plugin.Abstractions.Assistant.IQuasarDiscordChannels, QuasarDiscordChannels>();
             builder.Services.AddSingleton<DiscordAnalyticsExportService>();
             builder.Services.AddSingleton<DiscordBotService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DiscordBotService>());
