@@ -17,30 +17,59 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
+function Copy-InstallationItem([string]$Source, [string]$Destination) {
+    $item = Get-Item -LiteralPath $Source -Force
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Installation source is a reparse point: $Source" }
+    if (Test-Path -LiteralPath $Destination) {
+        $target = Get-Item -LiteralPath $Destination -Force
+        if ($target.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Installation destination is a reparse point: $Destination" }
+        if ($item.PSIsContainer -ne $target.PSIsContainer) { throw "Installation file/directory conflict: $Destination" }
+    }
+    if ($item.PSIsContainer) {
+        # Merge contents into the exact destination, including on reinstall and recovery.
+        # Copy-Item -Recurse nests the source when the destination already exists.
+        New-Item -ItemType Directory -Path $Destination -Force | Out-Null
+        foreach ($child in Get-ChildItem -LiteralPath $Source -Force) {
+            Copy-InstallationItem $child.FullName (Join-Path $Destination $child.Name)
+        }
+    } else {
+        New-Item -ItemType Directory -Path (Split-Path -Parent $Destination) -Force | Out-Null
+        Copy-Item -LiteralPath $Source -Destination $Destination -Force
+    }
+}
 function Set-InstallationAcl {
     param([Parameter(ValueFromRemainingArguments=$true)][string[]]$AclArguments)
-    & icacls @AclArguments | Out-Null
-    if ($LASTEXITCODE) { throw 'Cannot apply required installation permissions.' }
+    $output = & icacls @AclArguments 2>&1
+    if ($LASTEXITCODE) { throw "Cannot apply required installation permissions to $($AclArguments[0]): $($output -join ' ')" }
+    Write-Verbose ($output -join [Environment]::NewLine)
 }
-function Set-ProtectedTreeAcl([string]$Path, [string]$Account, [Security.AccessControl.FileSystemRights]$Rights) {
+function Set-InstallationTreeAcl([string]$Path, [hashtable]$ServiceAccess, [switch]$Protected, [switch]$RemoveInheritedAccess, [string[]]$ExcludedPaths = @()) {
+    if ($ExcludedPaths -contains [IO.Path]::GetFullPath($Path)) { return }
     $item = Get-Item -LiteralPath $Path -Force
-    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Protected installation path is a reparse point: $Path" }
-    $acl = if ($item.PSIsContainer) { New-Object Security.AccessControl.DirectorySecurity } else { New-Object Security.AccessControl.FileSecurity }
+    if ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw "Installation ACL path is a reparse point: $Path" }
+    $acl = if (-not $Protected) { Get-Acl -LiteralPath $Path } elseif ($item.PSIsContainer) { New-Object Security.AccessControl.DirectorySecurity } else { New-Object Security.AccessControl.FileSecurity }
     $administrators = New-Object Security.Principal.SecurityIdentifier('S-1-5-32-544')
     $system = New-Object Security.Principal.SecurityIdentifier('S-1-5-18')
-    $accountSid = (New-Object Security.Principal.NTAccount($Account)).Translate([Security.Principal.SecurityIdentifier])
     $inheritance = if ($item.PSIsContainer) { [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit' } else { [Security.AccessControl.InheritanceFlags]::None }
-    $acl.SetOwner($administrators)
-    $acl.SetAccessRuleProtection($true, $false)
-    foreach ($entry in @(@($administrators, 'FullControl'), @($system, 'FullControl'), @($accountSid, $Rights))) {
+    if ($Protected) { $acl.SetOwner($administrators) }
+    if ($Protected -or $RemoveInheritedAccess) { $acl.SetAccessRuleProtection($true, $false) }
+    $entries = @(@($administrators, 'FullControl'), @($system, 'FullControl'))
+    foreach ($account in $ServiceAccess.Keys) {
+        $sid = (New-Object Security.Principal.NTAccount($account)).Translate([Security.Principal.SecurityIdentifier])
+        $entries += ,@($sid, $ServiceAccess[$account])
+    }
+    foreach ($entry in $entries) {
         $rule = New-Object Security.AccessControl.FileSystemAccessRule($entry[0], $entry[1], $inheritance, [Security.AccessControl.PropagationFlags]::None, [Security.AccessControl.AccessControlType]::Allow)
         [void]$acl.AddAccessRule($rule)
     }
-    # Publish the complete DACL once. Removing inheritance before adding the
-    # replacement rules temporarily locks administrators out, even during /T.
+    # Files need effective grants without directory inheritance flags. Publish
+    # each complete DACL once, including recovery access, before visiting children.
+    # Ordinary trees retain unrelated explicit rules; protected trees start empty.
     Set-Acl -LiteralPath $Path -AclObject $acl
     if ($item.PSIsContainer) {
-        foreach ($child in Get-ChildItem -LiteralPath $Path -Force) { Set-ProtectedTreeAcl $child.FullName $Account $Rights }
+        foreach ($child in Get-ChildItem -LiteralPath $Path -Force) {
+            Set-InstallationTreeAcl $child.FullName $ServiceAccess -Protected:$Protected -RemoveInheritedAccess:$RemoveInheritedAccess -ExcludedPaths $ExcludedPaths
+        }
     }
 }
 if (-not $IsWindows -and $PSVersionTable.PSEdition -ne 'Desktop') { throw 'Windows only.' }
@@ -101,7 +130,7 @@ if ((Test-Path -LiteralPath (Join-Path $InstallDir 'Quasar.exe')) -and ($legacy 
         if (Test-Path -LiteralPath $source) {
             $destination = Join-Path $backup $file
             New-Item -ItemType Directory -Path (Split-Path -Parent $destination) -Force | Out-Null
-            Copy-Item -LiteralPath $source -Destination $destination -Recurse
+            Copy-InstallationItem $source $destination
         }
     }
 }
@@ -117,7 +146,7 @@ try {
                 $sourceFile = Join-Path $source $name
                 $target = Join-Path $staging $name
                 New-Item -ItemType Directory -Path (Split-Path -Parent $target) -Force | Out-Null
-                Copy-Item -LiteralPath $sourceFile -Destination $target -Recurse -Force
+                Copy-InstallationItem $sourceFile $target
             }
             Copy-Item -LiteralPath (Join-Path $source 'appsettings.json') -Destination $staging
         } else {
@@ -140,7 +169,7 @@ try {
         & (Join-Path $staging 'Updater/Quasar.Updater.exe') check-stopped --root $InstallDir --data-dir $DataDir
         if ($LASTEXITCODE) { throw 'Stop the existing Quasar application before copying files.' }
         New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
-        Get-ChildItem -LiteralPath $staging | Where-Object { $_.Name -ne 'appsettings.json' } | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
+        Get-ChildItem -LiteralPath $staging -Force | Where-Object { $_.Name -ne 'appsettings.json' } | ForEach-Object { Copy-InstallationItem $_.FullName (Join-Path $InstallDir $_.Name) }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $InstallDir 'Updater/Quasar.Updater.exe'))) { throw 'Updater missing. Replace the complete platform package before repair.' }
     New-Item -ItemType Directory -Path $DataDir -Force | Out-Null
@@ -176,19 +205,22 @@ try {
     if ($LASTEXITCODE) { throw 'Cannot configure service installation.' }
     # Main owns its data. Updater may replace application files, but its own binary
     # and protected service metadata are never writable by the application account.
-    Set-InstallationAcl $DataDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F'  "${mainAccount}:(OI)(CI)M" "${updaterAccount}:(OI)(CI)M" /T /C | Out-Null
-    Set-InstallationAcl $InstallDir /grant "${mainAccount}:(OI)(CI)RX" "${updaterAccount}:(OI)(CI)M" /T /C | Out-Null
     $updaterDir = Join-Path $InstallDir 'Updater'
-    Set-ProtectedTreeAcl $updaterDir $updaterAccount 'ReadAndExecute'
     # The archive checked by the updater must remain private through extraction
     # and replacement, even when legacy data lives in the application directory.
     $privateCache = Join-Path $InstallDir '.update-cache'
+    # Reapplying ordinary grants must not temporarily open protected subtrees to
+    # detached processes that still run as the main service account during repair.
+    $protectedPaths = @($updaterDir, $privateCache, $metadata, (Join-Path $InstallDir 'service-installation.json'))
+    Set-InstallationTreeAcl $DataDir @{ $mainAccount = 'Modify'; $updaterAccount = 'Modify' } -RemoveInheritedAccess -ExcludedPaths $protectedPaths
+    Set-InstallationTreeAcl $InstallDir @{ $mainAccount = 'ReadAndExecute'; $updaterAccount = 'Modify' } -ExcludedPaths $protectedPaths
+    Set-InstallationTreeAcl $updaterDir @{ $updaterAccount = 'ReadAndExecute' } -Protected
     New-Item -ItemType Directory -Path $privateCache -Force | Out-Null
-    Set-ProtectedTreeAcl $privateCache $updaterAccount 'Modify'
+    Set-InstallationTreeAcl $privateCache @{ $updaterAccount = 'Modify' } -Protected
     Set-InstallationAcl $metadataDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
     Set-InstallationAcl $metadataDir /grant "${mainAccount}:RX" "${updaterAccount}:RX" | Out-Null
-    Set-InstallationAcl $metadata /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
-    Set-InstallationAcl (Join-Path $InstallDir 'service-installation.json') /inheritance:r /grant:r 'SYSTEM:F' 'BUILTIN\Administrators:F' "${mainAccount}:R" "${updaterAccount}:R" | Out-Null
+    Set-InstallationTreeAcl $metadata @{ $mainAccount = 'Read'; $updaterAccount = 'Read' } -Protected
+    Set-InstallationTreeAcl (Join-Path $InstallDir 'service-installation.json') @{ $mainAccount = 'Read'; $updaterAccount = 'Read' } -Protected
     # Grant the updater query/start/stop rights for this one service, not SCM-wide administration.
     $sid = (New-Object Security.Principal.NTAccount($updaterAccount)).Translate([Security.Principal.SecurityIdentifier])
     $securityOutput = & sc.exe sdshow $ServiceName
@@ -241,7 +273,7 @@ try {
     }
     if ($backup -and $restoreSucceeded) {
         try {
-            Get-ChildItem -LiteralPath $backup | ForEach-Object { Copy-Item -LiteralPath $_.FullName -Destination (Join-Path $InstallDir $_.Name) -Recurse -Force }
+            Get-ChildItem -LiteralPath $backup -Force | ForEach-Object { Copy-InstallationItem $_.FullName (Join-Path $InstallDir $_.Name) }
             if (-not (Test-Path -LiteralPath (Join-Path $backup 'service-installation.json'))) {
                 Remove-Item -LiteralPath (Join-Path $InstallDir 'service-installation.json') -ErrorAction SilentlyContinue
             }

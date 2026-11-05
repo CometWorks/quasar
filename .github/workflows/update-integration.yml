@@ -3,6 +3,9 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'Directory.Build.props'
+      - 'scripts/package-linux-release.sh'
+      - 'scripts/package-windows-release.ps1'
       - 'Shared/Updates/**'
       - 'Quasar.Bootstrap/**'
       - 'Quasar.Updater/**'
@@ -42,10 +45,13 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - name: Install desktop launcher test dependency
+        run: sudo apt-get update -qq && sudo apt-get install -y python3-gi gir1.2-glib-2.0
       - name: Guided installer command and cancellation fixtures
         run: |
           python3 Tests/Updates/install_gui.py
           pwsh -NoProfile -File Tests/Updates/install-gui.ps1
+          pwsh -NoProfile -File Tests/Updates/install-copy.ps1
       - name: Start isolated user manager and test user-scope permissions
         run: |
           sudo loginctl enable-linger "$USER"
@@ -54,6 +60,10 @@ jobs:
           export DBUS_SESSION_BUS_ADDRESS="unix:path=$XDG_RUNTIME_DIR/bus"
           python3 Tests/Updates/systemd.py
   windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        data-layout: [colocated, nested]
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -64,6 +74,14 @@ jobs:
       - name: Guided installer elevation argument validation
         shell: pwsh
         run: Tests/Updates/install-gui.ps1
+      - name: Repeated installation and recovery copy fixture
+        shell: pwsh
+        run: Tests/Updates/install-copy.ps1
       - name: Real isolated native Windows Services, migration, locks, ACLs and recovery
         shell: pwsh
-        run: Tests/Updates/windows-services.ps1
+        run: |
+          if ('${{ matrix.data-layout }}' -eq 'nested') {
+            Tests/Updates/windows-services.ps1 -NestedData
+          } else {
+            Tests/Updates/windows-services.ps1
+          }

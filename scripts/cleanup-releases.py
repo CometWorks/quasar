@@ -12,6 +12,9 @@ import urllib.request
 
 PR_TAG = re.compile(r"^pr-(?P<number>\d+)/")
 VERSION = re.compile(r"v(?P<core>\d+(?:\.\d+){1,3})(?:-(?P<pre>[0-9A-Za-z][0-9A-Za-z.-]*))?")
+MIGRATION_ASSETS = {"quasar-linux-x64.tar.gz", "quasar-win-x64.zip", "quasar-web-linux-x64.tar.gz", "quasar-web-win-x64.zip", "SHA256SUMS"}
+# 1.4.1.1 used the NuGet identity in release.json and shipped unsafe Windows ACLs.
+MINIMUM_MIGRATION_VERSION = (1, 4, 1, 2)
 
 
 def release_identity(release):
@@ -33,6 +36,12 @@ def release_identity(release):
     else:
         stream = "active"
     return stream, version_key
+
+
+def is_full_migration_release(release):
+    identity = release_identity(release)
+    return (identity is not None and identity[0] == "active" and identity[1][:3] == (1, 4, 1)
+            and MIGRATION_ASSETS <= {asset["name"] for asset in release.get("assets", [])})
 
 
 def plan_cleanup(releases, current_tag, closed_prs):
@@ -58,8 +67,7 @@ def plan_cleanup(releases, current_tag, closed_prs):
         keep.update(release["tag_name"] for release in retained)
         print(f"{stream}: keeping {', '.join(release['tag_name'] for release in retained)}")
 
-    bridges = [release for release in grouped.get("active", [])
-               if release_identity(release)[1][:3] == (1, 4, 1)]
+    bridges = [release for release in grouped.get("active", []) if is_full_migration_release(release)]
     if bridges:
         keep.add(max(bridges, key=lambda release: release_identity(release)[1])["tag_name"])
 
@@ -73,10 +81,9 @@ def require_migration_release(releases, target):
         raise ValueError("Invalid target release version")
     if identity[1] < (1, 5, 0, 0):
         return
-    required = {"quasar-linux-x64.tar.gz", "quasar-win-x64.zip", "quasar-web-linux-x64.tar.gz", "quasar-web-win-x64.zip", "SHA256SUMS"}
-    if not any((info := release_identity(release)) and info[0] == "active" and info[1][:3] == (1, 4, 1)
-               and required <= {asset["name"] for asset in release.get("assets", [])} for release in releases):
-        raise ValueError("Release blocker: publish a full Quasar 1.4.1 migration release with both platform packages and legacy worker bridges before publishing 1.5 or later.")
+    if not any(is_full_migration_release(release) and release_identity(release)[1] >= MINIMUM_MIGRATION_VERSION
+               for release in releases):
+        raise ValueError("Release blocker: publish a corrected full Quasar 1.4.1.2 or newer 1.4.1 migration release with both platform packages and legacy worker bridges before publishing 1.5 or later. The broken 1.4.1.1 release is insufficient.")
     print("Verified retained 1.4.1 migration release prerequisite.")
 
 

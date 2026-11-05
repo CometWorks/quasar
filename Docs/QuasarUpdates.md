@@ -39,6 +39,41 @@ exists. PR builds remain draft prereleases for review. Download their packages
 directly; publish the draft as a prerelease before testing in-app prerelease
 discovery. Promote and validate 1.4.1 before publishing a full 1.5 release.
 
+### Broken 1.4.1.1 package
+
+The published `v1.4.1.1` packages use `1.4.1-1` in `release.json` while the
+application reports `1.4.1.1`. This prevents both foreground and native-service
+migration receipts. Its Windows installer also has unsafe recursive file grants
+and can leave files inaccessible when application and data share a folder.
+Do not rerun that installer. Use a corrected **1.4.1.2 or newer 1.4.1** complete
+package once published, keeping the original install/data paths and service names.
+A newer 1.5/1.6 installer cannot supply a missing bridge receipt.
+
+Stop both services and any legacy task before recovery. Keep the old application
+and a backup of data, credentials and keys. If the old installer removed file
+access, restore administrator access to the dedicated Quasar folders first; do
+not reset permissions on a drive root or a shared system folder. Run the corrected
+bridge installer with `-Start`, or start that complete bridge in the foreground
+with `QUASAR_INSTALL_DIR` pointing to the intended data folder. Confirm
+`Updates/migration-1.4.1.json` exists there before installing 1.5 or later.
+Do not create a receipt by hand or relax version/health checks.
+
+Release publication requires a complete corrected bridge at least 1.4.1.2. Cleanup
+retains the newest bridge with both platform packages, both legacy worker archives
+and checksums; a newer incomplete release cannot displace it.
+
+The maintenance build must come from the 1.4.1 source line, with the package
+identity fix and Windows service/ACL/copy fixes backported. Do not label a current
+1.6 build as 1.4.1 or overwrite the published 1.4.1.1 archives. Build the candidate
+with `VERSION=1.4.1.2 scripts/package-linux-release.sh` on Linux and
+`$env:VERSION='1.4.1.2'` followed by `scripts/package-windows-release.ps1` on Windows.
+Before publication, compare each packaged `release.json` with its application's
+`--version`, run native Windows fixtures for co-located and nested data, and verify
+foreground and native-service receipt creation against the candidate packages.
+Publish both complete packages, both legacy workers and their combined
+`SHA256SUMS` under a new `v1.4.1.2` release. Validate that this receipt permits the
+later installer before considering recovery complete.
+
 ## Normal operation
 
 On **Updates**, select a version and press **Update Quasar**. The same operation is

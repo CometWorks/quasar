@@ -153,6 +153,18 @@ Installation preserves existing service audit rules. Repeating supervision repai
 merges this grant without duplicates; permission errors include Windows command
 output for diagnosis.
 
+Permissions set by the installer:
+
+- Data folder: inherited permissions removed; full control for SYSTEM and Administrators, Modify for both service accounts. Unrelated explicit rules, including denies, stay in place.
+- Application folder: Read and Execute for `NT SERVICE\Quasar`, Modify for `NT SERVICE\QuasarUpdater`, full recovery access for SYSTEM and Administrators. Co-located data keeps the main account's Modify grant; nested data keeps its own Modify grant.
+- `Updater\`: owned by Administrators, full control for SYSTEM and Administrators, Read and Execute for the updater account only. The application account can't change it.
+- `.update-cache\`: private to SYSTEM, Administrators and the updater account; only the updater has Modify service access.
+- The installation record and its folder: full control for SYSTEM and Administrators, read for both service accounts.
+
+Files receive direct effective grants; directory inheritance flags apply only to directories. Repair skips protected updater, cache and metadata paths when applying ordinary grants, then restores their restricted ACLs. Recursive ACL changes reject reparse points.
+
+Both installation-record files get complete replacement ACLs: only SYSTEM and Administrators have full control, and both service accounts have read access. Extra explicit grants left by file creation or an older installation are removed from those files.
+
 ## Common problems
 
 Read the persistent capability and operation messages on Updates. Missing service
@@ -160,6 +172,8 @@ permissions, wrong accounts/actions, a stopped updater, checksum failures and me
 conflicts prevent activation. The old application remains available. Linux fixtures
 do not validate Windows file locking; native Windows CI provides that coverage.
 See [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md).
+
+Reinstallation and installer recovery merge files into their original directories, including `Agent`, `Host`, `Updater` and `wwwroot`; they do not create `Host\Host` or similar nested folders. Existing settings and unrelated data stay in place. For a broken published 1.4.1.1 package without a receipt, follow [bridge recovery](Updates.md#broken-1411-package) before using a 1.5+ installer.
 
 ## Sources
 - `README.md`
@@ -207,3 +221,5 @@ See [deployment and migration](https://github.com/CometWorks/quasar/blob/main/Do
 - `scripts/Install.cmd`
 
 - `Shared/Updates/QuasarUpgradePath.cs`
+- `Tests/Updates/NativeFixture.cs`
+- `Tests/Updates/windows-services.ps1`

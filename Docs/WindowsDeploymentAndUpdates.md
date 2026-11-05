@@ -95,6 +95,42 @@ main service. It preserves existing service audit rules; repeated supervision
 repair merges the same grant without adding duplicates. Service-permission failures
 include the Windows command output so an administrator can identify the cause.
 
+File permissions are applied per object: files receive effective access rules without
+directory inheritance flags; directories also carry rules for new descendants.
+SYSTEM and Administrators retain full recovery access to application and data files.
+Both service accounts can modify data; the main account reads/executes application
+files and the updater can replace them. When data is co-located with the application,
+the main account retains Modify there. A nested data folder retains its own Modify
+grants. Unrelated explicit rules on ordinary files, including denies, are retained.
+
+The updater executable tree remains private and read/execute-only for its service
+account. The private `.update-cache` tree grants only the updater Modify access.
+Both trees retain SYSTEM/Administrators full control; both metadata files stay
+read-only for the two service identities. Metadata ACLs are rebuilt with only
+SYSTEM/Administrators full control and those two read grants, removing leftover
+explicit grants from file creation or an older installation. Ordinary permission repair skips these
+protected paths, including when detached game processes still run as the main
+account. Recursive ACL setup rejects reparse points rather than following them.
+The existing narrowly scoped service-control grant and service audit rules remain.
+
+For an install that fails with access denied to `release.json` or an incomplete
+administrator restore, use the current complete package's `-RepairSupervision`
+with the original paths and service names. Keep any reported recovery copy until
+the services pass their health checks. Native fixture failures print service
+identity/path information and owner/protection/SDDL for relevant paths; they do
+not print installation credentials. Real Windows effective access and SCM behavior
+must be verified on Windows, not inferred from a Linux PowerShell parse.
+
+Reinstallation and failed-install recovery merge each package directory into its
+existing location. They replace files under `Agent`, `Host`, `Updater` and
+`wwwroot` without creating nested copies such as `Host\Host`. Existing settings
+and unrelated data remain in place. The portable copy fixture is
+`pwsh -NoProfile -File Tests/Updates/install-copy.ps1`.
+
+For the published `v1.4.1.1` identity/permission failure with no migration receipt,
+follow [bridge recovery](QuasarUpdates.md#broken-1411-package) using the corrected
+1.4.1 package first. Supervision repair from a 1.5+ package still requires a receipt.
+
 ## Command-line UI rollback
 
 Current `Quasar --rollback` restores the retained complete application through the updater. The following worker-only behavior applies to legacy Bootstrap installations.
@@ -292,3 +328,17 @@ token is expired, expiring soon, or rejected during an update check, the Updates
 page shows a warning and the notification icon in the app bar gets a warning
 badge. Save a fresh token before the old one expires to keep automatic checks
 working.
+
+## Restart Quasar safely
+
+The power dialog and UI Plugins use the same restart capability. Restart is enabled only
+after native service verification succeeds for the current Quasar process. If
+verification is missing, stale, unreadable or denied, the button stays disabled and
+shows repair guidance. An unsupported restart request leaves Quasar running. Wait for
+the next verification on Updates or repair supervision with the current installer,
+preserving paths, service names, account and scope. A pending update must finish before
+a manual restart can be queued. Native restarts are durable restart-only operations
+handled by the updater; it verifies the services again before stopping and starting the
+main service. Legacy Bootstrap keeps its worker-restart request path. Failed request
+writes leave Quasar running. Running game servers keep their PIDs for adoption after
+restart.
