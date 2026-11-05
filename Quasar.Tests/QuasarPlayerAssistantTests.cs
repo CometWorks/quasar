@@ -336,10 +336,9 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
         var noSpot = await CallAsync(Player("alpha"), "my.grid.restore", new { gridId = 10 });
         Assert.Equal(409, noSpot.StatusCode);
         Assert.StartsWith("no-spot: No free space.", noSpot.Error);
-        Assert.Equal(
-            QuasarAuditResult.Failed,
-            (await audit.QueryAsync(new(), default)).First().Result
-        );
+        var refused = (await audit.QueryAsync(new(), default)).First();
+        Assert.Equal((QuasarAuditResult.Refused, "alpha"), (refused.Result, refused.Server));
+        Assert.StartsWith("no-spot: No free space.", refused.Error);
         Assert.Equal(
             400,
             (

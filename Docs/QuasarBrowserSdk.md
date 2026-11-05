@@ -59,7 +59,10 @@ services.AddQuasarOperation<SetMotdRequest, SetMotdResponse>(
 - `Effect` is `Read` or `Change`. Read and subscription operations default to
   `Read`, JSON and upload operations to `Change`. Declare `Effect = Read` on a
   JSON operation that changes nothing. Quasar writes an audit entry for every
-  change operation call, and an assistant can only propose a change.
+  change operation call, and an assistant can only propose a change. A call
+  that throws `QuasarOperationException` with a 4xx status is audited as
+  refused with its message as the reason; a 5xx status or any other exception
+  is audited as failed.
 - `Area` is a lowercase identifier such as `servers` or `config`. It defaults to
   the first `.`-separated segment of the operation ID.
 - `Reversal` is `NotReversible` (the default), `NothingToReverse` (a save, a
@@ -238,7 +241,8 @@ the assistant's tool list.
 `my.grid.restore` defaults to `original` placement, 2000 m foreign exclusion and
 10000 m search; the plugin sets these from its settings. Anything but
 `restored` fails the call with 409 and the error `refused: <reason>` or
-`no-spot: <reason>`, so the audit log records only real restores as ok. On a
+`no-spot: <reason>`, so the audit log records only real restores as ok and the
+others as refused, with the server. On a
 cluster the near-player placements run on the player's node. An `original`
 restore asks each node, through the agent's `ResolvePositionOwner` command, for
 the nearest grid or character it owns within the search distance of the backup

@@ -330,6 +330,9 @@ public sealed class QuasarPlayerTools(
             );
 
         var target = ResolveTarget(player, request.UniqueName, gridBackups: true);
+        // Set before anything can refuse, so a refused restore names its server in the audit log.
+        if (undo is not null)
+            undo.Server = target.UniqueName;
         var exclusion = request.ForeignExclusionMeters ?? DefaultForeignExclusionMeters;
         var maxSearch = request.MaxSearchMeters ?? DefaultMaxSearchMeters;
         var node = await RestoreNodeAsync(
@@ -368,7 +371,6 @@ public sealed class QuasarPlayerTools(
 
         if (undo is not null)
         {
-            undo.Server = target.UniqueName;
             undo.SetData(
                 new RestoreUndoData(
                     target.UniqueName,

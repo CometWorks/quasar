@@ -85,9 +85,13 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher, IQuasar
         }
         if (audited)
             await _audit.RecordCallAsync(entryId, user, approver, operation!, request, undo,
-                result.Error is null ? QuasarAuditResult.Ok : QuasarAuditResult.Failed, result.Error, context.ProposalId);
+                Outcome(result), result.Error, context.ProposalId);
         return result;
     }
+
+    // A 4xx answer is the operation declining the call, such as a restore with no free spot; nothing changed.
+    private static QuasarAuditResult Outcome(QuasarOperationResult result) => result.Error is null ? QuasarAuditResult.Ok
+        : result.StatusCode is >= 400 and < 500 ? QuasarAuditResult.Refused : QuasarAuditResult.Failed;
 
     private static async Task<QuasarOperationResult> InvokeAsync(QuasarOperation operation, QuasarOperationContext context,
         JsonElement request, CancellationToken cancellationToken)
