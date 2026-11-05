@@ -174,7 +174,7 @@ Not recorded: Discord commands, cluster changes and cluster player actions, crea
 
 Each entry shows the time (UTC), who acted, who asked (the person behind the assistant, or the player's Steam ID and name), the operation, the server, the mode (applied, proposed by an agent, approved or rejected by an admin) and the result (ok, refused, failed). An approved or rejected call names the proposal it decided. **Details** shows the arguments, with passwords, tokens and keys replaced by `<redacted>`, the error, and the undo data. Filter by time range, principal, requester, operation, server and result.
 
-**Undo** appears on changes whose operation can reverse them. It needs `CanManageSecurity` and the permissions of the original operation. Quasar first checks that the current state is still what the change left. If not, the page shows the difference and offers **Undo anyway** or **Leave it**. An undo is a new entry; entries are never rewritten, and a change can be undone once.
+**Undo** appears on changes whose operation can reverse them. It needs `CanManageSecurity` and the permissions of the original operation. Quasar first checks that the current state is still what the change left. If not, the page shows the difference and offers **Undo anyway** or **Leave it**. An undo is a new entry, shown with the mode **Undo of** and the time of the change it reversed; entries are never rewritten. A change can be undone once, after which its row shows **Undone** instead of the button.
 
 Entries and their undo files are kept for `Quasar:Audit:RetentionDays` days (default 30) in `audit/<yyyy-MM>.jsonl` and `audit/blobs/` in the data directory. An entry whose undo data has expired can no longer be undone.
 
