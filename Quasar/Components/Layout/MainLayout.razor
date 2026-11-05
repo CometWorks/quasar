@@ -85,6 +85,7 @@
             </div>
         </header>
         <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">@Body</main>
+        <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.LayoutDrawer" Parameters="@DrawerParameters" />
         <div class="quasar-overlays">
             <MudPopoverProvider />
             <MudDialogProvider />
@@ -162,12 +163,24 @@
         "plugins" => "Server plugins", "players" => "Players", "chat" => "Chat", "entities" => "Entities",
         "analytics" => "Analytics", "discord" => "Discord", "hosts" => "Host machines", "hosts/enroll" => "Add host machine",
         "backup" => "Backups", "notifications" => "Notifications", "settings/appearance" => "Appearance",
-        "settings/security" => "Security", "settings/ui-plugins" => "UI plugins", "settings/updates" => "Updates",
+        "settings/security" => "Security", "audit" => "Audit log", "settings/ui-plugins" => "UI plugins", "settings/updates" => "Updates",
         "settings/server-list" => "Server listing", "clusters/new" => "Set up cluster",
         var route when route.StartsWith("clusters/", StringComparison.Ordinal) => "Cluster management",
         var route when route.StartsWith("servers/", StringComparison.Ordinal) => "Server management",
         _ => "Control plane",
     };
+
+    // The drawer starts with the page as context: its URI, and the unique name on a server or cluster page.
+    private IReadOnlyDictionary<string, object?> DrawerParameters
+    {
+        get
+        {
+            var route = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Split('/');
+            var serverName = route.Length > 1 && route[0] is "servers" or "clusters" && route[1] != "new"
+                ? Uri.UnescapeDataString(route[1]) : null;
+            return new Dictionary<string, object?> { ["PageUri"] = Navigation.Uri, ["ServerName"] = serverName };
+        }
+    }
 
     private void OnLocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
     {

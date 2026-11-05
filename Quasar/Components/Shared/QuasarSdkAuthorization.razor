@@ -42,6 +42,12 @@
         <label>Policy name <input type="text" @bind="_policyName" /></label>
         <label>Roles, separated by commas <input type="text" @bind="_policyRoles" /></label>
         <MudButton OnClick="SaveRolesAsync" Disabled="@_saving" Variant="Variant.Outlined">Save policy role grants</MudButton>
+        <h3 class="quasar-text quasar-type-subtitle1">Assistant roles</h3>
+        <p>The roles the admin assistant and the player agent act with. The assistant also never does more than the person asking it could do. Neither can hold the admin role, and security, RBAC, credential and shutdown operations stay closed to both.</p>
+        <label>Admin assistant roles, separated by commas <input type="text" @bind="_assistantRoles" /></label>
+        <MudButton OnClick="@(() => SaveAgentRolesAsync(Quasar.Plugin.Abstractions.Security.QuasarAgentKind.Assistant, _assistantRoles))" Disabled="@_saving" Variant="Variant.Outlined">Save assistant roles</MudButton>
+        <label>Player agent roles, separated by commas <input type="text" @bind="_playerRoles" /></label>
+        <MudButton OnClick="@(() => SaveAgentRolesAsync(Quasar.Plugin.Abstractions.Security.QuasarAgentKind.Player, _playerRoles))" Disabled="@_saving" Variant="Variant.Outlined">Save player agent roles</MudButton>
     </div>
 </section>
 
@@ -50,6 +56,8 @@
     private Dictionary<string, List<string>> _policyOverrides = new();
     private string _policyName = "";
     private string _policyRoles = "";
+    private string _assistantRoles = "";
+    private string _playerRoles = "";
     private string? _message;
     private bool _saving;
 
@@ -63,7 +71,10 @@
     {
         var caller = (await Authentication.GetAuthenticationStateAsync()).User;
         _rows = (await Operations.GetSettingsAsync(caller)).Select(settings => new EditRule(settings)).ToList();
-        _policyOverrides = Rbac.GetConfig().PolicyOverrides;
+        var config = Rbac.GetConfig();
+        _policyOverrides = config.PolicyOverrides;
+        _assistantRoles = string.Join(", ", config.AgentRoles.GetValueOrDefault(RbacConfig.AgentRoleKey(Quasar.Plugin.Abstractions.Security.QuasarAgentKind.Assistant), []));
+        _playerRoles = string.Join(", ", config.AgentRoles.GetValueOrDefault(RbacConfig.AgentRoleKey(Quasar.Plugin.Abstractions.Security.QuasarAgentKind.Player), []));
     }
 
     private Task SaveAsync(EditRule row) => ChangeAsync(user => Operations.SaveRuleAsync(user,
@@ -73,6 +84,9 @@
         row.Settings.PluginId, row.Settings.OperationId, null));
 
     private Task SaveRolesAsync() => ChangeAsync(user => Operations.SavePolicyRolesAsync(user, _policyName.Trim(), Split(_policyRoles)));
+
+    private Task SaveAgentRolesAsync(Quasar.Plugin.Abstractions.Security.QuasarAgentKind kind, string roles) =>
+        ChangeAsync(user => Operations.SaveAgentRolesAsync(user, kind, Split(roles)));
 
     private async Task ChangeAsync(Func<System.Security.Claims.ClaimsPrincipal, Task> change)
     {

@@ -1,0 +1,241 @@
+@page "/audit"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@using System.Text.Json
+@using Quasar.Plugin.Abstractions.Operations
+@using Quasar.Services.Audit
+@inject QuasarAuditLog AuditLog
+@inject AuthenticationStateProvider Authentication
+@inject ISnackbar Snackbar
+
+<PageTitle>Audit log</PageTitle>
+
+<QuasarPageHeading Section="Access & security">
+    <Title>Audit log</Title>
+    <Description>Every change made through Quasar's operation registry, by people, the assistant and the player agent. Entries are kept for @AuditLog.RetentionDays days.</Description>
+</QuasarPageHeading>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    Only changes made through the operation registry are recorded. Areas of Quasar that don't use it yet are not audited.
+</MudAlert>
+
+<section class="quasar-panel pa-4 mb-4">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-3">
+        <label>From (UTC) <input type="datetime-local" @bind="_from" /></label>
+        <label>To (UTC) <input type="datetime-local" @bind="_to" /></label>
+        <label>
+            Principal kind
+            <select @bind="_principalKind">
+                <option value="">Any</option>
+                @foreach (var kind in Enum.GetValues<QuasarAuditPrincipalKind>())
+                {
+                    <option value="@kind">@kind</option>
+                }
+            </select>
+        </label>
+        <label>Principal <input type="text" @bind="_principal" /></label>
+        <label>Requester <input type="text" @bind="_requester" /></label>
+        <label>Operation <input type="text" @bind="_operation" /></label>
+        <label>Server <input type="text" @bind="_server" /></label>
+        <label>
+            Result
+            <select @bind="_result">
+                <option value="">Any</option>
+                @foreach (var result in Enum.GetValues<QuasarAuditResult>())
+                {
+                    <option value="@result">@result</option>
+                }
+            </select>
+        </label>
+        <MudButton OnClick="SearchAsync" Variant="Variant.Outlined" Disabled="@_busy">Search</MudButton>
+    </div>
+</section>
+
+<section class="quasar-panel pa-4">
+    @if (_entries.Count == 0)
+    {
+        <p>No audit entries match.</p>
+    }
+    else
+    {
+        <div class="quasar-table-scroll" role="region" aria-label="Audit entries" tabindex="0">
+        <table class="quasar-server-table">
+            <thead>
+                <tr>
+                    <th scope="col">Time (UTC)</th>
+                    <th scope="col">Principal</th>
+                    <th scope="col">Requester</th>
+                    <th scope="col">Operation</th>
+                    <th scope="col">Server</th>
+                    <th scope="col">Mode</th>
+                    <th scope="col">Result</th>
+                    <th scope="col"><span class="quasar-visually-hidden">Actions</span></th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var entry in _entries)
+                {
+                    var blocker = AuditLog.UndoBlocker(entry, _entries);
+                    <tr>
+                        <td class="mono">@entry.Time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@entry.Principal.Kind: @(entry.Principal.Name ?? entry.Principal.Subject)</td>
+                        <td>@Requester(entry.Requester)</td>
+                        <td class="mono">@entry.Operation</td>
+                        <td>@entry.Server</td>
+                        <td>@entry.Mode@(entry.ApprovedBy is null ? null : " by " + entry.ApprovedBy)</td>
+                        <td>@entry.Result</td>
+                        <td>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => Toggle(entry.Id))">
+                                @(_expanded.Contains(entry.Id) ? "Hide" : "Details")
+                            </MudButton>
+                            @if (entry.Reversal == QuasarReversal.Undo && blocker is null)
+                            {
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning" Disabled="@_busy"
+                                           OnClick="@(() => UndoAsync(entry, force: false))">Undo</MudButton>
+                            }
+                        </td>
+                    </tr>
+                    @if (_conflict?.EntryId == entry.Id)
+                    {
+                        <tr class="quasar-server-detail-row">
+                            <td colspan="8">
+                                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                                    The current state is no longer what this change left: @_conflict.Difference
+                                </MudAlert>
+                                <MudButton Variant="Variant.Outlined" Color="Color.Error" Disabled="@_busy" OnClick="@(() => UndoAsync(entry, force: true))">Undo anyway</MudButton>
+                                <MudButton Variant="Variant.Text" OnClick="@(() => _conflict = null)">Leave it</MudButton>
+                            </td>
+                        </tr>
+                    }
+                    @if (_expanded.Contains(entry.Id))
+                    {
+                        <tr class="quasar-server-detail-row">
+                            <td colspan="8">
+                                <dl>
+                                    <dt>Entry</dt><dd class="mono">@entry.Id</dd>
+                                    @if (entry.ConversationId is not null)
+                                    {
+                                        <dt>Conversation</dt><dd class="mono">@entry.ConversationId</dd>
+                                    }
+                                    @if (entry.Request is not null)
+                                    {
+                                        <dt>Request</dt><dd>@entry.Request</dd>
+                                    }
+                                    @if (entry.Reason is not null)
+                                    {
+                                        <dt>Reason</dt><dd>@entry.Reason</dd>
+                                    }
+                                    <dt>Arguments</dt><dd><pre>@Pretty(entry.Arguments)</pre></dd>
+                                    @if (entry.Error is not null)
+                                    {
+                                        <dt>Error</dt><dd>@entry.Error</dd>
+                                    }
+                                    <dt>Reversal</dt><dd>@entry.Reversal@(blocker is not null && entry.Reversal == QuasarReversal.Undo ? " (" + blocker + ")" : null)</dd>
+                                    @if (entry.UndoData is not null)
+                                    {
+                                        <dt>Undo data</dt><dd><pre>@Pretty(entry.UndoData)</pre></dd>
+                                    }
+                                    @if (entry.HasBlobs)
+                                    {
+                                        <dt>Undo files</dt><dd>Kept beside the entry until it expires.</dd>
+                                    }
+                                    @if (entry.Reverses is not null)
+                                    {
+                                        <dt>Reverses</dt><dd class="mono">@entry.Reverses</dd>
+                                    }
+                                </dl>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+        </div>
+        @if (_entries.Count == _take)
+        {
+            <MudButton OnClick="MoreAsync" Variant="Variant.Text" Disabled="@_busy">Show more</MudButton>
+        }
+    }
+</section>
+
+@code {
+    private const int PageSize = 100;
+    private List<QuasarAuditEntry> _entries = [];
+    private readonly HashSet<string> _expanded = [];
+    private Conflict? _conflict;
+    private bool _busy;
+    private int _take = PageSize;
+    private DateTime? _from;
+    private DateTime? _to;
+    private string _principalKind = "";
+    private string _principal = "";
+    private string _requester = "";
+    private string _operation = "";
+    private string _server = "";
+    private string _result = "";
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+
+    private Task SearchAsync()
+    {
+        _take = PageSize;
+        return LoadAsync();
+    }
+
+    private Task MoreAsync()
+    {
+        _take += PageSize;
+        return LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _entries = (await AuditLog.QueryAsync(new QuasarAuditFilter
+        {
+            From = _from is { } from ? new DateTimeOffset(DateTime.SpecifyKind(from, DateTimeKind.Utc)) : null,
+            To = _to is { } to ? new DateTimeOffset(DateTime.SpecifyKind(to, DateTimeKind.Utc)) : null,
+            PrincipalKind = Enum.TryParse<QuasarAuditPrincipalKind>(_principalKind, out var kind) ? kind : null,
+            Principal = _principal,
+            Requester = _requester,
+            Operation = _operation,
+            Server = _server,
+            Result = Enum.TryParse<QuasarAuditResult>(_result, out var result) ? result : null,
+            Take = _take,
+        }, CancellationToken.None)).ToList();
+    }
+
+    private void Toggle(string id)
+    {
+        if (!_expanded.Remove(id))
+            _expanded.Add(id);
+    }
+
+    private async Task UndoAsync(QuasarAuditEntry entry, bool force)
+    {
+        _busy = true;
+        try
+        {
+            var caller = (await Authentication.GetAuthenticationStateAsync()).User;
+            var outcome = await AuditLog.UndoAsync(caller, entry.Id, force, CancellationToken.None);
+            _conflict = outcome.Status == QuasarUndoStatus.Conflict ? new(entry.Id, outcome.Detail ?? "") : null;
+            if (outcome.Status == QuasarUndoStatus.Done)
+                Snackbar.Add("The change was undone.", Severity.Success);
+            else if (outcome.Status == QuasarUndoStatus.Refused)
+                Snackbar.Add(outcome.Detail ?? "Undo was refused.", Severity.Error);
+            await LoadAsync();
+        }
+        finally { _busy = false; }
+    }
+
+    private static string Requester(QuasarAuditRequester requester) => string.Join(" ", new[]
+    {
+        requester.Subject, requester.PlayerName, requester.SteamId is null ? null : "Steam " + requester.SteamId,
+        requester.DiscordUserId is null ? null : "Discord " + requester.DiscordUserId,
+    }.Where(part => !string.IsNullOrWhiteSpace(part)).Distinct());
+
+    // Undo data is not redacted on disk because the undo needs it; the page shows it redacted.
+    private static string Pretty(JsonElement? value) => value is { } json
+        ? JsonSerializer.Serialize(QuasarAuditLog.Redact(json), new JsonSerializerOptions { WriteIndented = true })
+        : "none";
+
+    private sealed record Conflict(string EntryId, string Difference);
+}
