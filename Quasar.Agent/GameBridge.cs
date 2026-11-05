@@ -1657,7 +1657,7 @@ namespace Quasar.Agent
 
             using (new ChatCaptureScope(multiplayer.ServerId, ServerChatAuthorName, true,
                 text, (byte)ChatChannel.Global, 0L, isBroadcastSend: true))
-                multiplayer.SendChatMessage(text, ChatChannel.Global, 0L);
+                ServerChat.Send(multiplayer, text, ChatChannel.Global, 0L);
 
             return CreateResult(command, true, "Chat message sent.");
         }
@@ -1717,7 +1717,7 @@ namespace Quasar.Agent
             if (identityId == 0 || !session.Players.IsPlayerOnline(identityId))
                 return CreateResult(command, false, "Whisper recipient is not online.");
 
-            multiplayer.SendChatMessage(text, ChatChannel.Private, identityId);
+            ServerChat.Send(multiplayer, text, ChatChannel.Private, identityId);
             return CreateResult(command, true, "Whisper sent.");
         }
 
@@ -1746,7 +1746,7 @@ namespace Quasar.Agent
                 if (!session.Players.IsPlayerOnline(member.PlayerId))
                     continue;
 
-                multiplayer.SendChatMessage(text, ChatChannel.Private, member.PlayerId, customData);
+                ServerChat.Send(multiplayer, text, ChatChannel.Private, member.PlayerId, customData);
                 sent++;
             }
 
