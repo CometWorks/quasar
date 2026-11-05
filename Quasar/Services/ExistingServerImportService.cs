@@ -109,6 +109,18 @@ public sealed record ExistingServerImportResult(
     IReadOnlyList<QuasarWorldTemplate> WorldTemplates,
     IReadOnlyList<string> Warnings);
 
+/// <summary>Uploaded server files retained through review and removed on disposal.</summary>
+public sealed class StagedServerImport : IDisposable
+{
+    private readonly string _root;
+    public ExistingServerImportAnalysis Analysis { get; }
+
+    internal StagedServerImport(string root, ExistingServerImportAnalysis analysis)
+        => (_root, Analysis) = (root, analysis);
+
+    public void Dispose() => WorldSaveFiles.Cleanup(_root);
+}
+
 public sealed class ExistingServerImportService(
     DedicatedServerCatalog servers,
     QuasarWorldTemplateCatalog worldTemplates,
@@ -118,15 +130,46 @@ public sealed class ExistingServerImportService(
     public ExistingServerImportAnalysis Analyze(ExistingServerKind kind, string sourcePath) =>
         ExistingServerImportAnalyzer.Analyze(kind, sourcePath);
 
-    public async Task<ExistingServerImportResult> ImportAsync(
-        ExistingServerImportRequest request,
+    public async Task<StagedServerImport> StageZipAsync(ExistingServerKind kind, Stream input, string stagingParent,
+        IProgress<WorldImportProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
+        var staged = await WorldSaveFiles.ExtractZipAsync(input, stagingParent, paths =>
+        {
+            string marker = kind == ExistingServerKind.Torch ? "Torch.cfg" : "SpaceEngineers-Dedicated.cfg";
+            var configs = paths.Where(path => !path.Split('/').Any(part => part.Equals("Backup", StringComparison.OrdinalIgnoreCase))
+                && Path.GetFileName(path) == marker).ToList();
+            if (configs.Count != 1)
+                throw new InvalidOperationException($"ZIP must contain exactly one {marker}. Archive one server instance, including its Saves folder.");
+            return configs[0][..^marker.Length];
+        }, progress, cancellationToken);
+        try
+        {
+            var analysis = await Task.Run(() => ExistingServerImportAnalyzer.Analyze(kind, staged.DirectoryPath, restrictToSource: true), cancellationToken);
+            return new StagedServerImport(staged.Root, analysis);
+        }
+        catch { WorldSaveFiles.Cleanup(staged.Root); throw; }
+    }
+
+    public Task<ExistingServerImportResult> ImportAsync(ExistingServerImportRequest request,
+        CancellationToken cancellationToken = default) => ImportCoreAsync(request, false, cancellationToken);
+
+    public Task<ExistingServerImportResult> ImportArchiveAsync(StagedServerImport source, ExistingServerImportRequest request,
         CancellationToken cancellationToken = default)
+    {
+        if (request.Kind != source.Analysis.Kind || !PathsEqual(request.SourcePath, source.Analysis.SourcePath)
+            || request.TransferMode != ExistingServerTransferMode.Copy)
+            throw new InvalidOperationException("Uploaded servers must be copied from their staged source.");
+        return ImportCoreAsync(request, true, cancellationToken);
+    }
+
+    private async Task<ExistingServerImportResult> ImportCoreAsync(ExistingServerImportRequest request,
+        bool restrictToSource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (!request.SourceServerStoppedConfirmed)
             throw new InvalidOperationException("Confirm that the source server is stopped before importing it.");
 
-        var analysis = Analyze(request.Kind, request.SourcePath);
+        var analysis = ExistingServerImportAnalyzer.Analyze(request.Kind, request.SourcePath, restrictToSource);
         var selectedWorlds = ResolveSelectedWorlds(analysis, request.SelectedWorldPaths);
         var primaryWorld = selectedWorlds.FirstOrDefault(world => PathsEqual(world.Path, request.PrimaryWorldPath))
             ?? throw new InvalidOperationException("Primary world must be one of the selected worlds.");
@@ -438,7 +481,7 @@ public sealed class ExistingServerImportService(
 
 public static class ExistingServerImportAnalyzer
 {
-    public static ExistingServerImportAnalysis Analyze(ExistingServerKind kind, string sourcePath)
+    public static ExistingServerImportAnalysis Analyze(ExistingServerKind kind, string sourcePath, bool restrictToSource = false)
     {
         if (string.IsNullOrWhiteSpace(sourcePath))
             throw new InvalidOperationException("Source server folder required.");
@@ -447,18 +490,19 @@ public static class ExistingServerImportAnalyzer
         if (!Directory.Exists(sourceRoot))
             throw new DirectoryNotFoundException($"Source server folder not found: {sourceRoot}");
 
+        string? boundary = restrictToSource ? sourceRoot : null;
         var warnings = new List<string>();
         var torch = kind == ExistingServerKind.Torch
-            ? FindTorchLayout(sourceRoot)
+            ? FindTorchLayout(sourceRoot, boundary)
             : null;
         var appDataPath = torch?.AppDataPath ?? FindVanillaAppDataPath(sourceRoot, warnings);
         var configPath = Path.Combine(appDataPath, "SpaceEngineers-Dedicated.cfg");
         var config = ReadDedicatedConfig(configPath);
-        var worldPaths = FindWorldPaths(sourceRoot, appDataPath, config.LoadWorld);
+        var worldPaths = FindWorldPaths(sourceRoot, appDataPath, config.LoadWorld, boundary);
         if (worldPaths.Count == 0)
             throw new InvalidOperationException($"No world folders containing Sandbox.sbc found under '{appDataPath}'.");
 
-        var configuredPath = ResolveForeignPath(config.LoadWorld, appDataPath, sourceRoot);
+        var configuredPath = ResolveForeignPath(config.LoadWorld, appDataPath, sourceRoot, boundary);
         var worlds = new List<ExistingServerWorldCandidate>();
         foreach (var worldPath in worldPaths)
         {
@@ -560,13 +604,13 @@ public static class ExistingServerImportAnalyzer
         };
     }
 
-    private static TorchLayout FindTorchLayout(string sourceRoot)
+    private static TorchLayout FindTorchLayout(string sourceRoot, string? boundary)
     {
         var torchConfigPath = Path.Combine(sourceRoot, "Torch.cfg");
         if (!File.Exists(torchConfigPath))
         {
             var parent = Directory.GetParent(sourceRoot)?.FullName;
-            if (!string.IsNullOrWhiteSpace(parent) && File.Exists(Path.Combine(parent, "Torch.cfg")))
+            if (boundary is null && !string.IsNullOrWhiteSpace(parent) && File.Exists(Path.Combine(parent, "Torch.cfg")))
             {
                 torchConfigPath = Path.Combine(parent, "Torch.cfg");
                 sourceRoot = parent;
@@ -584,7 +628,7 @@ public static class ExistingServerImportAnalyzer
             {
                 sourceRoot,
                 Path.Combine(sourceRoot, "Instance"),
-                ResolveForeignPath(configuredInstance, sourceRoot, sourceRoot),
+                ResolveForeignPath(configuredInstance, sourceRoot, sourceRoot, boundary),
             }
             .Where(path => !string.IsNullOrWhiteSpace(path))
             .Select(path => Path.GetFullPath(path!))
@@ -623,10 +667,10 @@ public static class ExistingServerImportAnalyzer
         return matches[0];
     }
 
-    private static IReadOnlyList<string> FindWorldPaths(string sourceRoot, string appDataPath, string loadWorld)
+    private static IReadOnlyList<string> FindWorldPaths(string sourceRoot, string appDataPath, string loadWorld, string? boundary)
     {
         var results = new List<string>();
-        var configured = ResolveForeignPath(loadWorld, appDataPath, sourceRoot);
+        var configured = ResolveForeignPath(loadWorld, appDataPath, sourceRoot, boundary);
         AddWorld(configured);
 
         var savesPath = Path.Combine(appDataPath, "Saves");
@@ -728,7 +772,7 @@ public static class ExistingServerImportAnalyzer
         }
     }
 
-    private static string? ResolveForeignPath(string? value, string appDataPath, string sourceRoot)
+    private static string? ResolveForeignPath(string? value, string appDataPath, string sourceRoot, string? boundary)
     {
         if (string.IsNullOrWhiteSpace(value))
             return null;
@@ -756,10 +800,10 @@ public static class ExistingServerImportAnalyzer
             candidates.Add(Path.Combine(sourceRoot, leaf));
         }
 
-        return candidates
-            .Select(Path.GetFullPath)
-            .FirstOrDefault(Directory.Exists)
-            ?? candidates.Select(Path.GetFullPath).FirstOrDefault();
+        var allowed = candidates.Select(Path.GetFullPath)
+            .Where(path => boundary is null || DedicatedServerPathResolver.IsPathWithinRoot(path, boundary))
+            .ToList();
+        return allowed.FirstOrDefault(Directory.Exists) ?? allowed.FirstOrDefault();
     }
 
     private static string ReadWorldName(string sandboxConfigPath, string fallback)

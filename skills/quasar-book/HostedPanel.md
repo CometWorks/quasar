@@ -13,7 +13,7 @@ The setup dialog shows the price: €2.99 per month or €29.99 per year, in EUR
 You need admin permission in Quasar. On a fresh install that is normally the trusted network bypass, a browser on the Quasar machine. Quasar authentication and Steam sign-in must be on; otherwise the dialog warns "Enable Steam authentication in Quasar before enrolling a public panel." and won't start.
 
 1. Open **Security → Manage access setup**. The same dialog ("Set up administrator access") opens by itself for an admin while `rbac.json` has no administrator or no access method has been chosen yet. Headless Quasar shows no dialog and doesn't wait for one.
-2. If no mapping grants `admin`, enter your 17-digit **Administrator SteamID64** and choose **Save administrator and continue**. See [The first administrator](AccessControl.md#the-first-administrator).
+2. If no mapping grants `admin`, enter your **Administrator SteamID64 or profile URL** and choose **Save administrator and continue**. Quasar accepts a 17-digit ID or Steam Community profile URL and resolves vanity URLs before saving the numeric ID. A failed lookup saves nothing. See [The first administrator](AccessControl.md#the-first-administrator).
 3. Choose **Use hosted panel**, then **Next**. (**Self-deploy** closes the dialog and opens the **Security** page. **Cancel** closes the dialog.)
 4. Enter the **Public panel name**: 3 to 63 lowercase letters and digits, in groups separated by single dashes. Names that Nebula uses for its own pages, such as `account`, `api`, `login` or `billing`, are refused. The dialog previews the public address.
 5. Choose **Start hosted enrollment**. Quasar stores its private installation identity, registers the name with Nebula and opens the Nebula account page in a new tab. If the browser blocks the tab, use **Continue enrollment with Steam**. Sign in with Steam on Nebula, confirm this installation and activate hosting.
@@ -97,6 +97,7 @@ The detailed operator guide, including the acceptance checks for push delivery, 
 - `Quasar/Services/MachineEndpointSecurity.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
+- `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Quasar/Components/Shared/AccessSetupDialog.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Pages/Security.razor`

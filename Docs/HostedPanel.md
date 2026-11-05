@@ -43,7 +43,9 @@ existing release acceptance. See [Nebula billing setup](https://github.com/Comet
 
 1. Open Quasar through an existing administrator session (normally trusted local
    access for a fresh installation). If no subject or claim mapping grants the
-   admin role, setup first asks for a 17-digit **Administrator SteamID64**.
+   admin role, setup first asks for an **Administrator SteamID64 or profile URL**.
+   Enter a 17-digit ID or a Steam Community profile URL. Quasar resolves vanity
+   URLs automatically before saving; a failed lookup saves nothing.
    **Save administrator and continue** persists the admin mapping to `rbac.json`.
    Existing admin mappings skip this step. A remote Steam sign-in alone cannot
    claim an unconfigured panel. A platform super-admin entitlement supplies free

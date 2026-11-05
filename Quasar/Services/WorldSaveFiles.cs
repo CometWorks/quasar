@@ -100,6 +100,26 @@ public static class WorldSaveFiles
     public static async Task<StagedWorld> FromZipAsync(Stream input, string stagingParent,
         IProgress<WorldImportProgress>? progress = null, CancellationToken cancellationToken = default)
     {
+        var staged = await ExtractZipAsync(input, stagingParent, paths =>
+        {
+            var candidates = paths.Where(path => !path.Split('/').Any(part => part.Equals("Backup", StringComparison.OrdinalIgnoreCase))
+                && Path.GetFileName(path).Equals("Sandbox.sbc", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (candidates.Count != 1) throw new InvalidOperationException("ZIP must contain exactly one world with Sandbox.sbc, outside Backup folders.");
+            return candidates[0][..^"Sandbox.sbc".Length];
+        }, progress, cancellationToken);
+        try
+        {
+            await Task.Run(() => ValidateWorld(staged.DirectoryPath, cancellationToken), cancellationToken);
+            return new StagedWorld(staged.Root, staged.DirectoryPath, staged.SuggestedName);
+        }
+        catch { Cleanup(staged.Root); throw; }
+    }
+
+    // The caller owns Root after success and must remove it when staging is no longer needed.
+    internal static async Task<(string Root, string DirectoryPath, string SuggestedName)> ExtractZipAsync(
+        Stream input, string stagingParent, Func<IReadOnlyList<string>, string> selectPrefix,
+        IProgress<WorldImportProgress>? progress = null, CancellationToken cancellationToken = default)
+    {
         string root = CreateStagingRoot(stagingParent);
         try
         {
@@ -129,7 +149,7 @@ public static class WorldSaveFiles
                         throw new InvalidOperationException("ZIP links and special files are not supported.");
                     if (!path.EndsWith('/')) files.Add(path);
                     declaredBytes = checked(declaredBytes + entry.Length);
-                    if (declaredBytes > MaxWorldBytes) throw new InvalidOperationException("Extracted world exceeds 50 GiB.");
+                    if (declaredBytes > MaxWorldBytes) throw new InvalidOperationException("Extracted ZIP exceeds 50 GiB.");
                     entries.Add((entry, path));
                 }
                 foreach (var (_, path) in entries)
@@ -142,11 +162,7 @@ public static class WorldSaveFiles
                         parent = Path.GetDirectoryName(parent);
                     }
                 }
-                var candidates = entries.Where(item => !item.Path.Split('/').Any(part => part.Equals("Backup", StringComparison.OrdinalIgnoreCase))
-                    && item.Path.EndsWith("Sandbox.sbc", StringComparison.OrdinalIgnoreCase)
-                    && Path.GetFileName(item.Path).Equals("Sandbox.sbc", StringComparison.OrdinalIgnoreCase)).ToList();
-                if (candidates.Count != 1) throw new InvalidOperationException("ZIP must contain exactly one world with Sandbox.sbc, outside Backup folders.");
-                string prefix = candidates[0].Path[..^"Sandbox.sbc".Length];
+                string prefix = selectPrefix(entries.Where(item => !item.Path.EndsWith('/')).Select(item => item.Path).ToList());
                 string world = Path.Combine(root, "World");
                 Directory.CreateDirectory(world);
                 long bytes = 0;
@@ -162,13 +178,12 @@ public static class WorldSaveFiles
                     await using var source = entry.Open();
                     await using var destination = OpenPrivateFile(target);
                     long copied = await CopyBoundedAsync(source, destination, MaxWorldBytes - bytes,
-                        count => progress?.Report(new("Extracting world", bytes + count)), cancellationToken);
+                        count => progress?.Report(new("Extracting ZIP", bytes + count)), cancellationToken);
                     if (copied != entry.Length) throw new InvalidOperationException("ZIP entry size does not match its contents.");
                     bytes += copied;
                 }
                 cancellationToken.ThrowIfCancellationRequested();
-                ValidateWorld(world, cancellationToken);
-                return new StagedWorld(root, world, prefix.Length == 0 ? "Imported World" : prefix.TrimEnd('/').Split('/')[^1]);
+                return (root, world, prefix.Length == 0 ? "Imported World" : prefix.TrimEnd('/').Split('/')[^1]);
             }, cancellationToken);
         }
         catch { Cleanup(root); throw; }

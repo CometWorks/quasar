@@ -102,6 +102,15 @@ public sealed class RbacConfigCatalog : IDisposable
         normalized.SdkRulesValid = true;
         lock (_sync)
         {
+            // Keep legacy invalid subjects editable so administrators can add a corrected mapping before removing them.
+            if (normalized.SubjectRoleMappings.Any(mapping =>
+                    string.Equals(mapping.Provider, QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase) &&
+                    !IsSteamId64(mapping.Subject) &&
+                    !_config.SubjectRoleMappings.Any(existing =>
+                        string.Equals(existing.Provider, mapping.Provider, StringComparison.OrdinalIgnoreCase) &&
+                        existing.Subject == mapping.Subject)))
+                throw new ArgumentException("Steam role mappings must use a 17-digit SteamID64.", nameof(config));
+
             if (HasAdminMapping(_config) && !HasAdminMapping(normalized))
                 throw new InvalidOperationException("Cannot remove the last runtime administrator mapping.");
         }
