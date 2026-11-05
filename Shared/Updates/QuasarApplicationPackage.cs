@@ -14,6 +14,17 @@ internal static class QuasarApplicationPackage
         if (metadata.RootElement.GetProperty("updaterProtocol").GetInt32() != UpdaterProtocol)
             throw new InvalidDataException("This package needs a different updater protocol. Upgrade the updater through the platform installer first.");
         QuasarWebReleaseLayout.ValidateDirectory(directory);
+        // Older complete HTTP releases remain valid rollback targets. RTC releases
+        // declare their additional worker-owned payload explicitly.
+        if (metadata.RootElement.TryGetProperty("browserTransport", out var transport))
+        {
+            if (transport.GetInt32() != 1) throw new InvalidDataException("Unsupported browser transport package.");
+            string[] required = [OperatingSystem.IsWindows() ? "Peer/quasar-peer.exe" : "Peer/quasar-peer",
+                OperatingSystem.IsWindows() ? "Peer/quasar-peer.exe.json" : "Peer/quasar-peer.json", "Peer/NOTICES.txt",
+                "wwwroot/_quasar/sdk/v1/client.js", "wwwroot/_quasar/sdk/v1/rtc.js", "wwwroot/_quasar/sdk/v1/boot.js", "wwwroot/_quasar/sdk/v1/circuit.js", "wwwroot/_quasar/sdk/v1/download-worker.js"];
+            foreach (var name in required)
+                if (!File.Exists(Path.Combine(directory, name))) throw new InvalidDataException($"Incomplete browser transport package: {name}");
+        }
         var owned = LauncherReplacement.ReadManifest(directory).ToHashSet(StringComparer.OrdinalIgnoreCase);
         foreach (var name in owned)
             if (!File.Exists(Path.Combine(directory, name))) throw new InvalidDataException($"Incomplete application package: {name}");

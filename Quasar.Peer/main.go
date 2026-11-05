@@ -179,7 +179,10 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	id := parts[1]
 	if r.Method == "POST" && len(parts) == 2 {
-		var offer webrtc.SessionDescription
+		var offer struct {
+			webrtc.SessionDescription
+			StunURLs []string `json:"stunUrls"`
+		}
 		r.Body = http.MaxBytesReader(w, r.Body, maximumMessage)
 		if json.NewDecoder(r.Body).Decode(&offer) != nil || offer.Type != webrtc.SDPTypeOffer {
 			http.Error(w, "invalid offer", 400)
@@ -196,7 +199,23 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "peer limit", 429)
 			return
 		}
-		pc, err := e.api.NewPeerConnection(webrtc.Configuration{}) // Direct candidates only; no TURN credentials.
+		config := webrtc.Configuration{}
+		if len(offer.StunURLs) > 2 {
+			e.mu.Unlock()
+			http.Error(w, "invalid STUN configuration", 400)
+			return
+		}
+		for _, url := range offer.StunURLs {
+			if !strings.HasPrefix(url, "stun:") || len(url) > 256 {
+				e.mu.Unlock()
+				http.Error(w, "only STUN discovery is permitted", 400)
+				return
+			}
+		}
+		if len(offer.StunURLs) > 0 {
+			config.ICEServers = []webrtc.ICEServer{{URLs: offer.StunURLs}}
+		}
+		pc, err := e.api.NewPeerConnection(config) // Direct candidates only; no TURN credentials.
 		if err != nil {
 			e.mu.Unlock()
 			http.Error(w, "cannot create peer", 503)
@@ -264,7 +283,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			})
 			dc.OnClose(func() { e.retire(id, p) })
 		})
-		if pc.SetRemoteDescription(offer) != nil {
+		if pc.SetRemoteDescription(offer.SessionDescription) != nil {
 			e.remove(id)
 			http.Error(w, "invalid SDP", 400)
 			return

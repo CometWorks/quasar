@@ -37,7 +37,8 @@ public static class QuasarSdkEndpoints
             var tokens = antiforgery.GetAndStoreTokens(http);
             // Local HTTP already avoids Nebula and remains independent of peer support.
             var direct = HostedPanelRequest.IsHosted(http);
-            return Results.Json(new { version = 1, requestToken = tokens.RequestToken, headerName = tokens.HeaderName, directEnabled = direct });
+            var stun = direct ? http.RequestServices.GetRequiredService<Microsoft.Extensions.Options.IOptions<QuasarRtcOptions>>().Value.ValidatedStunUrls() : [];
+            return Results.Json(new { version = 1, requestToken = tokens.RequestToken, headerName = tokens.HeaderName, directEnabled = direct, iceServers = stun.Length == 0 ? Array.Empty<object>() : [new { urls = stun }] });
         });
         sdk.MapPost("/operations/{pluginId}/{operationId}", async (string pluginId, string operationId,
             HttpContext http, IQuasarOperationDispatcher dispatcher, IAntiforgery antiforgery) =>

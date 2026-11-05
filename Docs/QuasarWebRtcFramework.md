@@ -1,45 +1,94 @@
-# Blazor and remaining HTTPS traffic
+# Blazor over the peer transport
 
-RTC5 is an unresolved completion gate. The SDK operation/asset/download adapter
-is working, but it does not carry the interactive Blazor circuit. Nebula-hosted
-SDK clients automatically select RTC; that does not imply whole-panel offload.
+The RTC branch supplies a server-side Blazor adapter using public ASP.NET Core
+HTTP features and SignalR's public client ITransport interface. Quasar still
+owns authentication, circuits, rendering, JS interop and reconnection. Pion owns
+ICE/DTLS/SCTP. There is no global WebSocket patch or localhost proxy.
 
-## Framework evidence
+## Server integration
 
-Quasar targets .NET 10 and uses the InteractiveServer render mode with the
-framework's automatic `blazor.web.js` startup in `Components/App.razor`.
-The locally checked runtime/ref pack is ASP.NET Core 10.0.12. The matching 10.0
-framework source exposes:
+A protected `/_quasar/sdk/v1/circuit/negotiate` endpoint requires the existing
+CanView policy, antiforgery and a same-origin request when Origin is present.
+It invokes the fixed framework negotiation endpoint in process and retains its
+opaque token under the exact stored browser binding. Admission is four pending
+circuits/session, 16/user and 64/worker, expiring after 30 seconds. Tokens are
+single-use; another session for the same user cannot substitute its binding.
+The complete HTTP application and its endpoint-specific policies remain intact.
 
-- [CircuitStartOptions.configureSignalR](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/Components/Web.JS/src/Platform/Circuits/CircuitStartOptions.ts): a supported client HubConnectionBuilder hook.
-- [HttpConnection custom ITransport selection](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/SignalR/clients/ts/signalr/src/HttpConnection.ts): a custom client transport can be supplied, but skipNegotiation specifically requires WebSockets. A client hook alone does not implement the server path.
-- [HttpConnectionDispatcherOptions.Transports](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/SignalR/common/Http.Connections/src/HttpConnectionDispatcherOptions.cs): built-in HTTP transports are WebSockets, ServerSentEvents and LongPolling. No WebRTC server transport registration is exposed here.
-- [ComponentHub](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/Components/Server/src/ComponentHub.cs): the circuit hub is internal, so directly instantiating a replacement generic HubConnectionHandler would depend on framework internals.
+The peer's `circuit` command claims that token. A framework HttpContext uses the
+stored authenticated principal, current roles, original Origin/authority and
+panel PathBase. The fixed Blazor endpoint's authorization metadata is evaluated
+before dispatch. `IHttpWebSocketFeature` supplies a managed WebSocket whose input
+and output are the existing bounded peer streams. No ComponentHub internals,
+reflection or feature URL routing is used in production.
 
-These findings do not prove an adapter is impossible. They rule out treating a
-custom client transport or a sample hub as a completed supported circuit adapter.
-A further implementation must establish a server integration using public APIs,
-with the exact core session principal, current authorization, bounded duplex
-backpressure and connection teardown. It must run actual interactive components
-through negotiation, render batches, JS interop, reconnect/disposal and upgrades.
-No global WebSocket patch, localhost HTTP/WebSocket proxy, copied portal ticket
-or reflection into ComponentHub is an accepted production shortcut.
+The framework uses zero-byte receives as readiness probes, so these await data
+without treating an empty destination buffer as EOF. Complete WebSocket message
+boundaries are preserved separately from binary chunks. The client assembles at
+most **8 MiB per framework message** and 64 pending boundaries; ordinary peer
+credit and send queues remain bounded to 256 KiB. Core framework receive limits
+remain in force. This cap is specific to circuit messages, not SDK JSON responses.
 
-## Current traffic inventory
+Logout, ticket expiry, hosted lease expiry and disconnect cancel the streams.
+An RBAC configuration change closes the circuit peer so framework reconnection
+receives current roles, including a downgrade that retains CanView. The worker's
+hosted stop hook awaits peer/application cleanup before disposing services.
+Already committed actions cannot be undone; the adapter never replays clicks.
 
-- Viewer scenes, assets, SDK JSON/reads/uploads/subscriptions and browser downloads
-  use the direct adapter on verified hosted sessions.
-- Core analytics/Fleet requests and console downloads already use the SDK.
-- Blazor render events/batches, JS interop and circuit uploads still use SignalR
-  through the complete existing authenticated HTTP/WebSocket application.
-- Documents, modules, CSS, fonts, images, Steam callbacks, health/version recovery
-  probes, SDK session setup, peer signaling and hosting leases still use HTTPS.
-  Recovery probes must remain available while a worker or peer restarts.
-- Existing machine endpoints preserve their own authentication, socket peer and
-  Origin checks. They are not redirected into the browser SDK.
+## Browser integration and compatibility
 
-The remaining SignalR load must be measured against an explicit operator budget
-or replaced by a proved supported adapter before the full redesign can be called
-delivered. Retaining it is an explicit outstanding scope decision, not a completed
-RTC5 implementation. Native Windows, Internet NAT and installed Steam acceptance
-remain separate gates even after a circuit adapter is established.
+The root app disables automatic framework startup and loads the Quasar-owned
+boot module. Verified Nebula-hosted pages automatically choose the adapter with
+no separate user toggle. Local pages use normal Blazor startup without a Nebula
+or peer dependency. Framework negotiation and document/module loads still use
+HTTPS; interactive events, render batches, JS interop and circuit file uploads
+use the peer. SignalR retains its own circuit reconnect behavior.
+
+Core analytics, console logs and backup downloads use the public SDK. Backup
+aliases keep their admin policy, exact bytes and ranges, while the current UI
+uses SDK streaming downloads. Other browser-native navigations and resources,
+Steam callbacks and health/version recovery probes remain HTTP. Machine APIs
+retain their own socket/credential/Origin policy.
+
+The implementation is verified against **ASP.NET Core 10.0.12**. A framework
+upgrade must rerun the real circuit fixture; the use of public extension points
+does not imply an untested Microsoft-provided WebRTC server transport.
+
+## Evidence and remaining gates
+
+`tests/Quasar.Rtc.CircuitChecks` starts an isolated real Razor Components app with
+the actual SDK boot module, cookie/session runtime and native peer. Chromium and
+Firefox pass authenticated identity, clicks, JS interop, a 200,000-character
+render, a 250,000-byte InputFile upload with exact SHA-256, disconnect/reconnect
+with state retained, current roles after RBAC downgrade, CSRF/Origin denial,
+cross-session token refusal and replay refusal. Neither browser opens a WebSocket.
+The fixture never starts the user's Quasar or game service.
+
+Run with the released Magnetar SDK, built native peer and Playwright:
+
+```bash
+QUASAR_GO=/path/to/go1.27.3 python3 scripts/build-peer.py \
+  --runtime linux-x64 --race --output /path/to/quasar-peer-race
+MagnetarBin=/path/to/MagnetarInterim \
+QUASAR_RTC_TEST_PEER=/path/to/quasar-peer-race \
+PLAYWRIGHT_MODULE=/path/to/playwright/index.mjs \
+CHROME_PATH=/opt/google/chrome/chrome \
+dotnet run --project tests/Quasar.Rtc.CircuitChecks
+```
+
+The Linux release archive also builds with the native binary, integrity manifest
+and complete dependency notices. Native Windows execution, installed whole-panel
+Steam acceptance, real game rendering and representative Internet NAT/TURN/capacity
+acceptance remain release gates. This is not a deployment or whole-panel capacity
+measurement.
+
+## Source references
+
+- [ASP.NET IHttpWebSocketFeature](https://learn.microsoft.com/en-us/dotnet/api/microsoft.aspnetcore.http.features.ihttpwebsocketfeature?view=aspnetcore-10.0)
+- [Microsoft's OWIN WebSocket adapter precedent](https://source.dot.net/Microsoft.AspNetCore.Owin/WebSockets/OwinWebSocketAcceptAdapter.cs.html)
+- [Blazor configureSignalR hook](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/Components/Web.JS/src/Platform/Circuits/CircuitStartOptions.ts)
+- [SignalR ITransport selection](https://github.com/dotnet/aspnetcore/blob/v10.0.0/src/SignalR/clients/ts/signalr/src/HttpConnection.ts)
+
+The reviewed third-party WebRTC projects primarily cover media/signaling, not a
+ready-made transport for framework-owned Blazor Server circuits. The existing
+Pion endpoint plus the public ASP.NET boundary avoids replacing either stack.

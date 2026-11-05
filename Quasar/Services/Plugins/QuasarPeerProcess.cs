@@ -10,6 +10,11 @@ namespace Quasar.Services.Plugins;
 
 public sealed class QuasarRtcOptions
 {
+    public string[] StunUrls { get; set; } = ["stun:dash.se-servers.net:3478"];
+    public string[] ValidatedStunUrls() => StunUrls.Length <= 2 && StunUrls.All(url => url is { Length: > 5 and <= 256 } && url.StartsWith("stun:", StringComparison.Ordinal)
+        && Uri.TryCreate("http://" + url[5..], UriKind.Absolute, out var address)
+        && address.UserInfo.Length == 0 && address.AbsolutePath == "/" && address.Query.Length == 0 && address.Fragment.Length == 0)
+        ? StunUrls : throw new QuasarOperationException(503, "Invalid self-hosted STUN configuration.");
     public string PeerExecutable { get; set; } = Path.Combine(AppContext.BaseDirectory, "Peer",
         OperatingSystem.IsWindows() ? "quasar-peer.exe" : "quasar-peer");
 }
@@ -49,10 +54,10 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
     private readonly SemaphoreSlim startGate = new(1, 1);
     private Connection? connection;
 
-    public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token)
+    public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token, bool hosted = false)
     {
         var current = await StartAsync(token);
-        using var request = new HttpRequestMessage(HttpMethod.Post, Route(id)) { Content = JsonContent.Create(offer) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, Route(id)) { Content = JsonContent.Create(new { offer.Type, offer.Sdp, stunUrls = hosted ? options.Value.ValidatedStunUrls() : [] }) };
         using var response = await current.Http.SendAsync(request, token);
         if (!response.IsSuccessStatusCode) throw new QuasarOperationException((int)response.StatusCode, "The direct peer could not accept this connection.");
         return await response.Content.ReadFromJsonAsync<QuasarRtcDescription>(token)
@@ -113,6 +118,7 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
             if (connection is { } stopped) { connection = null; await stopped.DisposeAsync(); }
             var executable = Path.GetFullPath(options.Value.PeerExecutable);
             if (!File.Exists(executable)) throw new QuasarOperationException(503, "The direct connection component is not installed.");
+            await VerifyComponentAsync(executable, token);
             var secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
             var start = new ProcessStartInfo(executable)
             {
@@ -150,6 +156,25 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
             }
         }
         finally { startGate.Release(); }
+    }
+
+    private sealed record ComponentManifest(int Protocol, string Runtime, string Sha256);
+    private static async Task VerifyComponentAsync(string executable, CancellationToken token)
+    {
+        try
+        {
+            var path = executable + ".json";
+            if (new FileInfo(path).Length > 4096) throw new IOException("Invalid peer manifest.");
+            await using var metadata = File.OpenRead(path);
+            var manifest = await JsonSerializer.DeserializeAsync<ComponentManifest>(metadata, new JsonSerializerOptions(JsonSerializerDefaults.Web), token);
+            var runtime = OperatingSystem.IsWindows() ? "win-x64" : "linux-x64";
+            if (manifest is not { Protocol: 1, Sha256.Length: 64 } || manifest.Runtime != runtime) throw new IOException("Invalid peer manifest.");
+            await using var binary = File.OpenRead(executable);
+            if (!string.Equals(manifest.Sha256, Convert.ToHexString(await SHA256.HashDataAsync(binary, token)), StringComparison.OrdinalIgnoreCase))
+                throw new IOException("Peer integrity mismatch.");
+        }
+        catch (Exception error) when (error is IOException or JsonException or UnauthorizedAccessException)
+        { throw new QuasarOperationException(503, "The direct connection component failed its integrity check."); }
     }
 
     private static string Route(string id) => id.Length == 32 && id.All(char.IsAsciiHexDigit)

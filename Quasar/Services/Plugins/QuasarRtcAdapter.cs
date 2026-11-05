@@ -30,6 +30,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
         private readonly ConcurrentDictionary<uint, Call> calls = new();
         private readonly ConcurrentDictionary<string, QuasarTransferRegistry.Transfer> owned = new(StringComparer.Ordinal);
         private uint lastId;
+        private int circuit;
 
         public async Task RunAsync()
         {
@@ -77,7 +78,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                     }
                     continue;
                 }
-                if (type is not ("request" or "reserve" or "start" or "release") || id <= lastId)
+                if (type is not ("request" or "reserve" or "start" or "release" or "circuit") || id <= lastId)
                     throw new QuasarOperationException(409, "SDK request IDs are single-use and ordered; writes cannot replay.");
                 lastId = id;
                 if (type == "release")
@@ -90,7 +91,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                 }
                 if (calls.Count >= 8) { await ErrorAsync(id, 429, "Too many concurrent SDK requests."); continue; }
                 var request = body.Clone();
-                var call = new Call(id, peer.Token);
+                var call = new Call(id, peer.Token, type == "circuit");
                 if (!calls.TryAdd(id, call)) throw new QuasarOperationException(409, "Duplicate SDK request.");
                 // Feature handlers cannot block the control reader's cancellation and credit path.
                 _ = Task.Run(() => InvokeAsync(call, type!, request));
@@ -123,7 +124,8 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
         {
             try
             {
-                if (type == "start") await StartResourceAsync(call, request);
+                if (type == "circuit") await StartCircuitAsync(call, request);
+                else if (type == "start") await StartResourceAsync(call, request);
                 else
                 {
                     var plugin = Identifier(request, "plugin");
@@ -180,6 +182,35 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                 try { await call.DisposeUploadAsync(); }
                 finally { calls.TryRemove(call.Id, out _); call.Stop.Dispose(); call.Done.TrySetResult(); }
             }
+        }
+
+        private async Task StartCircuitAsync(Call call, JsonElement request)
+        {
+            if (Interlocked.CompareExchange(ref circuit, 1, 0) != 0) throw new QuasarOperationException(429, "This peer already carries a circuit.");
+            try
+            {
+                call.BeginUpload(long.MaxValue);
+                await using var output = Output(call);
+                using var socket = new QuasarRtcCircuitSocket(call.UploadPipe!, output, output.EndAsync,
+                    (kind, bytes) => SendControlAsync(new { v = 1, type = "circuit.message", id = call.Id, kind, bytes }, call.Token), call.Cancel, peer.Cancel, call.Token);
+                var service = scopes.CreateScope();
+                using (service)
+                {
+                    var application = service.ServiceProvider.GetRequiredService<QuasarRtcCircuits>().RunAsync(peer.Binding, Text(request, "ticket"), socket, call.Token);
+                    try
+                    {
+                        var ready = socket.Accepted.Task.WaitAsync(TimeSpan.FromSeconds(10), call.Token);
+                        if (await Task.WhenAny(ready, application) == application) await application;
+                        await ready;
+                        await SendControlAsync(new { v = 1, type = "stream", id = call.Id, contentType = "application/octet-stream", length = (long?)null, status = 200 }, call.Token);
+                        await SendControlAsync(new { v = 1, type = "upload", id = call.Id, window = 64 * 1024 }, call.Token);
+                        await application;
+                        await socket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, call.Token);
+                    }
+                    finally { call.Cancel(); try { await application; } catch (OperationCanceledException) when (call.Token.IsCancellationRequested) { } }
+                }
+            }
+            finally { Volatile.Write(ref circuit, 0); }
         }
 
         private async Task StartResourceAsync(Call call, JsonElement request)
@@ -320,10 +351,10 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
 
     private sealed class Call
     {
-        public Call(uint id, CancellationToken peer)
+        public Call(uint id, CancellationToken peer, bool persistent = false)
         {
             Id = id; Stop = CancellationTokenSource.CreateLinkedTokenSource(peer); Token = Stop.Token;
-            Stop.CancelAfter(TimeSpan.FromMinutes(10));
+            if (!persistent) Stop.CancelAfter(TimeSpan.FromMinutes(10));
         }
         public uint Id { get; }
         public CancellationTokenSource Stop { get; }
@@ -341,6 +372,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
         private Task completion = Task.CompletedTask;
         public long UploadReceived { get; private set; }
         public Stream? UploadReader { get; private set; }
+        public PipeReader? UploadPipe => upload?.Reader;
         public void BeginUpload(long limit)
         {
             lock (gate)

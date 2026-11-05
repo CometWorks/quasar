@@ -235,6 +235,8 @@ foreach ($component in @('Quasar.Updater','Quasar.Host')) {
     if ($LASTEXITCODE) { throw "Publish failed: $component" }
 }
 Copy-Tree (Join-Path $RepoDir 'Quasar/wwwroot') (Join-Path $PublishDir 'wwwroot')
+& python (Join-Path $ScriptDir 'build-peer.py') --runtime $Runtime --output (Join-Path $PublishDir 'Peer/quasar-peer.exe')
+if ($LASTEXITCODE -ne 0) { throw 'Native peer build failed.' }
 
 & python (Join-Path $ScriptDir 'package-symbols.py') --repo $RepoDir --publish $PublishDir `
     --output (Join-Path $ArtifactDir $SymbolsArchiveName) --runtime $Runtime `
@@ -244,6 +246,13 @@ Get-ChildItem -LiteralPath $PublishDir -Recurse -File -Filter '*.pdb' | Remove-I
 
 $requiredApplicationFiles = @(
     'Quasar.exe',
+    'Peer/quasar-peer.exe',
+    'Peer/quasar-peer.exe.json',
+    'Peer/NOTICES.txt',
+    'wwwroot/_quasar/sdk/v1/rtc.js',
+    'wwwroot/_quasar/sdk/v1/boot.js',
+    'wwwroot/_quasar/sdk/v1/circuit.js',
+    'wwwroot/_quasar/sdk/v1/download-worker.js',
     'Host/Quasar.Host.exe',
     'Updater/Quasar.Updater.exe',
     'wwwroot',
@@ -269,7 +278,7 @@ Build-PackagedReadme (Join-Path $RepoDir 'README.md') (Join-Path $ScriptDir 'rea
 # Use the running application's normalized identity, not the NuGet build version.
 $ReleaseVersion = & (Join-Path $PublishDir 'Quasar.exe') --version
 if ($LASTEXITCODE) { throw 'Cannot read the packaged release identity.' }
-@{version=$ReleaseVersion.Trim();updaterProtocol=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $PackageDir 'release.json') -Encoding utf8
+@{version=$ReleaseVersion.Trim();updaterProtocol=1;browserTransport=1}|ConvertTo-Json|Set-Content -LiteralPath (Join-Path $PackageDir 'release.json') -Encoding utf8
 $launcherFiles = Get-ChildItem -LiteralPath $PackageDir -File -Recurse | ForEach-Object {
     $_.FullName.Substring($PackageDir.Length).TrimStart('\', '/').Replace('\', '/')
 } | Where-Object { $_ -notlike 'Updater/*' -and $_ -notin @('appsettings.json', 'service-installation.json', 'launcher-files.txt') } | Sort-Object

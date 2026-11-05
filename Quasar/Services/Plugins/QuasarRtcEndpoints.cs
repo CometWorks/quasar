@@ -14,7 +14,9 @@ public static class QuasarRtcEndpoints
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton<QuasarPeerProcess>();
         services.AddSingleton<QuasarRtcAdapter>();
+        services.AddSingleton<QuasarRtcCircuits>();
         services.AddSingleton<QuasarRtcSessions>();
+        services.AddSingleton<IHostedService>(provider => provider.GetRequiredService<QuasarRtcSessions>());
         return services;
     }
 
@@ -31,6 +33,13 @@ public static class QuasarRtcEndpoints
             catch (Exception error) when (error is IOException or HttpRequestException or TimeoutException)
             { return Results.Problem(statusCode: 503, detail: "Direct connectivity is unavailable."); }
         });
+        app.MapPost(QuasarSdkEndpoints.Prefix + "/circuit/negotiate", async (HttpContext http, IAntiforgery csrf, QuasarRtcCircuits circuits) =>
+        {
+            http.Response.Headers.CacheControl = "private, no-store";
+            try { await circuits.NegotiateAsync(http, csrf); }
+            catch (QuasarOperationException error) { http.Response.Clear(); http.Response.Headers.CacheControl = "private, no-store"; await Results.Problem(statusCode: error.StatusCode, detail: error.Message).ExecuteAsync(http); }
+            catch (AntiforgeryValidationException) { http.Response.Clear(); http.Response.Headers.CacheControl = "private, no-store"; await Results.Problem(statusCode: 400, detail: "Invalid antiforgery token.").ExecuteAsync(http); }
+        }).RequireAuthorization(QuasarPolicyNames.CanView);
         rtc.MapPost("/attempts", async (HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
         {
             await antiforgery.ValidateRequestAsync(http);

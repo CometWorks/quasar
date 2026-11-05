@@ -11,6 +11,7 @@
 @inject WebServiceOptions WebServiceOptions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IJSRuntime JS
 
 <PageTitle>Backups</PageTitle>
 
@@ -32,7 +33,7 @@
                         non-cache Dedicated Server and Magnetar app data.</b>
                 </p>
 
-                <MudButton Href="api/backup/download"
+                <MudButton OnClick="@(() => DownloadBackupAsync())"
                            Variant="Variant.Filled"
                            Color="Color.Primary"
                            StartIcon="@Icons.Material.Filled.Download">
@@ -419,7 +420,7 @@
                             <MudTd DataLabel="" Class="quasar-actions-column">
                                 <MudTooltip Text="Download">
                                     <MudIconButton Icon="@Icons.Material.Filled.Download"
-                                                   Href="@($"api/backup/download/{context.Name}")"
+                                                   OnClick="@(() => DownloadBackupAsync(context.Name))"
                                                    Size="Size.Small" />
                                 </MudTooltip>
                                 <MudTooltip Text="@(IsBackupRestoreBlocked(context) ? "Stop the server before restoring." : "Restore")">
@@ -442,6 +443,12 @@
 </MudGrid>
 
 @code {
+    private async Task DownloadBackupAsync(string? name = null)
+    {
+        try { await JS.InvokeVoidAsync("quasarSdk.download", TimeSpan.FromMinutes(10), QuasarCoreOperations.PluginId, "backup.read", new { name }); }
+        catch (JSException) { Snackbar.Add("The backup download could not complete. Reconnect and try again.", Severity.Error); }
+    }
+
     private const long MaxUploadBytes = 10L * 1024 * 1024 * 1024;
 
     private QuasarBackupSettings _settings = new();

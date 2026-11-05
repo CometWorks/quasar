@@ -1,8 +1,9 @@
 # Quasar direct transport
 
 **Development status: the real SDK adapter, streams and browser downloads pass
-isolated Linux Chromium/Firefox checks. Viewer acceptance, release packaging
-and native Windows execution remain pending.** Ordinary HTTP/WebSocket operation,
+isolated Linux Chromium/Firefox checks. The Blazor bridge and Linux release
+archive are also verified; installed whole-panel and native Windows execution
+remain pending.** Ordinary HTTP/WebSocket operation,
 Blazor, local supervision and the hosted connector remain available as before.
 Do not enable this development component as a production bandwidth solution.
 
@@ -187,7 +188,23 @@ authenticated peer status exposes native byte/buffer totals without addresses.
 This is feature/transport evidence; live Steam, actual game rendering, retained
 history RTC replay and the complete Nebula gateway chain remain acceptance gates.
 
-The [Blazor/framework assessment](QuasarWebRtcFramework.md) records RTC5's unresolved
-server integration gate and the remaining HTTPS traffic. The supported client
-transport hook alone does not offload the circuit, and no whole-panel completion
-claim is made.
+The [Blazor adapter](QuasarWebRtcFramework.md) uses the public server WebSocket
+feature and SignalR client transport interfaces. Real framework render/interop,
+upload and reconnect checks pass; installed whole-panel acceptance remains.
+
+
+## Peer release payload
+
+The Linux and Windows packaging scripts build with pinned Go 1.27.3 and locked
+modules, include all dependency notices, and ship `Peer/quasar-peer[.exe]` plus
+its SHA-256/protocol/runtime manifest. The worker checks that manifest before
+execution. The complete archive checksum and existing verified launcher manifest
+cover the peer. RTC releases declare `browserTransport:1`; the updater rejects
+an incomplete declared payload, while older complete HTTP archives remain valid
+rollback targets. Linux packaging and Windows cross-build pass locally. Native
+Windows execution and installed upgrade/rollback remain acceptance gates.
+
+NAT discovery defaults to the self-hosted `stun:dash.se-servers.net:3478` for
+both peers, without a browser setting. The endpoint must be deployed and UDP 3478
+routed to Nebula separately from HTTPS. TURN fallback is under implementation;
+no relay is enabled by this committed foundation alone.

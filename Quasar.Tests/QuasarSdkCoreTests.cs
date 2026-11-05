@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Models;
+using Quasar.Services.Backup;
+using Magnetar.Protocol.Runtime;
 using Quasar.Plugin.Abstractions;
 using Quasar.Services;
 using Quasar.Services.Analytics;
@@ -25,6 +27,8 @@ public sealed partial class QuasarSdkTests
         services.AddSingleton<PluginStatsStoreService>();
         services.AddSingleton<AnalyticsSeriesService>();
         services.AddSingleton<DedicatedServerCatalog>();
+        services.AddSingleton(_ => new QuasarBackupService(NullLogger<QuasarBackupService>.Instance,
+            new WebServiceOptions { BackupDirectory = Path.Combine(MagnetarPaths.GetQuasarDirectory(), "backups") }, null!, null!, null!, null!, null!));
         services.AddQuasarCoreOperations();
     }
 
@@ -74,6 +78,34 @@ public sealed partial class QuasarSdkTests
         using var unchanged = await client.GetAsync(Prefix + "/_quasar/plugins/legacy/api/ping");
         Assert.Equal(HttpStatusCode.OK, unchanged.StatusCode);
         Assert.Equal("legacy", await unchanged.Content.ReadFromJsonAsync<string>());
+    }
+
+    [Fact]
+    public async Task BackupSdkAndAliasPreserveAdminPolicyExactBytesAndRanges()
+    {
+        await using var app = await StartAsync();
+        var directory = app.Services.GetRequiredService<QuasarBackupService>().BackupDirectory;
+        Directory.CreateDirectory(directory);
+        var bytes = Enumerable.Range(0, 1024).Select(i => (byte)i).ToArray();
+        await File.WriteAllBytesAsync(Path.Combine(directory, "sample.zip"), bytes);
+        using var viewer = app.GetTestClient(); viewer.DefaultRequestHeaders.Add("X-Test-Role", QuasarRoles.Viewer);
+        using var denied = await viewer.GetAsync(Prefix + "/api/backup/download/sample.zip");
+        Assert.Equal(HttpStatusCode.Forbidden, denied.StatusCode);
+        using var admin = app.GetTestClient(); admin.DefaultRequestHeaders.Add("X-Test-Role", QuasarRoles.Admin);
+        using var legacy = await admin.GetAsync(Prefix + "/api/backup/download/sample.zip");
+        Assert.Equal(bytes, await legacy.Content.ReadAsByteArrayAsync());
+        using var reserved = await SendSdkAsync(admin, "/resources/quasar.core/backup.read", "{\"name\":\"sample.zip\"}");
+        Assert.Equal(HttpStatusCode.OK, reserved.StatusCode);
+        var resource = await reserved.Content.ReadFromJsonAsync<JsonElement>();
+        using var request = new HttpRequestMessage(HttpMethod.Get, resource.GetProperty("url").GetString());
+        request.Headers.Range = new(10, 19);
+        using var range = await admin.SendAsync(request);
+        Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
+        Assert.Equal(bytes[10..20], await range.Content.ReadAsByteArrayAsync());
+        using var traversal = await SendSdkAsync(admin, "/resources/quasar.core/backup.read", "{\"name\":\"../sample.zip\"}");
+        var bad = await traversal.Content.ReadFromJsonAsync<JsonElement>();
+        using var rejected = await admin.GetAsync(bad.GetProperty("url").GetString());
+        Assert.Equal(HttpStatusCode.NotFound, rejected.StatusCode);
     }
 
     private sealed class LegacyPlugin : IQuasarPlugin

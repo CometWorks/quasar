@@ -459,28 +459,6 @@ public class Program
             if (authOptions.Enabled)
                 pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
 
-            // Generates a fresh configuration backup and streams it as a download.
-            var backupDownload = app.MapGet("/api/backup/download", (QuasarBackupService backup) =>
-            {
-                var archive = backup.CreateBackup(DateTimeOffset.Now);
-                return Results.File(archive.Content, "application/zip", archive.FileName);
-            });
-
-            // Downloads an existing backup ZIP from the configured backup directory by file name.
-            var backupDownloadByName = app.MapGet("/api/backup/download/{name}", (string name, QuasarBackupService backup) =>
-            {
-                var path = backup.ResolveBackupPath(name);
-                return path is null
-                    ? Results.NotFound()
-                    : Results.File(path, "application/zip", name);
-            });
-
-            if (authOptions.Enabled)
-            {
-                backupDownload.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
-                backupDownloadByName.RequireAuthorization(QuasarPolicyNames.CanManageSecurity);
-            }
-
             if (!webServiceOptions.Headless)
                 MapAuthenticationEndpoints(app, authOptions);
 

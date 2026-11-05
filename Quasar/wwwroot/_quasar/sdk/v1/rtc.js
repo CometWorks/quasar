@@ -19,7 +19,11 @@ const integer = value => Number.isSafeInteger(value) && value >= 0;
 
 export async function connect(root, tokens, lifetime) {
     if (!globalThis.RTCPeerConnection) throw new QuasarSdkError(503, "This browser cannot establish a direct connection.");
-    const pc = new RTCPeerConnection({ iceServers: [] });
+    const iceServers = tokens.iceServers || [];
+    if (!Array.isArray(iceServers) || iceServers.length > 1 || iceServers.some(server => !Array.isArray(server.urls)
+        || server.urls.length > 2 || server.urls.some(url => typeof url !== "string" || !url.startsWith("stun:"))))
+        throw new QuasarSdkError(426, "Incompatible direct NAT-discovery configuration.");
+    const pc = new RTCPeerConnection({ iceServers });
     const control = pc.createDataChannel("quasar.control.v1", { ordered: true, protocol: "quasar-sdk.v1" });
     const bulk = pc.createDataChannel("quasar.bulk.v1", { ordered: true, protocol: "quasar-sdk.v1" });
     bulk.binaryType = "arraybuffer";
@@ -131,6 +135,13 @@ export async function connect(root, tokens, lifetime) {
             case "end":
                 if (!integer(message.bytes) || message.bytes < entry.received || entry.length != null && entry.length !== message.bytes) throw new Error("Invalid direct stream completion");
                 entry.expected = message.bytes; finishStream(entry); break;
+            case "circuit.message":
+                if (!entry.circuit || !integer(message.bytes) || message.bytes < entry.messageEnd || message.bytes - entry.messageEnd > 8 * 1024 * 1024
+                    || !["text", "binary"].includes(message.kind)) throw new Error("Invalid circuit message boundary");
+                entry.messageEnd = message.bytes;
+                if (entry.onmessage) entry.onmessage(message);
+                else { if (entry.messages.length >= 64) throw new Error("Circuit message queue exceeded"); entry.messages.push(message); }
+                break;
             case "upload":
                 if (message.window !== 65536) throw new Error("Invalid upload window");
                 entry.uploadWindow = message.window; entry.ready.resolve(); break;
@@ -163,12 +174,28 @@ export async function connect(root, tokens, lifetime) {
         if (pending.size >= (type === "release" ? 12 : 8)) throw new QuasarSdkError(429, "Too many concurrent direct SDK operations.");
         if (next === 0xffffffff) { fail(); throw new QuasarSdkError(503, "Reconnect before starting more SDK work."); }
         const entry = { id: ++next, result: deferred(), ready: deferred(), credit: deferred(), signal, queue: [], queued: 0, received: 0, consumed: 0,
-            sequence: 0, expected: null, sent: 0, acknowledged: 0, failed: null, abortStream: new AbortController() };
+            sequence: 0, expected: null, sent: 0, acknowledged: 0, failed: null, circuit: type === "circuit", messages: [], messageEnd: 0, abortStream: new AbortController() };
         entry.abort = () => { void command({ type: "cancel", id: entry.id }).catch(() => {}); reject(entry, signal.reason); };
         signal?.addEventListener("abort", entry.abort, { once: true });
         pending.set(entry.id, entry);
         void command({ type, id: entry.id, ...fields }).catch(error => reject(entry, error));
         return entry;
+    }
+    async function sendInput(entry, bytes, nextSequence, signal) {
+        for (let offset = 0; offset < bytes.length; offset += CHUNK) {
+            const chunk = bytes.subarray(offset, offset + CHUNK);
+            while (entry.sent - entry.acknowledged + chunk.byteLength > entry.uploadWindow) {
+                if (entry.failed) throw entry.failed;
+                await wait(entry.credit.promise, signal);
+            }
+            signal.throwIfAborted();
+            if (entry.failed) throw entry.failed;
+            const frame = new Uint8Array(chunk.byteLength + 8);
+            const header = new DataView(frame.buffer);
+            header.setUint32(0, entry.id, true); header.setUint32(4, nextSequence(), true);
+            frame.set(chunk, 8); entry.sent += chunk.byteLength;
+            await send(bulk, frame);
+        }
     }
     const value = async entry => {
         const result = await entry.result.promise;
@@ -212,19 +239,7 @@ export async function connect(root, tokens, lifetime) {
                     const { done, value: bytes } = await wait(reader.read(), signal);
                     if (done) break;
                     if (!(bytes instanceof Uint8Array)) throw new TypeError("SDK upload streams must contain Uint8Array chunks.");
-                    for (let offset = 0; offset < bytes.length; offset += CHUNK) {
-                        const chunk = bytes.subarray(offset, offset + CHUNK);
-                        while (entry.sent - entry.acknowledged + chunk.byteLength > entry.uploadWindow) {
-                            if (entry.failed) throw entry.failed;
-                            await wait(entry.credit.promise, signal);
-                        }
-                        if (entry.failed) throw entry.failed;
-                        const frame = new Uint8Array(chunk.byteLength + 8);
-                        const header = new DataView(frame.buffer);
-                        header.setUint32(0, entry.id, true); header.setUint32(4, sequence++, true);
-                        frame.set(chunk, 8); entry.sent += chunk.byteLength;
-                        await send(bulk, frame);
-                    }
+                    await sendInput(entry, bytes, () => sequence++, signal);
                 }
                 await command({ type: "upload.end", id: entry.id, bytes: entry.sent });
                 return await value(entry);
@@ -232,6 +247,22 @@ export async function connect(root, tokens, lifetime) {
                 void command({ type: "cancel", id: entry.id }).catch(() => {});
                 reject(entry, error); throw error;
             } finally { await reader.cancel().catch(() => {}); }
+        },
+        async circuit(ticket) {
+            const entry = invoke("circuit", { ticket }, stop.signal);
+            const result = await entry.result.promise;
+            await wait(entry.ready.promise, stop.signal);
+            const signal = AbortSignal.any([stop.signal, entry.abortStream.signal]);
+            let sequence = 0, sending = Promise.resolve();
+            return {
+                body: result.body,
+                set onmessage(callback) { entry.onmessage = callback; for (const message of entry.messages.splice(0)) callback(message); },
+                send(bytes) {
+                    const task = sending.then(() => sendInput(entry, bytes, () => sequence++, signal));
+                    sending = task.catch(() => {}); return task;
+                },
+                close() { void command({ type: "cancel", id: entry.id }).catch(() => {}); reject(entry, new DOMException("Circuit closed", "AbortError")); },
+            };
         },
         async release(resource) {
             if (closed) return;

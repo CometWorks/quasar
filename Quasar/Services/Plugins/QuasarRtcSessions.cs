@@ -16,7 +16,7 @@ public sealed record QuasarRtcSetup(string Id, string Grant, QuasarRtcDescriptio
 /// <summary>Owns the exact core browser binding; native peer messages cannot supply a principal.</summary>
 public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeerProcess native,
     IServiceScopeFactory scopes, IHttpClientFactory clients, IHostApplicationLifetime application,
-    TimeProvider clock, ILogger<QuasarRtcSessions> logger) : IAsyncDisposable
+    TimeProvider clock, ILogger<QuasarRtcSessions> logger) : IAsyncDisposable, IHostedService
 {
     private readonly object gate = new();
     private readonly Dictionary<string, Peer> peers = new(StringComparer.Ordinal);
@@ -54,7 +54,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         using var setup = CancellationTokenSource.CreateLinkedTokenSource(peer.Token, token);
         try
         {
-            var answer = await native.CreateAsync(peer.Id, request.Description, setup.Token);
+            var answer = await native.CreateAsync(peer.Id, request.Description, setup.Token, hosted);
             if (answer.Type != "answer") throw new QuasarOperationException(503, "Invalid direct connection answer.");
             var fingerprint = answer.Fingerprint();
             if (state is not null)
@@ -107,7 +107,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             else peer.LeaseExpiry.Change(Timeout.InfiniteTimeSpan, Timeout.InfiniteTimeSpan);
             peer.Active = true;
             peer.Status = status;
-            peer.Application = RunApplicationAsync(peer);
+            using (ExecutionContext.SuppressFlow()) peer.Application = Task.Run(() => RunApplicationAsync(peer));
             await peer.Ready.Task.WaitAsync(peer.Token);
         }
         finally { peer.ConfirmGate.Release(); }
@@ -276,12 +276,20 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         }
     }
 
-    public async ValueTask DisposeAsync()
+    private int disposed;
+    public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    public Task StopAsync(CancellationToken cancellationToken) => StopWorkAsync();
+    private async Task StopWorkAsync()
     {
-        shutdown.Cancel();
+        try { shutdown.Cancel(); } catch (ObjectDisposedException) { return; }
         Peer[] active;
         lock (gate) active = peers.Values.ToArray();
         await Task.WhenAll(active.Select(peer => peer.Retired.Task));
+    }
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        await StopWorkAsync();
         shutdown.Dispose();
     }
 

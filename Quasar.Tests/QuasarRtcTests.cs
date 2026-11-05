@@ -73,6 +73,19 @@ public sealed partial class QuasarRtcTests : IDisposable
         Assert.Throws<Quasar.Plugin.Abstractions.Operations.QuasarOperationException>(() => invalid.Fingerprint());
     }
 
+    [Fact]
+    public async Task PeerIntegrityMismatchFailsBeforeExecution()
+    {
+        Directory.CreateDirectory(root);
+        var path = Path.Combine(root, OperatingSystem.IsWindows() ? "bad-peer.exe" : "bad-peer");
+        await File.WriteAllTextAsync(path, "not a peer component");
+        await File.WriteAllTextAsync(path + ".json", JsonSerializer.Serialize(new { protocol = 1, runtime = OperatingSystem.IsWindows() ? "win-x64" : "linux-x64", sha256 = new string('0', 64) }));
+        await using var process = new QuasarPeerProcess(Microsoft.Extensions.Options.Options.Create(new QuasarRtcOptions { PeerExecutable = path }));
+        var error = await Assert.ThrowsAsync<Quasar.Plugin.Abstractions.Operations.QuasarOperationException>(() => process.CreateAsync(Guid.NewGuid().ToString("N"), new("offer", "invalid"), default));
+        Assert.Equal(503, error.StatusCode);
+        Assert.Contains("integrity", error.Message);
+    }
+
     [RtcPeerFact]
     public async Task RealBrowserPeerBindsSessionsLogoutAndHostingExpiry()
     {
@@ -125,7 +138,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         if (fakeTime is not null) builder.Services.AddSingleton<TimeProvider>(fakeTime);
         builder.Services.AddQuasarRtc(builder.Configuration);
         builder.Services.PostConfigure<QuasarRtcOptions>(options =>
-        { options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer"); });
+        { options.StunUrls = []; options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer"); });
         var manager = new Manager();
         builder.Services.AddSingleton(manager);
         builder.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => manager);

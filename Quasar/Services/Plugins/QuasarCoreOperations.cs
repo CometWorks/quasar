@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Quasar.Models;
+using Quasar.Services.Backup;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Analytics;
 using Quasar.Services.Auth;
@@ -11,10 +12,29 @@ public static class QuasarCoreOperations
 {
     public const string PluginId = "quasar.core";
     public sealed record AnalyticsRequest(long From, long To, string[] Servers, string[] Metrics, int MaxPoints = 1000);
+    public sealed record BackupRequest(string? Name = null);
     public sealed record LogRequest(string UniqueName = "", string? Name = null);
 
     public static void AddQuasarCoreOperations(this IServiceCollection services)
     {
+        services.AddQuasarRead<BackupRequest>(PluginId, "backup.read", [QuasarPolicyNames.CanManageSecurity],
+            (caller, input, token) =>
+            {
+                var service = caller.Services.GetRequiredService<QuasarBackupService>();
+                if (string.IsNullOrWhiteSpace(input.Name))
+                {
+                    var archive = service.CreateBackup(DateTimeOffset.Now);
+                    return Task.FromResult(new QuasarRead(_ => Task.FromResult<Stream>(new MemoryStream(archive.Content, writable: false)),
+                        "application/zip", archive.FileName, archive.Content.LongLength));
+                }
+                var path = service.ResolveBackupPath(input.Name) ?? throw new QuasarOperationException(404, "Backup not found.");
+                return Task.FromResult(new QuasarRead(cancellation =>
+                {
+                    cancellation.ThrowIfCancellationRequested();
+                    try { return Task.FromResult<Stream>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, QuasarSdkLimits.TransferBufferBytes, FileOptions.Asynchronous)); }
+                    catch (IOException) { throw new QuasarOperationException(404, "Backup not found."); }
+                }, "application/zip", Path.GetFileName(path), EnableRanges: true));
+            });
         services.AddQuasarOperation<AnalyticsRequest, AnalyticsSeriesResponse>(PluginId, "analytics.series.read", [QuasarPolicyNames.CanView],
             (caller, input, token) =>
             {
@@ -35,6 +55,9 @@ public static class QuasarCoreOperations
 
     public static void MapQuasarCoreOperations(this IEndpointRouteBuilder endpoints)
     {
+        endpoints.MapQuasarOperationRead("/api/backup/download", PluginId, "backup.read");
+        endpoints.MapQuasarOperation("/api/backup/download/{name}", ["GET"], PluginId, "backup.read", http =>
+            ValueTask.FromResult(JsonSerializer.SerializeToElement(new BackupRequest(http.Request.RouteValues["name"]?.ToString()))));
         endpoints.MapQuasarOperation("/api/analytics/series", ["GET"], PluginId, "analytics.series.read", http =>
         {
             var query = http.Request.Query;

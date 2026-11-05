@@ -18,6 +18,8 @@ on:
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
+      - "Quasar.Peer/**"
+      - "scripts/build-peer.py"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.Updater/**"
@@ -59,6 +61,8 @@ on:
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
+      - "Quasar.Peer/**"
+      - "scripts/build-peer.py"
       - "Quasar.Agent/**"
       - "Quasar.Bootstrap/**"
       - "Quasar.Updater/**"
@@ -397,6 +401,11 @@ jobs:
           path: artifacts/sdk-test-results
           if-no-files-found: ignore
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: Quasar.Peer/go.sum
+
       - name: Package Linux release
         env:
           DS64: ${{ github.workspace }}/ds64
@@ -595,6 +604,11 @@ jobs:
           name: sdk-tests-windows
           path: artifacts/sdk-test-results
           if-no-files-found: ignore
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.3"
+          cache-dependency-path: Quasar.Peer/go.sum
 
       - name: Package Windows release
         shell: pwsh
