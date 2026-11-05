@@ -13,6 +13,7 @@
 @using Admin = CometWorks.ClusterGateway.AdminContract.V1
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
+@inject IServiceProvider Services
 
 <PageTitle>Players</PageTitle>
 
@@ -682,26 +683,23 @@
 
                 try
                 {
-                    if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
-                    var agent = Registry.GetAgents().FirstOrDefault(agent => agent.AgentId == view.Agent.AgentId
-                        && !agent.IsCluster && agent.IsConnected
-                        && string.Equals(agent.UniqueNameKey, view.Record.UniqueName, StringComparison.OrdinalIgnoreCase));
-                    if (agent is null)
+                    // The player operations wait for the agent's answer and record the action in the audit log.
+                    var operation = commandType switch
                     {
-                        Snackbar.Add($"Server '{view.Record.UniqueName}' is not connected.", Severity.Error);
-                        return;
-                    }
-                    var result = await Registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
+                        ServerCommandType.KickPlayer => "players.kick",
+                        ServerCommandType.BanPlayer => "players.ban",
+                        ServerCommandType.UnbanPlayer => "players.unban",
+                        ServerCommandType.ClearKickCooldown => "players.kick-cooldown.clear",
+                        _ => "players.promotion.set",
+                    };
+                    var result = (QuasarPlayerOperations.PlayerActionResult)(await Services.CallCoreOperationAsync(operation, new
                     {
-                        UniqueName = agent.UniqueNameKey,
-                        AgentId = agent.AgentId,
-                        ServerId = agent.ServerKey,
-                        CommandType = commandType,
-                        Text = text,
-                        SteamId = view.Record.SteamId,
-                    }, TimeSpan.FromSeconds(15));
+                        uniqueName = view.Record.UniqueName,
+                        steamId = view.Record.SteamId.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        level = text,
+                    }))!;
 
-                    Snackbar.Add(result.Message, result.Success ? Severity.Success : Severity.Error);
+                    Snackbar.Add(result.Message, Severity.Success);
                 }
                 catch (Exception exception)
                 {

@@ -5,6 +5,7 @@ using MudBlazor;
 using Quasar.Components.Pages;
 using Quasar.Models;
 using Quasar.Services.Auth;
+using Quasar.Services.Plugins;
 
 namespace Quasar.Services;
 
@@ -18,7 +19,8 @@ public sealed class ServerManagementActions(
     QuasarPermissionService permissions,
     IDialogService dialogService,
     ISnackbar snackbar,
-    NavigationManager navigation)
+    NavigationManager navigation,
+    IServiceProvider services)
 {
     private bool _creatingWorldTemplate;
 
@@ -497,7 +499,11 @@ public sealed class ServerManagementActions(
 
         try
         {
-            await serverCatalog.UpsertAsync(definition);
+            // An edit that keeps the name is an audited operation; creating, cloning and renaming stay on the catalog.
+            if (string.Equals(previousUniqueName, definition.UniqueName, StringComparison.Ordinal))
+                await services.CallCoreOperationAsync("servers.definition.save", new { definition });
+            else
+                await serverCatalog.UpsertAsync(definition);
             if (!string.IsNullOrWhiteSpace(successMessage))
                 snackbar.Add(successMessage, Severity.Success);
             return true;

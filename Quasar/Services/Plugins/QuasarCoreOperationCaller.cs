@@ -32,3 +32,16 @@ public sealed class QuasarCoreOperationCaller(
         return (TResponse)result.Value!;
     }
 }
+
+public static class QuasarCoreOperationCallerExtensions
+{
+    // Pages resolve the caller when they act, so components rendered without the dispatcher (tests, previews) still render.
+    public static Task<object?> CallCoreOperationAsync(
+        this IServiceProvider services,
+        string operationId,
+        object request
+    ) =>
+        services
+            .GetRequiredService<QuasarCoreOperationCaller>()
+            .CallAsync<object?>(operationId, request);
+}

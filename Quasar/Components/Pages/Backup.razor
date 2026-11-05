@@ -12,6 +12,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JS
+@inject IServiceProvider Services
 
 <PageTitle>Backups</PageTitle>
 
@@ -666,14 +667,14 @@
         }
     }
 
-    private void MakeServerBackupNowAsync(string uniqueName)
+    private async Task MakeServerBackupNowAsync(string uniqueName)
     {
         if (string.IsNullOrWhiteSpace(uniqueName))
             return;
 
         try
         {
-            AutomaticBackup.QueueServerBackup(uniqueName);
+            await Services.CallCoreOperationAsync("backups.server.create", new { uniqueName });
             Snackbar.Add("Server backup queued.", Severity.Info);
         }
         catch (Exception exception)
@@ -708,7 +709,15 @@
                     return;
                 action = choice.Value ? WorldBackupAction.SaveAndBackUp : WorldBackupAction.StopAndBackUp;
             }
-            AutomaticBackup.QueueWorldBackup(uniqueName, action);
+            // Stop and back up is not an operation: it leaves the server stopped.
+            if (action == WorldBackupAction.StopAndBackUp)
+                AutomaticBackup.QueueWorldBackup(uniqueName, action);
+            else
+                await Services.CallCoreOperationAsync("backups.world.create", new
+                {
+                    uniqueName,
+                    action = action == WorldBackupAction.SaveAndBackUp ? "save" : "latest",
+                });
             Snackbar.Add("World backup queued.", Severity.Info);
         }
         catch (Exception exception)
