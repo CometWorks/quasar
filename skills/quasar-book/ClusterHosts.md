@@ -50,7 +50,7 @@ On Linux x64 every Quasar install runs its own Host executor, ID `local`, withou
 | --- | --- |
 | `LocalHost/host.json` | Host configuration. Quasar rewrites it before each start, so a changed Quasar port reaches the Host. |
 | `LocalHost/state/` | State directory, laid out as on any host machine (credentials, deployments, cluster saves). |
-| `LocalHost/host.log` | The Host's output, moved to `host.log.1` at a start once it passes 10 MB. |
+| `LocalHost/host.log` | The output of the Host, its Gateways and its nodes. The Host rotates it to `host.log.1` once it passes 64 MB, keeping `host.log.1` to `host.log.3`, and Quasar does the same at a Host start once it passes 10 MB. |
 | `LocalHost/host.pid` | PID, process identity, binary hash and configuration hash of the running Host. |
 | `LocalHost/stop-clusters` | Runs `Quasar.Host stop-clusters` for this Host. The clusters unit calls it. |
 
