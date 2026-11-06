@@ -114,6 +114,14 @@ the Steam ID of the player who asked in game, or of the Steam account linked to
 the Discord user with `/link`. The grid ones work where the Grid Backups plugin
 is loaded.
 
+Quasar sets no spending limit for the assistant; set one at the model provider.
+The assistant plugin keeps its instructions and tool list identical between
+requests, so the provider can cache them. In a test with Claude Sonnet 5.5 on
+2026-11-06, 13 questions (8 from a player in game, 5 from an admin) each took
+3 to 8 seconds and 1 to 3 model calls. 87% of the input tokens were read from
+the cache, over 90% in most runs once it was warm, and the 13 answers cost
+about USD 0.12 together. Long conversations and large log reads cost more.
+
 ## The rbac.json file
 
 `rbac.json` lives in the Quasar data directory (the install root, `QUASAR_INSTALL_DIR`), next to `appsettings.json`. See [Configuration](Configuration.md#where-files-live) for paths.
