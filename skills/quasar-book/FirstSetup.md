@@ -156,6 +156,8 @@ Quasar reads the ZIP index from your browser and validates the server configurat
 
 Transfers show progress and offer **Cancel upload**. Limits are 10 GiB transferred, including ZIP metadata, 50 GiB of required extracted files, 100,000 archive entries and 16 MiB per server configuration. The ZIP on your PC can be larger than 10 GiB. Quasar rejects unsafe paths, links and case-conflicting names before file contents transfer. Uploaded configs can only refer to files inside the extracted server folder. Temporary files are removed after success, cancellation or closing the importer; they remain available when you use **Back** to review the same upload.
 
+If **Analyze** reports "The value 'getLength' is not a function", update Quasar to a release with the ZIP browser interop fix, reload the dashboard and select the ZIP again. This error comes from the browser file reference, before Quasar can analyze the archive.
+
 Quasar finds worlds as folders containing `Sandbox.sbc`: the world named in the config's `LoadWorld` and every folder under `Saves`. The world from `LoadWorld` is marked **active** and preselected as primary. `LoadWorld` paths written on Windows, including Wine `Z:` paths, are resolved on Linux; if the path does not exist, Quasar looks for a folder with the same name under `Saves`.
 
 ### What Quasar creates
