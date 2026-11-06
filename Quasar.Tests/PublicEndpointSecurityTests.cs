@@ -183,7 +183,7 @@ public sealed class PublicEndpointSecurityTests
     {
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
-        builder.Services.AddSingleton(new WebServiceOptions { Version = "1.3.2.123" });
+        builder.Services.AddSingleton(new WebServiceOptions { Version = "1.3.2.123", WorkerId = "test-worker" });
         // These probes are not called here; register their services for route binding.
         builder.Services.AddSingleton<ClusterOperationStore>(_ => throw new InvalidOperationException());
         builder.Services.AddSingleton<WebServiceState>(_ => throw new InvalidOperationException());
@@ -223,8 +223,9 @@ public sealed class PublicEndpointSecurityTests
         {
             Assert.True(response.Headers.CacheControl?.NoStore);
             using var payload = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
-            Assert.Equal(["version"], payload.RootElement.EnumerateObject().Select(property => property.Name));
+            Assert.Equal(["version", "workerId"], payload.RootElement.EnumerateObject().Select(property => property.Name));
             Assert.Equal("1.3.2.123", payload.RootElement.GetProperty("version").GetString());
+            Assert.Equal("test-worker", payload.RootElement.GetProperty("workerId").GetString());
         }
     }
 

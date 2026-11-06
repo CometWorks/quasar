@@ -288,7 +288,7 @@ Use HTTPS/WSS for agent and Host traffic that leaves the machine, or a private e
 
 ## Probe endpoints
 
-`/api/health` and `/api/ready` need no sign-in and return only a status (`ready` or `not-ready`, with 503 while not ready). `/api/version` returns the running version for the update overlay; with authentication on it needs `CanView`, and it is never cached.
+`/api/health` and `/api/ready` need no sign-in and return only a status (`ready` or `not-ready`, with 503 while not ready). `/api/version` returns the running version and worker ID for update and reconnect recovery; with authentication on it needs `CanView`, and it is never cached.
 
 ## Turning authentication off
 

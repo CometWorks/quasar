@@ -202,7 +202,7 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 
 ### "Rejoining the server..."
 
-The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Failed to rejoin. Please retry or reload the page." with **Retry**. This is expected for a few seconds after a Quasar update or restart, because the Quasar process changes. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
+The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Failed to rejoin. Please retry or reload the page." with **Retry**. During the disconnect, the page checks readiness and worker identity through the same address, including a Nebula panel prefix. When a replacement Quasar process is ready, the page reloads automatically instead of waiting for all circuit retries to fail. A temporary network interruption to the same process keeps normal reconnection behavior. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
 
 ## Sign-in problems
 
@@ -290,6 +290,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Dashboard/ServerCard.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
+- `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
 - `Magnetar.Protocol/Transport/AgentMessageLimits.cs`
