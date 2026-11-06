@@ -8,6 +8,7 @@ public enum QuasarAuditPrincipalKind
     Person,
     Assistant,
     PlayerAgent,
+    Monitor,
 }
 
 public enum QuasarAuditMode

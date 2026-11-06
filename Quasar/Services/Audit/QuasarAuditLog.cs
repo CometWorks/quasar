@@ -284,6 +284,11 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                 proposal.Request ?? string.Empty,
                 requester.Server
             );
+        if (proposal.Principal.Kind == QuasarAuditPrincipalKind.Monitor)
+            return principals.CreateMonitor(
+                proposal.ConversationId ?? string.Empty,
+                proposal.Request ?? string.Empty
+            );
         var asker = requester.Provider switch
         {
             QuasarAuthSchemes.Steam when RbacConfigCatalog.IsSteamId64(requester.Subject) =>
@@ -531,9 +536,12 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
             Principal = agent is null
                 ? new(QuasarAuditPrincipalKind.Person, Subject(user), user.GetQuasarDisplayName())
                 : new(
-                    agent.Kind == QuasarAgentKind.Assistant
-                        ? QuasarAuditPrincipalKind.Assistant
-                        : QuasarAuditPrincipalKind.PlayerAgent,
+                    agent.Kind switch
+                    {
+                        QuasarAgentKind.Assistant => QuasarAuditPrincipalKind.Assistant,
+                        QuasarAgentKind.Monitor => QuasarAuditPrincipalKind.Monitor,
+                        _ => QuasarAuditPrincipalKind.PlayerAgent,
+                    },
                     agent.Subject,
                     agent.Name
                 ),

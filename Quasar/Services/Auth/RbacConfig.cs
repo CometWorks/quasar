@@ -10,7 +10,7 @@ public sealed class RbacConfig
     public List<ClaimRoleMapping> ClaimRoleMappings { get; set; } = [];
     public Dictionary<string, List<string>> PolicyOverrides { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, QuasarOperationRule?> OperationOverrides { get; set; } = new(StringComparer.Ordinal);
-    // Roles of the agent principals, keyed "assistant" and "player". Never admin.
+    // Roles of the agent principals, keyed "assistant", "player" and "monitor". Never admin.
     public Dictionary<string, List<string>> AgentRoles { get; set; } = DefaultAgentRoles();
     // Discord users who may use /assistant, as the Quasar subject they act as.
     public List<DiscordSubjectMapping> DiscordSubjects { get; set; } = [];
@@ -75,12 +75,18 @@ public sealed class RbacConfig
         return normalized;
     }
 
-    public static string AgentRoleKey(QuasarAgentKind kind) => kind == QuasarAgentKind.Assistant ? "assistant" : "player";
+    public static string AgentRoleKey(QuasarAgentKind kind) => kind switch
+    {
+        QuasarAgentKind.Assistant => "assistant",
+        QuasarAgentKind.Monitor => "monitor",
+        _ => "player",
+    };
 
     private static Dictionary<string, List<string>> DefaultAgentRoles() => new(StringComparer.OrdinalIgnoreCase)
     {
         [AgentRoleKey(QuasarAgentKind.Assistant)] = [QuasarRoles.Editor],
         [AgentRoleKey(QuasarAgentKind.Player)] = [],
+        [AgentRoleKey(QuasarAgentKind.Monitor)] = [QuasarRoles.Editor],
     };
 
     internal static List<string> NormalizeRoles(IEnumerable<string>? roles) =>

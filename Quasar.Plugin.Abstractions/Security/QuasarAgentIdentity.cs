@@ -7,6 +7,10 @@ public enum QuasarAgentKind
 {
     Assistant,
     Player,
+
+    /// <summary>The monitor: runs on its own when a check finds a problem. It acts for nobody, so only its own
+    /// roles limit it.</summary>
+    Monitor,
 }
 
 /// <summary>
@@ -58,22 +62,45 @@ public sealed class QuasarAgentIdentity : ClaimsIdentity
     /// Player operations default to it.</summary>
     public string? Server { get; }
 
-    public string Subject => Kind == QuasarAgentKind.Assistant ? "agent:assistant" : "agent:player";
+    public string Subject => SubjectOf(Kind);
 
     internal QuasarAgentIdentity With(IEnumerable<string> roles, ClaimsPrincipal? asker) =>
-        new(Kind, asker, PlayerSteamId, PlayerName, DiscordUserId, ConversationId, Request, roles, Server);
+        new(
+            Kind,
+            asker,
+            PlayerSteamId,
+            PlayerName,
+            DiscordUserId,
+            ConversationId,
+            Request,
+            roles,
+            Server
+        );
 
     // Keeps the agent type when ASP.NET Core clones a principal.
     public override ClaimsIdentity Clone() =>
         With(FindAll(RoleClaimType).Select(claim => claim.Value), Asker);
 
+    private static string SubjectOf(QuasarAgentKind kind) =>
+        kind switch
+        {
+            QuasarAgentKind.Assistant => "agent:assistant",
+            QuasarAgentKind.Monitor => "agent:monitor",
+            _ => "agent:player",
+        };
+
     private static IEnumerable<Claim> Claims(QuasarAgentKind kind, IEnumerable<string> roles) =>
         [
+            new(ClaimTypes.NameIdentifier, SubjectOf(kind)),
             new(
-                ClaimTypes.NameIdentifier,
-                kind == QuasarAgentKind.Assistant ? "agent:assistant" : "agent:player"
+                ClaimTypes.Name,
+                kind switch
+                {
+                    QuasarAgentKind.Assistant => "Assistant",
+                    QuasarAgentKind.Monitor => "Monitor",
+                    _ => "Player agent",
+                }
             ),
-            new(ClaimTypes.Name, kind == QuasarAgentKind.Assistant ? "Assistant" : "Player agent"),
             new(ProviderClaimType, Provider),
             .. roles.Select(role => new Claim(ClaimTypes.Role, role)),
         ];
@@ -101,4 +128,7 @@ public interface IQuasarAgentPrincipals
         string conversationId,
         string request
     );
+
+    /// <summary>The monitor, acting for nobody: its agent roles alone limit it.</summary>
+    ClaimsPrincipal CreateMonitor(string conversationId, string request);
 }

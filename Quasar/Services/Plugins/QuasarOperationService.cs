@@ -265,7 +265,7 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher, IQuasar
         {
             await RequireSecurityAsync(caller);
             if (savedRoles.Contains(QuasarRoles.Admin, StringComparer.OrdinalIgnoreCase))
-                throw new ArgumentException("An assistant or player agent can never hold the admin role.");
+                throw new ArgumentException("An agent can never hold the admin role.");
             if (savedRoles.Any(role => !QuasarRoles.All.Contains(role)))
                 throw new ArgumentException("Select valid Quasar roles.");
             config.AgentRoles[RbacConfig.AgentRoleKey(kind)] = savedRoles;

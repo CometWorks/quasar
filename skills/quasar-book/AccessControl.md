@@ -1,6 +1,6 @@
 # Access control
 
-This page covers who can use the Quasar web UI and API: Steam sign-in, the trusted-network bypass, the three roles and what each can do, the `rbac.json` file, the **Security** page, the assistant and player agent principals, the **Audit log**, API tokens for automation, the separate policy for machine endpoints, and how to recover when you lock yourself out. For first-time admin setup see [First setup](FirstSetup.md#set-the-first-administrator).
+This page covers who can use the Quasar web UI and API: Steam sign-in, the trusted-network bypass, the three roles and what each can do, the `rbac.json` file, the **Security** page, the assistant, player agent and monitor principals, the **Audit log**, API tokens for automation, the separate policy for machine endpoints, and how to recover when you lock yourself out. For first-time admin setup see [First setup](FirstSetup.md#set-the-first-administrator).
 
 ## How Quasar identifies a caller
 
@@ -90,18 +90,20 @@ asset administration and history default to `CanManageSecurity`. Asset consent
 and user ownership still apply after you change an operation policy. WebRTC
 remains a separate implementation. See [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
 
-### Assistant and player agent
+### Assistant, player agent and monitor
 
-An assistant UI plugin acts through two agent principals that Quasar builds
+An assistant UI plugin acts through three agent principals that Quasar builds
 itself; no cookie, token or request header can claim to be one. The admin
 assistant acts for the person chatting with it, who needs `CanUseAssistant`.
 The player agent acts for one player and only gets `CanActAsPlayer` operations.
+The monitor runs on its own when a check finds a problem on a server or cluster.
+It acts for nobody, so only its own roles limit it.
 
 **Assistant roles** under **Plugin endpoint authorization** sets the roles each
-agent acts with: the admin assistant has `editor` and the player agent none by
-default. Neither can hold `admin`; saving it fails with "An assistant or player
-agent can never hold the admin role." and Quasar drops it from a hand-edited
-file. On top of its roles, a call from either agent is refused with "Assistants
+agent acts with: the admin assistant and the monitor have `editor` and the
+player agent none by default. No agent can hold `admin`; saving it fails with
+"An agent can never hold the admin role." and Quasar drops it from a hand-edited
+file. On top of its roles, a call from any agent is refused with "Assistants
 cannot use this operation." when the operation needs `CanManageSecurity` or
 `CanShutdownQuasar`, its plugin closed it to agents, or it belongs to security,
 RBAC, auth settings, service principals, updates, Workshop credentials, the
@@ -134,7 +136,7 @@ about USD 0.12 together. Long conversations and large log reads cost more.
   ],
   "claimRoleMappings": [],
   "policyOverrides": {},
-  "agentRoles": { "assistant": ["editor"], "player": [] },
+  "agentRoles": { "assistant": ["editor"], "player": [], "monitor": ["editor"] },
   "discordSubjects": [
     { "discordUserId": "123456789012345678", "provider": "Steam", "subject": "76561198000000000" }
   ]
@@ -147,7 +149,7 @@ Rules Quasar applies when it reads the file:
 - Role names are lowercased. Unknown role names are dropped. A mapping with no valid role or an empty subject is dropped. Duplicate provider and subject pairs keep the first.
 - A subject can have several roles; the highest one decides in practice, since each role grants a superset of the one below.
 - `claimRoleMappings` and `policyOverrides` are read and saved but do not change who can do what. The permission table above is fixed.
-- `agentRoles` keeps only `assistant` and `player`. A missing entry gets its default, and `admin` is dropped.
+- `agentRoles` keeps only `assistant`, `player` and `monitor`. A missing entry gets its default, and `admin` is dropped.
 - `discordSubjects` entries need a numeric Discord user ID and a subject; others are dropped, and a Discord user keeps its first entry. A non-Steam provider grants nothing.
 
 Quasar watches the file. Saving it while Quasar runs applies the change within moments, and the log shows "Reloaded RBAC config from disk after external edit." If the file is not valid JSON, Quasar logs "Failed loading RBAC config from <path>" and treats it as having no mappings, so no Steam user has a role until the file is fixed.
@@ -179,7 +181,7 @@ When `rbac.json` has no mapping with the `admin` role, the access setup dialog (
 
 ## Audit log
 
-**Audit log** (`/audit`, admin only, under **Infrastructure & tools**) lists every change made through Quasar's operation registry, by people, the admin assistant and the player agent. Reads are not recorded.
+**Audit log** (`/audit`, admin only, under **Infrastructure & tools**) lists every change made through Quasar's operation registry, by people, the admin assistant, the player agent and the monitor. Reads are not recorded.
 
 These pages go through the registry, so their changes appear in the log:
 
