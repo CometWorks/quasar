@@ -351,4 +351,4 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `docker-compose.yml`
 - `.env.example`
 - `Shared/Updates/BootstrapUpdateSupport.cs`
-- `Quasar/Services/Assistant/QuasarPlayerLinks.cs`
+- `Quasar/Services/Players/QuasarPlayerLinks.cs`
