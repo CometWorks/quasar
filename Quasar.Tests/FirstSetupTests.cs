@@ -385,7 +385,9 @@ public sealed class FirstSetupTests : IDisposable
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
         Assert.Contains("server.zip", dialogs.Markup);
-        await dialogs.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
+        Assert.DoesNotContain("I confirm source server is stopped", dialogs.Markup);
+        Assert.Empty(dialogs.FindAll("input[type=checkbox]"));
+        Assert.False(dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").HasAttribute("disabled"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").ClickAsync(new());
         Assert.Contains("Imported 'Uploaded Server'", dialogs.Markup);
         var server = Assert.Single(context.Services.GetRequiredService<DedicatedServerCatalog>().GetServers());
@@ -393,6 +395,34 @@ public sealed class FirstSetupTests : IDisposable
         Assert.Equal(DedicatedServerGoalState.Off, server.GoalState);
         Assert.Equal("voxels", File.ReadAllText(Path.Combine(DedicatedServerPathResolver.Resolve(server).WorldSavePath, "Planet.vx2")));
         Assert.False(File.Exists(configPath));
+    }
+
+    [Fact]
+    public async Task ExistingServerFolderStillRequiresStoppedConfirmation()
+    {
+        await using var context = Context();
+        context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ExistingServerImportDialog>("Import"));
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Vanilla Dedicated Server").ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
+        string source = Path.Combine(_root, "source-server");
+        using var zip = ExistingServerZipImportTests.CreateServerZip(ExistingServerKind.Vanilla);
+        System.IO.Compression.ZipFile.ExtractToDirectory(zip, source);
+        await dialogs.Find(".world-path-controls input").InputAsync(new() { Value = source });
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
+        Assert.Contains("I confirm source server is stopped", dialogs.Markup);
+        Assert.True(dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").HasAttribute("disabled"));
+        var importer = context.Services.GetRequiredService<ExistingServerImportService>();
+        var analysis = importer.Analyze(ExistingServerKind.Vanilla, source);
+        var primary = analysis.Worlds[0].Path;
+        var request = new ExistingServerImportRequest(ExistingServerKind.Vanilla, source, ExistingServerTransferMode.Copy,
+            "Uploaded", "uploaded", [primary], primary, ExistingServerImportSections.Identity, false);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => importer.ImportAsync(request));
+        Assert.Contains("Confirm that the source server is stopped", error.Message);
+        await dialogs.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
+        Assert.False(dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import").HasAttribute("disabled"));
     }
 
     [Theory]

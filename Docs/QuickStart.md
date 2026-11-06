@@ -198,8 +198,9 @@ vanilla Dedicated Server or Torch instance:
 4. Choose transfer categories with the checkboxes: server/world names,
    network and online mode, server options and MOTD, DS `GroupID` whitelist,
    administrators, reserved players, banned players, gameplay settings, mods,
-   and Torch crash-restart behavior. The source server must be stopped so its
-   world files form a consistent snapshot.
+   and Torch crash-restart behavior. For **Server Folder**, confirm that the source
+   server is stopped so its world files stay consistent during import. **Upload
+   ZIP** imports the uploaded snapshot and does not show or require this checkbox.
 
 Quasar reads the ZIP index from your browser, validates the server configuration,
 then transfers only `Torch.cfg` when needed, the instance's

@@ -3,47 +3,60 @@
 @inject QuasarOperationService Operations
 @inject RbacConfigCatalog Rbac
 
-<section class="quasar-panel pa-4">
-    <div class="quasar-stack">
-        <h2 class="quasar-text quasar-type-h6">Plugin endpoint authorization</h2>
-        <p>SDK endpoints require authentication. Change their required policies or disable an operation for every supported transport.</p>
-        @if (_message is not null)
-        {
-            <p role="status">@_message</p>
-        }
-        @foreach (var row in _rows)
-        {
-            <fieldset class="pa-3">
-                <legend>@row.Settings.PluginId / @row.Settings.OperationId</legend>
-                <p>Declared policies: @string.Join(", ", row.Settings.DefaultPolicies)</p>
-                <p>Effective policies: @string.Join(", ", row.Settings.EffectiveRule?.RequiredPolicies ?? []) (@(row.Settings.Overridden ? "installation override" : "plugin defaults"))</p>
-                @if (row.Settings.Error is not null)
+<MudExpansionPanels Elevation="0" Outlined="true">
+    <MudExpansionPanel Text="Plugin endpoint authorization">
+        <div class="quasar-layout quasar-gap-3">
+            <p>SDK endpoints require authentication. Change their required policies or disable an operation for every supported transport.</p>
+            @if (_message is not null)
+            {
+                <p role="status">@_message</p>
+            }
+            @foreach (var row in _rows)
+            {
+                <fieldset class="sdk-authorization-rule quasar-layout quasar-gap-2">
+                    <legend class="mono">@row.Settings.PluginId / @row.Settings.OperationId</legend>
+                    <div class="quasar-layout quasar-gap-1 quasar-type-caption mud-text-secondary">
+                        <p>Declared policies: @string.Join(", ", row.Settings.DefaultPolicies)</p>
+                        <p>Effective policies: @string.Join(", ", row.Settings.EffectiveRule?.RequiredPolicies ?? []) (@(row.Settings.Overridden ? "installation override" : "plugin defaults"))</p>
+                    </div>
+                    @if (row.Settings.Error is not null)
+                    {
+                        <p role="alert">@row.Settings.Error</p>
+                    }
+                    <MudCheckBox T="bool" @bind-Value="row.Enabled" Label="Operation enabled" Color="Color.Primary" Disabled="@_saving" />
+                    <MudTextField T="string" @bind-Value="row.Policies" Label="Required policies" HelperText="Separate policies with commas. Every policy must pass." Variant="Variant.Outlined" FullWidth="true" Disabled="@_saving" />
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
+                        <MudButton OnClick="@(() => SaveAsync(row))" Disabled="@_saving" Variant="Variant.Outlined">Save endpoint rule</MudButton>
+                        <MudButton OnClick="@(() => ResetAsync(row))" Disabled="@_saving" Variant="Variant.Outlined">Restore declared policies</MudButton>
+                    </div>
+                </fieldset>
+            }
+            @if (_rows.Count == 0 && _message is null)
+            {
+                <p>No plugins have registered SDK operations.</p>
+            }
+            <section class="sdk-authorization-policies quasar-layout quasar-gap-2">
+                <h3 class="quasar-text quasar-type-subtitle1">Shared policy role grants</h3>
+                <p>Changing a shared policy affects every endpoint using it, including existing Quasar endpoints. Empty role grants deny that policy. Security administration must retain the admin role.</p>
+                @foreach (var policy in _policyOverrides)
                 {
-                    <p role="alert">@row.Settings.Error</p>
+                    <p>@policy.Key: @(policy.Value.Count == 0 ? "deny all" : string.Join(", ", policy.Value))</p>
                 }
-                <label><input type="checkbox" @bind="row.Enabled" /> Enabled</label>
-                <label>Required policies, separated by commas <input type="text" @bind="row.Policies" /></label>
-                <div class="quasar-row">
-                    <MudButton OnClick="@(() => SaveAsync(row))" Disabled="@_saving" Variant="Variant.Outlined">Save endpoint rule</MudButton>
-                    <MudButton OnClick="@(() => ResetAsync(row))" Disabled="@_saving" Variant="Variant.Outlined">Restore declared policies</MudButton>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudTextField T="string" @bind-Value="_policyName" Label="Policy name" Variant="Variant.Outlined" FullWidth="true" Disabled="@_saving" />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField T="string" @bind-Value="_policyRoles" Label="Allowed roles" HelperText="Separate roles with commas. Leave empty to deny this policy." Variant="Variant.Outlined" FullWidth="true" Disabled="@_saving" />
+                    </MudItem>
+                </MudGrid>
+                <div>
+                    <MudButton OnClick="SaveRolesAsync" Disabled="@_saving" Variant="Variant.Outlined">Save policy role grants</MudButton>
                 </div>
-            </fieldset>
-        }
-        @if (_rows.Count == 0 && _message is null)
-        {
-            <p>No plugins have registered SDK operations.</p>
-        }
-        <h3 class="quasar-text quasar-type-subtitle1">Shared policy role grants</h3>
-        <p>Changing a shared policy affects every endpoint using it, including existing Quasar endpoints. Empty role grants deny that policy. Security administration must retain the admin role.</p>
-        @foreach (var policy in _policyOverrides)
-        {
-            <p>@policy.Key: @(policy.Value.Count == 0 ? "deny all" : string.Join(", ", policy.Value))</p>
-        }
-        <label>Policy name <input type="text" @bind="_policyName" /></label>
-        <label>Roles, separated by commas <input type="text" @bind="_policyRoles" /></label>
-        <MudButton OnClick="SaveRolesAsync" Disabled="@_saving" Variant="Variant.Outlined">Save policy role grants</MudButton>
-    </div>
-</section>
+            </section>
+        </div>
+    </MudExpansionPanel>
+</MudExpansionPanels>
 
 @code {
     private List<EditRule> _rows = [];

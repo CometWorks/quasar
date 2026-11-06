@@ -14,6 +14,8 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using MudBlazor;
+using MudBlazor.Extensions;
 using MudBlazor.Services;
 using Quasar.Components.Shared;
 using Quasar.Plugin.Abstractions.Operations;
@@ -293,7 +295,7 @@ public sealed partial class QuasarSdkTests : IDisposable
     }
 
     [Fact]
-    public async Task SecurityControlsSaveRulesAndRejectPrivilegesLostAfterRendering()
+    public async Task CollapsedPluginAuthorizationControlsSaveRulesAndRejectPrivilegesLostAfterRendering()
     {
         await using var app = await StartAsync();
         await using var scope = app.Services.CreateAsyncScope();
@@ -305,6 +307,11 @@ public sealed partial class QuasarSdkTests : IDisposable
         view.Services.AddSingleton(scope.ServiceProvider.GetRequiredService<QuasarOperationService>());
         view.Services.AddSingleton(_rbac);
         var page = view.Render<QuasarSdkAuthorization>();
+        var panel = page.FindComponent<MudExpansionPanel>();
+        Assert.Equal("Plugin endpoint authorization", panel.Instance.Text);
+        Assert.False(panel.Instance.GetState(component => component.Expanded));
+        await page.Find(".mud-expand-panel-header").ClickAsync(new());
+        Assert.True(panel.Instance.GetState(component => component.Expanded));
         page.WaitForAssertion(() => Assert.True(page.FindAll("fieldset").Count >= 3));
         await page.InvokeAsync(() => page.FindAll("fieldset").Single(field => field.TextContent.Contains("restricted"))
             .QuerySelector("input[type=text]")!.Change(QuasarPolicyNames.CanView));

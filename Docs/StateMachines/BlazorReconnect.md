@@ -8,6 +8,20 @@ takes over. Quasar styles this through
 and its CSS/JS, but the states themselves are managed by the ASP.NET Core Blazor
 circuit handler.
 
+If startup fails before a circuit exists, the browser shows **Quasar connection
+unavailable**. A startup that is still pending after ten seconds shows a warning
+that live updates and controls are not available yet. This covers session and
+module loading failures as well as WebRTC or socket startup. A successful startup
+clears the warning. **Reload page** works entirely in the browser, even when
+Blazor never becomes interactive.
+
+After a circuit disconnects, the reconnect dialog explicitly warns that live
+updates and controls are unavailable and displayed data may be out of date.
+It retains the framework's retry countdown and offers **Reload page** in every
+state, alongside **Retry** or **Resume** when applicable. The same warnings apply
+to hosted WebRTC and direct socket connections. Connection loss is reported when
+the framework detects it; a silent transport stall still depends on its timeout.
+
 > This is an informational diagram of framework behavior; there is no Quasar
 > enum behind it. The CSS classes that gate each visible state are
 > `components-reconnect-first-attempt-visible`,
@@ -35,7 +49,7 @@ stateDiagram-v2
 | State | Meaning |
 | --- | --- |
 | `Connected` | Circuit healthy; the modal is hidden. |
-| `FirstAttempt` | Circuit dropped; reconnecting silently. |
+| `FirstAttempt` | Circuit dropped; the dialog warns that data may be stale while reconnecting. |
 | `RepeatedAttempt` | First retry failed; a countdown is shown. |
 | `Failed` | Retries exhausted; a **Retry** button is shown. |
 | `Paused` | Server session paused; awaiting resume. |
@@ -57,8 +71,12 @@ started in another browser, without waiting for the framework's retry timeout.
 
 A transient disconnect to the same worker does not reload the page. Readiness
 failures, sign-in redirects and gateway error pages keep recovery pending.
+Framework retry-countdown events keep these probes running, including between
+connection attempts; they must not cancel worker replacement detection.
 Reconnection, a paused session or the planned-restart progress panel cancels the
 independent probes; a late response cannot reload over a recovered session.
+Planned restart health and version requests also have five-second deadlines, so
+a stalled HTTP request cannot stop the restart watcher from polling again.
 Public health/readiness responses remain status-only. Worker identity is included
 with the version response, which retains its dashboard-read authorization.
 
