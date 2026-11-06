@@ -45,6 +45,23 @@ Because a worker cutover replaces the circuit, browsers briefly reconnect after
 an update — see the [practical guarantees](../QuasarArchitecture.md#self-update-and-version-rollover)
 for self-update.
 
+## Worker replacement recovery
+
+While the circuit is disconnected, Quasar also checks the panel's `api/ready`
+and protected `api/version` endpoints once per second. Each probe has a five-second
+deadline and uses the current panel base path, including a Nebula prefix.
+The page remembers the worker ID it loaded. Once readiness succeeds and the
+version endpoint reports a different worker ID, the browser reloads immediately
+to establish a new circuit. This also handles a same-version restart and updates
+started in another browser, without waiting for the framework's retry timeout.
+
+A transient disconnect to the same worker does not reload the page. Readiness
+failures, sign-in redirects and gateway error pages keep recovery pending.
+Reconnection, a paused session or the planned-restart progress panel cancels the
+independent probes; a late response cannot reload over a recovered session.
+Public health/readiness responses remain status-only. Worker identity is included
+with the version response, which retains its dashboard-read authorization.
+
 ---
 
 ## Related

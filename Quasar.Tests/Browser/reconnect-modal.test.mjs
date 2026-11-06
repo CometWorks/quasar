@@ -5,7 +5,9 @@ import vm from 'node:vm';
 
 const script = readFileSync(new URL('../../Quasar/Components/Layout/ReconnectModal.razor.js', import.meta.url), 'utf8');
 
-function harness(reconnect = async () => false) {
+function harness(reconnect = async () => false, { base = '/', replies = [], workerId = 'old-worker', resumeCircuit = async () => false } = {}) {
+    const requests = [], timers = new Map();
+    let nextTimer = 0;
     const modal = Object.assign(new EventTarget(), {
         open: false,
         showModal() { this.open = true; },
@@ -13,20 +15,37 @@ function harness(reconnect = async () => false) {
         classList: { replace() {} }
     });
     const window = new EventTarget();
+    window.setTimeout = callback => { timers.set(++nextTimer, callback); return nextTimer; };
+    window.clearTimeout = id => timers.delete(id);
     const retry = new EventTarget(), resume = new EventTarget();
     const document = Object.assign(new EventTarget(), {
         visibilityState: 'visible',
+        baseURI: 'https://quasar.test' + base,
         getElementById: id => id === 'components-reconnect-modal' ? modal
+            : id === 'quasar-connection' ? { textContent: JSON.stringify({ workerId }) }
             : id === 'components-reconnect-button' ? retry : resume
     });
     let reloads = 0, reconnects = 0;
     vm.runInNewContext(script, {
-        window, document,
+        window, document, URL, AbortController, AbortSignal,
+        async fetch(url, options) {
+            requests.push({ path: url.pathname, ...options });
+            const reply = replies.shift() ?? Response.json({ status: 'not-ready' }, { status: 503 });
+            if (reply instanceof Error) throw reply;
+            return reply;
+        },
         location: { reload() { reloads++; } },
-        Blazor: { reconnect() { reconnects++; return reconnect(); }, resumeCircuit: async () => false }
+        Blazor: { reconnect() { reconnects++; return reconnect(); }, resumeCircuit }
     });
     return {
-        modal, retry, resume, document,
+        modal, retry, resume, document, requests, timers,
+        async tick() {
+            assert.ok(timers.size, 'No recovery probe scheduled');
+            const [id, callback] = timers.entries().next().value;
+            timers.delete(id);
+            callback();
+            await new Promise(resolve => setImmediate(resolve));
+        },
         get reloads() { return reloads; }, get reconnects() { return reconnects; },
         state(state) {
             const event = new Event('components-reconnect-state-changed');
@@ -88,3 +107,71 @@ test('a retry already in flight cannot reload over a newly started restart', asy
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(h.reloads, 0);
 });
+
+for (const base of ['/', '/jack/']) {
+    test(`worker replacement reloads as soon as ready at ${base}`, async () => {
+        const h = harness(undefined, { base, replies: [
+            Response.json({ status: 'not-ready' }, { status: 503 }),
+            Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' }),
+            Response.json({ status: 'ready' }), Response.json({ workerId: 'new-worker' })
+        ] });
+        h.state('show');
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.requests.length, 1);
+        await h.tick();
+        assert.equal(h.reloads, 0, 'A transient disconnect must preserve the existing circuit');
+        await h.tick();
+        assert.equal(h.reloads, 1);
+        assert.equal(h.timers.size, 0);
+        assert.deepEqual(h.requests.map(request => request.path), [
+            base + 'api/ready', base + 'api/ready', base + 'api/version',
+            base + 'api/ready', base + 'api/version'
+        ]);
+        for (const request of h.requests) {
+            assert.equal(request.cache, 'no-store');
+            assert.equal(request.credentials, 'same-origin');
+            assert.equal(request.redirect, 'error');
+            assert.ok(request.signal instanceof AbortSignal);
+        }
+    });
+}
+
+test('recovery keeps probing after framework retries exhaust, without reloading on errors', async () => {
+    const h = harness(undefined, { replies: [
+        new Error('Tunnel unavailable'),
+        Response.json({ status: 'ready' }), Response.json({}, { status: 401 }),
+        new Response('<html>Gateway error</html>'),
+        Response.json({ status: 'ready' }), Response.json({ version: '1.6.0.8' }),
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'new-worker' })
+    ] });
+    h.state('show');
+    await new Promise(resolve => setImmediate(resolve));
+    h.state('failed');
+    for (let index = 0; index < 3; index++) {
+        await h.tick();
+        assert.equal(h.reloads, 0);
+    }
+    await h.tick();
+    assert.equal(h.reloads, 1);
+});
+
+for (const action of ['hide', 'paused', 'restart', 'retry', 'resume']) {
+    test(`${action} cancels an in-flight recovery probe`, async () => {
+        let finish;
+        const h = harness(async () => true, { resumeCircuit: async () => true, replies: [
+            Response.json({ status: 'ready' }), new Promise(resolve => { finish = resolve; })
+        ] });
+        h.state('show');
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.requests.length, 2);
+        if (action === 'restart') h.restart(true);
+        else if (action === 'retry' || action === 'resume') h[action].dispatchEvent(new Event('click'));
+        else h.state(action);
+        await new Promise(resolve => setImmediate(resolve));
+        finish(Response.json({ workerId: 'new-worker' }));
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.reloads, 0);
+        assert.equal(h.timers.size, 0);
+        assert.ok(h.requests.every(request => request.signal.aborted));
+    });
+}
