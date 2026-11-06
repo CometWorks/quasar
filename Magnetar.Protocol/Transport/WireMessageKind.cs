@@ -14,4 +14,5 @@ public static class WireMessageKind
     public const string AdminRestart = "admin-restart";
     public const string PluginLogs = "plugin-logs";
     public const string PlayerRequest = "player-request";
+    public const string ChatCommands = "chat-commands";
 }

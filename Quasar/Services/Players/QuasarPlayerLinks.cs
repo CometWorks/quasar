@@ -3,7 +3,7 @@ using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Quasar.Services.Auth;
 
-namespace Quasar.Services.Assistant;
+namespace Quasar.Services.Players;
 
 public sealed record QuasarPlayerLink(
     string DiscordUserId,

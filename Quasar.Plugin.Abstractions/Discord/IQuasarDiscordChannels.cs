@@ -1,4 +1,4 @@
-namespace Quasar.Plugin.Abstractions.Assistant;
+namespace Quasar.Plugin.Abstractions.Discord;
 
 /// <summary>
 /// Posts to a channel of the Discord server Quasar's bot is set up for. Implemented by core; resolve it from DI.

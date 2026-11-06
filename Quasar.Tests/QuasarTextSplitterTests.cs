@@ -1,4 +1,4 @@
-using Quasar.Services.Assistant;
+using Quasar.Services.Players;
 using Xunit;
 
 namespace Quasar.Tests;

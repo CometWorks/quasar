@@ -1,6 +1,6 @@
 using System.Reflection;
 using Discord;
-using Quasar.Services.Assistant;
+using Quasar.Services.Players;
 using Quasar.Services.Discord;
 using Xunit;
 

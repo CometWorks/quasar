@@ -97,7 +97,7 @@ itself; no cookie, token or request header can claim to be one. The admin
 assistant acts for the person chatting with it, who needs `CanUseAssistant`.
 The player agent acts for one player and only gets `CanActAsPlayer` operations.
 
-**Assistant roles** under **Plugin endpoint authorization** sets the roles each
+**Agent roles** under **Plugin endpoint authorization** sets the roles each
 agent acts with: the admin assistant has `editor` and the player agent none by
 default. Neither can hold `admin`; saving it fails with "An assistant or player
 agent can never hold the admin role." and Quasar drops it from a hand-edited
@@ -108,19 +108,10 @@ RBAC, auth settings, service principals, updates, Workshop credentials, the
 Discord bot token or the assistant's LLM settings. The assistant also never does
 more than the person asking it could do by hand.
 
-The player agent's operations (`my.server.info`, `my.grids`, `my.grid.backups`,
-`my.grid.losses`, `my.grid.locate`, `my.grid.restore`) take no player: they use
-the Steam ID of the player who asked in game, or of the Steam account linked to
-the Discord user with `/link`. The grid ones work where the Grid Backups plugin
-is loaded.
-
-Quasar sets no spending limit for the assistant; set one at the model provider.
-The assistant plugin keeps its instructions and tool list identical between
-requests, so the provider can cache them. In a test with Claude Sonnet 5.5 on
-2026-11-06, 13 questions (8 from a player in game, 5 from an admin) each took
-3 to 8 seconds and 1 to 3 model calls. 87% of the input tokens were read from
-the cache, over 90% in most runs once it was warm, and the 13 answers cost
-about USD 0.12 together. Long conversations and large log reads cost more.
+The player agent's operations take no player: they use the Steam ID of the
+player who asked in game, or of the Steam account linked to the Discord user
+with `/link`. Core has `my.server.info` and `my.grid.locate`; UI plugins add
+more, like the assistant plugin's Grid Backups operations.
 
 ## The rbac.json file
 
@@ -162,7 +153,7 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
-- **Discord Admin Mappings**: maps a Discord user ID to a Steam account, so that Discord user can use `/assistant` with that account's Quasar roles. Discord's own Administrator permission doesn't count. Only Steam accounts can be mapped.
+- **Discord Admin Mappings**: maps a Discord user ID to a Steam account, so that Discord user can use the admin commands of UI plugins, such as the assistant's `/assistant`, with that account's Quasar roles. Discord's own Administrator permission doesn't count. Only Steam accounts can be mapped.
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 
 For Steam mappings, enter a 17-digit ID or a Steam Community `/id/<vanity-name>` or `/profiles/<SteamID64>` URL. Quasar resolves vanity URLs automatically through Steam Community without an API key; numeric IDs and numeric profile URLs need no network lookup. It saves only the SteamID64. Invalid input disables the plus button. If a lookup fails, an error appears, the input stays in place and no mapping is saved. Retry or enter the numeric ID if Steam is unavailable.

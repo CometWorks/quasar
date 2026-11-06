@@ -226,7 +226,7 @@ On standalone servers the agent registers three chat commands:
 | `!restart [seconds]` | Saves and restarts after the delay (default 10, 0 to 3600), with countdown announcements. Quasar keeps the goal state On. "Restart already scheduled." if one is pending. |
 | `!quit` | Quits immediately without saving. |
 
-On standalone servers and cluster nodes it also registers `!ask <question>` and `!link` for every player; see [Servers](Servers.md#in-game-commands-from-quasaragent).
+On standalone servers and cluster nodes it also registers `!link` and the UI plugins' player commands, such as `!ask <question>`, for every player; see [Servers](Servers.md#in-game-commands-from-quasaragent).
 
 The agent also takes over the stops and restarts that other plugins request through PluginSdk `ServerControl`, such as `!ess restart` and `!ess stop`, so Quasar restarts the server or keeps it off instead of counting a crash. See [Servers](Servers.md#stops-and-restarts-requested-by-plugins).
 
