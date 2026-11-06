@@ -491,6 +491,6 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterOverview.cs`
 - `Docs/QuasarBrowserSdk.md`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
-- `Quasar/Services/Assistant/QuasarPlayerLinks.cs`
-- `Quasar/Services/Assistant/QuasarPlayerRequests.cs`
+- `Quasar/Services/Players/QuasarPlayerLinks.cs`
+- `Quasar/Services/Players/QuasarChatCommands.cs`
 - `Quasar/Components/Shared/PlayerDiscordLinks.razor`

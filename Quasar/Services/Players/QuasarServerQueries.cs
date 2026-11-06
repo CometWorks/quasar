@@ -178,12 +178,22 @@ public sealed class QuasarServerQueries(
         double y,
         double z,
         double radiusMeters,
-        CancellationToken token
+        CancellationToken token,
+        string? pluginId = null
     )
     {
         var target =
             Find(server)
             ?? throw new InvalidOperationException($"Server '{server}' is not online.");
+        var nodes = target
+            .Agents.Where(agent =>
+                pluginId is null
+                || agent.Snapshot?.Plugins.Any(plugin =>
+                    plugin.IsLoaded
+                    && string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase)
+                ) == true
+            )
+            .ToList();
         var payload = JsonSerializer.Serialize(
             new PositionOwnerRequest
             {
@@ -195,7 +205,7 @@ public sealed class QuasarServerQueries(
             Json
         );
         var answers = await Task.WhenAll(
-            target.Agents.Select(async node =>
+            nodes.Select(async node =>
             {
                 try
                 {

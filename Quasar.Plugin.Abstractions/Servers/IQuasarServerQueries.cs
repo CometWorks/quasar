@@ -23,14 +23,16 @@ public interface IQuasarServerQueries
     );
 
     /// <summary>The agent ID of the node that owns the entities nearest the position within the radius, null when
-    /// none does. On a standalone server that is the server itself when it has any entity there.</summary>
+    /// none does. On a standalone server that is the server itself when it has any entity there. With
+    /// <paramref name="pluginId"/>, only nodes with that Magnetar plugin loaded are asked.</summary>
     Task<string?> FindPositionOwnerAsync(
         string server,
         double x,
         double y,
         double z,
         double radiusMeters,
-        CancellationToken token
+        CancellationToken token,
+        string? pluginId = null
     );
 }
 

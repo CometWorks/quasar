@@ -236,6 +236,11 @@ public sealed class QuasarPlayerServicesTests : IDisposable
         Assert.Equal(2.0, JsonSerializer.Deserialize<PositionOwnerRequest>(asked.Payload, Web)!.Y);
         Assert.Empty(authority.Commands);
 
+        // Only nodes with the plugin are asked.
+        Assert.Null(
+            await queries.FindPositionOwnerAsync("fleet", 1, 2, 3, 100, default, "other-plugin")
+        );
+
         nodeB.Handle = command => Owner(found: false, distance: 0);
         nodeA.Handle = command => Owner(found: false, distance: 0);
         Assert.Null(await queries.FindPositionOwnerAsync("fleet", 1, 2, 3, 100, default));
