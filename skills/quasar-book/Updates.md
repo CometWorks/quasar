@@ -201,7 +201,7 @@ The bell in the app bar and the **Notifications** page (`/notifications`) list u
 
 Under **Notification preferences**, **Quasar and cluster updates** is on by default. **Quasar UI plugin updates** is off by default and only shown to admins. Preferences are per account. Browser push uses the same choices. Push and the instance alerts on that page are covered in [Monitoring](Monitoring.md).
 
-During a planned restart, a restart progress panel replaces the normal lost-connection popup, checks health and version, and reloads the page. Clearing a failed restart brings back the normal reconnect handling. An unexpected connection loss still shows the usual Retry and Resume controls.
+During a planned restart, a restart progress panel replaces the normal lost-connection popup, checks health and version, and reloads the page. Clearing a failed restart brings back the normal reconnect handling. The normal reconnect dialog also checks for a replacement worker, including after native updates or updates started from another browser. Once that worker is ready, it reloads automatically. A temporary interruption to the same worker keeps the usual Retry and Resume controls without forcing a reload.
 
 ## Managed runtime warmup
 

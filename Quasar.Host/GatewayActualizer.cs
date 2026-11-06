@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Quasar.Diagnostics;
+using System.Net;
 using System.Net.NetworkInformation;
 using System.Security.Cryptography;
 using System.Text;
@@ -119,6 +120,8 @@ internal sealed class GatewayActualizer
         if (record is not null && match.State == ProcessMatchState.Alive)
         {
             using Process process = match.Process!;
+            if (await ControlUnhealthyAsync(spec, record, cancellationToken) is { } unhealthy)
+                return await RestartUnhealthyAsync(spec, record, process, unhealthy, cancellationToken);
             if (DateTimeOffset.UtcNow - record.LaunchedAt > StableAfter)
                 lock (_respawns) _respawns.Remove(spec.ClusterId);
             return Status(spec, HostContract.GatewayObservedState.Running,
@@ -198,6 +201,118 @@ internal sealed class GatewayActualizer
             _preparations[spec.ClusterId] = new(specKey, task);
             return task;
         }
+    }
+
+    // SE-1171: after a persistence failure the Gateway stays alive but answers every control request with 503
+    // registry_persistence_failed until it is restarted (cluster Docs/Gateway/StateDurability.md). PID liveness
+    // missed that, so players lost the cluster until someone noticed. Each reconcile asks the control endpoint;
+    // once it has answered that way for UnhealthyRestartAfter, the Host stops the Gateway and the respawn below
+    // starts it again with the same spec and start generation, as after an exit. Any other answer, or none (a
+    // Gateway still starting), resets the count. QUASAR_HOST_GATEWAY_UNHEALTHY_RESTART_SECONDS, 0 = never.
+    internal TimeSpan UnhealthyRestartAfter { get; init; } = TimeSpan.FromSeconds(
+        int.TryParse(Environment.GetEnvironmentVariable("QUASAR_HOST_GATEWAY_UNHEALTHY_RESTART_SECONDS"), out int seconds) && seconds >= 0
+            ? seconds : 60);
+    private static readonly HttpClient ControlProbe = new() { Timeout = TimeSpan.FromSeconds(2) };
+    // Guarded by _gate: since when the running Gateway's control has answered persistence failure, and its control URL per spec.
+    private readonly Dictionary<string, (int? ProcessId, long Since)> _unhealthy = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string SpecKey, string? Url)> _controlUrls = new(StringComparer.OrdinalIgnoreCase);
+
+    private async Task<string?> ControlUnhealthyAsync(HostContract.GatewaySpec spec, GatewayLaunchRecord record,
+        CancellationToken cancellationToken)
+    {
+        if (UnhealthyRestartAfter <= TimeSpan.Zero || ControlUrl(spec) is not { } url) return null;
+        bool failed;
+        try
+        {
+            using HttpResponseMessage response = await ControlProbe.GetAsync(url + "/registry/status", cancellationToken);
+            failed = response.StatusCode == HttpStatusCode.ServiceUnavailable
+                && (await response.Content.ReadAsStringAsync(cancellationToken)).Contains("registry_persistence_failed", StringComparison.Ordinal);
+        }
+        catch (Exception exception) when (exception is HttpRequestException
+            || exception is TaskCanceledException && !cancellationToken.IsCancellationRequested)
+        {
+            failed = false;
+        }
+        if (!failed)
+        {
+            _unhealthy.Remove(spec.ClusterId);
+            return null;
+        }
+        long now = Environment.TickCount64;
+        if (!_unhealthy.TryGetValue(spec.ClusterId, out var since) || since.ProcessId != record.ProcessId)
+        {
+            _unhealthy[spec.ClusterId] = since = (record.ProcessId, now);
+            Console.Error.WriteLine($"{DateTimeOffset.UtcNow:O} cluster={spec.ClusterId} Gateway control answers 503 registry_persistence_failed;"
+                + $" it is restarted if that lasts {UnhealthyRestartAfter.TotalSeconds:0} s");
+        }
+        long seconds = (now - since.Since) / 1000;
+        return now - since.Since >= UnhealthyRestartAfter.TotalMilliseconds
+            ? $"control_unhealthy:registry_persistence_failed_for_seconds={seconds}" : null;
+    }
+
+    private async Task<HostContract.GatewayStatus> RestartUnhealthyAsync(HostContract.GatewaySpec spec,
+        GatewayLaunchRecord record, Process process, string failure, CancellationToken cancellationToken)
+    {
+        Console.Error.WriteLine($"{DateTimeOffset.UtcNow:O} cluster={spec.ClusterId} restarting the Gateway (pid {record.ProcessId},"
+            + $" start generation {spec.StartGeneration}): {failure}");
+        if (record.DiagnosticDirectory is { } diagnosticDirectory)
+        {
+            DiagnosticCollector.ReportFailure(diagnosticDirectory, "gateway_control_unhealthy",
+                "The Gateway answered 503 registry_persistence_failed and was restarted: " + failure);
+            DiagnosticCollector.ExpectExit(diagnosticDirectory);
+        }
+        try
+        {
+            await KillProcessAsync(process, cancellationToken);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return Status(spec, HostContract.GatewayObservedState.Failed,
+                record.ProcessId, record.LaunchedAt, failure + ";stop_failed:" + exception.Message);
+        }
+        _unhealthy.Remove(spec.ClusterId);
+        string[]? output = null;
+        if (_outputs.Remove(spec.ClusterId, out ProcessOutputTail? tail))
+            using (tail)
+                (_, output) = await tail.DrainAsync(cancellationToken);
+        WriteRecord(record with { Status = GatewayLaunchStatus.Failed, Failure = failure, Output = output });
+        return Status(spec, HostContract.GatewayObservedState.Failed, record.ProcessId, record.LaunchedAt, failure, output);
+    }
+
+    /// <summary>The Gateway's control URL from its spawn spec: the last <c>--control</c> argument, else
+    /// <c>CLUSTER_CONTROL</c> (the Gateway reads the same two). A wildcard bind is asked on loopback.</summary>
+    private string? ControlUrl(HostContract.GatewaySpec spec)
+    {
+        string specKey = SpecKey(spec);
+        if (_controlUrls.TryGetValue(spec.ClusterId, out var cached) && cached.SpecKey == specKey) return cached.Url;
+        string? url;
+        try
+        {
+            url = ControlUrl(ExecutionBundle.ReadManifest(spec.BundleManifestPath, spec.BundleManifestSha256).Gateway);
+        }
+        catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException
+            or UnauthorizedAccessException or CryptographicException)
+        {
+            url = null;
+        }
+        _controlUrls[spec.ClusterId] = (specKey, url);
+        return url;
+    }
+
+    internal static string? ControlUrl(GatewaySpawnSpec? spawn)
+    {
+        if (spawn is null) return null;
+        string? control = null;
+        string[] arguments = spawn.Arguments ?? [];
+        for (int i = 0; i + 1 < arguments.Length; i++)
+            if (arguments[i] == "--control") control = arguments[i + 1];
+        control ??= spawn.Environment?.GetValueOrDefault("CLUSTER_CONTROL");
+        if (string.IsNullOrWhiteSpace(control)) return null;
+        if (!IPEndPoint.TryParse(control, out IPEndPoint? endpoint)) return "http://" + control.Trim();
+        if (endpoint.Address.Equals(IPAddress.Any)) endpoint.Address = IPAddress.Loopback;
+        else if (endpoint.Address.Equals(IPAddress.IPv6Any)) endpoint.Address = IPAddress.IPv6Loopback;
+        if (endpoint.Port == 0) endpoint.Port = 28016;   // the Gateway's default control port
+        return "http://" + endpoint;
     }
 
     private static readonly TimeSpan StableAfter = TimeSpan.FromMinutes(2);
