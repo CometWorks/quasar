@@ -543,6 +543,19 @@ assigning fresh chat timestamps to recipient delivery callbacks. Actual Windows
 server/Discord acceptance still requires a live check after updating and restarting
 the affected server.
 
+### ZIP import browser interop regression tests
+
+Run `node --test Quasar.Tests/server-import-file.test.mjs` to check the ZIP file
+snapshot, exact range reads and invalid-range rejection. The harness models
+Blazor's automatic wrapping of typed `IJSObjectReference` and
+`IJSStreamReference` results: JavaScript returns the raw file API object and
+range `Blob`, so Blazor creates each reference once. Identity reference mocks
+hide double-wrapping failures such as "getLength is not a function".
+
+Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~BrowserZipFileStreamTests|FullyQualifiedName~ExistingServerZipImportTests|FullyQualifiedName~ExistingServerImportAnalyzerTests'`
+to check range-stream behavior, selective archive transfer, validation and
+staging cleanup. These checks do not start Quasar or a game server.
+
 ### Browser push readiness regression tests
 
 Run `node --test Quasar.Tests/Browser/push-worker.test.mjs` with a current Node.js
