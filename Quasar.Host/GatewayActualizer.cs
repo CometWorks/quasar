@@ -507,8 +507,8 @@ internal sealed class GatewayActualizer
             RedirectStandardOutput = true,
             RedirectStandardError = true,
         };
-        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("CLUSTER_", StringComparison.Ordinal)).ToArray())
-            start.Environment.Remove(name);
+        // The Gateway reads no Quasar value; its diagnostics settings are added by DiagnosticCollector.Configure.
+        ExecutionBundle.RestrictEnvironment(start);
         foreach (string argument in spawn.Arguments ?? [])
             start.ArgumentList.Add(Expand(argument));
         foreach ((string name, string value) in spawn.Environment ?? [])
