@@ -1283,6 +1283,14 @@ with goal Off and no stop fence. That launches and stops nothing and the status 
 `shutdown_unverified`. A Host refuses an Off goal over a live process its fence does not
 name before persisting it, so a respawn racing the write changes nothing. One crash does
 not qualify: that Gateway comes back for the graceful shutdown.
+A Gateway whose process lives but whose control endpoint answers 503
+`registry_persistence_failed` (it fails closed after a persistence failure) is restarted by
+the Host itself: `GatewayActualizer` asks `GET <--control>/registry/status` on every
+reconcile, and once that answer has lasted `QUASAR_HOST_GATEWAY_UNHEALTHY_RESTART_SECONDS`
+(default 60, `0` = off) it writes a `gateway_control_unhealthy` diagnostics report, stops
+the process and records `Failed` with `control_unhealthy:registry_persistence_failed_for_seconds=N`.
+The respawn then starts the same spec and start generation, as after an exit. Other 503s
+(a busy registry) and no answer at all do not count.
 The reconciler is a hosted service in normal and headless mode.
 
 Every mutation requires an `Idempotency-Key` header. Quasar writes the operation
