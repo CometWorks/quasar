@@ -15,15 +15,19 @@ public sealed class PlayerCommandTests
 {
     private const ulong Pilot = 76561198000000001;
 
-    private sealed class Registrar : ICommandRegistrar
+    private sealed class Registrar(CommandRegistry? registry = null) : ICommandRegistrar
     {
         internal readonly List<Type> Types = [];
 
         public void Register(Assembly assembly) =>
             throw new InvalidOperationException("Commands must be named.");
 
-        public void Register(Assembly assembly, params Type[] moduleTypes) =>
+        public void Register(Assembly assembly, params Type[] moduleTypes)
+        {
             Types.AddRange(moduleTypes);
+            foreach (var type in moduleTypes)
+                registry?.RegisterModule(type, assembly.GetName().Name!);
+        }
     }
 
     private sealed class Responder : ICommandResponder
@@ -36,7 +40,7 @@ public sealed class PlayerCommandTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void AskAndLinkAreRegisteredForEveryPlayerInBothModes(bool clusterMode)
+    public void LinkIsRegisteredForEveryPlayerInBothModes(bool clusterMode)
     {
         var previous = ServerCommands.Registrar;
         try
@@ -44,7 +48,6 @@ public sealed class PlayerCommandTests
             var registrar = new Registrar();
             ServerCommands.Registrar = registrar;
             AdminPlugin.RegisterCommands(clusterMode);
-            Assert.Contains(typeof(AskCommand), registrar.Types);
             Assert.Contains(typeof(LinkCommand), registrar.Types);
             Assert.Equal(!clusterMode, registrar.Types.Contains(typeof(StopCommand)));
             Assert.True(PlayerCommands.Registered);
@@ -54,8 +57,11 @@ public sealed class PlayerCommandTests
             ServerCommands.Registrar = previous;
         }
 
-        foreach (var type in new[] { typeof(AskCommand), typeof(LinkCommand) })
-        foreach (var method in type.GetMethods().Where(m => m.IsDefined(typeof(CommandAttribute))))
+        foreach (
+            var method in typeof(LinkCommand)
+                .GetMethods()
+                .Where(m => m.IsDefined(typeof(CommandAttribute)))
+        )
             Assert.Equal(
                 MyPromoteLevel.None,
                 method.GetCustomAttribute<PermissionAttribute>()!.Level
@@ -66,8 +72,35 @@ public sealed class PlayerCommandTests
     public void PlayerCommandsSendTheCallersIdentityAndRefuseTheConsole()
     {
         var registry = new CommandRegistry();
-        registry.RegisterModule(typeof(AskCommand), "quasar-agent");
         registry.RegisterModule(typeof(LinkCommand), "quasar-agent");
+        var previousRegistrar = ServerCommands.Registrar;
+        var registrar = new Registrar(registry);
+        ServerCommands.Registrar = registrar;
+        try
+        {
+            // Quasar sends the plugins' commands on connecting; the game thread registers them.
+            PlayerCommands.Offer([
+                new ChatCommandInfo
+                {
+                    Name = "ask",
+                    Description = "Ask the server's assistant",
+                    Argument = "question",
+                    Acknowledgement = "Asking the assistant...",
+                },
+                new ChatCommandInfo { Name = "Bad Name" },
+            ]);
+            PlayerCommands.RegisterPending();
+        }
+        finally
+        {
+            ServerCommands.Registrar = previousRegistrar;
+        }
+        var ask = Assert.Single(registrar.Types);
+        Assert.True(typeof(PluginChatCommand).IsAssignableFrom(ask));
+        Assert.Equal("ask", ask.GetCustomAttribute<CommandRootAttribute>()!.Prefix);
+        var use = ask.GetMethods().Single(m => m.IsDefined(typeof(CommandAttribute)));
+        Assert.Equal(MyPromoteLevel.None, use.GetCustomAttribute<PermissionAttribute>()!.Level);
+        Assert.Equal("question", use.GetParameters().Single().Name);
         var dispatcher = new CommandDispatcher(registry);
         var sent = new List<PlayerRequest>();
         var previous = PlayerCommands.Send;
@@ -86,13 +119,13 @@ public sealed class PlayerCommandTests
                     responder
                 )
             );
-            var ask = Assert.Single(sent);
-            Assert.Equal(PlayerRequest.AskKind, ask.Kind);
-            Assert.Equal((long)Pilot, ask.SteamId);
-            Assert.Equal(34, ask.IdentityId);
-            Assert.Equal("Pilot", ask.PlayerName);
-            Assert.Equal("where is my ship?", ask.Text);
-            Assert.Equal(32, ask.RequestId.Length);
+            var asked = Assert.Single(sent);
+            Assert.Equal("ask", asked.Kind);
+            Assert.Equal((long)Pilot, asked.SteamId);
+            Assert.Equal(34, asked.IdentityId);
+            Assert.Equal("Pilot", asked.PlayerName);
+            Assert.Equal("where is my ship?", asked.Text);
+            Assert.Equal(32, asked.RequestId.Length);
             Assert.Equal("Asking the assistant...", Assert.Single(responder.Replies).Text);
 
             Assert.True(
@@ -150,7 +183,7 @@ public sealed class PlayerCommandTests
                 PlayerRequest = new PlayerRequest
                 {
                     RequestId = "r",
-                    Kind = PlayerRequest.AskKind,
+                    Kind = "ask",
                     SteamId = (long)Pilot,
                     Text = "hi",
                 },
@@ -167,5 +200,12 @@ public sealed class PlayerCommandTests
             new JsonSerializerOptions(JsonSerializerDefaults.Web)
         )!;
         Assert.Equal("hi", read.PlayerRequest!.Text);
+
+        var commands = JsonSerializer.Deserialize<AgentWireMessage>(
+            """{"kind":"chat-commands","chatCommands":[{"name":"ask","description":"d","argument":"question","acknowledgement":"a"}]}""",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web)
+        )!;
+        Assert.Equal(WireMessageKind.ChatCommands, commands.Kind);
+        Assert.Equal("question", Assert.Single(commands.ChatCommands!).Argument);
     }
 }

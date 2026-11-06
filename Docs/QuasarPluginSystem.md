@@ -637,11 +637,12 @@ The first useful targets:
   parameters. `ServerName` is the unique name on `servers/{name}` and
   `clusters/{name}` pages. Set the contribution's policy; the target has no default.
 
-An assistant plugin also registers DI services that core calls:
-`IQuasarPlayerRequestHandler` (players' `!ask` and Discord `/ask`),
-`IQuasarAdminRequestHandler` (Discord `/assistant`) and `IQuasarNoticeSource`
-(web push notices). Core provides `IQuasarDiscordChannels` for posting to the
-guild's channels. See [QuasarBrowserSdk.md](QuasarBrowserSdk.md#player-and-admin-requests).
+A plugin can also register DI services that core calls: `IQuasarChatCommand`
+(a `!name` game command and `/name` Discord command, see
+[QuasarBrowserSdk.md](QuasarBrowserSdk.md#chat-commands)) and
+`IQuasarNoticeSource` (web push notices). Core provides `IQuasarDiscordChannels`
+for posting to the guild's channels and `IQuasarServerQueries` for where
+players, grids and nodes are.
 
 ## Static Assets
 

@@ -4,7 +4,7 @@ using Quasar.Models;
 using Quasar.Networking;
 using Quasar.Services;
 using Quasar.Services.Analytics;
-using Quasar.Services.Assistant;
+using Quasar.Services.Players;
 using Quasar.Services.Auth;
 using Quasar.Services.ServerList;
 using Quasar.Services.Backup;
@@ -304,7 +304,7 @@ public class Program
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
-            builder.Services.AddQuasarPlayerAssistance();
+            builder.Services.AddQuasarPlayerServices();
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarPluginHubCatalog>();
@@ -367,7 +367,7 @@ public class Program
             builder.Services.AddSingleton<DiscordStatusRelayService>();
             builder.Services.AddSingleton<DiscordSimSpeedAlertService>();
             builder.Services.AddSingleton<DiscordLogRelayService>();
-            builder.Services.AddSingleton<Quasar.Plugin.Abstractions.Assistant.IQuasarDiscordChannels, QuasarDiscordChannels>();
+            builder.Services.AddSingleton<Quasar.Plugin.Abstractions.Discord.IQuasarDiscordChannels, QuasarDiscordChannels>();
             builder.Services.AddSingleton<DiscordAnalyticsExportService>();
             builder.Services.AddSingleton<DiscordBotService>();
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<DiscordBotService>());

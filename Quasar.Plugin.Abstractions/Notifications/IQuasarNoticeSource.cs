@@ -1,6 +1,6 @@
 using System.Security.Claims;
 
-namespace Quasar.Plugin.Abstractions.Assistant;
+namespace Quasar.Plugin.Abstractions.Notifications;
 
 /// <summary>
 /// Adds notices to the web push notifications and the notification list. Register implementations in DI.

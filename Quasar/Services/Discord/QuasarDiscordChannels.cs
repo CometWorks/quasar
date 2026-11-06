@@ -1,7 +1,7 @@
 using Discord;
 using Discord.Net;
-using Quasar.Plugin.Abstractions.Assistant;
-using Quasar.Services.Assistant;
+using Quasar.Plugin.Abstractions.Discord;
+using Quasar.Services.Players;
 
 namespace Quasar.Services.Discord;
 

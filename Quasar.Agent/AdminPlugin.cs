@@ -76,16 +76,29 @@ namespace Quasar.Agent
 
         // A cluster node runs only the players' commands: the node a player is attached to
         // dispatches their "!" lines (the cluster's chat forwarding runs after Magnetar's
-        // command prefix), and lifecycle commands belong to the Gateway.
+        // command prefix), and lifecycle commands belong to the Gateway. UI plugins' player
+        // commands come from Quasar on connecting and are registered in Update.
         internal static void RegisterCommands(bool clusterMode)
         {
             var assembly = typeof(AdminPlugin).Assembly;
             if (clusterMode)
-                ServerCommands.Register(assembly, typeof(AskCommand), typeof(LinkCommand));
+                ServerCommands.Register(assembly, typeof(LinkCommand));
             else
                 ServerCommands.Register(assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand),
-                    typeof(AskCommand), typeof(LinkCommand));
+                    typeof(LinkCommand));
             PlayerCommands.Registered = true;
+        }
+
+        private static void RegisterPluginCommands()
+        {
+            try
+            {
+                PlayerCommands.RegisterPending();
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"[Quasar.Agent] Could not register the UI plugins' chat commands: {exception}");
+            }
         }
 
         public void Update()
@@ -94,6 +107,7 @@ namespace Quasar.Agent
                 RestartCommand.UpdateScheduledRestart();
             _bridge?.Update();
             RefreshDeathSubscriptions();
+            RegisterPluginCommands();
         }
 
         public void Dispose()

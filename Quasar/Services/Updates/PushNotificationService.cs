@@ -5,7 +5,7 @@ using System.Text;
 using System.Security.Cryptography;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
-using Quasar.Plugin.Abstractions.Assistant;
+using Quasar.Plugin.Abstractions.Notifications;
 using Quasar.Services.Auth;
 using Quasar.Services.Plugins;
 using WebPush;

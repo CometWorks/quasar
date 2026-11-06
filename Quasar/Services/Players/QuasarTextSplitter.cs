@@ -1,4 +1,4 @@
-namespace Quasar.Services.Assistant;
+namespace Quasar.Services.Players;
 
 /// <summary>Splits an answer into chat-sized messages on paragraph, line, then word boundaries.</summary>
 public static class QuasarTextSplitter

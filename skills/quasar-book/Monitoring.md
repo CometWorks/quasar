@@ -177,7 +177,7 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 - Text that starts with `!` switches the box to **Command text** and suggests matching chat commands registered on that server (Quasar.Agent and Magnetar plugin commands), up to 30 at a time.
 - **Run** (or Enter) runs the command on the server as its console, with Owner rights. The players don't see the line. It and the command's replies show only in Quasar, as **Console** rows, and are not relayed to Discord. Announcements the command makes, like a restart countdown, still reach the players. Running commands needs a Magnetar release newer than 2.4.3.4; older ones answer "This Magnetar version can't run commands from Quasar. Update Magnetar."
 
-Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers, and `!ask` and `!link` for every player on standalone servers and cluster nodes. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get the first three.
+Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers, and `!link` and the UI plugins' player commands (such as `!ask`) for every player on standalone servers and cluster nodes. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get the first three.
 
 ## Entities
 
@@ -344,8 +344,7 @@ Quasar registers these guild slash commands when the bot connects:
 - `/whisper server:<unique name> user:<online player name or Steam ID> message:<text>` sends a private message to an online player. Anyone can run it, but only in a command, chat relay, admin whisper or faction channel bound to that server ("Use /whisper in a channel configured for that server's Discord bridge."). Ambiguous names fail with "Player name '<name>' is ambiguous; use the Steam ID."
 - `/faction-channel server:<unique name> faction:<tag>` (Discord Administrator only) creates an admin-only text channel for that faction in the current category, or re-secures the existing one, and saves the binding.
 - `/link code:<code>` links the user's Discord account to the Space Engineers player who typed `!link` in game. Anyone can run it; the reply is private. An unknown or expired code gets "That code is unknown or expired. Type !link in game for a new one." Linking again replaces the old link, and a Steam account has one linked Discord account.
-- `/ask question:<text>` asks the assistant UI plugin, with a private reply. A linked user asks as their player, so the assistant can look at their own grids; without a link it answers general questions only. It exists only while an assistant plugin is installed.
-- `/assistant question:<text>` asks the admin assistant. Only Discord users mapped to a Quasar administrator on the Security page can use it ("Your Discord account is not mapped to a Quasar administrator."), and the assistant plugin decides in which channel. It exists only while an assistant plugin is installed.
+- UI plugins add their own commands, which exist only while the plugin is installed. A player command, such as the assistant plugin's `/ask question:<text>`, replies privately; a linked user runs it as their player, an unlinked one without a player. An admin command, such as `/assistant question:<text>`, is only for Discord users mapped to a Quasar administrator on the Security page ("Your Discord account is not mapped to a Quasar administrator."), and replies in the channel.
 
 Use the server's unique name, not its display name. Clusters are `cluster:<name>`.
 

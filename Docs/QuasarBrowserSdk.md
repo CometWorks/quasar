@@ -157,31 +157,52 @@ caller's roles; the dispatcher still does that at call time.
 Player-scoped operations use the `CanActAsPlayer` policy. No role grants it and
 a role override cannot; only the player agent satisfies it.
 
-### Player and admin requests
+### Chat commands
 
-Core builds the player agent; a plugin never does. It receives players'
-questions by registering an `IQuasarPlayerRequestHandler` in DI
-(`Quasar.Plugin.Abstractions.Assistant`). Core calls every registered handler
-with a `QuasarPlayerRequest`:
+A UI plugin adds chat commands by registering `IQuasarChatCommand`
+implementations in DI (`Quasar.Plugin.Abstractions.Commands`). `Info` names the
+command and its one text argument:
 
-- `Player`: the player-agent principal, or null for a Discord user who has not
-  linked a Steam account. Answer such a user's general questions without tools.
-- `ConversationKey`: `steam:<SteamID64>`, or `discord:<user id>` without a link.
-  A game conversation follows the player across cluster nodes.
+- `Name`: 1 to 32 lowercase letters, digits or hyphens. Core's own commands
+  (`link`, `whisper`, `faction-channel`, `help`, `stop`, `restart`, `quit`) can't
+  be taken, and when two plugins pick the same name the first one wins. Core
+  logs the commands it leaves out.
+- `Scope`: `Player` commands are `!name <argument>` in game on every server and
+  cluster node, and `/name` on Discord with private answers. `Admin` commands
+  are `/name` on Discord only, answered in the channel.
+- `Description`, `ArgumentName`, `ArgumentDescription`: shown in `!help` and in
+  the Discord command list (at most 100 characters each).
+- `Acknowledgement`: the reply the player sees in game right after sending,
+  such as "Asking the assistant...". The answer comes later.
+
+Core builds the caller; a plugin never does. `HandleAsync` gets a
+`QuasarChatCommandRequest`:
+
+- `Caller`: for a player command, the player-agent principal, or null for a
+  Discord user who has not linked a Steam account. For an admin command, the
+  principal of the Discord user's mapped subject (`discordSubjects` in
+  `rbac.json`, the **Discord Admin Mappings** panel on the Security page) with
+  its current roles: a person, never an agent. Unmapped Discord users never
+  reach an admin command.
+- `ConversationKey`: `steam:<SteamID64>` for a player, which follows them
+  across cluster nodes and to Discord once linked; `discord:<user id>`
+  otherwise.
+- `Text`: trimmed, at most 2000 characters, never empty.
 - `Source`: `Game` with the standalone server's or cluster's unique name and,
   on a cluster, the node; or `Discord` with the user and channel IDs.
 - `ReplyAsync`: whispers in game, split into messages of at most 500
   characters and 12 per answer (the last one reads `…(cut)`), or the Discord
   reply, split at 2000 characters.
 
-Requests come from `!ask <question>` in game and `/ask` on Discord. `!ask` and
-`!link` need Magnetar 2.4.3.6 or later, the first to pass arguments to a
-command root's default command; on older Magnetar `!ask <question>` answers
-"Unknown command". The agent
-sends `!ask` as a `player-request` wire message; Quasar takes the server from
-the authenticated connection and the Steam ID and name from the game session.
-With no handler registered, the player is told the assistant is not enabled
-and `/ask` is not offered on Discord.
+When Quasar.Agent connects, Quasar sends it the player commands in a
+`chat-commands` wire message, and the agent registers each one as a Magnetar
+chat command the next game tick. A use comes back as a `player-request` wire
+message with the command name as its kind; Quasar takes the server from the
+authenticated connection and the Steam ID and name from the game session.
+Plugin commands and `!link` need Magnetar 2.4.3.6 or later, the first to pass
+arguments to a command root's default command. Magnetar can't drop a
+registered command, so a command whose plugin is gone stays until the server
+restarts and answers that it is not available.
 
 `!link` whispers a one-time code (8 characters, valid 10 minutes, one per
 player) and `/link CODE` on Discord stores the pair in `player-links.json` in the
@@ -189,17 +210,9 @@ Quasar data folder. A Discord user has one Steam ID and a Steam ID one Discord
 user; a new link replaces older ones. Admins see and remove links on the
 **Players** page.
 
-An `IQuasarAdminRequestHandler` answers `/assistant` on Discord. Only Discord
-users mapped to a Steam subject in `discordSubjects` of `rbac.json` (the
-**Discord Admin Mappings** panel on the Security page) reach it.
-`QuasarAdminRequest.Asker` is that subject's principal with its current roles,
-a person, never an agent; build the assistant from it with
-`CreateAssistantAsync`. Checking that the channel is the admin channel is the
-handler's job.
-
 ### Notice sources
 
-An `IQuasarNoticeSource` registered in DI adds `QuasarNotice` entries (key,
+An `IQuasarNoticeSource` (`Quasar.Plugin.Abstractions.Notifications`) registered in DI adds `QuasarNotice` entries (key,
 title, body, URL, time, severity) to web push notifications and the
 notification list of a signed-in account. `GetNoticesAsync` gets that account
 as a `ClaimsPrincipal` with its current roles (the push sweep rebuilds it from
@@ -212,7 +225,8 @@ the URL must be a path inside Quasar (`/...`), and severity is `info`,
 
 ### Discord channels
 
-`IQuasarDiscordChannels.PostAsync(channelId, text)` posts through Quasar's bot
+`IQuasarDiscordChannels.PostAsync(channelId, text)`
+(`Quasar.Plugin.Abstractions.Discord`) posts through Quasar's bot
 to a text channel of the configured guild, for example a proposal with a link
 to the approvals page. Text over 2000 characters is split into up to 5
 messages. Mentions are never resolved, so a model-written `@everyone` or role
@@ -221,38 +235,39 @@ is empty, or the channel isn't in the guild.
 
 ### Player operations
 
-The player agent's operations are registered under `quasar.core` with the
-default policy `CanActAsPlayer` and area `my`. None takes a player: the Steam ID
-comes from the calling player agent, and a `steamId` in the request is ignored.
-A request may name a server with `uniqueName` (a standalone server or a cluster
-unique name). Without it, the server the player asked from is used; a Discord
-request with more than one candidate gets 400 with the list. The grid
-operations need Grid Backups (`9AC2F6A8-B8A7-4250-8814-BADE62C5CF3C`) loaded
-there and call its companion operations, documented in the Grid Backups
-repository's `docs/CompanionOperations.md`. Each one has a `Description` for
-the assistant's tool list.
+Core registers two player agent operations under `quasar.core`, with the
+default policy `CanActAsPlayer` and area `my`. UI plugins can add more under
+the same policy; the assistant plugin adds its Grid Backups ones (`my.grids`,
+`my.grid.backups`, `my.grid.losses`, `my.grid.restore`). None takes a player:
+the Steam ID comes from the calling player agent, and a `steamId` in the
+request is ignored. A request may name a server with `uniqueName` (a standalone
+server or a cluster unique name). Without it, the server the player asked from
+is used; a Discord request with more than one server online gets 400 with the
+list. Each one has a `Description` for an agent's tool list.
 
 | Operation | Kind | Request | Result |
 | --- | --- | --- | --- |
-| `my.server.info` | read | `uniqueName?` | name, cluster, status, players online, server description and message of the day of its config profile, whether grid tools work there |
-| `my.grids` | read | `uniqueName?` | Grid Backups `list`; on a cluster every node is asked and `present` is true when any node has the grid (`presentIncomplete` when a node did not answer) |
-| `my.grid.backups` | read | `gridId`, `uniqueName?` | Grid Backups `describe` |
-| `my.grid.losses` | read | `sinceUtc?`, `uniqueName?` | Grid Backups `losses` |
+| `my.server.info` | read | `uniqueName?` | name, cluster, status, players online, server description and message of the day of its config profile |
 | `my.grid.locate` | read | `gridId`, `uniqueName?` | `gps` (`GPS:name:x:y:z:`) of a grid in the world; 403 unless the player is among its big owners, 404 when it isn't there |
-| `my.grid.restore` | change, undoable, 300 s | `gridId`, `placement?`, `emptyInventories?`, `foreignExclusionMeters?`, `maxSearchMeters?`, `uniqueName?` | Grid Backups `restore` |
 
-`my.grid.restore` defaults to `original` placement, 2000 m foreign exclusion and
-10000 m search; the plugin sets these from its settings. Anything but
-`restored` fails the call with 409 and the error `refused: <reason>` or
-`no-spot: <reason>`, so the audit log records only real restores as ok and the
-others as refused, with the server. On a
-cluster the near-player placements run on the player's node. An `original`
-restore asks each node, through the agent's `ResolvePositionOwner` command, for
-the nearest grid or character it owns within the search distance of the backup
-position, and runs on the node with the nearest one; if no node owns anything
-there, it runs on the player's node. The undo removes the restored grids that
-still exist through Grid Backups' `remove-restored` on the node that has them,
-and reports grids that are gone as the difference.
+### Server queries
+
+`IQuasarServerQueries` (`Quasar.Plugin.Abstractions.Servers`) answers what a
+companion plugin can't answer alone, mostly where things are on a cluster:
+
+- `GetServers()`: the online standalone servers and clusters, each cluster with
+  its regular nodes (never the World Authority), each node with its agent ID,
+  cluster node ID and loaded Magnetar plugins.
+- `FindPlayer(server, steamId)`: the agent ID of the node the player is on.
+- `FindGridsAsync(server, gridIds)`: the node that has each grid now; on a
+  cluster the node that owns it wins over one with a copy.
+- `FindPositionOwnerAsync(server, x, y, z, radius)`: the node that owns the
+  grid or character nearest the position within the radius, through the
+  agent's `ResolvePositionOwner` command.
+
+The agent IDs are companion request targets. For slow companion operations,
+`IQuasarCompanionChannel.SendAsync` has an overload with its own timeout
+instead of the 30 s default.
 
 ## Browser requests
 

@@ -16,11 +16,11 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Agent;
 using Quasar.Host.Contract.V1;
-using Quasar.Plugin.Abstractions.Assistant;
+using Quasar.Plugin.Abstractions.Commands;
 using Quasar.Plugin.Abstractions.Security;
 using Quasar.Services;
-using Quasar.Services.Assistant;
 using Quasar.Services.Auth;
+using Quasar.Services.Players;
 using Quasar.Services.PluginSdk;
 using Xunit;
 
@@ -90,16 +90,19 @@ public sealed class PlayerRequestSocketTests : IDisposable
         catch (IOException) { }
     }
 
-    private sealed class Handler : IQuasarPlayerRequestHandler
+    private sealed class Handler : IQuasarChatCommand
     {
-        internal readonly TaskCompletionSource<QuasarPlayerRequest> Received = new(
+        public QuasarChatCommandInfo Info { get; } =
+            new("ask", "Ask", "question", "Your question", Acknowledgement: "Asking...");
+
+        internal readonly TaskCompletionSource<QuasarChatCommandRequest> Received = new(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
         internal readonly TaskCompletionSource Replied = new(
             TaskCreationOptions.RunContinuationsAsynchronously
         );
 
-        public async Task HandleAsync(QuasarPlayerRequest request, CancellationToken token)
+        public async Task HandleAsync(QuasarChatCommandRequest request, CancellationToken token)
         {
             Received.TrySetResult(request);
             await request.ReplyAsync("Your ship is at home.", token);
@@ -134,8 +137,8 @@ public sealed class PlayerRequestSocketTests : IDisposable
             QuasarAuthorizationPolicyProvider
         >();
         builder.Services.AddSingleton<QuasarAgentPrincipals>();
-        builder.Services.AddSingleton<IQuasarPlayerRequestHandler>(handler);
-        builder.Services.AddQuasarPlayerAssistance();
+        builder.Services.AddSingleton<IQuasarChatCommand>(handler);
+        builder.Services.AddQuasarPlayerServices();
         builder.Services.AddSingleton<AgentSocketHandler>();
         await using var app = builder.Build();
         app.UseWebSockets();
@@ -181,6 +184,23 @@ public sealed class PlayerRequestSocketTests : IDisposable
         );
         while (_registry.GetAgents().Count == 0)
             await Task.Delay(10, deadline.Token);
+        var buffer = new byte[64 * 1024];
+        async Task<AgentWireMessage> ReceiveAsync()
+        {
+            var received = await socket.ReceiveAsync(buffer, deadline.Token);
+            return JsonSerializer.Deserialize<AgentWireMessage>(
+                Encoding.UTF8.GetString(buffer, 0, received.Count),
+                new JsonSerializerOptions(JsonSerializerDefaults.Web)
+            )!;
+        }
+
+        // The agent learns the plugins' player commands first.
+        var commands = await ReceiveAsync();
+        Assert.Equal(WireMessageKind.ChatCommands, commands.Kind);
+        var ask = Assert.Single(commands.ChatCommands!);
+        Assert.Equal("ask", ask.Name);
+        Assert.Equal("question", ask.Argument);
+        Assert.Equal("Asking...", ask.Acknowledgement);
 
         // Server fields smuggled into the payload are not part of the contract and change nothing.
         await Send(
@@ -189,21 +209,16 @@ public sealed class PlayerRequestSocketTests : IDisposable
                 + ""","identityId":5,"playerName":"Pilot","text":"where is my ship?","uniqueName":"beta","server":"beta","clusterId":"fleet"}}"""
         );
         var request = await handler.Received.Task.WaitAsync(deadline.Token);
-        Assert.True(request.Player!.IsQuasarAgent(out var player));
+        Assert.True(request.Caller!.IsQuasarAgent(out var player));
         Assert.Equal(QuasarAgentKind.Player, player.Kind);
         Assert.Equal(Pilot.ToString(), player.PlayerSteamId);
         Assert.Equal("Pilot", player.PlayerName);
         Assert.Equal("alpha", player.Server);
         Assert.Equal("alpha", request.Source.Server);
-        Assert.Equal(QuasarRequestChannel.Game, request.Source.Channel);
+        Assert.Equal(QuasarChatChannel.Game, request.Source.Channel);
         Assert.Equal("where is my ship?", request.Text);
 
-        var buffer = new byte[64 * 1024];
-        var received = await socket.ReceiveAsync(buffer, deadline.Token);
-        var wire = JsonSerializer.Deserialize<AgentWireMessage>(
-            Encoding.UTF8.GetString(buffer, 0, received.Count),
-            new JsonSerializerOptions(JsonSerializerDefaults.Web)
-        )!;
+        var wire = await ReceiveAsync();
         Assert.Equal(ServerCommandType.SendWhisper, wire.Command!.CommandType);
         Assert.Equal(Pilot, wire.Command.SteamId);
         Assert.Equal("Your ship is at home.", wire.Command.Text);

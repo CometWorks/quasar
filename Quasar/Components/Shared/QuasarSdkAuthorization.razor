@@ -42,8 +42,8 @@
         <label>Policy name <input type="text" @bind="_policyName" /></label>
         <label>Roles, separated by commas <input type="text" @bind="_policyRoles" /></label>
         <MudButton OnClick="SaveRolesAsync" Disabled="@_saving" Variant="Variant.Outlined">Save policy role grants</MudButton>
-        <h3 class="quasar-text quasar-type-subtitle1">Assistant roles</h3>
-        <p>The roles the admin assistant, the player agent and the monitor act with. The assistant also never does more than the person asking it could do. The monitor acts for nobody, so its roles alone limit it. None of them can hold the admin role, and security, RBAC, credential and shutdown operations stay closed to all three.</p>
+        <h3 class="quasar-text quasar-type-subtitle1">Agent roles</h3>
+        <p>The roles the AI agents of UI plugins act with: the admin assistant, the player agent and the monitor. The assistant also never does more than the person asking it could do. The monitor acts for nobody, so its roles alone limit it. None of them can hold the admin role, and security, RBAC, credential and shutdown operations stay closed to all three.</p>
         <label>Admin assistant roles, separated by commas <input type="text" @bind="_assistantRoles" /></label>
         <MudButton OnClick="@(() => SaveAgentRolesAsync(Quasar.Plugin.Abstractions.Security.QuasarAgentKind.Assistant, _assistantRoles))" Disabled="@_saving" Variant="Variant.Outlined">Save assistant roles</MudButton>
         <label>Player agent roles, separated by commas <input type="text" @bind="_playerRoles" /></label>

@@ -435,6 +435,10 @@ namespace Quasar.Agent
                     // what the plugin accepted (clamped / normalized values).
                     await SendPluginConfigsAsync(socket, force: true, cancellationToken).ConfigureAwait(false);
                 }
+                else if (message.Kind == WireMessageKind.ChatCommands && message.ChatCommands != null)
+                {
+                    PlayerCommands.Offer(message.ChatCommands);
+                }
                 else if (message.Kind == WireMessageKind.Ping)
                 {
                     await SendAsync(socket, new AgentWireMessage

@@ -12,7 +12,7 @@ public sealed class RbacConfig
     public Dictionary<string, QuasarOperationRule?> OperationOverrides { get; set; } = new(StringComparer.Ordinal);
     // Roles of the agent principals, keyed "assistant", "player" and "monitor". Never admin.
     public Dictionary<string, List<string>> AgentRoles { get; set; } = DefaultAgentRoles();
-    // Discord users who may use /assistant, as the Quasar subject they act as.
+    // Discord users who may use UI plugins' admin commands, as the Quasar subject they act as.
     public List<DiscordSubjectMapping> DiscordSubjects { get; set; } = [];
     [JsonIgnore] internal bool SdkRulesValid { get; set; } = true;
 
@@ -130,7 +130,7 @@ public sealed class SubjectRoleMapping
         RbacConfig.NormalizeRoles((value ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
 }
 
-/// <summary>A Discord user acting as a Quasar subject for /assistant. Only Steam subjects can be mapped in v1.</summary>
+/// <summary>A Discord user acting as a Quasar subject for UI plugins' admin commands. Only Steam subjects can be mapped in v1.</summary>
 public sealed class DiscordSubjectMapping
 {
     public string DiscordUserId { get; set; } = string.Empty;

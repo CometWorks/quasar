@@ -7,14 +7,15 @@ using Magnetar.Protocol.Transport;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Quasar.Plugin.Abstractions.Assistant;
+using Quasar.Plugin.Abstractions.Commands;
 using Quasar.Plugin.Abstractions.Companion;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Plugin.Abstractions.Security;
+using Quasar.Plugin.Abstractions.Servers;
 using Quasar.Services;
-using Quasar.Services.Assistant;
 using Quasar.Services.Audit;
 using Quasar.Services.Auth;
+using Quasar.Services.Players;
 using Quasar.Services.Plugins;
 using Xunit;
 using QuasarPolicyNames = Quasar.Services.Auth.QuasarPolicyNames;
@@ -22,27 +23,20 @@ using QuasarPolicyNames = Quasar.Services.Auth.QuasarPolicyNames;
 namespace Quasar.Tests;
 
 [Collection("Exact server creation")]
-public sealed class QuasarPlayerAssistantTests : IDisposable
+public sealed class QuasarPlayerServicesTests : IDisposable
 {
     private const string Core = QuasarCoreOperations.PluginId;
     private const string Pilot = "76561198000000001";
     private const string Stranger = "76561198000000999";
     private const string AdminSteamId = "76561198000000042";
+    private const string GridBackups = "9AC2F6A8-B8A7-4250-8814-BADE62C5CF3C";
     private static readonly JsonSerializerOptions Web = new(JsonSerializerDefaults.Web);
 
-    private static readonly string[] MyOperations =
-    [
-        "my.server.info",
-        "my.grids",
-        "my.grid.backups",
-        "my.grid.losses",
-        "my.grid.locate",
-        "my.grid.restore",
-    ];
+    private static readonly string[] MyOperations = ["my.server.info", "my.grid.locate"];
 
     private readonly string _root = Path.Combine(
         Path.GetTempPath(),
-        "quasar-player-assistant-" + Guid.NewGuid().ToString("N")
+        "quasar-player-services-" + Guid.NewGuid().ToString("N")
     );
     private readonly FieldInfo _cache = typeof(MagnetarPaths).GetField(
         "_cachedQuasarDirectory",
@@ -52,11 +46,19 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
     private readonly RbacConfigCatalog _rbac;
     private readonly KnownPlayerCatalog _knownPlayers;
     private readonly AgentRegistry _registry;
-    private readonly RecordingHandler _handler = new();
-    private readonly RecordingAdminHandler _adminHandler = new();
+    private readonly RecordingCommand _ask = new(new("ask", "Ask", "question", "Your question"));
+    private readonly RecordingCommand _admin = new(
+        new(
+            "assistant",
+            "Ask the admins' assistant",
+            "question",
+            "Your question",
+            QuasarChatCommandScope.Admin
+        )
+    );
     private readonly ServiceProvider _services;
 
-    public QuasarPlayerAssistantTests()
+    public QuasarPlayerServicesTests()
     {
         _previous = _cache.GetValue(null);
         _cache.SetValue(null, _root);
@@ -80,9 +82,9 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
         services.AddSingleton<IQuasarCompanionChannel>(
             new QuasarCompanionChannel(_registry, null!)
         );
-        services.AddSingleton<IQuasarPlayerRequestHandler>(_handler);
-        services.AddSingleton<IQuasarAdminRequestHandler>(_adminHandler);
-        services.AddQuasarPlayerAssistance();
+        services.AddSingleton<IQuasarChatCommand>(_ask);
+        services.AddSingleton<IQuasarChatCommand>(_admin);
+        services.AddQuasarPlayerServices();
         services.AddQuasarMyOperations();
         _services = services.BuildServiceProvider();
     }
@@ -106,7 +108,7 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
             .GetServices<QuasarOperation>()
             .Where(operation => operation.OperationId.StartsWith("my.", StringComparison.Ordinal))
             .ToList();
-        Assert.Equal(6, operations.Count);
+        Assert.Equal(MyOperations.Length, operations.Count);
         foreach (var operation in operations)
         {
             Assert.False(
@@ -163,196 +165,37 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
     }
 
     [Fact]
-    public async Task CompanionRequestsAlwaysCarryTheCallersOwnSteamId()
-    {
-        var alpha = Connect(Standalone("alpha"));
-        var requests = new List<JsonElement>();
-        alpha.Handle = command =>
-            Companion(
-                command,
-                request =>
-                {
-                    requests.Add(JsonDocument.Parse(request.PayloadJson).RootElement.Clone());
-                    return request.Operation switch
-                    {
-                        "list" => new { grids = new[] { new { gridId = 7L, present = false } } },
-                        _ => new { ok = true },
-                    };
-                }
-            );
-
-        var player = Player("alpha");
-        Assert.Equal(
-            200,
-            (await CallAsync(player, "my.grids", new { steamId = Stranger })).StatusCode
-        );
-        Assert.Equal(
-            200,
-            (
-                await CallAsync(player, "my.grid.backups", new { gridId = 7, steamId = Stranger })
-            ).StatusCode
-        );
-        Assert.Equal(
-            200,
-            (await CallAsync(player, "my.grid.losses", new { steamId = Stranger })).StatusCode
-        );
-        Assert.Equal(3, requests.Count);
-        Assert.All(
-            requests,
-            request => Assert.Equal(Pilot, request.GetProperty("steamId").GetString())
-        );
-        Assert.Equal(7, requests[1].GetProperty("gridId").GetInt64());
-    }
-
-    [Fact]
     public async Task TheServerDefaultsToTheRequestsSourceAndOthersMustBeNamed()
     {
-        var alpha = Connect(Standalone("alpha"));
-        var beta = Connect(Standalone("beta"));
-        Connect(Standalone("gamma"), gridBackups: false);
-        alpha.Handle = command =>
-            Companion(command, _ => new { grids = Array.Empty<object>(), server = "alpha" });
-        beta.Handle = command =>
-            Companion(command, _ => new { grids = Array.Empty<object>(), server = "beta" });
+        Connect(Standalone("alpha"));
+        Connect(Standalone("beta"));
 
         Assert.Equal(
             "alpha",
-            Json(await CallAsync(Player("alpha"), "my.grids")).GetProperty("server").GetString()
+            Json(await CallAsync(Player("alpha"), "my.server.info"))
+                .GetProperty("uniqueName")
+                .GetString()
         );
         var discordPlayer = Player(null);
-        var ambiguous = await CallAsync(discordPlayer, "my.grids");
+        var ambiguous = await CallAsync(discordPlayer, "my.server.info");
         Assert.Equal(400, ambiguous.StatusCode);
         Assert.Contains("alpha, beta", ambiguous.Error);
-        Assert.DoesNotContain("gamma", ambiguous.Error);
         Assert.Equal(
             "beta",
-            Json(await CallAsync(discordPlayer, "my.grids", new { uniqueName = "beta" }))
-                .GetProperty("server")
+            Json(await CallAsync(discordPlayer, "my.server.info", new { uniqueName = "beta" }))
+                .GetProperty("uniqueName")
                 .GetString()
         );
         Assert.Equal(
-            409,
-            (await CallAsync(discordPlayer, "my.grids", new { uniqueName = "gamma" })).StatusCode
-        );
-        Assert.Equal(
             404,
-            (await CallAsync(discordPlayer, "my.grids", new { uniqueName = "delta" })).StatusCode
-        );
-    }
-
-    [Fact]
-    public async Task RestoreIsAuditedAndItsUndoRemovesTheRestoredGrids()
-    {
-        var alpha = Connect(Standalone("alpha"));
-        var world = new HashSet<long>();
-        var removed = new List<long[]>();
-        var restoreRequests = new List<JsonElement>();
-        var answer = "restored";
-        alpha.Handle = command =>
-            command.CommandType switch
-            {
-                ServerCommandType.ListEntities => Entities(world, command),
-                _ => Companion(
-                    command,
-                    request =>
-                    {
-                        var payload = JsonDocument.Parse(request.PayloadJson).RootElement.Clone();
-                        if (request.Operation == "remove-restored")
-                        {
-                            var ids = payload
-                                .GetProperty("entityIds")
-                                .EnumerateArray()
-                                .Select(id => id.GetInt64())
-                                .ToArray();
-                            removed.Add(ids);
-                            world.ExceptWith(ids);
-                            return new { removed = ids, missing = Array.Empty<long>() };
-                        }
-
-                        restoreRequests.Add(payload);
-                        if (answer != "restored")
-                            return new { status = answer, reason = "No free space." };
-                        world.UnionWith([10, 11]);
-                        return new
-                        {
-                            status = "restored",
-                            backupId = "b/1.sbc",
-                            entityIds = new[] { 10L, 11L },
-                        };
-                    }
-                ),
-            };
-
-        var restored = await CallAsync(
-            Player("alpha"),
-            "my.grid.restore",
-            new { gridId = 10, steamId = Stranger }
-        );
-        Assert.Equal(200, restored.StatusCode);
-        Assert.Equal("restored", Json(restored).GetProperty("status").GetString());
-        var request = Assert.Single(restoreRequests);
-        Assert.Equal(Pilot, request.GetProperty("steamId").GetString());
-        Assert.Equal("original", request.GetProperty("placement").GetString());
-        Assert.Equal(2000, request.GetProperty("foreignExclusionMeters").GetDouble());
-        Assert.Equal(10000, request.GetProperty("maxSearchMeters").GetDouble());
-
-        var audit = _services.GetRequiredService<QuasarAuditLog>();
-        var entry = Assert.Single(await audit.QueryAsync(new(), default));
-        Assert.Equal(QuasarAuditResult.Ok, entry.Result);
-        Assert.Equal("alpha", entry.Server);
-        Assert.Equal(Pilot, entry.Requester.SteamId);
-        Assert.Equal(
-            new long[] { 10, 11 },
-            entry
-                .UndoData!.Value.GetProperty("entityIds")
-                .EnumerateArray()
-                .Select(id => id.GetInt64())
-        );
-
-        // A player's action can be undone by an admin, although no person satisfies the player policy.
-        world.Remove(11);
-        var conflict = await audit.UndoAsync(
-            Person(QuasarRoles.Admin),
-            entry.Id,
-            force: false,
-            default
-        );
-        Assert.Equal(QuasarUndoStatus.Conflict, conflict.Status);
-        Assert.Contains("11", conflict.Detail);
-        Assert.Equal(
-            QuasarUndoStatus.Refused,
-            (await audit.UndoAsync(Person(QuasarRoles.Editor), entry.Id, true, default)).Status
-        );
-        Assert.Equal(
-            QuasarUndoStatus.Done,
             (
-                await audit.UndoAsync(Person(QuasarRoles.Admin), entry.Id, force: true, default)
-            ).Status
-        );
-        Assert.Equal(new long[] { 10 }, Assert.Single(removed));
-        Assert.Empty(world);
-
-        answer = "no-spot";
-        var noSpot = await CallAsync(Player("alpha"), "my.grid.restore", new { gridId = 10 });
-        Assert.Equal(409, noSpot.StatusCode);
-        Assert.StartsWith("no-spot: No free space.", noSpot.Error);
-        var refused = (await audit.QueryAsync(new(), default)).First();
-        Assert.Equal((QuasarAuditResult.Refused, "alpha"), (refused.Result, refused.Server));
-        Assert.StartsWith("no-spot: No free space.", refused.Error);
-        Assert.Equal(
-            400,
-            (
-                await CallAsync(
-                    Player("alpha"),
-                    "my.grid.restore",
-                    new { gridId = 10, placement = "orbit" }
-                )
+                await CallAsync(discordPlayer, "my.server.info", new { uniqueName = "delta" })
             ).StatusCode
         );
     }
 
     [Fact]
-    public async Task ClusterRestoreGoesToTheNodeNearTheBackupOrThePlayer()
+    public async Task ServerQueriesFindPlayersGridsAndAreaOwnersOnTheRegularNodes()
     {
         var nodeA = Connect(
             Node("a"),
@@ -360,106 +203,42 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
         );
         var nodeB = Connect(Node("b"));
         var authority = Connect(Node("wa", "WA"));
-        var restoredOn = new List<string>();
-        Func<ServerCommandEnvelope, (bool, string)> Agent(
-            string name,
-            bool ownsArea,
-            bool present
-        ) =>
-            command =>
-                command.CommandType switch
-                {
-                    ServerCommandType.ResolvePositionOwner => (
-                        true,
-                        JsonSerializer.Serialize(
-                            new PositionOwnerResult { Found = ownsArea, DistanceMeters = 50 },
-                            Web
-                        )
-                    ),
-                    _ => Companion(
-                        command,
-                        request =>
-                        {
-                            if (request.Operation == "restore")
-                                restoredOn.Add(name);
-                            return request.Operation switch
-                            {
-                                "list" => new { grids = new[] { new { gridId = 7L, present } } },
-                                "describe" => new
-                                {
-                                    gridId = 7L,
-                                    backups = new object[]
-                                    {
-                                        new
-                                        {
-                                            takenUtc = "2026-11-05T12:00:00Z",
-                                            position = new
-                                            {
-                                                x = 9.0,
-                                                y = 9.0,
-                                                z = 9.0,
-                                            },
-                                        },
-                                        new
-                                        {
-                                            takenUtc = "2026-11-05T10:00:00Z",
-                                            position = new
-                                            {
-                                                x = 1.0,
-                                                y = 2.0,
-                                                z = 3.0,
-                                            },
-                                        },
-                                    },
-                                    loss = new
-                                    {
-                                        timeUtc = "2026-11-05T11:00:00Z",
-                                        cause = "destroyed",
-                                    },
-                                },
-                                _ => new { status = "restored", entityIds = new[] { 7L } },
-                            };
-                        }
-                    ),
-                };
-        nodeA.Handle = Agent("a", ownsArea: false, present: false);
-        nodeB.Handle = Agent("b", ownsArea: true, present: true);
+        nodeA.Handle = command =>
+            command.CommandType == ServerCommandType.ListEntities
+                ? Entities([], command)
+                : Owner(found: true, distance: 80);
+        nodeB.Handle = command =>
+            command.CommandType == ServerCommandType.ListEntities
+                ? Entities([7], command)
+                : Owner(found: true, distance: 50);
         authority.Handle = _ =>
             throw new InvalidOperationException("The World Authority simulates no grids.");
+        var queries = _services.GetRequiredService<IQuasarServerQueries>();
 
-        var player = Player("fleet");
+        var fleet = Assert.Single(queries.GetServers());
+        Assert.Equal("fleet", fleet.UniqueName);
+        Assert.True(fleet.IsCluster);
+        Assert.Equal(["node-a", "node-b"], fleet.Nodes.Select(node => node.ClusterNode));
+        Assert.True(fleet.Nodes[0].HasPlugin(GridBackups));
+
+        Assert.Equal("fleet-a:1", queries.FindPlayer("cluster:fleet", Pilot));
+        Assert.Null(queries.FindPlayer("fleet", Stranger));
+        var grids = await queries.FindGridsAsync("fleet", [7, 8], default);
+        Assert.Equal("fleet-b:1", Assert.Single(grids, pair => pair.Key == 7).Value);
+        Assert.False(grids.ContainsKey(8));
         Assert.Equal(
-            200,
-            (await CallAsync(player, "my.grid.restore", new { gridId = 7 })).StatusCode
+            "fleet-b:1",
+            await queries.FindPositionOwnerAsync("fleet", 1, 2, 3, 100, default)
         );
-        Assert.Equal(
-            200,
-            (
-                await CallAsync(
-                    player,
-                    "my.grid.restore",
-                    new { gridId = 7, placement = "near-player" }
-                )
-            ).StatusCode
-        );
-        Assert.Equal(new[] { "b", "a" }, restoredOn);
-        var position = nodeB.Commands.Single(c =>
+        var asked = nodeA.Commands.Single(c =>
             c.CommandType == ServerCommandType.ResolvePositionOwner
         );
-        Assert.Equal(
-            1.0,
-            JsonSerializer.Deserialize<PositionOwnerRequest>(position.Payload, Web)!.X
-        ); // the backup before the loss
-
-        var grids = Json(await CallAsync(player, "my.grids"));
-        Assert.True(grids.GetProperty("grids")[0].GetProperty("present").GetBoolean());
+        Assert.Equal(2.0, JsonSerializer.Deserialize<PositionOwnerRequest>(asked.Payload, Web)!.Y);
         Assert.Empty(authority.Commands);
 
-        // Nobody owns the area: the player's node.
-        nodeB.Handle = Agent("b", ownsArea: false, present: true);
-        await CallAsync(player, "my.grid.restore", new { gridId = 7 });
-        Assert.Equal("a", restoredOn[^1]);
-        Assert.Null(QuasarPlayerTools.Nearest([]));
+        nodeB.Handle = command => Owner(found: false, distance: 0);
+        nodeA.Handle = command => Owner(found: false, distance: 0);
+        Assert.Null(await queries.FindPositionOwnerAsync("fleet", 1, 2, 3, 100, default));
     }
 
     [Fact]
@@ -521,29 +300,27 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
             return (true, "");
         };
         var source = _registry.GetAgents().Single(agent => agent.UniqueNameKey == "alpha");
-        var requests = _services.GetRequiredService<QuasarPlayerRequests>();
-        _handler.Answer = new string('x', 700);
+        var requests = _services.GetRequiredService<QuasarChatCommands>();
+        _ask.Answer = new string('x', 700);
 
         await requests.HandleGameRequestAsync(
             source,
             new PlayerRequest
             {
-                Kind = PlayerRequest.AskKind,
+                Kind = "ask",
                 SteamId = long.Parse(Pilot),
                 PlayerName = "Pilot",
                 Text = "where is my ship?",
             },
             default
         );
-        var request = Assert.Single(_handler.Requests);
-        Assert.True(request.Player!.IsQuasarAgent(out var identity));
+        var request = Assert.Single(_ask.Requests);
+        Assert.Equal("ask", request.Command);
+        Assert.True(request.Caller!.IsQuasarAgent(out var identity));
         Assert.Equal(Pilot, identity.PlayerSteamId);
         Assert.Equal("alpha", identity.Server);
         Assert.Equal("steam:" + Pilot, request.ConversationKey);
-        Assert.Equal(
-            new QuasarPlayerRequestSource(QuasarRequestChannel.Game, "alpha"),
-            request.Source
-        );
+        Assert.Equal(new QuasarChatCommandSource(QuasarChatChannel.Game, "alpha"), request.Source);
         Assert.Equal(2, whispers.Count);
         Assert.All(
             whispers,
@@ -562,9 +339,25 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
         var code = whispers[^1].Text.Split(' ')[2];
         Assert.Equal(Pilot, (await requests.LinkDiscordAsync("555", code, default))!.SteamId);
 
+        // Admin commands and unknown names don't run from the game.
+        foreach (var kind in new[] { "assistant", "dance" })
+            await requests.HandleGameRequestAsync(
+                source,
+                new PlayerRequest
+                {
+                    Kind = kind,
+                    SteamId = long.Parse(Pilot),
+                    Text = "hi",
+                },
+                default
+            );
+        Assert.Equal(QuasarChatCommands.NotAvailable, whispers[^1].Text);
+        Assert.Empty(_admin.Requests);
+
         // A linked Discord user asks as that player; an unlinked one without a player.
         var replies = new List<string>();
-        await requests.AskFromDiscordAsync(
+        await requests.HandleDiscordAsync(
+            "ask",
             "555",
             "chan",
             "hello",
@@ -575,7 +368,8 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
             },
             default
         );
-        await requests.AskFromDiscordAsync(
+        await requests.HandleDiscordAsync(
+            "ask",
             "777",
             "chan",
             "hello",
@@ -586,12 +380,12 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
             },
             default
         );
-        Assert.True(_handler.Requests[1].Player!.IsQuasarAgent(out var linked));
+        Assert.True(_ask.Requests[1].Caller!.IsQuasarAgent(out var linked));
         Assert.Equal(Pilot, linked.PlayerSteamId);
         Assert.Equal("555", linked.DiscordUserId);
         Assert.Null(linked.Server);
-        Assert.Null(_handler.Requests[2].Player);
-        Assert.Equal("discord:777", _handler.Requests[2].ConversationKey);
+        Assert.Null(_ask.Requests[2].Caller);
+        Assert.Equal("discord:777", _ask.Requests[2].ConversationKey);
         Assert.Equal(2, replies.Count);
     }
 
@@ -619,26 +413,71 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
         });
         Assert.Equal(2, _rbac.GetConfig().DiscordSubjects.Count);
 
-        var requests = _services.GetRequiredService<QuasarPlayerRequests>();
+        var requests = _services.GetRequiredService<QuasarChatCommands>();
         var replies = new List<string>();
         Task Reply(string text, CancellationToken _)
         {
             replies.Add(text);
             return Task.CompletedTask;
         }
-        await requests.AskAdminFromDiscordAsync("100", "admin-channel", "status?", Reply, default);
-        await requests.AskAdminFromDiscordAsync("200", "admin-channel", "status?", Reply, default);
-        await requests.AskAdminFromDiscordAsync("300", "admin-channel", "status?", Reply, default);
+        foreach (var user in new[] { "100", "200", "300" })
+            await requests.HandleDiscordAsync(
+                "assistant",
+                user,
+                "admin-channel",
+                "status?",
+                Reply,
+                default
+            );
 
-        var asked = Assert.Single(_adminHandler.Requests);
-        Assert.True(asked.Asker.IsInRole(QuasarRoles.Admin));
-        Assert.False(asked.Asker.IsQuasarAgent(out _));
-        Assert.Equal(AdminSteamId, asked.Asker.FindFirstValue(ClaimTypes.NameIdentifier));
-        Assert.Equal("admin-channel", asked.ChannelId);
+        var asked = Assert.Single(_admin.Requests);
+        Assert.True(asked.Caller!.IsInRole(QuasarRoles.Admin));
+        Assert.False(asked.Caller.IsQuasarAgent(out _));
+        Assert.Equal(AdminSteamId, asked.Caller.FindFirstValue(ClaimTypes.NameIdentifier));
+        Assert.Equal("admin-channel", asked.Source.DiscordChannelId);
         Assert.Equal(
-            new[] { QuasarPlayerRequests.NotMapped, QuasarPlayerRequests.NotMapped },
+            new[] { "ok", QuasarChatCommands.NotMapped, QuasarChatCommands.NotMapped },
             replies
         );
+    }
+
+    [Fact]
+    public void PluginCommandsNeedAFreeValidNameAndOnlyPlayerOnesGoToTheGame()
+    {
+        var commands = new QuasarChatCommands(
+            _registry,
+            _services.GetRequiredService<QuasarAgentPrincipals>(),
+            _services.GetRequiredService<QuasarPlayerLinks>(),
+            _knownPlayers,
+            _rbac,
+            _services.GetRequiredService<QuasarRoleMapper>(),
+            [
+                _ask,
+                _admin,
+                new RecordingCommand(new("ask", "Another ask", "text", "Text")),
+                new RecordingCommand(new("link", "Not core's", "text", "Text")),
+                new RecordingCommand(new("Shout", "Upper case", "text", "Text")),
+                new RecordingCommand(
+                    new(
+                        "roll",
+                        new string('d', 150),
+                        "Bad Argument",
+                        "Text",
+                        Acknowledgement: "Rolling..."
+                    )
+                ),
+            ],
+            NullLogger<QuasarChatCommands>.Instance
+        );
+
+        Assert.Equal(["ask", "assistant", "roll"], commands.Commands.Select(info => info.Name));
+        Assert.Same(_ask.Info, commands.Commands.First());
+        var game = commands.GameCommands();
+        Assert.Equal(["ask", "roll"], game.Select(info => info.Name));
+        Assert.Equal("question", game[0].Argument);
+        Assert.Equal("text", game[1].Argument);
+        Assert.Equal(100, game[1].Description.Length);
+        Assert.Equal("Rolling...", game[1].Acknowledgement);
     }
 
     private sealed class FakeAgent
@@ -648,34 +487,21 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
             (false, "Not handled.");
     }
 
-    private sealed class RecordingHandler : IQuasarPlayerRequestHandler
+    private sealed class RecordingCommand(QuasarChatCommandInfo info) : IQuasarChatCommand
     {
-        internal readonly List<QuasarPlayerRequest> Requests = [];
+        internal readonly List<QuasarChatCommandRequest> Requests = [];
         internal string Answer = "ok";
 
-        public async Task HandleAsync(QuasarPlayerRequest request, CancellationToken token)
+        public QuasarChatCommandInfo Info => info;
+
+        public async Task HandleAsync(QuasarChatCommandRequest request, CancellationToken token)
         {
             Requests.Add(request);
             await request.ReplyAsync(Answer, token);
         }
     }
 
-    private sealed class RecordingAdminHandler : IQuasarAdminRequestHandler
-    {
-        internal readonly List<QuasarAdminRequest> Requests = [];
-
-        public Task HandleAsync(QuasarAdminRequest request, CancellationToken token)
-        {
-            Requests.Add(request);
-            return Task.CompletedTask;
-        }
-    }
-
-    private FakeAgent Connect(
-        AgentHello hello,
-        List<PlayerSnapshot>? players = null,
-        bool gridBackups = true
-    )
+    private FakeAgent Connect(AgentHello hello, List<PlayerSnapshot>? players = null)
     {
         var agent = new FakeAgent();
         var connection = "connection-" + hello.AgentId;
@@ -725,16 +551,7 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
                 IsRunning = true,
                 TelemetryPaused = true,
                 Players = players ?? [],
-                Plugins = gridBackups
-                    ?
-                    [
-                        new()
-                        {
-                            PluginId = QuasarPlayerTools.GridBackupsPluginId.ToLowerInvariant(),
-                            IsLoaded = true,
-                        },
-                    ]
-                    : [],
+                Plugins = [new() { PluginId = GridBackups.ToLowerInvariant(), IsLoaded = true }],
             },
             connection
         );
@@ -765,27 +582,14 @@ public sealed class QuasarPlayerAssistantTests : IDisposable
             ClusterEpoch = 1,
         };
 
-    private static (bool, string) Companion(
-        ServerCommandEnvelope command,
-        Func<CompanionPluginRequest, object> answer
-    )
-    {
-        Assert.Equal(ServerCommandType.PluginRequest, command.CommandType);
-        var request = JsonSerializer.Deserialize<CompanionPluginRequest>(command.Payload, Web)!;
-        Assert.Equal(QuasarPlayerTools.GridBackupsPluginId, request.PluginId);
-        return (
+    private static (bool, string) Owner(bool found, double distance) =>
+        (
             true,
             JsonSerializer.Serialize(
-                new CompanionPluginResponse
-                {
-                    CorrelationId = request.CorrelationId,
-                    Success = true,
-                    PayloadJson = JsonSerializer.Serialize(answer(request), Web),
-                },
+                new PositionOwnerResult { Found = found, DistanceMeters = distance },
                 Web
             )
         );
-    }
 
     private static (bool, string) Entities(IEnumerable<long> world, ServerCommandEnvelope command)
     {

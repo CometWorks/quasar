@@ -30,7 +30,7 @@ public sealed class AgentSocketHandler
     private readonly PluginLogStream _pluginLogStream;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<AgentSocketHandler> _logger;
-    private readonly Assistant.QuasarPlayerRequests? _playerRequests;
+    private readonly Players.QuasarChatCommands? _chatCommands;
 
     public AgentSocketHandler(
         AgentRegistry registry,
@@ -40,9 +40,9 @@ public sealed class AgentSocketHandler
         PluginLogStream pluginLogStream,
         IHostApplicationLifetime lifetime,
         ILogger<AgentSocketHandler> logger,
-        Assistant.QuasarPlayerRequests? playerRequests = null)
+        Players.QuasarChatCommands? chatCommands = null)
     {
-        _playerRequests = playerRequests;
+        _chatCommands = chatCommands;
         _registry = registry;
         _authenticator = authenticator;
         _pluginConfigService = pluginConfigService;
@@ -98,6 +98,8 @@ public sealed class AgentSocketHandler
                 await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, refusal, CancellationToken.None);
                 return;
             }
+
+            await SendChatCommandsAsync(socket, connectionId, loopToken);
 
             while (socket.State == WebSocketState.Open && !loopToken.IsCancellationRequested)
             {
@@ -184,6 +186,25 @@ public sealed class AgentSocketHandler
         }
 
         return null;
+    }
+
+    // The UI plugins' player commands, which the agent registers as chat commands. Older agents ignore the message.
+    private async Task SendChatCommandsAsync(WebSocket socket, string connectionId, CancellationToken cancellationToken)
+    {
+        if (_chatCommands?.GameCommands() is not { Count: > 0 } commands || socket.State != WebSocketState.Open)
+            return;
+        try
+        {
+            await SendAsync(socket, new AgentWireMessage
+            {
+                Kind = WireMessageKind.ChatCommands,
+                ChatCommands = commands,
+            }, cancellationToken);
+        }
+        catch (Exception exception) when (exception is WebSocketException or InvalidOperationException)
+        {
+            _logger.LogWarning(exception, "Could not send the chat commands to agent connection {ConnectionId}.", connectionId);
+        }
     }
 
     // Old agents retry every ten seconds, so log the refusal once per address and interval.
@@ -286,8 +307,8 @@ public sealed class AgentSocketHandler
                 break;
 
             case WireMessageKind.PlayerRequest when message.PlayerRequest is not null:
-                // The assistant's answer can take minutes: never on the receive loop.
-                _playerRequests?.Accept(connectionId, message.PlayerRequest, _lifetime.ApplicationStopping);
+                // A plugin's answer can take minutes: never on the receive loop.
+                _chatCommands?.Accept(connectionId, message.PlayerRequest, _lifetime.ApplicationStopping);
                 _registry.TouchConnection(connectionId);
                 break;
 
