@@ -242,7 +242,7 @@ public sealed class ExistingServerImportService(
         bool restrictToSource, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
-        if (!request.SourceServerStoppedConfirmed)
+        if (!restrictToSource && !request.SourceServerStoppedConfirmed)
             throw new InvalidOperationException("Confirm that the source server is stopped before importing it.");
 
         var analysis = ExistingServerImportAnalyzer.Analyze(request.Kind, request.SourcePath, restrictToSource);

@@ -22,7 +22,7 @@ the buttons wrap below the text when space is limited.
 | **YES** / **NO** buttons | no choice | YES turns on plugin usage statistics and diagnostic reports, and starts automatic enrollment with the backoffice. It does not turn on crash dumps or listings. NO turns off statistics, diagnostic reports and crash dumps. |
 | **Send diagnostic reports** switch | off | Encrypted error reports and batched application logs from Quasar and all enrolled hosts. |
 | **Include crash dumps** switch | off | Process memory dumps attached to crash reports. Only available while diagnostic reports are on. |
-| **Show configured servers on se-servers.net** switch | off | Public server listing. See [Server listing](#server-listing-on-se-serversnet). |
+| **Publish this server** on Listings | off for new servers | Per-server public listing. Select and save to opt in; there is no global listing switch. See [Server listing](#server-listing-on-se-serversnet). |
 
 The status chip next to the heading shows `YES`, `NO`, `Logging consent required` (statistics on, reports off) or `No choice stored`.
 
@@ -179,9 +179,9 @@ Quasar can publish standalone Magnetar servers and clusters to the public server
 All of these must be true before anything is published:
 
 1. **Send diagnostic reports** is on (Security). Statistics consent is not required.
-2. **Show configured servers on se-servers.net** is on. The switch is on both the Security page and the Listings page.
+2. **Publish this server** is selected and saved on Listings. Saving the selection records listing consent without enabling diagnostic reports.
 3. At least one Steam role mapping with the Admin role exists in Security. The SteamID must be a 17-digit SteamID64.
-4. The server is selected on the Listings page with a public hostname or IP.
+4. The selected server has a public hostname or IP on the Listings page.
 5. The backoffice has received current, consented Quasar logs. Quasar asks the backoffice for a challenge first and sends no server details or admin identities until the backoffice confirms recent log delivery. No crash or memory dump is needed.
 
 If any of 1 to 3 is missing, Quasar sends a withdrawal instead.
@@ -191,11 +191,17 @@ If any of 1 to 3 is missing, Quasar sends a withdrawal instead.
 1. Open **Listings** in the main navigation (`/settings/server-list`). The page is titled **Server listing**. Viewing needs the view permission; saving needs the security management permission.
 2. The page lists every standalone server and cluster. Names and game ports are pre-filled from the server's in-game name and server port. For a cluster, the port comes from its deployed Steam gateway configuration, or 28000 if that is unknown.
 3. For each server to publish, tick **Publish this server**, check **Public server name** (max 128 characters), enter **Public hostname or IP address** (no scheme, no port) and confirm **Public game port**. For a cluster use the Steam gateway address and port, not the Cluster Registry admin endpoint.
-4. Click **Save listings**. Changes apply without a restart. The page says delivery may take up to two minutes.
+4. Click **Save listings**. This records publication consent for the selected servers. Changes apply without a restart. The page says delivery may take up to two minutes.
 
 The page refreshes automatically as servers, clusters, saved settings, consent or Steam-admin mappings change. Source changes preserve unsaved edits. If another session saves settings while you have edits, a warning preserves your draft and blocks saving over the newer settings. Choose **Discard edits** in that warning to load the latest settings. There is no Reload button. **Save listings** sits in a separate action bar below the cards.
 
 Unticking a server removes it from the next publication. Unticking all servers withdraws the installation's listings. Names, addresses and listing IDs stay saved.
+
+Servers hidden by an earlier global opt-out stay unselected after upgrading. Select
+and save them again to publish. Editing an address alone never opts into publication.
+The stored `listingGranted` compatibility flag is recorded automatically when
+you save a publish selection. Headless installs must still set it explicitly in
+`data-handling-consent.json`, separately from valid diagnostic consent.
 
 The page warns when diagnostic consent or a Steam admin mapping is missing, and when a saved source no longer exists ("This source no longer exists. Its listing will be omitted from publication.").
 
@@ -210,7 +216,7 @@ A standalone server's statistics are sent only when exactly one connected agent 
 ### Publication timing and withdrawal
 
 - Quasar publishes every minute, and immediately after a change to listing settings, consent, role mappings, servers or clusters.
-- Turning off the listing switch, turning off diagnostic reports, or removing the last Steam admin mapping makes Quasar send a withdrawal on the next cycle, which runs immediately.
+- Deselecting all servers and saving, turning off diagnostic reports, or removing the last Steam admin mapping makes Quasar send a withdrawal on the next cycle, which runs immediately.
 - Each publication carries an increasing epoch and sequence number. Quasar stores the epoch in `ServerList/epoch` and raises it at every start, so a delayed older update never overwrites a newer one. Do not run two Quasar instances over the same data directory.
 
 ### Listing settings file
@@ -238,7 +244,7 @@ The Listings page saves to `server-list.json` in the Quasar data directory. Whil
 - `ListingId` is optional. Without it, Quasar derives a stable ID from the installation ID, kind and unique name. Keep an existing `ListingId` to keep the page's edited description and votes.
 - Up to 100 listings. `PublicHost` cannot be `localhost`, `0.0.0.0`, `::` or a loopback IP.
 - `DirectoryUrl` and `InstallationToken` are ignored.
-- The listing switch in Security is still required.
+- Listing consent is recorded when you select **Publish this server** and save on Listings. Headless configurations must record `listingGranted: true` in `data-handling-consent.json`.
 
 After the first save in the UI, `server-list.json` wins over `appsettings.json`. Restart Quasar after restoring `server-list.json` from a backup or editing it by hand.
 

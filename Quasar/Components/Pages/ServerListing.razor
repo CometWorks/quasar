@@ -14,7 +14,6 @@
 <div class="quasar-page-heading"><div><div class="quasar-eyebrow">Settings</div><h1>Server listing</h1><p>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</p></div></div>
 <p class="quasar-muted">Names and game ports are suggested from your existing servers. Enter the address players use to connect.</p>
 <section class="quasar-panel quasar-section"><div class="quasar-stack">
-    <label class="quasar-check"><input name="listing-visibility" type="checkbox" @bind:get="Consent.GetSettings().ListingGranted" @bind:set="SaveVisibilityAsync" disabled="@(_saving || !_canManage)" />Show configured servers on se-servers.net</label>
     @if (!Consent.GetSettings().DiagnosticsGranted)
     {
         <p class="quasar-notice quasar-notice-warning" role="status">Accept diagnostic data handling in <a href="settings/security">Security</a> before publishing.</p>
@@ -24,7 +23,7 @@
         <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="settings/security">Security</a> to publish and manage your listings.</p>
     }
     @if (Settings.LoadError is { } error) { <p class="quasar-notice quasar-notice-error" role="status">@error</p> }
-    <p>Listings become visible when the backoffice confirms current Quasar log delivery. No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.</p>
+    <p>Choose Publish this server for each listing you want visible, then save. Listings become visible when the backoffice confirms current Quasar log delivery. No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.</p>
 </div></section>
 @if (_entries.Count == 0)
 {
@@ -113,7 +112,9 @@
         var (options, revision) = Settings.GetSnapshot();
         _revision = revision;
         _savedSources = options.Listings.Select(e => (e.Kind, e.UniqueName.ToLowerInvariant())).ToHashSet();
-        if (!options.Enabled) foreach (var entry in options.Listings) entry.Enabled = false;
+        // Preserve an earlier global opt-out until the admin explicitly selects listings again.
+        if (!options.Enabled || !Consent.GetSettings().ListingGranted)
+            foreach (var entry in options.Listings) entry.Enabled = false;
         _entries = ServerListSettingsCatalog.CreateDrafts(options, Servers.GetServers(), Clusters.GetClusters());
         _dirty = false;
         _settingsChanged = false;
@@ -137,6 +138,10 @@
             var entries = _entries.Where(e => e.Enabled || !string.IsNullOrWhiteSpace(e.PublicHost)
                 || _savedSources.Contains((e.Kind, e.UniqueName.ToLowerInvariant()))).Select(e => e.Clone()).ToList();
             await Settings.SaveAsync(new() { Enabled = entries.Any(e => e.Enabled), Listings = entries }, _revision);
+            // Per-server publication choices are the listing opt-in. Diagnostic
+            // consent stays independent; disabling all entries withdraws through Settings.
+            if (entries.Any(e => e.Enabled) && !Consent.GetSettings().ListingGranted)
+                await Consent.SaveListingVisibilityAsync(true);
             Reload();
             Snackbar.Add("Server listings saved. Publication will update automatically.", Severity.Success);
         }
@@ -144,18 +149,4 @@
         finally { _saving = false; }
     }
 
-    private async Task SaveVisibilityAsync(bool visible)
-    {
-        if (_saving) return;
-        _saving = true;
-        try
-        {
-            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
-            { Snackbar.Add("You no longer have permission to manage server listings.", Severity.Error); return; }
-            await Consent.SaveListingVisibilityAsync(visible);
-            Snackbar.Add("Listing visibility saved.", Severity.Success);
-        }
-        catch (Exception error) { Snackbar.Add($"Could not save visibility: {error.Message}", Severity.Error); }
-        finally { _saving = false; }
-    }
 }
