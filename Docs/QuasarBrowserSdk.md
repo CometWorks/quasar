@@ -520,7 +520,9 @@ explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
 | `players.kick`, `players.kick-cooldown.clear` | `CanControlServers` | nothing to reverse |
 | `backups.list` | `CanControlServers` | read; world and server backups only |
 | `backups.world.create`, `backups.server.create` | `CanControlServers` | queued, nothing to reverse; never stop and back up |
-| `cluster.list`, `cluster.status` | `ClusterQuery` | read |
+| `backups.settings.read` | `CanControlServers` | read: automatic backup rules and folder |
+| `backups.restore` | `CanManageSecurity` | a stored world or server backup of a stopped server, never a configuration backup; not reversible; 300 s deadline |
+| `cluster.list`, `cluster.status`, `cluster.players` | `ClusterQuery` | read |
 
 Config profile settings act on the shared profile; a change result lists every
 server that uses the profile and applies at their next start. Player operations

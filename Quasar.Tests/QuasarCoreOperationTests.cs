@@ -104,13 +104,15 @@ public sealed class QuasarCoreOperationTests : IDisposable
         services.AddSingleton(_registry);
         services.AddSingleton(_supervisor);
         services.AddSingleton(backups);
+        var backupSettings = new QuasarBackupSettingsService(
+            NullLogger<QuasarBackupSettingsService>.Instance,
+            options
+        );
+        services.AddSingleton(backupSettings);
         services.AddSingleton(
             new AutomaticBackupService(
                 backups,
-                new QuasarBackupSettingsService(
-                    NullLogger<QuasarBackupSettingsService>.Instance,
-                    options
-                ),
+                backupSettings,
                 _servers,
                 NullLogger<AutomaticBackupService>.Instance
             )
@@ -310,6 +312,16 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarOperationEffect.Change,
                 QuasarReversal.NothingToReverse
             ),
+            ["backups.settings.read"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["backups.restore"] = (
+                QuasarPolicyNames.CanManageSecurity,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
             ["cluster.list"] = (
                 QuasarPolicyNames.ClusterQuery,
                 QuasarOperationEffect.Read,
@@ -360,14 +372,17 @@ public sealed class QuasarCoreOperationTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(120), operations["servers.start"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.restart"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.save"].Metadata.Deadline);
-        // No destructive operation is registered.
-        Assert.DoesNotContain(
-            operations.Keys,
-            id =>
-                id.Contains("delete")
-                || id.Contains("kill")
-                || id.Contains("restore")
-                || id.Contains("clone")
+        // Destructive operations are a deliberate choice, each one listed here.
+        Assert.Equal(
+            ["backups.restore"],
+            operations
+                .Keys.Where(id =>
+                    id.Contains("delete")
+                    || id.Contains("kill")
+                    || id.Contains("restore")
+                    || id.Contains("clone")
+                )
+                .Order()
         );
     }
 
@@ -990,6 +1005,41 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 (await CallAsync(Editor(), "backups.list", new { })).Value
             )
         );
+    }
+
+    [Fact]
+    public async Task BackupRestoreTakesStoredWorldBackupsOnly()
+    {
+        await CreateServerAsync("alpha", world: true);
+        var name = Path.GetFileName(
+            await _services
+                .GetRequiredService<QuasarBackupService>()
+                .WriteWorldBackupFileAsync("alpha", DateTimeOffset.UtcNow, automatic: false)
+        );
+        var save = Path.Combine(_servers.GetServer("alpha")!.GetWorldSavePath(), "Sandbox.sbc");
+        await File.WriteAllTextAsync(save, "changed");
+        Directory.CreateDirectory(Path.Combine(_root, "backups"));
+        await File.WriteAllBytesAsync(Path.Combine(_root, "backups", "config.zip"), []);
+
+        Assert.Equal(403, (await CallAsync(Editor(), "backups.restore", new { name })).StatusCode);
+        var admin = Person(QuasarRoles.Admin);
+        Assert.Equal(
+            404,
+            (await CallAsync(admin, "backups.restore", new { name = "config.zip" })).StatusCode
+        );
+        var restored = await CallAsync(admin, "backups.restore", new { name });
+        Assert.Equal(200, restored.StatusCode);
+        var result = Assert.IsType<QuasarBackupOperations.BackupRestored>(restored.Value);
+        Assert.Equal("World", result.Kind);
+        Assert.Equal("alpha", result.Server);
+        Assert.Equal("save", await File.ReadAllTextAsync(save));
+        Assert.Equal("alpha", (await LatestAsync("backups.restore")).Server);
+
+        var settings = Assert.IsType<QuasarBackupOperations.BackupSettings>(
+            (await CallAsync(Editor(), "backups.settings.read", new { })).Value
+        );
+        Assert.Equal("Daily", settings.World.Frequency);
+        Assert.Equal("03:00", settings.World.TimeOfDay);
     }
 
     [Fact]
