@@ -322,6 +322,7 @@ public sealed class DiagnosticCollector
                     if (run.EndedAtUtc is not null && run.Native && DumpAllowed(run, policy))
                         await NativeDumpCapture.ImportAsync(directory, run.ProcessId, run.Executable,
                             run.ProcessStartedAtUtc ?? run.CreatedAtUtc, run.EndedAtUtc.Value, run.KernelIdentity, work.Token);
+                    var reports = new List<(string Path, IncidentReport Report)>();
                     foreach (string path in Directory.EnumerateFiles(directory, "*.json")
                         .OrderBy(path => Path.GetFileName(path).StartsWith("log-", StringComparison.Ordinal)))
                     {
@@ -331,6 +332,17 @@ public sealed class DiagnosticCollector
                         try { report = Read<IncidentReport>(path); if (report is not null) DiagnosticsProtocol.ValidateReport(report); }
                         catch (Exception e) when (e is JsonException or InvalidDataException) { continue; }
                         if (report is null || report.CapturedAtUtc < policy.GrantedSinceUtc) continue;
+                        reports.Add((path, report));
+                    }
+                    // Keep local evidence and startup/exit behavior intact. Do not turn the same
+                    // excluded fatal bind failure into a generic unexpected-exit upload instead.
+                    var fatals = reports.Where(r => r.Report.Kind == "unhandled_exception").ToArray();
+                    bool addressInUseExit = fatals.Length > 0 && fatals.All(r => IncidentClassification.IsAddressInUse(r.Report));
+                    foreach (var (path, captured) in reports)
+                    {
+                        var report = captured;
+                        if (IncidentClassification.IsAddressInUse(report)
+                            || addressInUseExit && report.Kind == "unexpected_exit" && Path.GetFileName(path) == "exit.json") continue;
                         if (report.Kind == "log_batch" && !collectLogs) continue;
                         if (report.Kind == "log_batch" && report.Context.GetValueOrDefault("captureConsentGeneration") != policy.Generation.ToString()) continue;
                         string marker = Path.Combine(directory, report.ReportId + ".sealed");

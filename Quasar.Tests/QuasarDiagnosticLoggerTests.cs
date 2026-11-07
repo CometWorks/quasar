@@ -3,7 +3,9 @@ using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Reflection;
 using System.Threading.Channels;
+using System.Net.Sockets;
 using CometWorks.Diagnostics;
+using Microsoft.AspNetCore.Connections;
 using Quasar.Host.Contract.V1;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -62,6 +64,108 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
         Assert.Empty(Reports(provider));
         Assert.False(File.Exists(Path.Combine(provider.DiagnosticDirectory!, "log-batch.pending")));
         Assert.Empty(Directory.GetFiles(provider.DiagnosticDirectory!, "log-*.json"));
+    }
+
+    private const string BindFailure = "Failed to bind to address http://[::]:8080: address already in use.";
+
+    [Theory]
+    [InlineData("socket", true)]
+    [InlineData("kestrel", true)]
+    [InlineData("startup", true)]
+    [InlineData("wrapper", true)]
+    [InlineData("aggregate", true)]
+    [InlineData("io-aggregate", true)]
+    [InlineData("io-message", true)]
+    [InlineData("access-denied", false)]
+    [InlineData("address-not-available", false)]
+    [InlineData("io-other", false)]
+    [InlineData("message-mention", false)]
+    [InlineData("mixed-aggregate", false)]
+    [InlineData("mixed-aggregate-reversed", false)]
+    [InlineData("misleading-wrapper", false)]
+    public async Task BindFailureClassificationPreservesLocalEvidenceAndOrdinaryBatches(string form, bool excluded)
+    {
+        Action throwSocket = () => throw new SocketException((int)SocketError.AddressAlreadyInUse);
+        var socket = Assert.Throws<SocketException>(throwSocket);
+        var startup = new IOException(BindFailure, new AddressInUseException("Address already in use", socket));
+        Exception exception = form switch
+        {
+            "socket" => socket,
+            "kestrel" => new AddressInUseException("Address already in use"),
+            "startup" => startup,
+            "wrapper" => new InvalidOperationException("Hosting failed", startup),
+            "aggregate" => new IOException("Failed to bind to address http://localhost:8080.",
+                new AggregateException(startup, new AddressInUseException("IPv4 port occupied", socket))),
+            "io-aggregate" => new AggregateException(new IOException(BindFailure), new IOException(BindFailure)),
+            "io-message" => new IOException(BindFailure),
+            "access-denied" => new IOException("Failed to bind: permission denied", new SocketException((int)SocketError.AccessDenied)),
+            "address-not-available" => new SocketException((int)SocketError.AddressNotAvailable),
+            "io-other" => new IOException("Failed to bind to address http://[::]:8080: transport failure."),
+            "message-mention" => new InvalidOperationException("Previous attempt: " + BindFailure),
+            "mixed-aggregate" => new AggregateException(startup, new InvalidOperationException("Unrelated failure")),
+            "mixed-aggregate-reversed" => new AggregateException(new InvalidOperationException("Unrelated failure"), startup),
+            "misleading-wrapper" => new IOException(BindFailure, new SocketException((int)SocketError.AccessDenied)),
+            _ => throw new ArgumentOutOfRangeException(nameof(form)),
+        };
+        var collector = new DiagnosticCollector(_root, "test-host");
+        using var rsa = RSA.Create(3072);
+        await collector.ApplyPolicyAsync(new HostDiagnosticPolicy(Guid.NewGuid().ToString("N"), true, false,
+            1, DateTimeOffset.UtcNow.AddSeconds(-1), DateTimeOffset.UtcNow.AddMinutes(2), DiagnosticsProtocol.KeyId(rsa),
+            rsa.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1)), default);
+        using var provider = new QuasarDiagnosticLoggerProvider(collector, TimeProvider.System, subscribe: false);
+        provider.CreateLogger("Microsoft.Extensions.Hosting.Internal.Host").LogError(exception, "Hosting failed to start");
+        await provider.DrainAsync();
+        provider.Dispose(); // Program catches the startup failure after host disposal.
+        provider.CaptureFatal(exception);
+        Assert.Equal(2, Reports(provider).Length);
+        Assert.NotNull(DiagnosticCollector.ReportedException(provider.DiagnosticDirectory));
+        Assert.True(File.Exists(Path.Combine(provider.DiagnosticDirectory!, "exit.json")));
+        using (var run = JsonDocument.Parse(File.ReadAllText(Path.Combine(provider.DiagnosticDirectory!, "run.json"))))
+        {
+            Assert.False(run.RootElement.GetProperty("expectedExit").GetBoolean());
+            Assert.NotEqual(JsonValueKind.Null, run.RootElement.GetProperty("endedAtUtc").ValueKind);
+        }
+        // Bootstrap's stdout batches may contain the same failure text and must keep working.
+        DiagnosticCollector.RecordOutput(provider.DiagnosticDirectory, BindFailure);
+        LogBatchCapture.Flush(provider.DiagnosticDirectory!, collector.PolicyFilePath, force: true);
+        await collector.CollectAsync(default);
+        var shared = new List<IncidentReport>();
+        foreach (var envelope in collector.GetReports())
+            shared.Add(await IncidentArchive.ValidateAsync(Path.Combine(collector.IncomingDirectory, envelope.ReportId + ".zip"), envelope, rsa));
+        var batch = Assert.Single(shared, report => report.Kind == "log_batch");
+        Assert.Contains(BindFailure, batch.Message);
+        Assert.Equal(excluded ? 1 : 4, shared.Count);
+        Assert.Equal(2, Reports(provider).Length); // Exclusion never deletes local exception evidence.
+        if (!excluded)
+        {
+            Assert.Single(shared, report => report.Kind == "log");
+            Assert.Single(shared, report => report.Kind == "unhandled_exception");
+            Assert.Single(shared, report => report.Kind == "unexpected_exit");
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoggedBindFailureDoesNotHideAnUnrelatedProcessExit(bool unrelatedFatal)
+    {
+        var collector = new DiagnosticCollector(_root, "test-host");
+        using var rsa = RSA.Create(3072);
+        await collector.ApplyPolicyAsync(new HostDiagnosticPolicy(Guid.NewGuid().ToString("N"), true, false,
+            1, DateTimeOffset.UtcNow.AddSeconds(-1), DateTimeOffset.UtcNow.AddMinutes(2), DiagnosticsProtocol.KeyId(rsa),
+            rsa.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1)), default);
+        using var provider = new QuasarDiagnosticLoggerProvider(collector, TimeProvider.System, subscribe: false);
+        provider.CreateLogger("Test").LogError(new AddressInUseException("Port occupied"), "Bind failed");
+        await provider.DrainAsync();
+        if (unrelatedFatal)
+        {
+            provider.CaptureFatal(new AddressInUseException("Port occupied"));
+            provider.CaptureFatal(new InvalidOperationException("Unrelated crash"));
+        }
+        else DiagnosticCollector.Exited(provider.DiagnosticDirectory!, 1, expected: false);
+        await collector.CollectAsync(default);
+        Assert.Equal(unrelatedFatal ? 2 : 1, collector.GetReports().Length);
+        Assert.True(File.Exists(Path.Combine(provider.DiagnosticDirectory!, "exit.json")));
     }
 
     [Fact]
