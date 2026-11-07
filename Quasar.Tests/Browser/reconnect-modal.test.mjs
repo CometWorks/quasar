@@ -5,7 +5,7 @@ import vm from 'node:vm';
 
 const script = readFileSync(new URL('../../Quasar/Components/Layout/ReconnectModal.razor.js', import.meta.url), 'utf8');
 
-function harness(reconnect = async () => false, { base = '/', replies = [], workerId = 'old-worker', resumeCircuit = async () => false } = {}) {
+function harness(reconnect = async () => false, { base = '/', replies = [], workerId = 'old-worker', resumeCircuit = async () => false, connectionState = 'connected' } = {}) {
     const requests = [], timers = new Map();
     let nextTimer = 0;
     const modal = Object.assign(new EventTarget(), {
@@ -15,15 +15,21 @@ function harness(reconnect = async () => false, { base = '/', replies = [], work
         classList: { replace() {} }
     });
     const window = new EventTarget();
+    window.quasarConnectionState = connectionState;
     window.setTimeout = callback => { timers.set(++nextTimer, callback); return nextTimer; };
     window.clearTimeout = id => timers.delete(id);
     const retry = new EventTarget(), resume = new EventTarget();
+    const warning = { hidden: true }, message = {}, reload = new EventTarget(), modalReload = new EventTarget();
     const document = Object.assign(new EventTarget(), {
         visibilityState: 'visible',
         baseURI: 'https://quasar.test' + base,
         getElementById: id => id === 'components-reconnect-modal' ? modal
             : id === 'quasar-connection' ? { textContent: JSON.stringify({ workerId }) }
-            : id === 'components-reconnect-button' ? retry : resume
+            : id === 'components-reconnect-button' ? retry
+            : id === 'quasar-connection-warning' ? warning
+            : id === 'quasar-connection-warning-message' ? message
+            : id === 'quasar-connection-reload' ? reload
+            : id === 'components-reconnect-reload' ? modalReload : resume
     });
     let reloads = 0, reconnects = 0;
     vm.runInNewContext(script, {
@@ -38,7 +44,12 @@ function harness(reconnect = async () => false, { base = '/', replies = [], work
         Blazor: { reconnect() { reconnects++; return reconnect(); }, resumeCircuit }
     });
     return {
-        modal, retry, resume, document, requests, timers,
+        modal, retry, resume, document, requests, timers, warning, message, reload, modalReload,
+        connection(state) {
+            const event = new Event('quasar-connection-state-changed');
+            event.detail = { state };
+            window.dispatchEvent(event);
+        },
         async tick() {
             assert.ok(timers.size, 'No recovery probe scheduled');
             const [id, callback] = timers.entries().next().value;
@@ -59,6 +70,70 @@ function harness(reconnect = async () => false, { base = '/', replies = [], work
         }
     };
 }
+
+test('stalled hydration warns after ten seconds and reload works without a circuit', async () => {
+    const h = harness(undefined, { connectionState: 'connecting' });
+    assert.equal(h.warning.hidden, true);
+    await h.tick();
+    assert.equal(h.warning.hidden, false);
+    assert.match(h.message.textContent, /Live updates and controls are not available yet/);
+    h.reload.dispatchEvent(new Event('click'));
+    assert.equal(h.reloads, 1);
+    h.connection('connected');
+    assert.equal(h.warning.hidden, true);
+});
+
+test('startup rejection warns immediately and prevents a later slow-start warning', () => {
+    const h = harness(undefined, { connectionState: 'connecting' });
+    h.connection('failed');
+    assert.equal(h.warning.hidden, false);
+    assert.match(h.message.textContent, /Could not establish the live connection/);
+    assert.equal(h.timers.size, 0);
+});
+
+test('startup result already available when the warning module loads is respected', () => {
+    const h = harness(undefined, { connectionState: 'failed' });
+    assert.equal(h.warning.hidden, false);
+    assert.equal(h.timers.size, 0);
+});
+
+test('successful hydration cancels its warning timer', () => {
+    const h = harness(undefined, { connectionState: 'connecting' });
+    h.connection('connected');
+    assert.equal(h.timers.size, 0);
+    assert.equal(h.warning.hidden, true);
+});
+
+test('framework loss replaces the startup warning and offers a client-side reload', () => {
+    const h = harness(undefined, { connectionState: 'failed' });
+    h.state('failed');
+    assert.equal(h.warning.hidden, true);
+    assert.equal(h.modal.open, true);
+    h.modalReload.dispatchEvent(new Event('click'));
+    assert.equal(h.reloads, 1);
+});
+
+test('the connection warning cannot be dismissed while the circuit is unavailable', () => {
+    const h = harness();
+    h.state('show');
+    const cancel = new Event('cancel', { cancelable: true });
+    h.modal.dispatchEvent(cancel);
+    assert.equal(cancel.defaultPrevented, true);
+});
+
+test('framework retry countdown keeps worker recovery running', async () => {
+    const h = harness(undefined, { replies: [
+        Response.json({ status: 'not-ready' }, { status: 503 }),
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'new-worker' })
+    ] });
+    h.state('show');
+    await new Promise(resolve => setImmediate(resolve));
+    for (let seconds = 5; seconds > 0; seconds--) h.state('retrying');
+    assert.equal(h.modal.open, true);
+    assert.equal(h.timers.size, 1, 'Countdown updates must not cancel or duplicate worker recovery');
+    await h.tick();
+    assert.equal(h.reloads, 1);
+});
 
 test('active restart closes an existing connection popup and owns rejected-circuit recovery', async () => {
     const h = harness();

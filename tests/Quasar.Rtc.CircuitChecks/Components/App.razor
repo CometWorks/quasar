@@ -3,10 +3,10 @@
 @using static Microsoft.AspNetCore.Components.Web.RenderMode
 @inject NavigationManager Navigation
 <!doctype html>
-<html><head><base href="@Navigation.BaseUri" /><title>Isolated real Blazor RTC</title></head>
+<html><head><base href="@Navigation.BaseUri" /><title>Isolated real Blazor RTC</title><link rel="stylesheet" href="fixture/reconnect.css" /></head>
 <body>
 <Counter @rendermode="InteractiveServer" />
-<div id="components-reconnect-modal" class="components-reconnect-hide">Reconnecting</div>
+<Quasar.Components.Layout.ReconnectModal />
 <script>window.rtcProofDouble = value => value * 2; window.rtcProofReady = () => document.body.dataset.interactive = "true";</script>
 <script src="_framework/blazor.web.js" autostart="false"></script>
 <script id="quasar-connection" type="application/json">@((MarkupString)("{\"hosted\":" + (RequestContext?.Request.PathBase.HasValue == true ? "true" : "false") + "}"))</script>

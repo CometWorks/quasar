@@ -1,8 +1,15 @@
-import { startBlazor } from "./circuit.js";
-const settings = JSON.parse(document.getElementById("quasar-connection").textContent);
-startBlazor(settings).catch(() => {
-    const message = document.createElement("div");
-    message.setAttribute("role", "alert");
-    message.textContent = "The panel connection is unavailable. Reload to reconnect.";
-    document.body.prepend(message);
-});
+function connectionState(state) {
+    window.quasarConnectionState = state;
+    window.dispatchEvent(new CustomEvent("quasar-connection-state-changed", { detail: { state } }));
+}
+
+connectionState("connecting");
+try {
+    // Catch module loading failures as well as session, peer and circuit failures.
+    const { startBlazor } = await import("./circuit.js");
+    const settings = JSON.parse(document.getElementById("quasar-connection").textContent);
+    await startBlazor(settings);
+    connectionState("connected");
+} catch {
+    connectionState("failed");
+}

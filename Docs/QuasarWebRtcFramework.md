@@ -47,6 +47,15 @@ requesting the framework negotiation token, including reconnects. This avoids
 allocating a short-lived framework token while Internet/TURN setup is pending.
 The framework still owns negotiation and its reconnect protocol. SignalR retains its own circuit reconnect behavior.
 
+Startup failures show a client-side **Quasar connection unavailable** warning.
+If startup is still pending after ten seconds, the warning explains that live
+updates and controls are not available yet. Boot catches failed circuit-module
+loads as well as failed session/peer setup. Successful startup clears the warning.
+The reconnect dialog warns about stale data after an established connection drops.
+Both warnings offer **Reload page** without requiring a working circuit. See
+[connection recovery](StateMachines/BlazorReconnect.md) for detection limits and
+worker replacement handling.
+
 Core analytics, console logs and backup downloads use the public SDK. Backup
 aliases keep their admin policy, exact bytes and ranges, while the current UI
 uses SDK streaming downloads. Other browser-native navigations and resources,

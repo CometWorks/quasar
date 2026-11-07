@@ -70,6 +70,8 @@ try
     });
     app.UseRouting(); app.UseAuthentication(); app.UseAuthorization(); app.UseAntiforgery();
     app.MapQuasarSdk(); app.MapQuasarRtc();
+    app.MapGet("/Components/Layout/ReconnectModal.razor.js", () => Results.File(Path.GetFullPath("../../Quasar/Components/Layout/ReconnectModal.razor.js", project), "text/javascript"));
+    app.MapGet("/fixture/reconnect.css", () => Results.File(Path.GetFullPath("../../Quasar/Components/Layout/ReconnectModal.razor.css", project), "text/css"));
     app.MapRazorComponents<App>().AddInteractiveServerRenderMode().RequireAuthorization();
     app.MapGet("/fixture/login", async (HttpContext http, QuasarRoleMapper roles, RbacConfigCatalog rbac) => { if (!roles.GetSteamRoles(user).Contains(QuasarRoles.Admin)) await rbac.UpdateAsync(config => { config.SubjectRoleMappings = [new() { Subject = user, Roles = [QuasarRoles.Admin] }, new() { Subject = "76561198000000002", Roles = [QuasarRoles.Admin] }]; return Task.CompletedTask; }); await http.SignInAsync("test", roles.CreateSteamPrincipal(user), new AuthenticationProperties { ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(5) }); return Results.Redirect(prefix + "/"); });
     app.MapPost("/fixture/viewer", async (RbacConfigCatalog rbac) => {

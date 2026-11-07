@@ -64,6 +64,7 @@ public sealed class ServerListingPageTests : IDisposable
         Assert.Contains("Accept diagnostic data handling", page.Markup);
         Assert.Contains("Add a Steam identity", page.Markup);
         Assert.DoesNotContain("private-admin", page.Markup);
+        Assert.Empty(page.FindAll("input[name='listing-visibility']"));
         var names = page.FindAll("input[name='public-name']");
         Assert.Contains(names, c => c.GetAttribute("value") == "Public solo");
         Assert.Contains(names, c => c.GetAttribute("value") == "Cluster fleet");
@@ -79,7 +80,68 @@ public sealed class ServerListingPageTests : IDisposable
         var saved = context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Options;
         Assert.True(saved.Enabled); Assert.Equal(2, saved.Listings.Count);
         Assert.All(saved.Listings, e => { Assert.True(e.Enabled); Assert.Equal("play.example.org", e.PublicHost); });
-        // Configuring destinations never grants diagnostic or publication consent.
+        // Selecting publication records listing consent without enabling diagnostic collection.
+        var consent = context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings();
+        Assert.True(consent.ListingGranted);
+        Assert.False(consent.DiagnosticsGranted);
+        Assert.False(ServerListProtocol.HasConsent(consent));
+    }
+
+    [Fact]
+    public async Task SavingAddressesWithoutSelectingPublicationDoesNotOptIn()
+    {
+        await using var context = await ContextAsync();
+        var page = context.Render<ServerListing>();
+        page.FindAll("input[name='public-host']")[0].Input("play.example.org");
+        await page.Find("form").SubmitAsync();
+        Assert.False(context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Options.Enabled);
+        Assert.False(context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings().ListingGranted);
+    }
+
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task PreviousGlobalOptOutStaysUnselectedUntilExplicitlyEnabled(bool configured, bool granted)
+    {
+        await using var context = await ContextAsync();
+        var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
+        await settings.SaveAsync(new() { Enabled = configured, Listings = [new()
+        {
+            Kind = "server", UniqueName = "solo", Name = "Previously hidden", PublicHost = "play.example.org"
+        }] }, 0);
+        await context.Services.GetRequiredService<DataHandlingConsentCatalog>().SaveListingVisibilityAsync(granted);
+        var page = context.Render<ServerListing>();
+        Assert.All(page.FindAll("input[name='publish']"), input => Assert.False(input.HasAttribute("checked")));
+        await page.Find("form").SubmitAsync();
+        Assert.False(settings.GetSnapshot().Options.Enabled);
+        Assert.Equal("play.example.org", Assert.Single(settings.GetSnapshot().Options.Listings).PublicHost);
+    }
+
+    [Fact]
+    public async Task DeselectingAllServersDisablesPublicationAndRetainsTheirAddresses()
+    {
+        await using var context = await ContextAsync();
+        var page = context.Render<ServerListing>();
+        page.FindAll("input[name='public-host']")[0].Input("play.example.org");
+        page.FindAll("input[name='publish']")[0].Change(true);
+        await page.Find("form").SubmitAsync();
+        Assert.True(page.FindAll("input[name='publish']")[0].HasAttribute("checked"));
+        await page.InvokeAsync(() => page.FindAll("input[name='publish']")[0].Change(false));
+        await page.Find("form").SubmitAsync();
+        var options = context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Options;
+        Assert.False(options.Enabled);
+        Assert.False(Assert.Single(options.Listings).Enabled);
+        Assert.Equal("play.example.org", options.Listings[0].PublicHost);
+    }
+
+    [Fact]
+    public async Task InvalidPublicationSelectionDoesNotGrantListingConsent()
+    {
+        await using var context = await ContextAsync();
+        var page = context.Render<ServerListing>();
+        page.FindAll("input[name='publish']")[0].Change(true);
+        await page.Find("form").SubmitAsync();
+        Assert.Equal(0, context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Revision);
         Assert.False(context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings().ListingGranted);
     }
 
@@ -150,12 +212,12 @@ public sealed class ServerListingPageTests : IDisposable
         await using var context = await ContextAsync();
         var page = context.Render<ServerListing>();
         var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
+        page.FindAll("input[name='public-host']")[0].Input("play.example.org");
+        page.FindAll("input[name='publish']")[0].Change(true);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
         await page.Find("form").SubmitAsync();
         Assert.False(File.Exists(settings.SettingsPath));
         Assert.Equal(0, settings.GetSnapshot().Revision);
-        page.Find("input[name='listing-visibility']").Change(true);
-        Assert.False(page.Find("input[name='listing-visibility']").HasAttribute("checked"));
         Assert.False(context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings().ListingGranted);
     }
 
@@ -168,7 +230,7 @@ public sealed class ServerListingPageTests : IDisposable
         Assert.Contains("Public solo", page.Markup);
         Assert.Contains("Cluster fleet", page.Markup);
         Assert.True(page.Find("fieldset").HasAttribute("disabled"));
-        Assert.True(page.Find("input[name='listing-visibility']").HasAttribute("disabled"));
+        Assert.Empty(page.FindAll("input[name='listing-visibility']"));
         Assert.DoesNotContain("Save listings", page.Markup);
         await page.Find("form").SubmitAsync();
         Assert.Equal(0, context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Revision);

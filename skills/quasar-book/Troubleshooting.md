@@ -202,6 +202,19 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 
 ### "Rejoining the server..."
 
+**Quasar connection unavailable** means the browser could not finish connecting.
+The same warning appears after ten seconds if startup is still pending. Until
+the connection succeeds, live updates and controls are unavailable, even if the
+page already displays server data. Check your network connection, then click
+**Reload page** to retry or sign in again. This button works even when the page
+never becomes interactive. A successful connection clears the warning.
+
+If an established connection drops, **Quasar connection interrupted** warns that
+displayed data may be out of date. The dialog shows reconnect progress and always
+offers **Reload page**. Hosted WebRTC and ordinary socket connections use the
+same warnings. A silent connection stall is reported after the framework detects
+it, so the warning may not appear immediately when traffic stops.
+
 The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Failed to rejoin. Please retry or reload the page." with **Retry**. During the disconnect, the page checks readiness and worker identity through the same address, including a Nebula panel prefix. When a replacement Quasar process is ready, the page reloads automatically instead of waiting for all circuit retries to fail. A temporary network interruption to the same process keeps normal reconnection behavior. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
 
 ## Sign-in problems
@@ -290,6 +303,8 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Dashboard/ServerCard.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
+- `Quasar/Components/Layout/ReconnectModal.razor.css`
+- `Quasar/wwwroot/_quasar/sdk/v1/boot.js`
 - `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar/Services/AgentSocketHandler.cs`

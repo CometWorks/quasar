@@ -7,6 +7,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Magnetar.Protocol.Runtime;
+using Quasar.Hosting;
 
 namespace Quasar.Services;
 
@@ -245,7 +246,8 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private void Launch(string binary, string hash, string configurationHash)
     {
         string log = Path.Combine(root, "host.log");
-        if (File.Exists(log) && new FileInfo(log).Length > 10 * 1024 * 1024) File.Move(log, log + ".1", true);
+        // The Host rotates it at 64 MB while it runs; a new Host starts on a fresh file once the old one passes 10 MB.
+        OutputLogRotation.RotateIfOver(log, 10 * 1024 * 1024, OutputLogRotation.Files);
         // setsid keeps the Host out of the terminal's process group, so Ctrl+C on a foreground Quasar
         // doesn't reach it. It execs in place, so the PID stays the Host's.
         var start = new ProcessStartInfo("/bin/sh") { UseShellExecute = false, WorkingDirectory = root };
