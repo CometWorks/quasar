@@ -53,7 +53,7 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 
 - **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
 - **Simulation speed** charts the last 30 minutes for standalone servers and cluster node slots (1.00x is real time) and links to Analytics. Each cluster line is labeled with the cluster name and slot. Node replacements and restarts share the same slot history; missing samples stay missing.
-- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions.
+- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions. Plugins and their AI agents read the same events with the `activity.recent` operation, optionally for one server or cluster.
 - **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
 
 ## Analytics
@@ -154,7 +154,7 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 
 ## Players
 
-**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. Cluster access restrictions still apply.
+**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. Cluster access restrictions still apply. Plugins and their AI agents read a cluster's online players with the `cluster.players` operation, since `players.list` covers standalone servers only. They moderate cluster players with `cluster.players.kick`, `cluster.players.ban`, `cluster.players.unban`, `cluster.players.kick-cooldown.clear` and `cluster.players.promotion.set`, which make the same checks as the cluster row menu below. An admin can undo a ban, unban or role change from the audit log while the Gateway still reports what the action left.
 
 - Filters: **Server**, **Type** (All, Online, Offline, Banned, Kick cooldown) and **Search players**.
 - Open the ellipsis at the end of a row for player actions. The menu still opens when the Agent or Gateway is unavailable, with disabled actions and a reason. Cluster messages distinguish a failed connection, stale status, a credential without management scope and a Gateway that does not support player actions. Viewers do not receive moderation menus.
@@ -179,6 +179,8 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 
 Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers, and `!link` and the UI plugins' player commands (such as `!ask`) for every player on standalone servers and cluster nodes. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get the first three.
 
+Plugins and their AI agents use the `chat.messages`, `chat.commands`, `chat.send` and `chat.command.run` operations for the same. On a cluster, `chat.messages` returns the global chat the Gateway keeps and `chat.send` posts to it; commands run only on standalone servers.
+
 ## Entities
 
 **Entities** (`/entities`) lists live world entities of a standalone server or a registered cluster.
@@ -191,6 +193,7 @@ Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone s
 - **Quantity** shows a dropped item's stack amount, including fractional amounts for resources. It is separate from the item name and details. Older agents' `x10` values also appear here. Updated agents send the numeric amount and use the item definition's display name when available. Other entity types show a dash for quantity. Search accepts readable labels as well as raw identifiers.
 - Deleting (row delete button, or select and delete several) needs `CanControlServers`. It asks "Permanently delete N selected entities? This cannot be undone." There is no undo; take a world backup first if unsure.
 - Cluster discovery also needs cluster query permission and access to that cluster. Cluster deletion needs cluster management permission and one verified owning node. It is disabled for shared, frozen, ambiguous or unknown ownership. Updated agents report ownership and check it again on the game thread before deleting. Older agents can still be browsed; update them before cluster deletion. If an entity moves or a node is replaced, refresh rather than picking a node manually.
+- Plugins and their AI agents list entities with the `entities.list` and `cluster.entities.list` operations and delete one by entity ID with `entities.delete` and `cluster.entities.delete`, under the same permissions. The Assistant proposes a delete for an admin to approve unless its settings let it apply deletes at once, and a delete has no undo.
 
 The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
 
@@ -491,6 +494,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterOverview.cs`
 - `Docs/QuasarBrowserSdk.md`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Quasar/Services/Plugins/QuasarClusterControlOperations.cs`
 - `Quasar/Services/Players/QuasarPlayerLinks.cs`
 - `Quasar/Services/Players/QuasarChatCommands.cs`
 - `Quasar/Components/Shared/PlayerDiscordLinks.razor`

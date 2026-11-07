@@ -539,7 +539,7 @@ else
             <ol class="quasar-activity">
                 @foreach (var activity in RecentActivity)
                 {
-                    <li><time datetime="@activity.At.ToString("O")" title="@activity.At.ToLocalTime().ToString("g")">@activity.At.ToLocalTime().ToString("HH:mm")</time><div><strong class="@activity.Tone">@activity.Message</strong><p>@activity.Server</p></div></li>
+                    <li><time datetime="@activity.At.ToString("O")" title="@activity.At.ToLocalTime().ToString("g")">@activity.At.ToLocalTime().ToString("HH:mm")</time><div><strong class="@Tone(activity.Level)">@activity.Message</strong><p>@activity.DisplayName</p></div></li>
                 }
             </ol>
         }
@@ -608,77 +608,16 @@ else
 
     private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
 
-    private IReadOnlyList<FleetActivity> RecentActivity
-    {
-        get
-        {
-            var events = new List<FleetActivity>();
-            var clusters = Clusters.ToDictionary(cluster => cluster.UniqueName, StringComparer.OrdinalIgnoreCase);
-            foreach (var runtime in RuntimeSnapshotList)
-            {
-                if (runtime.StartedAtUtc is { } started) events.Add(new(started, runtime.UniqueName, "Server started", "quasar-text-success"));
-                if (runtime.StoppedAtUtc is { } stopped) events.Add(runtime.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted
-                    ? new(stopped, runtime.UniqueName, runtime.LastMessage, "quasar-text-error")
-                    : new(stopped, runtime.UniqueName, "Server stopped", ""));
-                if (runtime.LastRestart is { } restart) events.Add(new(restart.CompletedAtUtc ?? restart.RequestedAtUtc, runtime.UniqueName,
-                    string.IsNullOrWhiteSpace(restart.Reason) ? "Restart " + restart.Outcome.ToString().ToLowerInvariant() : restart.Reason,
-                    restart.Outcome == DedicatedServerRestartOutcome.Failed ? "quasar-text-error" : "quasar-text-warning"));
-            }
-            foreach (var operation in ClusterOperations.GetRecent(clusters.Keys, 5))
-            {
-                var name = clusters[operation.Cluster].DisplayName;
-                events.Add(new(operation.UpdatedAt, string.IsNullOrWhiteSpace(name) ? operation.Cluster : name,
-                    ClusterActivityMessage(operation), operation.State switch
-                    {
-                        ClusterOperationState.Failed => "quasar-text-error",
-                        ClusterOperationState.Running => "quasar-text-warning",
-                        _ => "quasar-text-success",
-                    }));
-            }
-            foreach (var agent in Agents.Where(agent => !agent.IsCluster || clusters.ContainsKey(agent.ClusterId)))
-                foreach (var result in agent.CommandResults.Where(result => !string.IsNullOrWhiteSpace(result.Message)).Take(6))
-                    events.Add(new(result.CompletedAtUtc, agent.ServerDisplayName, result.Message, result.Success ? "" : "quasar-text-error"));
-            return events.OrderByDescending(entry => entry.At).Take(5).ToArray();
-        }
-    }
-    private sealed record FleetActivity(DateTimeOffset At, string Server, string Message, string Tone);
+    private IReadOnlyList<QuasarActivityOperations.ActivityItem> RecentActivity =>
+        _user is null ? [] : QuasarActivityOperations.Recent(Services, _user, 5);
 
-    private static string ClusterActivityMessage(ClusterOperation operation)
+    private static string Tone(string level) => level switch
     {
-        var action = operation.Kind switch
-        {
-            "cluster.goal.set" when operation.Result is { ValueKind: System.Text.Json.JsonValueKind.Object } result
-                && result.TryGetProperty("goal", out var goal) => goal.ToString() switch
-                {
-                    "On" => "Cluster start requested",
-                    "Off" => "Cluster stop requested",
-                    _ => "Cluster state change",
-                },
-            "cluster.goal.set" => "Cluster state change",
-            "cluster.lifecycle.shutdown" or "cluster.shutdown" => "Cluster shutdown",
-            "cluster.gateway-restart" => "Cluster Gateway restart",
-            "cluster.save-all" => "Cluster world save",
-            "cluster.kick" => "Cluster player kick",
-            "cluster.ban" => "Cluster player ban",
-            "cluster.unban" => "Cluster player unban",
-            "cluster.setup" => "Cluster setup",
-            "cluster.backup.create" => "Cluster backup",
-            "cluster.backup.prepare-restore" => "Cluster restore preparation",
-            "cluster.backup.restore" => "Cluster restore",
-            "cluster.deployment.prepare" => "Cluster deployment preparation",
-            "cluster.deployment.activate" => "Cluster deployment activation",
-            "cluster.update.begin" => "Cluster update",
-            "cluster.update.abandon" => "Cluster update cancellation",
-            "cluster.recover" or "cluster.gateway.recover" => "Cluster recovery",
-            _ => "Cluster operation",
-        };
-        return action + (operation.State switch
-        {
-            ClusterOperationState.Running => " · in progress",
-            ClusterOperationState.Failed => " · failed",
-            _ => " · completed",
-        });
-    }
+        "success" => "quasar-text-success",
+        "warning" => "quasar-text-warning",
+        "error" => "quasar-text-error",
+        _ => "",
+    };
 
     private int ConfiguredServerCount => Servers.Count + Clusters.Count;
 

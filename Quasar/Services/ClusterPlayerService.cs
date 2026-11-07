@@ -69,4 +69,28 @@ public sealed record ClusterPlayerSnapshot(Admin.ClientSummary[] Clients, Admin.
     public bool Available => Error is null && DateTimeOffset.UtcNow - ObservedAt < TimeSpan.FromSeconds(15);
     public bool CanRun(string operation) => Available && Capabilities?.Scope == Admin.AdminScope.Manage
         && Capabilities.Operations.Contains(operation, StringComparer.Ordinal);
+
+    /// <summary>The Gateway admin operation a cluster player action needs.</summary>
+    public static string GatewayOperation(string action) => action switch
+    {
+        "kick" => "POST /admin/v1/clients/{id}/kick",
+        "ban" => "POST /admin/v1/admission/bans",
+        "unban" => "DELETE /admin/v1/admission/bans/{userId}",
+        "set-player-promotion" => "PUT /admin/v1/players/{userId}/promotion",
+        "clear-kick-cooldown" => "DELETE /admin/v1/admission/kicks/{userId}",
+        _ => string.Empty,
+    };
+
+    /// <summary>Why no player action can run on the cluster now; null when some can.</summary>
+    public static string? ModerationUnavailableReason(ClusterPlayerSnapshot? snapshot) => snapshot switch
+    {
+        null => "Waiting for cluster player status.",
+        { Error: { } error } => error,
+        { Available: false } => "Cluster player status is stale. Wait for a fresh Gateway connection.",
+        { Capabilities.Scope: not Admin.AdminScope.Manage } => "The cluster Gateway credential needs management scope for player actions.",
+        _ when snapshot.Capabilities is null => "Cluster Gateway capabilities are unavailable.",
+        _ when !snapshot.CanRun(GatewayOperation("kick")) && !snapshot.CanRun(GatewayOperation("ban"))
+            && !snapshot.CanRun(GatewayOperation("unban")) => "This cluster Gateway does not support player actions.",
+        _ => null,
+    };
 }

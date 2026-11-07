@@ -520,12 +520,40 @@ explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
 | `players.kick`, `players.kick-cooldown.clear` | `CanControlServers` | nothing to reverse |
 | `backups.list` | `CanControlServers` | read; world and server backups only |
 | `backups.world.create`, `backups.server.create` | `CanControlServers` | queued, nothing to reverse; never stop and back up |
-| `cluster.list`, `cluster.status` | `ClusterQuery` | read |
+| `backups.settings.read` | `CanManageSecurity` | read: automatic backup rules and folder |
+| `backups.restore` | `CanManageSecurity` | a stored world or server backup of a stopped server, never a configuration backup; not reversible; 300 s deadline |
+| `cluster.list`, `cluster.status`, `cluster.operation` | `ClusterQuery` | read |
+| `cluster.players` | `CanView`, `ClusterQuery` | read |
+| `cluster.logs.tail`, `cluster.events.tail` | `ClusterQuery` | read: node plugin logs (one `node` or all) and Cluster Registry events, with the options of `logs.magnetar.tail` |
+| `cluster.start`, `cluster.stop` | `ClusterManage` | undo restores the goal while it is unchanged; 120 s deadline |
+| `cluster.restart`, `cluster.save`, `cluster.gateway.restart` | `ClusterManage` | nothing to reverse; return the cluster operation to follow with `cluster.operation` |
+| `cluster.services.recover`, `cluster.recover` | `ClusterManage` | not reversible; 300 s deadline |
+| `cluster.players.ban`, `cluster.players.unban`, `cluster.players.promotion.set` | `ClusterManage` | undo sends the inverse command while the Gateway still reports what the action left |
+| `cluster.players.kick`, `cluster.players.kick-cooldown.clear` | `ClusterManage` | nothing to reverse |
+| `chat.messages`, `chat.commands` | `CanView` | read: a server's recent chat or a cluster's global chat (`limit` 50, at most 100); a standalone server's ! commands |
+| `chat.send`, `chat.command.run` | `CanControlServers` | global chat on a server or cluster; a ! command as a standalone server's console; not reversible |
+| `activity.recent` | `CanView` | read: the dashboard's recent activity, optionally of one server or cluster |
+| `audit.list` | `CanManageSecurity` | read: the Audit page's filters with paging; arguments redacted, no undo |
+| `entities.list` | `CanView` | read: `type`, `search`, `ownerSteamId`, `sort` (Size, Pcu, Blocks) and `limit` (25, at most 200) |
+| `entities.delete` | `CanControlServers` | looks the entity up again by ID; not reversible |
+| `cluster.entities.list` | `CanView`, `ClusterQuery` | read, every responding node; 150 s deadline |
+| `cluster.entities.delete` | `CanControlServers`, `ClusterManage` | only through the one owning node; not reversible; 150 s deadline |
 
 Config profile settings act on the shared profile; a change result lists every
 server that uses the profile and applies at their next start. Player operations
-cover standalone servers only. Deleting, cloning, importing, killing, restoring,
-stop and back up, and cluster changes are not operations.
+cover standalone servers; the `cluster.players.*` operations moderate cluster
+players. Cluster operations run the cluster page's checks and services, and a
+deadline only ends the wait, never the cluster operation. Deleting anything but
+an entity, cloning, importing, killing, restoring a configuration backup, stop
+and back up, cluster setup, conversion and updates are not operations.
+
+Quasar checks an agent's call with the agent's own roles, and an assistant's
+call also with the roles of the person who asked; an approved call is checked
+for the approver too. Operations that need `CanManageSecurity` (`audit.list`,
+`backups.settings.read`, `backups.restore`) are refused to every agent. Quasar
+does not hold change operations for approval itself: the assistant creates a
+proposal for a change while the tool's mode is `propose`, the default for
+changes, and runs it at once in `apply` mode, except for requests from Discord.
 
 Normal local authentication/trusted-network behavior continues through Quasar's
 existing principal pipeline, without Nebula services or a hosting entitlement.

@@ -11,12 +11,15 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Models;
 using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Plugin.Abstractions.Security;
 using Quasar.Services;
 using Quasar.Services.Audit;
 using Quasar.Services.Auth;
 using Quasar.Services.Backup;
 using Quasar.Services.Plugins;
+using Quasar.Services.PluginSdk;
 using Xunit;
+using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using QuasarPolicyNames = Quasar.Services.Auth.QuasarPolicyNames;
 
 namespace Quasar.Tests;
@@ -44,7 +47,13 @@ public sealed class QuasarCoreOperationTests : IDisposable
     private readonly ServerRestoreCoordinator _restores = new();
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly ServiceProvider _services;
+    private readonly ClusterCatalog _clusters;
+    private readonly ClusterPlayerTests.Gateway _gateway = new();
+    private readonly ClusterPlayerService _clusterPlayers;
+    private readonly PluginLogStream _logs = new();
     private readonly List<ServerCommandEnvelope> _commands = [];
+    private readonly List<EntitySummary> _alphaEntities = [];
+    private ClusterEntityTests.Fixture? _entityFixture;
     private bool _commandsSucceed = true;
 
     public QuasarCoreOperationTests()
@@ -101,23 +110,47 @@ public sealed class QuasarCoreOperationTests : IDisposable
         services.AddSingleton(_registry);
         services.AddSingleton(_supervisor);
         services.AddSingleton(backups);
+        var backupSettings = new QuasarBackupSettingsService(
+            NullLogger<QuasarBackupSettingsService>.Instance,
+            options
+        );
+        services.AddSingleton(backupSettings);
         services.AddSingleton(
             new AutomaticBackupService(
                 backups,
-                new QuasarBackupSettingsService(
-                    NullLogger<QuasarBackupSettingsService>.Instance,
-                    options
-                ),
+                backupSettings,
                 _servers,
                 NullLogger<AutomaticBackupService>.Instance
             )
         );
+        // After the Quasar directory points at _root, or the catalog writes next to the test binaries.
+        _clusters = new(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build());
+        services.AddSingleton(_clusters);
+        _clusterPlayers = new(
+            _clusters,
+            new(new HttpClient(_gateway)),
+            _known,
+            NullLogger<ClusterPlayerService>.Instance
+        );
+        services.AddSingleton(_clusterPlayers);
+        // Created on first use, so only entity tests get its cluster agents.
+        services.AddSingleton(_ => Entities.Service);
+        var gateway = new ClusterGatewayClient(new HttpClient(_gateway));
+        var clusterOperations = new ClusterOperationStore(
+            Path.Combine(_root, "cluster-operations")
+        );
+        services.AddSingleton(gateway);
+        services.AddSingleton(clusterOperations);
         services.AddSingleton(
-            new ClusterCatalog(
-                NullLogger<ClusterCatalog>.Instance,
-                new ConfigurationBuilder().Build()
+            new ClusterCommandService(
+                _clusters,
+                clusterOperations,
+                gateway,
+                new ClusterHostClient(new HttpClient(new NoHost()))
             )
         );
+        services.AddSingleton(_logs);
+        services.AddSingleton(new ClusterFleetService(gateway, _registry, _logs));
         services.AddQuasarCoreOperations();
         _services = services.BuildServiceProvider();
     }
@@ -129,6 +162,10 @@ public sealed class QuasarCoreOperationTests : IDisposable
         _profiles.Dispose();
         _rbac.Dispose();
         _supervisor.Dispose();
+        _clusterPlayers.Dispose();
+        _entityFixture?.Dispose();
+        _clusters.Dispose();
+        _gateway.Dispose();
         _cache.SetValue(null, _previous);
         try
         {
@@ -300,6 +337,16 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarOperationEffect.Change,
                 QuasarReversal.NothingToReverse
             ),
+            ["backups.settings.read"] = (
+                QuasarPolicyNames.CanManageSecurity,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["backups.restore"] = (
+                QuasarPolicyNames.CanManageSecurity,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
             ["cluster.list"] = (
                 QuasarPolicyNames.ClusterQuery,
                 QuasarOperationEffect.Read,
@@ -309,6 +356,121 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarPolicyNames.ClusterQuery,
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
+            ),
+            ["entities.list"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["entities.delete"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.messages"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.commands"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.send"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.command.run"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["activity.recent"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["audit.list"] = (
+                QuasarPolicyNames.CanManageSecurity,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.operation"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.logs.tail"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.events.tail"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.start"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.stop"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.restart"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.save"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.gateway.restart"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.services.recover"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.recover"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.players.kick"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.players.ban"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.players.unban"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.players.kick-cooldown.clear"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.players.promotion.set"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
             ),
         };
         var operations = _services
@@ -345,14 +507,34 @@ public sealed class QuasarCoreOperationTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(120), operations["servers.start"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.restart"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.save"].Metadata.Deadline);
-        // No destructive operation is registered.
-        Assert.DoesNotContain(
-            operations.Keys,
-            id =>
-                id.Contains("delete")
-                || id.Contains("kill")
-                || id.Contains("restore")
-                || id.Contains("clone")
+        foreach (var read in new[] { "cluster.players", "cluster.entities.list" })
+        {
+            Assert.Equal(
+                [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery],
+                operations[read].DefaultPolicies
+            );
+            Assert.Equal(QuasarOperationEffect.Read, operations[read].Metadata.Effect);
+        }
+        var clusterDelete = operations["cluster.entities.delete"];
+        Assert.Equal(
+            [QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterManage],
+            clusterDelete.DefaultPolicies
+        );
+        Assert.Equal(
+            (QuasarOperationEffect.Change, QuasarReversal.NotReversible),
+            (clusterDelete.Metadata.Effect, clusterDelete.Metadata.Reversal)
+        );
+        // Destructive operations are a deliberate choice, each one listed here.
+        Assert.Equal(
+            ["backups.restore", "cluster.entities.delete", "entities.delete"],
+            operations
+                .Keys.Where(id =>
+                    id.Contains("delete")
+                    || id.Contains("kill")
+                    || id.Contains("restore")
+                    || id.Contains("clone")
+                )
+                .Order()
         );
     }
 
@@ -978,6 +1160,186 @@ public sealed class QuasarCoreOperationTests : IDisposable
     }
 
     [Fact]
+    public async Task BackupRestoreTakesStoredWorldBackupsOnly()
+    {
+        await CreateServerAsync("alpha", world: true);
+        var name = Path.GetFileName(
+            await _services
+                .GetRequiredService<QuasarBackupService>()
+                .WriteWorldBackupFileAsync("alpha", DateTimeOffset.UtcNow, automatic: false)
+        );
+        var save = Path.Combine(_servers.GetServer("alpha")!.GetWorldSavePath(), "Sandbox.sbc");
+        await File.WriteAllTextAsync(save, "changed");
+        Directory.CreateDirectory(Path.Combine(_root, "backups"));
+        await File.WriteAllBytesAsync(Path.Combine(_root, "backups", "config.zip"), []);
+
+        Assert.Equal(403, (await CallAsync(Editor(), "backups.restore", new { name })).StatusCode);
+        var admin = Person(QuasarRoles.Admin);
+        Assert.Equal(
+            404,
+            (await CallAsync(admin, "backups.restore", new { name = "config.zip" })).StatusCode
+        );
+        var restored = await CallAsync(admin, "backups.restore", new { name });
+        Assert.Equal(200, restored.StatusCode);
+        var result = Assert.IsType<QuasarBackupOperations.BackupRestored>(restored.Value);
+        Assert.Equal("World", result.Kind);
+        Assert.Equal("alpha", result.Server);
+        Assert.Equal("save", await File.ReadAllTextAsync(save));
+        Assert.Equal("alpha", (await LatestAsync("backups.restore")).Server);
+
+        Assert.Equal(403, (await CallAsync(Editor(), "backups.settings.read", new { })).StatusCode);
+        var settings = Assert.IsType<QuasarBackupOperations.BackupSettings>(
+            (await CallAsync(admin, "backups.settings.read", new { })).Value
+        );
+        Assert.Equal("Daily", settings.World.Frequency);
+        Assert.Equal("03:00", settings.World.TimeOfDay);
+    }
+
+    // Every operation this change added, and what a Viewer may call.
+    private static readonly string[] AddedOperations =
+    [
+        "cluster.players",
+        "chat.messages",
+        "chat.commands",
+        "chat.send",
+        "chat.command.run",
+        "entities.list",
+        "entities.delete",
+        "cluster.entities.list",
+        "cluster.entities.delete",
+        "cluster.start",
+        "cluster.stop",
+        "cluster.restart",
+        "cluster.save",
+        "cluster.gateway.restart",
+        "cluster.services.recover",
+        "cluster.recover",
+        "cluster.operation",
+        "cluster.players.kick",
+        "cluster.players.ban",
+        "cluster.players.unban",
+        "cluster.players.kick-cooldown.clear",
+        "cluster.players.promotion.set",
+        "cluster.logs.tail",
+        "cluster.events.tail",
+        "activity.recent",
+        "audit.list",
+        "backups.settings.read",
+        "backups.restore",
+    ];
+
+    private static readonly string[] ViewerReads =
+    [
+        "cluster.players",
+        "chat.messages",
+        "chat.commands",
+        "entities.list",
+        "cluster.entities.list",
+        "cluster.operation",
+        "cluster.logs.tail",
+        "cluster.events.tail",
+        "activity.recent",
+    ];
+
+    private static readonly string[] SecurityLevel =
+    [
+        "audit.list",
+        "backups.settings.read",
+        "backups.restore",
+    ];
+
+    [Fact]
+    public async Task AddedOperationsRefuseCallersTheWebUiRefuses()
+    {
+        Assert.Equal(
+            AddedOperations.Order(),
+            _services
+                .GetServices<QuasarOperation>()
+                .Select(operation => operation.OperationId)
+                .Intersect(AddedOperations)
+                .Order()
+        );
+        var principals = _services.GetRequiredService<QuasarAgentPrincipals>();
+        var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
+        var service = new ClaimsPrincipal(
+            new ClaimsIdentity(
+                [
+                    new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.ServicePrincipal),
+                    new Claim(ClaimTypes.Role, QuasarRoles.Admin),
+                    new Claim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage),
+                ],
+                QuasarAuthSchemes.ServicePrincipal
+            )
+        );
+        var player = principals.CreatePlayer("76561198000000001", "Pilot", null, "c", "!ask");
+        var assistant = await principals.CreateAssistantAsync(Person(QuasarRoles.Admin), "c", "r");
+        var monitor = principals.CreateMonitor("c", "r");
+        var viewer = Person(QuasarRoles.Viewer);
+        foreach (var operation in AddedOperations)
+        {
+            Assert.Equal(401, (await CallAsync(anonymous, operation, new { })).StatusCode);
+            Assert.Equal(403, (await CallAsync(service, operation, new { })).StatusCode);
+            // The player agent holds no role: it reaches only the my.* operations.
+            Assert.Equal(403, (await CallAsync(player, operation, new { })).StatusCode);
+            var asViewer = (await CallAsync(viewer, operation, new { })).StatusCode;
+            if (ViewerReads.Contains(operation))
+                Assert.NotEqual(403, asViewer);
+            else
+                Assert.Equal(403, asViewer);
+            // Security-level operations are on the hard deny list for every agent, whoever asks.
+            if (SecurityLevel.Contains(operation))
+            {
+                Assert.Equal(403, (await CallAsync(assistant, operation, new { })).StatusCode);
+                Assert.Equal(403, (await CallAsync(monitor, operation, new { })).StatusCode);
+            }
+        }
+
+        // An assistant does no more than its asker could, and a proposal no more than its approver could.
+        await using (var scope = _services.CreateAsyncScope())
+            await scope
+                .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                .SavePolicyRolesAsync(
+                    Person(QuasarRoles.Admin),
+                    QuasarPolicyNames.CanUseAssistant,
+                    [QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin]
+                );
+        var viewerAssistant = await principals.CreateAssistantAsync(viewer, "c", "r");
+        var askerRefused = await CallAsync(viewerAssistant, "chat.send", new { });
+        Assert.Equal(403, askerRefused.StatusCode);
+        Assert.Equal(
+            "The person asking the assistant cannot access this SDK operation.",
+            askerRefused.Error
+        );
+        foreach (var change in AddedOperations.Except(ViewerReads).Except(SecurityLevel))
+        {
+            await using var scope = _services.CreateAsyncScope();
+            var refused = await scope
+                .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                .DispatchAsync(
+                    new(assistant, scope.ServiceProvider) { ApprovedBy = viewer },
+                    Core,
+                    change,
+                    JsonSerializer.SerializeToElement(new { }, QuasarCoreOperations.Json),
+                    default
+                );
+            Assert.Equal(403, refused.StatusCode);
+            Assert.Equal("The approver cannot access this SDK operation.", refused.Error);
+        }
+
+        // A role override that narrows CanView also hides the cluster reads of the CanView pages.
+        await using (var scope = _services.CreateAsyncScope())
+            await scope
+                .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                .SavePolicyRolesAsync(
+                    Person(QuasarRoles.Admin),
+                    QuasarPolicyNames.CanView,
+                    [QuasarRoles.Editor, QuasarRoles.Admin]
+                );
+        foreach (var read in new[] { "cluster.players", "cluster.entities.list", "chat.messages" })
+            Assert.Equal(403, (await CallAsync(viewer, read, new { })).StatusCode);
+    }
+
+    [Fact]
     public async Task ClusterReadsRefuseUnknownClusters()
     {
         Assert.Empty(
@@ -989,6 +1351,929 @@ public sealed class QuasarCoreOperationTests : IDisposable
             404,
             (await CallAsync(Editor(), "cluster.status", new { uniqueName = "nope" })).StatusCode
         );
+    }
+
+    [Fact]
+    public async Task ClusterPlayersListTheGatewaysClientsAndServerReadsPointThere()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "cluster.players", new { uniqueName = "nope" })).StatusCode
+        );
+        var cluster = await _clusters.CreateAsync(
+            new("test", "Unified cluster", "http://gateway.test", ""),
+            default
+        );
+        var early = Assert.IsType<QuasarClusterOperations.ClusterPlayersResult>(
+            (await CallAsync(Editor(), "cluster.players", new { uniqueName = "test" })).Value
+        );
+        Assert.Contains("not collected yet", early.Error);
+        Assert.Empty(early.Online);
+
+        await _clusterPlayers.RefreshAsync(cluster, default);
+        var players = Assert.IsType<QuasarClusterOperations.ClusterPlayersResult>(
+            (await CallAsync(Editor(), "cluster.players", new { uniqueName = "test" })).Value
+        );
+        Assert.Null(players.Error);
+        var player = Assert.Single(players.Online);
+        Assert.Equal(("7", "Cluster player", "node-a"), (player.SteamId, player.Name, player.Node));
+
+        var list = await CallAsync(Editor(), "players.list", new { uniqueName = "test" });
+        Assert.Equal(404, list.StatusCode);
+        Assert.Contains("cluster.players", list.Error);
+        var tail = await CallAsync(Editor(), "logs.magnetar.tail", new { uniqueName = "test" });
+        Assert.Equal(404, tail.StatusCode);
+        Assert.Contains("is a cluster", tail.Error);
+        Assert.Equal(
+            "Server 'missing' not found.",
+            (await CallAsync(Editor(), "players.list", new { uniqueName = "missing" })).Error
+        );
+    }
+
+    [Fact]
+    public async Task EntitiesListFiltersSortsAndCleansAStandaloneServersEntities()
+    {
+        Assert.Equal(
+            "Server 'alpha' not found.",
+            (await CallAsync(Editor(), "entities.list", new { uniqueName = "alpha" })).Error
+        );
+        await CreateServerAsync("alpha", world: false);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "entities.list", new { uniqueName = "alpha" })).StatusCode
+        );
+        ConnectAgent("alpha");
+        _alphaEntities.AddRange([
+            new()
+            {
+                EntityId = 1,
+                DisplayName = "\uE030Big station",
+                TypeTag = "Grid",
+                SubType = "LargeStatic",
+                BlockCount = 900,
+                Pcu = 100,
+                SizeMeters = 300,
+                OwnerSteamId = 42,
+                OwnerName = "Owner",
+                PositionX = 1.4,
+                PositionY = -2,
+                PositionZ = 3,
+            },
+            new()
+            {
+                EntityId = 2,
+                DisplayName = "Busy ship",
+                TypeTag = "Grid",
+                SubType = "SmallShip",
+                BlockCount = 50,
+                Pcu = 5000,
+                SizeMeters = 20,
+                BigOwnerSteamIds = [42, 43],
+            },
+            new()
+            {
+                EntityId = 3,
+                DisplayName = "Plates",
+                TypeTag = "Float",
+                ItemAmount = 2.5m,
+                SizeMeters = 1,
+            },
+        ]);
+
+        var all = Assert.IsType<QuasarEntityOperations.EntityList>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "entities.list",
+                    new { uniqueName = "alpha" }
+                )
+            ).Value
+        );
+        Assert.Equal((3, 3), (all.Matching, all.LiveTotal!.Value));
+        Assert.Equal(["1", "2", "3"], all.Entities.Select(entity => entity.EntityId));
+        var station = all.Entities[0];
+        Assert.Equal(
+            ("Grid", "Large-grid station", "Big station", "Owner", "42", "1, -2, 3"),
+            (
+                station.Type,
+                station.Details,
+                station.Name,
+                station.OwnerName,
+                station.OwnerSteamId,
+                station.Position
+            )
+        );
+        Assert.Null(station.Nodes);
+        Assert.Equal(2.5m, all.Entities[2].Quantity);
+
+        var busy = Assert.IsType<QuasarEntityOperations.EntityList>(
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.list",
+                    new
+                    {
+                        uniqueName = "alpha",
+                        type = "grid",
+                        search = "s",
+                        ownerSteamId = "42",
+                        sort = "pcu",
+                        limit = 1,
+                    }
+                )
+            ).Value
+        );
+        Assert.Equal("2", Assert.Single(busy.Entities).EntityId);
+        var filter = JsonSerializer.Deserialize<EntityListFilter>(
+            _commands[^1].Payload!,
+            QuasarCoreOperations.Json
+        )!;
+        Assert.Equal(("Grid", "s"), (filter.TypeTag, filter.Search));
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.list",
+                    new { uniqueName = "alpha", type = "Ships" }
+                )
+            ).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task EntitiesDeleteLooksTheEntityUpAgainAndIsAuditedWithoutUndo()
+    {
+        await CreateServerAsync("alpha", world: false);
+        ConnectAgent("alpha");
+        _alphaEntities.Add(
+            new()
+            {
+                EntityId = 7,
+                DisplayName = "Wreck",
+                TypeTag = "Grid",
+            }
+        );
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "entities.delete",
+                    new { uniqueName = "alpha", entityId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.delete",
+                    new { uniqueName = "alpha", entityId = "wreck" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.delete",
+                    new { uniqueName = "alpha", entityId = "8" }
+                )
+            ).StatusCode
+        );
+        Assert.DoesNotContain(
+            _commands,
+            command => command.CommandType == ServerCommandType.DeleteEntity
+        );
+
+        var deleted = await CallAsync(
+            Editor(),
+            "entities.delete",
+            new { uniqueName = "alpha", entityId = "7" }
+        );
+        Assert.Equal(200, deleted.StatusCode);
+        Assert.Equal(
+            "Wreck",
+            Assert.IsType<QuasarEntityOperations.EntityDeleteResult>(deleted.Value).Entity.Name
+        );
+        var command = _commands[^1];
+        Assert.Equal(ServerCommandType.DeleteEntity, command.CommandType);
+        Assert.Equal(
+            7,
+            JsonSerializer
+                .Deserialize<EntityDeleteRequest>(command.Payload!, QuasarCoreOperations.Json)!
+                .EntityId
+        );
+        var entry = await LatestAsync("entities.delete");
+        Assert.Equal(QuasarReversal.NotReversible, entry.Reversal);
+        Assert.Equal("alpha", entry.Server);
+    }
+
+    [Fact]
+    public async Task ClusterEntitiesListNodesAndDeleteOnlyThroughTheOwningNode()
+    {
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(Editor(), "cluster.entities.list", new { uniqueName = "cluster" })
+            ).StatusCode
+        );
+        await _clusters.CreateAsync(
+            new("cluster", "Unified cluster", "http://gateway.test", ""),
+            default
+        );
+        Entities.Data["a"] =
+        [
+            ClusterEntityTests.Entity(1, "Local"),
+            ClusterEntityTests.Entity(3, "Local"),
+        ];
+        Entities.Data["b"] =
+        [
+            ClusterEntityTests.Entity(1, "Unowned"),
+            ClusterEntityTests.Entity(3, "Local"),
+        ];
+
+        var list = Assert.IsType<QuasarEntityOperations.EntityList>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.entities.list",
+                    new { uniqueName = "cluster" }
+                )
+            ).Value
+        );
+        Assert.Contains("conflicting node ownership", Assert.Single(list.Warnings));
+        Assert.Null(list.LiveTotal);
+        var shared = Assert.Single(list.Entities, entity => entity.EntityId == "1");
+        Assert.Equal(("a, b", null), (shared.Nodes, shared.DeleteBlocked));
+        Assert.NotNull(
+            Assert.Single(list.Entities, entity => entity.EntityId == "3").DeleteBlocked
+        );
+        var serverList = await CallAsync(Editor(), "entities.list", new { uniqueName = "cluster" });
+        Assert.Equal(404, serverList.StatusCode);
+        Assert.Contains("cluster.entities.list", serverList.Error);
+
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "1" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            409,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "3" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "9" }
+                )
+            ).StatusCode
+        );
+        Assert.DoesNotContain(
+            Entities.Commands,
+            command => command.CommandType == ServerCommandType.DeleteEntity
+        );
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "1" }
+                )
+            ).StatusCode
+        );
+        var deletion = Assert.Single(
+            Entities.Commands,
+            command => command.CommandType == ServerCommandType.DeleteEntity
+        );
+        Assert.Equal("a", deletion.AgentId);
+    }
+
+    private ClusterEntityTests.Fixture Entities => _entityFixture ??= new(_registry);
+
+    [Fact]
+    public async Task ChatReadsTheAgentsChatAndSendsMessagesAndCommands()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "chat.messages", new { uniqueName = "missing" })).StatusCode
+        );
+        await CreateServerAsync("alpha", world: false);
+        var offline = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (await CallAsync(Editor(), "chat.messages", new { uniqueName = "alpha" })).Value
+        );
+        Assert.Contains("not connected", offline.Error);
+        Assert.Equal(409, (await Chat("chat.send", "hello")).StatusCode);
+
+        ConnectAgent("alpha");
+        var tick = new DateTimeOffset(2026, 11, 7, 12, 0, 0, TimeSpan.Zero).UtcTicks;
+        _registry.UpdateSnapshot(
+            new AgentSnapshot
+            {
+                AgentId = "agent",
+                UniqueName = "alpha",
+                ServerId = "alpha",
+                TelemetryPaused = true,
+                RecentChat =
+                [
+                    new()
+                    {
+                        SteamId = 42,
+                        AuthorName = "\uE030Pilot",
+                        Content = "one\r\ntwo",
+                        TimestampTicksUtc = tick + 1,
+                        Channel = ChatMessageChannel.Faction,
+                        FactionTag = "ABC",
+                    },
+                    new()
+                    {
+                        AuthorName = "Good.bot",
+                        Content = "older",
+                        TimestampTicksUtc = tick,
+                        Channel = ChatMessageChannel.Global,
+                    },
+                ],
+                ChatCommands =
+                [
+                    new()
+                    {
+                        Text = "!ess help",
+                        Syntax = "!ess help",
+                        Description = "Help",
+                    },
+                ],
+            },
+            "connection"
+        );
+        var chat = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "chat.messages",
+                    new { uniqueName = "alpha" }
+                )
+            ).Value
+        );
+        Assert.Null(chat.Error);
+        Assert.Equal(
+            new[]
+            {
+                ("Server", (string?)null, "Global", "older"),
+                ("Pilot", "42", "Faction ABC", "one\ntwo"),
+            },
+            chat.Messages.Select(line => (line.Author, line.SteamId, line.Channel, line.Text))
+        );
+        Assert.Equal(new DateTimeOffset(tick, TimeSpan.Zero), chat.Messages[0].Time);
+        var last = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (
+                await CallAsync(Editor(), "chat.messages", new { uniqueName = "alpha", limit = 1 })
+            ).Value
+        );
+        Assert.Equal("Pilot", Assert.Single(last.Messages).Author);
+        var commands = Assert.IsType<QuasarChatOperations.ChatCommandList>(
+            (await CallAsync(Editor(), "chat.commands", new { uniqueName = "alpha" })).Value
+        );
+        Assert.Equal("!ess help", Assert.Single(commands.Commands).Command);
+
+        Assert.Equal(
+            403,
+            (await Chat("chat.send", "hello", Person(QuasarRoles.Viewer))).StatusCode
+        );
+        Assert.Equal(400, (await Chat("chat.send", "!ess help")).StatusCode);
+        Assert.Equal(400, (await Chat("chat.command.run", "ess help")).StatusCode);
+        Assert.Equal(200, (await Chat("chat.send", " hello ")).StatusCode);
+        Assert.Equal(200, (await Chat("chat.command.run", "!ess help")).StatusCode);
+        Assert.Equal(
+            new[]
+            {
+                (ServerCommandType.SendChat, "hello"),
+                (ServerCommandType.RunChatCommand, "!ess help"),
+            },
+            _commands.Select(command => (command.CommandType, command.Text))
+        );
+        Assert.Equal("alpha", (await LatestAsync("chat.send")).Server);
+        Assert.Equal(
+            QuasarReversal.NotReversible,
+            (await LatestAsync("chat.command.run")).Reversal
+        );
+        _commandsSucceed = false;
+        var refused = await Chat("chat.command.run", "!nope");
+        Assert.Equal(409, refused.StatusCode);
+        Assert.Equal("refused", refused.Error);
+    }
+
+    [Fact]
+    public async Task ClusterChatComesFromTheGatewayAndCommandsStayStandalone()
+    {
+        var cluster = await _clusters.CreateAsync(
+            new("test", "Unified cluster", "http://gateway.test", ""),
+            default
+        );
+        await _clusterPlayers.RefreshAsync(cluster, default);
+        var at = DateTimeOffset.UtcNow;
+        _gateway.Chat =
+        [
+            new(1, at, 7, 0, "first"),
+            new(2, at, 7, 0, "second"),
+            new(3, at, 99, 0, "third"),
+        ];
+        var chat = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (
+                await CallAsync(Editor(), "chat.messages", new { uniqueName = "test", limit = 2 })
+            ).Value
+        );
+        Assert.True(chat.IsCluster);
+        Assert.Equal(
+            new[] { ("Cluster player", "second"), ("99", "third") },
+            chat.Messages.Select(line => (line.Author, line.Text))
+        );
+        var commands = await CallAsync(Editor(), "chat.commands", new { uniqueName = "test" });
+        Assert.Equal(404, commands.StatusCode);
+        Assert.Contains("chat.send", commands.Error);
+        Assert.Equal(404, (await Chat("chat.command.run", "!help", uniqueName: "test")).StatusCode);
+        // No Discord cluster bridge in this host.
+        Assert.Equal(409, (await Chat("chat.send", "hi", uniqueName: "test")).StatusCode);
+        _gateway.Offline = true;
+        Assert.NotNull(
+            Assert
+                .IsType<QuasarChatOperations.ChatResult>(
+                    (await CallAsync(Editor(), "chat.messages", new { uniqueName = "test" })).Value
+                )
+                .Error
+        );
+    }
+
+    [Fact]
+    public async Task ActivityListsCommandResultsAndFiltersByServer()
+    {
+        await CreateServerAsync("alpha", world: false);
+        await CreateServerAsync("beta", world: false);
+        ConnectAgent("alpha");
+        Assert.Equal(200, (await Chat("chat.send", "hello")).StatusCode);
+        var all = Assert.IsAssignableFrom<IReadOnlyList<QuasarActivityOperations.ActivityItem>>(
+            (await CallAsync(Person(QuasarRoles.Viewer), "activity.recent", new { })).Value
+        );
+        var item = Assert.Single(all);
+        Assert.Equal(("alpha", "done", "info"), (item.UniqueName, item.Message, item.Level));
+        Assert.Empty(
+            Assert.IsAssignableFrom<IReadOnlyList<QuasarActivityOperations.ActivityItem>>(
+                (await CallAsync(Editor(), "activity.recent", new { uniqueName = "beta" })).Value
+            )
+        );
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(Editor(), "activity.recent", new { uniqueName = "missing" })
+            ).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task AuditListNeedsSecurityAndPagesFilteredEntries()
+    {
+        await CreateServerAsync("alpha", world: false);
+        ConnectAgent("alpha");
+        Assert.Equal(200, (await Chat("chat.send", "one")).StatusCode);
+        Assert.Equal(200, (await Chat("chat.send", "two")).StatusCode);
+        Assert.Equal(403, (await CallAsync(Editor(), "audit.list", new { })).StatusCode);
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(Person(QuasarRoles.Admin), "audit.list", new { result = "maybe" })
+            ).StatusCode
+        );
+        var page = Assert.IsType<QuasarActivityOperations.AuditPage>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Admin),
+                    "audit.list",
+                    new
+                    {
+                        operation = "chat.send",
+                        server = "alpha",
+                        result = "ok",
+                        take = 1,
+                    }
+                )
+            ).Value
+        );
+        Assert.True(page.More);
+        var entry = Assert.Single(page.Entries);
+        Assert.Equal(
+            (Core + "/chat.send", "alpha", "Ok"),
+            (entry.Operation, entry.Server, entry.Result)
+        );
+        Assert.Contains("two", entry.Arguments);
+        Assert.StartsWith("Person: ", entry.Principal);
+        var next = Assert.IsType<QuasarActivityOperations.AuditPage>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Admin),
+                    "audit.list",
+                    new { operation = "chat.send", skip = 1 }
+                )
+            ).Value
+        );
+        Assert.False(next.More);
+        Assert.Contains("one", Assert.Single(next.Entries).Arguments);
+    }
+
+    private Task<QuasarOperationResult> Chat(
+        string operation,
+        string text,
+        ClaimsPrincipal? user = null,
+        string uniqueName = "alpha"
+    ) => CallAsync(user ?? Editor(), operation, new { uniqueName, text });
+
+    [Fact]
+    public async Task ClusterLifecycleRunsThroughTheGatewayOrTheGoal()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "nope" })).StatusCode
+        );
+        await _clusters.CreateAsync(new("test", "Cluster", "http://gateway.test", ""), default);
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.save",
+                    new { uniqueName = "test" }
+                )
+            ).StatusCode
+        );
+        // An observed cluster has no goal to set; it stops through a Gateway shutdown.
+        var start = await CallAsync(Editor(), "cluster.start", new { uniqueName = "test" });
+        Assert.Equal(400, start.StatusCode);
+        Assert.Contains("observed only", start.Error);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "cluster.save", new { uniqueName = "test" })).StatusCode
+        );
+        await _clusters.SetGoalStateAsync("test", DedicatedServerGoalState.On);
+
+        var save = await CallAsync(Editor(), "cluster.save", new { uniqueName = "test" });
+        var saved = Assert.IsType<QuasarClusterControlOperations.ClusterActionResult>(save.Value);
+        Assert.Equal("Succeeded", saved.State);
+        Assert.Equal("POST /admin/v1/save-all", _gateway.Mutations[^1]);
+        var followed = Assert.IsType<QuasarClusterControlOperations.ClusterOperationStatus>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.operation",
+                    new { uniqueName = "test", operationId = saved.OperationId }
+                )
+            ).Value
+        );
+        Assert.Equal(("cluster.save-all", "Succeeded"), (followed.Kind, followed.State));
+        Assert.Equal("test", (await LatestAsync("cluster.save")).Server);
+
+        Assert.Equal(
+            200,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "test" })).StatusCode
+        );
+        Assert.Equal("POST /admin/v1/shutdown", _gateway.Mutations[^1]);
+        Assert.Equal(QuasarReversal.NotReversible, (await LatestAsync("cluster.stop")).Reversal);
+
+        _gateway.CurrentCapabilities = ClusterPlayerTests.Gateway.Capabilities with
+        {
+            Operations = [],
+        };
+        var refused = await CallAsync(Editor(), "cluster.save", new { uniqueName = "test" });
+        Assert.Equal(409, refused.StatusCode);
+        Assert.Contains("does not allow a world save", refused.Error);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "cluster.recover", new { uniqueName = "test" })).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task ManagedClusterStopSetsTheGoalAndUndoesWhileItIsUnchanged()
+    {
+        await _clusters.CreateAsync(new("test", "Cluster", "http://gateway.test", ""), default);
+        await _clusters.SetGoalStateAsync("test", DedicatedServerGoalState.On);
+        var stored = (
+            (List<ClusterDefinition>)
+                typeof(ClusterCatalog)
+                    .GetField("_clusters", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(_clusters)!
+        ).Single();
+        stored.HostCommandUrl = "http://host.test";
+        stored.HostCommandTokenEnvironmentVariable = "HOST_TOKEN";
+        stored.Gateway = new(
+            "test",
+            Quasar.Host.Contract.V1.GatewayGoal.Off,
+            "/bundle/manifest.json",
+            new string('a', 64),
+            "r1",
+            [28000],
+            "/runs/test"
+        );
+
+        Assert.Equal(
+            200,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "test" })).StatusCode
+        );
+        Assert.Equal(DedicatedServerGoalState.Off, _clusters.GetCluster("test")!.GoalState);
+        Assert.Empty(_gateway.Mutations);
+        var stop = await LatestAsync("cluster.stop");
+        Assert.Equal(QuasarReversal.Undo, stop.Reversal);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "test" })).StatusCode
+        );
+
+        // No Host proves a clean stop, so a start is refused like the page's disabled Start button.
+        var start = await CallAsync(Editor(), "cluster.start", new { uniqueName = "test" });
+        Assert.Equal(409, start.StatusCode);
+        Assert.Contains("stable stopped state", start.Error);
+
+        await _clusters.SetGoalStateAsync("test", DedicatedServerGoalState.On);
+        var conflict = await UndoAsync(stop.Id);
+        Assert.Equal(QuasarUndoStatus.Conflict, conflict.Status);
+        Assert.Contains("On", conflict.Detail);
+    }
+
+    [Fact]
+    public async Task ClusterModerationSendsThePlayersPageCommandsAndUndoesThem()
+    {
+        var cluster = await _clusters.CreateAsync(
+            new("test", "Cluster", "http://gateway.test", ""),
+            default
+        );
+        var early = await CallAsync(
+            Editor(),
+            "cluster.players.ban",
+            new { uniqueName = "test", steamId = "7" }
+        );
+        Assert.Equal(409, early.StatusCode);
+        Assert.Contains("Waiting for cluster player status", early.Error);
+        await _clusterPlayers.RefreshAsync(cluster, default);
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "x" }
+                )
+            ).StatusCode
+        );
+
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal("POST /admin/v1/clients/7/kick", _gateway.Mutations[^1]);
+        Assert.Equal(
+            409,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "8" }
+                )
+            ).StatusCode
+        );
+        Assert.Contains(
+            "no kick cooldown",
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick-cooldown.clear",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).Error
+        );
+
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.ban",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal("POST /admin/v1/admission/bans", _gateway.Mutations[^1]);
+        var ban = await LatestAsync("cluster.players.ban");
+        Assert.Equal(QuasarReversal.Undo, ban.Reversal);
+        Assert.Equal(QuasarUndoStatus.Conflict, (await UndoAsync(ban.Id)).Status);
+        _gateway.Banned = [7];
+        Assert.Equal(QuasarUndoStatus.Done, (await UndoAsync(ban.Id)).Status);
+        Assert.Equal("DELETE /admin/v1/admission/bans/7", _gateway.Mutations[^1]);
+
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.promotion.set",
+                    new
+                    {
+                        uniqueName = "test",
+                        steamId = "7",
+                        level = "Captain",
+                    }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.promotion.set",
+                    new
+                    {
+                        uniqueName = "test",
+                        steamId = "7",
+                        level = "admin",
+                    }
+                )
+            ).StatusCode
+        );
+        Assert.Equal("PUT /admin/v1/players/7/promotion", _gateway.Mutations[^1]);
+        Assert.Contains("Admin", _gateway.MutationBody);
+        _gateway.Moderation = new([new(7, Admin.PlayerPromotionLevel.Admin, 3)], []);
+        Assert.Equal(
+            QuasarUndoStatus.Done,
+            (await UndoAsync((await LatestAsync("cluster.players.promotion.set")).Id)).Status
+        );
+        Assert.Contains("None", _gateway.MutationBody);
+        Assert.Contains("3", _gateway.MutationBody);
+
+        var standalone = await CallAsync(
+            Editor(),
+            "players.kick",
+            new { uniqueName = "test", steamId = "7" }
+        );
+        Assert.Equal(404, standalone.StatusCode);
+        Assert.Contains("cluster.players.kick", standalone.Error);
+    }
+
+    [Fact]
+    public async Task ClusterLogTailsReadNodePluginLogsAndRegistryEvents()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "cluster.logs.tail", new { uniqueName = "nope" })).StatusCode
+        );
+        await _clusters.CreateAsync(new("test", "Cluster", "http://gateway.test", ""), default);
+        Admin.NodeStatus Node(string name) =>
+            new(
+                name,
+                name,
+                2,
+                Admin.NodeRole.Regular,
+                Admin.NodeState.Active,
+                "127.0.0.1:28417",
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddMinutes(1),
+                0,
+                0,
+                "host",
+                true,
+                false
+            );
+        _gateway.Nodes = [Node("node-a"), Node("node-b")];
+        foreach (var node in new[] { "node-a", "node-b" })
+            _registry.UpsertHello(
+                new AgentHello
+                {
+                    AgentId = node,
+                    UniqueName = node,
+                    HostId = "host",
+                    ClusterMode = true,
+                    ClusterId = "test",
+                    ClusterSlot = node,
+                    ClusterNodeId = node,
+                    ClusterEpoch = 2,
+                },
+                node,
+                (_, _) => Task.CompletedTask
+            );
+        var agents = _registry.GetAgents().ToDictionary(agent => agent.AgentId);
+        for (var i = 1; i <= 3; i++)
+            foreach (var node in new[] { "node-a", "node-b" })
+                _logs.Append(
+                    new PluginLogEntry
+                    {
+                        UniqueName = agents[node].TelemetryKey,
+                        TimestampUtc = DateTimeOffset.UnixEpoch.AddMinutes(i),
+                        Level = "Info",
+                        Plugin = "Probe",
+                        Message = $"{node} entry {i}",
+                    }
+                );
+
+        var all = Assert.IsType<QuasarServerOperations.LogTailResponse>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.logs.tail",
+                    new { uniqueName = "test", lines = 3 }
+                )
+            ).Value
+        );
+        Assert.Equal(3, all.Lines.Count);
+        Assert.EndsWith("entry 3", all.Lines[^1]);
+        Assert.True(all.Truncated);
+        var one = Assert.IsType<QuasarServerOperations.LogTailResponse>(
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.logs.tail",
+                    new
+                    {
+                        uniqueName = "test",
+                        node = "NODE-B",
+                        filter = "entry 2",
+                    }
+                )
+            ).Value
+        );
+        Assert.Equal(
+            "1970-01-01 00:02:00Z · node-b · Probe · Info · node-b entry 2",
+            Assert.Single(one.Lines)
+        );
+        Assert.Equal(1, one.TotalLines);
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.logs.tail",
+                    new { uniqueName = "test", node = "node-c" }
+                )
+            ).StatusCode
+        );
+
+        _gateway.Events =
+        [
+            new(1, DateTimeOffset.UnixEpoch, "node-joined", null, null, "node-a", null),
+            new(
+                2,
+                DateTimeOffset.UnixEpoch,
+                "world-saved",
+                "quasar",
+                null,
+                null,
+                new Dictionary<string, string> { ["partitions"] = "4" }
+            ),
+        ];
+        var events = Assert.IsType<QuasarServerOperations.LogTailResponse>(
+            (await CallAsync(Editor(), "cluster.events.tail", new { uniqueName = "test" })).Value
+        );
+        Assert.Equal(
+            new[]
+            {
+                "1970-01-01 00:00:00Z · node-joined · node-a",
+                "1970-01-01 00:00:00Z · world-saved · quasar · {\"partitions\":\"4\"}",
+            },
+            events.Lines
+        );
+
+        var tail = await CallAsync(Editor(), "logs.magnetar.tail", new { uniqueName = "test" });
+        Assert.Contains("cluster.logs.tail", tail.Error);
     }
 
     private Task<QuasarServerOperations.LogTailResponse> Slice(
@@ -1039,6 +2324,18 @@ public sealed class QuasarCoreOperationTests : IDisposable
             {
                 var command = message.Command!;
                 _commands.Add(command);
+                var entities =
+                    command.CommandType == ServerCommandType.ListEntities
+                        ? JsonSerializer.Serialize(
+                            new EntityListResult
+                            {
+                                Entities = _alphaEntities,
+                                TotalCount = _alphaEntities.Count,
+                                TotalEntityCount = _alphaEntities.Count,
+                            },
+                            QuasarCoreOperations.Json
+                        )
+                        : null;
                 var result = new ServerCommandResult
                 {
                     AgentId = command.AgentId,
@@ -1047,6 +2344,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
                     ServerId = uniqueName,
                     Success = _commandsSucceed,
                     Message = _commandsSucceed ? "done" : "refused",
+                    Payload = entities,
                     CompletedAtUtc = DateTimeOffset.UtcNow,
                 };
                 // Answered before the send returns, so the known-player outcome is recorded before the call ends.
@@ -1130,6 +2428,14 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 JsonSerializer.SerializeToElement(request, QuasarCoreOperations.Json),
                 default
             );
+    }
+
+    private sealed class NoHost : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken token
+        ) => throw new HttpRequestException("No Host in these tests.");
     }
 
     private sealed class PersonState(ClaimsPrincipal user) : AuthenticationStateProvider

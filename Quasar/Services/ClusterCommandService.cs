@@ -86,6 +86,26 @@ public sealed class ClusterCommandService
             }, cancellationToken);
     }
 
+    /// <summary>The start half of a restart: once the goal Off has stopped the cluster cleanly, sets the goal On.
+    /// Gives up after ten minutes, or when the cluster's settings change meanwhile.</summary>
+    public async Task<ClusterOperation> StartAfterStopAsync(string uniqueName, string idempotencyKey, string actor,
+        CancellationToken token = default)
+    {
+        var stopped = _catalog.GetCluster(uniqueName) ?? throw Invalid("unknown_cluster", "Cluster was not found.");
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
+        timeout.CancelAfter(TimeSpan.FromMinutes(10));
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+        while (true)
+        {
+            var current = _catalog.GetCluster(uniqueName);
+            if (current is null || current.GoalState != DedicatedServerGoalState.Off || current.UpdatedAtUtc != stopped.UpdatedAtUtc)
+                throw new InvalidOperationException("Cluster settings changed during restart; automatic start was cancelled.");
+            if (await CanStartAsync(current, timeout.Token)) break;
+            await timer.WaitForNextTickAsync(timeout.Token);
+        }
+        return await SetGoalAsync(uniqueName, new(DedicatedServerGoalState.On), idempotencyKey, actor, timeout.Token);
+    }
+
     public Task<ClusterOperation> SubmitAsync(string uniqueName, ClusterAdminCommand command,
         string idempotencyKey, string actor, CancellationToken token = default)
     {

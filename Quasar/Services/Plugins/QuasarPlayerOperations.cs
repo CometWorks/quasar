@@ -8,7 +8,7 @@ using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
-/// <summary>Player moderation on standalone servers, through the server's agent. Cluster players are not here.</summary>
+/// <summary>Player moderation on standalone servers, through the server's agent. Cluster players are in QuasarClusterControlOperations.</summary>
 public static class QuasarPlayerOperations
 {
     /// <param name="SteamId">The player's SteamID64, as a string.</param>
@@ -70,7 +70,7 @@ public static class QuasarPlayerOperations
             {
                 Effect = QuasarOperationEffect.Read,
                 Description =
-                    $"Lists a standalone server's online players (Steam ID, name, faction tag, promote level, ping) and its known players, the {KnownLimit} seen most recently, with the banned flag.",
+                    $"Lists a standalone server's online players (Steam ID, name, faction tag, promote level, ping) and its known players, the {KnownLimit} seen most recently, with the banned flag. For a cluster use cluster.players.",
             }
         );
         var banUndo = new PlayerUndo(
@@ -189,7 +189,7 @@ public static class QuasarPlayerOperations
             agent is null
             && services.GetRequiredService<DedicatedServerCatalog>().GetServer(name) is null
         )
-            throw new QuasarOperationException(404, $"Server '{name}' not found.");
+            throw NotFound(services, name);
         var known = Known(services, name).OrderByDescending(record => record.LastSeenUtc).ToList();
         return new(
             name,
@@ -291,7 +291,25 @@ public static class QuasarPlayerOperations
     {
         var agent =
             FindAgent(services, uniqueName)
-            ?? throw new QuasarOperationException(409, $"Server '{uniqueName}' is not connected.");
+            ?? throw (
+                services.GetService<ClusterCatalog>()?.GetCluster(uniqueName) is not null
+                && !services
+                    .GetRequiredService<AgentRegistry>()
+                    .GetAgents()
+                    .Any(agent =>
+                        !agent.IsCluster
+                        && agent.UniqueNameKey.Equals(
+                            uniqueName,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    ? NotFound(
+                        services,
+                        uniqueName,
+                        "use cluster.players.kick, cluster.players.ban, cluster.players.unban, cluster.players.kick-cooldown.clear or cluster.players.promotion.set"
+                    )
+                    : new QuasarOperationException(409, $"Server '{uniqueName}' is not connected.")
+            );
         var result = await services
             .GetRequiredService<AgentRegistry>()
             .SendCommandAndWaitAsync(

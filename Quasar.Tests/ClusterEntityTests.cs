@@ -164,14 +164,14 @@ public sealed class ClusterEntityTests
         Assert.Empty(page.FindAll("tbody tr"));
     }
 
-    private static EntitySummary Entity(long id, string? residence, string? name = null) =>
+    internal static EntitySummary Entity(long id, string? residence, string? name = null) =>
         new() { EntityId = id, DisplayName = name ?? $"Entity {id}", TypeTag = "Grid", ClusterResidence = residence };
 
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { Converters = { new JsonStringEnumConverter() } };
 
-    private sealed class Fixture : HttpMessageHandler
+    internal sealed class Fixture : HttpMessageHandler
     {
-        public AgentRegistry Registry { get; } = new(null!, null!, null!, null!);
+        public AgentRegistry Registry { get; }
         public Dictionary<string, List<EntitySummary>> Data { get; } = [];
         public HashSet<string> Failures { get; } = [];
         public ConcurrentQueue<ServerCommandEnvelope> Commands { get; } = [];
@@ -180,8 +180,9 @@ public sealed class ClusterEntityTests
         public EntityService Service { get; }
         private readonly HttpClient _http;
 
-        public Fixture()
+        public Fixture(AgentRegistry? registry = null)
         {
+            Registry = registry ?? new(null!, null!, null!, null!);
             _http = new HttpClient(this, disposeHandler: false);
             Service = new(Registry, new(_http));
             AddAgent("b", "b", 2);

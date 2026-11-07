@@ -1,3 +1,4 @@
+using System.Globalization;
 using Quasar.Models;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
@@ -25,6 +26,35 @@ public static class QuasarBackupOperations
     );
 
     public sealed record BackupQueued(string UniqueName, Guid JobId, string Message);
+
+    public sealed record BackupRestoreRequest(string Name = "");
+
+    public sealed record BackupRestored(
+        string Name,
+        string Kind,
+        string? Server,
+        int FilesRestored,
+        string Message
+    );
+
+    /// <param name="TimeOfDay">Local time of day for daily and weekly rules.</param>
+    public sealed record BackupRule(
+        bool Enabled,
+        string Frequency,
+        string TimeOfDay,
+        string DayOfWeek,
+        int RetentionCount,
+        DateTimeOffset? LastBackupUtc
+    );
+
+    public sealed record BackupSettings(
+        string Directory,
+        BackupRule Configuration,
+        BackupRule Server,
+        BackupRule World,
+        int OnlineClusterMiBPerSecond,
+        int DeletedClusterRetentionDays
+    );
 
     public static void AddQuasarBackupOperations(this IServiceCollection services)
     {
@@ -140,7 +170,88 @@ public static class QuasarBackupOperations
                     "Queues a backup of a standalone server's runtime state and settings, without the world. Returns the job ID; the backup runs in the background.",
             }
         );
+        services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, BackupSettings>(
+            plugin,
+            "backups.settings.read",
+            // The Backup page's policy; agents are refused it like every security-level operation.
+            [QuasarPolicyNames.CanManageSecurity],
+            (caller, _, _) =>
+            {
+                var settings = caller
+                    .Services.GetRequiredService<QuasarBackupSettingsService>()
+                    .GetSettings();
+                return Task.FromResult(
+                    new BackupSettings(
+                        caller.Services.GetRequiredService<QuasarBackupService>().BackupDirectory,
+                        Rule(settings.Configuration),
+                        Rule(settings.Server),
+                        Rule(settings.World),
+                        settings.OnlineClusterMiBPerSecond,
+                        settings.DeletedClusterRetentionDays
+                    )
+                );
+            },
+            new()
+            {
+                Effect = QuasarOperationEffect.Read,
+                Description =
+                    "Returns the automatic backup rules for Quasar config, server and world backups (enabled, frequency, time, retention, last run), the backup folder and the cluster backup limits.",
+            }
+        );
+        services.AddQuasarOperation<BackupRestoreRequest, BackupRestored>(
+            plugin,
+            "backups.restore",
+            [QuasarPolicyNames.CanManageSecurity],
+            RestoreAsync,
+            new()
+            {
+                Deadline = QuasarOperationMetadata.MaximumDeadline,
+                Description =
+                    "Restores a stored world or server backup by its file name from backups.list. The server must be stopped: a world restore overwrites its save files, a server restore brings back its definition and app data and leaves it stopped. It cannot be undone, so back up the current world first.",
+            }
+        );
     }
+
+    private static async Task<BackupRestored> RestoreAsync(
+        QuasarOperationContext caller,
+        BackupRestoreRequest input,
+        CancellationToken token
+    )
+    {
+        var name = input.Name?.Trim() ?? string.Empty;
+        var backups = caller.Services.GetRequiredService<QuasarBackupService>();
+        // Configuration backups hold secrets and merge into every catalog; they stay on the Backup page.
+        var backup =
+            backups
+                .ListBackups()
+                .FirstOrDefault(candidate =>
+                    candidate.Kind != QuasarBackupKind.Configuration
+                    && candidate.Name.Equals(name, StringComparison.OrdinalIgnoreCase)
+                )
+            ?? throw new QuasarOperationException(404, $"Backup '{name}' not found.");
+        caller.Undo!.Server = backup.ServerUniqueName;
+        // The deadline ends the wait, never the restore itself.
+        var report = await backups.RestoreFromFileAsync(backup.Name).WaitAsync(token);
+        if (!report.Success)
+            throw new QuasarOperationException(409, report.Message);
+        return new BackupRestored(
+            backup.Name,
+            backup.Kind.ToString(),
+            backup.ServerUniqueName,
+            report.FilesRestored,
+            report.Message
+        );
+    }
+
+    private static BackupRule Rule(QuasarBackupRuleSettings rule) =>
+        new(
+            rule.Enabled,
+            rule.Frequency.ToString(),
+            rule.TimeOfDay.ToString("HH:mm", CultureInfo.InvariantCulture),
+            rule.DayOfWeek.ToString(),
+            rule.RetentionCount,
+            rule.LastBackupUtc
+        );
 
     private static DedicatedServerDefinition Track(QuasarOperationContext caller, string uniqueName)
     {
