@@ -11,6 +11,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Models;
 using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Plugin.Abstractions.Security;
 using Quasar.Services;
 using Quasar.Services.Audit;
 using Quasar.Services.Auth;
@@ -337,7 +338,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarReversal.NothingToReverse
             ),
             ["backups.settings.read"] = (
-                QuasarPolicyNames.CanControlServers,
+                QuasarPolicyNames.CanManageSecurity,
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
             ),
@@ -356,11 +357,6 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
             ),
-            ["cluster.players"] = (
-                QuasarPolicyNames.ClusterQuery,
-                QuasarOperationEffect.Read,
-                QuasarReversal.NotReversible
-            ),
             ["entities.list"] = (
                 QuasarPolicyNames.CanView,
                 QuasarOperationEffect.Read,
@@ -369,11 +365,6 @@ public sealed class QuasarCoreOperationTests : IDisposable
             ["entities.delete"] = (
                 QuasarPolicyNames.CanControlServers,
                 QuasarOperationEffect.Change,
-                QuasarReversal.NotReversible
-            ),
-            ["cluster.entities.list"] = (
-                QuasarPolicyNames.ClusterQuery,
-                QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
             ),
             ["chat.messages"] = (
@@ -516,6 +507,14 @@ public sealed class QuasarCoreOperationTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(120), operations["servers.start"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.restart"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.save"].Metadata.Deadline);
+        foreach (var read in new[] { "cluster.players", "cluster.entities.list" })
+        {
+            Assert.Equal(
+                [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery],
+                operations[read].DefaultPolicies
+            );
+            Assert.Equal(QuasarOperationEffect.Read, operations[read].Metadata.Effect);
+        }
         var clusterDelete = operations["cluster.entities.delete"];
         Assert.Equal(
             [QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterManage],
@@ -525,7 +524,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
             (QuasarOperationEffect.Change, QuasarReversal.NotReversible),
             (clusterDelete.Metadata.Effect, clusterDelete.Metadata.Reversal)
         );
-        // Destructive operations are a deliberate choice, each one listed here; an agent can only propose them.
+        // Destructive operations are a deliberate choice, each one listed here.
         Assert.Equal(
             ["backups.restore", "cluster.entities.delete", "entities.delete"],
             operations
@@ -1188,11 +1187,156 @@ public sealed class QuasarCoreOperationTests : IDisposable
         Assert.Equal("save", await File.ReadAllTextAsync(save));
         Assert.Equal("alpha", (await LatestAsync("backups.restore")).Server);
 
+        Assert.Equal(403, (await CallAsync(Editor(), "backups.settings.read", new { })).StatusCode);
         var settings = Assert.IsType<QuasarBackupOperations.BackupSettings>(
-            (await CallAsync(Editor(), "backups.settings.read", new { })).Value
+            (await CallAsync(admin, "backups.settings.read", new { })).Value
         );
         Assert.Equal("Daily", settings.World.Frequency);
         Assert.Equal("03:00", settings.World.TimeOfDay);
+    }
+
+    // Every operation this change added, and what a Viewer may call.
+    private static readonly string[] AddedOperations =
+    [
+        "cluster.players",
+        "chat.messages",
+        "chat.commands",
+        "chat.send",
+        "chat.command.run",
+        "entities.list",
+        "entities.delete",
+        "cluster.entities.list",
+        "cluster.entities.delete",
+        "cluster.start",
+        "cluster.stop",
+        "cluster.restart",
+        "cluster.save",
+        "cluster.gateway.restart",
+        "cluster.services.recover",
+        "cluster.recover",
+        "cluster.operation",
+        "cluster.players.kick",
+        "cluster.players.ban",
+        "cluster.players.unban",
+        "cluster.players.kick-cooldown.clear",
+        "cluster.players.promotion.set",
+        "cluster.logs.tail",
+        "cluster.events.tail",
+        "activity.recent",
+        "audit.list",
+        "backups.settings.read",
+        "backups.restore",
+    ];
+
+    private static readonly string[] ViewerReads =
+    [
+        "cluster.players",
+        "chat.messages",
+        "chat.commands",
+        "entities.list",
+        "cluster.entities.list",
+        "cluster.operation",
+        "cluster.logs.tail",
+        "cluster.events.tail",
+        "activity.recent",
+    ];
+
+    private static readonly string[] SecurityLevel =
+    [
+        "audit.list",
+        "backups.settings.read",
+        "backups.restore",
+    ];
+
+    [Fact]
+    public async Task AddedOperationsRefuseCallersTheWebUiRefuses()
+    {
+        Assert.Equal(
+            AddedOperations.Order(),
+            _services
+                .GetServices<QuasarOperation>()
+                .Select(operation => operation.OperationId)
+                .Intersect(AddedOperations)
+                .Order()
+        );
+        var principals = _services.GetRequiredService<QuasarAgentPrincipals>();
+        var anonymous = new ClaimsPrincipal(new ClaimsIdentity());
+        var service = new ClaimsPrincipal(
+            new ClaimsIdentity(
+                [
+                    new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.ServicePrincipal),
+                    new Claim(ClaimTypes.Role, QuasarRoles.Admin),
+                    new Claim(QuasarClaimTypes.Scope, QuasarScopes.ClusterManage),
+                ],
+                QuasarAuthSchemes.ServicePrincipal
+            )
+        );
+        var player = principals.CreatePlayer("76561198000000001", "Pilot", null, "c", "!ask");
+        var assistant = await principals.CreateAssistantAsync(Person(QuasarRoles.Admin), "c", "r");
+        var monitor = principals.CreateMonitor("c", "r");
+        var viewer = Person(QuasarRoles.Viewer);
+        foreach (var operation in AddedOperations)
+        {
+            Assert.Equal(401, (await CallAsync(anonymous, operation, new { })).StatusCode);
+            Assert.Equal(403, (await CallAsync(service, operation, new { })).StatusCode);
+            // The player agent holds no role: it reaches only the my.* operations.
+            Assert.Equal(403, (await CallAsync(player, operation, new { })).StatusCode);
+            var asViewer = (await CallAsync(viewer, operation, new { })).StatusCode;
+            if (ViewerReads.Contains(operation))
+                Assert.NotEqual(403, asViewer);
+            else
+                Assert.Equal(403, asViewer);
+            // Security-level operations are on the hard deny list for every agent, whoever asks.
+            if (SecurityLevel.Contains(operation))
+            {
+                Assert.Equal(403, (await CallAsync(assistant, operation, new { })).StatusCode);
+                Assert.Equal(403, (await CallAsync(monitor, operation, new { })).StatusCode);
+            }
+        }
+
+        // An assistant does no more than its asker could, and a proposal no more than its approver could.
+        await using (var scope = _services.CreateAsyncScope())
+            await scope
+                .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                .SavePolicyRolesAsync(
+                    Person(QuasarRoles.Admin),
+                    QuasarPolicyNames.CanUseAssistant,
+                    [QuasarRoles.Viewer, QuasarRoles.Editor, QuasarRoles.Admin]
+                );
+        var viewerAssistant = await principals.CreateAssistantAsync(viewer, "c", "r");
+        var askerRefused = await CallAsync(viewerAssistant, "chat.send", new { });
+        Assert.Equal(403, askerRefused.StatusCode);
+        Assert.Equal(
+            "The person asking the assistant cannot access this SDK operation.",
+            askerRefused.Error
+        );
+        foreach (var change in AddedOperations.Except(ViewerReads).Except(SecurityLevel))
+        {
+            await using var scope = _services.CreateAsyncScope();
+            var refused = await scope
+                .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                .DispatchAsync(
+                    new(assistant, scope.ServiceProvider) { ApprovedBy = viewer },
+                    Core,
+                    change,
+                    JsonSerializer.SerializeToElement(new { }, QuasarCoreOperations.Json),
+                    default
+                );
+            Assert.Equal(403, refused.StatusCode);
+            Assert.Equal("The approver cannot access this SDK operation.", refused.Error);
+        }
+
+        // A role override that narrows CanView also hides the cluster reads of the CanView pages.
+        await using (var scope = _services.CreateAsyncScope())
+            await scope
+                .ServiceProvider.GetRequiredService<QuasarOperationService>()
+                .SavePolicyRolesAsync(
+                    Person(QuasarRoles.Admin),
+                    QuasarPolicyNames.CanView,
+                    [QuasarRoles.Editor, QuasarRoles.Admin]
+                );
+        foreach (var read in new[] { "cluster.players", "cluster.entities.list", "chat.messages" })
+            Assert.Equal(403, (await CallAsync(viewer, read, new { })).StatusCode);
     }
 
     [Fact]

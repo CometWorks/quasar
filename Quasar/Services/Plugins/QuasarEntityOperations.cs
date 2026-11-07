@@ -104,7 +104,8 @@ public static class QuasarEntityOperations
         services.AddQuasarOperation<EntityListRequest, EntityList>(
             QuasarCoreOperations.PluginId,
             "cluster.entities.list",
-            [QuasarPolicyNames.ClusterQuery],
+            // The Entities page needs CanView, which a role override can narrow below ClusterQuery.
+            [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery],
             ListClusterAsync,
             new()
             {

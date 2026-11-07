@@ -108,7 +108,8 @@ public static class QuasarClusterOperations
         services.AddQuasarOperation<ClusterRequest, ClusterPlayersResult>(
             QuasarCoreOperations.PluginId,
             "cluster.players",
-            [QuasarPolicyNames.ClusterQuery],
+            // The Players page needs CanView, which a role override can narrow below ClusterQuery.
+            [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery],
             (caller, input, _) => Task.FromResult(Players(caller, input)),
             Read with
             {
@@ -124,7 +125,9 @@ public static class QuasarClusterOperations
         var cluster = caller.Services.GetRequiredService<ClusterCatalog>().GetCluster(name);
         if (cluster is null || !caller.User.CanQueryCluster(cluster.UniqueName))
             throw new QuasarOperationException(404, $"Cluster '{name}' not found.");
-        var snapshot = caller.Services.GetService<ClusterPlayerService>()?.GetSnapshot(cluster.UniqueName);
+        var snapshot = caller
+            .Services.GetService<ClusterPlayerService>()
+            ?.GetSnapshot(cluster.UniqueName);
         var error = snapshot switch
         {
             null => "Players not collected yet, try again in a few seconds.",
@@ -138,26 +141,29 @@ public static class QuasarClusterOperations
             .GetPlayers()
             .Where(record =>
                 record.IsCluster
-                && string.Equals(record.UniqueName, cluster.UniqueName, StringComparison.OrdinalIgnoreCase)
+                && string.Equals(
+                    record.UniqueName,
+                    cluster.UniqueName,
+                    StringComparison.OrdinalIgnoreCase
+                )
             )
             .GroupBy(record => (ulong)record.SteamId)
             .ToDictionary(group => group.Key, group => group.First().DisplayName);
-        var online =
-            error is null
-                ? snapshot!
-                    .Clients.Select(client => new ClusterPlayer(
-                        client.ClientId.ToString(CultureInfo.InvariantCulture),
-                        string.IsNullOrWhiteSpace(client.PlayerName)
-                            ? known.GetValueOrDefault(client.ClientId, string.Empty)
-                            : TextSanitizer.CleanGameText(client.PlayerName),
-                        client.AdmissionState,
-                        client.IsAdmin,
-                        client.Node,
-                        client.ConnectedAt
-                    ))
-                    .OrderBy(player => player.Name, StringComparer.OrdinalIgnoreCase)
-                    .ToList()
-                : [];
+        var online = error is null
+            ? snapshot!
+                .Clients.Select(client => new ClusterPlayer(
+                    client.ClientId.ToString(CultureInfo.InvariantCulture),
+                    string.IsNullOrWhiteSpace(client.PlayerName)
+                        ? known.GetValueOrDefault(client.ClientId, string.Empty)
+                        : TextSanitizer.CleanGameText(client.PlayerName),
+                    client.AdmissionState,
+                    client.IsAdmin,
+                    client.Node,
+                    client.ConnectedAt
+                ))
+                .OrderBy(player => player.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList()
+            : [];
         return new(cluster.UniqueName, cluster.DisplayName, error, online, snapshot?.ObservedAt);
     }
 

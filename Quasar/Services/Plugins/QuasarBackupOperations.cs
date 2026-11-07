@@ -173,7 +173,8 @@ public static class QuasarBackupOperations
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, BackupSettings>(
             plugin,
             "backups.settings.read",
-            [QuasarPolicyNames.CanControlServers],
+            // The Backup page's policy; agents are refused it like every security-level operation.
+            [QuasarPolicyNames.CanManageSecurity],
             (caller, _, _) =>
             {
                 var settings = caller
