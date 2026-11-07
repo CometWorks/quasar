@@ -29,6 +29,8 @@ public static class QuasarCoreOperations
         services.AddQuasarBackupOperations();
         services.AddQuasarClusterOperations();
         services.AddQuasarEntityOperations();
+        services.AddQuasarChatOperations();
+        services.AddQuasarActivityOperations();
         services.AddQuasarRead<BackupRequest>(PluginId, "backup.read", [QuasarPolicyNames.CanManageSecurity],
             (caller, input, token) =>
             {

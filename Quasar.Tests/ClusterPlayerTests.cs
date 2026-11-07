@@ -571,6 +571,7 @@ public sealed class ClusterPlayerTests : IDisposable
         internal ulong[] Banned = [];
         internal Admin.PlayerModerationStatus Moderation = new([], []);
         internal List<string> Mutations = [];
+        internal Admin.ChatMessage[] Chat = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             if (Offline) throw new HttpRequestException("offline");
@@ -594,6 +595,9 @@ public sealed class ClusterPlayerTests : IDisposable
                 "bans" => new Admin.AdmissionBans(Banned),
                 "capabilities" => CurrentCapabilities,
                 "moderation" => Moderation,
+                "history" => new Admin.ChatHistory(Chat.Where(message => message.Seq
+                    > long.Parse(System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query)["cursor"]!)).ToArray(),
+                    Chat.Length == 0 ? 0 : Chat.Max(message => message.Seq), 1),
                 _ => JsonSerializer.Deserialize<Admin.ClusterStatus>("{\"clusterId\":\"" + ClusterId + "\",\"nodes\":[]}", new JsonSerializerOptions(JsonSerializerDefaults.Web))!,
             };
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Admin.AdminEnvelope<object>(1, DateTimeOffset.UtcNow, data)) };

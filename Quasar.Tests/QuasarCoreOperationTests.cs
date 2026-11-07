@@ -131,6 +131,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
         services.AddSingleton(_clusterPlayers);
         // Created on first use, so only entity tests get its cluster agents.
         services.AddSingleton(_ => Entities.Service);
+        services.AddSingleton(new ClusterGatewayClient(new HttpClient(_gateway)));
         services.AddQuasarCoreOperations();
         _services = services.BuildServiceProvider();
     }
@@ -354,6 +355,36 @@ public sealed class QuasarCoreOperationTests : IDisposable
             ),
             ["cluster.entities.list"] = (
                 QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.messages"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.commands"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.send"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["chat.command.run"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["activity.recent"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["audit.list"] = (
+                QuasarPolicyNames.CanManageSecurity,
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
             ),
@@ -1400,6 +1431,240 @@ public sealed class QuasarCoreOperationTests : IDisposable
     }
 
     private ClusterEntityTests.Fixture Entities => _entityFixture ??= new(_registry);
+
+    [Fact]
+    public async Task ChatReadsTheAgentsChatAndSendsMessagesAndCommands()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "chat.messages", new { uniqueName = "missing" })).StatusCode
+        );
+        await CreateServerAsync("alpha", world: false);
+        var offline = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (await CallAsync(Editor(), "chat.messages", new { uniqueName = "alpha" })).Value
+        );
+        Assert.Contains("not connected", offline.Error);
+        Assert.Equal(409, (await Chat("chat.send", "hello")).StatusCode);
+
+        ConnectAgent("alpha");
+        var tick = new DateTimeOffset(2026, 11, 7, 12, 0, 0, TimeSpan.Zero).UtcTicks;
+        _registry.UpdateSnapshot(
+            new AgentSnapshot
+            {
+                AgentId = "agent",
+                UniqueName = "alpha",
+                ServerId = "alpha",
+                TelemetryPaused = true,
+                RecentChat =
+                [
+                    new()
+                    {
+                        SteamId = 42,
+                        AuthorName = "\uE030Pilot",
+                        Content = "one\r\ntwo",
+                        TimestampTicksUtc = tick + 1,
+                        Channel = ChatMessageChannel.Faction,
+                        FactionTag = "ABC",
+                    },
+                    new()
+                    {
+                        AuthorName = "Good.bot",
+                        Content = "older",
+                        TimestampTicksUtc = tick,
+                        Channel = ChatMessageChannel.Global,
+                    },
+                ],
+                ChatCommands =
+                [
+                    new()
+                    {
+                        Text = "!ess help",
+                        Syntax = "!ess help",
+                        Description = "Help",
+                    },
+                ],
+            },
+            "connection"
+        );
+        var chat = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "chat.messages",
+                    new { uniqueName = "alpha" }
+                )
+            ).Value
+        );
+        Assert.Null(chat.Error);
+        Assert.Equal(
+            new[]
+            {
+                ("Server", (string?)null, "Global", "older"),
+                ("Pilot", "42", "Faction ABC", "one\ntwo"),
+            },
+            chat.Messages.Select(line => (line.Author, line.SteamId, line.Channel, line.Text))
+        );
+        Assert.Equal(new DateTimeOffset(tick, TimeSpan.Zero), chat.Messages[0].Time);
+        var last = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (
+                await CallAsync(Editor(), "chat.messages", new { uniqueName = "alpha", limit = 1 })
+            ).Value
+        );
+        Assert.Equal("Pilot", Assert.Single(last.Messages).Author);
+        var commands = Assert.IsType<QuasarChatOperations.ChatCommandList>(
+            (await CallAsync(Editor(), "chat.commands", new { uniqueName = "alpha" })).Value
+        );
+        Assert.Equal("!ess help", Assert.Single(commands.Commands).Command);
+
+        Assert.Equal(
+            403,
+            (await Chat("chat.send", "hello", Person(QuasarRoles.Viewer))).StatusCode
+        );
+        Assert.Equal(400, (await Chat("chat.send", "!ess help")).StatusCode);
+        Assert.Equal(400, (await Chat("chat.command.run", "ess help")).StatusCode);
+        Assert.Equal(200, (await Chat("chat.send", " hello ")).StatusCode);
+        Assert.Equal(200, (await Chat("chat.command.run", "!ess help")).StatusCode);
+        Assert.Equal(
+            new[]
+            {
+                (ServerCommandType.SendChat, "hello"),
+                (ServerCommandType.RunChatCommand, "!ess help"),
+            },
+            _commands.Select(command => (command.CommandType, command.Text))
+        );
+        Assert.Equal("alpha", (await LatestAsync("chat.send")).Server);
+        Assert.Equal(
+            QuasarReversal.NotReversible,
+            (await LatestAsync("chat.command.run")).Reversal
+        );
+        _commandsSucceed = false;
+        var refused = await Chat("chat.command.run", "!nope");
+        Assert.Equal(409, refused.StatusCode);
+        Assert.Equal("refused", refused.Error);
+    }
+
+    [Fact]
+    public async Task ClusterChatComesFromTheGatewayAndCommandsStayStandalone()
+    {
+        var cluster = await _clusters.CreateAsync(
+            new("test", "Unified cluster", "http://gateway.test", ""),
+            default
+        );
+        await _clusterPlayers.RefreshAsync(cluster, default);
+        var at = DateTimeOffset.UtcNow;
+        _gateway.Chat =
+        [
+            new(1, at, 7, 0, "first"),
+            new(2, at, 7, 0, "second"),
+            new(3, at, 99, 0, "third"),
+        ];
+        var chat = Assert.IsType<QuasarChatOperations.ChatResult>(
+            (
+                await CallAsync(Editor(), "chat.messages", new { uniqueName = "test", limit = 2 })
+            ).Value
+        );
+        Assert.True(chat.IsCluster);
+        Assert.Equal(
+            new[] { ("Cluster player", "second"), ("99", "third") },
+            chat.Messages.Select(line => (line.Author, line.Text))
+        );
+        var commands = await CallAsync(Editor(), "chat.commands", new { uniqueName = "test" });
+        Assert.Equal(404, commands.StatusCode);
+        Assert.Contains("chat.send", commands.Error);
+        Assert.Equal(404, (await Chat("chat.command.run", "!help", uniqueName: "test")).StatusCode);
+        // No Discord cluster bridge in this host.
+        Assert.Equal(409, (await Chat("chat.send", "hi", uniqueName: "test")).StatusCode);
+        _gateway.Offline = true;
+        Assert.NotNull(
+            Assert
+                .IsType<QuasarChatOperations.ChatResult>(
+                    (await CallAsync(Editor(), "chat.messages", new { uniqueName = "test" })).Value
+                )
+                .Error
+        );
+    }
+
+    [Fact]
+    public async Task ActivityListsCommandResultsAndFiltersByServer()
+    {
+        await CreateServerAsync("alpha", world: false);
+        await CreateServerAsync("beta", world: false);
+        ConnectAgent("alpha");
+        Assert.Equal(200, (await Chat("chat.send", "hello")).StatusCode);
+        var all = Assert.IsAssignableFrom<IReadOnlyList<QuasarActivityOperations.ActivityItem>>(
+            (await CallAsync(Person(QuasarRoles.Viewer), "activity.recent", new { })).Value
+        );
+        var item = Assert.Single(all);
+        Assert.Equal(("alpha", "done", "info"), (item.UniqueName, item.Message, item.Level));
+        Assert.Empty(
+            Assert.IsAssignableFrom<IReadOnlyList<QuasarActivityOperations.ActivityItem>>(
+                (await CallAsync(Editor(), "activity.recent", new { uniqueName = "beta" })).Value
+            )
+        );
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(Editor(), "activity.recent", new { uniqueName = "missing" })
+            ).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task AuditListNeedsSecurityAndPagesFilteredEntries()
+    {
+        await CreateServerAsync("alpha", world: false);
+        ConnectAgent("alpha");
+        Assert.Equal(200, (await Chat("chat.send", "one")).StatusCode);
+        Assert.Equal(200, (await Chat("chat.send", "two")).StatusCode);
+        Assert.Equal(403, (await CallAsync(Editor(), "audit.list", new { })).StatusCode);
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(Person(QuasarRoles.Admin), "audit.list", new { result = "maybe" })
+            ).StatusCode
+        );
+        var page = Assert.IsType<QuasarActivityOperations.AuditPage>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Admin),
+                    "audit.list",
+                    new
+                    {
+                        operation = "chat.send",
+                        server = "alpha",
+                        result = "ok",
+                        take = 1,
+                    }
+                )
+            ).Value
+        );
+        Assert.True(page.More);
+        var entry = Assert.Single(page.Entries);
+        Assert.Equal(
+            (Core + "/chat.send", "alpha", "Ok"),
+            (entry.Operation, entry.Server, entry.Result)
+        );
+        Assert.Contains("two", entry.Arguments);
+        Assert.StartsWith("Person: ", entry.Principal);
+        var next = Assert.IsType<QuasarActivityOperations.AuditPage>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Admin),
+                    "audit.list",
+                    new { operation = "chat.send", skip = 1 }
+                )
+            ).Value
+        );
+        Assert.False(next.More);
+        Assert.Contains("one", Assert.Single(next.Entries).Arguments);
+    }
+
+    private Task<QuasarOperationResult> Chat(
+        string operation,
+        string text,
+        ClaimsPrincipal? user = null,
+        string uniqueName = "alpha"
+    ) => CallAsync(user ?? Editor(), operation, new { uniqueName, text });
 
     private Task<QuasarServerOperations.LogTailResponse> Slice(
         string path,

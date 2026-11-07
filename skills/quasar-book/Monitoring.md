@@ -53,7 +53,7 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 
 - **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
 - **Simulation speed** charts the last 30 minutes for standalone servers and cluster node slots (1.00x is real time) and links to Analytics. Each cluster line is labeled with the cluster name and slot. Node replacements and restarts share the same slot history; missing samples stay missing.
-- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions.
+- **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions. Plugins and their AI agents read the same events with the `activity.recent` operation, optionally for one server or cluster.
 - **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
 
 ## Analytics
@@ -178,6 +178,8 @@ Quasar stores the list in `<data dir>/known-players.json` and the auto-clear set
 - **Run** (or Enter) runs the command on the server as its console, with Owner rights. The players don't see the line. It and the command's replies show only in Quasar, as **Console** rows, and are not relayed to Discord. Announcements the command makes, like a restart countdown, still reach the players. Running commands needs a Magnetar release newer than 2.4.3.4; older ones answer "This Magnetar version can't run commands from Quasar. Update Magnetar."
 
 Quasar.Agent registers `!stop`, `!restart [seconds]` and `!quit` on standalone servers, and `!link` and the UI plugins' player commands (such as `!ask`) for every player on standalone servers and cluster nodes. They are described in [Servers](Servers.md#in-game-commands-from-quasaragent). Cluster nodes do not get the first three.
+
+Plugins and their AI agents use the `chat.messages`, `chat.commands`, `chat.send` and `chat.command.run` operations for the same. On a cluster, `chat.messages` returns the global chat the Gateway keeps and `chat.send` posts to it; commands run only on standalone servers.
 
 ## Entities
 
