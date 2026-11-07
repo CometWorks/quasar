@@ -468,7 +468,8 @@ public sealed class ClusterDeploymentTests : IDisposable
             object data = path switch
             {
                 "/admin/v1/capabilities" => new AdminCapabilities("gateway", AdminScope.Manage,
-                    RegistryBackups ? [.. AdminProtocol.Operations, "POST /admin/v1/registry-backups"] : AdminProtocol.Operations, new Dictionary<string, string>()),
+                    // The current contract lists the registry copy; an older Gateway lacks it.
+                    [.. AdminProtocol.Operations.Where(o => RegistryBackups || o != "POST /admin/v1/registry-backups")], new Dictionary<string, string>()),
                 "/admin/v1/status" => new ClusterStatus("demo", "world", ClusterPhase.Serving, StartupKind.Warm,
                     null, null, false, false, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,
                     AdminHealth.Healthy, [], DateTimeOffset.UtcNow, "revision", true),
