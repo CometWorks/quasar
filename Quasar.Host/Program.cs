@@ -142,6 +142,7 @@ internal static class Program
         {
             Task? connection = config.Connection is null ? null : HostConnection.RunAsync(config, shutdown.Token);
             Task collection = CollectDiagnosticsAsync(diagnostics, shutdown.Token);
+            Task rotation = RotateOutputAsync(shutdown.Token);
             try
             {
             var connected = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -227,6 +228,7 @@ internal static class Program
             {
                 await shutdown.CancelAsync();
                 await collection;
+                await rotation;
                 if (connection is not null)
                     try { await connection; }
                     catch (Exception exception) { Console.Error.WriteLine($"Quasar connection stopped ({exception.GetType().Name}): {exception.Message}"); }
@@ -243,6 +245,27 @@ internal static class Program
             catch (OperationCanceledException) { }
             catch (Exception e) { Console.Error.WriteLine($"Diagnostic collection deferred ({e.GetType().Name})."); }
             try { await Task.Delay(TimeSpan.FromSeconds(5), token); }
+            catch (OperationCanceledException) { break; }
+        }
+    }
+
+    // The local Host's host.log takes the Host's, Gateway's and nodes' output for as long as the Host runs.
+    private static async Task RotateOutputAsync(CancellationToken token)
+    {
+        var files = Quasar.Hosting.OutputLogRotation.StandardStreamFiles();
+        while (files.Count > 0 && !token.IsCancellationRequested)
+        {
+            foreach ((string log, string live) in files)
+            {
+                try
+                {
+                    Quasar.Hosting.OutputLogRotation.RotateIfOver(log, Quasar.Hosting.OutputLogRotation.MaxBytes,
+                        Quasar.Hosting.OutputLogRotation.Files, live);
+                }
+                catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+                { Console.Error.WriteLine($"Output log rotation deferred ({e.GetType().Name}: {e.Message})."); }
+            }
+            try { await Task.Delay(TimeSpan.FromSeconds(30), token); }
             catch (OperationCanceledException) { break; }
         }
     }

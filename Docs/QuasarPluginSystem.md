@@ -12,7 +12,8 @@ analytics/server-log consumers share it. Plugins declare policies with
 `AddQuasarOperation`/`AddQuasarRead`/`AddQuasarUpload`/`AddQuasarSubscription` and
 import the Quasar-owned `MapQuasarSdkClient` bridge. Authentication, CSRF, transfer
 limits and cancellation belong to Quasar; feature validation remains in the
-plugin. Administrators edit effective endpoint rules on Security; missing or
+plugin. Administrators edit effective endpoint rules in the collapsed **Plugin
+endpoint authorization** section on **UI Plugins**; missing or
 invalid policies deny by default. Declare `browserSdkVersion: 1` and a matching
 minimum Quasar release before publication. Legacy plugins remain supported.
 WebRTC and SignalR transport migration are separate steps. The service-side

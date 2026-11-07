@@ -1087,7 +1087,7 @@ Trusted-network access uses the roles configured under
 `Quasar:Auth:TrustedNetworkBypass:Roles`; it defaults to `admin`. Treat every
 trusted address as a full operator unless that role list is reduced explicitly.
 
-**Security > Plugin endpoint authorization** controls registered SDK operations:
+**UI Plugins > Plugin endpoint authorization** is collapsed by default and controls registered SDK operations:
 disable an operation or change its required policies while retaining mandatory
 authentication. **Shared policy role grants** edits runtime `rbac.json` policy
 overrides and affects every endpoint using the policy. These overrides now take

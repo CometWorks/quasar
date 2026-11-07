@@ -24,8 +24,8 @@ handles authentication, requests, streaming limits and cancellation. Plugins
 retain their feature rules, such as asset consent and ownership. Entity Viewer
 uses the SDK for scenes, asset setup/downloads and recording history.
 
-**Security**, **Plugin endpoint authorization**, lists plugin and adopted core
-operations. Administrators can disable an operation or change its required
+On **UI Plugins**, expand **Plugin endpoint authorization** to list plugin and adopted core
+operations. This section is collapsed by default. Administrators can disable an operation or change its required
 policies. Missing or invalid rules deny access. The same rule applies to adopted
 legacy URLs. See [Access control](AccessControl.md#plugin-endpoint-authorization).
 
@@ -51,6 +51,7 @@ The page has:
 - **QuasarHub Catalog**: browse, install, update, enable, disable and remove plugins, and the automatic update checkbox.
 - **Load Errors**: one entry per plugin that failed to load at startup.
 - **Loaded Plugins**: name, id, version, entry assembly, static assets and stylesheets of each loaded plugin. The paths menu shows the package folder, the shadow cache folder and file details. **Disable** turns a plugin off for the next restart.
+- **Plugin endpoint authorization**: collapsed by default. Edit operation rules and shared policy role grants here.
 - **Plugin Nav Items**, **Extension Contributions** and **Razor Assemblies**: what each loaded plugin contributes.
 
 ## QuasarHub
@@ -263,6 +264,8 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
 - `Quasar/Components/Pages/UiPlugins.razor`
+- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
+- `Quasar/Components/Shared/QuasarSdkAuthorization.razor.css`
 - `Quasar/Components/Pages/Notifications.razor`
 - `Quasar/Components/Pages/Entities.razor`
 - `Quasar/Components/Layout/NavMenu.razor`

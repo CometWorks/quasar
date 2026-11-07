@@ -50,7 +50,7 @@ On Linux x64 every Quasar install runs its own Host executor, ID `local`, withou
 | --- | --- |
 | `LocalHost/host.json` | Host configuration. Quasar rewrites it before each start, so a changed Quasar port reaches the Host. |
 | `LocalHost/state/` | State directory, laid out as on any host machine (credentials, deployments, cluster saves). |
-| `LocalHost/host.log` | The Host's output, moved to `host.log.1` at a start once it passes 10 MB. |
+| `LocalHost/host.log` | The output of the Host, its Gateways and its nodes. The Host rotates it to `host.log.1` once it passes 64 MB, keeping `host.log.1` to `host.log.3`, and Quasar does the same at a Host start once it passes 10 MB. |
 | `LocalHost/host.pid` | PID, process identity, binary hash and configuration hash of the running Host. |
 | `LocalHost/stop-clusters` | Runs `Quasar.Host stop-clusters` for this Host. The clusters unit calls it. |
 
@@ -87,6 +87,7 @@ Quasar generates every secret. Names look like `QSR_MANAGED_<hex>`. At start the
 - The enrollment credential authenticates the Host to Quasar and Quasar to the Host's control port.
 - Guided setup installs per-cluster admin, join and executor credentials on every Host. Installing them again with different values fails with "Managed credentials are immutable; use a new cluster identity to replace them." A restore installs new ones.
 - Each Gateway and node process gets only the secrets its specification references, not the enrollment credential.
+- The Host starts the Gateway and nodes with a cleared environment. From its own environment they keep only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LD_LIBRARY_PATH`, the locale (`LANG`, `LANGUAGE`, `TZ`, `LC_*`), `XDG_*` and `DOTNET_*`, plus the basic system variables on Windows. Nodes also keep `QUASAR_BASE_URL`, `QUASAR_PUBLIC_BASE_URL`, `MAGNETAR_WEB_BASE_URL` and `MAGNETAR_HOST_ID`, so their Quasar agent finds Quasar, and get an agent token of their own. Everything else comes from the deployment. Other variables set on the Host or the Quasar service, such as `QUASAR_CLUSTER_ARCHIVE_URL` or `QUASAR_LAUNCHER_TOKEN`, don't reach them.
 - Quasar keeps its copies encrypted with its Data Protection keys. Back up `cluster-credentials.json` together with Quasar's `DataProtection-Keys` folder.
 
 ## Connection to Quasar
@@ -265,6 +266,7 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `Quasar.Host/PausedClusters.cs`
 - `Quasar.Host/GatewayActualizer.cs`
 - `Quasar.Host/NodeActualizer.cs`
+- `Quasar.Host/ExecutionBundle.cs`
 - `Quasar.Host/ProcessOutputTail.cs`
 - `Quasar.Host/HungNodeEvidence.cs`
 - `Quasar.Host/DeploymentPreparation.cs`

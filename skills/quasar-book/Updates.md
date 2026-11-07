@@ -203,6 +203,13 @@ Under **Notification preferences**, **Quasar and cluster updates** is on by defa
 
 During a planned restart, a restart progress panel replaces the normal lost-connection popup, checks health and version, and reloads the page. Clearing a failed restart brings back the normal reconnect handling. The normal reconnect dialog also checks for a replacement worker, including after native updates or updates started from another browser. Once that worker is ready, it reloads automatically. A temporary interruption to the same worker keeps the usual Retry and Resume controls without forcing a reload.
 
+Health and version requests time out after five seconds so a stalled request does
+not stop recovery. Worker checks continue during the reconnect countdown. The
+dialog warns that displayed data may be out of date and always offers **Reload
+page**, even without a working live connection. See
+[connection warnings](Troubleshooting.md#rejoining-the-server) if startup itself
+does not finish.
+
 ## Managed runtime warmup
 
 At startup Quasar prepares SteamCMD, the Dedicated Server and Magnetar under `<install root>/ManagedRuntime/Tools/`:

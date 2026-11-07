@@ -1,6 +1,28 @@
 // Set up event handlers
 const reconnectModal = document.getElementById("components-reconnect-modal");
 reconnectModal.addEventListener("components-reconnect-state-changed", handleReconnectStateChanged);
+reconnectModal.addEventListener("cancel", event => event.preventDefault());
+const connectionWarning = document.getElementById("quasar-connection-warning");
+const connectionMessage = document.getElementById("quasar-connection-warning-message");
+const reloadPage = () => location.reload();
+document.getElementById("quasar-connection-reload").addEventListener("click", reloadPage);
+document.getElementById("components-reconnect-reload").addEventListener("click", reloadPage);
+const startupTimer = window.setTimeout(() => {
+    showConnectionWarning("Connecting is taking longer than expected. Live updates and controls are not available yet. Check your connection or reload the page to retry.");
+}, 10000);
+function showConnectionWarning(message) {
+    connectionMessage.textContent = message;
+    connectionWarning.hidden = false;
+}
+function handleConnectionState(state) {
+    if (state === "connected" || state === "failed") window.clearTimeout(startupTimer);
+    if (state === "connected") connectionWarning.hidden = true;
+    else if (state === "failed") {
+        showConnectionWarning("Could not establish the live connection to Quasar. Live updates and controls are unavailable. Check your connection, then reload the page to reconnect or sign in again.");
+    }
+}
+window.addEventListener("quasar-connection-state-changed", event => handleConnectionState(event.detail.state));
+handleConnectionState(window.quasarConnectionState);
 let reconnectState = "hide";
 const workerId = JSON.parse(document.getElementById("quasar-connection")?.textContent || "{}").workerId;
 let workerRecovery;
@@ -23,17 +45,21 @@ const resumeButton = document.getElementById("components-resume-button");
 resumeButton.addEventListener("click", resume);
 
 function handleReconnectStateChanged(event) {
+    // Once the framework has a circuit, its reconnect UI owns connection warnings.
+    window.clearTimeout(startupTimer);
+    connectionWarning.hidden = true;
     reconnectState = event.detail.state;
     if (restartOwnsRecovery()) {
         stopWorkerRecovery();
         reconnectModal.close();
         return;
     }
-    if (reconnectState === "show" || reconnectState === "failed") startWorkerRecovery();
+    if (["show", "retrying", "failed"].includes(reconnectState)) startWorkerRecovery();
     else stopWorkerRecovery();
-    if (event.detail.state === "show") {
+    if (["show", "retrying", "failed", "paused", "resume-failed"].includes(reconnectState)) {
         reconnectModal.showModal();
-    } else if (event.detail.state === "hide") {
+    }
+    if (event.detail.state === "hide") {
         reconnectModal.close();
     } else if (event.detail.state === "failed") {
         document.addEventListener("visibilitychange", retryWhenDocumentBecomesVisible);

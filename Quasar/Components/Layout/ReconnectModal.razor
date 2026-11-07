@@ -1,7 +1,17 @@
 ﻿<script type="module" src="@Assets["Components/Layout/ReconnectModal.razor.js"]"></script>
 
-<dialog id="components-reconnect-modal" data-nosnippet>
+<aside id="quasar-connection-warning" role="alert" hidden data-nosnippet>
+    <strong>Quasar connection unavailable</strong>
+    <p id="quasar-connection-warning-message"></p>
+    <button id="quasar-connection-reload" type="button">Reload page</button>
+</aside>
+
+<dialog id="components-reconnect-modal" aria-labelledby="components-reconnect-title" aria-describedby="components-reconnect-description" data-nosnippet>
     <div class="components-reconnect-container">
+        <strong id="components-reconnect-title">Quasar connection interrupted</strong>
+        <p id="components-reconnect-description">
+            Live updates and controls are unavailable until the connection is restored. Displayed data may be out of date.
+        </p>
         <div class="components-rejoining-animation" aria-hidden="true">
             <div></div>
             <div></div>
@@ -27,5 +37,6 @@
         <button id="components-resume-button" class="components-pause-visible components-resume-failed-visible">
             Resume
         </button>
+        <button id="components-reconnect-reload" type="button">Reload page</button>
     </div>
 </dialog>
