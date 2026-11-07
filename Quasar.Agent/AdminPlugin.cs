@@ -47,8 +47,7 @@ namespace Quasar.Agent
             AgentProfiler.Configure(options);
             AgentProfilerPatches.Apply(options);
             ChatCapturePatch.Apply();
-            if (!_clusterMode)
-                ServerCommands.Register(typeof(AdminPlugin).Assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand));
+            RegisterCommands(_clusterMode);
             _bridge = new GameBridge(gameServer, options);
 
             // Start capturing plugin log lines before the connection loop so any
@@ -57,6 +56,7 @@ namespace Quasar.Agent
             _outbox.Start();
 
             _connection = new AgentConnection(_bridge, new WebServiceLocator(), options, _outbox);
+            PlayerCommands.Send = request => _connection?.TrySendPlayerRequest(request) == true;
             if (!_clusterMode)
             {
                 StopCommand.AdminStopRequested = ReportAdminStop;
@@ -74,12 +74,40 @@ namespace Quasar.Agent
             MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
         }
 
+        // A cluster node runs only the players' commands: the node a player is attached to
+        // dispatches their "!" lines (the cluster's chat forwarding runs after Magnetar's
+        // command prefix), and lifecycle commands belong to the Gateway. UI plugins' player
+        // commands come from Quasar on connecting and are registered in Update.
+        internal static void RegisterCommands(bool clusterMode)
+        {
+            var assembly = typeof(AdminPlugin).Assembly;
+            if (clusterMode)
+                ServerCommands.Register(assembly, typeof(LinkCommand));
+            else
+                ServerCommands.Register(assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand),
+                    typeof(LinkCommand));
+            PlayerCommands.Registered = true;
+        }
+
+        private static void RegisterPluginCommands()
+        {
+            try
+            {
+                PlayerCommands.RegisterPending();
+            }
+            catch (Exception exception)
+            {
+                Console.WriteLine($"[Quasar.Agent] Could not register the UI plugins' chat commands: {exception}");
+            }
+        }
+
         public void Update()
         {
             if (!_clusterMode)
                 RestartCommand.UpdateScheduledRestart();
             _bridge?.Update();
             RefreshDeathSubscriptions();
+            RegisterPluginCommands();
         }
 
         public void Dispose()
@@ -93,6 +121,7 @@ namespace Quasar.Agent
             QuitCommand.AdminStopRequested = null;
             RestartCommand.AdminRestartRequested = null;
             RestartCommand.ClearScheduledRestart();
+            PlayerCommands.Send = null;
             MyVisualScriptLogicProvider.PlayerDied -= OnPlayerDied;
             UnsubscribeDeathHandlers();
             _connection?.Stop();

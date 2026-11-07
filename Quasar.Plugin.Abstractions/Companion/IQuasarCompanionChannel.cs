@@ -20,6 +20,17 @@ public interface IQuasarCompanionChannel
         string operation,
         TRequest request,
         CancellationToken cancellationToken);
+
+    /// <summary>As the other overload, with a timeout of the caller's instead of the 30 s default, for slow
+    /// operations. Implementations without timeouts of their own, like test fakes, ignore it.</summary>
+    Task<TResponse> SendAsync<TRequest, TResponse>(
+        string serverId,
+        string companionPluginId,
+        string operation,
+        TRequest request,
+        TimeSpan timeout,
+        CancellationToken cancellationToken) =>
+        SendAsync<TRequest, TResponse>(serverId, companionPluginId, operation, request, cancellationToken);
 }
 
 public sealed record QuasarCompanionServer(string ServerId, string AgentId, string DisplayName)

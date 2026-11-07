@@ -1,0 +1,121 @@
+@inject RbacConfigCatalog Rbac
+@inject SteamProfileClient SteamProfiles
+@inject QuasarPermissionService Permissions
+@inject ISnackbar Snackbar
+
+<section class="quasar-panel pa-4">
+    <div class="quasar-layout quasar-gap-3">
+        <h2 class="quasar-text quasar-type-h6">Discord Admin Mappings</h2>
+        <p>
+            A mapped Discord user can use the admin commands UI plugins add to Discord, such as the assistant plugin's
+            <code>/assistant</code>, as the mapped Steam account: with its roles, never more than that admin could do in Quasar.
+            Discord's own Administrator permission doesn't count here.
+        </p>
+        <MudGrid>
+            <MudItem xs="12" md="5">
+                <MudTextField @bind-Value="_discordUserId" Label="Discord user ID" Variant="Variant.Outlined" Disabled="@_saving"
+                              HelperText="Right-click the user in Discord with developer mode on, then Copy User ID." />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField @bind-Value="_steamId" Label="Steam account" Variant="Variant.Outlined" Disabled="@_saving"
+                              HelperText="SteamID64 or profile URL of the account whose Quasar roles the Discord user acts with." />
+            </MudItem>
+            <MudItem xs="12" md="1" Class="d-flex align-center">
+                <MudIconButton Icon="@Icons.Material.Filled.Add" Color="Color.Primary" aria-label="Add Discord admin mapping"
+                               Disabled="@(_saving || string.IsNullOrWhiteSpace(_discordUserId) || string.IsNullOrWhiteSpace(_steamId))"
+                               OnClick="AddAsync" />
+            </MudItem>
+        </MudGrid>
+        @if (_mappings.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No Discord users are mapped.</MudAlert>
+        }
+        else
+        {
+            <MudTable T="DiscordSubjectMapping" Items="_mappings" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh>Discord user ID</MudTh>
+                    <MudTh>Steam subject</MudTh>
+                    <MudTh>Roles</MudTh>
+                    <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Discord user ID" Class="mono">@context.DiscordUserId</MudTd>
+                    <MudTd DataLabel="Steam subject" Class="mono">@context.Subject</MudTd>
+                    <MudTd DataLabel="Roles">@string.Join(", ", Rbac.GetSubjectRoles(context.Provider, context.Subject))</MudTd>
+                    <MudTd DataLabel="" Class="quasar-actions-column">
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Remove Discord admin mapping"
+                                       Disabled="@_saving" OnClick="@(() => RemoveAsync(context))" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </div>
+</section>
+
+@code {
+    private List<DiscordSubjectMapping> _mappings = [];
+    private string _discordUserId = string.Empty;
+    private string _steamId = string.Empty;
+    private bool _saving;
+
+    protected override void OnInitialized() => _mappings = Rbac.GetConfig().DiscordSubjects;
+
+    private async Task AddAsync()
+    {
+        _saving = true;
+        try
+        {
+            var discordUserId = _discordUserId.Trim();
+            if (!ulong.TryParse(discordUserId, out _))
+                throw new ArgumentException("Enter the numeric Discord user ID.");
+            var steamId = await SteamProfiles.ResolveSteamIdAsync(_steamId.Trim());
+            if (await SaveAsync(config =>
+                {
+                    config.DiscordSubjects.RemoveAll(mapping => mapping.DiscordUserId == discordUserId);
+                    config.DiscordSubjects.Add(new() { DiscordUserId = discordUserId, Subject = steamId });
+                }, "Added Discord admin mapping."))
+            {
+                _discordUserId = string.Empty;
+                _steamId = string.Empty;
+            }
+        }
+        catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task RemoveAsync(DiscordSubjectMapping mapping)
+    {
+        _saving = true;
+        try
+        {
+            await SaveAsync(config => config.DiscordSubjects.RemoveAll(candidate => candidate.DiscordUserId == mapping.DiscordUserId),
+                "Removed Discord admin mapping.");
+        }
+        finally { _saving = false; }
+    }
+
+    private async Task<bool> SaveAsync(Action<RbacConfig> change, string message)
+    {
+        try
+        {
+            await Rbac.UpdateAsync(async config =>
+            {
+                if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+                    throw new UnauthorizedAccessException("Security administration permission is required.");
+                change(config);
+            });
+            _mappings = Rbac.GetConfig().DiscordSubjects;
+            Snackbar.Add(message, Severity.Success);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving Discord admin mappings: {exception.Message}", Severity.Error);
+            return false;
+        }
+    }
+}

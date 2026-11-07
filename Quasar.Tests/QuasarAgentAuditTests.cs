@@ -125,6 +125,13 @@ public sealed class QuasarAgentAuditTests : IDisposable
         );
         services.AddQuasarOperation<JsonElement, object?>(
             Plugin,
+            "servers.down",
+            [QuasarPolicyNames.CanEditServers],
+            (context, input, token) =>
+                throw new QuasarOperationException(503, "The server is down.")
+        );
+        services.AddQuasarOperation<JsonElement, object?>(
+            Plugin,
             "servers.slow",
             [QuasarPolicyNames.CanView],
             async (context, input, token) =>
@@ -390,6 +397,7 @@ public sealed class QuasarAgentAuditTests : IDisposable
             ).StatusCode
         );
         Assert.Equal(409, (await CallAsync(editor, "servers.fail")).StatusCode);
+        Assert.Equal(503, (await CallAsync(editor, "servers.down")).StatusCode);
         Assert.Equal(
             403,
             (
@@ -402,7 +410,7 @@ public sealed class QuasarAgentAuditTests : IDisposable
         );
 
         var entries = await QueryAsync();
-        Assert.Equal(4, entries.Count);
+        Assert.Equal(5, entries.Count);
         Assert.DoesNotContain(entries, entry => entry.Operation.EndsWith("servers.read"));
         var applied = entries.Single(entry => entry.UndoData is not null);
         Assert.Equal(
@@ -424,12 +432,18 @@ public sealed class QuasarAgentAuditTests : IDisposable
         );
         Assert.Equal("kept", arguments.GetProperty("nested").GetProperty("name").GetString());
         Assert.Equal(4, arguments.GetProperty("value").GetInt32());
+        // The operation's own 4xx answer is a refusal; a 5xx one is a failure.
+        var declined = entries.Single(entry => entry.Operation.EndsWith("servers.fail"));
+        Assert.Equal(
+            (QuasarAuditResult.Refused, "The server is busy.", QuasarReversal.NotReversible),
+            (declined.Result, declined.Error, declined.Reversal)
+        );
         var failed = entries.Single(entry => entry.Result == QuasarAuditResult.Failed);
         Assert.Equal(
-            ("The server is busy.", QuasarReversal.NotReversible),
+            ("The server is down.", QuasarReversal.NotReversible),
             (failed.Error, failed.Reversal)
         );
-        Assert.Single(entries, entry => entry.Result == QuasarAuditResult.Refused);
+        Assert.Equal(2, entries.Count(entry => entry.Result == QuasarAuditResult.Refused));
         // An undoable operation that recorded nothing to undo is not reversible.
         Assert.Single(
             entries,
@@ -464,7 +478,7 @@ public sealed class QuasarAgentAuditTests : IDisposable
                 )
             );
         });
-        Assert.Equal(2, (await QueryAsync(new() { Result = QuasarAuditResult.Refused })).Count);
+        Assert.Equal(3, (await QueryAsync(new() { Result = QuasarAuditResult.Refused })).Count);
     }
 
     [Fact]
@@ -663,7 +677,9 @@ public sealed class QuasarAgentAuditTests : IDisposable
     public async Task ApprovedPlayerProposalRunsAsTheSamePlayer()
     {
         const string adminId = "76561198000000121";
+        const string viewerId = "76561198000000122";
         await MapSteamAsync(adminId, QuasarRoles.Admin);
+        await MapSteamAsync(viewerId, QuasarRoles.Viewer);
         ClaimsPrincipal? caller = null;
         var services = new ServiceCollection();
         foreach (var descriptor in _descriptors)
@@ -683,7 +699,14 @@ public sealed class QuasarAgentAuditTests : IDisposable
         var audit = provider.GetRequiredService<QuasarAuditLog>();
         var player = provider
             .GetRequiredService<QuasarAgentPrincipals>()
-            .CreatePlayer("76561198000000001", "Pilot", "42", "player-conversation", "!ask");
+            .CreatePlayer(
+                "76561198000000001",
+                "Pilot",
+                "42",
+                "player-conversation",
+                "!ask",
+                "fleet"
+            );
         var proposal = await audit.RecordProposalAsync(
             player,
             Plugin,
@@ -692,12 +715,23 @@ public sealed class QuasarAgentAuditTests : IDisposable
             null,
             default
         );
+        Assert.Equal("fleet", proposal.Requester.Server);
 
+        // Deciding on a player agent's action needs server control in place of CanActAsPlayer.
+        Assert.Equal(
+            403,
+            (await audit.RejectAsync(Steam(viewerId), proposal.Id, "no", default)).StatusCode
+        );
+        Assert.Equal(
+            403,
+            (await audit.ApproveAsync(Steam(viewerId), proposal.Id, default)).StatusCode
+        );
         Assert.Equal(
             200,
             (await audit.ApproveAsync(Steam(adminId), proposal.Id, default)).StatusCode
         );
         Assert.True(caller!.IsQuasarAgent(out var agent));
+        Assert.Equal("fleet", agent.Server);
         Assert.Equal(QuasarAgentKind.Player, agent.Kind);
         Assert.Equal("76561198000000001", agent.PlayerSteamId);
         Assert.Equal("Pilot", agent.PlayerName);
@@ -750,9 +784,11 @@ public sealed class QuasarAgentAuditTests : IDisposable
         var third = (await QueryAsync()).First();
         await _rbac.UpdateAsync(config =>
         {
+            // Undo follows the current rule, so turning the operation off stops it.
             config.OperationOverrides[Plugin + "/servers.set"] = new()
             {
-                RequiredPolicies = [QuasarPolicyNames.CanActAsPlayer],
+                Enabled = false,
+                RequiredPolicies = [QuasarPolicyNames.CanEditServers],
             };
             return Task.CompletedTask;
         });

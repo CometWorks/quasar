@@ -42,7 +42,8 @@ public sealed class QuasarAgentPrincipals(
         string? playerName,
         string? discordUserId,
         string conversationId,
-        string request
+        string request,
+        string? server = null
     )
     {
         if (!RbacConfigCatalog.IsSteamId64(steamId))
@@ -60,7 +61,8 @@ public sealed class QuasarAgentPrincipals(
                     discordUserId,
                     conversationId,
                     request,
-                    []
+                    [],
+                    server
                 )
             )
         );

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Magnetar.Protocol.Model;
 
 namespace Magnetar.Protocol.Transport;
@@ -21,4 +22,8 @@ public class AgentWireMessage
     public PluginConfigUpdateRequest? PluginConfigUpdateRequest { get; set; }
 
     public PluginLogBatch? PluginLogs { get; set; }
+
+    public PlayerRequest? PlayerRequest { get; set; }
+
+    public List<ChatCommandInfo>? ChatCommands { get; set; }
 }

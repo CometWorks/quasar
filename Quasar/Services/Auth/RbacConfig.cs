@@ -12,6 +12,8 @@ public sealed class RbacConfig
     public Dictionary<string, QuasarOperationRule?> OperationOverrides { get; set; } = new(StringComparer.Ordinal);
     // Roles of the agent principals, keyed "assistant" and "player". Never admin.
     public Dictionary<string, List<string>> AgentRoles { get; set; } = DefaultAgentRoles();
+    // Discord users who may use UI plugins' admin commands, as the Quasar subject they act as.
+    public List<DiscordSubjectMapping> DiscordSubjects { get; set; } = [];
     [JsonIgnore] internal bool SdkRulesValid { get; set; } = true;
 
     public RbacConfig Clone() => new()
@@ -24,6 +26,7 @@ public sealed class RbacConfig
             StringComparer.OrdinalIgnoreCase),
         OperationOverrides = OperationOverrides.ToDictionary(pair => pair.Key, pair => pair.Value?.Clone(), StringComparer.Ordinal),
         AgentRoles = (AgentRoles ?? DefaultAgentRoles()).ToDictionary(pair => pair.Key, pair => pair.Value?.ToList() ?? [], StringComparer.OrdinalIgnoreCase),
+        DiscordSubjects = (DiscordSubjects ?? []).Select(mapping => mapping.Clone()).ToList(),
         SdkRulesValid = SdkRulesValid,
     };
 
@@ -61,6 +64,13 @@ public sealed class RbacConfig
             pair => NormalizeRoles(agentRoles.GetValueOrDefault(pair.Key) ?? pair.Value)
                 .Where(role => role != QuasarRoles.Admin).ToList(),
             StringComparer.OrdinalIgnoreCase);
+
+        normalized.DiscordSubjects = normalized.DiscordSubjects
+            .Select(DiscordSubjectMapping.Normalize)
+            .Where(mapping => ulong.TryParse(mapping.DiscordUserId, out _) && !string.IsNullOrWhiteSpace(mapping.Subject))
+            .DistinctBy(mapping => mapping.DiscordUserId, StringComparer.Ordinal)
+            .OrderBy(mapping => mapping.DiscordUserId, StringComparer.Ordinal)
+            .ToList();
 
         return normalized;
     }
@@ -112,6 +122,28 @@ public sealed class SubjectRoleMapping
 
     public static List<string> ParseRoles(string? value) =>
         RbacConfig.NormalizeRoles((value ?? string.Empty).Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries));
+}
+
+/// <summary>A Discord user acting as a Quasar subject for UI plugins' admin commands. Only Steam subjects can be mapped in v1.</summary>
+public sealed class DiscordSubjectMapping
+{
+    public string DiscordUserId { get; set; } = string.Empty;
+    public string Provider { get; set; } = QuasarAuthSchemes.Steam;
+    public string Subject { get; set; } = string.Empty;
+
+    public DiscordSubjectMapping Clone() => new()
+    {
+        DiscordUserId = DiscordUserId,
+        Provider = Provider,
+        Subject = Subject,
+    };
+
+    public static DiscordSubjectMapping Normalize(DiscordSubjectMapping mapping) => new()
+    {
+        DiscordUserId = (mapping.DiscordUserId ?? string.Empty).Trim(),
+        Provider = string.IsNullOrWhiteSpace(mapping.Provider) ? QuasarAuthSchemes.Steam : mapping.Provider.Trim(),
+        Subject = (mapping.Subject ?? string.Empty).Trim(),
+    };
 }
 
 public sealed class ClaimRoleMapping

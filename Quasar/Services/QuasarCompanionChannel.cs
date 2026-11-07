@@ -19,11 +19,21 @@ public sealed class QuasarCompanionChannel : IQuasarCompanionChannel
         _clusters = clusters;
     }
 
+    public Task<TResponse> SendAsync<TRequest, TResponse>(
+        string serverId,
+        string companionPluginId,
+        string operation,
+        TRequest request,
+        CancellationToken cancellationToken) =>
+        SendAsync<TRequest, TResponse>(serverId, companionPluginId, operation, request, RequestTimeout, cancellationToken);
+
+    /// <summary>The same request with its own wait for the answer, such as a grid restore.</summary>
     public async Task<TResponse> SendAsync<TRequest, TResponse>(
         string serverId,
         string companionPluginId,
         string operation,
         TRequest request,
+        TimeSpan timeout,
         CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(serverId))
@@ -53,7 +63,7 @@ public sealed class QuasarCompanionChannel : IQuasarCompanionChannel
             Payload = JsonSerializer.Serialize(companionRequest, JsonOptions),
         };
 
-        var result = await _registry.SendCommandAndWaitAsync(command, RequestTimeout, cancellationToken);
+        var result = await _registry.SendCommandAndWaitAsync(command, timeout, cancellationToken);
         if (!result.Success)
             throw new InvalidOperationException(string.IsNullOrWhiteSpace(result.Message)
                 ? "The companion plugin request failed."

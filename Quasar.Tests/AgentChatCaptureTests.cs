@@ -6,6 +6,7 @@ using Magnetar.Protocol.Model;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Agent;
 using Quasar.Services.Discord;
+using VRage.Network;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -14,6 +15,20 @@ public sealed class AgentChatCaptureTests
 {
     private const byte Global = 0;
     private const byte Private = 3;
+
+    [Fact]
+    public void ServerChatSendsAsTheServerSoTheAntiSpamSkipsIt()
+    {
+        // The DS checks chat anti-spam only when the event sender is not the server.
+        Assert.Equal(0UL, MyEventContext.Current.Sender.Value);
+        using (ServerChat.AsServer(90071992547409920))
+        {
+            Assert.Equal(90071992547409920UL, MyEventContext.Current.Sender.Value);
+            Assert.True(MyEventContext.Current.IsLocallyInvoked);
+        }
+        Assert.Equal(0UL, MyEventContext.Current.Sender.Value);
+    }
+
     [Fact]
     public void HarmonyHookCapturesOnlyAcceptedDispatchAndClearsStateOnReturnOrException()
     {

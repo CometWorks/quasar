@@ -33,12 +33,14 @@ public sealed record QuasarAuditPrincipal(
 
 /// <summary>Who asked for the action. For a person acting directly it is that person.</summary>
 /// <param name="Provider">The person's sign-in provider, so an approval can rebuild the asker.</param>
+/// <param name="Server">For a player, the server they asked from, so an approval can rebuild the player agent.</param>
 public sealed record QuasarAuditRequester(
     string? Subject = null,
     string? SteamId = null,
     string? PlayerName = null,
     string? DiscordUserId = null,
-    string? Provider = null
+    string? Provider = null,
+    string? Server = null
 );
 
 /// <summary>One line of the append-only audit log. Entries are never rewritten; a reversal is a new entry.</summary>

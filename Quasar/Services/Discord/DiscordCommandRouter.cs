@@ -1,5 +1,7 @@
 using Discord;
 using Discord.WebSocket;
+using Quasar.Plugin.Abstractions.Commands;
+using Quasar.Services.Players;
 
 namespace Quasar.Services.Discord;
 
@@ -7,8 +9,11 @@ public sealed class DiscordCommandRouter
 {
     private const string WhisperCommandName = "whisper";
     private const string FactionChannelCommandName = "faction-channel";
+    private const string LinkCommandName = "link";
     private readonly DiscordOptionsCatalog _optionsCatalog;
     private readonly DiscordCommandDispatcher _dispatcher;
+    private readonly QuasarChatCommands _requests;
+    private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<DiscordCommandRouter> _logger;
     private readonly object _messageSync = new();
     private Task _messageTask = Task.CompletedTask;
@@ -16,10 +21,14 @@ public sealed class DiscordCommandRouter
     public DiscordCommandRouter(
         DiscordOptionsCatalog optionsCatalog,
         DiscordCommandDispatcher dispatcher,
+        QuasarChatCommands requests,
+        IHostApplicationLifetime lifetime,
         ILogger<DiscordCommandRouter> logger)
     {
         _optionsCatalog = optionsCatalog;
         _dispatcher = dispatcher;
+        _requests = requests;
+        _lifetime = lifetime;
         _logger = logger;
     }
 
@@ -147,7 +156,24 @@ public sealed class DiscordCommandRouter
             .AddOption("server", ApplicationCommandOptionType.String, "Server name, or cluster:<name>", isRequired: true)
             .AddOption("faction", ApplicationCommandOptionType.String, "Space Engineers faction tag", isRequired: true);
 
-        await guild.BulkOverwriteApplicationCommandAsync([whisper.Build(), factionChannel.Build()]);
+        var link = new SlashCommandBuilder()
+            .WithName(LinkCommandName)
+            .WithDescription("Link your Discord account to your Space Engineers player. Type !link in game for a code.")
+            .WithContextTypes(InteractionContextType.Guild)
+            .AddOption("code", ApplicationCommandOptionType.String, "The code !link whispered to you in game", isRequired: true);
+
+        List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build(), link.Build()];
+        // UI plugins' commands, which exist only while their plugin is loaded.
+        foreach (var command in _requests.Commands)
+            commands.Add(new SlashCommandBuilder()
+                .WithName(command.Name)
+                .WithDescription(QuasarChatCommands.Short(command.Description))
+                .WithContextTypes(InteractionContextType.Guild)
+                .AddOption(command.ArgumentName, ApplicationCommandOptionType.String,
+                    QuasarChatCommands.Short(command.ArgumentDescription), isRequired: true)
+                .Build());
+
+        await guild.BulkOverwriteApplicationCommandAsync(commands.ToArray());
     }
 
     public async Task HandleSlashCommandAsync(SocketSlashCommand command)
@@ -165,6 +191,13 @@ public sealed class DiscordCommandRouter
                     break;
                 case FactionChannelCommandName:
                     await HandleFactionChannelAsync(command, options);
+                    break;
+                case LinkCommandName:
+                    await HandleLinkAsync(command);
+                    break;
+                default:
+                    if (_requests.Commands.FirstOrDefault(info => info.Name == command.Data.Name) is { } plugin)
+                        await HandlePluginCommandAsync(command, plugin);
                     break;
             }
         }
@@ -198,6 +231,52 @@ public sealed class DiscordCommandRouter
 
         await _dispatcher.SendWhisperAsync(server, recipient, message, author);
         await command.ModifyOriginalResponseAsync(properties => properties.Content = $"Whisper sent to {recipient}.");
+    }
+
+    private async Task HandleLinkAsync(SocketSlashCommand command)
+    {
+        await command.DeferAsync(ephemeral: true);
+        var link = await _requests.LinkDiscordAsync(command.User.Id.ToString(), GetOption(command, "code"), _lifetime.ApplicationStopping);
+        await command.ModifyOriginalResponseAsync(properties => properties.Content = link is null
+            ? "That code is unknown or expired. Type !link in game for a new one."
+            : "Linked. Quasar now knows your Space Engineers player.");
+    }
+
+    // Player commands answer privately (ephemeral); admin commands answer in the channel. The answer can take
+    // minutes, so it runs off the gateway's event handler.
+    private async Task HandlePluginCommandAsync(SocketSlashCommand command, QuasarChatCommandInfo plugin)
+    {
+        var ephemeral = plugin.Scope == QuasarChatCommandScope.Player;
+        await command.DeferAsync(ephemeral: ephemeral);
+        var text = GetOption(command, plugin.ArgumentName);
+        var responded = 0;
+        async Task ReplyAsync(string reply, CancellationToken token)
+        {
+            foreach (var part in QuasarTextSplitter.Split(reply, QuasarTextSplitter.DiscordLength, QuasarTextSplitter.MaxDiscordMessages))
+            {
+                if (Interlocked.Exchange(ref responded, 1) == 0)
+                    await command.ModifyOriginalResponseAsync(properties => properties.Content = part);
+                else
+                    await command.FollowupAsync(part, ephemeral: ephemeral, allowedMentions: AllowedMentions.None);
+            }
+        }
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await _requests.HandleDiscordAsync(plugin.Name, command.User.Id.ToString(),
+                    command.ChannelId?.ToString() ?? string.Empty, text, ReplyAsync, _lifetime.ApplicationStopping);
+                if (Volatile.Read(ref responded) == 0)
+                    await command.DeleteOriginalResponseAsync();
+            }
+            catch (Exception exception)
+            {
+                _logger.LogWarning(exception, "Discord /{CommandName} failed", command.Data.Name);
+                try { await ReplyAsync("The command failed: " + exception.Message, CancellationToken.None); }
+                catch (Exception) { }
+            }
+        });
     }
 
     private async Task HandleFactionChannelAsync(SocketSlashCommand command, DiscordOptions options)

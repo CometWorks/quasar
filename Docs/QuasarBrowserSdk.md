@@ -59,7 +59,10 @@ services.AddQuasarOperation<SetMotdRequest, SetMotdResponse>(
 - `Effect` is `Read` or `Change`. Read and subscription operations default to
   `Read`, JSON and upload operations to `Change`. Declare `Effect = Read` on a
   JSON operation that changes nothing. Quasar writes an audit entry for every
-  change operation call, and an assistant can only propose a change.
+  change operation call, and an assistant can only propose a change. A call
+  that throws `QuasarOperationException` with a 4xx status is audited as
+  refused with its message as the reason; a 5xx status or any other exception
+  is audited as failed.
 - `Area` is a lowercase identifier such as `servers` or `config`. It defaults to
   the first `.`-separated segment of the operation ID.
 - `Reversal` is `NotReversible` (the default), `NothingToReverse` (a save, a
@@ -89,9 +92,10 @@ left; otherwise it returns a short description of the difference, which the
 admin sees before choosing **Undo anyway**. Then it calls `ReverseAsync` and
 writes a new entry that points at the reversed one. The handler gets the
 recorded data and the entry's blob folder in `QuasarUndoContext`. The admin
-needs `CanManageSecurity` and the original operation's current policies. Undo
-data and blobs expire with the entry, after `Quasar:Audit:RetentionDays`
-(default 30).
+needs `CanManageSecurity` and the operation's current policies, checked like an
+approver's (see Proposals): no person satisfies `CanActAsPlayer`, so
+`CanControlServers` stands in for it. Undo data and blobs expire with the
+entry, after `Quasar:Audit:RetentionDays` (default 30).
 
 The audit log is `audit/<yyyy-MM>.jsonl` in the Quasar data folder, one JSON
 object per line, with blobs in `audit/blobs/<entry id>/`. Argument values whose
@@ -103,15 +107,16 @@ query entries. Only changes made through the operation registry are audited.
 
 `RecordProposalAsync` writes a `proposed` entry from the agent principal. Core
 records who the agent acts for from the real principal: the asker's sign-in
-provider and subject for the assistant, the Steam ID, player name and Discord
-user ID for the player agent. A plugin never rebuilds an agent principal itself:
+provider and subject for the assistant, the Steam ID, player name, Discord
+user ID and the server the player asked from for the player agent. A plugin never rebuilds an agent principal itself:
 
 - `ApproveAsync(approver, proposalId)` rebuilds the agent from the proposal
   entry and dispatches the recorded operation and arguments with
   `ApprovedBy = approver`, so the agent's role, the asker's policies and the
-  approver's policies are all checked at approval time. A player agent's
-  proposal needs an approver who satisfies `CanControlServers` in place of
-  `CanActAsPlayer`. The `approved` entry names the proposal in `proposal`.
+  approver's policies are all checked at approval time. The approver needs
+  the operation's current policies with `CanControlServers` in place of
+  `CanActAsPlayer`, so a player agent's proposal needs server control. Undo
+  and `RejectAsync` use the same rule. The `approved` entry names the proposal in `proposal`.
 - `RejectAsync(approver, proposalId, reason)` writes a `rejected` entry linked
   to the proposal, after checking that the approver could have approved it.
   Pass a null approver when the plugin lets a proposal expire; the reason is
@@ -151,6 +156,118 @@ caller's roles; the dispatcher still does that at call time.
 
 Player-scoped operations use the `CanActAsPlayer` policy. No role grants it and
 a role override cannot; only the player agent satisfies it.
+
+### Chat commands
+
+A UI plugin adds chat commands by registering `IQuasarChatCommand`
+implementations in DI (`Quasar.Plugin.Abstractions.Commands`). `Info` names the
+command and its one text argument:
+
+- `Name`: 1 to 32 lowercase letters, digits or hyphens. Core's own commands
+  (`link`, `whisper`, `faction-channel`, `help`, `stop`, `restart`, `quit`) can't
+  be taken, and when two plugins pick the same name the first one wins. Core
+  logs the commands it leaves out.
+- `Scope`: `Player` commands are `!name <argument>` in game on every server and
+  cluster node, and `/name` on Discord with private answers. `Admin` commands
+  are `/name` on Discord only, answered in the channel.
+- `Description`, `ArgumentName`, `ArgumentDescription`: shown in `!help` and in
+  the Discord command list (at most 100 characters each).
+- `Acknowledgement`: the reply the player sees in game right after sending,
+  such as "Asking the assistant...". The answer comes later.
+
+Core builds the caller; a plugin never does. `HandleAsync` gets a
+`QuasarChatCommandRequest`:
+
+- `Caller`: for a player command, the player-agent principal, or null for a
+  Discord user who has not linked a Steam account. For an admin command, the
+  principal of the Discord user's mapped subject (`discordSubjects` in
+  `rbac.json`, the **Discord Admin Mappings** panel on the Security page) with
+  its current roles: a person, never an agent. Unmapped Discord users never
+  reach an admin command.
+- `ConversationKey`: `steam:<SteamID64>` for a player, which follows them
+  across cluster nodes and to Discord once linked; `discord:<user id>`
+  otherwise.
+- `Text`: trimmed, at most 2000 characters, never empty.
+- `Source`: `Game` with the standalone server's or cluster's unique name and,
+  on a cluster, the node; or `Discord` with the user and channel IDs.
+- `ReplyAsync`: whispers in game, split into messages of at most 500
+  characters and 12 per answer (the last one reads `…(cut)`), or the Discord
+  reply, split at 2000 characters.
+
+When Quasar.Agent connects, Quasar sends it the player commands in a
+`chat-commands` wire message, and the agent registers each one as a Magnetar
+chat command the next game tick. A use comes back as a `player-request` wire
+message with the command name as its kind; Quasar takes the server from the
+authenticated connection and the Steam ID and name from the game session.
+Plugin commands and `!link` need Magnetar 2.4.3.6 or later, the first to pass
+arguments to a command root's default command. Magnetar can't drop a
+registered command, so a command whose plugin is gone stays until the server
+restarts and answers that it is not available.
+
+`!link` whispers a one-time code (8 characters, valid 10 minutes, one per
+player) and `/link CODE` on Discord stores the pair in `player-links.json` in the
+Quasar data folder. A Discord user has one Steam ID and a Steam ID one Discord
+user; a new link replaces older ones. Admins see and remove links on the
+**Players** page.
+
+### Notice sources
+
+An `IQuasarNoticeSource` (`Quasar.Plugin.Abstractions.Notifications`) registered in DI adds `QuasarNotice` entries (key,
+title, body, URL, time, severity) to web push notifications and the
+notification list of a signed-in account. `GetNoticesAsync` gets that account
+as a `ClaimsPrincipal` with its current roles (the push sweep rebuilds it from
+the role mapping each time), so a source can check a policy on it with
+`IAuthorizationService`, for example to tell only the admins who could approve
+a proposal. A browser gets each key once.
+Keys must be 1 to 256 characters and not start with the announcement prefix,
+the URL must be a path inside Quasar (`/...`), and severity is `info`,
+`warning` or `critical`. A source that throws is skipped.
+
+### Discord channels
+
+`IQuasarDiscordChannels.PostAsync(channelId, text)`
+(`Quasar.Plugin.Abstractions.Discord`) posts through Quasar's bot
+to a text channel of the configured guild, for example a proposal with a link
+to the approvals page. Text over 2000 characters is split into up to 5
+messages. Mentions are never resolved, so a model-written `@everyone` or role
+mention pings nobody. It returns false when the bot isn't connected, the text
+is empty, or the channel isn't in the guild.
+
+### Player operations
+
+Core registers two player agent operations under `quasar.core`, with the
+default policy `CanActAsPlayer` and area `my`. UI plugins can add more under
+the same policy; the assistant plugin adds its Grid Backups ones (`my.grids`,
+`my.grid.backups`, `my.grid.losses`, `my.grid.restore`). None takes a player:
+the Steam ID comes from the calling player agent, and a `steamId` in the
+request is ignored. A request may name a server with `uniqueName` (a standalone
+server or a cluster unique name). Without it, the server the player asked from
+is used; a Discord request with more than one server online gets 400 with the
+list. Each one has a `Description` for an agent's tool list.
+
+| Operation | Kind | Request | Result |
+| --- | --- | --- | --- |
+| `my.server.info` | read | `uniqueName?` | name, cluster, status, players online, server description and message of the day of its config profile |
+| `my.grid.locate` | read | `gridId`, `uniqueName?` | `gps` (`GPS:name:x:y:z:`) of a grid in the world; 403 unless the player is among its big owners, 404 when it isn't there |
+
+### Server queries
+
+`IQuasarServerQueries` (`Quasar.Plugin.Abstractions.Servers`) answers what a
+companion plugin can't answer alone, mostly where things are on a cluster:
+
+- `GetServers()`: the online standalone servers and clusters, each cluster with
+  its regular nodes (never the World Authority), each node with its agent ID,
+  cluster node ID and loaded Magnetar plugins.
+- `FindPlayer(server, steamId)`: the agent ID of the node the player is on.
+- `FindGridsAsync(server, gridIds)`: the node that has each grid now; on a
+  cluster the node that owns it wins over one with a copy.
+- `FindPositionOwnerAsync(server, x, y, z, radius)`: the node that owns the
+  grid or character nearest the position within the radius, through the
+  agent's `ResolvePositionOwner` command.
+
+The agent IDs are companion request targets. For slow companion operations,
+`IQuasarCompanionChannel.SendAsync` has an overload with its own timeout
+instead of the 30 s default.
 
 ## Browser requests
 

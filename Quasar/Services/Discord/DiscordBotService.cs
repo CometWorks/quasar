@@ -373,6 +373,9 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         catch (Exception error) { _logger.LogError(error, "Discord cluster polling stopped."); }
     }
 
+    /// <summary>The connected client, or null while the bot is off.</summary>
+    internal DiscordSocketClient? CurrentClient => GetClient();
+
     private DiscordSocketClient? GetClient()
     {
         lock (_sync)

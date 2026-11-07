@@ -34,6 +34,9 @@ public class AgentSnapshot
     /// <summary>Fenced cluster chat handler and SDK broadcast capability are available.</summary>
     public bool ClusterChatReady { get; set; }
 
+    /// <summary>The agent registered <c>!link</c>, registers the UI plugins' player commands Quasar sends, and sends their uses as player requests.</summary>
+    public bool PlayerCommandsReady { get; set; }
+
     public string DeploymentRevision { get; set; } = string.Empty;
     public bool? ReadinessVerified { get; set; }
     public string DeploymentFailure { get; set; } = string.Empty;

@@ -1,0 +1,87 @@
+@using System.Globalization
+@using Quasar.Services.Players
+@using Microsoft.Extensions.DependencyInjection
+@implements IDisposable
+@inject IServiceProvider Services
+@inject KnownPlayerCatalog KnownPlayers
+@inject QuasarPermissionService Permissions
+@inject ISnackbar Snackbar
+
+@if (_links.Count > 0)
+{
+    <section class="quasar-panel pa-4 mt-4">
+        <div class="quasar-layout quasar-gap-3">
+            <h2 class="quasar-text quasar-type-h6">Discord Links</h2>
+            <p>Players link their Discord account with <code>!link</code> in game and <code>/link CODE</code> on Discord, so the assistant can answer them there about their own things.</p>
+            <MudTable T="QuasarPlayerLink" Items="_links" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh>Player</MudTh>
+                    <MudTh>Steam ID</MudTh>
+                    <MudTh>Discord user ID</MudTh>
+                    <MudTh>Linked</MudTh>
+                    <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Player">@Name(context.SteamId)</MudTd>
+                    <MudTd DataLabel="Steam ID" Class="mono">@context.SteamId</MudTd>
+                    <MudTd DataLabel="Discord user ID" Class="mono">@context.DiscordUserId</MudTd>
+                    <MudTd DataLabel="Linked">@context.LinkedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</MudTd>
+                    <MudTd DataLabel="" Class="quasar-actions-column">
+                        <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
+                            <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Color="Color.Error" aria-label="Remove Discord link"
+                                           OnClick="@(() => RemoveAsync(context))" />
+                        </AuthorizeView>
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </div>
+    </section>
+}
+
+@code {
+    // Optional: hosts without the player assistance services show no panel.
+    private QuasarPlayerLinks? _store;
+    private IReadOnlyList<QuasarPlayerLink> _links = [];
+
+    protected override void OnInitialized()
+    {
+        _store = Services.GetService<QuasarPlayerLinks>();
+        if (_store is null)
+            return;
+        _links = _store.GetLinks();
+        _store.Changed += OnChanged;
+    }
+
+    private void OnChanged() => _ = InvokeAsync(() =>
+    {
+        _links = _store!.GetLinks();
+        StateHasChanged();
+    });
+
+    private string Name(string steamId) => KnownPlayers.GetPlayers()
+        .Where(player => player.SteamId.ToString(CultureInfo.InvariantCulture) == steamId)
+        .OrderByDescending(player => player.LastSeenUtc)
+        .Select(player => player.DisplayName)
+        .FirstOrDefault(name => !string.IsNullOrWhiteSpace(name)) ?? "Unknown";
+
+    private async Task RemoveAsync(QuasarPlayerLink link)
+    {
+        if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers))
+            return;
+        try
+        {
+            await _store!.RemoveAsync(link.SteamId);
+            Snackbar.Add("Removed the Discord link.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed removing the Discord link: {exception.Message}", Severity.Error);
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_store is not null)
+            _store.Changed -= OnChanged;
+    }
+}

@@ -638,6 +638,13 @@ The first useful targets:
   parameters. `ServerName` is the unique name on `servers/{name}` and
   `clusters/{name}` pages. Set the contribution's policy; the target has no default.
 
+A plugin can also register DI services that core calls: `IQuasarChatCommand`
+(a `!name` game command and `/name` Discord command, see
+[QuasarBrowserSdk.md](QuasarBrowserSdk.md#chat-commands)) and
+`IQuasarNoticeSource` (web push notices). Core provides `IQuasarDiscordChannels`
+for posting to the guild's channels and `IQuasarServerQueries` for where
+players, grids and nodes are.
+
 ## Static Assets
 
 Plugins can ship static assets under their own package. Quasar should mount each
@@ -718,6 +725,25 @@ generic `CompanionPluginRequest` with JSON owned by the caller and target
 plugin. The agent dispatches the request to a loaded Magnetar plugin that
 implements `Magnetar.Protocol.Bridge.IQuasarCompanionRequestHandler` and returns
 a `CompanionPluginResponse`.
+
+Magnetar compiles hub plugins without Magnetar.Protocol, so such a plugin can't
+implement the interface. The agent then looks for two public members on the
+plugin instance, by name and exact signature:
+
+```csharp
+public string QuasarCompanionPluginId { get; }
+
+public Task<string> HandleQuasarCompanionRequestAsync(
+    string operation, string payloadJson, CancellationToken cancellationToken);
+```
+
+`QuasarCompanionPluginId` is matched like the interface's `PluginId`; when it is
+empty, the plugin's loaded id is used. The method returns the response payload
+JSON. A thrown exception becomes a failed response with the exception's message
+(unwrapped from `TargetInvocationException` and `AggregateException`), and a
+null result fails with "Companion plugin returned no response." A plugin with a
+different signature is not a handler. When a plugin implements the interface,
+the interface is used and the two members are ignored.
 
 Pass the `ServerId` returned by `GetConnectedServers()` back into `SendAsync`.
 For standalone servers this is the stable server name; for cluster nodes it is

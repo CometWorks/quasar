@@ -71,6 +71,9 @@ public static class MagnetarPaths
     public static string GetQuasarDiscordOptionsPath() =>
         Path.Combine(GetQuasarDirectory(), "discord.json");
 
+    public static string GetQuasarPlayerLinksPath() =>
+        Path.Combine(GetQuasarDirectory(), "player-links.json");
+
     public static string GetQuasarDataHandlingConsentPath() =>
         Path.Combine(GetQuasarDirectory(), "data-handling-consent.json");
 

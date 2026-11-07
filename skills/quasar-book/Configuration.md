@@ -33,6 +33,7 @@ Files and folders in the data directory:
 | `dev-folders.json` | Magnetar plugin dev folders, see [Plugins](Plugins.md) |
 | `plugin-hubs.json` | Extra Magnetar plugin hubs, see [Plugins](Plugins.md#plugin-hubs) |
 | `known-players.json`, `known-player-settings.json` | Player list data |
+| `player-links.json` | Players' Discord links from `!link` and `/link`, see [Monitoring](Monitoring.md#slash-commands) |
 | `PushNotifications.json` | Browser push subscriptions |
 | `Magnetars/<server>/` | One folder per server: `server.json`, `DedicatedServer/`, `Magnetar/`, `History/`, `analytics.jsonl` |
 | `ConfigProfiles/`, `WorldTemplates/` | Config profiles and world templates, see [Config profiles](ConfigProfiles.md) |
@@ -350,3 +351,4 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `docker-compose.yml`
 - `.env.example`
 - `Shared/Updates/BootstrapUpdateSupport.cs`
+- `Quasar/Services/Players/QuasarPlayerLinks.cs`

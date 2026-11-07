@@ -121,6 +121,15 @@ On standalone servers Quasar.Agent registers these chat commands:
 
 Discord `start` and `stop` commands set the same goal state as the UI; see [Monitoring](Monitoring.md).
 
+On standalone servers and cluster nodes it also registers commands every player can use. They need Magnetar 2.4.3.6 or later; on an older Magnetar a command with text answers "Unknown command".
+
+| Command | Effect |
+| --- | --- |
+| `!link` | Whispers a one-time code. Typing `/link CODE` in the server's Discord within 10 minutes links the player's Discord account, see [Monitoring](Monitoring.md#slash-commands). |
+| UI plugins' player commands, such as `!ask <question>` of the assistant plugin | Quasar sends them to the agent when it connects, and the agent registers them a game tick later, so they appear in `!help`. The player sees the plugin's acknowledgement, such as "Asking the assistant...", and gets the answer as private messages. A command whose plugin was removed since the server started answers "This command is not available on this server." When Quasar is not connected: "Quasar is not reachable right now. Try again later." |
+
+On a cluster the node the player is on runs these commands, and the answer reaches the player on whatever node they are on by then.
+
 ### Stops and restarts requested by plugins
 
 On standalone servers Quasar.Agent registers as the PluginSdk lifecycle provider, so the stops and restarts that plugins request through PluginSdk `ServerControl` go through Quasar:
@@ -452,3 +461,5 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar/Services/WorldSaveFiles.cs`
 - `Quasar/Components/Pages/ServerWorldImportDialog.razor`
+- `Quasar.Agent/PlayerCommands.cs`
+- `Quasar.Agent/AdminPlugin.cs`
