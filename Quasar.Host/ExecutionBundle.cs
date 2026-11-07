@@ -286,6 +286,29 @@ internal sealed record ExecutionBundle(string Root, BundleManifest Manifest, IRe
 
     internal static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
+    // What a Gateway or node takes from the Host's own environment. Everything cluster-specific comes from
+    // its spawn spec. The Host's environment is from when it started, so anything else there can be stale
+    // (an old QUASAR_CLUSTER_ARCHIVE_URL) or a secret the child must not see (QUASAR_LAUNCHER_TOKEN). SE-1186
+    private static readonly string[] InheritedNames =
+    [
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ", "TMPDIR", "LD_LIBRARY_PATH",
+        // Windows needs these to start a .NET process at all.
+        "SystemRoot", "windir", "SystemDrive", "ComSpec", "PATHEXT", "TEMP", "TMP", "USERNAME", "USERPROFILE",
+        "HOMEDRIVE", "HOMEPATH", "APPDATA", "LOCALAPPDATA", "ProgramData", "ProgramFiles", "ProgramFiles(x86)",
+        "ProgramW6432", "CommonProgramFiles", "COMPUTERNAME", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+    ];
+    private static readonly string[] InheritedPrefixes = ["LC_", "XDG_", "DOTNET_"];
+
+    /// <summary>Clears the child's environment down to the allow list, plus the names in <paramref name="also"/>.</summary>
+    internal static void RestrictEnvironment(System.Diagnostics.ProcessStartInfo start, params string[] also)
+    {
+        StringComparer names = OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
+        foreach (string name in start.Environment.Keys.ToArray())
+            if (!InheritedNames.Contains(name, names) && !also.Contains(name, names)
+                && !InheritedPrefixes.Any(prefix => name.StartsWith(prefix, StringComparison.Ordinal)))
+                start.Environment.Remove(name);
+    }
+
     internal static void ApplySecrets(System.Diagnostics.ProcessStartInfo start, Dictionary<string, string>? references)
     {
         // Enrollment and other clusters' credentials belong to the Host, never its child processes.

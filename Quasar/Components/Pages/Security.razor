@@ -208,12 +208,9 @@
                            Disabled="@(!DataHandlingConsent.GetSettings().DiagnosticsGranted)"
                            Color="Color.Warning" Label="Include crash dumps" />
                 <hr class="quasar-divider" />
-                <MudSwitch T="bool" Value="@DataHandlingConsent.GetSettings().ListingGranted"
-                           ValueChanged="@SaveListingVisibilityAsync"
-                           Color="Color.Primary" Label="Show configured servers on se-servers.net" />
                 <p class="quasar-text quasar-type-body2">
-                    Listing visibility is optional and separate from diagnostic reporting. Public listings require current
-                    log delivery to CometWorks and a configured public join address. Turning this off withdraws the listings.
+                    Choose which servers to publish on the Listings page. Public listings require diagnostic consent,
+                    current log delivery to CometWorks and a configured public join address.
                 </p>
                 <MudLink Href="settings/server-list">Configure public server listings</MudLink>
                 <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
@@ -302,9 +299,6 @@
     </MudItem>
     <MudItem xs="12">
         <DiscordSubjectMappings />
-    </MudItem>
-    <MudItem xs="12">
-        <QuasarSdkAuthorization />
     </MudItem>
 </MudGrid>
 
@@ -438,17 +432,6 @@
             Snackbar.Add("Diagnostic consent saved.", Severity.Success);
         }
         catch (Exception exception) { Snackbar.Add($"Failed saving diagnostic consent: {exception.Message}", Severity.Error); }
-    }
-
-    private async Task SaveListingVisibilityAsync(bool visible)
-    {
-        if (!await EnsureAuthorizedAsync()) return;
-        try
-        {
-            await DataHandlingConsent.SaveListingVisibilityAsync(visible);
-            Snackbar.Add("Listing visibility saved.", Severity.Success);
-        }
-        catch (Exception exception) { Snackbar.Add($"Failed saving listing visibility: {exception.Message}", Severity.Error); }
     }
 
     private async Task SaveDataHandlingConsentAsync(bool consentGranted)

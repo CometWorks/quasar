@@ -6,7 +6,7 @@ import vm from 'node:vm';
 const script = readFileSync(new URL('../../Quasar/wwwroot/quasar-configs.js', import.meta.url), 'utf8');
 const response = (payload, ok = true) => ({ ok, async json() { return payload; } });
 
-function harness(replies, base = '/') {
+function harness(replies, base = '/', { timeout = ms => AbortSignal.timeout(ms) } = {}) {
     const requests = [], timers = [], storage = new Map();
     const window = {
         location: { href: '' },
@@ -19,12 +19,13 @@ function harness(replies, base = '/') {
         setTimeout(callback) { timers.push(callback); }
     };
     vm.runInNewContext(script, {
-        window, document: { baseURI: 'https://quasar.test' + base }, URL, Event,
+        window, document: { baseURI: 'https://quasar.test' + base }, URL, Event, AbortSignal: { timeout },
         async fetch(url, options) {
             requests.push({ path: url.pathname, ...options });
             assert.ok(replies.length, 'Unexpected request: ' + url);
             const reply = replies.shift();
             if (reply instanceof Error) throw reply;
+            if (typeof reply === 'function') return reply(options);
             return reply;
         }
     });
@@ -85,6 +86,7 @@ for (const base of ['/', '/my-panel/']) {
         assert.deepEqual(h.requests.map(request => request.path),
             [base + 'api/health', base + 'api/version', base + 'api/health', base + 'api/version']);
         assert.ok(h.requests.every(request => request.cache === 'no-store'));
+        assert.ok(h.requests.every(request => request.signal instanceof AbortSignal));
         assert.equal(h.requests[1].redirect, 'error');
         assert.equal(h.storage.size, 0);
     });
@@ -135,3 +137,26 @@ test('a superseded poll cannot reload after its version request completes', asyn
     assert.equal(h.window.location.href, '');
     assert.equal(h.timers.length, 0);
 });
+
+for (const path of ['health', 'version']) {
+    test(`a hung ${path} request times out and update recovery continues`, async () => {
+        const deadlines = [];
+        const hung = options => new Promise((resolve, reject) => options.signal.addEventListener('abort', () => reject(options.signal.reason)));
+        const h = harness([
+            ...(path === 'version' ? [response({ status: 'ok' })] : []), hung,
+            response({ status: 'ok' }), response({ version: '1.3.2.123' })
+        ], '/jack/', { timeout(ms) {
+            assert.equal(ms, 5000);
+            const abort = new AbortController(); deadlines.push(abort); return abort.signal;
+        } });
+        h.start();
+        await h.tick();
+        assert.equal(h.window.location.href, '');
+        assert.equal(h.timers.length, 0, 'A probe must not overlap its pending request');
+        deadlines.at(-1).abort(new DOMException('Timed out', 'TimeoutError'));
+        await new Promise(resolve => setImmediate(resolve));
+        await h.tick();
+        await h.tick();
+        assert.equal(h.window.location.href, 'https://quasar.test/jack/settings/updates');
+    });
+}

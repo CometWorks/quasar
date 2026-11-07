@@ -69,8 +69,8 @@ Plugin-provided UI pages follow the permission each plugin declares (see [UI plu
 
 ### Plugin endpoint authorization
 
-On **Security**, **Plugin endpoint authorization** lists operations registered
-with Quasar's browser SDK. They require authentication by default. You can disable
+On **UI Plugins**, expand **Plugin endpoint authorization** to list operations registered
+with Quasar's browser SDK. This section is collapsed by default. Operations require authentication by default. You can disable
 an operation or replace its required policies; every selected policy must pass.
 Both its SDK route and adopted legacy URLs use that rule. **Restore declared
 policies** removes the operation override but keeps shared role grants.
@@ -152,7 +152,7 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 - **Public panel access**: **Manage access setup** opens the access setup dialog, where you choose self-deployment behind your own reverse proxy or a hosted Nebula panel. Once the installation is enrolled with Nebula, **Manage Nebula hosting and billing** opens the Nebula account page. See [Hosted access](HostedPanel.md).
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
-- **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and listing visibility. See [Diagnostics](Diagnostics.md).
+- **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and a link to per-server listing controls. See [Diagnostics](Diagnostics.md).
 - **Discord Admin Mappings**: maps a Discord user ID to a Steam account, so that Discord user can use the admin commands of UI plugins, such as the assistant's `/assistant`, with that account's Quasar roles. Discord's own Administrator permission doesn't count. Only Steam accounts can be mapped.
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
 

@@ -36,7 +36,7 @@ Configure Quasar with these keys, or their equivalent environment variables:
 | `Quasar:Diagnostics:UploadToken` | `Quasar__Diagnostics__UploadToken` | Optional legacy credential; omit for automatic enrollment. |
 | `Quasar:Diagnostics:StorageDirectory` | `Quasar__Diagnostics__StorageDirectory` or `QUASAR_DIAGNOSTICS_DIRECTORY` | Optional absolute local directory for captured logs, dumps and encrypted queues. The `QUASAR_` alias takes precedence. |
 
-The default backoffice is `https://log.se-servers.net/`. It verifies delivery and pushes signed visibility updates to `https://se-servers.net`. Listing visibility is a separate Security opt-in; statistics-sharing consent is not required to list.
+The default backoffice is `https://log.se-servers.net/`. It verifies delivery and pushes signed visibility updates to `https://se-servers.net`. Select **Publish this server** on Listings and save to opt into publication for that server; statistics-sharing consent is not required to list.
 
 The uplink uses its default URL when none is supplied; an explicitly empty or invalid URL disables it. It negotiates a credential automatically after diagnostic consent. URLs containing credentials, query strings or fragments are rejected. Key and upload requests never follow redirects. Logs contain failure types and queue counts, not bearer credentials or archive plaintext.
 

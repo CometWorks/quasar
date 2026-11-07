@@ -425,8 +425,9 @@ internal sealed class NodeActualizer
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("CLUSTER_", StringComparison.Ordinal)).ToArray())
-            start.Environment.Remove(name);
+        // The node's Quasar agent finds Quasar with these; Program sets the first and the last.
+        ExecutionBundle.RestrictEnvironment(start,
+            "QUASAR_BASE_URL", "QUASAR_PUBLIC_BASE_URL", "MAGNETAR_WEB_BASE_URL", "MAGNETAR_HOST_ID");
         foreach (string argument in spec.Arguments ?? [])
             start.ArgumentList.Add(Expand(argument));
         foreach ((string name, string value) in spec.Environment ?? [])
@@ -446,10 +447,6 @@ internal sealed class NodeActualizer
                 HostContract.AgentSocketToken.ForNode(agentKey, attachment.ClusterId, plan.SlotKey, spec.NodeId, role, attemptKey);
         else
             start.Environment.Remove(HostContract.AgentSocketToken.EnvironmentVariable);
-        // Do not hand the enrollment/managed credential store to child plugins.
-        foreach (string name in start.Environment.Keys.Where(name => name.StartsWith("QSR_MANAGED_", StringComparison.Ordinal)
-                     || name == "QUASAR_LAUNCHER_TOKEN").ToArray())
-            start.Environment.Remove(name);
         // A managed node must never download a newer Workshop mod on recycle.
         start.Environment["CLUSTER_LOCAL_WORLD_MODS"] = "1";
         return start;
