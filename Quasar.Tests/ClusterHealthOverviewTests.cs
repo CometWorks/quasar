@@ -240,6 +240,27 @@ public sealed class ClusterHealthOverviewTests
         }
     }
 
+    [Fact]
+    public async Task NodesHostingPartitionsShowTheirAgeAndRotationEstimate()
+    {
+        await using var context = new BunitContext();
+        var fixture = Sample();
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        (DateTimeOffset? Since, DateTimeOffset? Due)[] times = [(now.AddMinutes(-72.5), now.AddMinutes(48.5)), (now.AddMinutes(-20.5), null),
+            (now.AddHours(-2), now.AddMinutes(-1)), (now.AddSeconds(-10), now.AddMinutes(130.5)), (null, null), (null, null)];
+        var fleet = fixture.Fleet with { Nodes = fixture.Fleet.Nodes.Select((n, i) =>
+            n with { Registry = n.Registry with { ServingSince = times[i].Since, RotationDue = times[i].Due } }).ToArray() };
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Cluster, fixture.Cluster)
+            .Add(c => c.Status, fixture.Status).Add(c => c.Fleet, fleet).Add(c => c.Clients, fixture.Clients));
+        string? Age(string node) => panel.Find($"article[data-node='{node}']").QuerySelector(".cluster-node-age")?.TextContent;
+        Assert.Equal("Age 1h12m · rotation in 48m", Age("node-1"));
+        Assert.Equal("Age 20m", Age("node-2"));
+        Assert.Equal("Age 2h00m · rotation due", Age("node-3"));
+        Assert.Equal("Age <1m · rotation in 2h10m", Age("node-4"));
+        Assert.Null(Age("node-5"));           // the hot spare hosts nothing
+        Assert.Null(Age("world-authority"));
+    }
+
     internal sealed record Fixture(ClusterDefinition Cluster, Admin.ClusterStatus Status, ClusterFleet Fleet,
         HostStatus Host, Admin.ClientSummary[] Clients, Admin.PartitionSummary[] Partitions, EnrolledClusterHost[] Hosts);
     internal static Fixture Sample()

@@ -123,6 +123,15 @@
         int count = _routedPlayers.GetValueOrDefault(node.Fleet.Registry.Node);
         return _unassignedPlayers == 0 ? count.ToString() : count > 0 ? count + "+" : "—";
     }
+    /// <summary>SE-1241: how long a node hosting partitions has served, and when the Gateway expects rotation to recycle it.</summary>
+    internal static string NodeAge(DateTimeOffset since, DateTimeOffset? rotationDue)
+    {
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        string age = "Age " + ShortDuration(now - since);
+        return rotationDue is not { } due ? age : due <= now ? age + " · rotation due" : age + " · rotation in " + ShortDuration(due - now);
+    }
+    private static string ShortDuration(TimeSpan span) => span < TimeSpan.FromMinutes(1) ? "<1m"
+        : span.TotalHours >= 1 ? $"{(int)span.TotalHours}h{span.Minutes:00}m" : $"{span.Minutes}m";
     private string LinkState(ClusterOverview.Node node) => node.Fleet?.Registry.LeaseFresh switch { true => "registered", false => "lease stale", _ => "unavailable" };
     private string Tone(ClusterOverview.Node node) => node.Plan?.FailureAlert == true || node.Fleet?.Registry is { State: Admin.NodeState.Dead } ? "unhealthy"
         : node.Fleet?.Registry is not { LeaseFresh: true } ? "unknown"
@@ -139,6 +148,7 @@
         @if (node.Role == Admin.NodeRole.WorldAuthority) { <p class="quasar-muted">World-wide state and partition coordination</p> }
         <ClusterResourceUsage CpuPercent="@((double?)Metrics(node)?.ServerCpuLoadPercent)" MemoryBytes="@(Metrics(node)?.MemoryWorkingSetMb * 1048576)" CpuPaused="@IsIdle(node)" />
         @if (!IsIdle(node) && Metrics(node) is { } metrics) { <p class="quasar-caption">Simulation speed @metrics.SimSpeed.ToString("0.00")</p> }
+        @if (!IsIdle(node) && node.Fleet?.Registry is { ServingSince: { } since } registry) { <p class="quasar-caption cluster-node-age">@NodeAge(since, registry.RotationDue)</p> }
         @if (node.Fleet?.Telemetry is not { Connected: true }) { <p class="quasar-muted quasar-caption">Live process telemetry unavailable</p> }
         @if (node.Plan?.LastFailure is { } failure) { <p class="quasar-text-warning quasar-caption">@failure</p> }
     </article>;
