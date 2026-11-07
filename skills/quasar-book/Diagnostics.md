@@ -250,6 +250,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 
 ## Common problems
 
+- **`Failed to bind to address ...: address already in use.`** Another process is using the configured port. Stop that process or change Quasar's listening address/port. Quasar still fails startup and keeps the error in local logs and diagnostic files. The collector excludes this failure and its matching fatal-exit incident from exception uploads. Ordinary diagnostic log batches continue, so their console text can still include the error. Other bind errors and unrelated crashes still report normally. Archives already sealed by an older version remain queued.
 - **The Listings page says "Saved listing settings could not be loaded. Publishing is disabled until you save valid settings."** `server-list.json` is unreadable or invalid. Quasar does not fall back to `appsettings.json`. Fix the entries on the page and save.
 - **"Listing settings changed in another session."** Someone else saved in the meantime. The page keeps your edits but blocks saving. Click **Discard edits** to load the latest settings, then redo the edit.
 - **"Invalid server list identity, source, name or public join address."** A selected listing has an empty name, a name over 128 characters, a port outside 1 to 65535, or a host that is not a valid hostname or IP, or is localhost or loopback.
@@ -281,6 +282,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar.Host/HungNodeEvidence.cs`
 - `Quasar.Host/NodeActualizer.cs`
 - `Shared/Diagnostics/DiagnosticCollector.cs`
+- `Shared/Diagnostics/IncidentClassification.cs`
 - `Shared/Diagnostics/DiagnosticStorage.cs`
 - `Shared/Diagnostics/NativeDumpCapture.cs`
 - `Shared/Diagnostics/WindowsCrashMonitor.cs`
@@ -289,6 +291,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar.Tests/DiagnosticsUplinkTests.cs`
 - `Quasar.Tests/QuasarDiagnosticLoggerTests.cs`
 - `Quasar.Tests/DiagnosticCollectorTests.cs`
+- `Quasar.Tests/IncidentClassificationTests.cs`
 - `Quasar.Tests/ServerListPublisherTests.cs`
 - `Quasar.Tests/ServerListSettingsTests.cs`
 - `Quasar.Tests/ServerListingPageTests.cs`

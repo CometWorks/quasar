@@ -77,6 +77,8 @@ Quasar retrieves the public key over its validated backoffice connection using `
 
 `QuasarDiagnosticLoggerTests` verifies that ordinary messages are not duplicated even with diagnostic consent, that a blocked/full storage queue cannot stall logger calls, and that disposal drains accepted errors while fatal capture remains available after disposal. `DiagnosticsUplinkTests` covers legacy consent migration, external revocation and persistence, statistics-only updates, URL restrictions, multiple enrolled hosts, durable acknowledgment, failed backend delivery with the same report ID, cancellation on revocation, and corrupt download rejection. Run these tests through the normal Quasar test project with the current Magnetar PluginSdk available; no Quasar web service process is launched.
 
+`IncidentClassificationTests` checks serialized Unix and Windows address-in-use exceptions and message-only bind errors. `QuasarDiagnosticLoggerTests` also exercises real Kestrel, socket, startup and aggregate exception chains through local capture and encrypted collection. It verifies that excluded incidents stay local, their generic fatal-exit reports are excluded, and ordinary log batches, unrelated exits, mixed aggregates and other bind/socket failures still reach the archive queue. `DiagnosticCollectorTests` checks the existing ten-minute ordinary-log cadence independently of prompt incident delivery.
+
 ## Quasar process errors
 
 Quasar registers an additional logging provider only for Error and Critical messages. Ordinary Quasar messages remain in the existing NLog sinks; the diagnostics provider does not subscribe to framework Trace logging or duplicate ordinary messages into log batches. It creates a collector run for its own process, preserving its executable hash, process identity and version so restart recovery can correlate an unexpected disappearance. Capture is local and independent of upload consent. Structured log state, scopes, configuration and environment variables are not serialized.
@@ -86,6 +88,14 @@ Error/Critical logger calls format bounded text and enqueue it without waiting f
 Each run retains at most 256 incident JSON files and accepts at most 32 ordinary error reports per minute. Fatal exceptions bypass the rate limit and evict an old incident if necessary, preserving run metadata. Reports truncate messages and exception text, use durable temporary-file publication, and isolate storage and formatting failures from the application. Recursive logging from a formatter is ignored.
 
 The process unhandled-exception handler and top-level startup/runtime catch persist fatal evidence. Normal application stopping marks the run as expected; fatal evidence is still persisted if shutdown itself fails, including after logging providers have been disposed. Abrupt termination remains recoverable through the collector's persisted process identity. When Bootstrap supplies a valid self-run directory, Quasar adopts that run after checking its location and process identity, preserving dump configuration applied before startup. A direct launch creates its own local run; native/CoreCLR dump configuration still requires a launcher to set it before process startup.
+
+### Address already in use
+
+The shared collector classifies incidents before sealing them for upload. It excludes address-already-in-use bind failures, including Kestrel's `AddressInUseException`, platform `SocketException` forms, and the `IOException` message `Failed to bind to address ...: address already in use.`. Classification follows the serialized inner-exception chain and aggregate branches; every leaf must identify this failure. A mixed aggregate, permission error, unavailable address or unrelated exception that merely mentions an occupied port remains reportable. A message-only error must match the specific bind-failure message.
+
+When a run's fatal exception reports all identify this bind failure, its generic `exit.json` unexpected-exit incident is also excluded. An earlier nonfatal bind error alone never hides a later process failure. Local NLog output, incident JSON, exit metadata and startup failure/rethrow behavior are preserved. Administrators still need to free the port or change Quasar's configured address/port. Ordinary `log_batch` delivery, including console text describing the bind failure, continues under the existing consent and batching rules.
+
+The exclusion applies before encryption in Quasar, Host and Bootstrap collectors. The uplink still transfers opaque encrypted archives; evidence already sealed or queued by an older version is not reclassified or removed.
 
 ## Matching release symbols
 
