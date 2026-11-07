@@ -55,7 +55,7 @@ public static class QuasarSdkEndpoints
             await antiforgery.ValidateRequestAsync(http);
             var operation = operations.Find(pluginId, operationId) ?? throw new QuasarOperationException(404, "SDK operation not found.");
             if (operation.Kind == QuasarOperationKind.Json) throw new QuasarOperationException(400, "Use a JSON operation request.");
-            var denied = await operations.CheckAccessAsync(http.User, pluginId, operationId, operation.Kind);
+            var denied = await operations.CheckCallAsync(http.User, pluginId, operationId, operation.Kind);
             if (denied is not null) return denied.ToHttpResult();
             using var body = await ReadJsonAsync(http);
             if (body is null) return Results.Problem(statusCode: 413);

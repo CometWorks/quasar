@@ -632,6 +632,11 @@ The first useful targets:
 - `quasar.entities.viewer-column-header`
 - `quasar.entities.viewer-column-cell`
 - `quasar.entities.empty-state`
+- `quasar.layout.drawer` (`QuasarExtensionTargets.LayoutDrawer`): rendered once
+  in the main layout, on every page, for a drawer such as the assistant chat. The
+  component must accept the `PageUri` (string) and `ServerName` (string or null)
+  parameters. `ServerName` is the unique name on `servers/{name}` and
+  `clusters/{name}` pages. Set the contribution's policy; the target has no default.
 
 ## Static Assets
 

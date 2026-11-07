@@ -356,6 +356,14 @@ The server console dialog can view **Most recent** or a specific older DS /
 Magnetar log file. Auto-refresh and the Refresh button are active only for
 **Most recent**; selecting an older file keeps that snapshot fixed for review.
 
+## Audit log retention
+
+`Quasar:Audit:RetentionDays` in `appsettings.json` (default `30`) sets how long
+the audit log keeps its entries and their undo files under `audit/` in the data
+directory. A daily pass deletes undo files of older entries and each monthly
+`audit/<yyyy-MM>.jsonl` file once all of its entries are past the retention.
+See [Operation metadata, audit and undo](QuasarBrowserSdk.md#operation-metadata-audit-and-undo).
+
 ## Agent startup timeouts
 
 Each server has two agent-startup limits under **Edit Server -> Runtime**:

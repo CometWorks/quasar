@@ -144,6 +144,8 @@ public sealed partial class QuasarRtcTests : IDisposable
         builder.Services.AddSingleton<QuasarBrowserSessions>();
         builder.Services.AddSingleton<QuasarTransferRegistry>();
         builder.Services.AddScoped<QuasarOperationService>();
+        builder.Services.AddSingleton(new Quasar.Services.Audit.QuasarAuditOptions());
+        builder.Services.AddSingleton<Quasar.Services.Audit.QuasarAuditLog>();
         builder.Services.AddScoped<QuasarHttpOperations>();
         builder.Services.AddScoped<Quasar.Plugin.Abstractions.Operations.IQuasarOperationDispatcher>(services => services.GetRequiredService<QuasarOperationService>());
         builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();

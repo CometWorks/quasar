@@ -149,7 +149,9 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                         var watch = QuasarResourceLifetime.WatchAuthorizationAsync(Check, call.Stop);
                         try
                         {
-                            await Check(call.Token);
+                            sessions.Verify(peer.Binding, call.Token);
+                            var refused = await operations.CheckCallAsync(peer.Binding.User, plugin, operation, QuasarOperationKind.Json);
+                            if (refused is not null) throw new QuasarOperationException(refused.StatusCode, refused.Error!);
                             var response = await operations.DispatchAsync(new(peer.Binding.User, scope.ServiceProvider), plugin, operation, bounded.RootElement, call.Token);
                             await ResultAsync(call, response, scope.ServiceProvider);
                         }
@@ -160,7 +162,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                         var kind = Text(request, "kind") switch
                         { "read" => QuasarOperationKind.Read, "upload" => QuasarOperationKind.Upload, "subscription" => QuasarOperationKind.Subscription,
                             _ => throw new QuasarOperationException(400, "Invalid SDK resource kind.") };
-                        var denied = await operations.CheckAccessAsync(peer.Binding.User, plugin, operation, kind);
+                        var denied = await operations.CheckCallAsync(peer.Binding.User, plugin, operation, kind);
                         if (denied is not null) throw new QuasarOperationException(denied.StatusCode, denied.Error!);
                         foreach (var stale in owned.Where(pair => pair.Value.Token.IsCancellationRequested)) owned.TryRemove(stale.Key, out _);
                         var resource = transfers.Create(peer.Binding, plugin, operation, kind, bounded.RootElement);

@@ -81,6 +81,8 @@ public sealed partial class QuasarSdkTests : IDisposable
             policy.RequireRole(QuasarRoles.Admin).RequireClaim("resource-access", "yes")));
         builder.Services.AddSingleton<IAuthorizationPolicyProvider, QuasarAuthorizationPolicyProvider>();
         builder.Services.AddScoped<QuasarOperationService>();
+        builder.Services.AddSingleton(new Quasar.Services.Audit.QuasarAuditOptions());
+        builder.Services.AddSingleton<Quasar.Services.Audit.QuasarAuditLog>();
         builder.Services.AddSingleton<QuasarTransferRegistry>();
         builder.Services.AddSingleton<QuasarBrowserSessions>();
         builder.Services.AddScoped<QuasarHttpOperations>();

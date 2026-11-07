@@ -1,0 +1,20 @@
+/* Long principals, requesters and operation keys wrap so the table fits its panel. */
+.audit-table td.audit-wrap {
+    white-space: normal;
+    overflow-wrap: break-word;
+    min-width: 6rem;
+}
+
+.audit-table .quasar-server-detail-row td {
+    white-space: normal;
+}
+
+.audit-table pre {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.audit-undone {
+    color: var(--quasar-palette-text-secondary);
+}

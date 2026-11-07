@@ -10,4 +10,7 @@ public static class QuasarPolicyNames
     public const string CanManageAppearance = "CanManageAppearance";
     public const string CanManageSecurity = "CanManageSecurity";
     public const string CanShutdownQuasar = "CanShutdownQuasar";
+    public const string CanUseAssistant = "CanUseAssistant";
+    /// <summary>Satisfied only by the player-agent principal; no role grants it.</summary>
+    public const string CanActAsPlayer = "CanActAsPlayer";
 }
