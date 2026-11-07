@@ -5,7 +5,7 @@ using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
-/// <summary>Cluster status and player reads. Cluster changes are not operations yet.</summary>
+/// <summary>Cluster status and player reads. Cluster changes are in QuasarClusterControlOperations.</summary>
 public static class QuasarClusterOperations
 {
     public sealed record ClusterRequest(string UniqueName = "");

@@ -522,7 +522,17 @@ explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
 | `backups.world.create`, `backups.server.create` | `CanControlServers` | queued, nothing to reverse; never stop and back up |
 | `backups.settings.read` | `CanControlServers` | read: automatic backup rules and folder |
 | `backups.restore` | `CanManageSecurity` | a stored world or server backup of a stopped server, never a configuration backup; not reversible; 300 s deadline |
-| `cluster.list`, `cluster.status`, `cluster.players` | `ClusterQuery` | read |
+| `cluster.list`, `cluster.status`, `cluster.players`, `cluster.operation` | `ClusterQuery` | read |
+| `cluster.logs.tail`, `cluster.events.tail` | `ClusterQuery` | read: node plugin logs (one `node` or all) and Cluster Registry events, with the options of `logs.magnetar.tail` |
+| `cluster.start`, `cluster.stop` | `ClusterManage` | undo restores the goal while it is unchanged; 120 s deadline |
+| `cluster.restart`, `cluster.save`, `cluster.gateway.restart` | `ClusterManage` | nothing to reverse; return the cluster operation to follow with `cluster.operation` |
+| `cluster.services.recover`, `cluster.recover` | `ClusterManage` | not reversible; 300 s deadline |
+| `cluster.players.ban`, `cluster.players.unban`, `cluster.players.promotion.set` | `ClusterManage` | undo sends the inverse command while the Gateway still reports what the action left |
+| `cluster.players.kick`, `cluster.players.kick-cooldown.clear` | `ClusterManage` | nothing to reverse |
+| `chat.messages`, `chat.commands` | `CanView` | read: a server's recent chat or a cluster's global chat (`limit` 50, at most 100); a standalone server's ! commands |
+| `chat.send`, `chat.command.run` | `CanControlServers` | global chat on a server or cluster; a ! command as a standalone server's console; not reversible |
+| `activity.recent` | `CanView` | read: the dashboard's recent activity, optionally of one server or cluster |
+| `audit.list` | `CanManageSecurity` | read: the Audit page's filters with paging; arguments redacted, no undo |
 | `entities.list` | `CanView` | read: `type`, `search`, `ownerSteamId`, `sort` (Size, Pcu, Blocks) and `limit` (25, at most 200) |
 | `entities.delete` | `CanControlServers` | looks the entity up again by ID; not reversible |
 | `cluster.entities.list` | `ClusterQuery` | read, every responding node; 150 s deadline |
@@ -530,8 +540,11 @@ explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
 
 Config profile settings act on the shared profile; a change result lists every
 server that uses the profile and applies at their next start. Player operations
-cover standalone servers only. Deleting anything but an entity, cloning, importing, killing, restoring,
-stop and back up, and cluster changes are not operations.
+cover standalone servers; the `cluster.players.*` operations moderate cluster
+players. Cluster operations run the cluster page's checks and services, and a
+deadline only ends the wait, never the cluster operation. Deleting anything but
+an entity, cloning, importing, killing, restoring a configuration backup, stop
+and back up, cluster setup, conversion and updates are not operations.
 
 Normal local authentication/trusted-network behavior continues through Quasar's
 existing principal pipeline, without Nebula services or a hosting entitlement.

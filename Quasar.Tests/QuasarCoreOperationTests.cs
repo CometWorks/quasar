@@ -16,7 +16,9 @@ using Quasar.Services.Audit;
 using Quasar.Services.Auth;
 using Quasar.Services.Backup;
 using Quasar.Services.Plugins;
+using Quasar.Services.PluginSdk;
 using Xunit;
+using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using QuasarPolicyNames = Quasar.Services.Auth.QuasarPolicyNames;
 
 namespace Quasar.Tests;
@@ -47,6 +49,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
     private readonly ClusterCatalog _clusters;
     private readonly ClusterPlayerTests.Gateway _gateway = new();
     private readonly ClusterPlayerService _clusterPlayers;
+    private readonly PluginLogStream _logs = new();
     private readonly List<ServerCommandEnvelope> _commands = [];
     private readonly List<EntitySummary> _alphaEntities = [];
     private ClusterEntityTests.Fixture? _entityFixture;
@@ -131,7 +134,22 @@ public sealed class QuasarCoreOperationTests : IDisposable
         services.AddSingleton(_clusterPlayers);
         // Created on first use, so only entity tests get its cluster agents.
         services.AddSingleton(_ => Entities.Service);
-        services.AddSingleton(new ClusterGatewayClient(new HttpClient(_gateway)));
+        var gateway = new ClusterGatewayClient(new HttpClient(_gateway));
+        var clusterOperations = new ClusterOperationStore(
+            Path.Combine(_root, "cluster-operations")
+        );
+        services.AddSingleton(gateway);
+        services.AddSingleton(clusterOperations);
+        services.AddSingleton(
+            new ClusterCommandService(
+                _clusters,
+                clusterOperations,
+                gateway,
+                new ClusterHostClient(new HttpClient(new NoHost()))
+            )
+        );
+        services.AddSingleton(_logs);
+        services.AddSingleton(new ClusterFleetService(gateway, _registry, _logs));
         services.AddQuasarCoreOperations();
         _services = services.BuildServiceProvider();
     }
@@ -387,6 +405,81 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarPolicyNames.CanManageSecurity,
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
+            ),
+            ["cluster.operation"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.logs.tail"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.events.tail"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.start"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.stop"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.restart"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.save"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.gateway.restart"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.services.recover"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.recover"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.players.kick"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.players.ban"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.players.unban"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
+            ),
+            ["cluster.players.kick-cooldown.clear"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NothingToReverse
+            ),
+            ["cluster.players.promotion.set"] = (
+                QuasarPolicyNames.ClusterManage,
+                QuasarOperationEffect.Change,
+                QuasarReversal.Undo
             ),
         };
         var operations = _services
@@ -1666,6 +1759,379 @@ public sealed class QuasarCoreOperationTests : IDisposable
         string uniqueName = "alpha"
     ) => CallAsync(user ?? Editor(), operation, new { uniqueName, text });
 
+    [Fact]
+    public async Task ClusterLifecycleRunsThroughTheGatewayOrTheGoal()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "nope" })).StatusCode
+        );
+        await _clusters.CreateAsync(new("test", "Cluster", "http://gateway.test", ""), default);
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.save",
+                    new { uniqueName = "test" }
+                )
+            ).StatusCode
+        );
+        // An observed cluster has no goal to set; it stops through a Gateway shutdown.
+        var start = await CallAsync(Editor(), "cluster.start", new { uniqueName = "test" });
+        Assert.Equal(400, start.StatusCode);
+        Assert.Contains("observed only", start.Error);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "cluster.save", new { uniqueName = "test" })).StatusCode
+        );
+        await _clusters.SetGoalStateAsync("test", DedicatedServerGoalState.On);
+
+        var save = await CallAsync(Editor(), "cluster.save", new { uniqueName = "test" });
+        var saved = Assert.IsType<QuasarClusterControlOperations.ClusterActionResult>(save.Value);
+        Assert.Equal("Succeeded", saved.State);
+        Assert.Equal("POST /admin/v1/save-all", _gateway.Mutations[^1]);
+        var followed = Assert.IsType<QuasarClusterControlOperations.ClusterOperationStatus>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.operation",
+                    new { uniqueName = "test", operationId = saved.OperationId }
+                )
+            ).Value
+        );
+        Assert.Equal(("cluster.save-all", "Succeeded"), (followed.Kind, followed.State));
+        Assert.Equal("test", (await LatestAsync("cluster.save")).Server);
+
+        Assert.Equal(
+            200,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "test" })).StatusCode
+        );
+        Assert.Equal("POST /admin/v1/shutdown", _gateway.Mutations[^1]);
+        Assert.Equal(QuasarReversal.NotReversible, (await LatestAsync("cluster.stop")).Reversal);
+
+        _gateway.CurrentCapabilities = ClusterPlayerTests.Gateway.Capabilities with
+        {
+            Operations = [],
+        };
+        var refused = await CallAsync(Editor(), "cluster.save", new { uniqueName = "test" });
+        Assert.Equal(409, refused.StatusCode);
+        Assert.Contains("does not allow a world save", refused.Error);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "cluster.recover", new { uniqueName = "test" })).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task ManagedClusterStopSetsTheGoalAndUndoesWhileItIsUnchanged()
+    {
+        await _clusters.CreateAsync(new("test", "Cluster", "http://gateway.test", ""), default);
+        await _clusters.SetGoalStateAsync("test", DedicatedServerGoalState.On);
+        var stored = (
+            (List<ClusterDefinition>)
+                typeof(ClusterCatalog)
+                    .GetField("_clusters", BindingFlags.NonPublic | BindingFlags.Instance)!
+                    .GetValue(_clusters)!
+        ).Single();
+        stored.HostCommandUrl = "http://host.test";
+        stored.HostCommandTokenEnvironmentVariable = "HOST_TOKEN";
+        stored.Gateway = new(
+            "test",
+            Quasar.Host.Contract.V1.GatewayGoal.Off,
+            "/bundle/manifest.json",
+            new string('a', 64),
+            "r1",
+            [28000],
+            "/runs/test"
+        );
+
+        Assert.Equal(
+            200,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "test" })).StatusCode
+        );
+        Assert.Equal(DedicatedServerGoalState.Off, _clusters.GetCluster("test")!.GoalState);
+        Assert.Empty(_gateway.Mutations);
+        var stop = await LatestAsync("cluster.stop");
+        Assert.Equal(QuasarReversal.Undo, stop.Reversal);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "cluster.stop", new { uniqueName = "test" })).StatusCode
+        );
+
+        // No Host proves a clean stop, so a start is refused like the page's disabled Start button.
+        var start = await CallAsync(Editor(), "cluster.start", new { uniqueName = "test" });
+        Assert.Equal(409, start.StatusCode);
+        Assert.Contains("stable stopped state", start.Error);
+
+        await _clusters.SetGoalStateAsync("test", DedicatedServerGoalState.On);
+        var conflict = await UndoAsync(stop.Id);
+        Assert.Equal(QuasarUndoStatus.Conflict, conflict.Status);
+        Assert.Contains("On", conflict.Detail);
+    }
+
+    [Fact]
+    public async Task ClusterModerationSendsThePlayersPageCommandsAndUndoesThem()
+    {
+        var cluster = await _clusters.CreateAsync(
+            new("test", "Cluster", "http://gateway.test", ""),
+            default
+        );
+        var early = await CallAsync(
+            Editor(),
+            "cluster.players.ban",
+            new { uniqueName = "test", steamId = "7" }
+        );
+        Assert.Equal(409, early.StatusCode);
+        Assert.Contains("Waiting for cluster player status", early.Error);
+        await _clusterPlayers.RefreshAsync(cluster, default);
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "x" }
+                )
+            ).StatusCode
+        );
+
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal("POST /admin/v1/clients/7/kick", _gateway.Mutations[^1]);
+        Assert.Equal(
+            409,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick",
+                    new { uniqueName = "test", steamId = "8" }
+                )
+            ).StatusCode
+        );
+        Assert.Contains(
+            "no kick cooldown",
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.kick-cooldown.clear",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).Error
+        );
+
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.ban",
+                    new { uniqueName = "test", steamId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal("POST /admin/v1/admission/bans", _gateway.Mutations[^1]);
+        var ban = await LatestAsync("cluster.players.ban");
+        Assert.Equal(QuasarReversal.Undo, ban.Reversal);
+        Assert.Equal(QuasarUndoStatus.Conflict, (await UndoAsync(ban.Id)).Status);
+        _gateway.Banned = [7];
+        Assert.Equal(QuasarUndoStatus.Done, (await UndoAsync(ban.Id)).Status);
+        Assert.Equal("DELETE /admin/v1/admission/bans/7", _gateway.Mutations[^1]);
+
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.promotion.set",
+                    new
+                    {
+                        uniqueName = "test",
+                        steamId = "7",
+                        level = "Captain",
+                    }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.players.promotion.set",
+                    new
+                    {
+                        uniqueName = "test",
+                        steamId = "7",
+                        level = "admin",
+                    }
+                )
+            ).StatusCode
+        );
+        Assert.Equal("PUT /admin/v1/players/7/promotion", _gateway.Mutations[^1]);
+        Assert.Contains("Admin", _gateway.MutationBody);
+        _gateway.Moderation = new([new(7, Admin.PlayerPromotionLevel.Admin, 3)], []);
+        Assert.Equal(
+            QuasarUndoStatus.Done,
+            (await UndoAsync((await LatestAsync("cluster.players.promotion.set")).Id)).Status
+        );
+        Assert.Contains("None", _gateway.MutationBody);
+        Assert.Contains("3", _gateway.MutationBody);
+
+        var standalone = await CallAsync(
+            Editor(),
+            "players.kick",
+            new { uniqueName = "test", steamId = "7" }
+        );
+        Assert.Equal(404, standalone.StatusCode);
+        Assert.Contains("cluster.players.kick", standalone.Error);
+    }
+
+    [Fact]
+    public async Task ClusterLogTailsReadNodePluginLogsAndRegistryEvents()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "cluster.logs.tail", new { uniqueName = "nope" })).StatusCode
+        );
+        await _clusters.CreateAsync(new("test", "Cluster", "http://gateway.test", ""), default);
+        Admin.NodeStatus Node(string name) =>
+            new(
+                name,
+                name,
+                2,
+                Admin.NodeRole.Regular,
+                Admin.NodeState.Active,
+                "127.0.0.1:28417",
+                null,
+                DateTimeOffset.UtcNow,
+                DateTimeOffset.UtcNow.AddMinutes(1),
+                0,
+                0,
+                "host",
+                true,
+                false
+            );
+        _gateway.Nodes = [Node("node-a"), Node("node-b")];
+        foreach (var node in new[] { "node-a", "node-b" })
+            _registry.UpsertHello(
+                new AgentHello
+                {
+                    AgentId = node,
+                    UniqueName = node,
+                    HostId = "host",
+                    ClusterMode = true,
+                    ClusterId = "test",
+                    ClusterSlot = node,
+                    ClusterNodeId = node,
+                    ClusterEpoch = 2,
+                },
+                node,
+                (_, _) => Task.CompletedTask
+            );
+        var agents = _registry.GetAgents().ToDictionary(agent => agent.AgentId);
+        for (var i = 1; i <= 3; i++)
+            foreach (var node in new[] { "node-a", "node-b" })
+                _logs.Append(
+                    new PluginLogEntry
+                    {
+                        UniqueName = agents[node].TelemetryKey,
+                        TimestampUtc = DateTimeOffset.UnixEpoch.AddMinutes(i),
+                        Level = "Info",
+                        Plugin = "Probe",
+                        Message = $"{node} entry {i}",
+                    }
+                );
+
+        var all = Assert.IsType<QuasarServerOperations.LogTailResponse>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.logs.tail",
+                    new { uniqueName = "test", lines = 3 }
+                )
+            ).Value
+        );
+        Assert.Equal(3, all.Lines.Count);
+        Assert.EndsWith("entry 3", all.Lines[^1]);
+        Assert.True(all.Truncated);
+        var one = Assert.IsType<QuasarServerOperations.LogTailResponse>(
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.logs.tail",
+                    new
+                    {
+                        uniqueName = "test",
+                        node = "NODE-B",
+                        filter = "entry 2",
+                    }
+                )
+            ).Value
+        );
+        Assert.Equal(
+            "1970-01-01 00:02:00Z · node-b · Probe · Info · node-b entry 2",
+            Assert.Single(one.Lines)
+        );
+        Assert.Equal(1, one.TotalLines);
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.logs.tail",
+                    new { uniqueName = "test", node = "node-c" }
+                )
+            ).StatusCode
+        );
+
+        _gateway.Events =
+        [
+            new(1, DateTimeOffset.UnixEpoch, "node-joined", null, null, "node-a", null),
+            new(
+                2,
+                DateTimeOffset.UnixEpoch,
+                "world-saved",
+                "quasar",
+                null,
+                null,
+                new Dictionary<string, string> { ["partitions"] = "4" }
+            ),
+        ];
+        var events = Assert.IsType<QuasarServerOperations.LogTailResponse>(
+            (await CallAsync(Editor(), "cluster.events.tail", new { uniqueName = "test" })).Value
+        );
+        Assert.Equal(
+            new[]
+            {
+                "1970-01-01 00:00:00Z · node-joined · node-a",
+                "1970-01-01 00:00:00Z · world-saved · quasar · {\"partitions\":\"4\"}",
+            },
+            events.Lines
+        );
+
+        var tail = await CallAsync(Editor(), "logs.magnetar.tail", new { uniqueName = "test" });
+        Assert.Contains("cluster.logs.tail", tail.Error);
+    }
+
     private Task<QuasarServerOperations.LogTailResponse> Slice(
         string path,
         QuasarServerOperations.LogTailRequest request
@@ -1818,6 +2284,14 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 JsonSerializer.SerializeToElement(request, QuasarCoreOperations.Json),
                 default
             );
+    }
+
+    private sealed class NoHost : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken token
+        ) => throw new HttpRequestException("No Host in these tests.");
     }
 
     private sealed class PersonState(ClaimsPrincipal user) : AuthenticationStateProvider

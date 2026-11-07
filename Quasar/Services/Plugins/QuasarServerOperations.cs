@@ -208,7 +208,7 @@ public static class QuasarServerOperations
                         ? NotFound(
                             caller.Services,
                             input.UniqueName,
-                            "Quasar has no operation for cluster node logs yet, but cluster.status and cluster.players report its state"
+                            "use cluster.logs.tail for its node plugin logs and cluster.events.tail for its Cluster Registry events"
                         )
                         : new QuasarOperationException(404, "Log file not found.");
                 return await ReadLogSliceAsync(path, input, token);
@@ -226,45 +226,7 @@ public static class QuasarServerOperations
         CancellationToken token
     )
     {
-        var fromTail = request.From?.Trim().ToLowerInvariant() switch
-        {
-            null or "" or "tail" => true,
-            "head" => false,
-            _ => throw new QuasarOperationException(400, "From must be tail or head."),
-        };
-        var wanted = Math.Clamp(request.Lines, 1, 2000);
-        var budget = Math.Clamp(request.MaxBytes, 1, 65536);
-        var filter = string.IsNullOrEmpty(request.Filter) ? null : request.Filter;
-        var lines = new List<string>();
-        var truncated = false;
-        var complete = true;
-        var matched = 0;
-
-        // Returns false once the slice is full; the rest of the file is then only counted as "more".
-        bool Take(string line)
-        {
-            line = line.TrimEnd('\r');
-            if (filter is not null && !line.Contains(filter, StringComparison.OrdinalIgnoreCase))
-                return true;
-            matched++;
-            if (lines.Count == wanted || budget == 0)
-            {
-                truncated = true;
-                complete = false;
-                return false;
-            }
-            var bytes = Encoding.UTF8.GetByteCount(line) + 1;
-            if (bytes > budget)
-            {
-                line = Cut(line, budget - 1);
-                truncated = true;
-                bytes = budget;
-            }
-            lines.Add(line);
-            budget -= bytes;
-            return true;
-        }
-
+        var slice = new LogSlice(request);
         await using var file = new FileStream(
             path,
             FileMode.Open,
@@ -273,21 +235,93 @@ public static class QuasarServerOperations
             QuasarSdkLimits.TransferBufferBytes,
             FileOptions.Asynchronous
         );
-        if (fromTail)
+        if (slice.FromTail)
         {
             await foreach (var line in ReadLinesBackwardAsync(file, token))
-                if (!Take(line))
+                if (!slice.Take(line))
                     break;
-            lines.Reverse();
         }
         else
         {
             using var reader = new StreamReader(file, Encoding.UTF8);
             while (await reader.ReadLineAsync(token) is { } line)
-                if (!Take(line))
+                if (!slice.Take(line))
                     break;
         }
-        return new(Path.GetFileName(path), lines, truncated, complete ? matched : null);
+        return slice.Result(Path.GetFileName(path));
+    }
+
+    /// <summary>The same slice of lines held in memory, oldest first.</summary>
+    internal static LogTailResponse SliceLines(
+        string source,
+        IReadOnlyList<string> lines,
+        LogTailRequest request
+    )
+    {
+        var slice = new LogSlice(request);
+        foreach (var line in slice.FromTail ? lines.Reverse() : lines)
+            if (!slice.Take(line))
+                break;
+        return slice.Result(source);
+    }
+
+    // Collects lines in read order: newest first from the tail, oldest first from the head.
+    private sealed class LogSlice
+    {
+        private readonly int _wanted;
+        private readonly string? _filter;
+        private readonly List<string> _lines = [];
+        private int _budget;
+        private bool _truncated;
+        private bool _complete = true;
+        private int _matched;
+
+        public LogSlice(LogTailRequest request)
+        {
+            FromTail = request.From?.Trim().ToLowerInvariant() switch
+            {
+                null or "" or "tail" => true,
+                "head" => false,
+                _ => throw new QuasarOperationException(400, "From must be tail or head."),
+            };
+            _wanted = Math.Clamp(request.Lines, 1, 2000);
+            _budget = Math.Clamp(request.MaxBytes, 1, 65536);
+            _filter = string.IsNullOrEmpty(request.Filter) ? null : request.Filter;
+        }
+
+        public bool FromTail { get; }
+
+        // Returns false once the slice is full; the rest is then only counted as "more".
+        public bool Take(string line)
+        {
+            line = line.TrimEnd('\r');
+            if (_filter is not null && !line.Contains(_filter, StringComparison.OrdinalIgnoreCase))
+                return true;
+            _matched++;
+            if (_lines.Count == _wanted || _budget == 0)
+            {
+                _truncated = true;
+                _complete = false;
+                return false;
+            }
+            var bytes = Encoding.UTF8.GetByteCount(line) + 1;
+            if (bytes > _budget)
+            {
+                line = Cut(line, _budget - 1);
+                _truncated = true;
+                bytes = _budget;
+            }
+            _lines.Add(line);
+            _budget -= bytes;
+            return true;
+        }
+
+        public LogTailResponse Result(string source)
+        {
+            if (FromTail)
+                _lines.Reverse();
+            return new(source, _lines, _truncated, _complete ? _matched : null);
+        }
     }
 
     // Splits on '\n' bytes from the end of the file, which is safe in UTF-8, a chunk at a time.

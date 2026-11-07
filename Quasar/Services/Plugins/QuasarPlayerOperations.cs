@@ -8,7 +8,7 @@ using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
-/// <summary>Player moderation on standalone servers, through the server's agent. Cluster players are not here.</summary>
+/// <summary>Player moderation on standalone servers, through the server's agent. Cluster players are in QuasarClusterControlOperations.</summary>
 public static class QuasarPlayerOperations
 {
     /// <param name="SteamId">The player's SteamID64, as a string.</param>
@@ -291,7 +291,25 @@ public static class QuasarPlayerOperations
     {
         var agent =
             FindAgent(services, uniqueName)
-            ?? throw new QuasarOperationException(409, $"Server '{uniqueName}' is not connected.");
+            ?? throw (
+                services.GetService<ClusterCatalog>()?.GetCluster(uniqueName) is not null
+                && !services
+                    .GetRequiredService<AgentRegistry>()
+                    .GetAgents()
+                    .Any(agent =>
+                        !agent.IsCluster
+                        && agent.UniqueNameKey.Equals(
+                            uniqueName,
+                            StringComparison.OrdinalIgnoreCase
+                        )
+                    )
+                    ? NotFound(
+                        services,
+                        uniqueName,
+                        "use cluster.players.kick, cluster.players.ban, cluster.players.unban, cluster.players.kick-cooldown.clear or cluster.players.promotion.set"
+                    )
+                    : new QuasarOperationException(409, $"Server '{uniqueName}' is not connected.")
+            );
         var result = await services
             .GetRequiredService<AgentRegistry>()
             .SendCommandAndWaitAsync(

@@ -572,6 +572,8 @@ public sealed class ClusterPlayerTests : IDisposable
         internal Admin.PlayerModerationStatus Moderation = new([], []);
         internal List<string> Mutations = [];
         internal Admin.ChatMessage[] Chat = [];
+        internal Admin.NodeStatus[] Nodes = [];
+        internal Admin.AdminEvent[] Events = [];
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             if (Offline) throw new HttpRequestException("offline");
@@ -598,7 +600,8 @@ public sealed class ClusterPlayerTests : IDisposable
                 "history" => new Admin.ChatHistory(Chat.Where(message => message.Seq
                     > long.Parse(System.Web.HttpUtility.ParseQueryString(request.RequestUri.Query)["cursor"]!)).ToArray(),
                     Chat.Length == 0 ? 0 : Chat.Max(message => message.Seq), 1),
-                _ => JsonSerializer.Deserialize<Admin.ClusterStatus>("{\"clusterId\":\"" + ClusterId + "\",\"nodes\":[]}", new JsonSerializerOptions(JsonSerializerDefaults.Web))!,
+                "events" => new Admin.AdminEventPage(Events, Events.LastOrDefault()?.Seq ?? 0, Events.FirstOrDefault()?.Seq ?? 0),
+                _ => JsonSerializer.Deserialize<Admin.ClusterStatus>("{\"clusterId\":\"" + ClusterId + "\",\"nodes\":[]}", new JsonSerializerOptions(JsonSerializerDefaults.Web))! with { Nodes = Nodes },
             };
             var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(new Admin.AdminEnvelope<object>(1, DateTimeOffset.UtcNow, data)) };
             response.Headers.Add("X-Cluster-Gateway-Protocol", "1");

@@ -171,20 +171,7 @@ public sealed class DiscordClusterBridge(
             if (goal.Error != null) throw new InvalidOperationException(goal.Error.Message);
             if (verb == "restart")
             {
-                var stopped = RequireCluster(settings);
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
-                timeout.CancelAfter(TimeSpan.FromMinutes(10));
-                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
-                while (true)
-                {
-                    var current = RequireCluster(settings);
-                    if (current.GoalState != DedicatedServerGoalState.Off || current.UpdatedAtUtc != stopped.UpdatedAtUtc)
-                        throw new InvalidOperationException("Cluster settings changed during restart; automatic start was cancelled.");
-                    if (await commands.CanStartAsync(current, timeout.Token)) break;
-                    await timer.WaitForNextTickAsync(timeout.Token);
-                }
-                var start = await commands.SetGoalAsync(cluster.UniqueName, new ClusterGoalRequest(DedicatedServerGoalState.On),
-                    key + ":start", actor, timeout.Token);
+                var start = await commands.StartAfterStopAsync(cluster.UniqueName, key + ":start", actor, token);
                 if (start.Error != null) throw new InvalidOperationException(start.Error.Message);
             }
             return $"Cluster {verb} requested.";

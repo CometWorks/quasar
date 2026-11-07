@@ -154,7 +154,7 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 
 ## Players
 
-**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. Cluster access restrictions still apply. Plugins and their AI agents read a cluster's online players with the `cluster.players` operation, since `players.list` covers standalone servers only.
+**Players** (`/players`, heading **Known Players**) lists live and historical players Quasar has observed on standalone servers and clusters, with server, Steam ID, available client metadata, status and last seen time. Each cluster appears as one server, with one entry per player even after moving between nodes. Registry clients determine cluster presence; Quasar collects them every five seconds in the background, without an open browser. Saved history remains after players disconnect, the Gateway becomes unavailable or Quasar restarts, subject to retention and cleanup. Cluster access restrictions still apply. Plugins and their AI agents read a cluster's online players with the `cluster.players` operation, since `players.list` covers standalone servers only. They moderate cluster players with `cluster.players.kick`, `cluster.players.ban`, `cluster.players.unban`, `cluster.players.kick-cooldown.clear` and `cluster.players.promotion.set`, which make the same checks as the cluster row menu below. An admin can undo a ban, unban or role change from the audit log while the Gateway still reports what the action left.
 
 - Filters: **Server**, **Type** (All, Online, Offline, Banned, Kick cooldown) and **Search players**.
 - Open the ellipsis at the end of a row for player actions. The menu still opens when the Agent or Gateway is unavailable, with disabled actions and a reason. Cluster messages distinguish a failed connection, stale status, a credential without management scope and a Gateway that does not support player actions. Viewers do not receive moderation menus.
@@ -494,6 +494,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterOverview.cs`
 - `Docs/QuasarBrowserSdk.md`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
+- `Quasar/Services/Plugins/QuasarClusterControlOperations.cs`
 - `Quasar/Services/Players/QuasarPlayerLinks.cs`
 - `Quasar/Services/Players/QuasarChatCommands.cs`
 - `Quasar/Components/Shared/PlayerDiscordLinks.razor`

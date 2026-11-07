@@ -31,6 +31,7 @@ public static class QuasarCoreOperations
         services.AddQuasarEntityOperations();
         services.AddQuasarChatOperations();
         services.AddQuasarActivityOperations();
+        services.AddQuasarClusterControlOperations();
         services.AddQuasarRead<BackupRequest>(PluginId, "backup.read", [QuasarPolicyNames.CanManageSecurity],
             (caller, input, token) =>
             {
@@ -90,7 +91,7 @@ public static class QuasarCoreOperations
 
     internal static DedicatedServerDefinition RequireServer(IServiceProvider services, string uniqueName) =>
         services.GetRequiredService<DedicatedServerCatalog>().GetServer(uniqueName?.Trim() ?? string.Empty)
-        ?? throw new QuasarOperationException(404, $"Server '{uniqueName}' not found.");
+        ?? throw NotFound(services, uniqueName?.Trim() ?? string.Empty);
 
     internal static bool JsonEquals(JsonElement left, object? right) =>
         System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode.Parse(left.GetRawText()),
@@ -108,8 +109,11 @@ public static class QuasarCoreOperations
         }, "text/plain; charset=utf-8", Path.GetFileName(path));
     }
 
+    internal const string ClusterHint =
+        "use the cluster operations instead, such as cluster.status, cluster.start, cluster.stop, cluster.save, cluster.players, cluster.players.kick, cluster.players.ban and cluster.logs.tail";
+
     /// <summary>A standalone server operation's 404, saying so when the name is a cluster's.</summary>
-    internal static QuasarOperationException NotFound(IServiceProvider services, string name, string clusterHint = "use cluster.players and cluster.status") =>
+    internal static QuasarOperationException NotFound(IServiceProvider services, string name, string clusterHint = ClusterHint) =>
         new(404, services.GetService<ClusterCatalog>()?.GetCluster(name) is null
             ? $"Server '{name}' not found."
             : $"'{name}' is a cluster, and this operation works only on standalone servers; {clusterHint}.");

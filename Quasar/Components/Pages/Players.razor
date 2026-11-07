@@ -645,27 +645,10 @@
                 return true;
             }
 
-            private static string? ClusterModerationUnavailableReason(ClusterPlayerSnapshot? snapshot) => snapshot switch
-            {
-                null => "Waiting for cluster player status.",
-                { Error: { } error } => error,
-                { Available: false } => "Cluster player status is stale. Wait for a fresh Gateway connection.",
-                { Capabilities.Scope: not Admin.AdminScope.Manage } => "The cluster Gateway credential needs management scope for player actions.",
-                _ when snapshot.Capabilities is null => "Cluster Gateway capabilities are unavailable.",
-                _ when !snapshot.CanRun(ClusterOperation("kick")) && !snapshot.CanRun(ClusterOperation("ban"))
-                    && !snapshot.CanRun(ClusterOperation("unban")) => "This cluster Gateway does not support player actions.",
-                _ => null,
-            };
+            private static string? ClusterModerationUnavailableReason(ClusterPlayerSnapshot? snapshot) =>
+                ClusterPlayerSnapshot.ModerationUnavailableReason(snapshot);
 
-            private static string ClusterOperation(string action) => action switch
-            {
-                "kick" => "POST /admin/v1/clients/{id}/kick",
-                "ban" => "POST /admin/v1/admission/bans",
-                "unban" => "DELETE /admin/v1/admission/bans/{userId}",
-                "set-player-promotion" => "PUT /admin/v1/players/{userId}/promotion",
-                "clear-kick-cooldown" => "DELETE /admin/v1/admission/kicks/{userId}",
-                _ => string.Empty,
-            };
+            private static string ClusterOperation(string action) => ClusterPlayerSnapshot.GatewayOperation(action);
 
             private async Task SendPlayerCommandAsync(KnownPlayerView view, ServerCommandType commandType, string text = "")
             {

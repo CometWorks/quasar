@@ -134,6 +134,8 @@ the console width. On narrow screens they stack; payloads wrap without clipping.
 
 The terminal icon on the card or page opens the cluster console. It has two tabs, **Cluster Registry events** and **Node plugin logs** (up to 1000 most recent entries), and refreshes every five seconds. If the Registry cannot be reached it keeps the shown entries and says "Live feed unavailable. Retained entries may be stale." Full Gateway and node process logs stay on the host machines; see [Cluster hosts](ClusterHosts.md#logs).
 
+Plugins and their AI agents read the same entries with `cluster.events.tail` and `cluster.logs.tail` (optionally one node, by the name `cluster.status` reports), with the line count, head or tail and filter options of `logs.magnetar.tail`.
+
 ## Starting and stopping
 
 **Start** sets the cluster goal to On. **Stop** asks "Shut down cluster?" ("Players will disconnect while the cluster saves and drains."), then sets the goal to Off. A background reconciler in Quasar does the work every 2 seconds:
@@ -149,6 +151,7 @@ Other controls:
 - **Restart Cluster Gateway** (Advanced cluster controls, while running) restarts only the Gateway: "Clients will reconnect; nodes keep simulating."
 - **Drain** asks the Registry to move a node's work to another node. The web UI has no force-remove action. If a process needs to be killed manually, use operating-system tools on its host machine.
 - Running clusters do not depend on Quasar. If Quasar stops, the Host executors keep the Gateway and nodes running.
+- Plugins and their AI agents use operations with the same checks: `cluster.start`, `cluster.stop`, `cluster.save` and `cluster.gateway.restart`, `cluster.services.recover` and `cluster.recover` (the two Recovery buttons in Maintenance), and `cluster.restart`, which stops the cluster and starts it again once it has stopped cleanly, giving up after ten minutes. They need `ClusterManage` and access to the cluster, and an agent can only propose them. They return the cluster operation without waiting for the Gateway; `cluster.operation` and `cluster.status` show how it went. An admin can undo a start or stop from the audit log while the cluster's goal is still what it left.
 
 The admin power dialog's **Save and stop all servers** includes managed clusters.
 It sets their goals to Off and shows a loader with elapsed time and per-target
@@ -533,6 +536,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterBetaNoticeCatalog.cs`
 - `Quasar/Services/ClusterCatalog.cs`
 - `Quasar/Services/ClusterCommandService.cs`
+- `Quasar/Services/Plugins/QuasarClusterControlOperations.cs`
 - `Quasar/Services/ClusterUpdatePreparationService.cs`
 - `Quasar.Host/WorldFilesMigration.cs`
 - `Quasar.Host/ModStorageSeed.cs`
