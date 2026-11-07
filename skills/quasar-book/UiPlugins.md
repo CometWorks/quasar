@@ -51,7 +51,7 @@ The page has:
 - **QuasarHub Catalog**: browse, install, update, enable, disable and remove plugins, and the automatic update checkbox.
 - **Load Errors**: one entry per plugin that failed to load at startup.
 - **Loaded Plugins**: name, id, version, entry assembly, static assets and stylesheets of each loaded plugin. The paths menu shows the package folder, the shadow cache folder and file details. **Disable** turns a plugin off for the next restart.
-- **Plugin endpoint authorization**: collapsed by default. Edit operation rules and shared policy role grants here.
+- **Plugin endpoint authorization**: collapsed by default. Edit operation rules, shared policy role grants and the roles of plugins' AI agents here.
 - **Plugin Nav Items**, **Extension Contributions** and **Razor Assemblies**: what each loaded plugin contributes.
 
 ## QuasarHub
