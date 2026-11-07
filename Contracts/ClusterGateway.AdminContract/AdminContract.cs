@@ -302,7 +302,9 @@ public sealed record NodeStatus(
     int QuarantinedPartitions,
     string? Host,
     bool LeaseFresh,
-    bool Spare = false);
+    bool Spare = false,
+    DateTimeOffset? ServingSince = null,
+    DateTimeOffset? RotationDue = null);
 
 public sealed record PartitionSummary(
     ulong Partition,
