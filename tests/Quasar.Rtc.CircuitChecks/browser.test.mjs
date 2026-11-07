@@ -29,6 +29,9 @@ for (const name of (process.env.RTC_BROWSER ? [process.env.RTC_BROWSER] : ["chro
             if (closed.status !== 204) throw new Error("Could not simulate peer loss");
         }, peers[0]);
         await page.waitForFunction(() => document.querySelector("#components-reconnect-modal").classList.contains("components-reconnect-show"));
+        assert.equal(await page.locator('#components-reconnect-modal').evaluate(element => element.open), true);
+        assert.match(await page.textContent('#components-reconnect-description'), /Displayed data may be out of date/);
+        await page.locator('#components-reconnect-reload').waitFor({ state: 'visible' });
         await page.waitForFunction(() => document.querySelector("#components-reconnect-modal").classList.contains("components-reconnect-hide"));
         await page.click("#increment");
         await page.waitForFunction(() => document.querySelector("#interop").textContent === "4");
@@ -85,6 +88,37 @@ for (const name of (process.env.RTC_BROWSER ? [process.env.RTC_BROWSER] : ["chro
         assert.deepEqual(sockets, [], "No browser WebSocket may carry the Blazor circuit");
         assert.deepEqual(errors, []);
         console.log(JSON.stringify({ browser: name, renderCharacters: 200000, uploadBytes: bytes.length, webSockets: sockets.length, identity: "core authenticated", jsInterop: true, reconnected: true, roleRevoked: true }));
+    } finally { await browser.close(); }
+});
+
+test('startup failures and stalled hydration show a warning without a working circuit', { timeout: 90000 }, async () => {
+    const browser = await playwright.chromium.launch({ headless: true, executablePath: process.env.CHROME_PATH,
+        args: ['--disable-features=WebRtcHideLocalIpsWithMdns'] });
+    try {
+        for (const failure of ['module', 'session', 'stall']) {
+            const page = await browser.newPage();
+            const path = failure === 'module' ? '**/_quasar/sdk/v1/circuit.js' : '**/_quasar/sdk/v1/session';
+            let release;
+            const pending = new Promise(resolve => { release = resolve; });
+            await page.route(path, async route => {
+                if (failure === 'stall') { await pending; await route.continue(); }
+                else await route.fulfill({ status: 503, body: 'Unavailable' });
+            });
+            await page.goto(new URL('fixture/login', process.env.QUASAR_CIRCUIT_URL).href);
+            const warning = page.locator('#quasar-connection-warning');
+            await warning.waitFor({ state: 'visible', timeout: 15000 });
+            assert.equal(await warning.evaluate(element => getComputedStyle(element).position), 'fixed');
+            assert.match(await warning.textContent(), failure === 'stall' ? /taking longer than expected/ : /Could not establish/);
+            assert.notEqual(await page.getAttribute('body', 'data-interactive'), 'true');
+            if (failure === 'stall') release();
+            else {
+                await page.unroute(path);
+                await page.click('#quasar-connection-reload');
+            }
+            await page.waitForFunction(() => document.body.dataset.interactive === 'true');
+            await warning.waitFor({ state: 'hidden' });
+            await page.close();
+        }
     } finally { await browser.close(); }
 });
 

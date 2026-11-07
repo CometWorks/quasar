@@ -112,7 +112,7 @@ use **Done** or **Close** when finished. Background refreshes never dismiss setu
 - **Cluster**: on Linux, with cluster-management permission, opens [guided cluster setup](ClusterSetup.md). The Dashboard keeps a **Continue cluster setup** panel until explicitly skipped or closed. It links to controls once a cluster is deployed.
 - **Import Existing Server**: continues in the same dialog with the importer (see below).
 
-The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from **Setup guide** (all available choices) or **Import server** (import only). Refreshing during import returns to source selection so the source is read again and its stopped state must be confirmed again. After a completed import, refresh resumes the server setup guide instead of starting another import. **New server** separately opens the server-kind chooser, where **Cluster** stays visible but grayed out on Windows with a Linux requirement explanation.
+The dialog needs both the `CanEditServers` and `CanEditConfigs` permissions (roles `editor` or `admin`). Viewers do not see it. Later you can reopen it from **Setup guide** (all available choices) or **Import server** (import only). Refreshing during import returns to source selection so the source is read again. Folder imports must confirm the stopped state again; ZIP uploads do not require that confirmation. After a completed import, refresh resumes the server setup guide instead of starting another import. **New server** separately opens the server-kind chooser, where **Cluster** stays visible but grayed out on Windows with a Linux requirement explanation.
 
 ## Create a new server with the wizard
 
@@ -150,7 +150,9 @@ Discovery and import show an operation loader with elapsed time and next-step gu
    - For **Upload ZIP**, include one server instance with its config and `Saves` folder. A Torch ZIP also needs `Torch.cfg` and the instance folder. Files can be at the ZIP root or inside an enclosing folder. The ZIP must contain exactly one `SpaceEngineers-Dedicated.cfg` for vanilla imports, or exactly one `Torch.cfg` for Torch imports.
    - For **Server Folder**, choose **Copy** (source world folders stay unchanged) or **Move** (selected source world folders are deleted after a successful import). ZIP uploads always copy and leave the ZIP on your PC unchanged. Click **Analyze**.
 3. **Analyze and select**: review warnings, set the **Quasar display name** and **Quasar identifier**, tick the worlds to import, pick the **Primary managed world** and choose which settings to transfer.
-4. **Confirm**: tick **I confirm source server is stopped** and click **Import**.
+4. **Confirm**: for **Server Folder**, tick **I confirm source server is stopped**
+   and click **Import**. For **Upload ZIP**, click **Import** directly; the stopped
+   confirmation checkbox is hidden because Quasar imports an uploaded snapshot.
 
 Quasar reads the ZIP index from your browser and validates the server configuration before transferring world data. It copies only `Torch.cfg` when needed, the chosen instance's `SpaceEngineers-Dedicated.cfg` and the detected worlds. World checkpoints are validated before terrain and mod-storage files transfer. All detected worlds are read for review; you choose which to keep on the next step. Runtime binaries, plugins, logs, caches, unrelated worlds and each world's `Backup` folder stay on your PC. Quasar requests ZIP metadata and needed file ranges without storing a complete copy of the ZIP. Index and header reads can include a small amount of neighboring data.
 

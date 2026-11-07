@@ -542,7 +542,7 @@ window.quasarConfigs = window.quasarConfigs || {
 
             const currentPhase = canAcceptHealthyWorker() ? "health" : "stop";
             updateFeedback(currentPhase, currentPhase === "health" ? pollingMessage : waitingForStopMessage);
-            fetch(new URL("api/health", document.baseURI), { cache: "no-store" })
+            fetch(new URL("api/health", document.baseURI), { cache: "no-store", redirect: "error", signal: AbortSignal.timeout(5000) })
                 .then(async (response) => {
                     if (!isCurrentSession()) {
                         return;
@@ -568,7 +568,8 @@ window.quasarConfigs = window.quasarConfigs || {
                         if (!(payload?.version ?? payload?.Version)) {
                             const versionResponse = await fetch(new URL("api/version", document.baseURI), {
                                 cache: "no-store",
-                                redirect: "error"
+                                redirect: "error",
+                                signal: AbortSignal.timeout(5000)
                             });
                             if (!versionResponse.ok) {
                                 scheduleNext();

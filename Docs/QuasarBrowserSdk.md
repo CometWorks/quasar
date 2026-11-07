@@ -241,8 +241,9 @@ bounding outstanding bytes, rather than rejecting existing feature responses.
 
 ## Administrator authorization settings
 
-On **Security**, **Plugin endpoint authorization** lists registered operations,
-their declared policies, effective policies and installation overrides.
+On **UI Plugins**, expand **Plugin endpoint authorization** to list registered operations,
+their declared policies, effective policies and installation overrides. The section
+is collapsed by default.
 Administrators with current `CanManageSecurity` permission can disable an
 operation or replace its required policies. All selected policies must pass.
 **Restore declared policies** removes the operation binding override; shared

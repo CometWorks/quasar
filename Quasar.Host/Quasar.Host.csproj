@@ -13,6 +13,7 @@
     <Compile Include="..\Shared\Networking\MachineEndpointPolicy.cs" Link="Networking\MachineEndpointPolicy.cs" />
     <Compile Include="..\Shared\Diagnostics\*.cs" Link="Diagnostics\%(Filename)%(Extension)" />
     <Compile Include="..\Shared\ClusterDeployment\*.cs" Link="ClusterDeployment\%(Filename)%(Extension)" />
+    <Compile Include="../Shared/Hosting/OutputLogRotation.cs" Link="Hosting/OutputLogRotation.cs" />
     <ProjectReference Include="..\Contracts\ClusterGateway.AdminContract\ClusterGateway.AdminContract.csproj" />
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
   </ItemGroup>
