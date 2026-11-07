@@ -110,6 +110,7 @@ public sealed class ClusterPlayerTests : IDisposable
             : [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery]);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
+        context.Services.AddDirectCoreOperations();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
@@ -525,6 +526,7 @@ public sealed class ClusterPlayerTests : IDisposable
         context.Services.AddSingleton(auth);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
+        context.Services.AddDirectCoreOperations();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(_known, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));

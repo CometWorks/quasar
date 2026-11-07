@@ -43,7 +43,7 @@ public sealed class NewServerDialogTests : IDisposable
         var navigation = context.Services.GetRequiredService<NavigationManager>();
         var actions = new ServerManagementActions(catalog, null!, new(), null!, null!, null!,
             context.Services.GetRequiredService<QuasarPermissionService>(), dialogs,
-            context.Services.GetRequiredService<ISnackbar>(), navigation);
+            context.Services.GetRequiredService<ISnackbar>(), navigation, context.Services);
         var provider = context.Render<MudDialogProvider>();
         var action = provider.InvokeAsync(() => actions.OpenNewServerDialogAsync());
         await provider.WaitForAssertionAsync(() => Assert.Single(provider.FindComponents<NewServerDialog>()));

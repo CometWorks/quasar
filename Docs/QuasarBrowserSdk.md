@@ -67,6 +67,15 @@ services.AddQuasarOperation<SetMotdRequest, SetMotdResponse>(
 - `Deadline` replaces the 30-second deadline of JSON operations; 1 to 300 seconds.
   An invalid value fails registration.
 - `AgentAccess = Denied` closes the operation to both agent principals.
+- `Description` is one or two plain sentences for a person or a model: what the
+  operation does, what it returns and when it applies. The assistant uses it as
+  the tool description, so mention defaults and limits of the request there.
+
+`QuasarOperation.RequestType` is the request type a registration helper
+deserializes, so a consumer can build the input schema with
+`JsonSchemaExporter.GetJsonSchemaAsNode(options, operation.RequestType)`. Keep
+request types plain records of strings, numbers, booleans, lists and nested
+records; nullable properties and defaults show up in the schema.
 
 During a change operation, `QuasarOperationContext.Undo` records what an undo
 needs: `SetData` for small values kept inline in the audit entry,
@@ -87,8 +96,31 @@ data and blobs expire with the entry, after `Quasar:Audit:RetentionDays`
 The audit log is `audit/<yyyy-MM>.jsonl` in the Quasar data folder, one JSON
 object per line, with blobs in `audit/blobs/<entry id>/`. Argument values whose
 names look like a password, token, secret or key are stored as `<redacted>`.
-`IQuasarAuditLog` lets a plugin record an agent's proposal and query entries.
-Only changes made through the operation registry are audited.
+`IQuasarAuditLog` lets a plugin record an agent's proposal, decide it and
+query entries. Only changes made through the operation registry are audited.
+
+### Proposals
+
+`RecordProposalAsync` writes a `proposed` entry from the agent principal. Core
+records who the agent acts for from the real principal: the asker's sign-in
+provider and subject for the assistant, the Steam ID, player name and Discord
+user ID for the player agent. A plugin never rebuilds an agent principal itself:
+
+- `ApproveAsync(approver, proposalId)` rebuilds the agent from the proposal
+  entry and dispatches the recorded operation and arguments with
+  `ApprovedBy = approver`, so the agent's role, the asker's policies and the
+  approver's policies are all checked at approval time. A player agent's
+  proposal needs an approver who satisfies `CanControlServers` in place of
+  `CanActAsPlayer`. The `approved` entry names the proposal in `proposal`.
+- `RejectAsync(approver, proposalId, reason)` writes a `rejected` entry linked
+  to the proposal, after checking that the approver could have approved it.
+  Pass a null approver when the plugin lets a proposal expire; the reason is
+  then `expired`.
+
+Both refuse an entry that is not a proposal or was already approved or
+rejected; approval also refuses one past the retention period. A refused
+approval (the approver or asker lacks a policy) leaves the proposal open.
+Proposals whose arguments had redacted values cannot be approved.
 
 ### Agent principals
 
@@ -110,6 +142,12 @@ For an agent call the dispatcher also:
   `editor`, player none by default; never `admin`);
 - checks the assistant's asker too, so it never does more than the asker could
   do by hand, and the approver of a proposal (`QuasarOperationContext.ApprovedBy`).
+
+`IQuasarAgentOperations.IsAvailableToAgentsAsync(pluginId, operationId)` tells
+a plugin whether to offer an operation to an agent at all: false when it is
+unknown, disabled, has an invalid rule, or the deny list above refuses it under
+its current effective rule, RBAC overrides included. It does not check any
+caller's roles; the dispatcher still does that at call time.
 
 Player-scoped operations use the `CanActAsPlayer` policy. No role grants it and
 a role override cannot; only the player agent satisfies it.
@@ -339,6 +377,39 @@ the same browser client. Existing analytics and log URLs are dispatcher aliases;
 log selection keeps its existing server lookup, safe-filename and log-pattern
 rules. Security lists these core operations alongside plugin operations.
 
+### Core admin operations
+
+`quasar.core` also registers the admin actions the assistant uses as tools.
+The Razor pages of these areas call the same operations through
+`QuasarCoreOperationCaller`, so a person's change in the web UI is authorized
+and audited like an SDK or assistant call. Requests name their target
+explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
+
+| Operation | Policy | Effect and reversal |
+|---|---|---|
+| `servers.list`, `servers.status` | `CanView` | read |
+| `servers.start`, `servers.stop` | `CanControlServers` | undo restores the goal while it is unchanged; 120 s deadline |
+| `servers.restart`, `servers.save` | `CanControlServers` | nothing to reverse; 300 s deadline |
+| `logs.server.tail`, `logs.magnetar.tail` | `CanView` | read: `lines` (200, at most 2000) from the `tail` or `head`, an optional case-insensitive `filter`, at most `maxBytes` (16 KiB, at most 64 KiB) |
+| `servers.definition.get` | `CanView` | read, without paths or executables |
+| `servers.definition.set` | `CanEditServers` | one allow-listed field per call; undo |
+| `servers.definition.save` | `CanEditServers` | whole definition, no rename, denied to agents; undo |
+| `config.profiles.list`, `config.settings.get`, `config.plugins.list`, `config.mods.list` | `CanView` | read; passwords are never returned |
+| `config.settings.set` | `CanEditConfigs` | one option per call, checked against its kind, limits and choices, no passwords; undo |
+| `config.plugins.set`, `config.mods.add`, `config.mods.remove` | `CanEditConfigs` | undo |
+| `config.profile.save` | `CanEditConfigs` | whole profile, denied to agents; undo |
+| `players.list` | `CanView` | read |
+| `players.ban`, `players.unban`, `players.promote`, `players.demote`, `players.promotion.set` | `CanControlServers` | undo sends the inverse command while the known-player state is unchanged |
+| `players.kick`, `players.kick-cooldown.clear` | `CanControlServers` | nothing to reverse |
+| `backups.list` | `CanControlServers` | read; world and server backups only |
+| `backups.world.create`, `backups.server.create` | `CanControlServers` | queued, nothing to reverse; never stop and back up |
+| `cluster.list`, `cluster.status` | `ClusterQuery` | read |
+
+Config profile settings act on the shared profile; a change result lists every
+server that uses the profile and applies at their next start. Player operations
+cover standalone servers only. Deleting, cloning, importing, killing, restoring,
+stop and back up, and cluster changes are not operations.
+
 Normal local authentication/trusted-network behavior continues through Quasar's
 existing principal pipeline, without Nebula services or a hosting entitlement.
 SDK endpoints always require an accepted authenticated principal, including when
@@ -346,7 +417,7 @@ other legacy routes have authentication explicitly disabled. Disabling hosting
 has no effect on the local SDK. No operation adds a Nebula endpoint allowlist.
 
 Other core HTTP APIs, config-backup downloads/uploads, appearance resources,
-server lifecycle APIs and existing SignalR circuits retain their current paths.
+the server lifecycle HTTP APIs and existing SignalR circuits retain their current paths.
 The Discord log button uses its legacy alias to the SDK handler. SignalR and
 remaining core transport migration belong to later RTC steps. Existing plugins
 can keep their old interface and endpoint registration; SDK adoption is opt-in.

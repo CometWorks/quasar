@@ -449,6 +449,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task NativeDetailsPreserveCommandsLiveUpdatesAndPermissions()
     {
+        using var data = new TemporaryQuasarDirectory();
         await using var context = new BunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
@@ -456,12 +457,17 @@ public sealed class NativeAppearanceTests : IDisposable
         auth.SetAuthorized("operator");
         auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers);
         var sent = new List<ServerCommandEnvelope>();
-        var registry = new AgentRegistry(null!, null!, null!, null!);
+        var known = new KnownPlayerCatalog(NullLogger<KnownPlayerCatalog>.Instance);
+        var registry = new AgentRegistry(known, null!, null!, null!);
         registry.UpsertHello(new() { AgentId = "agent", UniqueName = "alpha" }, "connection", (message, _) =>
         {
             sent.Add(message.Command!);
+            // Player actions are operations that wait for the agent's answer.
+            registry.UpdateCommandResult(new() { AgentId = "agent", CommandId = message.Command!.CommandId, Success = true }, "connection");
             return Task.CompletedTask;
         });
+        context.Services.AddSingleton(known);
+        context.Services.AddDirectCoreOperations();
         using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         context.Services.AddSingleton(registry);
         context.Services.AddSingleton(profiles);

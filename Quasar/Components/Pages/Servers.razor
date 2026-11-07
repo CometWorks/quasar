@@ -15,6 +15,7 @@
 @inject NavigationManager Navigation
 @inject IJSRuntime JS
 @inject QuasarPermissionService Permissions
+@inject IServiceProvider Services
 
 @if (!Embedded)
 {
@@ -492,8 +493,7 @@
                 return;
             }
 
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.On, reconcile: false);
-            await Supervisor.StartServerAsync(uniqueName);
+            await Services.CallCoreOperationAsync("servers.start", new { uniqueName });
             Snackbar.Add("Server start requested.", Severity.Success);
         }
         catch (Exception exception)
@@ -517,7 +517,7 @@
 
         try
         {
-            await Supervisor.SetGoalStateAsync(uniqueName, DedicatedServerGoalState.Off);
+            await Services.CallCoreOperationAsync("servers.stop", new { uniqueName });
             Snackbar.Add("Server stop requested.", Severity.Info);
         }
         catch (Exception exception)
@@ -612,7 +612,7 @@
 
         try
         {
-            await Supervisor.RestartServerAsync(uniqueName);
+            await Services.CallCoreOperationAsync("servers.restart", new { uniqueName });
             Snackbar.Add("Server restart requested.", Severity.Info);
         }
         catch (Exception exception)

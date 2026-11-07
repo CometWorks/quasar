@@ -16,6 +16,7 @@
 @inject ISnackbar Snackbar
 @inject IJSRuntime JS
 @inject IDialogService DialogService
+@inject IServiceProvider Services
 
 <PageTitle>Config Profiles</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasPendingChanges()" />
@@ -1325,7 +1326,16 @@
         if (!ReferenceEquals(_editor, profile)) return false;
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditConfigs)) return false;
         var dependencyTreeRows = _modDependencyTreeRows;
-        await ConfigProfiles.UpsertAsync(profile);
+        try
+        {
+            // Through the operation, so the save is audited and can be undone from the Audit log.
+            await Services.CallCoreOperationAsync("config.profile.save", new { profile });
+        }
+        catch (Quasar.Plugin.Abstractions.Operations.QuasarOperationException error)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+            return false;
+        }
         if (reselectAfterSave)
             SelectProfile(profile.ConfigProfileId);
         else

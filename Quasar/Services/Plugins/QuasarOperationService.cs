@@ -14,7 +14,7 @@ namespace Quasar.Services.Plugins;
 public sealed record QuasarOperationSettings(string PluginId, string OperationId,
     IReadOnlyList<string> DefaultPolicies, QuasarOperationRule? EffectiveRule, bool Overridden, string? Error);
 
-public sealed class QuasarOperationService : IQuasarOperationDispatcher
+public sealed class QuasarOperationService : IQuasarOperationDispatcher, IQuasarAgentOperations
 {
     // The hard deny list for agent principals, by operation ID prefix under any plugin ID, so a plugin cannot
     // register an agent-reachable operation in these areas: security, RBAC, auth settings, service principals,
@@ -64,7 +64,7 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         if (denied is not null)
         {
             if (audited)
-                await _audit.RecordCallAsync(entryId, user, approver, operation!, request, null, QuasarAuditResult.Refused, denied.Error);
+                await _audit.RecordCallAsync(entryId, user, approver, operation!, request, null, QuasarAuditResult.Refused, denied.Error, context.ProposalId);
             return denied;
         }
         var undo = audited ? new QuasarUndoRecorder(_audit.BlobDirectory(entryId)) : null;
@@ -80,12 +80,12 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         catch (Exception error)
         {
             if (audited)
-                await _audit.RecordCallAsync(entryId, user, approver, operation!, request, undo, QuasarAuditResult.Failed, error.Message);
+                await _audit.RecordCallAsync(entryId, user, approver, operation!, request, undo, QuasarAuditResult.Failed, error.Message, context.ProposalId);
             throw;
         }
         if (audited)
             await _audit.RecordCallAsync(entryId, user, approver, operation!, request, undo,
-                result.Error is null ? QuasarAuditResult.Ok : QuasarAuditResult.Failed, result.Error);
+                result.Error is null ? QuasarAuditResult.Ok : QuasarAuditResult.Failed, result.Error, context.ProposalId);
         return result;
     }
 
@@ -106,6 +106,15 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         { return new(504, Error: "The operation deadline expired; a write outcome may be unknown."); }
     }
 
+    public async Task<bool> IsAvailableToAgentsAsync(string pluginId, string operationId)
+    {
+        if (Find(pluginId, operationId) is not { } operation) return false;
+        var config = _rbac.GetConfig();
+        var rule = Rule(operation, config);
+        return config.SdkRulesValid && rule?.Enabled == true && await ValidPoliciesAsync(rule.RequiredPolicies)
+            && !IsDeniedToAgents(operation, rule);
+    }
+
     public QuasarOperation? Find(string pluginId, string operationId) => _operations.GetValueOrDefault(pluginId + "/" + operationId);
 
     /// <summary>A transport's check before it dispatches; audits a refused change operation like the dispatcher does.</summary>
@@ -116,7 +125,7 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         var denied = await CheckAccessAsync(user, pluginId, operationId, kind);
         var operation = Find(pluginId, operationId);
         if (denied is not null && IsAudited(operation, user))
-            await _audit.RecordCallAsync(_audit.NewEntryId(), user, null, operation!, default, null, QuasarAuditResult.Refused, denied.Error);
+            await _audit.RecordCallAsync(_audit.NewEntryId(), user, null, operation!, default, null, QuasarAuditResult.Refused, denied.Error, null);
         return denied;
     }
 
@@ -142,11 +151,29 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher
         // The assistant never does more than its asker could do by hand.
         if (agent?.Kind == QuasarAgentKind.Assistant && !await IsAllowedPersonAsync(agent.Asker, rule))
             return new(403, Error: "The person asking the assistant cannot access this SDK operation.");
-        if (approver is not null && !await IsAllowedPersonAsync(_roles.RefreshRoles(approver), rule))
+        if (approver is not null && !await IsAllowedApproverAsync(approver, rule))
             return new(403, Error: "The approver cannot access this SDK operation.");
 
         return null;
     }
+
+    /// <summary>Whether a person may approve or reject a proposed call of the operation.</summary>
+    public async Task<bool> CanApproveAsync(ClaimsPrincipal approver, QuasarOperation operation)
+    {
+        var config = _rbac.GetConfig();
+        var rule = Rule(operation, config);
+        return config.SdkRulesValid && rule?.Enabled == true && await ValidPoliciesAsync(rule.RequiredPolicies)
+            && await IsAllowedApproverAsync(approver, rule);
+    }
+
+    // No person satisfies CanActAsPlayer, so a player agent's proposal needs an approver who can control servers.
+    private Task<bool> IsAllowedApproverAsync(ClaimsPrincipal approver, QuasarOperationRule rule) =>
+        IsAllowedPersonAsync(_roles.RefreshRoles(approver), new()
+        {
+            RequiredPolicies = rule.RequiredPolicies!.Select(policy =>
+                policy.Equals(QuasarPolicyNames.CanActAsPlayer, StringComparison.OrdinalIgnoreCase)
+                    ? QuasarPolicyNames.CanControlServers : policy).ToList(),
+        });
 
     internal static QuasarOperationMetadata Meta(QuasarOperation operation) =>
         operation.Metadata.ResolveFor(operation.Kind, operation.OperationId);

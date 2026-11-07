@@ -7,6 +7,7 @@
 @inject DedicatedServerSupervisor Supervisor
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
+@inject IServiceProvider Services
 
 <PageTitle>Chat</PageTitle>
 
@@ -40,7 +41,7 @@
                     Refresh
                 </MudButton>
                 <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
-                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="@(() => SendAgentCommandAsync(ServerCommandType.SaveWorld))" Disabled="@(!CanSaveSelected)">
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="SaveSelectedAsync" Disabled="@(!CanSaveSelected)">
                     Save
                 </MudButton>
                 <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!CanRestartSelected)">
@@ -312,6 +313,23 @@
         }
     }
 
+    private async Task SaveSelectedAsync()
+    {
+        var agent = SelectedAgent;
+        if (agent is null || !CanSaveSelected)
+            return;
+
+        try
+        {
+            await Services.CallCoreOperationAsync("servers.save", new { uniqueName = agent.UniqueNameKey });
+            Snackbar.Add("World saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
     private async Task RestartSelectedServerAsync()
     {
         if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanControlServers)) return;
@@ -326,7 +344,7 @@
 
         try
         {
-            await Supervisor.RestartServerAsync(_selectedUniqueName);
+            await Services.CallCoreOperationAsync("servers.restart", new { uniqueName = _selectedUniqueName });
             Snackbar.Add($"Restart requested for {GetServerDisplayName(_selectedUniqueName)}.", Severity.Info);
         }
         catch (Exception exception)

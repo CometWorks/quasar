@@ -3,6 +3,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject QuasarPermissionService Permissions
+@inject IServiceProvider Services
 
 @{
     IReadOnlyList<string> modDownloadFailures = Runtime is null ? Array.Empty<string>() : Runtime.ModDownloadFailures;
@@ -201,6 +202,29 @@ else
 
         try
         {
+            // Saves and player actions go through the operations, which wait for the agent and are audited.
+            var operation = commandType switch
+            {
+                ServerCommandType.SaveWorld => "servers.save",
+                ServerCommandType.KickPlayer => "players.kick",
+                ServerCommandType.BanPlayer => "players.ban",
+                ServerCommandType.SetPlayerPromoteLevel => "players.promotion.set",
+                _ => null,
+            };
+            if (operation is not null)
+            {
+                await Services.CallCoreOperationAsync(operation, steamId is null
+                    ? (object)new { uniqueName = Agent.UniqueNameKey }
+                    : new
+                    {
+                        uniqueName = Agent.UniqueNameKey,
+                        steamId = steamId.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                        level = text,
+                    });
+                Snackbar.Add($"{commandType} done on {Agent.ServerDisplayName}.", Severity.Success);
+                return;
+            }
+
             await Registry.SendCommandAsync(new ServerCommandEnvelope
             {
                 UniqueName = Agent.UniqueNameKey,

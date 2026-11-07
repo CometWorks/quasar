@@ -17,6 +17,8 @@ public sealed record QuasarOperationContext(ClaimsPrincipal User, IServiceProvid
     public QuasarUndoRecorder? Undo { get; init; }
     /// <summary>The person who approved a proposed call; the dispatcher checks their policies too.</summary>
     public ClaimsPrincipal? ApprovedBy { get; init; }
+    /// <summary>Set by core when it approves a recorded proposal, to link the audit entries.</summary>
+    internal string? ProposalId { get; init; }
     public Task EnsureAuthorizedAsync(CancellationToken token) => VerifyAccess?.Invoke(token)
         ?? throw new InvalidOperationException("This operation has no authorization boundary.");
 }
@@ -57,6 +59,14 @@ public interface IQuasarOperationDispatcher
         string operationId, JsonElement request, CancellationToken cancellationToken);
 }
 
+/// <summary>Which operations an agent principal may be offered, so a plugin lists only those as tools.</summary>
+public interface IQuasarAgentOperations
+{
+    /// <summary>False when the operation is unknown, disabled, has an invalid rule, or the core deny list refuses it
+    /// to agents under its current effective rule (RBAC overrides included). Caller roles play no part.</summary>
+    Task<bool> IsAvailableToAgentsAsync(string pluginId, string operationId);
+}
+
 public sealed record QuasarOperationResult(int StatusCode, object? Value = null, string? Error = null)
 {
     public IResult ToHttpResult() => Error is null
@@ -92,6 +102,8 @@ public abstract class QuasarOperation
     public IReadOnlyList<string> DefaultPolicies { get; }
     public virtual QuasarOperationKind Kind => QuasarOperationKind.Json;
     public virtual long MaximumUploadBytes => 0;
+    /// <summary>The request type the operation deserializes, for building a JSON schema of its input; null when unknown.</summary>
+    public virtual Type? RequestType => null;
     private QuasarOperationMetadata? _defaultMetadata;
     public virtual QuasarOperationMetadata Metadata => _defaultMetadata ??= new QuasarOperationMetadata().ResolveFor(Kind, OperationId);
     public static bool IsIdentifier(string? value) => value is { Length: > 0 and <= 128 } && Identifier.IsMatch(value);
@@ -104,6 +116,7 @@ public abstract class QuasarOperation
     {
         public override QuasarOperationKind Kind => kind;
         public override long MaximumUploadBytes => maximumUploadBytes;
+        public override Type? RequestType => typeof(TRequest);
         public override QuasarOperationMetadata Metadata { get; } = (metadata ?? new()).ResolveFor(kind, operationId);
         public override async Task<object?> InvokeAsync(QuasarOperationContext context, JsonElement request, CancellationToken token)
         {
