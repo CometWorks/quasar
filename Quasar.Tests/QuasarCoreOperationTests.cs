@@ -48,6 +48,8 @@ public sealed class QuasarCoreOperationTests : IDisposable
     private readonly ClusterPlayerTests.Gateway _gateway = new();
     private readonly ClusterPlayerService _clusterPlayers;
     private readonly List<ServerCommandEnvelope> _commands = [];
+    private readonly List<EntitySummary> _alphaEntities = [];
+    private ClusterEntityTests.Fixture? _entityFixture;
     private bool _commandsSucceed = true;
 
     public QuasarCoreOperationTests()
@@ -127,6 +129,8 @@ public sealed class QuasarCoreOperationTests : IDisposable
             NullLogger<ClusterPlayerService>.Instance
         );
         services.AddSingleton(_clusterPlayers);
+        // Created on first use, so only entity tests get its cluster agents.
+        services.AddSingleton(_ => Entities.Service);
         services.AddQuasarCoreOperations();
         _services = services.BuildServiceProvider();
     }
@@ -139,6 +143,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
         _rbac.Dispose();
         _supervisor.Dispose();
         _clusterPlayers.Dispose();
+        _entityFixture?.Dispose();
         _clusters.Dispose();
         _gateway.Dispose();
         _cache.SetValue(null, _previous);
@@ -337,6 +342,21 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
             ),
+            ["entities.list"] = (
+                QuasarPolicyNames.CanView,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["entities.delete"] = (
+                QuasarPolicyNames.CanControlServers,
+                QuasarOperationEffect.Change,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.entities.list"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
         };
         var operations = _services
             .GetServices<QuasarOperation>()
@@ -372,9 +392,18 @@ public sealed class QuasarCoreOperationTests : IDisposable
         Assert.Equal(TimeSpan.FromSeconds(120), operations["servers.start"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.restart"].Metadata.Deadline);
         Assert.Equal(TimeSpan.FromSeconds(300), operations["servers.save"].Metadata.Deadline);
-        // Destructive operations are a deliberate choice, each one listed here.
+        var clusterDelete = operations["cluster.entities.delete"];
         Assert.Equal(
-            ["backups.restore"],
+            [QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterManage],
+            clusterDelete.DefaultPolicies
+        );
+        Assert.Equal(
+            (QuasarOperationEffect.Change, QuasarReversal.NotReversible),
+            (clusterDelete.Metadata.Effect, clusterDelete.Metadata.Reversal)
+        );
+        // Destructive operations are a deliberate choice, each one listed here; an agent can only propose them.
+        Assert.Equal(
+            ["backups.restore", "cluster.entities.delete", "entities.delete"],
             operations
                 .Keys.Where(id =>
                     id.Contains("delete")
@@ -1093,6 +1122,285 @@ public sealed class QuasarCoreOperationTests : IDisposable
         );
     }
 
+    [Fact]
+    public async Task EntitiesListFiltersSortsAndCleansAStandaloneServersEntities()
+    {
+        Assert.Equal(
+            "Server 'alpha' not found.",
+            (await CallAsync(Editor(), "entities.list", new { uniqueName = "alpha" })).Error
+        );
+        await CreateServerAsync("alpha", world: false);
+        Assert.Equal(
+            409,
+            (await CallAsync(Editor(), "entities.list", new { uniqueName = "alpha" })).StatusCode
+        );
+        ConnectAgent("alpha");
+        _alphaEntities.AddRange([
+            new()
+            {
+                EntityId = 1,
+                DisplayName = "\uE030Big station",
+                TypeTag = "Grid",
+                SubType = "LargeStatic",
+                BlockCount = 900,
+                Pcu = 100,
+                SizeMeters = 300,
+                OwnerSteamId = 42,
+                OwnerName = "Owner",
+                PositionX = 1.4,
+                PositionY = -2,
+                PositionZ = 3,
+            },
+            new()
+            {
+                EntityId = 2,
+                DisplayName = "Busy ship",
+                TypeTag = "Grid",
+                SubType = "SmallShip",
+                BlockCount = 50,
+                Pcu = 5000,
+                SizeMeters = 20,
+                BigOwnerSteamIds = [42, 43],
+            },
+            new()
+            {
+                EntityId = 3,
+                DisplayName = "Plates",
+                TypeTag = "Float",
+                ItemAmount = 2.5m,
+                SizeMeters = 1,
+            },
+        ]);
+
+        var all = Assert.IsType<QuasarEntityOperations.EntityList>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "entities.list",
+                    new { uniqueName = "alpha" }
+                )
+            ).Value
+        );
+        Assert.Equal((3, 3), (all.Matching, all.LiveTotal!.Value));
+        Assert.Equal(["1", "2", "3"], all.Entities.Select(entity => entity.EntityId));
+        var station = all.Entities[0];
+        Assert.Equal(
+            ("Grid", "Large-grid station", "Big station", "Owner", "42", "1, -2, 3"),
+            (
+                station.Type,
+                station.Details,
+                station.Name,
+                station.OwnerName,
+                station.OwnerSteamId,
+                station.Position
+            )
+        );
+        Assert.Null(station.Nodes);
+        Assert.Equal(2.5m, all.Entities[2].Quantity);
+
+        var busy = Assert.IsType<QuasarEntityOperations.EntityList>(
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.list",
+                    new
+                    {
+                        uniqueName = "alpha",
+                        type = "grid",
+                        search = "s",
+                        ownerSteamId = "42",
+                        sort = "pcu",
+                        limit = 1,
+                    }
+                )
+            ).Value
+        );
+        Assert.Equal("2", Assert.Single(busy.Entities).EntityId);
+        var filter = JsonSerializer.Deserialize<EntityListFilter>(
+            _commands[^1].Payload!,
+            QuasarCoreOperations.Json
+        )!;
+        Assert.Equal(("Grid", "s"), (filter.TypeTag, filter.Search));
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.list",
+                    new { uniqueName = "alpha", type = "Ships" }
+                )
+            ).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task EntitiesDeleteLooksTheEntityUpAgainAndIsAuditedWithoutUndo()
+    {
+        await CreateServerAsync("alpha", world: false);
+        ConnectAgent("alpha");
+        _alphaEntities.Add(
+            new()
+            {
+                EntityId = 7,
+                DisplayName = "Wreck",
+                TypeTag = "Grid",
+            }
+        );
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "entities.delete",
+                    new { uniqueName = "alpha", entityId = "7" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            400,
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.delete",
+                    new { uniqueName = "alpha", entityId = "wreck" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(
+                    Editor(),
+                    "entities.delete",
+                    new { uniqueName = "alpha", entityId = "8" }
+                )
+            ).StatusCode
+        );
+        Assert.DoesNotContain(
+            _commands,
+            command => command.CommandType == ServerCommandType.DeleteEntity
+        );
+
+        var deleted = await CallAsync(
+            Editor(),
+            "entities.delete",
+            new { uniqueName = "alpha", entityId = "7" }
+        );
+        Assert.Equal(200, deleted.StatusCode);
+        Assert.Equal(
+            "Wreck",
+            Assert.IsType<QuasarEntityOperations.EntityDeleteResult>(deleted.Value).Entity.Name
+        );
+        var command = _commands[^1];
+        Assert.Equal(ServerCommandType.DeleteEntity, command.CommandType);
+        Assert.Equal(
+            7,
+            JsonSerializer
+                .Deserialize<EntityDeleteRequest>(command.Payload!, QuasarCoreOperations.Json)!
+                .EntityId
+        );
+        var entry = await LatestAsync("entities.delete");
+        Assert.Equal(QuasarReversal.NotReversible, entry.Reversal);
+        Assert.Equal("alpha", entry.Server);
+    }
+
+    [Fact]
+    public async Task ClusterEntitiesListNodesAndDeleteOnlyThroughTheOwningNode()
+    {
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(Editor(), "cluster.entities.list", new { uniqueName = "cluster" })
+            ).StatusCode
+        );
+        await _clusters.CreateAsync(
+            new("cluster", "Unified cluster", "http://gateway.test", ""),
+            default
+        );
+        Entities.Data["a"] =
+        [
+            ClusterEntityTests.Entity(1, "Local"),
+            ClusterEntityTests.Entity(3, "Local"),
+        ];
+        Entities.Data["b"] =
+        [
+            ClusterEntityTests.Entity(1, "Unowned"),
+            ClusterEntityTests.Entity(3, "Local"),
+        ];
+
+        var list = Assert.IsType<QuasarEntityOperations.EntityList>(
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.entities.list",
+                    new { uniqueName = "cluster" }
+                )
+            ).Value
+        );
+        Assert.Contains("conflicting node ownership", Assert.Single(list.Warnings));
+        Assert.Null(list.LiveTotal);
+        var shared = Assert.Single(list.Entities, entity => entity.EntityId == "1");
+        Assert.Equal(("a, b", null), (shared.Nodes, shared.DeleteBlocked));
+        Assert.NotNull(
+            Assert.Single(list.Entities, entity => entity.EntityId == "3").DeleteBlocked
+        );
+        var serverList = await CallAsync(Editor(), "entities.list", new { uniqueName = "cluster" });
+        Assert.Equal(404, serverList.StatusCode);
+        Assert.Contains("cluster.entities.list", serverList.Error);
+
+        Assert.Equal(
+            403,
+            (
+                await CallAsync(
+                    Person(QuasarRoles.Viewer),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "1" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            409,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "3" }
+                )
+            ).StatusCode
+        );
+        Assert.Equal(
+            404,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "9" }
+                )
+            ).StatusCode
+        );
+        Assert.DoesNotContain(
+            Entities.Commands,
+            command => command.CommandType == ServerCommandType.DeleteEntity
+        );
+        Assert.Equal(
+            200,
+            (
+                await CallAsync(
+                    Editor(),
+                    "cluster.entities.delete",
+                    new { uniqueName = "cluster", entityId = "1" }
+                )
+            ).StatusCode
+        );
+        var deletion = Assert.Single(
+            Entities.Commands,
+            command => command.CommandType == ServerCommandType.DeleteEntity
+        );
+        Assert.Equal("a", deletion.AgentId);
+    }
+
+    private ClusterEntityTests.Fixture Entities => _entityFixture ??= new(_registry);
+
     private Task<QuasarServerOperations.LogTailResponse> Slice(
         string path,
         QuasarServerOperations.LogTailRequest request
@@ -1141,6 +1449,18 @@ public sealed class QuasarCoreOperationTests : IDisposable
             {
                 var command = message.Command!;
                 _commands.Add(command);
+                var entities =
+                    command.CommandType == ServerCommandType.ListEntities
+                        ? JsonSerializer.Serialize(
+                            new EntityListResult
+                            {
+                                Entities = _alphaEntities,
+                                TotalCount = _alphaEntities.Count,
+                                TotalEntityCount = _alphaEntities.Count,
+                            },
+                            QuasarCoreOperations.Json
+                        )
+                        : null;
                 var result = new ServerCommandResult
                 {
                     AgentId = command.AgentId,
@@ -1149,6 +1469,7 @@ public sealed class QuasarCoreOperationTests : IDisposable
                     ServerId = uniqueName,
                     Success = _commandsSucceed,
                     Message = _commandsSucceed ? "done" : "refused",
+                    Payload = entities,
                     CompletedAtUtc = DateTimeOffset.UtcNow,
                 };
                 // Answered before the send returns, so the known-player outcome is recorded before the call ends.

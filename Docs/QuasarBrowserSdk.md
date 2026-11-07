@@ -523,10 +523,14 @@ explicitly with `uniqueName` (a standalone server or cluster) or `profileId`.
 | `backups.settings.read` | `CanControlServers` | read: automatic backup rules and folder |
 | `backups.restore` | `CanManageSecurity` | a stored world or server backup of a stopped server, never a configuration backup; not reversible; 300 s deadline |
 | `cluster.list`, `cluster.status`, `cluster.players` | `ClusterQuery` | read |
+| `entities.list` | `CanView` | read: `type`, `search`, `ownerSteamId`, `sort` (Size, Pcu, Blocks) and `limit` (25, at most 200) |
+| `entities.delete` | `CanControlServers` | looks the entity up again by ID; not reversible |
+| `cluster.entities.list` | `ClusterQuery` | read, every responding node; 150 s deadline |
+| `cluster.entities.delete` | `CanControlServers`, `ClusterManage` | only through the one owning node; not reversible; 150 s deadline |
 
 Config profile settings act on the shared profile; a change result lists every
 server that uses the profile and applies at their next start. Player operations
-cover standalone servers only. Deleting, cloning, importing, killing, restoring,
+cover standalone servers only. Deleting anything but an entity, cloning, importing, killing, restoring,
 stop and back up, and cluster changes are not operations.
 
 Normal local authentication/trusted-network behavior continues through Quasar's
