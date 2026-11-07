@@ -105,6 +105,12 @@ public static class QuasarCoreOperations
         }, "text/plain; charset=utf-8", Path.GetFileName(path));
     }
 
+    /// <summary>A standalone server operation's 404, saying so when the name is a cluster's.</summary>
+    internal static QuasarOperationException NotFound(IServiceProvider services, string name, string clusterHint = "use cluster.players and cluster.status") =>
+        new(404, services.GetService<ClusterCatalog>()?.GetCluster(name) is null
+            ? $"Server '{name}' not found."
+            : $"'{name}' is a cluster, and this operation works only on standalone servers; {clusterHint}.");
+
     internal static string? ResolveDedicatedServerLogPath(string uniqueName, DedicatedServerCatalog catalog, string? fileName)
     {
         var server = catalog.GetServer(uniqueName);

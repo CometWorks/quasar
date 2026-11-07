@@ -44,6 +44,9 @@ public sealed class QuasarCoreOperationTests : IDisposable
     private readonly ServerRestoreCoordinator _restores = new();
     private readonly DedicatedServerSupervisor _supervisor;
     private readonly ServiceProvider _services;
+    private readonly ClusterCatalog _clusters;
+    private readonly ClusterPlayerTests.Gateway _gateway = new();
+    private readonly ClusterPlayerService _clusterPlayers;
     private readonly List<ServerCommandEnvelope> _commands = [];
     private bool _commandsSucceed = true;
 
@@ -112,12 +115,16 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 NullLogger<AutomaticBackupService>.Instance
             )
         );
-        services.AddSingleton(
-            new ClusterCatalog(
-                NullLogger<ClusterCatalog>.Instance,
-                new ConfigurationBuilder().Build()
-            )
+        // After the Quasar directory points at _root, or the catalog writes next to the test binaries.
+        _clusters = new(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build());
+        services.AddSingleton(_clusters);
+        _clusterPlayers = new(
+            _clusters,
+            new(new HttpClient(_gateway)),
+            _known,
+            NullLogger<ClusterPlayerService>.Instance
         );
+        services.AddSingleton(_clusterPlayers);
         services.AddQuasarCoreOperations();
         _services = services.BuildServiceProvider();
     }
@@ -129,6 +136,9 @@ public sealed class QuasarCoreOperationTests : IDisposable
         _profiles.Dispose();
         _rbac.Dispose();
         _supervisor.Dispose();
+        _clusterPlayers.Dispose();
+        _clusters.Dispose();
+        _gateway.Dispose();
         _cache.SetValue(null, _previous);
         try
         {
@@ -306,6 +316,11 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 QuasarReversal.NotReversible
             ),
             ["cluster.status"] = (
+                QuasarPolicyNames.ClusterQuery,
+                QuasarOperationEffect.Read,
+                QuasarReversal.NotReversible
+            ),
+            ["cluster.players"] = (
                 QuasarPolicyNames.ClusterQuery,
                 QuasarOperationEffect.Read,
                 QuasarReversal.NotReversible
@@ -988,6 +1003,43 @@ public sealed class QuasarCoreOperationTests : IDisposable
         Assert.Equal(
             404,
             (await CallAsync(Editor(), "cluster.status", new { uniqueName = "nope" })).StatusCode
+        );
+    }
+
+    [Fact]
+    public async Task ClusterPlayersListTheGatewaysClientsAndServerReadsPointThere()
+    {
+        Assert.Equal(
+            404,
+            (await CallAsync(Editor(), "cluster.players", new { uniqueName = "nope" })).StatusCode
+        );
+        var cluster = await _clusters.CreateAsync(
+            new("test", "Unified cluster", "http://gateway.test", ""),
+            default
+        );
+        var early = Assert.IsType<QuasarClusterOperations.ClusterPlayersResult>(
+            (await CallAsync(Editor(), "cluster.players", new { uniqueName = "test" })).Value
+        );
+        Assert.Contains("not collected yet", early.Error);
+        Assert.Empty(early.Online);
+
+        await _clusterPlayers.RefreshAsync(cluster, default);
+        var players = Assert.IsType<QuasarClusterOperations.ClusterPlayersResult>(
+            (await CallAsync(Editor(), "cluster.players", new { uniqueName = "test" })).Value
+        );
+        Assert.Null(players.Error);
+        var player = Assert.Single(players.Online);
+        Assert.Equal(("7", "Cluster player", "node-a"), (player.SteamId, player.Name, player.Node));
+
+        var list = await CallAsync(Editor(), "players.list", new { uniqueName = "test" });
+        Assert.Equal(404, list.StatusCode);
+        Assert.Contains("cluster.players", list.Error);
+        var tail = await CallAsync(Editor(), "logs.magnetar.tail", new { uniqueName = "test" });
+        Assert.Equal(404, tail.StatusCode);
+        Assert.Contains("is a cluster", tail.Error);
+        Assert.Equal(
+            "Server 'missing' not found.",
+            (await CallAsync(Editor(), "players.list", new { uniqueName = "missing" })).Error
         );
     }
 
