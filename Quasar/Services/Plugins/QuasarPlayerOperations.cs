@@ -70,7 +70,7 @@ public static class QuasarPlayerOperations
             {
                 Effect = QuasarOperationEffect.Read,
                 Description =
-                    $"Lists a standalone server's online players (Steam ID, name, faction tag, promote level, ping) and its known players, the {KnownLimit} seen most recently, with the banned flag.",
+                    $"Lists a standalone server's online players (Steam ID, name, faction tag, promote level, ping) and its known players, the {KnownLimit} seen most recently, with the banned flag. For a cluster use cluster.players.",
             }
         );
         var banUndo = new PlayerUndo(
@@ -189,7 +189,7 @@ public static class QuasarPlayerOperations
             agent is null
             && services.GetRequiredService<DedicatedServerCatalog>().GetServer(name) is null
         )
-            throw new QuasarOperationException(404, $"Server '{name}' not found.");
+            throw NotFound(services, name);
         var known = Known(services, name).OrderByDescending(record => record.LastSeenUtc).ToList();
         return new(
             name,

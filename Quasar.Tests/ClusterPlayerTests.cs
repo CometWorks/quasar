@@ -557,7 +557,7 @@ public sealed class ClusterPlayerTests : IDisposable
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
     }
 
-    private sealed class Gateway : HttpMessageHandler
+    internal sealed class Gateway : HttpMessageHandler
     {
         internal static readonly Admin.ClientSummary Player = new(7, "Cluster player", 70, "Admitted", false, "node-a", 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
         internal static readonly Admin.AdminCapabilities Capabilities = new("gateway", Admin.AdminScope.Manage, Admin.AdminProtocol.Operations, new Dictionary<string, string>());

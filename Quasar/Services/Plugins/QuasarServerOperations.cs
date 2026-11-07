@@ -202,7 +202,15 @@ public static class QuasarServerOperations
                     input.Name
                 );
                 if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
-                    throw new QuasarOperationException(404, "Log file not found.");
+                    throw caller
+                        .Services.GetRequiredService<DedicatedServerCatalog>()
+                        .GetServer(input.UniqueName) is null
+                        ? NotFound(
+                            caller.Services,
+                            input.UniqueName,
+                            "Quasar has no operation for cluster node logs yet, but cluster.status and cluster.players report its state"
+                        )
+                        : new QuasarOperationException(404, "Log file not found.");
                 return await ReadLogSliceAsync(path, input, token);
             },
             Read with
