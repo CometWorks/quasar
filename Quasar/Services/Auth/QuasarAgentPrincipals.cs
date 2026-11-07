@@ -36,6 +36,22 @@ public sealed class QuasarAgentPrincipals(
         );
     }
 
+    public ClaimsPrincipal CreateMonitor(string conversationId, string request) =>
+        roles.RefreshRoles(
+            new ClaimsPrincipal(
+                new QuasarAgentIdentity(
+                    QuasarAgentKind.Monitor,
+                    null,
+                    null,
+                    null,
+                    null,
+                    conversationId,
+                    request,
+                    []
+                )
+            )
+        );
+
     // Core only: the Steam ID must come from an authenticated game session or a stored Discord link.
     internal ClaimsPrincipal CreatePlayer(
         string steamId,

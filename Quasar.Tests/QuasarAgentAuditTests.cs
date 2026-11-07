@@ -158,10 +158,10 @@ public sealed class QuasarAgentAuditTests : IDisposable
     }
 
     [Fact]
-    public async Task BothAgentsAreRefusedEveryHardDeniedOperation()
+    public async Task EveryAgentIsRefusedEveryHardDeniedOperation()
     {
         var admin = Person(QuasarRoles.Admin);
-        foreach (var agent in new[] { await AssistantAsync(admin), Player() })
+        foreach (var agent in new[] { await AssistantAsync(admin), Player(), Monitor() })
         {
             foreach (
                 var operation in DenyPatternOperations.Concat([
@@ -191,7 +191,67 @@ public sealed class QuasarAgentAuditTests : IDisposable
         });
         Assert.Equal(AgentDenied, (await CallAsync(assistant, "servers.read")).Error);
         Assert.Equal(AgentDenied, (await CallAsync(Player(), "servers.read")).Error);
+        Assert.Equal(AgentDenied, (await CallAsync(Monitor(), "servers.read")).Error);
         Assert.Equal(200, (await CallAsync(admin, "servers.read")).StatusCode);
+    }
+
+    [Fact]
+    public async Task MonitorActsForNobodyWithItsOwnRoles()
+    {
+        var monitor = Monitor();
+        Assert.True(monitor.IsQuasarAgent(out var identity));
+        Assert.Null(identity.Asker);
+        Assert.True(monitor.IsInRole(QuasarRoles.Editor));
+        Assert.Equal(200, (await CallAsync(monitor, "servers.set", new SetRequest(1))).StatusCode);
+        var entry = Assert.Single(await QueryAsync());
+        Assert.Equal(
+            (QuasarAuditPrincipalKind.Monitor, "agent:monitor", "Monitor"),
+            (entry.Principal.Kind, entry.Principal.Subject, entry.Principal.Name)
+        );
+        Assert.Equal("monitor-conversation", entry.ConversationId);
+
+        // An approved monitor proposal runs as the monitor again, with its current roles.
+        await MapSteamAsync("76561198000000104", QuasarRoles.Admin);
+        var audit = _services.GetRequiredService<QuasarAuditLog>();
+        var proposal = await audit.RecordProposalAsync(
+            monitor,
+            Plugin,
+            "servers.set",
+            JsonSerializer.SerializeToElement(new SetRequest(3)),
+            "restart it",
+            default
+        );
+        Assert.Equal(
+            200,
+            (await audit.ApproveAsync(Steam("76561198000000104"), proposal.Id, default)).StatusCode
+        );
+        Assert.Equal(3, _value);
+        Assert.Equal(
+            QuasarAuditPrincipalKind.Monitor,
+            (await QueryAsync()).Single(e => e.Mode == QuasarAuditMode.Approved).Principal.Kind
+        );
+
+        await Operations(operations =>
+            operations.SaveAgentRolesAsync(
+                Person(QuasarRoles.Admin),
+                QuasarAgentKind.Monitor,
+                [QuasarRoles.Viewer]
+            )
+        );
+        Assert.Equal(200, (await CallAsync(Monitor(), "servers.read")).StatusCode);
+        Assert.Equal(
+            403,
+            (await CallAsync(Monitor(), "servers.set", new SetRequest(2))).StatusCode
+        );
+        Assert.Equal(3, _value);
+
+        await _rbac.UpdateAsync(config =>
+        {
+            config.AgentRoles["monitor"] = [QuasarRoles.Admin];
+            return Task.CompletedTask;
+        });
+        Assert.Empty(_rbac.GetConfig().AgentRoles["monitor"]);
+        Assert.False(Monitor().IsInRole(QuasarRoles.Admin));
     }
 
     [Fact]
@@ -997,6 +1057,11 @@ public sealed class QuasarAgentAuditTests : IDisposable
         _services
             .GetRequiredService<QuasarAgentPrincipals>()
             .CreatePlayer("76561198000000001", "Pilot", null, "player-conversation", "!ask");
+
+    private ClaimsPrincipal Monitor() =>
+        _services
+            .GetRequiredService<QuasarAgentPrincipals>()
+            .CreateMonitor("monitor-conversation", "server down");
 
     private async Task<QuasarOperationResult> CallAsync(
         ClaimsPrincipal user,
