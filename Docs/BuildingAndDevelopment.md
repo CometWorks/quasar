@@ -556,6 +556,18 @@ Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~B
 to check range-stream behavior, selective archive transfer, validation and
 staging cleanup. These checks do not start Quasar or a game server.
 
+### Table row identity regression tests
+
+MudTable keys each row by its item. A table fed fresh copies on every render
+recreates every row and its tooltip and menu popovers, and Firefox froze under
+that churn (QSR-16). Feed tables stable instances: `StableRows<T>` for catalog
+copies that rarely change, or key-based equality on a page's own row type when
+rows change on most updates, like the Players page's `KnownPlayerView`.
+
+Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~StableRowsTests|FullyQualifiedName~WorldTemplateRowsSurviveRerenders|FullyQualifiedName~LiveUpdatesKeepPlayerRowsAndTheirPopovers'`
+to check that unchanged rows keep their components across re-renders and live
+updates.
+
 ### Browser push readiness regression tests
 
 Run `node --test Quasar.Tests/Browser/push-worker.test.mjs` with a current Node.js

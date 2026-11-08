@@ -6,6 +6,8 @@ namespace Quasar.Components.Shared;
 /// Keeps table row objects the same instances across rebuilds while their content is unchanged.
 /// MudTable keys each row by its item, so a list rebuilt from fresh copies recreates every row and
 /// its tooltip, menu and select popovers on each render. Firefox freezes under that churn (QSR-16).
+/// A changed row still gets its fresh instance, so rows that change on most updates need key-based
+/// equality on the row type instead, like the Players page's KnownPlayerView.
 /// </summary>
 public sealed class StableRows<T>(Func<T, string> key)
     where T : class
