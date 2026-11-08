@@ -211,6 +211,29 @@ public sealed class ClusterCliTests
         finally { Directory.Delete(folder, true); }
     }
 
+    [Fact]
+    public async Task RegularNodesPrepareSendsTheCountAndTheOptionalHost()
+    {
+        string? body = null;
+        var handler = new Handler((request, _) =>
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            Assert.Equal("/api/v1/clusters/demo/regular-nodes-preparation", request.RequestUri!.AbsolutePath);
+            body = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            return Response(HttpStatusCode.Accepted, """{"protocolVersion":1,"data":{"operationId":"op","state":"Succeeded"}}""");
+        });
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "regular-nodes-prepare", "demo", "6", "--url", "http://quasar.test",
+            "--idempotency-key", "nodes-1"], handler, new StringWriter(), new StringWriter()));
+        Assert.Equal("""{"regularNodes":6,"hostId":null}""", body);
+        Assert.Equal(0, await ClusterCli.RunAsync(["cluster", "regular-nodes-prepare", "demo", "3", "second", "--url", "http://quasar.test",
+            "--idempotency-key", "nodes-2"], handler, new StringWriter(), new StringWriter()));
+        Assert.Equal("""{"regularNodes":3,"hostId":"second"}""", body);
+        var unsent = new Handler((_, _) => throw new InvalidOperationException("must not send"));
+        foreach (string count in new[] { "0", "-1", "six" })
+            Assert.Equal(2, await ClusterCli.RunAsync(["cluster", "regular-nodes-prepare", "demo", count, "--url", "http://quasar.test",
+                "--idempotency-key", "nodes-3"], unsent, new StringWriter(), new StringWriter()));
+    }
+
     [Theory]
     [InlineData("-1")]
     [InlineData("9223372036854775807")]

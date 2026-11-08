@@ -521,6 +521,18 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
             .Count(node => node.TryGetProperty("spare", out var spare) && spare.ValueKind == JsonValueKind.True) : 0;
     }
 
+    /// <summary>The serving regular nodes of a deployment specification per host, in the order of its hosts.</summary>
+    internal static IReadOnlyList<(string HostId, int RegularNodes)> RegularNodes(string? specificationJson)
+    {
+        if (string.IsNullOrEmpty(specificationJson)) return [];
+        using var specification = JsonDocument.Parse(specificationJson);
+        var root = specification.RootElement;
+        if (!root.TryGetProperty("hosts", out var hosts) || !root.TryGetProperty("nodes", out var nodes)) return [];
+        return hosts.EnumerateArray().Select(h => h.GetProperty("id").GetString()!).Select(host => (host, nodes.EnumerateArray()
+            .Count(n => n.GetProperty("host").GetString() == host && n.GetProperty("role").GetString() == "regular"
+                && !(n.TryGetProperty("spare", out var spare) && spare.ValueKind == JsonValueKind.True)))).ToArray();
+    }
+
     internal static async Task<string> SpecificationAsync(ClusterDefinition cluster, DedicatedServerDefinition source,
         QuasarConfigProfile profile, LastKnownPluginConfigSnapshot? snapshot, ServerToClusterRequest request,
         string world, Dictionary<string, HostContract.HostConversionPaths> paths, CancellationToken token,
