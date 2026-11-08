@@ -415,6 +415,40 @@ public sealed class ControlPlaneViewerTests : IDisposable
     }
 
     [Fact]
+    public async Task WorldTemplateRowsSurviveRerenders()
+    {
+        // QSR-16: rows rebuilt from fresh catalog copies were recreated on every render, popovers included.
+        await using var context = Context();
+        var worlds = new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance);
+        var source = Path.Combine(_root, "source");
+        Directory.CreateDirectory(source);
+        await File.WriteAllTextAsync(Path.Combine(source, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        await worlds.ImportAsync("First world", "", source);
+        await worlds.ImportAsync("Second world", "", source);
+        context.Services.AddSingleton(worlds);
+        context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
+        context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
+        context.Services.AddSingleton(new WorldTemplateImportLocationService(new(), new BrowserStorageService(context.JSInterop.JSRuntime)));
+        var maintenance = new Quasar.Services.Backup.ServerRestoreCoordinator();
+        var supervisor = new DedicatedServerSupervisor(Registered<DedicatedServerCatalog>(context), Registered<AgentRegistry>(context),
+            null!, null!, null!, new(), maintenance, NullLogger<DedicatedServerSupervisor>.Instance);
+        context.Services.AddSingleton(supervisor);
+        context.Services.AddSingleton(maintenance);
+        context.Services.AddSingleton(new WebServiceOptions());
+        context.Services.AddSingleton<ServerWorldImportService>();
+        context.Services.AddScoped<ServerManagementActions>();
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<WorldTemplates>();
+        await page.InvokeAsync(() => page.FindComponent<MudTabs>().Instance.ActivatePanelAsync(1));
+        var rows = page.FindComponents<MudTr>().Select(row => row.Instance).ToArray();
+        Assert.Equal(2, rows.Length);
+
+        page.Render();
+
+        Assert.Equal(rows, page.FindComponents<MudTr>().Select(row => row.Instance));
+    }
+
+    [Fact]
     public async Task ViewerCanBrowsePlayersWithoutCleanupOrModerationControls()
     {
         await using var context = Context();

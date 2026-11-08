@@ -27,7 +27,7 @@
         <section class="quasar-panel pa-4">
             <h2 class="quasar-text quasar-type-h6">Server worlds</h2>
             <p>Each standalone server selects its own save. Importing selects a new save and keeps the previous save on disk. Cluster worlds use the cluster deployment flow.</p>
-            <MudTable T="DedicatedServerDefinition" Items="Servers.GetServers()" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+            <MudTable T="DedicatedServerDefinition" Items="_serverRows.Reuse(Servers.GetServers())" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
                 <HeaderContent><MudTh>Server</MudTh><MudTh>Selected save</MudTh><MudTh>Configuration profile</MudTh><MudTh>Status / goal</MudTh><MudTh>Actions</MudTh></HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Server">@(string.IsNullOrWhiteSpace(context.DisplayName) ? context.UniqueName : context.DisplayName)<br /><small class="mono">@context.UniqueName</small></MudTd>
@@ -131,7 +131,10 @@
         bool WorldExists,
         long FileSizeMb);
 
-    private IReadOnlyList<WorldTemplateRow> Templates =>
+    private readonly StableRows<DedicatedServerDefinition> _serverRows = new(server => server.UniqueName);
+    private readonly StableRows<WorldTemplateRow> _templateRows = new(row => row.Template.WorldTemplateId);
+
+    private IReadOnlyList<WorldTemplateRow> Templates => _templateRows.Reuse(
         WorldTemplateCatalog.GetTemplates()
             .Select(p =>
             {
@@ -142,7 +145,7 @@
                     : 0;
                 return new WorldTemplateRow(p, exists, sizeMb);
             })
-            .ToList();
+            .ToList());
 
     protected override void OnInitialized()
     {

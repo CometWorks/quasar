@@ -86,6 +86,7 @@
 {
     private readonly CancellationTokenSource _shutdown = new();
     private IReadOnlyList<ExecutorHostRow> ExecutorRows { get; set; } = [];
+    private readonly StableRows<ExecutorHostRow> _executorRows = new(row => row.Identity);
     private string[] _localWarnings = [];
     private Task? _refreshLoop;
 
@@ -146,11 +147,10 @@
             QueryExecutorAsync(cluster, cancellationToken)));
         if (cancellationToken.IsCancellationRequested)
             return;
-        ExecutorRows = queried
+        ExecutorRows = _executorRows.Reuse(queried
             .GroupBy(row => row.Identity, StringComparer.OrdinalIgnoreCase)
             .Select(group => ExecutorHostRow.Merge(group))
-            .OrderBy(row => row.HostName, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
+            .OrderBy(row => row.HostName, StringComparer.OrdinalIgnoreCase));
         if (render)
             await InvokeAsync(StateHasChanged);
     }
