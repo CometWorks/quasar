@@ -86,6 +86,10 @@ even when a metric is missing on another node. World Authority has its own named
 series. Replacements and epochs share their slot's history; missing samples are
 not replaced with zero. Profiler and plugin statistics use the same selected
 nodes. Standalone servers can be compared alongside clusters.
+Hovering a chart, on Analytics or the Dashboard, shows each series' value at that
+sample and its time as `YYYY-MM-DD HH:MM:SS` in the browser's time zone. The
+time axis is labeled `HH:MM:SS`, or with dates when its ticks are a day or more
+apart, as on 7d and 30d.
 
 Idle regular cluster nodes pause new analytics samples until they own partitions
 again. Their live-map cards and Nodes table show **Idle** instead of presenting

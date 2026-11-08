@@ -45,12 +45,27 @@ window.quasarCharts = (function () {
         };
     }
 
-    // Time-only x-axis labels: "HH:MM:SS".
-    function formatTick(t) {
-        const pad = (n) => (n < 10 ? "0" + n : "" + n);
+    const pad = (n) => (n < 10 ? "0" + n : "" + n);
+
+    function formatDate(t) {
         const d = new Date(t * 1000);
-        const time = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
-        return time;
+        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+    }
+
+    function formatTime(t) {
+        const d = new Date(t * 1000);
+        return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    }
+
+    // X-axis labels: "YYYY-MM-DD" when the ticks are a day or more apart (they all sit on midnight),
+    // otherwise "HH:MM:SS". uPlot passes the tick step in seconds.
+    function formatTicks(splits, incr) {
+        return splits.map(incr >= 86400 ? formatDate : formatTime);
+    }
+
+    // Hover legend time: "YYYY-MM-DD HH:MM:SS" in the browser's time zone.
+    function formatTimestamp(t) {
+        return formatDate(t) + " " + formatTime(t);
     }
 
     function buildYRange(axis) {
@@ -71,7 +86,7 @@ window.quasarCharts = (function () {
         const c = appearance || axisColors(dark);
         const valueFmt = makeValueFormatter(chart.axis);
 
-        const series = [{}]; // x
+        const series = [{ value: (u, v) => (v == null ? "-" : formatTimestamp(v)) }]; // x
         chart.series.forEach((s, i) => {
             const color = s.color || colorsArr[i % colorsArr.length];
             series.push({
@@ -87,7 +102,6 @@ window.quasarCharts = (function () {
         return {
             width: width,
             height: height,
-            ms: 1e3, // x values are unix seconds, not milliseconds
             cursor: {
                 sync: { key: SYNC_KEY },
                 y: false,
@@ -117,8 +131,8 @@ window.quasarCharts = (function () {
                     stroke: c.label,
                     grid: { show: false },
                     ticks: { stroke: c.tick, width: 1 },
-                    size: 52, // room for the two-line YYYY-MM-DD / HH:MM:SS label
-                    values: (u, splits) => splits.map(formatTick),
+                    size: 52,
+                    values: (u, splits, axisIdx, space, incr) => formatTicks(splits, incr),
                 },
                 {
                     stroke: c.label,
