@@ -2042,10 +2042,18 @@ and writes it to its own output. It keeps the last 20 lines, each cut to 300 cha
 When the Gateway exits, the Host reports `process_exited:exit_code=N` and those lines.
 The cluster detail panel shows them under **Last Cluster Registry process output**, below
 the `gateway_start_failed` reconciler status, so a failure like a missing `steamclient.so`
-is visible without the Host's log. Only a Gateway started by the running Host process
-has this output: after a Host restart, a Gateway that is still running keeps running,
-but its output is lost until it is restarted, and its exit is reported as plain
-`process_exited`.
+is visible without the Host's log.
+
+On Linux the Gateway appends both streams to `gateway.log` in its run root, and the Host
+follows that file. The Gateway keeps running through a Host restart, and the new Host
+follows its `gateway.log` from where the file ends, so its lines keep reaching the Host's
+output. Lines written while no Host ran are only in `gateway.log`. The Host rotates
+`gateway.log` the same way as `host.log`: at 64 MB, keeping `gateway.log.1` to `gateway.log.3`.
+The exit of a Gateway started by an earlier Host is reported as plain `process_exited`,
+with its last lines. A Gateway started by the Host of Quasar 1.6.0.25 or older wrote into that
+Host's pipes, and its output is lost until it restarts; the new Host says so once, in a
+`[gateway CLUSTER]` line. On Windows the Host still reads the Gateway through pipes, and
+after a Host restart a still running Gateway's output is lost until it restarts.
 
 Executor credentials are separate from Query/Manage credentials. The scoped Gateway
 token file gives each credential scope `Executor` and name equal to the Host ID.

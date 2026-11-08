@@ -10,7 +10,7 @@ using HostContract = global::Quasar.Host.Contract.V1;
 
 namespace Quasar.Host;
 
-internal sealed class GatewayActualizer
+internal sealed class GatewayActualizer : IDisposable
 {
     private const int SchemaVersion = 1;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
@@ -29,6 +29,18 @@ internal sealed class GatewayActualizer
         _hostId = hostId;
         _diagnostics = diagnostics ?? DiagnosticStorage.Create(Path.Combine(_stateDirectory, "diagnostics"), hostId,
             Environment.GetEnvironmentVariable("QUASAR_HOST_DIAGNOSTICS_DIRECTORY"));
+    }
+
+    /// <summary>Stops following the Gateways' output, as the Host's exit does. The Gateways keep running.</summary>
+    public void Dispose()
+    {
+        _gate.Wait();
+        try
+        {
+            foreach (string clusterId in _outputs.Keys.ToArray())
+                DropOutput(clusterId);
+        }
+        finally { _gate.Release(); }
     }
 
     internal void EnsureStopped(string clusterId)
@@ -120,6 +132,8 @@ internal sealed class GatewayActualizer
         if (record is not null && match.State == ProcessMatchState.Alive)
         {
             using Process process = match.Process!;
+            if (!_outputs.ContainsKey(spec.ClusterId))
+                AdoptOutput(spec, record, process.Id);
             if (await ControlUnhealthyAsync(spec, record, cancellationToken) is { } unhealthy)
                 return await RestartUnhealthyAsync(spec, record, process, unhealthy, cancellationToken);
             if (DateTimeOffset.UtcNow - record.LaunchedAt > StableAfter)
@@ -317,8 +331,10 @@ internal sealed class GatewayActualizer
 
     private static readonly TimeSpan StableAfter = TimeSpan.FromMinutes(2);
     private readonly Dictionary<string, Respawn> _respawns = new(StringComparer.OrdinalIgnoreCase);
-    // Output of the Gateways this Host process started; guarded by _gate.
+    // Output of the Gateways this Host process started or adopted; guarded by _gate.
     private readonly Dictionary<string, ProcessOutputTail> _outputs = new(StringComparer.OrdinalIgnoreCase);
+    // Running Gateways this Host process adopted, so it says only once that it can't follow one.
+    private readonly HashSet<(string ClusterId, int ProcessId)> _adoptions = [];
     private readonly Dictionary<string, (int Pid, DateTime Started, long Timestamp, TimeSpan Cpu)> _cpuSamples = new(StringComparer.OrdinalIgnoreCase);
 
     private HostContract.GatewayProcessMetrics? SampleMetrics(string clusterId, Process process)
@@ -354,6 +370,67 @@ internal sealed class GatewayActualizer
     {
         if (_outputs.Remove(clusterId, out ProcessOutputTail? tail))
             tail.Dispose();
+    }
+
+    private static string OutputPrefix(HostContract.GatewaySpec spec) => $"[gateway {spec.ClusterId}] ";
+
+    /// <summary>The file the Gateway appends its stdout and stderr to; null where it writes into pipes (not Linux).</summary>
+    private static string? OutputLogPath(HostContract.GatewaySpec spec) =>
+        OperatingSystem.IsLinux() ? Path.Combine(spec.RunRoot, "gateway.log") : null;
+
+    // The Gateway outlives a Host restart; a pipe would lose its output with the Host that reads it.
+    // The shell opens the log for appending and execs the Gateway in place, so the PID stays the Gateway's.
+    private static void AppendOutputTo(ProcessStartInfo start, string log)
+    {
+        string[] arguments = [.. start.ArgumentList];
+        start.ArgumentList.Clear();
+        foreach (string argument in (string[])["-c", "log=$1; shift; exec \"$@\" >>\"$log\" 2>&1", "sh", log, start.FileName, .. arguments])
+            start.ArgumentList.Add(argument);
+        start.FileName = "/bin/sh";
+        start.RedirectStandardOutput = start.RedirectStandardError = false;
+    }
+
+    // Until the shell execs, /proc/PID/exe is the shell, which Inspect would take for another process.
+    private static void WaitForExec(Process process, string executablePath)
+    {
+        string expected = File.ResolveLinkTarget(executablePath, returnFinalTarget: true)?.FullName
+            ?? Path.GetFullPath(executablePath);
+        var deadline = Stopwatch.StartNew();
+        while (deadline.Elapsed < TimeSpan.FromSeconds(5) && !process.HasExited)
+        {
+            try
+            {
+                if (GetExecutablePath(process) == expected)
+                    return;
+            }
+            catch (IOException) { }
+            Thread.Sleep(5);
+        }
+    }
+
+    // A running Gateway this Host process did not start: an earlier Host started it. Follow its log from
+    // the end, or say once that its output is lost: one started by a Host before the log file wrote into
+    // that Host's pipe, which nothing reads any more.
+    private void AdoptOutput(HostContract.GatewaySpec spec, GatewayLaunchRecord record, int processId)
+    {
+        if (OutputLogPath(spec) is not { } log || !_adoptions.Add((spec.ClusterId, processId)))
+            return;
+        string? target = null;
+        try
+        {
+            // The kernel names the file by its resolved path, which differs from the spec's if the run root has a symlink.
+            target = new FileInfo($"/proc/{processId}/fd/1").LinkTarget;
+            if (target is not null && Path.GetFileName(target) == Path.GetFileName(log) && File.Exists(target))
+            {
+                _outputs[spec.ClusterId] = ProcessOutputTail.Follow(null, OutputPrefix(spec), record.DiagnosticDirectory,
+                    target, new FileInfo(target).Length);
+                return;
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+        Console.Error.WriteLine($"{OutputPrefix(spec)}The Gateway (PID {processId}) was started by an earlier Host and "
+            + $"writes its output to {target ?? "an unknown target"}, not {log}. This Host can't show it; "
+            + "a restart of the Gateway fixes that.");
     }
 
     // 5 s, 10 s, 20 s ... capped at 5 minutes.
@@ -427,6 +504,12 @@ internal sealed class GatewayActualizer
                 GatewayLaunchStatus.Launching, null, spec.StartGeneration);
             WriteRecord(record);
 
+            string? outputLog = OutputLogPath(spec);
+            long outputOffset = 0;
+            if (outputLog is not null)
+                // In the private run root. Each launch appends; the Host follows from where the file ended.
+                using (var log = new FileStream(outputLog, FileMode.Append, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete))
+                    outputOffset = log.Length;
             process = new Process
             {
                 StartInfo = CreateStartInfo(spec, spawn, bundle.Root, executablePath),
@@ -438,11 +521,17 @@ internal sealed class GatewayActualizer
             }, native: false);
             record = record with { DiagnosticDirectory = diagnosticDirectory };
             WriteRecord(record);
+            if (outputLog is not null)
+                AppendOutputTo(process.StartInfo, outputLog);
             if (!process.Start())
                 throw new InvalidOperationException("Process start returned false");
             processStarted = true;
+            if (outputLog is not null)
+                WaitForExec(process, executablePath);
             _diagnostics.Started(diagnosticDirectory, process, ProcessIdentity.Capture(process.Id));
-            var output = new ProcessOutputTail(process, $"[gateway {spec.ClusterId}] ", diagnosticDirectory);
+            var output = outputLog is null
+                ? new ProcessOutputTail(process, OutputPrefix(spec), diagnosticDirectory)
+                : ProcessOutputTail.Follow(process, OutputPrefix(spec), diagnosticDirectory, outputLog, outputOffset);
             record = record with
             {
                 ProcessId = process.Id,
