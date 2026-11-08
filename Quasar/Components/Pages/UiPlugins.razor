@@ -616,7 +616,8 @@
     private bool CanRestart => IsRestartAvailable && HubCatalog.RestartRequired && !_restartRequested
         && !HubOperationInProgress && !DotNetSdkInstallerBusy;
 
-    private IReadOnlyList<QuasarUiPluginHubEntry> HubEntries => HubCatalog.GetEntries();
+    private readonly StableRows<QuasarUiPluginHubEntry> _hubEntryRows = new(entry => entry.CatalogId);
+    private IReadOnlyList<QuasarUiPluginHubEntry> HubEntries => _hubEntryRows.Reuse(HubCatalog.GetEntries());
 
     private List<QuasarUiPluginHubEntry> FilteredHubEntries => HubEntries.Where(MatchesHubEntry).ToList();
 

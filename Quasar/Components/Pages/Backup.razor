@@ -458,6 +458,7 @@
     private TimeSpan? _worldTimeOfDay;
     private IReadOnlyList<QuasarBackupFileInfo> _backups = [];
     private IReadOnlyList<DedicatedServerDefinition> _servers = [];
+    private readonly StableRows<DedicatedServerDefinition> _serverRows = new(server => server.UniqueName);
     private HashSet<string> _runningServers = new(StringComparer.OrdinalIgnoreCase);
     private string _backupDirectoryDraft = string.Empty;
     private string _backupDirectorySettingsPath = string.Empty;
@@ -544,10 +545,9 @@
 
     private void RefreshServers()
     {
-        _servers = ServerCatalog.GetServers()
+        _servers = _serverRows.Reuse(ServerCatalog.GetServers()
             .OrderBy(server => server.DisplayName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
-            .ToList();
+            .ThenBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase));
     }
 
     private void OnSettingsChanged() => InvokeAsync(() =>
