@@ -90,7 +90,7 @@ public sealed class NewServerDialogTests : IDisposable
 
     private static BunitContext CreateContext(params string[] policies)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

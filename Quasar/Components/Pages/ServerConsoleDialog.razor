@@ -1,6 +1,7 @@
 @implements IAsyncDisposable
 @inject DedicatedServerCatalog ServerCatalog
 @inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
 
 <MudDialog>
     <DialogContent>
@@ -1074,7 +1075,7 @@
             : DedicatedServerPathResolver.Resolve(definition).MagnetarAppDataPath;
     }
 
-    private static IReadOnlyList<LogFileOption> EnumerateLogFiles(string appDataPath, string searchPattern)
+    private IReadOnlyList<LogFileOption> EnumerateLogFiles(string appDataPath, string searchPattern)
     {
         try
         {
@@ -1137,9 +1138,9 @@
                fileName.IndexOfAny(Path.GetInvalidFileNameChars()) < 0;
     }
 
-    private static string FormatLogFileOption(FileInfo file)
+    private string FormatLogFileOption(FileInfo file)
     {
-        var localTime = file.LastWriteTime.ToString("yyyy-MM-dd HH:mm:ss");
+        var localTime = ViewerTime.Format(file.LastWriteTimeUtc);
         return $"{file.Name} ({localTime}, {FormatByteCount(file.Length)})";
     }
 

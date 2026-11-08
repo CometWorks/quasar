@@ -272,7 +272,7 @@ public sealed class WorldBackupTests : IDisposable
     {
         await CreateWorld(running: state != DedicatedServerProcessState.Stopped);
         SetProcessState(state);
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var provider = context.Render<MudDialogProvider>();

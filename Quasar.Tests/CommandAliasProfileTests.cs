@@ -125,7 +125,7 @@ public sealed class CommandAliasProfileTests : IDisposable
     [Fact]
     public void EditorAddsEditsAndRemovesProfileRows()
     {
-        using var context = new BunitContext();
+        using var context = new QuasarBunitContext();
         var profile = new QuasarConfigProfile();
         var rendered = context.Render<CommandAliasesEditor>(p => p.Add(c => c.Profile, profile));
         rendered.Find("button").Click();

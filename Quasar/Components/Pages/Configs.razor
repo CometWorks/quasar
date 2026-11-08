@@ -17,6 +17,7 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject IServiceProvider Services
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Config Profiles</PageTitle>
 <NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasPendingChanges()" />
@@ -1028,7 +1029,7 @@
                                     }
                                     else if (context.LastRefreshUtc is { } refreshed)
                                     {
-                                        <span class="quasar-text quasar-type-caption config-secondary">Read @refreshed.ToLocalTime().ToString("g")</span>
+                                        <span class="quasar-text quasar-type-caption config-secondary">Read @ViewerTime.Format(refreshed)</span>
                                     }
                                     else
                                     {

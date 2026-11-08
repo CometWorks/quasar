@@ -27,7 +27,7 @@ public sealed class ClusterOfflineResultsTests
              "Zones":[{"Block":32,"Exists":false,"Activating":false,"Exhausted":true,"RemainingFrames":0,"ActivationRemainingFrames":0},
                       {"Block":35,"Exists":true,"Activating":true,"Exhausted":false,"RemainingFrames":3600,"ActivationRemainingFrames":7200}]}
             """)! with { Confidence = confidence };
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var panel = context.Render<ClusterOfflineResults>(p => p.Add(c => c.Results, [result]).Add(c => c.Prediction, true));
         Assert.Contains("Prediction only", panel.Markup);
         Assert.Contains(confidence, panel.Markup);
@@ -52,7 +52,7 @@ public sealed class ClusterOfflineResultsTests
     [Fact]
     public async Task MissingLegacyAndSkippedResultsDoNotInventZeroCosts()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var panel = context.Render<ClusterOfflineResults>();
         Assert.Contains("results unavailable", panel.Markup);
         panel.Render(p => p.Add(c => c.Results, []));

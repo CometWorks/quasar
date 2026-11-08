@@ -1,6 +1,12 @@
 function panelStorageKey(key) { return new URL(document.baseURI).pathname === "/" ? key : document.baseURI + key; }
 function panelUrl(url) { return new URL(String(url).replace(/^\/(?!\/)/, ""), document.baseURI).href; }
 window.quasarConfigs = window.quasarConfigs || {
+    getTimeZone() {
+        return {
+            id: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+            offsetMinutes: -new Date().getTimezoneOffset()
+        };
+    },
     getSystemDarkMode() {
         return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
     },

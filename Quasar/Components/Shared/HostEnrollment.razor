@@ -5,6 +5,7 @@
 @inject ClusterHostClient HostClient
 @inject QuasarPermissionService Permissions
 @inject NavigationManager Navigation
+@inject ViewerTimeZone ViewerTime
 
 <div class="quasar-layout quasar-gap-3">
     <p class="quasar-text quasar-type-body1">Add another Linux x64 machine to run your cluster. It connects securely to Quasar and keeps your cluster running during Quasar restarts.</p>
@@ -43,7 +44,7 @@
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
     @if (_ticket is not null)
     {
-        <p class="quasar-text quasar-type-body1">Run this command as the account that will own the cluster processes. It expires at @_ticket.ExpiresAt.ToString("u") and can be downloaded once. Treat it as a password.</p>
+        <p class="quasar-text quasar-type-body1">Run this command as the account that will own the cluster processes. It expires at @ViewerTime.Format(_ticket.ExpiresAt) and can be downloaded once. Treat it as a password.</p>
         <MudTextField T="string" Label="Enrollment command" Value="_ticket.Command" ReadOnly="true" Lines="5" />
     }
     @if (_host is not null)

@@ -11,6 +11,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>UI Plugins</PageTitle>
 
@@ -963,7 +964,7 @@
             : $"{label}: {path} ({detail})";
     }
 
-    private static string FormatFileInfo(string? path)
+    private string FormatFileInfo(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
             return "-";
@@ -972,7 +973,7 @@
         {
             var info = new FileInfo(path);
             return info.Exists
-                ? $"{info.Length:n0} bytes, {info.LastWriteTimeUtc:u}"
+                ? $"{info.Length:n0} bytes, {ViewerTime.Format(info.LastWriteTimeUtc)}"
                 : "missing";
         }
         catch
@@ -981,7 +982,7 @@
         }
     }
 
-    private static string FormatDirectoryInfo(string? path)
+    private string FormatDirectoryInfo(string? path)
     {
         if (string.IsNullOrWhiteSpace(path))
             return "-";
@@ -996,7 +997,7 @@
                 return "0 files";
 
             var latest = files.Select(File.GetLastWriteTimeUtc).Max();
-            return $"{files.Count:n0} files, latest {latest:u}";
+            return $"{files.Count:n0} files, latest {ViewerTime.Format(latest)}";
         }
         catch
         {
@@ -1229,8 +1230,8 @@
         return commit.Length <= 12 ? commit : commit[..12];
     }
 
-    private static string FormatRefreshTime(DateTimeOffset? refreshUtc) =>
-        refreshUtc is null ? "never" : refreshUtc.Value.ToLocalTime().ToString("g");
+    private string FormatRefreshTime(DateTimeOffset? refreshUtc) =>
+        ViewerTime.Format(refreshUtc, "never");
 
     private static string TruncateAtWordBoundary(string text, int maxLength)
     {

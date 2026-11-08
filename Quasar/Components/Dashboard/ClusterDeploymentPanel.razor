@@ -12,6 +12,7 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject ILogger<ClusterDeploymentPanel> Logger
+@inject ViewerTimeZone ViewerTime
 
 <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
     <section class="quasar-panel server-card">
@@ -112,7 +113,7 @@
                     <MudSelect T="Guid" @bind-Value="RestoreSnapshotId" Label="Backup to restore" Variant="Variant.Outlined">
                         @foreach (var backup in Backups.List(Cluster.UniqueName))
                         {
-                            <MudSelectItem T="Guid" Value="@backup.SnapshotId">@backup.CreatedAt.ToLocalTime() · @backup.Consistency · @backup.SnapshotId</MudSelectItem>
+                            <MudSelectItem T="Guid" Value="@backup.SnapshotId">@ViewerTime.Format(backup.CreatedAt) · @backup.Consistency · @backup.SnapshotId</MudSelectItem>
                         }
                     </MudSelect>
                     <MudButton OnClick="PrepareRestoreAsync" Disabled="@(_busy || _restoreSnapshotId == Guid.Empty || UpdateLocked)"

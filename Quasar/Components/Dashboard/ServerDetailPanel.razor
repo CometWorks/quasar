@@ -4,6 +4,7 @@
 @inject IDialogService DialogService
 @inject QuasarPermissionService Permissions
 @inject IServiceProvider Services
+@inject ViewerTimeZone ViewerTime
 
 @{
     IReadOnlyList<string> modDownloadFailures = Runtime is null ? Array.Empty<string>() : Runtime.ModDownloadFailures;
@@ -291,7 +292,7 @@ else
         if (metrics.LastWorldSaveUtc is not { } lastSaveUtc)
             return null;
 
-        var localTime = lastSaveUtc.ToLocalTime().ToString("HH:mm:ss");
+        var localTime = ViewerTime.Format(lastSaveUtc);
         if (metrics.UnsavedGameTimeSeconds is long unsavedSeconds && unsavedSeconds > 0)
             return $"Saved {localTime} · Unsaved {FormatMinuteSecondDuration(unsavedSeconds)}";
 
@@ -310,7 +311,7 @@ else
         if (metrics.LastWorldSaveUtc is not { } lastSaveUtc)
             return string.Empty;
 
-        var savedAt = lastSaveUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        var savedAt = ViewerTime.Format(lastSaveUtc);
         if (metrics.UnsavedGameTimeSeconds is long unsavedSeconds)
         {
             return $"Latest world save: {savedAt}. Unsaved game progress: {FormatMinuteSecondDuration(unsavedSeconds)}.";
@@ -445,12 +446,12 @@ else
             ? Color.Warning
             : Color.Default;
 
-    private static string FormatTimestamp(long ticksUtc)
+    private string FormatTimestamp(long ticksUtc)
     {
         if (ticksUtc <= 0)
             return string.Empty;
 
-        return new DateTime(ticksUtc, DateTimeKind.Utc).ToLocalTime().ToString("HH:mm:ss");
+        return ViewerTime.FormatTicks(ticksUtc);
     }
 
     private static string FormatChatAuthor(ChatMessageSnapshot message)

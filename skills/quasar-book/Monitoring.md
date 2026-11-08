@@ -34,7 +34,7 @@ A server card has:
 - Status lines, each shown only when present:
   - the last supervisor message, for example "Launch requested. Waiting for process and agent." or a fault reason
   - the health summary, for example "Quasar.Agent heartbeat stale beyond 20s timeout."
-  - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the UTC time. Hover for the reason.
+  - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the time. Hover for the reason.
   - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
 - Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime.
 - **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures. A process priority warning, such as "Install /usr/local/bin/quasar-renice to use High process priority on Linux.", stays here until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).

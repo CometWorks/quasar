@@ -167,7 +167,7 @@ public sealed class DedicatedServerSetupTests : IDisposable
 
     private BunitContext Context()
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

@@ -23,7 +23,7 @@ public sealed class ClusterContentPanelTests
         using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(Path.GetDirectoryName(fixture.Path)!, "clusters") }).Build());
         await monitor.CheckCoreAsync(default);
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

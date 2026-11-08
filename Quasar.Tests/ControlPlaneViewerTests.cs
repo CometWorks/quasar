@@ -45,7 +45,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
 
     private BunitContext Context(bool editor = false)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

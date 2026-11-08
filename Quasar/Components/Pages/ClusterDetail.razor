@@ -6,6 +6,7 @@
 @inject ClusterSetupService Setup
 @inject ClusterReleaseMonitor ClusterReleases
 @inject NavigationManager Navigation
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
 
@@ -132,7 +133,7 @@ else
                     </div>
                     @if (releaseSnapshot.LastCheckedUtc is { } checkedAt)
                     {
-                        <p class="quasar-muted quasar-caption">Release checked: @checkedAt.ToLocalTime().ToString("g")</p>
+                        <p class="quasar-muted quasar-caption">Release checked: @ViewerTime.Format(checkedAt)</p>
                     }
                     @if (releaseSnapshot.Error is { } releaseError)
                     {

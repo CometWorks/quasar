@@ -25,7 +25,7 @@ public sealed class ClusterPluginConfigurationPanelTests
                 new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
                 { ["Quasar:ClusterCatalogPath"] = root }).Build());
             var cluster = await catalog.CreateAsync(new("test", "Test", "http://gateway.test", "TEST_TOKEN"), default);
-            await using var context = new BunitContext();
+            await using var context = new QuasarBunitContext();
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var auth = context.AddAuthorization();

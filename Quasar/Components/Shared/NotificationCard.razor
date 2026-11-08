@@ -1,4 +1,5 @@
 @inject NavigationManager PanelNavigation
+@inject ViewerTimeZone ViewerTime
 <section class="pa-4 quasar-panel quasar-section @(Notice.IsAnnouncement ? $"quasar-notice quasar-notice-{Notice.Tone}" : null)">
     <div class="quasar-stack">
         <h2>@Notice.Title</h2>
@@ -8,7 +9,7 @@
         }
         @if (Notice.OccurredAt is { } occurredAt)
         {
-            <p class="quasar-muted quasar-caption">@occurredAt.UtcDateTime.ToString("u")</p>
+            <p class="quasar-muted quasar-caption">@ViewerTime.Format(occurredAt)</p>
         }
         <p style="white-space: pre-wrap">@Notice.Body</p>
         @if (!Notice.IsAnnouncement || Notice.Url != "/notifications")

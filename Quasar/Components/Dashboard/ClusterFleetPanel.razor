@@ -3,13 +3,14 @@
 @inject ClusterFleetService Fleet
 @inject ClusterGatewayClient Gateway
 @inject IDialogService Dialogs
+@inject ViewerTimeZone ViewerTime
 
 <section class="quasar-panel server-card">
 <div class="quasar-card-content">
 <div class="quasar-layout quasar-gap-3">
     <h2 class="quasar-text quasar-type-h6">@(ShowEvents ? "Events" : "Nodes")</h2>
     @if (_error is not null) { <MudAlert Severity="Severity.Warning">Observations may be stale: @_error</MudAlert> }
-    @if (_capturedAt is { } captured) { <span class="quasar-text quasar-type-caption">Cluster Registry observation: @captured.ToString("u")</span> }
+    @if (_capturedAt is { } captured) { <span class="quasar-text quasar-type-caption">Cluster Registry observation: @ViewerTime.Format(captured)</span> }
     @if (!ShowEvents)
     {
             <MudTable T="ClusterNodeRow" Items="NodeRows" Dense="true" Hover="true">
@@ -80,7 +81,7 @@
                     <MudExpansionPanel Text="Recent plugin logs">
                         @foreach (var log in selected.Logs)
                         {
-                            <p class="quasar-text quasar-type-body2">@log.TimestampUtc.ToString("u") · @log.Plugin · @log.Level · @log.Message</p>
+                            <p class="quasar-text quasar-type-body2">@ViewerTime.Format(log.TimestampUtc) · @log.Plugin · @log.Level · @log.Message</p>
                         }
                     </MudExpansionPanel>
                 </MudExpansionPanels>
@@ -91,7 +92,7 @@
             @if (_gap) { <MudAlert Severity="Severity.Info">The event history was truncated or reset at the Gateway.</MudAlert> }
             <MudTable T="Admin.AdminEvent" Items="_events.OrderByDescending(e => e.Seq)" Dense="true" RowsPerPage="25">
                 <HeaderContent><MudTh>Sequence / time</MudTh><MudTh>Event</MudTh><MudTh>Actor / target</MudTh></HeaderContent>
-                <RowTemplate><MudTd DataLabel="Sequence / time">@context.Seq · @context.At.ToString("u")</MudTd><MudTd DataLabel="Event">@context.Type</MudTd><MudTd DataLabel="Actor / target">@context.Actor / @context.Target</MudTd></RowTemplate>
+                <RowTemplate><MudTd DataLabel="Sequence / time">@context.Seq · @ViewerTime.Format(context.At)</MudTd><MudTd DataLabel="Event">@context.Type</MudTd><MudTd DataLabel="Actor / target">@context.Actor / @context.Target</MudTd></RowTemplate>
                 <PagerContent><MudTablePager /></PagerContent>
             </MudTable>
     }

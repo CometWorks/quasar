@@ -49,7 +49,7 @@ public sealed class WorldImportUiTests : IDisposable
 
     private async Task<BunitContext> ContextAsync()
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization(); auth.SetAuthorized("editor"); auth.SetPolicies(QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));

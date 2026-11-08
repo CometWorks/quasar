@@ -872,7 +872,7 @@ public sealed class QuasarAgentAuditTests : IDisposable
         );
         await CallAsync(Person(QuasarRoles.Editor), "servers.set", new SetRequest(6));
 
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(audit);

@@ -10,6 +10,7 @@
 @inject EntityService EntityService
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Entities</PageTitle>
 
@@ -85,7 +86,7 @@
     }
     @if (_lastUpdated is not null)
     {
-        <span class="quasar-text quasar-type-caption">Last updated: @_lastUpdated.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</span>
+        <span class="quasar-text quasar-type-caption">Last updated: @ViewerTime.Format(_lastUpdated.Value)</span>
     }
     @if (_lastResult is not null)
     {

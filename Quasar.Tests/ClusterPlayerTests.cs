@@ -98,7 +98,7 @@ public sealed class ClusterPlayerTests : IDisposable
     {
         // QSR-16: every live update used to recreate each row with its tooltip and menu popovers,
         // and Firefox froze under the popover churn.
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -140,7 +140,7 @@ public sealed class ClusterPlayerTests : IDisposable
     [InlineData(false, true)]
     public async Task MainPlayersPageShowsOneClusterAndRetainsHistoricalPlayers(bool manage, bool excluded)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -557,7 +557,7 @@ public sealed class ClusterPlayerTests : IDisposable
 
     private async Task<BunitContext> PlayerContextAsync(Gateway handler)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

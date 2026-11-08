@@ -7,6 +7,7 @@
 @inject QuasarPermissionService Permissions
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
+@inject ViewerTimeZone ViewerTime
 
 <section class="quasar-panel quasar-card-content quasar-stack" aria-label="Partitions and offline compensation">
     <div class="quasar-row quasar-between quasar-wrap-wrap">
@@ -60,7 +61,7 @@
             <h3>Partition @selected.Partition</h3>
             @if (Offline(selected.Partition) is { } offline)
             {
-                <p>Exact Final @offline.SaveId · offline since @offline.OfflineAt.ToString("u") · @(offline.OfflineGameFrame is { } frame ? $"authority clock {frame} (16 ms units)" : "offline game clock unavailable")</p>
+                <p>Exact Final @offline.SaveId · offline since @ViewerTime.Format(offline.OfflineAt) · @(offline.OfflineGameFrame is { } frame ? $"authority clock {frame} (16 ms units)" : "offline game clock unavailable")</p>
                 @if (offline.LoadReason is not null) { <p>Load request: @offline.LoadReason · @(offline.LoadRequestedNode ?? "no destination")</p> }
                 <label class="quasar-field"><span>Exact Final holder</span><select value="@_node" @onchange="HolderChangedAsync" disabled="@_mutating">
                     @foreach (string holder in offline.Holders) { <option value="@holder">@holder</option> }

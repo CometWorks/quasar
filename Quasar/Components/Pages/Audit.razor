@@ -1,4 +1,4 @@
-@page "/audit"
+﻿@page "/audit"
 @attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
 @using System.Text.Json
 @using Quasar.Plugin.Abstractions.Operations
@@ -6,6 +6,7 @@
 @inject QuasarAuditLog AuditLog
 @inject AuthenticationStateProvider Authentication
 @inject ISnackbar Snackbar
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Audit log</PageTitle>
 
@@ -21,8 +22,8 @@
 
 <section class="quasar-panel pa-4 mb-4">
     <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-3">
-        <label class="quasar-field"><span>From (UTC)</span><input type="datetime-local" @bind="_from" /></label>
-        <label class="quasar-field"><span>To (UTC)</span><input type="datetime-local" @bind="_to" /></label>
+        <label class="quasar-field"><span>From</span><input type="datetime-local" @bind="_from" /></label>
+        <label class="quasar-field"><span>To</span><input type="datetime-local" @bind="_to" /></label>
         <label class="quasar-field">
             <span>Principal kind</span>
             <select @bind="_principalKind">
@@ -62,7 +63,7 @@
         <table class="quasar-server-table audit-table">
             <thead>
                 <tr>
-                    <th scope="col">Time (UTC)</th>
+                    <th scope="col">Time</th>
                     <th scope="col">Principal</th>
                     <th scope="col">Requester</th>
                     <th scope="col">Operation</th>
@@ -197,8 +198,8 @@
     {
         _entries = (await AuditLog.QueryAsync(new QuasarAuditFilter
         {
-            From = _from is { } from ? new DateTimeOffset(DateTime.SpecifyKind(from, DateTimeKind.Utc)) : null,
-            To = _to is { } to ? new DateTimeOffset(DateTime.SpecifyKind(to, DateTimeKind.Utc)) : null,
+            From = _from is { } from ? ViewerTime.FromViewer(from) : null,
+            To = _to is { } to ? ViewerTime.FromViewer(to) : null,
             PrincipalKind = Enum.TryParse<QuasarAuditPrincipalKind>(_principalKind, out var kind) ? kind : null,
             Principal = _principal,
             Requester = _requester,
@@ -232,7 +233,7 @@
         finally { _busy = false; }
     }
 
-    private static string Time(DateTimeOffset time) => time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss");
+    private string Time(DateTimeOffset time) => ViewerTime.Format(time);
 
     // A reversal names the change it undid, by its time when that entry is listed.
     private string Mode(QuasarAuditEntry entry)

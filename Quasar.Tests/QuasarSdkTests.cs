@@ -301,7 +301,7 @@ public sealed partial class QuasarSdkTests : IDisposable
     {
         await using var app = await StartAsync();
         await using var scope = app.Services.CreateAsyncScope();
-        await using var view = new BunitContext();
+        await using var view = new QuasarBunitContext();
         view.Services.AddMudServices();
         view.JSInterop.Mode = JSRuntimeMode.Loose;
         var authentication = new CurrentAuthentication { User = User(QuasarRoles.Admin) };

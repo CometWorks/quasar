@@ -19,6 +19,7 @@
 @inject BrowserStorageService BrowserStorage
 @inject QuasarPermissionService Permissions
 @inject IServiceProvider Services
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Fleet overview</PageTitle>
 
@@ -539,7 +540,7 @@ else
             <ol class="quasar-activity">
                 @foreach (var activity in RecentActivity)
                 {
-                    <li><time datetime="@activity.At.ToString("O")" title="@activity.At.ToLocalTime().ToString("g")">@activity.At.ToLocalTime().ToString("HH:mm")</time><div><strong class="@Tone(activity.Level)">@activity.Message</strong><p>@activity.DisplayName</p></div></li>
+                    <li><time datetime="@activity.At.ToString("O")" >@ViewerTime.Format(activity.At)</time><div><strong class="@Tone(activity.Level)">@activity.Message</strong><p>@activity.DisplayName</p></div></li>
                 }
             </ol>
         }
