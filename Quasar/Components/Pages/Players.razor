@@ -856,6 +856,14 @@
                         : !string.IsNullOrWhiteSpace(Record.ServerName)
                             ? Record.ServerName
                             : Record.UniqueName;
+
+                // MudTable keys each row by its item. Views are rebuilt on every live update, so
+                // without this every update recreated all rows with their tooltip and menu popovers,
+                // and Firefox froze under the popover churn (QSR-16).
+                public override bool Equals(object? obj) => obj is KnownPlayerView other
+                    && StringComparer.OrdinalIgnoreCase.Equals(Record.PlayerKey, other.Record.PlayerKey);
+
+                public override int GetHashCode() => StringComparer.OrdinalIgnoreCase.GetHashCode(Record.PlayerKey);
             }
         }
     </div>
