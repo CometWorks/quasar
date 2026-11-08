@@ -7,7 +7,7 @@ const source = await readFile(new URL('../../Quasar/wwwroot/quasar-charts.js', i
 
 // QSR-24: the hover legend showed "1970-01-01 1:29am" because the options told uPlot the x values
 // were milliseconds times 1000. The legend must show the sample's local time with seconds.
-test('chart hover shows the sample time as local YYYY-MM-DD HH:MM:SS', async () => {
+test('chart hover shows the sample time as local YYYY-MM-DD HH:MM:SS, day-step ticks show the date', async () => {
     const plots = [];
     class Plot {
         constructor(options, data) { this.options = options; this.data = data; plots.push(this); }
@@ -39,6 +39,11 @@ test('chart hover shows the sample time as local YYYY-MM-DD HH:MM:SS', async () 
         assert.equal(options.series[0].value(null, t), '2026-11-08 19:33:35');
         process.env.TZ = 'America/New_York';
         assert.equal(options.series[0].value(null, t), '2026-11-08 09:03:35');
+
+        // X-axis ticks: the time while they are less than a day apart, the date once they sit on midnights.
+        const ticks = options.axes[0].values;
+        assert.deepEqual(ticks(null, [t, t + 300], 0, 50, 300), ['09:03:35', '09:08:35']);
+        assert.deepEqual(ticks(null, [t, t + 86400], 0, 50, 86400), ['2026-11-08', '2026-11-09']);
     } finally {
         if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz;
     }
