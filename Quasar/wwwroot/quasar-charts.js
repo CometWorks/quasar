@@ -45,12 +45,18 @@ window.quasarCharts = (function () {
         };
     }
 
+    const pad = (n) => (n < 10 ? "0" + n : "" + n);
+
     // Time-only x-axis labels: "HH:MM:SS".
     function formatTick(t) {
-        const pad = (n) => (n < 10 ? "0" + n : "" + n);
         const d = new Date(t * 1000);
-        const time = pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
-        return time;
+        return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
+    }
+
+    // Hover legend time: "YYYY-MM-DD HH:MM:SS" in the browser's time zone.
+    function formatTimestamp(t) {
+        const d = new Date(t * 1000);
+        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()) + " " + formatTick(t);
     }
 
     function buildYRange(axis) {
@@ -71,7 +77,7 @@ window.quasarCharts = (function () {
         const c = appearance || axisColors(dark);
         const valueFmt = makeValueFormatter(chart.axis);
 
-        const series = [{}]; // x
+        const series = [{ value: (u, v) => (v == null ? "-" : formatTimestamp(v)) }]; // x
         chart.series.forEach((s, i) => {
             const color = s.color || colorsArr[i % colorsArr.length];
             series.push({
@@ -87,7 +93,6 @@ window.quasarCharts = (function () {
         return {
             width: width,
             height: height,
-            ms: 1e3, // x values are unix seconds, not milliseconds
             cursor: {
                 sync: { key: SYNC_KEY },
                 y: false,
