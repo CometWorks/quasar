@@ -12,26 +12,22 @@ namespace Quasar.Components.Shared;
 public sealed class StableRows<T>(Func<T, string> key)
     where T : class
 {
-    private Dictionary<string, (T Item, string Json)> _rows = new(StringComparer.Ordinal);
+    private Dictionary<string, T> _rows = new(StringComparer.Ordinal);
 
     public IReadOnlyList<T> Reuse(IEnumerable<T> items)
     {
-        var next = new Dictionary<string, (T Item, string Json)>(StringComparer.Ordinal);
+        var next = new Dictionary<string, T>(StringComparer.Ordinal);
         var result = new List<T>();
         foreach (var fresh in items)
         {
             var id = key(fresh);
             var item = fresh;
-            var json = (string?)null;
+            // Compares the previous instance as it is now, so an instance edited in place is replaced.
             // A duplicate id keeps its fresh instance, so one object never shows up as two rows.
-            if (!next.ContainsKey(id) && _rows.TryGetValue(id, out var previous))
-            {
-                json = ReferenceEquals(previous.Item, fresh) ? previous.Json : JsonSerializer.Serialize(fresh);
-                if (json == previous.Json)
-                    item = previous.Item;
-            }
-
-            next.TryAdd(id, (item, json ?? JsonSerializer.Serialize(fresh)));
+            if (!next.ContainsKey(id) && _rows.TryGetValue(id, out var previous) && !ReferenceEquals(previous, fresh)
+                && JsonSerializer.Serialize(previous) == JsonSerializer.Serialize(fresh))
+                item = previous;
+            next.TryAdd(id, item);
             result.Add(item);
         }
 

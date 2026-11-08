@@ -8,7 +8,7 @@ public sealed class StableRowsTests
     private sealed class Row
     {
         public string Id { get; init; } = "";
-        public string Name { get; init; } = "";
+        public string Name { get; set; } = "";
     }
 
     [Fact]
@@ -35,6 +35,19 @@ public sealed class StableRowsTests
         Assert.Same(changed, second[0]);
         Assert.Same(first[1], second[1]);
         Assert.Same(changed, rows.Reuse([new() { Id = "a", Name = "A2" }])[0]);
+    }
+
+    [Fact]
+    public void InstancesEditedInPlaceAreReplaced()
+    {
+        // An unsaved in-place edit, like a failed dev folder Debug toggle, must not outlive the next rebuild.
+        var rows = new StableRows<Row>(row => row.Id);
+        var first = rows.Reuse([new() { Id = "a", Name = "A" }]);
+        first[0].Name = "edited";
+
+        var second = rows.Reuse([new() { Id = "a", Name = "A" }]);
+
+        Assert.Equal("A", second[0].Name);
     }
 
     [Fact]
