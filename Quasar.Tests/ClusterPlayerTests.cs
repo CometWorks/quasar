@@ -93,6 +93,47 @@ public sealed class ClusterPlayerTests : IDisposable
             .CanRun("POST /admin/v1/admission/bans"));
     }
 
+    [Fact]
+    public async Task LiveUpdatesKeepPlayerRowsAndTheirPopovers()
+    {
+        // QSR-16: every live update used to recreate each row with its tooltip and menu popovers,
+        // and Firefox froze under the popover churn.
+        await using var context = new BunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("admin");
+        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
+        context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
+        context.Services.AddScoped<QuasarPermissionService>();
+        context.Services.AddSingleton(_known);
+        context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
+        context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
+        var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build());
+        context.Services.AddSingleton(clusters);
+        var cluster = await clusters.CreateAsync(new("test", "Unified cluster", "http://gateway.test", ""), default);
+        using var handler = new Gateway();
+        using var http = new HttpClient(handler);
+        var tracker = new ClusterPlayerService(clusters, new(http), _known, NullLogger<ClusterPlayerService>.Instance);
+        context.Services.AddSingleton(tracker);
+        context.Services.AddSingleton(new ClusterCommandService(clusters, new ClusterOperationStore(Path.Combine(_root, "operations")), new(http), null!));
+        await tracker.RefreshAsync(cluster, default);
+        var popovers = context.Render<MudPopoverProvider>();
+        var page = context.Render<Players>();
+        // The first update adds MudTable's small-screen sort select once; count from there.
+        await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+        var menu = page.FindComponent<MudMenu>().Instance;
+        var tooltip = page.FindComponent<MudTooltip>().Instance;
+        var popoverCount = popovers.FindAll(".mud-popover").Count;
+
+        for (var i = 0; i < 3; i++)
+            await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+
+        Assert.Same(menu, page.FindComponent<MudMenu>().Instance);
+        Assert.Same(tooltip, page.FindComponent<MudTooltip>().Instance);
+        Assert.Equal(popoverCount, popovers.FindAll(".mud-popover").Count);
+    }
+
     [Theory]
     [InlineData(false, false)]
     [InlineData(true, false)]
