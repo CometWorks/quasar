@@ -157,7 +157,16 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     private HostContract.HostSnapshot CaptureCore(HostContract.HostSnapshotRequest request, HostContract.HostAttachmentSpec attachment)
     {
         string archive = ArchivePath(request.ClusterId, request.SnapshotId);
-        if (File.Exists(archive)) return Describe(archive, request.ClusterId, request.SnapshotId, request.ExpectedBundleManifestSha256, request.CaptureFence);
+        if (File.Exists(archive))
+        {
+            try { return Describe(archive, request.ClusterId, request.SnapshotId, request.ExpectedBundleManifestSha256, request.CaptureFence); }
+            // QSR-26: an archive this Host can no longer read would fail every retry of its capture; take it again.
+            catch (Exception error) when (error is InvalidDataException or EndOfStreamException && error.Message != ProvenanceMismatch)
+            {
+                Console.Error.WriteLine($"snapshot: {archive} is unreadable ({error.Message}); capturing it again.");
+                File.Delete(archive);
+            }
+        }
         var bundle = ExecutionBundle.Load(attachment.BundleManifestPath!, attachment.BundleManifestSha256!);
         string runtime = bundle.Manifest.RuntimeRoot ?? throw new InvalidDataException("Snapshot requires a managed runtime root.");
         if (request.Online && (bundle.Manifest.Gateway is null) != (request.RegistryArtifactId is null))
@@ -208,6 +217,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                         request.ExpectedBundleManifestSha256, files, Credentials(bundle.Manifest, attachment.TokenEnvironmentVariable), bundle.Manifest.StorageFormats, request.CaptureFence, modes, directoryModes,
                         rebuilt.Length == 0 ? null : rebuilt);
                     using var metadata = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(manifest, Json));
+                    if (files.Count > MaxManifestFiles || metadata.Length > MaxManifestBytes)
+                        throw new InvalidDataException($"The runtime has too many files for one snapshot ({files.Count} files, a {metadata.Length} byte manifest).");
                     writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "snapshot.json") { DataStream = metadata });
                 }
                 output.Flush(true);
@@ -298,7 +309,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         if (manifest.ClusterId != clusterId || manifest.HostId != hostId || manifest.SnapshotId != id
             || expectedBundle is not null && manifest.BundleManifestSha256 != expectedBundle
             || expectedFence is not null && manifest.CaptureFence != expectedFence)
-            throw new InvalidDataException("Snapshot provenance mismatch.");
+            throw new InvalidDataException(ProvenanceMismatch);
         var seen = new HashSet<string>(StringComparer.Ordinal);
         while (reader.GetNextEntry() is { } entry)
         {
@@ -431,6 +442,12 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     }
 
     private const string ManifestEntry = "snapshot.json";
+    private const string ProvenanceMismatch = "Snapshot provenance mismatch.";
+
+    // QSR-26: the manifest holds a path, hash and mode per file, about 250 bytes each; a 273,000 file runtime
+    // outgrew the earlier 64 MiB cap. This one leaves room for the file cap even with long paths.
+    internal const int MaxManifestFiles = 500_000;
+    internal const long MaxManifestBytes = 512L * 1024 * 1024;
 
     // Schema 2 archives start with the manifest. Schema 3 archives are written in one pass and end with it.
     // Leaves the stream at the start for the caller's own pass.
@@ -444,8 +461,9 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                 last = false;
                 if (entry.Name != ManifestEntry) continue;
                 if (manifest is not null || entry.EntryType != TarEntryType.RegularFile
-                    || entry.Length is <= 0 or > 64 * 1024 * 1024 || entry.DataStream is null)
+                    || entry.Length <= 0 || entry.DataStream is null)
                     throw new InvalidDataException("Invalid snapshot manifest.");
+                if (entry.Length > MaxManifestBytes) throw new InvalidDataException($"Snapshot manifest exceeds {MaxManifestBytes} bytes.");
                 manifest = JsonSerializer.Deserialize<SnapshotManifest>(entry.DataStream, Json)
                     ?? throw new InvalidDataException("Missing snapshot manifest.");
                 first = index == 0;
@@ -453,8 +471,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             }
         archive.Position = 0;
         if (manifest is null || !(manifest.SchemaVersion == 2 && first || manifest.SchemaVersion == 3 && last)
-            || manifest.Files.Count is < 1 or > 500_000
-            || manifest.Directories is null || manifest.Modes is null || manifest.Directories.Count > 500_000
+            || manifest.Files.Count is < 1 or > MaxManifestFiles
+            || manifest.Directories is null || manifest.Modes is null || manifest.Directories.Count > MaxManifestFiles
             || manifest.Modes.Count != manifest.Files.Count || manifest.Modes.Values.Concat(manifest.Directories.Values).Any(m => m < 0 || m > 511))
             throw new InvalidDataException("Unsupported snapshot schema or file count.");
         return manifest;
