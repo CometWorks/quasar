@@ -18,6 +18,7 @@
 @inject IJSRuntime JS
 @inject IDialogService DialogService
 @inject QuasarPermissionService Permissions
+@inject ViewerTimeZone ViewerTime
 
 @* Temporary compatibility providers for pages and UI plugins still being migrated. *@
 <MudThemeProvider Theme="@BrandingService.BuildMudTheme()" IsDarkMode="@_isDarkMode" ObserveSystemDarkModeChange="false" />
@@ -84,7 +85,7 @@
                 </AuthorizeView>
             </div>
         </header>
-        <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">@Body</main>
+        <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">@if (ViewerTime.Resolved || !RendererInfo.IsInteractive) { @Body }</main>
         <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.LayoutDrawer" Parameters="@DrawerParameters" />
         <div class="quasar-overlays">
             <MudPopoverProvider />
@@ -190,6 +191,9 @@
 
     protected override async Task OnInitializedAsync()
     {
+        // Pages format times in the browser's zone, so they start once the browser has named it.
+        if (RendererInfo.IsInteractive)
+            await ViewerTime.InitializeAsync(JS);
         Navigation.LocationChanged += OnLocationChanged;
         BrandingService.Changed += OnBrandingChanged;
         UpdateService.Changed += OnUpdatesChanged;

@@ -35,7 +35,7 @@ public sealed class ServerListingPageTests : IDisposable
 
     private async Task<BunitContext> ContextAsync()
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization(); auth.SetAuthorized("admin"); auth.SetPolicies(QuasarPolicyNames.CanManageSecurity);
         context.Services.AddSingleton(auth);

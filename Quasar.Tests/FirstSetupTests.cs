@@ -279,7 +279,7 @@ public sealed class FirstSetupTests : IDisposable
     [Fact]
     public async Task FleetChartRequestsClusterSlotHistoryAlongsideStandaloneServers()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         using var branding = new BrandingService(NullLogger<BrandingService>.Instance);
         context.Services.AddSingleton(branding);
@@ -455,7 +455,7 @@ public sealed class FirstSetupTests : IDisposable
 
     private BunitContext Context(bool clusterPermission = true, ClusterGatewayClient? playerGateway = null)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

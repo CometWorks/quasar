@@ -16,6 +16,7 @@
 @inject IJSRuntime JS
 @inject QuasarPermissionService Permissions
 @inject IServiceProvider Services
+@inject ViewerTimeZone ViewerTime
 
 @if (!Embedded)
 {
@@ -760,8 +761,8 @@
         return $"{prefix} · {GetRestartCauseLabel(restart.Cause)}";
     }
 
-    private static string GetRestartTooltip(DedicatedServerRestartInfo restart) =>
-        $"{GetRestartSummary(restart)} · {restart.RequestedAtUtc:yyyy-MM-dd HH:mm:ss} UTC · {restart.Reason}";
+    private string GetRestartTooltip(DedicatedServerRestartInfo restart) =>
+        $"{GetRestartSummary(restart)} · {ViewerTime.Format(restart.RequestedAtUtc)} · {restart.Reason}";
 
     private static Color GetRestartColor(DedicatedServerRestartInfo restart) => restart.Outcome switch
     {

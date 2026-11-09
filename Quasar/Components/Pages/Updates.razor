@@ -13,6 +13,7 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Updates</PageTitle>
 
@@ -951,8 +952,7 @@
         _ => _snapshot.Enabled ? Severity.Normal : Severity.Warning,
     };
 
-    private static string FormatTimestamp(DateTimeOffset? timestamp) =>
-        timestamp is null ? "never" : timestamp.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+    private string FormatTimestamp(DateTimeOffset? timestamp) => ViewerTime.Format(timestamp, "never");
 
     private static string FormatRuntimeVersion(ManagedRuntimeComponentSnapshot component)
     {
@@ -982,7 +982,7 @@
             return "expires soon";
 
         if (_snapshot.GitHubTokenExpiresAtUtc is { } expiresAtUtc)
-            return $"expires {expiresAtUtc.ToLocalTime():yyyy-MM-dd}";
+            return $"expires {ViewerTime.Format(expiresAtUtc)}";
 
         return "set";
     }

@@ -32,7 +32,7 @@ public sealed class AccessSetupDialogTests : IDisposable
 
     private BunitContext Context(ProfileLookupHandler? profiles = null)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

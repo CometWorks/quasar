@@ -145,7 +145,7 @@ public sealed class SingleServerDefaultPluginsTests : IDisposable
 
     private static BunitContext CreateContext()
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));

@@ -3,6 +3,7 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject NavigationManager Navigation
+@inject ViewerTimeZone ViewerTime
 
 <section class="quasar-panel quasar-fleet-card">
     <header class="quasar-card-heading">
@@ -312,7 +313,7 @@
         };
     }
 
-    private static string GetRestartSummary(DedicatedServerRestartInfo restart)
+    private string GetRestartSummary(DedicatedServerRestartInfo restart)
     {
         var prefix = restart.Outcome switch
         {
@@ -320,10 +321,10 @@
             DedicatedServerRestartOutcome.Failed => "Last restart failed",
             _ => "Last restart recovered",
         };
-        return $"{prefix} · {GetRestartCauseLabel(restart.Cause)} · {restart.RequestedAtUtc:yyyy-MM-dd HH:mm:ss} UTC";
+        return $"{prefix} · {GetRestartCauseLabel(restart.Cause)} · {ViewerTime.Format(restart.RequestedAtUtc)}";
     }
 
-    private static string GetRestartTooltip(DedicatedServerRestartInfo restart) =>
+    private string GetRestartTooltip(DedicatedServerRestartInfo restart) =>
         $"{GetRestartSummary(restart)} · {restart.Reason}";
 
     private static Color GetRestartColor(DedicatedServerRestartInfo restart) => restart.Outcome switch

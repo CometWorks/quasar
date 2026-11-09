@@ -70,7 +70,7 @@ public sealed class ProcessPriorityWarningTests
     [InlineData(false)]
     public async Task DetailPanelShowsTheWarningUntilItIsCleared(bool collapseDetails)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.AddAuthorization().SetAuthorized("viewer");

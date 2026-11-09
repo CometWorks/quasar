@@ -8,6 +8,7 @@
 @inject QuasarWorldTemplateCatalog Worlds
 @inject ClusterFleetService Fleet
 @inject ClusterHostCatalog Hosts
+@inject ViewerTimeZone ViewerTime
 
 <section class="@(CollapseDetails ? "quasar-cluster-summary" : "quasar-panel quasar-section")">
 <div class="quasar-card-content">
@@ -29,7 +30,7 @@
 
     @if (Cluster.GoalState == DedicatedServerGoalState.On && _observedAt is { } observed)
     {
-        <p class="quasar-muted quasar-caption">@(_stale ? "Stale observation" : "Observed") · @observed.ToString("u") · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</p>
+        <p class="quasar-muted quasar-caption">@(_stale ? "Stale observation" : "Observed") · @ViewerTime.Format(observed) · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</p>
     }
     @if (_capabilities?.Scope == Admin.AdminScope.Query)
     {

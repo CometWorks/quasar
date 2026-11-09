@@ -15,7 +15,7 @@ public sealed class ClusterHealthOverviewTests
     [Fact]
     public async Task PlayerRoutesUpdateOnAssignmentMovesAndDisconnectsWithoutGuessingMissingRoutes()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var fixture = Sample();
         var status = fixture.Status with { Counts = fixture.Status.Counts with { ConnectedClients = 1 } };
         var player = fixture.Clients[0] with { Node = null };
@@ -50,7 +50,7 @@ public sealed class ClusterHealthOverviewTests
     [Fact]
     public async Task LiveMapShowsRoutingSparesResourcesAndPhysicalServiceAddresses()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var fixture = Sample();
         var panel = context.Render<ClusterHealthOverview>(p => p
             .Add(c => c.Cluster, fixture.Cluster).Add(c => c.Status, fixture.Status)
@@ -93,7 +93,7 @@ public sealed class ClusterHealthOverviewTests
     [Fact]
     public async Task StaleResourcesAndFailedPartialQueriesAreNotShownAsZeroOrIncludedInTotals()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var fixture = Sample();
         var nodes = fixture.Fleet.Nodes.Select(n => n with { Telemetry = n.Telemetry! with { Connected = false } }).ToArray();
         var host = fixture.Host with { Gateways = [fixture.Host.Gateways![0] with {
@@ -113,7 +113,7 @@ public sealed class ClusterHealthOverviewTests
     [Fact]
     public async Task IdleNodesHideCpuAndSimSpeedUntilTheyResumeWithoutMisclassifyingSlowActiveNodes()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var fixture = Sample();
         var nodes = fixture.Fleet.Nodes.ToArray();
         foreach (var index in new[] { 1, 4 })
@@ -229,7 +229,7 @@ public sealed class ClusterHealthOverviewTests
     [InlineData(-1, false)]
     public async Task CpuBarsAreBoundedAndRetainTheActualTotal(double cpu, bool available)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var panel = context.Render<ClusterResourceUsage>(p => p.Add(c => c.CpuPercent, cpu));
         Assert.Equal(available ? 4 : 0, panel.FindAll(".cluster-cpu-bars > span").Count);
         if (cpu == 553)
@@ -243,7 +243,7 @@ public sealed class ClusterHealthOverviewTests
     [Fact]
     public async Task NodesHostingPartitionsShowTheirAgeAndRotationEstimate()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var fixture = Sample();
         DateTimeOffset now = DateTimeOffset.UtcNow;
         (DateTimeOffset? Since, DateTimeOffset? Due)[] times = [(now.AddMinutes(-72.5), now.AddMinutes(48.5)), (now.AddMinutes(-20.5), null),

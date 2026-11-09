@@ -31,7 +31,7 @@ public sealed class NativeUiThemeTests
     [InlineData("\"dark\"", false, true)] // Existing JSON-encoded browser values.
     public async Task StoredModeSurvivesInitializationAndSystemChanges(string stored, bool systemDark, bool expected)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.JSInterop.Setup<string?>("quasarConfigs.getLocalStorage", "quasar.theme.mode").SetResult(stored);
         context.JSInterop.Setup<bool>("quasarConfigs.getSystemDarkMode").SetResult(systemDark);
         var service = new ThemePreferenceService(new(context.JSInterop.JSRuntime), null!, context.JSInterop.JSRuntime);
@@ -47,7 +47,7 @@ public sealed class NativeUiThemeTests
     [Fact]
     public async Task ManualModeAndReturnToSystemPersistAndNotifyAnalytics()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.JSInterop.Setup<bool>("quasarConfigs.getSystemDarkMode").SetResult(true);
         context.JSInterop.SetupVoid("quasarConfigs.setLocalStorage", _ => true).SetVoidResult();
         var service = new ThemePreferenceService(new(context.JSInterop.JSRuntime), null!, context.JSInterop.JSRuntime);
@@ -128,7 +128,7 @@ public sealed class NativeUiThemeTests
     [Fact]
     public async Task ColorPickerRetainsAlphaAndInvalidDraftDoesNotChangeSavedValue()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var values = new List<string>();
         var validity = new List<bool>();
         var field = context.Render<QuasarColorField>(p => p.Add(x => x.Label, "Hover background").Add(x => x.Value, "#11223333")
@@ -164,7 +164,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task AppearanceEditsBothPalettesAndSavingUpdatesBranding()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(_branding);
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
@@ -197,7 +197,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task AppearanceImagesStayUnderAHostedPanelPrefix()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(_branding);
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
@@ -229,7 +229,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task ServerTableSortsMixedRowsKeepsControlsAndExpandsDetails()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -327,7 +327,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [InlineData(true)]
     public async Task AnalyticsSelectsWholeClustersAndIncludesEverySlot(bool migrateLegacySelection)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -411,7 +411,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task ChatRoutesNodeViewsByIncarnationAndKeepsLifecycleControlsDisabled()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -450,7 +450,7 @@ public sealed class NativeAppearanceTests : IDisposable
     public async Task NativeDetailsPreserveCommandsLiveUpdatesAndPermissions()
     {
         using var data = new TemporaryQuasarDirectory();
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -520,7 +520,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task FleetOverviewUsesLiveMetricsAndPreservesViews()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -609,7 +609,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task NativeConsoleKeepsLogSelectionDownloadsAndRolloverOnTabReturn()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddMudServices();
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));

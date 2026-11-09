@@ -12,7 +12,7 @@ public sealed class QuasarControlDialogTests
     [Fact]
     public async Task UnavailableRestartIsDisabledAndExplainsRepair()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var provider = context.Render<MudDialogProvider>();
@@ -31,7 +31,7 @@ public sealed class QuasarControlDialogTests
     [InlineData("Restart Quasar", QuasarControlAction.RestartQuasar)]
     public async Task ConfirmReturnsSelectedAction(string buttonText, QuasarControlAction action)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var provider = context.Render<MudDialogProvider>();

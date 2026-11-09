@@ -8,6 +8,7 @@
 @inject IJSRuntime JS
 @inject ISnackbar Snackbar
 @inject IServiceProvider Services
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Chat</PageTitle>
 
@@ -437,14 +438,12 @@
                string.Equals(normalized, "Server", StringComparison.OrdinalIgnoreCase);
     }
 
-    private static string FormatTimestamp(long ticks)
+    private string FormatTimestamp(long ticks)
     {
         if (ticks <= 0)
             return "unknown";
 
-        return new DateTimeOffset(ticks, TimeSpan.Zero)
-            .ToLocalTime()
-            .ToString("yyyy-MM-dd HH:mm:ss");
+        return ViewerTime.FormatTicks(ticks);
     }
 
     private static string GetCommandSentMessage(ServerCommandType commandType)

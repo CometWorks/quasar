@@ -25,7 +25,7 @@ public sealed class ClusterConsoleDialogTests
     [InlineData(true)]
     public async Task ConsoleEnforcesClusterScopeAndKeepsEventsDuringOutage(bool excluded)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = new PrincipalState(excluded);

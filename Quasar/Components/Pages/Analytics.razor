@@ -1,4 +1,4 @@
-@page "/analytics"
+﻿@page "/analytics"
 @implements IDisposable
 @using Microsoft.JSInterop
 @inject MetricsStoreService MetricsStore
@@ -13,6 +13,7 @@
 @inject ThemePreferenceService ThemePreference
 @inject IJSRuntime JS
 @inject QuasarPermissionService Permissions
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Analytics</PageTitle>
 
@@ -925,8 +926,8 @@ else
             if (toUnix - fromUnix < 1)
                 return;
 
-            var fromLocal = DateTimeOffset.FromUnixTimeSeconds(fromUnix).LocalDateTime;
-            var toLocal = DateTimeOffset.FromUnixTimeSeconds(toUnix).LocalDateTime;
+            var fromLocal = ViewerTime.ToViewer(DateTimeOffset.FromUnixTimeSeconds(fromUnix));
+            var toLocal = ViewerTime.ToViewer(DateTimeOffset.FromUnixTimeSeconds(toUnix));
 
             _config.SelectedRangeKey = "custom";
             _config.CustomFromDate = fromLocal.Date;
@@ -1310,14 +1311,15 @@ else
                 return (nowUtc.AddDays(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
         }
 
-        var fromDate = (_config.CustomFromDate ?? DateTime.Now.Date.AddDays(-1)).Date;
-        var toDate = (_config.CustomToDate ?? DateTime.Now.Date).Date;
-        var fromLocal = DateTime.SpecifyKind(fromDate.Add(_config.CustomFromTime ?? TimeSpan.Zero), DateTimeKind.Local);
-        var toLocal = DateTime.SpecifyKind(toDate.Add(_config.CustomToTime ?? new TimeSpan(23, 59, 0)), DateTimeKind.Local);
+        var today = ViewerTime.ToViewer(nowUtc).Date;
+        var fromDate = (_config.CustomFromDate ?? today.AddDays(-1)).Date;
+        var toDate = (_config.CustomToDate ?? today).Date;
+        var fromLocal = fromDate.Add(_config.CustomFromTime ?? TimeSpan.Zero);
+        var toLocal = toDate.Add(_config.CustomToTime ?? new TimeSpan(23, 59, 0));
         if (toLocal < fromLocal)
             toLocal = fromLocal.AddHours(1);
 
-        return (new DateTimeOffset(fromLocal).ToUnixTimeSeconds(), new DateTimeOffset(toLocal).ToUnixTimeSeconds());
+        return (ViewerTime.FromViewer(fromLocal).ToUnixTimeSeconds(), ViewerTime.FromViewer(toLocal).ToUnixTimeSeconds());
     }
 
     private static MetricSample[] ReadSamplesForRange(ServerMetricsStore store, long fromUnix, long toUnix, long spanSeconds)

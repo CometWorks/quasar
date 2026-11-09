@@ -261,7 +261,7 @@ public sealed class ClusterOfflineTests
 
     private static BunitContext Context(OfflineGatewayFixture fixture, string role)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         var auth = context.AddAuthorization(); auth.SetAuthorized("operator"); auth.SetRoles(role);
         auth.SetPolicies(role == QuasarRoles.Admin ? [QuasarPolicyNames.ClusterMaintenance] : []);
         context.Services.AddSingleton(fixture.Gateway);

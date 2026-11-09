@@ -9,7 +9,7 @@ public sealed class OperationLoaderTests
     [Fact]
     public async Task LongOperationShowsItsActivityAndOnlyReportedPercentages()
     {
-        using var context = new BunitContext();
+        using var context = new QuasarBunitContext();
         var loader = context.Render<QuasarOperationLoader>(p => p
             .Add(c => c.Title, "Preparing runtime")
             .Add(c => c.Message, "Downloading Dedicated Server"));

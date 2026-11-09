@@ -95,7 +95,7 @@ Each time a standalone server's agent reports its plugin configuration, Quasar s
 
 ## Plugin logs
 
-The **Plugin logs** section on the **Plugins** page shows structured log lines that plugins write through the PluginSdk logger on managed servers. Filters: **Server**, **Plugin**, **Level**, **Range** (last 1h, 24h, 7d or all), **Limit** and **Filter text**. Times are UTC.
+The **Plugin logs** section on the **Plugins** page shows structured log lines that plugins write through the PluginSdk logger on managed servers. Filters: **Server**, **Plugin**, **Level**, **Range** (last 1h, 24h, 7d or all), **Limit** and **Filter text**.
 
 - Quasar keeps the newest 10,000 entries per server in memory. They are gone after a Quasar restart.
 - While Quasar is unreachable, the agent buffers up to 10,000 lines and sends them after it reconnects.

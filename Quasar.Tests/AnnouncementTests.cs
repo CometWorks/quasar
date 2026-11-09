@@ -369,7 +369,7 @@ public sealed partial class AnnouncementTests : IDisposable
         var service = Service(consent, Diagnostics(consent, http), http); await service.PollOnceAsync();
         var notices = PushNotificationService.MergeAnnouncements([new("update", "Update", "Body", "/settings/updates")], service);
         Assert.Equal("critical", notices[0].Severity);
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         var bell = context.Render<NotificationBell>(p => p.Add(c => c.Notice, notices[0]));
         Assert.Contains("quasar-text-error", bell.Find("a").ClassList);
         Assert.Equal("http://localhost/notifications", bell.Find("a").GetAttribute("href"));

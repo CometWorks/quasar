@@ -6,6 +6,7 @@
 @inject KnownPlayerCatalog KnownPlayers
 @inject QuasarPermissionService Permissions
 @inject ISnackbar Snackbar
+@inject ViewerTimeZone ViewerTime
 
 @if (_links.Count > 0)
 {
@@ -25,7 +26,7 @@
                     <MudTd DataLabel="Player">@Name(context.SteamId)</MudTd>
                     <MudTd DataLabel="Steam ID" Class="mono">@context.SteamId</MudTd>
                     <MudTd DataLabel="Discord user ID" Class="mono">@context.DiscordUserId</MudTd>
-                    <MudTd DataLabel="Linked">@context.LinkedAtUtc.ToLocalTime().ToString("g", CultureInfo.CurrentCulture)</MudTd>
+                    <MudTd DataLabel="Linked">@ViewerTime.Format(context.LinkedAtUtc)</MudTd>
                     <MudTd DataLabel="" Class="quasar-actions-column">
                         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
                             <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Color="Color.Error" aria-label="Remove Discord link"

@@ -25,7 +25,7 @@ public sealed class ClusterDetailPanelTests
         Environment.SetEnvironmentVariable(credential, "fixture-credential");
         try
         {
-            await using var context = new BunitContext();
+            await using var context = new QuasarBunitContext();
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var fixture = ClusterHealthOverviewTests.Sample();
@@ -120,7 +120,7 @@ public sealed class ClusterDetailPanelTests
     [InlineData(DedicatedServerGoalState.On, true, true, true)]
     public async Task GatewayConnectionWarningDependsOnGoalState(DedicatedServerGoalState goal, bool managed, bool shouldWarn, bool collapseDetails)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         using var http = new HttpClient(new OfflineGateway());
@@ -161,7 +161,7 @@ public sealed class ClusterDetailPanelTests
     [Fact]
     public async Task PollUpdatesVisibleStatusWithoutParentRender()
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         using var handler = new ChangingGateway();

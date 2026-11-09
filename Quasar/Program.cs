@@ -392,6 +392,7 @@ public class Program
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
                 builder.Services.AddSingleton<BrandingService>();
                 builder.Services.AddScoped<ThemePreferenceService>();
+                builder.Services.AddScoped<ViewerTimeZone>();
                 uiPluginCatalog.ConfigurePluginServices(builder.Services);
             }
 

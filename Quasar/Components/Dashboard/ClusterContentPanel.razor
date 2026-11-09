@@ -5,6 +5,7 @@
 @inject AuthenticationStateProvider AuthenticationState
 @inject QuasarRoleMapper RoleMapper
 @inject ILogger<ClusterContentPanel> Logger
+@inject ViewerTimeZone ViewerTime
 
 <MudExpansionPanels Class="server-card">
     <MudExpansionPanel Text="Mods and plugins" @bind-Expanded="_expanded">
@@ -17,7 +18,7 @@
                                Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save">Queue mod and plugin updates</MudButton>
                 </AuthorizeView>
             </div>
-            <span class="quasar-text quasar-type-caption">Last check: @(Snapshot.CheckedAt?.ToLocalTime().ToString("g") ?? "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</span>
+            <span class="quasar-text quasar-type-caption">Last check: @ViewerTime.Format(Snapshot.CheckedAt, "Not checked") · Scheduled checks @(Content.ScheduledChecksEnabled ? "enabled" : "disabled")</span>
             @if (HasQueuedContent)
             {
                 <MudAlert Severity="Severity.Info">Observed versions queued. Select Stage queued content updates under Maintenance to pin the profile content and prepare every host machine, then apply the pending update.</MudAlert>
@@ -38,7 +39,7 @@
                 <RowTemplate>
                     <MudTd DataLabel="Content">@context.Name <span class="quasar-text quasar-type-caption">@context.Kind · @context.Id</span></MudTd>
                     <MudTd DataLabel="Active pin / first observed">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</MudTd>
-                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<span class="quasar-text quasar-type-caption">@(context.ObservedAt?.ToLocalTime().ToString("g"))</span></MudTd>
+                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<span class="quasar-text quasar-type-caption">@ViewerTime.Format(context.ObservedAt, "")</span></MudTd>
                     <MudTd DataLabel="Status">
                         @if (context.Error is not null)
                         {
@@ -117,10 +118,10 @@
         finally { _busy = false; }
     }
 
-    private static string Version(ClusterContentItem item, string? value)
+    private string Version(ClusterContentItem item, string? value)
     {
         if (value is null) return "Unknown";
         return item.Kind == "mod" && long.TryParse(value, out long timestamp) && timestamp is >= 0 and <= 253402300799
-            ? DateTimeOffset.FromUnixTimeSeconds(timestamp).ToString("u") : value;
+            ? ViewerTime.Format(DateTimeOffset.FromUnixTimeSeconds(timestamp)) : value;
     }
 }

@@ -385,7 +385,7 @@ public sealed class ClusterCreateTests : IDisposable
 
     private BunitContext CreateContext(bool securityAdmin = true, IAuthorizationService? conversionAuthorization = null)
     {
-        var context = new BunitContext();
+        var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();

@@ -107,7 +107,7 @@ public sealed class ExistingServerZipImportTests : IDisposable
     [InlineData(ExistingServerKind.Torch)]
     public async Task BrowserTransfersConfigsAndDetectedWorldsWithoutUnusedPayloads(ExistingServerKind kind)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         string instance = kind == ExistingServerKind.Torch ? "Instance/" : "";
         string large = new('x', 1024 * 1024);
         string[] ignored = ["DedicatedServer64/engine.dll", "Torch.exe", "Plugins/plugin.dll", "Logs/server.log",
@@ -134,7 +134,7 @@ public sealed class ExistingServerZipImportTests : IDisposable
     [InlineData(true)]
     public async Task InvalidConfigOrCheckpointFailsBeforeTerrainTransfer(bool invalidCheckpoint)
     {
-        await using var context = new BunitContext();
+        await using var context = new QuasarBunitContext();
         using var zip = Zip(("SpaceEngineers-Dedicated.cfg", invalidCheckpoint ? "<MyConfigDedicated />" : "<broken"),
             ("Saves/Primary/Sandbox.sbc", invalidCheckpoint ? "<not-a-world />" : "<MyObjectBuilder_Checkpoint />"),
             ("Saves/Primary/Planet.vx2", new string('v', 1024 * 1024)));
