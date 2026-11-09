@@ -1597,6 +1597,21 @@ activates the new inventory and starts the cluster again. The API equivalent is
 `POST /api/v1/clusters/{uniqueName}/hot-spares-preparation` with
 `{"hotSpares":2}`, with the same permissions.
 
+**Regular nodes** with **Stage regular node change** prepares a deployment with
+a different number of regular nodes on one host machine, keeping the world. The
+host's hot spares stay as they are: its first slots serve and the spares follow
+them, so a growing host turns its first spare into a regular node and adds the
+spare after it, and a shrinking host turns its last regular slot into the spare
+and removes the slots after it. Existing slots keep their node ids, ports and
+catalog slots. Apply it from **Maintenance → Pending update** like a hot spare
+change. The stopped-fleet update ends every node cleanly first, so the world's
+partitions are all saved; the cluster then loads them on the new set of nodes,
+and a live node of the same host serves the saves of a removed slot. The API
+equivalent is `POST /api/v1/clusters/{uniqueName}/regular-nodes-preparation` with
+`{"regularNodes":6}`, plus `"hostId"` on a cluster with more than one host
+machine; the CLI is `Quasar cluster regular-nodes-prepare NAME COUNT [HOST]
+--idempotency-key KEY`.
+
 `POST /api/v1/clusters/{uniqueName}/names-preparation` with
 `{"serverName":"...","worldName":"..."}` prepares a deployment with new in-game
 names; a blank or missing name stays as it is. The update writes the world name
