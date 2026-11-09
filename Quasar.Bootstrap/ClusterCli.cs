@@ -200,6 +200,7 @@ internal static class ClusterCli
             "release-update-prepare" when values.Length == 2 => ClusterRoute("release-update-preparation"),
             "world-files" when values.Length == 2 => ClusterRoute("world-files"),
             "world-files-prepare" when values.Length == 3 => ClusterRoute("world-files-preparation"),
+            "regular-nodes-prepare" when values.Length is 3 or 4 => ClusterRoute("regular-nodes-preparation"),
             "backups" when values.Length == 2 => ClusterRoute("backups"),
             "backup" when values.Length == 3 => ClusterRoute("backups"),
             "restore" when values.Length == 3 => ClusterRoute("restore"),
@@ -286,6 +287,17 @@ internal static class ClusterCli
             body = new { goal };
             mutation = true;
         }
+        else if (command == "regular-nodes-prepare")
+        {
+            if (!int.TryParse(values[2], System.Globalization.NumberStyles.None,
+                    System.Globalization.CultureInfo.InvariantCulture, out int count) || count < 1)
+            {
+                stderr.WriteLine("Regular nodes must be a positive number.");
+                return false;
+            }
+            body = new { regularNodes = count, hostId = values.Length == 4 ? values[3] : null };
+            mutation = true;
+        }
         else if (command == "world-files-prepare")
         {
             try { body = new { files = WorldFiles(values[2]) }; }
@@ -328,7 +340,7 @@ internal static class ClusterCli
         }
 
         request = new HttpRequestMessage(mutation ? HttpMethod.Put : HttpMethod.Get, baseUrl + route);
-        if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "release-update-prepare" or "world-files-prepare" or "command" or "create" or "deployment-prepare" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server") request.Method = HttpMethod.Post;
+        if (command is "gateway-restart" or "gateway-recover" or "artifact-backup" or "update-abandon" or "release-update-prepare" or "world-files-prepare" or "regular-nodes-prepare" or "command" or "create" or "deployment-prepare" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server") request.Method = HttpMethod.Post;
         // Not an operation: it ends the deleted cluster's operation history itself, so it takes no idempotency key.
         if (command == "purge") request.Method = HttpMethod.Delete;
         if (body != null) request.Content = JsonContent.Create(body, options: JsonOptions);
@@ -414,7 +426,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|regular-nodes-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; regular-nodes-prepare takes COUNT [HOST]; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,

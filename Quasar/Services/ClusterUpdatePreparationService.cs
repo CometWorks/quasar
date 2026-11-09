@@ -270,6 +270,25 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
             return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
         }, token);
 
+    /// <summary>Stages a deployment with <paramref name="regularNodes"/> regular nodes on <paramref name="hostId"/> (the
+    /// only host when null), keeping the world. Like a hot spare change it applies through the stopped-fleet update, and
+    /// the Gateway's balancer moves partitions onto new nodes once they serve.</summary>
+    public Task<ClusterOperation> StageRegularNodesAsync(string clusterId, string? hostId, int regularNodes, string actor,
+        CancellationToken token) =>
+        catalog.WithLifecycleAsync(clusterId, async cluster =>
+        {
+            if (cluster.ActiveDeployment is null || cluster.Update is { Phase: not ClusterUpdatePhase.Complete }
+                || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null)
+                throw new InvalidOperationException(cluster.BusyMessage("changing regular nodes"));
+            var request = BasePreparation(cluster) ?? throw new InvalidOperationException("Complete guided setup before changing regular nodes.");
+            var inputs = await dependencies.GetDeploymentInputsAsync(cluster, token);
+            if (ClusterDeploymentFiles.Hash(JsonSerializer.SerializeToUtf8Bytes(inputs, Json)) != request.InputsSha256)
+                throw new InvalidOperationException("Stage the selected release before changing regular nodes.");
+            var spec = JsonNode.Parse(request.SpecificationJson)!.AsObject();
+            SetRegularNodes(spec, string.IsNullOrWhiteSpace(hostId) ? null : hostId.Trim(), regularNodes);
+            return await PrepareSpecificationAsync(cluster, request, spec, actor, token);
+        }, token);
+
     /// <summary>Stages a deployment with new in-game server and world names, the cluster's identity unchanged. Applies
     /// through the stopped-fleet update like any other preparation; a blank name stays as it is. The names stay staged
     /// until the next activation, whatever is selected or staged before it.</summary>
@@ -403,8 +422,6 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
     internal static void SetHotSpares(JsonObject specification, int count)
     {
         var nodes = specification["nodes"]!.AsArray();
-        static bool Spare(JsonNode node) => node["spare"]?.GetValue<bool>() == true;
-        static string HostOf(JsonNode node) => node["host"]!.GetValue<string>();
         var regular = specification["hosts"]!.AsArray().Select(h => h!["id"]!.GetValue<string>())
             .Select(host => (host, nodes.Count(n => HostOf(n!) == host && n!["role"]!.GetValue<string>() == "regular" && !Spare(n)))).ToArray();
         int current = nodes.Count(n => Spare(n!));
@@ -416,20 +433,84 @@ public sealed class ClusterUpdatePreparationService(ClusterCatalog catalog, Clus
         foreach (var (host, regularNodes) in regular)
         {
             int spares = nodes.Count(n => HostOf(n!) == host && Spare(n!));
-            JsonNode Slot(int i) => nodes.SingleOrDefault(n => n!["slotKey"]!.GetValue<string>() == $"{host}-node-{i}" && HostOf(n) == host)
-                ?? throw new InvalidOperationException("This cluster's nodes were not laid out by Quasar's setup, so its hot spares cannot be changed here.");
-            for (int i = 0; i < regularNodes + spares; i++)
-                if (Spare(Slot(i)) != i >= regularNodes)
-                    throw new InvalidOperationException("This cluster's nodes were not laid out by Quasar's setup, so its hot spares cannot be changed here.");
-            for (int i = regularNodes + spares - 1; i >= regularNodes + wanted[host]; i--) nodes.Remove(Slot(i));
-            var backend = System.Net.IPEndPoint.Parse(Slot(0)["backend"]!.GetValue<string>());
-            var control = System.Net.IPEndPoint.Parse(Slot(0)["control"]!.GetValue<string>());
+            var slots = QuasarSlots(nodes, host, regularNodes, spares);
+            for (int i = regularNodes + spares - 1; i >= regularNodes + wanted[host]; i--) nodes.Remove(slots[i]);
             for (int i = regularNodes + spares; i < regularNodes + wanted[host]; i++)
-                nodes.Insert(nodes.IndexOf(Slot(i - 1)) + 1, new JsonObject { ["slotKey"] = $"{host}-node-{i}", ["nodeId"] = $"{host}-node-{i}",
-                    ["host"] = host, ["role"] = "regular", ["catalogSlot"] = ++catalogSlot,
-                    ["backend"] = new System.Net.IPEndPoint(backend.Address, backend.Port + i).ToString(),
-                    ["control"] = new System.Net.IPEndPoint(control.Address, control.Port + i).ToString(), ["spare"] = true });
+            {
+                var slot = NewSlot(slots[0], host, i, ++catalogSlot);
+                slot["spare"] = true;
+                nodes.Insert(nodes.IndexOf(slots[^1]) + 1, slot);
+                slots.Add(slot);
+            }
         }
+    }
+
+    /// <summary>
+    /// Gives <paramref name="hostId"/> (the only host when null) <paramref name="count"/> regular nodes and keeps its hot
+    /// spares, laid out the way setup lays them out: slots <c>host-node-0</c> to <c>count-1</c> serve, the next ones are
+    /// the spares. Existing slots keep their ids, ports and catalog slots, so a slot can turn from spare to regular or
+    /// back; new slots take the next ports and catalog slots, and the host's last slots are the ones removed. Spares keep
+    /// catalog slots after every serving node's, which the cluster's preparation requires, so a spare whose number would
+    /// come too early gets a new one. The stopped-fleet update that applies it ends every node cleanly first, and the
+    /// saves of a removed slot are served by a live node of the same host (cluster #1210).
+    /// </summary>
+    internal static void SetRegularNodes(JsonObject specification, string? hostId, int count)
+    {
+        var nodes = specification["nodes"]!.AsArray();
+        var hosts = specification["hosts"]!.AsArray().Select(h => h!["id"]!.GetValue<string>()).ToArray();
+        string host = hostId ?? (hosts.Length == 1 ? hosts[0]
+            : throw new ArgumentException("This cluster has more than one host machine: name the host whose regular nodes change."));
+        if (!hosts.Contains(host)) throw new ArgumentException($"The cluster has no host machine {host}.");
+        int regularNodes = nodes.Count(n => HostOf(n!) == host && n!["role"]!.GetValue<string>() == "regular" && !Spare(n));
+        int spares = nodes.Count(n => HostOf(n!) == host && Spare(n!));
+        if (count == regularNodes) throw new InvalidOperationException($"Host {host} already has {count} regular node(s).");
+        if (count < 1 || count + spares > 32)
+            throw new InvalidDataException($"Choose 1 or more regular nodes that fit next to the {spares} hot spare(s), 32 nodes per host machine.");
+        var slots = QuasarSlots(nodes, host, regularNodes, spares);
+        if (slots.Count == 0)
+            throw new InvalidOperationException("This cluster's nodes were not laid out by Quasar's setup, so its node counts cannot be changed here.");
+        int total = count + spares, catalogSlot = nodes.Max(n => n!["catalogSlot"]!.GetValue<int>());
+        for (int i = slots.Count - 1; i >= total; i--) { nodes.Remove(slots[i]); slots.RemoveAt(i); }
+        for (int i = slots.Count; i < total; i++)
+        {
+            var slot = NewSlot(slots[0], host, i, ++catalogSlot);
+            nodes.Insert(nodes.IndexOf(slots[^1]) + 1, slot);
+            slots.Add(slot);
+        }
+        for (int i = 0; i < total; i++)
+            if (i < count) slots[i].AsObject().Remove("spare"); else slots[i]["spare"] = true;
+        int lastServing = nodes.Where(n => n!["role"]!.GetValue<string>() == "regular" && !Spare(n!)).Max(n => n!["catalogSlot"]!.GetValue<int>());
+        if (nodes.Where(n => Spare(n!)).Any(n => n!["catalogSlot"]!.GetValue<int>() < lastServing))
+            foreach (var spare in nodes.Where(n => Spare(n!)).ToArray()) spare!["catalogSlot"] = ++catalogSlot;
+    }
+
+    private static bool Spare(JsonNode node) => node["spare"]?.GetValue<bool>() == true;
+    private static string HostOf(JsonNode node) => node["host"]!.GetValue<string>();
+
+    /// <summary>The host's <c>host-node-i</c> slots in order, checked to be laid out by setup: the regular nodes first,
+    /// then the spares.</summary>
+    private static List<JsonNode> QuasarSlots(JsonArray nodes, string host, int regularNodes, int spares)
+    {
+        var slots = new List<JsonNode>();
+        for (int i = 0; i < regularNodes + spares; i++)
+        {
+            var slot = nodes.SingleOrDefault(n => n!["slotKey"]!.GetValue<string>() == $"{host}-node-{i}" && HostOf(n) == host);
+            if (slot is null || Spare(slot) != i >= regularNodes)
+                throw new InvalidOperationException("This cluster's nodes were not laid out by Quasar's setup, so its node counts cannot be changed here.");
+            slots.Add(slot);
+        }
+        return slots;
+    }
+
+    /// <summary>A new regular slot <c>host-node-i</c> on the ports of slot 0 plus <paramref name="index"/>.</summary>
+    private static JsonObject NewSlot(JsonNode first, string host, int index, int catalogSlot)
+    {
+        var backend = System.Net.IPEndPoint.Parse(first["backend"]!.GetValue<string>());
+        var control = System.Net.IPEndPoint.Parse(first["control"]!.GetValue<string>());
+        return new JsonObject { ["slotKey"] = $"{host}-node-{index}", ["nodeId"] = $"{host}-node-{index}",
+            ["host"] = host, ["role"] = "regular", ["catalogSlot"] = catalogSlot,
+            ["backend"] = new System.Net.IPEndPoint(backend.Address, backend.Port + index).ToString(),
+            ["control"] = new System.Net.IPEndPoint(control.Address, control.Port + index).ToString() };
     }
 
     private async Task<ClusterOperation> PrepareSpecificationAsync(ClusterDefinition cluster, ClusterPreparationRequest request,

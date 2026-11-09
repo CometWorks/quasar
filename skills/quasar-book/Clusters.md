@@ -62,7 +62,7 @@ The cluster page is `/clusters/<Cluster ID>`. It opens on **Overview** and group
 | Events | Cluster Registry event history, with sequence, time, actor and target. |
 | Mods & plugins | Content update checks and queues, with an active deployment. |
 | Maintenance | Deployed/latest versions, release staging, pending updates, **Backups**, **Recovery**, **Convert to a standalone server**, **Advanced deployment tools**. |
-| Settings | Server name, profile, hot spares, shutdown grace period, plugin configuration, advanced controls and cluster removal. Existing confirmations and permissions still apply. |
+| Settings | Server name, profile, hot spares, regular nodes, shutdown grace period, plugin configuration, advanced controls and cluster removal. Existing confirmations and permissions still apply. |
 
 Live and historical cluster players appear in the top-level [Players page](Monitoring.md#players), grouped under one server per cluster. Node moves do not create duplicate player entries. Kick, Ban and Unban apply to the cluster through the Gateway.
 
@@ -216,6 +216,7 @@ updates, separate from world backups. Hover or focus these labels for explanatio
 - **Server name**: the name in Quasar lists.
 - **Configuration profile** and **Stage profile changes**: prepares a new deployment on every host machine with the selected profile. Allowed changes are session settings, administrators, mods and plugin selections. Network and dedicated-server root settings cannot change this way ("Cluster network and dedicated-server root settings cannot change through a preserved-world profile update."). If managed Magnetar was updated since the cluster's runtime snapshot was frozen, staging freezes the installed Magnetar together with the plugins it exported, as long as its PluginSdk contract satisfies the cluster release's. The change applies only when you **Apply pending update** in Maintenance. Quasar refuses to apply if the staged profile was edited or deleted after staging; stage it again.
 - **Hot spares** and **Stage hot spare change**: changes how many hot spares the cluster has. A spare is an extra node, so this prepares a new deployment on every host machine that adds or removes spare nodes; nothing else changes. New spares go where guided setup would put them, from the Gateway host machine on, at most 32 nodes per machine, and a removed spare is the last node of its machine. The change applies only when you **Apply pending update** in Maintenance, which stops the cluster cleanly, activates the new node list and starts it again. Adding spares needs a cluster release that supports them ("This cluster release does not support hot spares..."). A cluster whose nodes Quasar's setup did not lay out cannot change its spares here ("This cluster's nodes were not laid out by Quasar's setup...").
+- **Regular nodes** and **Stage regular node change**: changes how many nodes serve partitions on one host machine (a **Host machine** list appears when the cluster has more than one), keeping the world. The host's hot spares stay: its first nodes serve and the spares come after them, so adding nodes turns the first spare into a serving node and adds a new spare after it, and removing nodes turns the last serving node into the spare and removes the nodes after it. Existing nodes keep their ids and ports. It applies through **Apply pending update** like a hot spare change: every node ends cleanly, the new node list starts, and the cluster spreads the partitions over it. The saves of a removed node are served by a live node of the same host machine. At most 32 nodes per machine, spares included. API: `POST /api/v1/clusters/{name}/regular-nodes-preparation` with `{"regularNodes":6}` (and `"hostId"` on a multi-host cluster); CLI: `./Quasar cluster regular-nodes-prepare NAME COUNT [HOST] --idempotency-key KEY --timeout 600` (the staging prepares every host machine before it answers; at the default 30 s timeout it is cancelled and stages nothing).
 - **Shutdown grace period (seconds)**: used on the next managed shutdown.
 - **Save cluster settings**.
 
@@ -449,7 +450,7 @@ Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (defa
 | Read | `list`, `health`, `status`, `lifecycle`, `plan`, `recovery-readiness`, `config`, `rotation`, `client-diagnostics NAME NODE`, `capabilities`, `fleet`, `nodes`, `world-authority`, `snapshots`, `partitions`, `clients`, `bans`, `events`, `chat-history`, `gateway-operations`, `operation NAME ID`, `diagnostics`, `handover-config`, `artifacts`, `artifact NAME ID` |
 | Lifecycle | `goal NAME on|off`, `gateway-restart`, `gateway-recover`, `recover NAME REQUEST.json`, `command NAME REQUEST.json`, `rotation-set NAME FILE`, `purge NAME` |
 | Packages | `package-release`, `package-stage NAME VERSION SHA256`, `package-selection`, `package-select NAME VERSION SHA256 EXPECTED_REVISION`, `dependency-candidate`, `dependencies`, `dependencies-stage NAME FILE`, `deployment-inputs` |
-| Deployment | `create FILE`, `deployment-prepare NAME FILE`, `release-update-prepare NAME`, `world-files NAME`, `world-files-prepare NAME FOLDER`, `deployment`, `deployment-activate NAME FILE`, `update NAME FILE`, `update-status`, `update-abandon` |
+| Deployment | `create FILE`, `deployment-prepare NAME FILE`, `release-update-prepare NAME`, `world-files NAME`, `world-files-prepare NAME FOLDER`, `regular-nodes-prepare NAME COUNT [HOST]`, `deployment`, `deployment-activate NAME FILE`, `update NAME FILE`, `update-status`, `update-abandon` |
 | Backups | `backups`, `backup NAME FILE`, `restore NAME FILE`, `artifact-backup NAME ID` |
 | Conversion | `conversion-review NAME SERVER`, `conversion-plugins NAME`, `convert-to-cluster NAME FILE`, `convert-to-server NAME FILE`, `conversion-status NAME UUID` |
 
@@ -457,13 +458,13 @@ Options: `--url` (or `QUASAR_URL`, or local discovery), `--token-env NAME` (defa
 
 Exit codes: `0` success, `2` usage, `3` local configuration, `4` connection or timeout, `5` authentication or authorization, `6` API rejection, `7` the operation completed as failed, `8` incompatible protocol. An HTTP timeout does not mean the operation failed; check it with `cluster operation` or `conversion-status`.
 
-Guided setup has no CLI command; use the UI or `POST /api/v1/clusters/setup`. Profile, hot spare, name and plugin configuration staging have no CLI command either; their API routes are listed below.
+Guided setup has no CLI command; use the UI or `POST /api/v1/clusters/setup`. Profile, hot spare, name and plugin configuration staging have no CLI command either; their API routes are listed below. Regular node staging has one: `regular-nodes-prepare`.
 
 ## API
 
 Cluster routes are under `/api/v1/clusters`. Changes need an `Idempotency-Key` header and return a durable operation; repeating the same key and body returns the same operation, a different body returns `idempotency_key_conflict`. Operations are stored under `<install root>/Operations/Clusters`. An operation still running when Quasar stopped is reported as Failed with `interrupted_by_restart`; resubmit with a new key.
 
-The stagings behind the Settings panel are `POST /api/v1/clusters/{name}/config-profile-preparation` (`{"configProfileId"}`), `hot-spares-preparation` (`{"hotSpares"}`), `names-preparation` and `plugin-configuration-preparation`. All need cluster manage and configuration editing, and apply with `cluster update` or **Apply pending update**.
+The stagings behind the Settings panel are `POST /api/v1/clusters/{name}/config-profile-preparation` (`{"configProfileId"}`), `hot-spares-preparation` (`{"hotSpares"}`), `regular-nodes-preparation` (`{"regularNodes", "hostId"?}`), `names-preparation` and `plugin-configuration-preparation`. All need cluster manage and configuration editing, and apply with `cluster update` or **Apply pending update**.
 
 ## Common problems
 
