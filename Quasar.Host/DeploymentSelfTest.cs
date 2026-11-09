@@ -345,6 +345,25 @@ internal static class DeploymentSelfTest
                     if (entry.Name != "snapshot.json") writer.WriteEntry(entry);
             }
             Assert(snapshots.Describe(old, "cluster", saved.SnapshotId).SnapshotId == saved.SnapshotId, "schema 2 snapshot is unreadable");
+
+            // QSR-26: a 273,000 file runtime wrote a 67 MB manifest, which the old 64 MiB cap refused to read back.
+            string large = Path.Combine(root, "large.tar");
+            using (var output = File.Create(large))
+            using (var writer = new System.Formats.Tar.TarWriter(output))
+            {
+                using (var reader = new System.Formats.Tar.TarReader(File.OpenRead(archive)))
+                    while (reader.GetNextEntry() is { } entry)
+                        if (entry.Name != "snapshot.json") writer.WriteEntry(entry);
+                byte[] padded = [.. entries[^1].Data, .. Enumerable.Repeat((byte)' ', 65 * 1024 * 1024)];
+                writer.WriteEntry(new System.Formats.Tar.PaxTarEntry(System.Formats.Tar.TarEntryType.RegularFile, "snapshot.json")
+                    { DataStream = new MemoryStream(padded) });
+            }
+            Assert(snapshots.Describe(large, "cluster", saved.SnapshotId).SnapshotId == saved.SnapshotId, "a manifest over 64 MiB is unreadable");
+
+            // An archive this Host cannot read is taken again, not refused on every retry of its capture.
+            var broken = request with { SnapshotId = Guid.NewGuid() };
+            File.WriteAllText(snapshots.ArchivePath("cluster", broken.SnapshotId), "not a tar");
+            Assert(snapshots.Capture(broken).SnapshotId == broken.SnapshotId, "an unreadable archive was not captured again");
         }
         finally
         {
