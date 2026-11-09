@@ -239,9 +239,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         {
             if (Directory.Exists(seed)) Directory.Delete(seed, true); // Unpublished copy; never the template.
             await ClusterWorldFiles.CopyAsync(worlds.GetWorldDirectory(request.WorldTemplateId), seed, token);
-            await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox.sbc"), savedProfile, request.WorldName, token);
+            await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox.sbc"), savedProfile, request.WorldName, token, clusterNode: true);
             if (File.Exists(Path.Combine(seed, "Sandbox_config.sbc")))
-                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox_config.sbc"), savedProfile, request.WorldName, token);
+                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(seed, "Sandbox_config.sbc"), savedProfile, request.WorldName, token, clusterNode: true);
             await WriteAsync(sourceReceipt, await ClusterDeploymentFiles.InspectAsync(seed, token), token);
         }
         await ClusterWorldFiles.VerifyAsync(seed, Read<Dictionary<string, HostContract.DeploymentFile>>(sourceReceipt), token);
