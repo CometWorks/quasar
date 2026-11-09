@@ -1610,7 +1610,9 @@ and a live node of the same host serves the saves of a removed slot. The API
 equivalent is `POST /api/v1/clusters/{uniqueName}/regular-nodes-preparation` with
 `{"regularNodes":6}`, plus `"hostId"` on a cluster with more than one host
 machine; the CLI is `Quasar cluster regular-nodes-prepare NAME COUNT [HOST]
---idempotency-key KEY`.
+--idempotency-key KEY --timeout 600`. The staging prepares every Host before it
+answers, which takes longer than the CLI's default 30 s timeout; a request that
+times out is cancelled and stages nothing.
 
 `POST /api/v1/clusters/{uniqueName}/names-preparation` with
 `{"serverName":"...","worldName":"..."}` prepares a deployment with new in-game
