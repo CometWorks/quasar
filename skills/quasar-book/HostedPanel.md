@@ -42,6 +42,9 @@ After that, sign in at the public address with Steam. Your roles from `rbac.json
 - Each check reports two things to Nebula and to `HostedPanel/connector-health.json`: whether the tunnel is registered, and whether the local `/api/ready` answers. The panel counts as ready only when both are true in a report younger than 35 seconds. Enrollment alone does not mean it is reachable.
 - Quasar also asks Nebula every 10 seconds for the enrollment state, and picks up the connector credential once hosting is active.
 - If Nebula is down, or hosting expires or is suspended, only the public address stops working. Local access and the servers' goal state don't change.
+- Confirmed inactive access, including a confirmed refund, clears the connector credential and readiness. Quasar retains the enrollment and private installation proof so later paid activation can reconnect without relinking. A completed setup stays completed. Fresh tunnel/worker health is required after reactivation.
+- Bootstrap stops its own connector when Nebula's authenticated heartbeat returns 401/403 and requires a successful heartbeat before starting it again. A late heartbeat cannot rewrite enrollment. The normal check cadence is 10 seconds, not an instant push: the worker allows 15 seconds per Nebula request; Bootstrap allows 3 seconds per local probe and 8 seconds for a heartbeat, plus connector shutdown time. Provider processing, networking and scheduling can add delay.
+- Hosted RTC sessions also check installation authority, normally once per second. Their independent 120-second monotonic lease cannot survive failed entitlement renewal indefinitely; the existing forwarding bound is 130 seconds from the last successful renewal request starting under normal scheduling. See `Docs/HostedPanel.md` for the detailed bounds.
 
 Status texts in the dialog:
 
@@ -53,6 +56,7 @@ Status texts in the dialog:
 | "Tunnel connected; local Quasar is restarting" | The tunnel is up, `/api/ready` does not answer. |
 | "Hosted dashboard ready" | Both are healthy. |
 | "Hosting service unavailable; local Quasar continues working" | Quasar can't reach Nebula. |
+| "Hosted access inactive; local Quasar remains available. Manage hosting on the Nebula account page." | Nebula denied hosting access. Local Quasar remains available; the enrollment can reactivate after later verified payment. |
 | "Installation disconnected. Restart hosted setup to relink your panel." | Nebula no longer knows this installation, for example after a disconnect or a recovery on another machine. Quasar has cleared its connector credential. |
 
 ## Security of hosted requests

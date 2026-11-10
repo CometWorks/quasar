@@ -78,6 +78,19 @@ test(`RTC 2 real Quasar cookie/session boundary: ${mode}`, { timeout: 90000 }, a
                 abandoned.pc.close();
             }
             const connected = await pair();
+            if (mode === "inactive") {
+                const closed = new Promise(resolve => connected.control.onclose = resolve);
+                if (!(await fixture("inactive")).ok) throw new Error("Could not revoke hosted credential");
+                await timeout(closed, 10000);
+                const denied = await response(`_quasar/sdk/v1/rtc/attempts/${connected.id}`, null, "GET");
+                if (denied.status !== 403) throw new Error("Revoked hosted request was accepted");
+                connected.pc.close();
+                return { anonymous: true, replayDenied: true, credentialRemovalClosed: true };
+            }
+            if (mode === "reactivated") {
+                connected.pc.close();
+                return { anonymous: true, replayDenied: true, reactivated: true };
+            }
             // Keep only the public attempt ID for the second, same-user browser.
             globalThis.testPeerId = connected.id;
             if (mode === "hosted") {
@@ -117,7 +130,11 @@ test(`RTC 2 real Quasar cookie/session boundary: ${mode}`, { timeout: 90000 }, a
             return { anonymous: true, replayDenied: true, permissionChangeClosed: true, id: logout.id };
         }, { mode });
         assert.ok(result.anonymous && result.replayDenied);
-        if (mode === "hosted") {
+        if (mode === "inactive") {
+            assert.ok(result.credentialRemovalClosed);
+        } else if (mode === "reactivated") {
+            assert.ok(result.reactivated);
+        } else if (mode === "hosted") {
             assert.ok(result.managerOutageExpired && result.installationReplacementClosed);
         } else {
             assert.ok(result.permissionChangeClosed);
