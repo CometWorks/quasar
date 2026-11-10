@@ -5,7 +5,7 @@ stateDiagram-v2
     FirstAttempt --> RepeatedAttempt: first retry failed
     RepeatedAttempt --> Connected: reconnected
     RepeatedAttempt --> Failed: retries exhausted
-    Failed --> Connected: manual Retry succeeds
+    Failed --> Connected: automatic or manual Retry succeeds
     Connected --> Paused: session paused
     Paused --> Connected: resume succeeds
     Paused --> ResumeFailed: resume fails

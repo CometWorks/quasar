@@ -211,9 +211,17 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 **Quasar connection unavailable** means the browser could not finish connecting.
 The same warning appears after ten seconds if startup is still pending. Until
 the connection succeeds, live updates and controls are unavailable, even if the
-page already displays server data. Check your network connection, then click
-**Reload page** to retry or sign in again. This button works even when the page
-never becomes interactive. A successful connection clears the warning.
+page already displays server data. Quasar retries automatically once the panel
+is ready and your login is valid. Failed startup waits five seconds before
+reloading; repeated failures back off to a maximum of one minute. Pending startup
+gets a full minute to allow peer setup to finish. Successful startup clears the
+warning and backoff. **Reload page** remains available even when the page never
+becomes interactive. If your login expired, reload to sign in again.
+
+Quasar uses fingerprinted script URLs for connection startup. On older releases,
+try **Ctrl+F5** if a normal reload keeps using stale connection scripts after an
+update. A hard refresh fixing the problem points to cached assets; it does not
+prove the server or network was unavailable.
 
 If an established connection drops, **Quasar connection interrupted** warns that
 displayed data may be out of date. The dialog shows reconnect progress and always
@@ -221,7 +229,13 @@ offers **Reload page**. Hosted WebRTC and ordinary socket connections use the
 same warnings. A silent connection stall is reported after the framework detects
 it, so the warning may not appear immediately when traffic stops.
 
-The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Failed to rejoin. Please retry or reload the page." with **Retry**. During the disconnect, the page checks readiness and worker identity through the same address, including a Nebula panel prefix. When a replacement Quasar process is ready, the page reloads automatically instead of waiting for all circuit retries to fail. A temporary network interruption to the same process keeps normal reconnection behavior. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
+After the framework runs out of reconnect attempts, Quasar keeps retrying the
+existing circuit every five seconds while the panel is ready and your login is
+valid. Manual and automatic attempts do not overlap. If the server can no longer
+restore the circuit, the page reloads automatically. Paused sessions still wait
+for **Resume**, and an active restart uses its own progress panel.
+
+The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Still trying to rejoin. Quasar will retry automatically when the server is ready." with **Retry**. During the disconnect, the page checks readiness and worker identity through the same address, including a Nebula panel prefix. When a replacement Quasar process is ready, the page reloads automatically instead of waiting for all circuit retries to fail. A temporary network interruption to the same process keeps normal reconnection behavior. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
 
 ## Sign-in problems
 
@@ -307,6 +321,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Components/Pages/ServerConsoleDialog.razor`
 - `Quasar/Components/Pages/ServerEditorDialog.razor`
 - `Quasar/Components/Dashboard/ServerCard.razor`
+- `Quasar/Components/App.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor.js`
 - `Quasar/Components/Layout/ReconnectModal.razor.css`

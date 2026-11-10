@@ -5,9 +5,9 @@ import vm from 'node:vm';
 
 const script = readFileSync(new URL('../../Quasar/Components/Layout/ReconnectModal.razor.js', import.meta.url), 'utf8');
 
-function harness(reconnect = async () => false, { base = '/', replies = [], workerId = 'old-worker', resumeCircuit = async () => false, connectionState = 'connected' } = {}) {
+function harness(reconnect = async () => false, { base = '/', replies = [], workerId = 'old-worker', resumeCircuit = async () => false, connectionState = 'connected', storage = new Map() } = {}) {
     const requests = [], timers = new Map();
-    let nextTimer = 0;
+    let nextTimer = 0, now = 0;
     const modal = Object.assign(new EventTarget(), {
         open: false,
         showModal() { this.open = true; },
@@ -33,7 +33,11 @@ function harness(reconnect = async () => false, { base = '/', replies = [], work
     });
     let reloads = 0, reconnects = 0;
     vm.runInNewContext(script, {
-        window, document, URL, AbortController, AbortSignal,
+        window, document, URL, AbortController, AbortSignal, Date: { now: () => now },
+        sessionStorage: {
+            getItem: key => storage.get(key), setItem: (key, value) => storage.set(key, value),
+            removeItem: key => storage.delete(key)
+        },
         async fetch(url, options) {
             requests.push({ path: url.pathname, ...options });
             const reply = replies.shift() ?? Response.json({ status: 'not-ready' }, { status: 503 });
@@ -50,7 +54,8 @@ function harness(reconnect = async () => false, { base = '/', replies = [], work
             event.detail = { state };
             window.dispatchEvent(event);
         },
-        async tick() {
+        async tick(elapsed = 1000) {
+            now += elapsed;
             assert.ok(timers.size, 'No recovery probe scheduled');
             const [id, callback] = timers.entries().next().value;
             timers.delete(id);
@@ -83,12 +88,13 @@ test('stalled hydration warns after ten seconds and reload works without a circu
     assert.equal(h.warning.hidden, true);
 });
 
-test('startup rejection warns immediately and prevents a later slow-start warning', () => {
+test('startup rejection warns immediately and starts readiness recovery', () => {
     const h = harness(undefined, { connectionState: 'connecting' });
     h.connection('failed');
     assert.equal(h.warning.hidden, false);
     assert.match(h.message.textContent, /Could not establish the live connection/);
     assert.equal(h.timers.size, 0);
+    assert.equal(h.requests.length, 1);
 });
 
 test('startup result already available when the warning module loads is respected', () => {
@@ -102,6 +108,117 @@ test('successful hydration cancels its warning timer', () => {
     h.connection('connected');
     assert.equal(h.timers.size, 0);
     assert.equal(h.warning.hidden, true);
+});
+
+for (const base of ['/', '/jack/']) {
+    test(`failed startup automatically reloads a ready authenticated panel at ${base}`, async () => {
+        const h = harness(undefined, { base, connectionState: 'failed', replies: [
+            Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' }),
+            Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' })
+        ] });
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(h.reloads, 0, 'Startup retries must back off');
+        await h.tick(5000);
+        assert.equal(h.reloads, 1);
+        assert.ok(h.requests.every(request => request.path.startsWith(base + 'api/')));
+        assert.equal(h.reconnects, 0, 'A circuit does not exist yet');
+        assert.equal(h.timers.size, 0);
+    });
+}
+
+test('slow ICE setup gets a full minute before recovery reloads the page', async () => {
+    const h = harness(undefined, { connectionState: 'connecting', replies: [
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' }),
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' })
+    ] });
+    await h.tick(10000);
+    assert.equal(h.warning.hidden, false);
+    assert.match(h.message.textContent, /retry automatically/);
+    assert.equal(h.reloads, 0);
+    await h.tick(50000);
+    assert.equal(h.reloads, 1);
+});
+
+test('startup reload backoff survives navigation and clears after successful hydration', async () => {
+    const storage = new Map();
+    const replies = () => [
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' }),
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' }),
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' })
+    ];
+    const first = harness(undefined, { connectionState: 'failed', storage, replies: replies() });
+    await new Promise(resolve => setImmediate(resolve));
+    await first.tick(5000);
+    assert.equal(first.reloads, 1);
+    const second = harness(undefined, { connectionState: 'failed', storage, replies: replies() });
+    await new Promise(resolve => setImmediate(resolve));
+    await second.tick(5000);
+    assert.equal(second.reloads, 0);
+    await second.tick(5000);
+    assert.equal(second.reloads, 1);
+    const third = harness(undefined, { connectionState: 'connecting', storage });
+    third.connection('connected');
+    assert.equal(storage.size, 0);
+});
+
+test('startup recovery never reloads on an outage, gateway error or expired login', async () => {
+    const h = harness(undefined, { connectionState: 'failed', replies: [
+        new Error('Offline'), new Response('<html>Gateway error</html>'),
+        Response.json({ status: 'ready' }), Response.json({}, { status: 401 })
+    ] });
+    await new Promise(resolve => setImmediate(resolve));
+    await h.tick(60000);
+    await h.tick(60000);
+    assert.equal(h.reloads, 0);
+    assert.equal(h.reconnects, 0);
+});
+
+test('hydration completing during startup recovery cancels a late reload', async () => {
+    let finish;
+    const h = harness(undefined, { connectionState: 'failed', replies: [
+        Response.json({ status: 'ready' }), new Promise(resolve => { finish = resolve; })
+    ] });
+    await new Promise(resolve => setImmediate(resolve));
+    h.connection('connected');
+    finish(Response.json({ workerId: 'new-worker' }));
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.reloads, 0);
+    assert.equal(h.timers.size, 0);
+});
+
+test('exhausted framework retries continue automatically without concurrent reconnects', async () => {
+    let finish;
+    const h = harness(() => new Promise(resolve => { finish = resolve; }), { replies: [
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' })
+    ] });
+    h.state('failed');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.reconnects, 1);
+    h.retry.dispatchEvent(new Event('click'));
+    assert.equal(h.reconnects, 1);
+    finish(true);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.reloads, 0);
+    assert.equal(h.timers.size, 0);
+});
+
+test('automatic reconnect retries transient failures with a five-second interval', async () => {
+    let attempts = 0;
+    const h = harness(async () => {
+        if (++attempts === 1) throw new Error('Peer unavailable');
+        return true;
+    }, { replies: Array.from({ length: 4 }, () => [
+        Response.json({ status: 'ready' }), Response.json({ workerId: 'old-worker' })
+    ]).flat() });
+    h.state('failed');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(h.reconnects, 1);
+    await h.tick(1000);
+    assert.equal(h.reconnects, 1);
+    await h.tick(4000);
+    assert.equal(h.reconnects, 2);
+    assert.equal(h.reloads, 0);
+    assert.equal(h.timers.size, 0);
 });
 
 test('framework loss replaces the startup warning and offers a client-side reload', () => {

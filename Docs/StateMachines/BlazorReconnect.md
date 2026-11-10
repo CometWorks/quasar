@@ -15,6 +15,15 @@ module loading failures as well as WebRTC or socket startup. A successful startu
 clears the warning. **Reload page** works entirely in the browser, even when
 Blazor never becomes interactive.
 
+Startup recovery probes readiness and the protected version endpoint. Once both
+succeed, failed startup reloads automatically after five seconds. Consecutive
+failures back off to ten, twenty, forty and sixty seconds, retained per panel in
+this tab's session storage. Successful hydration clears the backoff. Pending
+startup gets sixty seconds before recovery reloads so normal direct and relay
+ICE setup can finish. Gateway errors and expired login responses do not trigger
+automatic reloads. Reloading starts a fresh document because `Blazor.start` can
+only run once per document.
+
 After a circuit disconnects, the reconnect dialog explicitly warns that live
 updates and controls are unavailable and displayed data may be out of date.
 It retains the framework's retry countdown and offers **Reload page** in every
@@ -37,7 +46,7 @@ stateDiagram-v2
     FirstAttempt --> RepeatedAttempt: first retry failed
     RepeatedAttempt --> Connected: reconnected
     RepeatedAttempt --> Failed: retries exhausted
-    Failed --> Connected: manual Retry succeeds
+    Failed --> Connected: automatic or manual Retry succeeds
     Connected --> Paused: session paused
     Paused --> Connected: resume succeeds
     Paused --> ResumeFailed: resume fails
@@ -51,7 +60,7 @@ stateDiagram-v2
 | `Connected` | Circuit healthy; the modal is hidden. |
 | `FirstAttempt` | Circuit dropped; the dialog warns that data may be stale while reconnecting. |
 | `RepeatedAttempt` | First retry failed; a countdown is shown. |
-| `Failed` | Retries exhausted; a **Retry** button is shown. |
+| `Failed` | Framework retries exhausted; Quasar retries every five seconds while the authenticated panel is ready. **Retry** remains available. |
 | `Paused` | Server session paused; awaiting resume. |
 | `ResumeFailed` | Resume failed; a **Resume** button is shown. |
 
@@ -71,6 +80,9 @@ started in another browser, without waiting for the framework's retry timeout.
 
 A transient disconnect to the same worker does not reload the page. Readiness
 failures, sign-in redirects and gateway error pages keep recovery pending.
+After framework retries exhaust, the same recovery probe also retries the
+existing circuit every five seconds. Manual and automatic retries never run
+concurrently. A rejected circuit attempts resume, then reloads if it cannot resume.
 Framework retry-countdown events keep these probes running, including between
 connection attempts; they must not cancel worker replacement detection.
 Reconnection, a paused session or the planned-restart progress panel cancels the

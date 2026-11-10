@@ -39,7 +39,7 @@
     <script src="@Assets["quasar-charts.js"]"></script>
     <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
     <script id="quasar-connection" type="application/json">@((MarkupString)System.Text.Json.JsonSerializer.Serialize(new { hosted = RequestContext is not null && HostedPanelRequest.IsHosted(RequestContext), workerId = ServiceOptions.WorkerId }))</script>
-    <script type="module" src="_quasar/sdk/v1/boot.js"></script>
+    <script type="module" src="@Assets["_quasar/sdk/v1/boot.js"]"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
 
