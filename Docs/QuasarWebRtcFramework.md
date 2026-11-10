@@ -38,8 +38,10 @@ Already committed actions cannot be undone; the adapter never replays clicks.
 ## Browser integration and compatibility
 
 The root app disables automatic framework startup and loads the Quasar-owned
-boot module. Verified Nebula-hosted pages automatically choose the adapter with
-no separate user toggle. Local pages use normal Blazor startup without a Nebula
+boot module through ASP.NET's fingerprinted asset URL. The page's import map
+selects its dependencies, so normal page loads use the current build's module
+URLs without requiring a hard refresh. Verified Nebula-hosted pages automatically
+choose the adapter with no separate user toggle. Local pages use normal Blazor startup without a Nebula
 or peer dependency. Framework negotiation and document/module loads still use
 HTTPS; interactive events, render batches, JS interop and circuit file uploads
 use the peer. The public SignalR HttpClient hook waits for peer/ICE setup before
@@ -51,7 +53,14 @@ Startup failures show a client-side **Quasar connection unavailable** warning.
 If startup is still pending after ten seconds, the warning explains that live
 updates and controls are not available yet. Boot catches failed circuit-module
 loads as well as failed session/peer setup. Successful startup clears the warning.
+Failed startup automatically reloads once the panel is ready and the current
+login is valid. Repeated failures back off from five seconds to one minute,
+remembered per panel in this tab until startup succeeds. Pending startup gets a
+full minute before recovery reloads, allowing direct and relay ICE setup to finish.
 The reconnect dialog warns about stale data after an established connection drops.
+After the framework exhausts its retries, Quasar continues retrying the existing
+circuit every five seconds while the authenticated panel is ready. Concurrent
+manual and automatic attempts are coalesced. A rejected circuit reloads normally.
 Both warnings offer **Reload page** without requiring a working circuit. See
 [connection recovery](StateMachines/BlazorReconnect.md) for detection limits and
 worker replacement handling.
