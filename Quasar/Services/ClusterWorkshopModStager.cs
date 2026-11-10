@@ -67,7 +67,7 @@ public sealed class ClusterWorkshopModStager(ManagedDedicatedServerRuntimeResolv
         string checkpoint = Path.Combine(directory, "Sandbox.sbc");
         await File.WriteAllTextAsync(checkpoint, new XDocument(new XElement("MyObjectBuilder_Checkpoint",
             new XElement("Settings"), new XElement("Mods"))).ToString(), token);
-        await WorldSandboxConfigEditor.WriteProfileAsync(checkpoint, profile, name, token);
+        await WorldSandboxConfigEditor.WriteProfileAsync(checkpoint, profile, name, token, clusterNode: true);
         return XDocument.Load(checkpoint).ToString(SaveOptions.DisableFormatting);
     }
 

@@ -95,4 +95,27 @@ public sealed class QuasarConfigProfileTests
             File.Delete(path);
         }
     }
+    [Fact]
+    public async Task ProfileSettingsPatch_ClusterNodesKeepNoGameBackups()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), $"quasar-patch-{Guid.NewGuid():N}");
+        var path = Path.Combine(Path.GetTempPath(), $"quasar-world-{Guid.NewGuid():N}.sbc");
+        try
+        {
+            var profile = new QuasarConfigProfile();
+            Assert.Equal(5, profile.SessionSettings.MaxBackupSaves);
+            var patch = XDocument.Parse(await ClusterWorkshopModStager.ProfileSettingsXmlAsync(directory, profile, "World", default));
+            Assert.Equal("0", patch.Root?.Element("Settings")?.Element("MaxBackupSaves")?.Value);
+
+            // A single server keeps the profile's value: Quasar clones and backs up its world from those backups.
+            await File.WriteAllTextAsync(path, "<MyObjectBuilder_WorldConfiguration><Settings /></MyObjectBuilder_WorldConfiguration>");
+            await WorldSandboxConfigEditor.WriteProfileAsync(path, profile, "World");
+            Assert.Equal("5", XDocument.Load(path).Root?.Element("Settings")?.Element("MaxBackupSaves")?.Value);
+        }
+        finally
+        {
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
+            File.Delete(path);
+        }
+    }
 }

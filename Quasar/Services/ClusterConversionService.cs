@@ -195,9 +195,9 @@ public sealed class ClusterConversionService(ClusterCatalog clusters, DedicatedS
                 await ClusterWorldFiles.CopyAsync(source.GetWorldSavePath(), seed, ct);
                 string effective = Path.Combine(work, "effective-world");
                 if (!Directory.Exists(effective)) await ClusterWorldFiles.CopyAsync(seed, effective, ct);
-                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(effective, "Sandbox.sbc"), profile, source.InGameWorldName, ct);
+                await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(effective, "Sandbox.sbc"), profile, source.InGameWorldName, ct, clusterNode: true);
                 if (File.Exists(Path.Combine(effective, "Sandbox_config.sbc")))
-                    await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(effective, "Sandbox_config.sbc"), profile, source.InGameWorldName, ct);
+                    await WorldSandboxConfigEditor.WriteProfileAsync(Path.Combine(effective, "Sandbox_config.sbc"), profile, source.InGameWorldName, ct, clusterNode: true);
                 await StageAsync(request.Id, clusterId, "to-cluster", "Converting the world", ct);
                 string converted = Path.Combine(work, "split-world");
                 await ConvertOnceAsync(installation.Directory, "to-split", effective, converted, [], ct);

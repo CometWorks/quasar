@@ -96,13 +96,18 @@ public static class WorldSandboxConfigEditor
         string sandboxConfigPath,
         QuasarConfigProfile profile,
         string sessionName,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool clusterNode = false)
     {
         var document = LoadDocument(sandboxConfigPath);
         var root = GetRoot(document, sandboxConfigPath);
 
         UpsertElement(root, "SessionName", sessionName);
         ApplySessionSettings(root, profile.SessionSettings);
+        // A cluster recovers from partition saves, and its backups are Host snapshots. The game's own world
+        // backups on a node are never read, only copied into every snapshot (5 x ~2,000 files per node), so
+        // a node keeps none; at 0 the game also deletes the Backup folder on the next save.
+        if (clusterNode) UpsertElement(root.Element("Settings")!, "MaxBackupSaves", "0");
         ApplyMods(root, profile.Mods);
 
         var content = SerializeXml(document);
