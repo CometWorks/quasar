@@ -48,21 +48,36 @@ public sealed class ClusterCredentialStore
             if (!_values.ContainsKey(reference))
             {
                 var next = new Dictionary<string, string>(_values) { [reference] = _protector.Protect(Convert.ToHexString(RandomNumberGenerator.GetBytes(32))) };
-                Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-                string temporary = _path + "." + Guid.NewGuid().ToString("N");
-                try
-                {
-                    var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
-                    if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-                    using (var file = new FileStream(temporary, options))
-                    { JsonSerializer.Serialize(file, next); file.Flush(true); }
-                    File.Move(temporary, _path, true);
-                    _values[reference] = next[reference];
-                }
-                finally { if (File.Exists(temporary)) File.Delete(temporary); }
+                Save(next);
+                _values[reference] = next[reference];
             }
         }
         return reference;
+    }
+    internal void Remove(string reference)
+    {
+        lock (_sync)
+        {
+            if (!_values.ContainsKey(reference)) return;
+            var next = new Dictionary<string, string>(_values);
+            next.Remove(reference);
+            Save(next);
+            _values.Remove(reference);
+        }
+    }
+    private void Save(Dictionary<string, string> values)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
+        string temporary = _path + "." + Guid.NewGuid().ToString("N");
+        try
+        {
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+            using (var file = new FileStream(temporary, options))
+            { JsonSerializer.Serialize(file, values); file.Flush(true); }
+            File.Move(temporary, _path, true);
+        }
+        finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
     public string? Resolve(string reference)
     {

@@ -8,7 +8,7 @@ using Magnetar.Protocol.Model;
 using PluginSdk;
 using PluginSdk.Clustering;
 using PluginSdk.Commands;
-using Sandbox.Game;
+using Sandbox.Game.Multiplayer;
 using Sandbox.Game.World;
 using VRage.Game.ModAPI;
 using VRage.Plugins;
@@ -33,6 +33,7 @@ namespace Quasar.Agent
         private bool _adminRestartRequested;
         private bool _adminRestartReported;
         private bool _clusterMode;
+        private MyPlayerCollection _deathSource;
         private DateTime _lastDeathSubscriptionRefreshUtc = DateTime.MinValue;
 
         public CommandAliasConfiguration Config { get; private set; } = new CommandAliasConfiguration();
@@ -71,7 +72,6 @@ namespace Quasar.Agent
                 }
             }
             _connection.Start();
-            MyVisualScriptLogicProvider.PlayerDied += OnPlayerDied;
         }
 
         // A cluster node runs only the players' commands: the node a player is attached to
@@ -122,8 +122,7 @@ namespace Quasar.Agent
             RestartCommand.AdminRestartRequested = null;
             RestartCommand.ClearScheduledRestart();
             PlayerCommands.Send = null;
-            MyVisualScriptLogicProvider.PlayerDied -= OnPlayerDied;
-            UnsubscribeDeathHandlers();
+            SetDeathSource(null);
             _connection?.Stop();
             _connection = null;
             _outbox?.Dispose();
@@ -278,9 +277,7 @@ namespace Quasar.Agent
 
         private void OnPlayerDied(long identityId)
         {
-            // The game raises PlayerDied for wildlife agents too (wolves, spiders):
-            // their identities are not registered as NPCs, so filter like the
-            // CharacterDied path does.
+            // Native player death notifications also include bots and wildlife.
             var session = MySession.Static;
             if (!IsRealPlayer(session, session?.Players?.TryGetPlayer(identityId)))
                 return;
@@ -288,15 +285,32 @@ namespace Quasar.Agent
             RecordDeath(identityId, ResolveVictimName(identityId, null, null));
         }
 
+        // Match the session lifetime instead of occupying the global visual-script
+        // delegate before mods load, which BuildInfo reports as a leaked callback.
+        internal void SetDeathSource(MyPlayerCollection players)
+        {
+            if (ReferenceEquals(_deathSource, players))
+                return;
+
+            if (_deathSource != null)
+                _deathSource.PlayerCharacterDied -= OnPlayerDied;
+            UnsubscribeDeathHandlers();
+            _deathSource = players;
+            _lastDeathSubscriptionRefreshUtc = DateTime.MinValue;
+            if (_deathSource != null)
+                _deathSource.PlayerCharacterDied += OnPlayerDied;
+        }
+
         private void RefreshDeathSubscriptions()
         {
+            var session = MySession.Static;
+            SetDeathSource(session?.Players);
             var now = DateTime.UtcNow;
             if (now - _lastDeathSubscriptionRefreshUtc < DeathSubscriptionRefreshInterval)
                 return;
 
             _lastDeathSubscriptionRefreshUtc = now;
 
-            var session = MySession.Static;
             if (session == null || !session.Ready || session.Players == null)
                 return;
 

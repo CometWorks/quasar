@@ -216,6 +216,8 @@ It runs commands from Quasar: refresh, send chat, whisper and faction chat, run 
 
 Plugin statistics appear on **Analytics**; players, chat and entities on their own pages. See [Monitoring](Monitoring.md).
 
+Player death reporting uses the session's native player-death event and per-character fallback callbacks. It filters out bots and wildlife and suppresses duplicate reports. Subscriptions follow the current session and are removed when the session changes or the plugin unloads. The agent does not attach to the global `MyVisualScriptLogicProvider.PlayerDied` delegate, avoiding BuildInfo's warning about the agent's callback. Restart the game server after updating Quasar to load this agent change. See [BuildInfo reports a leaked PlayerDied callback](Troubleshooting.md#buildinfo-reports-a-leaked-playerdied-callback).
+
 ### In-game commands
 
 On standalone servers the agent registers three chat commands:

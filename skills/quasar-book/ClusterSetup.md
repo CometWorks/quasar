@@ -49,6 +49,8 @@ Registration validation errors:
 
 Each enrollment gets a Host executor control port (default 18400, loopback only on the host machine) and a generated credential. The Host executor connects out to Quasar; you do not open any inbound port for it.
 
+To cancel an unfinished enrollment, select its registration and choose **Remove enrollment**, or use that action on its **Hosts** row. This revokes access and frees the ID/address without deleting remote files or stopping processes. Quasar refuses removal of the local executor or hosts used by setup or cluster definitions. See [Remove an enrollment](ClusterHosts.md#remove-an-enrollment).
+
 ### The local Host on this PC
 
 The Quasar machine needs no enrollment. On Linux x64 every Quasar install has a local Host executor with ID `local` and the name "<host name> (this PC)". Quasar registers it at its first start, with a private LAN/VPN address of the machine (or `127.0.0.1` if it has none) and a free loopback control port from 18401 up. The registration doesn't appear in the **Registration** list of the enrollment form.
@@ -221,6 +223,7 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 - `GET` and `PUT /api/v1/config-profiles/{profileId}/plugins` read and replace a profile's plugin selection, `[ { "pluginId", "displayName", "selectedVersion" } ]`, where an empty `selectedVersion` means the hub's current commit. Reading needs view access, changing needs configuration editing. A cluster runs the new selection only after **Stage profile changes** (`config-profile-preparation`) and **Apply pending update**.
 - `GET /api/v1/clusters/{id}/setup` returns the stored request and status.
 - `GET /api/v1/host-enrollment` lists enrollments with `connected`. `POST /api/v1/host-enrollment` registers `{ "id", "name", "address", "commandPort" }` (default 18400).
+- `DELETE /api/v1/host-enrollment/{host}` removes an unused remote enrollment and revokes its credential and outstanding commands. It requires security administration.
 - `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
 
 ## Sources
@@ -235,6 +238,7 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 - `Quasar/Components/Pages/HostEnroll.razor`
 - `Quasar/Components/Pages/Hosts.razor`
 - `Quasar/Components/Shared/HostEnrollment.razor`
+- `Quasar/Components/Shared/HostEnrollmentRemoval.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Services/ClusterApi.cs`
 - `Quasar/Services/ClusterSetupService.cs`

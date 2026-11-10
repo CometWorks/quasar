@@ -35,6 +35,7 @@
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ClusterNames)">Clusters</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.GatewaySummary)">Cluster services</MudTableSortLabel></MudTh>
             <MudTh><MudTableSortLabel SortBy="new Func<ExecutorHostRow, object>(x => x.ActualizationCount)">Configured clusters</MudTableSortLabel></MudTh>
+            <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity"><MudTh>Actions</MudTh></AuthorizeView>
         </HeaderContent>
         <RowTemplate>
             <MudTd DataLabel="Host machine">@context.HostName</MudTd>
@@ -50,6 +51,14 @@
             <MudTd DataLabel="Clusters">@context.ClusterNames</MudTd>
             <MudTd DataLabel="Cluster services">@context.GatewaySummary</MudTd>
             <MudTd DataLabel="Configured clusters">@($"{context.ActualizationCount}/{context.AttachmentCount}")</MudTd>
+            <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity" Context="authorization">
+                <MudTd DataLabel="Actions">
+                    @foreach (string hostId in context.EnrolledHostIds ?? [])
+                    {
+                        <HostEnrollmentRemoval @key="hostId" HostId="@hostId" OnRemoved="@(() => RefreshExecutorsAsync(_shutdown.Token))" />
+                    }
+                </MudTd>
+            </AuthorizeView>
         </RowTemplate>
         <NoRecordsContent>
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
@@ -158,6 +167,8 @@
     private async Task<ExecutorHostRow> QueryExecutorAsync(
         ClusterDefinition cluster, CancellationToken cancellationToken)
     {
+        var enrollment = EnrolledHosts.GetAll().FirstOrDefault(h => h.CommandUrl == cluster.HostCommandUrl);
+        string[] enrolledHostIds = enrollment is null ? [] : [enrollment.Id];
         try
         {
             Quasar.Host.Contract.V1.HostStatus status =
@@ -168,12 +179,12 @@
                 status.Attachments.Count(attachment => attachment.ActualizationConfigured),
                 status.Attachments.Length,
                 (status.Gateways ?? []).Select(gateway =>
-                    $"{gateway.ClusterId}: {gateway.Observed}").ToArray(), string.Empty);
+                    $"{gateway.ClusterId}: {gateway.Observed}").ToArray(), string.Empty, enrolledHostIds);
         }
         catch (ClusterHostException exception)
         {
-            return new ExecutorHostRow(cluster.HostCommandUrl, "-", false,
-                string.IsNullOrEmpty(cluster.UniqueName) ? [] : [cluster.UniqueName], 0, 0, [], exception.Message);
+            return new ExecutorHostRow(enrollment?.Name ?? cluster.HostCommandUrl, "-", false,
+                string.IsNullOrEmpty(cluster.UniqueName) ? [] : [cluster.UniqueName], 0, 0, [], exception.Message, enrolledHostIds);
         }
     }
 
@@ -203,9 +214,10 @@
         int ActualizationCount,
         int AttachmentCount,
         string[] Gateways,
-        string Error)
+        string Error,
+        string[]? EnrolledHostIds = null)
     {
-        public string Identity => Reachable ? HostName + "\0" + ExecutorId : HostName;
+        public string Identity => Reachable ? HostName + "\0" + ExecutorId : EnrolledHostIds?.FirstOrDefault() ?? HostName;
         public string ClusterNames => string.Join(", ", Clusters.OrderBy(value => value,
             StringComparer.OrdinalIgnoreCase));
         public string GatewaySummary => Gateways.Length == 0 ? "-" : string.Join(", ", Gateways);
@@ -221,6 +233,7 @@
                 ActualizationCount = rows.Max(row => row.ActualizationCount),
                 AttachmentCount = rows.Max(row => row.AttachmentCount),
                 Gateways = rows.SelectMany(row => row.Gateways).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+                EnrolledHostIds = rows.SelectMany(row => row.EnrolledHostIds ?? []).Distinct().ToArray(),
             };
         }
     }

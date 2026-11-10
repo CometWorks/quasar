@@ -19,6 +19,12 @@ internal static class ClusterHostEnrollmentApi
             hosts.GetAll().Select(h => new { h.Id, h.Name, h.Address, connected = tunnels.IsConnected(h.Id) }));
         management.MapPost("", async (HostEnrollmentRequest request, ClusterHostCatalog hosts, CancellationToken token) =>
             await hosts.RegisterAsync(request.Id, request.Name, request.Address, request.CommandPort, token));
+        management.MapDelete("/{host}", async (string host, ClusterHostCatalog hosts, [Microsoft.AspNetCore.Mvc.FromServices] ClusterCatalog clusters,
+            ClusterHostTunnels tunnels, CancellationToken token) =>
+        {
+            await hosts.RemoveAsync(host, clusters, tunnels, token);
+            return Results.NoContent();
+        });
         management.MapPost("/{host}/ticket", (string host, HostEnrollmentOrigin request, HttpContext context, ClusterHostInstaller installer) =>
         {
             context.Response.Headers.CacheControl = "no-store";
@@ -38,7 +44,7 @@ internal static class ClusterHostEnrollmentApi
         {
             if (!hosts.Authenticate(host, context.Request.Headers.Authorization)) { context.Response.StatusCode = 401; return; }
             if (!context.WebSockets.IsWebSocketRequest) { context.Response.StatusCode = 400; return; }
-            await tunnels.ConnectAsync(host, context);
+            await tunnels.ConnectAsync(host, context, () => hosts.Authenticate(host, context.Request.Headers.Authorization));
         }).AllowAnonymous();
         app.MapGet("/api/v1/hosts/{host}/tunnels/{id:guid}", async (string host, Guid id, HttpContext context, ClusterHostCatalog hosts, ClusterHostTunnels tunnels) =>
         {

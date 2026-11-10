@@ -34,17 +34,18 @@ public sealed class ClusterHostInstaller
         using var file = File.OpenRead(binary);
         return new(Convert.ToHexString(SHA256.HashData(file)).ToLowerInvariant(), file.Length);
     }
-    private sealed record Ticket(string Hash, string Host, Uri Origin, DateTimeOffset Expires);
+    private sealed record Ticket(string Hash, string Host, string CredentialHash, Uri Origin, DateTimeOffset Expires);
     private readonly ConcurrentDictionary<Guid, Ticket> _tickets = new();
     public HostInstallTicket Issue(string hostId, string quasarUrl)
     {
         var origin = ValidateOrigin(quasarUrl);
-        _ = hosts.Get(hostId) ?? throw new KeyNotFoundException("Machine is not registered.");
+        var host = hosts.Get(hostId) ?? throw new KeyNotFoundException("Machine is not registered.");
+        string credential = credentials.Resolve(host.CredentialReference) ?? throw new InvalidOperationException("Host enrollment credential is unavailable.");
         if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
         var id = Guid.NewGuid(); string secret = Convert.ToHexString(RandomNumberGenerator.GetBytes(32));
         var expires = clock.GetUtcNow().AddMinutes(15);
         foreach (var old in _tickets.Where(p => p.Value.Expires <= clock.GetUtcNow() || p.Value.Host == hostId)) _tickets.TryRemove(old.Key, out _);
-        _tickets[id] = new(Hash(secret), hostId, origin, expires);
+        _tickets[id] = new(Hash(secret), hostId, Hash(credential), origin, expires);
         string url = Quasar.Networking.QuasarControlAddress.Endpoint(origin, "api/v1/host-enrollment/" + id.ToString("N")).AbsoluteUri;
         // Download completes before execution; a truncated response never runs as a shell script.
         string command = $"(set -e; qsr_script=$(mktemp); trap 'rm -f \"$qsr_script\"' EXIT; curl --fail --silent --show-error --header {Quote("Authorization: Bearer " + secret)} {Quote(url)} --output \"$qsr_script\"; bash \"$qsr_script\")";
@@ -55,7 +56,11 @@ public sealed class ClusterHostInstaller
         if (!_tickets.TryGetValue(id, out var ticket) || ticket.Expires <= clock.GetUtcNow()
             || authorization is null || !authorization.StartsWith("Bearer ", StringComparison.Ordinal)
             || !CryptographicOperations.FixedTimeEquals(Convert.FromHexString(ticket.Hash), Convert.FromHexString(Hash(authorization[7..])))) return null;
-        var script = BuildScript(hosts.Get(ticket.Host) ?? throw new KeyNotFoundException(), ticket.Origin);
+        var host = hosts.Get(ticket.Host);
+        string? credential = host is null ? null : credentials.Resolve(host.CredentialReference);
+        if (credential is null || Hash(credential) != ticket.CredentialHash)
+        { _tickets.TryRemove(id, out _); return null; }
+        var script = BuildScript(host!, ticket.Origin, credential);
         return _tickets.TryRemove(new KeyValuePair<Guid, Ticket>(id, ticket)) ? script : null;
     }
     internal static object HostConfiguration(EnrolledClusterHost host, Uri origin) => new
@@ -132,7 +137,7 @@ public sealed class ClusterHostInstaller
     }
 
     private const int HostStopTimeoutSeconds = 110; // Quasar.Host's HostShutdown.StopTimeoutSeconds
-    internal byte[] BuildScript(EnrolledClusterHost host, Uri origin)
+    internal byte[] BuildScript(EnrolledClusterHost host, Uri origin, string? enrollmentCredential = null)
     {
         if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException("Guided cluster setup currently requires Linux x64.");
         if (!File.Exists(binary)) throw new InvalidOperationException($"This Quasar build does not include the Host installer ({binary}). Install a release containing Host/Quasar.Host, or for a development build set {BinaryVariable} to a published single-file Quasar.Host.");
@@ -145,7 +150,7 @@ public sealed class ClusterHostInstaller
             ?? throw new InvalidOperationException("The Host updater is missing from this Quasar build.");
         using var updaterReader = new StreamReader(updaterResource);
         string updaterPayload = Convert.ToBase64String(Encoding.UTF8.GetBytes(updaterReader.ReadToEnd()));
-        string secret = Config(new Dictionary<string, string> { [host.CredentialReference] = credentials.Resolve(host.CredentialReference)! });
+        string secret = Config(new Dictionary<string, string> { [host.CredentialReference] = enrollmentCredential ?? credentials.Resolve(host.CredentialReference)! });
         return Encoding.UTF8.GetBytes($$"""
             #!/usr/bin/env bash
             set -euo pipefail

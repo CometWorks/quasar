@@ -90,6 +90,18 @@ Quasar generates every secret. Names look like `QSR_MANAGED_<hex>`. At start the
 - The Host starts the Gateway and nodes with a cleared environment. From its own environment they keep only `PATH`, `HOME`, `USER`, `LOGNAME`, `SHELL`, `TMPDIR`, `LD_LIBRARY_PATH`, the locale (`LANG`, `LANGUAGE`, `TZ`, `LC_*`), `XDG_*` and `DOTNET_*`, plus the basic system variables on Windows. Nodes also keep `QUASAR_BASE_URL`, `QUASAR_PUBLIC_BASE_URL`, `MAGNETAR_WEB_BASE_URL` and `MAGNETAR_HOST_ID`, so their Quasar agent finds Quasar, and get an agent token of their own. Everything else comes from the deployment. Other variables set on the Host or the Quasar service, such as `QUASAR_CLUSTER_ARCHIVE_URL` or `QUASAR_LAUNCHER_TOKEN`, don't reach them.
 - Quasar keeps its copies encrypted with its Data Protection keys. Back up `cluster-credentials.json` together with Quasar's `DataProtection-Keys` folder.
 
+## Remove an enrollment
+
+With security administration permission, choose **Remove enrollment** on the **Hosts** row. You can also select a registration under **Hosts → Add host machine** or in the setup wizard and remove it there. Confirm the dialog. An offline host can be removed, including an enrollment whose installation never finished.
+
+Quasar deletes its registration, revokes the credential and outstanding enrollment commands, and closes existing control and data tunnels. Installed Host files, systemd units, remote data and processes remain. Stop clusters safely before removing an installation on the host machine.
+
+The local Host cannot be removed through enrollment. Removal also refuses hosts used by an in-progress setup or referenced by any cluster's gateway, preparation, active or previous deployment, or update. Remove those cluster references first. Stopping a cluster alone does not remove its references.
+
+The removed ID and address can be registered again, with a new credential. Old commands, packages and remote credentials cannot authenticate the new registration. The installer preserves an old installation and refuses its different credential; use a fresh Host ID/directory or safely remove the old installation first.
+
+The API equivalent is `DELETE /api/v1/host-enrollment/{host}`: 204 on success, 404 for an unknown registration, 409 when removal is blocked. It requires security administration.
+
 ## Connection to Quasar
 
 The Host connects out; Quasar never connects in to the Host machine.
@@ -279,6 +291,8 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `Quasar/Assets/host-update.py`
 - `Quasar/Components/Pages/Hosts.razor`
 - `Quasar/Components/Shared/HostEnrollment.razor`
+- `Quasar/Components/Shared/HostEnrollmentRemoval.razor`
+- `Quasar/Services/ClusterCatalog.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
 - `Quasar/Services/ClusterHostTunnels.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`

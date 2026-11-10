@@ -21,7 +21,26 @@ public sealed class ClusterHostTunnels
     internal Func<CancellationToken, Task>? EnsureLocalHostConnectedAsync { get; set; }
     public bool IsConnected(string host) => _hosts.TryGetValue(host, out var connection) && connection.Socket.State == WebSocketState.Open;
 
-    internal async Task ConnectAsync(string host, HttpContext context)
+    internal void Disconnect(string host)
+    {
+        if (_hosts.TryRemove(host, out var connection))
+        {
+            connection.Socket.Abort();
+            ClosePending(connection);
+        }
+    }
+    private void ClosePending(Connection connection)
+    {
+        foreach (var pair in _pending.Where(p => p.Value.Connection == connection))
+        {
+            _pending.TryRemove(pair.Key, out _);
+            if (!pair.Value.Socket.TrySetException(new IOException("Host disconnected.")) && pair.Value.Socket.Task.IsCompletedSuccessfully)
+                pair.Value.Socket.Task.Result.Abort();
+            pair.Value.Closed.TrySetResult();
+        }
+    }
+
+    internal async Task ConnectAsync(string host, HttpContext context, Func<bool> authenticate)
     {
         using var socket = await context.WebSockets.AcceptWebSocketAsync(new WebSocketAcceptContext
             { KeepAliveInterval = TimeSpan.FromSeconds(20), KeepAliveTimeout = TimeSpan.FromSeconds(20) });
@@ -30,6 +49,8 @@ public sealed class ClusterHostTunnels
         if (!_hosts.TryAdd(host, connection)) { await socket.CloseOutputAsync(WebSocketCloseStatus.PolicyViolation, "Host already connected", context.RequestAborted); return; }
         try
         {
+            // Enrollment may have been removed during the WebSocket handshake.
+            if (!authenticate()) { socket.Abort(); return; }
             byte[] data = new byte[1];
             while (socket.State == WebSocketState.Open)
             {
@@ -42,13 +63,7 @@ public sealed class ClusterHostTunnels
         finally
         {
             _hosts.TryRemove(new KeyValuePair<string, Connection>(host, connection));
-            foreach (var pair in _pending.Where(p => p.Value.Connection == connection))
-            {
-                _pending.TryRemove(pair.Key, out _);
-                if (!pair.Value.Socket.TrySetException(new IOException("Host disconnected.")) && pair.Value.Socket.Task.IsCompletedSuccessfully)
-                    pair.Value.Socket.Task.Result.Abort();
-                pair.Value.Closed.TrySetResult();
-            }
+            ClosePending(connection);
         }
     }
 

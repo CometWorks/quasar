@@ -11,7 +11,7 @@
     <p class="quasar-text quasar-type-body1">Add another Linux x64 machine to run your cluster. It connects securely to Quasar and keeps your cluster running during Quasar restarts.</p>
     <MudSelect T="string" Label="Registration" Value="_existing" ValueChanged="SelectExisting">
         <MudSelectItem Value="@(string.Empty)">New host machine</MudSelectItem>
-        @foreach (var host in Hosts.GetAll().Where(h => h.Id != ClusterLocalHost.HostId)) { <MudSelectItem Value="host.Id">@host.Name — resume or update Host executor</MudSelectItem> }
+        @foreach (var host in Hosts.GetAll().Where(h => h.Id != ClusterLocalHost.HostId)) { <MudSelectItem Value="@host.Id">@host.Name — resume or update Host executor</MudSelectItem> }
     </MudSelect>
     <MudTextField T="string" Label="Host machine ID" @bind-Value="_id" Disabled="@(_host is not null)" HelperText="A unique lowercase ID, such as game-host-1. Letters, numbers and hyphens only." />
     <MudTextField T="string" Label="Host machine name" @bind-Value="_name" OnBlur="@(_ => EnsureName())" Disabled="@(_host is not null)" HelperText="The name shown in placement and monitoring. A blank name receives an editable generated suggestion." />
@@ -50,6 +50,7 @@
     @if (_host is not null)
     {
         <MudButton OnClick="CheckConnection">Check connection</MudButton>
+        <HostEnrollmentRemoval HostId="@_host.Id" Disabled="_busy" OnRemoved="@(() => SelectExisting(string.Empty))" />
         @if (_connected) { <MudAlert Severity="Severity.Success">Host executor connected. It is ready for cluster placement.</MudAlert> }
         else { <p class="quasar-text quasar-type-body1">Waiting for this Host executor to connect. Check its service log if installation has finished.</p> }
         @foreach (var warning in _warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
@@ -91,7 +92,7 @@
     public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
     private void SelectExisting(string id)
     {
-        _existing = id; _host = Hosts.Get(id); _ticket = null; _error = null;
+        _existing = id; _host = Hosts.Get(id); _ticket = null; _error = null; _warnings = [];
         if (_host is not null) { _id = _host.Id; _name = _host.Name; _address = _host.Address; }
         else { _id = ""; _name = ""; EnsureName(); }
         CheckConnection();

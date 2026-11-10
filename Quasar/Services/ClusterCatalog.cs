@@ -33,6 +33,30 @@ public sealed class ClusterCatalog : IDisposable
 
     public event Action? Changed;
 
+    // Serialize the reference check with cluster writes; removal must preserve all deployment inputs.
+    internal async Task WithoutHostReferencesAsync(EnrolledClusterHost host, Action remove, CancellationToken token)
+    {
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            bool Matches(string id, string url, string credential) => id == host.Id
+                || string.Equals(url.TrimEnd('/'), host.CommandUrl, StringComparison.OrdinalIgnoreCase)
+                || credential == host.CredentialReference;
+            var referenced = GetClusters().Where(c => Matches("", c.HostCommandUrl, c.HostCommandTokenEnvironmentVariable)
+                || c.ActiveDeployment?.Hosts.Any(h => Matches(h.HostId, h.CommandUrl, h.TokenEnvironmentVariable)) == true
+                || c.PreviousDeployment?.Hosts.Any(h => Matches(h.HostId, h.CommandUrl, h.TokenEnvironmentVariable)) == true
+                || c.Preparation?.Hosts.Any(h => Matches(h.HostId, h.CommandUrl, h.TokenEnvironmentVariable)) == true
+                || c.PreparedDeployment?.Hosts.Any(h => Matches(h.HostId, h.CommandUrl, h.TokenEnvironmentVariable)) == true
+                || c.Update?.Deployment.Hosts.Any(h => Matches(h.HostId, h.CommandUrl, h.TokenEnvironmentVariable)) == true
+                || c.Update?.Previous.Hosts.Any(h => Matches(h.HostId, h.CommandUrl, h.TokenEnvironmentVariable)) == true)
+                .Select(c => c.UniqueName).ToArray();
+            if (referenced.Length != 0)
+                throw new InvalidOperationException($"Host machine is still referenced by cluster(s): {string.Join(", ", referenced)}. Remove those cluster references before removing its enrollment.");
+            remove();
+        }
+        finally { _writeGate.Release(); }
+    }
+
     // Caller holds the lifecycle gate and either verified stopped processes or confirmed explicit forget.
     internal async Task DeleteDefinitionAsync(ClusterDefinition expected, CancellationToken token, bool forget = false)
     {

@@ -42,7 +42,7 @@ Clusters are in beta. They split one world across several server processes behin
 
 - [Clusters](Clusters.md): cluster terms, live health map, service addresses and grouped controls, offline partition profiles and predictions, shared power and zone costs, rate-cache administration, starting and stopping, profiles, in-game names and plugins on clusters, mods and content updates, release updates, backups, converting a standalone server to a cluster and back, the `Quasar cluster` command line.
 - [Cluster setup](ClusterSetup.md): the setup wizard, enrolling host machines (local, command, SSH or manual), prerequisites, port layout, setup errors.
-- [Cluster hosts](ClusterHosts.md): Quasar.Host packages and files, `host.json`, credentials, network policy and the connection to Quasar, systemd units, updates, shutdown, logs and connection problems.
+- [Cluster hosts](ClusterHosts.md): Quasar.Host packages and files, `host.json`, credentials, removing enrollments, network policy and the connection to Quasar, systemd units, updates, shutdown, logs and connection problems.
 
 ## When something goes wrong
 

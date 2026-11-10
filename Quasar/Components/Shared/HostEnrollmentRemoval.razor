@@ -1,0 +1,44 @@
+@inject ClusterHostCatalog Hosts
+@inject ClusterCatalog Clusters
+@inject ClusterHostTunnels Tunnels
+@inject QuasarPermissionService Permissions
+@inject IDialogService Dialogs
+
+<AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity">
+    @if (_host is not null && _host.Id != ClusterLocalHost.HostId)
+    {
+        <MudButton Color="Color.Error" OnClick="RemoveAsync" Disabled="@(Disabled || _busy)">Remove enrollment</MudButton>
+        @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    }
+</AuthorizeView>
+
+@code {
+    [Parameter, EditorRequired] public string HostId { get; set; } = "";
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback OnRemoved { get; set; }
+    private EnrolledClusterHost? _host;
+    private bool _busy;
+    private string? _error;
+
+    protected override void OnParametersSet() => _host = Hosts.Get(HostId);
+
+    private async Task RemoveAsync()
+    {
+        if (Disabled || _busy || _host is not { } host
+            || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;
+        _busy = true; _error = null;
+        try
+        {
+            if (await Dialogs.ShowMessageBoxAsync("Remove host enrollment?",
+                $"Remove enrollment for {host.Name} ({host.Id})? This revokes its credentials and enrollment commands and disconnects it from Quasar. Installed Host files and remote data remain. Hosts referenced by clusters cannot be removed.",
+                yesText: "Remove enrollment", cancelText: "Cancel") != true) return;
+            if (!await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;
+            await Hosts.RemoveAsync(host.Id, Clusters, Tunnels, CancellationToken.None);
+            _host = null;
+            await OnRemoved.InvokeAsync();
+        }
+        catch (Exception error) when (error is InvalidOperationException or KeyNotFoundException or IOException or UnauthorizedAccessException)
+        { _error = error.Message; }
+        finally { _busy = false; }
+    }
+}
