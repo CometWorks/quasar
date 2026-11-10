@@ -63,6 +63,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
                 bool bound = false;
                 try
                 {
+                    using var hostUse = await machines.UseAsync(request.Machines?.Select(m => m.HostId) ?? [], ct);
                     var selected = Validate(request, machines.GetAll());
                     CheckReservedPorts(request, selected);
                     var gateway = selected.Single(h => h.Id == request.GatewayHost);

@@ -77,6 +77,14 @@ That means `Quasar` is responsible for:
 - executes game-thread actions
 - reconnects when the supervisor is temporarily unreachable
 
+Player death monitoring follows the current session's
+`MyPlayerCollection.PlayerCharacterDied` event, with per-character callbacks as a
+fallback and a shared duplicate filter. The agent detaches both when the session
+changes or the plugin is disposed. It does not subscribe to the global
+`MyVisualScriptLogicProvider.PlayerDied` delegate before mods load, which caused
+BuildInfo to report its callback as leaked. Updating this code requires restarting
+the affected game server to load the new agent DLL.
+
 On a cluster node it reports process telemetry tagged with cluster/node/role identity,
 reconnects indefinitely, and does not own save, shutdown, or restart. ClusterRuntime and
 Magnetar route lifecycle intent to the Gateway; `Quasar.Host` owns process execution.

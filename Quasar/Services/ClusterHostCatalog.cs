@@ -22,6 +22,7 @@ public sealed class ClusterHostCatalog
     internal ClusterHostCatalog(ClusterCredentialStore credentials, string root, ILogger<ClusterHostCatalog>? logger = null)
         => (this.credentials, _root, _logger) = (credentials, root, logger);
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Dictionary<string, int> _users = new();
     public IReadOnlyList<EnrolledClusterHost> GetAll() => !Directory.Exists(_root) ? [] :
         Directory.EnumerateFiles(_root, "host.json", SearchOption.AllDirectories)
             .Select(Read).OfType<EnrolledClusterHost>().OrderBy(h => h.Name).ToArray();
@@ -44,6 +45,50 @@ public sealed class ClusterHostCatalog
         }
     }
     public EnrolledClusterHost? Get(string id) => GetAll().SingleOrDefault(h => h.Id == id);
+    // Setup can use a Host before its first cluster definition is persisted.
+    internal async Task<IDisposable> UseAsync(IEnumerable<string> ids, CancellationToken token)
+    {
+        string[] selected = ids.Distinct().ToArray();
+        await _gate.WaitAsync(token);
+        try
+        {
+            foreach (string id in selected)
+                if (Get(id) is null) throw new InvalidOperationException("Enroll every selected host machine first.");
+            foreach (string id in selected) _users[id] = _users.GetValueOrDefault(id) + 1;
+            return new HostUse(this, selected);
+        }
+        finally { _gate.Release(); }
+    }
+    private sealed class HostUse(ClusterHostCatalog catalog, string[] ids) : IDisposable
+    {
+        public void Dispose()
+        {
+            catalog._gate.Wait();
+            try { foreach (string id in ids) if (--catalog._users[id] == 0) catalog._users.Remove(id); }
+            finally { catalog._gate.Release(); }
+        }
+    }
+    public async Task RemoveAsync(string id, ClusterCatalog clusters, ClusterHostTunnels tunnels, CancellationToken token)
+    {
+        if (string.IsNullOrEmpty(id) || !Regex.IsMatch(id, "^[a-z][a-z0-9-]{0,62}$"))
+            throw new ArgumentException("Use a valid lowercase Host machine ID.");
+        await _gate.WaitAsync(token);
+        try
+        {
+            var host = Get(id) ?? throw new KeyNotFoundException("Host machine is not registered.");
+            if (id == ClusterLocalHost.HostId)
+                throw new InvalidOperationException("The local Host executor is managed by Quasar and cannot be removed through enrollment.");
+            if (_users.ContainsKey(id)) throw new InvalidOperationException("Wait for cluster setup using this host machine to finish before removing its enrollment.");
+            await clusters.WithoutHostReferencesAsync(host, () =>
+            {
+                // Revoke first: a failed registration deletion must never make the old credential reusable.
+                credentials.Remove(host.CredentialReference);
+                tunnels.Disconnect(id);
+                File.Delete(Path.Combine(_root, host.Id, "host.json"));
+            }, token);
+        }
+        finally { _gate.Release(); }
+    }
     public async Task<EnrolledClusterHost> RegisterAsync(string id, string name, string address, int commandPort, CancellationToken token)
     {
         if (string.IsNullOrEmpty(id) || !Regex.IsMatch(id, "^[a-z][a-z0-9-]{0,62}$") || !IsClusterAddress(address)

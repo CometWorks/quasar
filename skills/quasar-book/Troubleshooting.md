@@ -148,6 +148,12 @@ Update Quasar and restart the server through the normal saved-world maintenance
 flow to load the matching agent. Existing clusters also need to stage and apply
 the bundled agent as described in [Cluster hosts](ClusterHosts.md).
 
+## BuildInfo reports a leaked PlayerDied callback
+
+Older agents attach `Quasar.Agent.AdminPlugin.OnPlayerDied` to the global `MyVisualScriptLogicProvider.PlayerDied` delegate during plugin startup, before mods load. BuildInfo can report this as a leaked callback even though the plugin removes it when disposed. The warning alone does not mean another mod overwrote the event.
+
+Update Quasar and restart the affected game server so it loads the new agent DLL. Current agents use the session's native player-death event and per-character fallbacks, and detach them when the session changes or the plugin unloads. Updating or restarting only the Quasar web worker does not replace the agent already loaded by a game server. If the warning still names this callback, check for an old agent DLL in that server's Magnetar `Local` folder.
+
 ## Port collisions
 
 | Symptom | Cause and fix |
@@ -307,6 +313,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/wwwroot/_quasar/sdk/v1/boot.js`
 - `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar.Agent/AgentConnection.cs`
+- `Quasar.Agent/AdminPlugin.cs`
 - `Quasar/Services/AgentSocketHandler.cs`
 - `Magnetar.Protocol/Transport/AgentMessageLimits.cs`
 - `Quasar.Agent/WebServiceLocator.cs`

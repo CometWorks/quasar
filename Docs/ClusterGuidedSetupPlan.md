@@ -294,6 +294,10 @@ Machine enrollment requires security-administration permission:
 - `GET /api/v1/host-enrollment` lists registrations and connection state.
 - `POST /api/v1/host-enrollment` registers ID, display name, private address and
   optional loopback command port (default 18400).
+- `DELETE /api/v1/host-enrollment/{host}` removes an unused remote enrollment,
+  revokes its credential and outstanding enrollment commands, and closes its
+  live control/data tunnels. It returns 204, 404 for an unknown host, or 409 if
+  the local executor, an in-progress setup or a cluster reference prevents removal.
 - `POST /api/v1/host-enrollment/{host}/ticket` with `quasarUrl` returns an enrollment command.
 - `POST /api/v1/host-enrollment/{host}/ssh` accepts `quasarUrl` and
   `ssh: { address, user, port, identityFile }`. The optional key path is on Quasar.
@@ -304,6 +308,22 @@ normal browser/API authentication is insufficient for these machine channels.
 to advertise and stream the active Quasar release's Host executable.
 
 ## Existing and stale registrations
+
+Security administrators can choose **Remove enrollment** on the **Hosts** row or
+select an existing registration under **Add host machine** and remove it there.
+The setup wizard uses the same enrollment controls. Removal works while a Host
+is offline, so an abandoned installation does not reserve its ID or address.
+The confirmation explains that installed Host files, systemd units and remote
+data remain. No remote process is stopped or uninstalled. The local executor
+cannot be removed this way. A remote host referenced by a cluster's gateway,
+preparation, active/previous deployment or update must have those references
+removed first; in-progress guided setup also blocks removal.
+
+Reusing the ID generates a new credential. Previously downloaded packages and
+commands cannot authenticate it. An existing remote installation keeps its old
+credential and the installer refuses to overwrite it; preserve its data and use
+a fresh Host ID/directory for a new installation, or remove the old installation
+after stopping its clusters safely.
 
 Release-fetch failures identify the GitHub repository (`CometWorks/cluster`), the
 resource being fetched (release metadata, checksums or package archive), and the HTTP

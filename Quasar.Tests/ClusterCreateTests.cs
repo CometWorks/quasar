@@ -383,7 +383,7 @@ public sealed class ClusterCreateTests : IDisposable
             Task.FromResult(AuthorizationResult.Success());
     }
 
-    private BunitContext CreateContext(bool securityAdmin = true, IAuthorizationService? conversionAuthorization = null)
+    private BunitContext CreateContext(bool securityAdmin = true, IAuthorizationService? conversionAuthorization = null, bool hostPage = false)
     {
         var context = new QuasarBunitContext();
         context.Services.AddMudServices();
@@ -406,7 +406,10 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.AddSingleton(hosts);
         context.Services.AddSingleton(installer);
         context.Services.AddSingleton(tunnels);
-        context.Services.AddSingleton(new ClusterHostClient(new HttpClient(), credentials));
+        context.Services.AddSingleton(new ClusterHostClient(hostPage
+            ? new HttpClient(new SocketsHttpHandler { ConnectCallback = tunnels.OpenAsync, UseProxy = false })
+            : new HttpClient(), credentials));
+        if (hostPage) context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new ClusterLocalHost(hosts, credentials, installer, tunnels, new WebServiceOptions(), NullLogger<ClusterLocalHost>.Instance, Path.Combine(_root, "LocalHost"), supported: false));
         context.Services.AddSingleton(new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build()));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
@@ -426,6 +429,58 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("/clusters/new");
         context.Render<MudPopoverProvider>();
         return context;
+    }
+
+    [Fact]
+    public async Task UnfinishedEnrollmentCanBeCancelledInTheWizard()
+    {
+        await using var context = CreateContext();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<ClusterCreate>();
+        await Button(page, "Generate enrollment command").Find("button").ClickAsync();
+        var hosts = context.Services.GetRequiredService<ClusterHostCatalog>();
+        var host = Assert.Single(hosts.GetAll());
+
+        var removal = Button(page, "Remove enrollment").Find("button").ClickAsync();
+        dialogs.WaitForAssertion(() => Assert.Contains("Installed Host files and remote data remain", dialogs.Markup));
+        await dialogs.FindComponents<MudButton>().Single(c => c.Markup.Contains("Cancel")).Find("button").ClickAsync();
+        await removal;
+        Assert.Equal(host, Assert.Single(hosts.GetAll()));
+        Assert.Contains("Enrollment command", page.Markup);
+
+        removal = Button(page, "Remove enrollment").Find("button").ClickAsync();
+        dialogs.WaitForAssertion(() => Assert.Contains("Remove enrollment", dialogs.Markup));
+        await dialogs.FindComponents<MudButton>().Single(c => c.Markup.Contains("Remove enrollment")).Find("button").ClickAsync();
+        await removal;
+        page.WaitForAssertion(() => Assert.Empty(hosts.GetAll()));
+        Assert.DoesNotContain("Enrollment command", page.Markup);
+        Assert.DoesNotContain("Waiting for this Host executor", page.Markup);
+        Assert.False(Button(page, "Generate enrollment command").Instance.Disabled);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task HostsPageOffersRemovalForUnusedRemoteEnrollmentOnly(bool securityAdmin)
+    {
+        await using var context = CreateContext(securityAdmin, hostPage: true);
+        var hosts = context.Services.GetRequiredService<ClusterHostCatalog>();
+        var remote = await hosts.RegisterAsync("remote", "Abandoned machine", "10.1.0.1", 18400, default);
+        await hosts.RegisterAsync("local", "Local machine", "127.0.0.1", 18401, default);
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Hosts>();
+        page.WaitForAssertion(() => Assert.Contains("Abandoned machine", page.Markup));
+        var removals = page.FindComponents<MudButton>().Where(c => c.Markup.Contains("Remove enrollment")).ToArray();
+        Assert.Equal(securityAdmin ? 1 : 0, removals.Length);
+        if (!securityAdmin) return;
+
+        var removal = removals[0].Find("button").ClickAsync();
+        dialogs.WaitForAssertion(() => Assert.Contains("Abandoned machine", dialogs.Markup));
+        await dialogs.FindComponents<MudButton>().Single(c => c.Markup.Contains("Remove enrollment")).Find("button").ClickAsync();
+        await removal;
+        page.WaitForAssertion(() => Assert.DoesNotContain("Abandoned machine", page.Markup));
+        Assert.Null(hosts.Get(remote.Id));
+        Assert.Equal("local", Assert.Single(hosts.GetAll()).Id);
     }
 
     private static IRenderedComponent<MudButton> Button(IRenderedComponent<ClusterCreate> page, string text) =>
