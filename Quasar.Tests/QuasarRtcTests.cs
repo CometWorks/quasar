@@ -105,6 +105,22 @@ public sealed partial class QuasarRtcTests : IDisposable
     }
 
     [RtcPeerFact]
+    public async Task HostedCredentialRemovalClosesActivePeerAndReactivationAcceptsFreshPeer()
+    {
+        var state = new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], EnrollmentId = "retained-enrollment",
+            Credential = Prefix[1..] + "." + new string('a', 64), SetupCompleted = true };
+        await HostedPanelState.SaveAsync(state);
+        await using var app = await StartAsync(network: true, hosted: true);
+        await BrowserAsync(app, "inactive");
+        await UntilAsync(() => app.Services.GetRequiredService<QuasarRtcSessions>().PeerCount == 0);
+        Assert.Null(HostedPanelState.Read()!.Credential);
+        Assert.Equal(state.EnrollmentId, HostedPanelState.Read()!.EnrollmentId);
+        await HostedPanelState.SaveAsync(state);
+        await BrowserAsync(app, "reactivated");
+        await UntilAsync(() => app.Services.GetRequiredService<QuasarRtcSessions>().PeerCount == 0);
+    }
+
+    [RtcPeerFact]
     public async Task RealBrowserPeerBindsSessionsLogoutAndHostingExpiry()
     {
         await using (var local = await StartAsync(network: true))
@@ -200,6 +216,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         fixture.MapPost("/outage", () => { manager.Outage = true; return Results.NoContent(); });
         fixture.MapPost("/resume", () => { manager.Outage = false; return Results.NoContent(); });
         fixture.MapPost("/replace", async () => { await HostedPanelState.SaveAsync(HostedPanelState.Read()! with { Credential = Prefix[1..] + "." + new string('b', 64) }); return Results.NoContent(); });
+        fixture.MapPost("/inactive", async () => { await HostedPanelState.SaveAsync(HostedPanelState.Read()! with { Credential = null }); return Results.NoContent(); });
         fixture.MapPost("/advance", () => { fakeTime!.Advance(TimeSpan.FromSeconds(121)); return Results.NoContent(); });
         fixture.MapPost("/tick", () => { fakeTime!.Advance(TimeSpan.FromSeconds(1)); return Results.NoContent(); });
         await app.StartAsync();

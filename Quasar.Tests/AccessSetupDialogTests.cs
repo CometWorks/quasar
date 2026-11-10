@@ -376,13 +376,26 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.Contains("Your hosted panel is ready", provider.Markup);
         Assert.DoesNotContain("Self-deploy", provider.Markup);
 
-        // Retained credentials and fresh health cannot override inactive hosting.
+        // Revoke connector authority without losing a completed enrollment.
+        var linked = HostedPanelState.Read()!;
         handler.Active = false;
         await service.RefreshAsync();
         await provider.WaitForAssertionAsync(() => Assert.DoesNotContain("Open Quasar dashboard", provider.Markup));
         Assert.False(service.IsReady);
         Assert.True(HostedPanelState.Read()!.IsSetupComplete);
-        Assert.NotNull(HostedPanelState.Read()!.Credential);
+        Assert.Null(HostedPanelState.Read()!.Credential);
+        Assert.Equal(linked.EnrollmentId, HostedPanelState.Read()!.EnrollmentId);
+        Assert.Equal(linked.InstallationSecret, HostedPanelState.Read()!.InstallationSecret);
+        Assert.Contains("Hosted access inactive", service.Status);
+
+        handler.Active = true;
+        await service.RefreshAsync();
+        Assert.Equal(linked.Credential, HostedPanelState.Read()!.Credential);
+        Assert.False(service.IsReady);
+        Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
+        await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
+        await service.RefreshAsync();
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Open Quasar dashboard", provider.Markup));
     }
 
     [Fact]

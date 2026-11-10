@@ -51,6 +51,7 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             || n.Key.Length > 128 || !RbacConfigCatalog.IsSteamId64(n.SteamId) || n.Title.Length > 100 || n.Body.Length > 1000))
             throw new InvalidDataException("Invalid hosted billing notices.");
         Volatile.Write(ref billingNotices, result.Notices);
+        Changed?.Invoke();
     }
 
     private sealed record HostedBillingNotice(string Key, string SteamId, string Title, string Body);
@@ -158,20 +159,26 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             using var response = await http.SendAsync(request, ct);
             if (response.StatusCode is System.Net.HttpStatusCode.Unauthorized or System.Net.HttpStatusCode.NotFound)
             {
-                await HostedPanelState.SaveAsync(state with { Credential = null, EnrollmentId = null, BrowserUrl = null }, ct);
+                await DeactivateAsync(state with { EnrollmentId = null, BrowserUrl = null }, ct);
                 Volatile.Write(ref billingNotices, []);
                 Status = "Installation disconnected. Restart hosted setup to relink your panel.";
                 AccessActive = false;
                 Changed?.Invoke();
                 return;
             }
+            if (response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+            {
+                await DeactivateAsync(state, ct);
+                Status = "Hosted access inactive; local Quasar remains available. Manage hosting on the Nebula account page.";
+                Changed?.Invoke();
+                return;
+            }
             response.EnsureSuccessStatusCode();
-            await SyncAdministrationAsync(http, state, ct);
             var result = await response.Content.ReadFromJsonAsync<JsonElement>(ct);
             if (result.GetProperty("panelId").GetString() != state.PanelId) throw new InvalidDataException("Enrollment panel mismatch.");
             if (result.GetProperty("expired").GetBoolean())
             {
-                await HostedPanelState.SaveAsync(state with { EnrollmentId = null, BrowserUrl = null }, ct);
+                await DeactivateAsync(state with { EnrollmentId = null, BrowserUrl = null }, ct);
                 Status = "Enrollment link expired. Choose hosted setup again.";
                 AccessActive = false;
             }
@@ -191,11 +198,30 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             }
             else
             {
-                AccessActive = false;
-                Status = "Waiting for hosted access activation. Continue on the Nebula account page.";
+                await DeactivateAsync(state, ct);
+                Status = state.IsSetupComplete
+                    ? "Hosted access inactive; local Quasar remains available. Manage hosting on the Nebula account page."
+                    : "Waiting for hosted access activation. Continue on the Nebula account page.";
             }
             Changed?.Invoke();
+            // Billing/admin snapshots are advisory. Apply an authenticated access
+            // decision first so their failure cannot retain revoked authority.
+            if (State is { EnrollmentId: not null } current)
+            {
+                try { await SyncAdministrationAsync(http, current, ct); }
+                catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or OperationCanceledException or JsonException or InvalidDataException)
+                { logger.LogDebug("Hosted administration refresh failed ({Type}).", e.GetType().Name); }
+            }
         }
         finally { gate.Release(); }
+    }
+
+    private async Task DeactivateAsync(HostedPanelState state, CancellationToken ct)
+    {
+        AccessActive = false;
+        // Keep a completed setup completed after removing its legacy credential.
+        // Enrollment/installation proof stays available for a later paid activation.
+        await HostedPanelState.SaveAsync(state with { Credential = null, SetupCompleted = state.IsSetupComplete }, ct);
+        await new HostedConnectorHealth(state.PanelId, false, false, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(ct);
     }
 }
