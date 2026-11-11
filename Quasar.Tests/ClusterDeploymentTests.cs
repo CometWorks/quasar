@@ -632,11 +632,60 @@ public sealed class ClusterDeploymentTests : IDisposable
 
         var cluster = catalog.GetCluster("demo")!;
         Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
-        Assert.Equal(ClusterUpdatePhase.Starting, cluster.Update!.Phase);
-        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
-        Assert.Null(cluster.ActivationProof);
+        // SE-1342: it was stopped before the update, so it stays stopped.
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.Null(cluster.Update.LastError);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+        Assert.True(cluster.IsProvenStopped());
         Assert.Equal(0, handler.GatewayStops);
         Assert.Null(cluster.Update.Backup);
+    }
+
+    [Fact]
+    public async Task UpdateOfAStoppedClusterLeavesItStoppedUntilStartedOnTheNewVersion()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "update-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        var deployment = new ClusterDeploymentService(catalog, client, operations);
+        await deployment.ActivateAsync("demo", Request(), "initial", "test", default);
+        // It ran, then stopped cleanly. No Gateway answers: nothing in the update may need the live cluster.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        var update = new ClusterUpdateService(catalog, deployment,
+            new ClusterGatewayClient(new HttpClient(new FailingGatewayHandler())), client, operations,
+            NullLogger<ClusterUpdateService>.Instance,
+            new ClusterBackupService(catalog, client, operations, null!,
+                new WebServiceOptions { BackupDirectory = Path.Combine(root, "stopped-update-backups") }, null!, null!));
+        handler.Revision = "candidate";
+        var id = Guid.NewGuid();
+
+        await update.BeginAsync("demo", new(id, Next("revision", "candidate", 'a', 'b')), "begin", "test", default);
+        for (int i = 0; i < 3; i++) await update.AdvanceAllAsync(default);
+
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.Equal("revision", cluster.PreviousDeployment!.Revision);
+        Assert.Equal(id, cluster.Update!.Id);
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.Null(cluster.Update.LastError);
+        Assert.Equal(id, cluster.Update.Backup);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+        Assert.True(cluster.IsProvenStopped(requireRun: true));
+        Assert.Equal(0, handler.GatewayStops);
+
+        // Starting it later is the operator's separate decision, and it starts the new deployment.
+        var generation = cluster.Gateway!.StartGeneration;
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.NotEqual(generation, cluster.Gateway!.StartGeneration);
+        Assert.False(cluster.Gateway.Recover);
     }
 
     [Fact]
@@ -935,9 +984,11 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
 
         // Activating, half applied for a while: resuming still works (the revert after its timeout is tested separately).
-        await ProveCleanShutdown(122);
+        // The cluster runs before this update, so it starts again afterwards.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
         var id = Guid.NewGuid();
         await update.BeginAsync("demo", new(id, candidate), "begin-4", "test", default);
+        await ProveCleanShutdown(122);
         await update.AdvanceAllAsync(default);
         Assert.Equal(id, catalog.GetCluster("demo")!.Update!.Backup);
         Assert.Single(backups.List("demo"), b => b.SnapshotId == id);
@@ -1503,6 +1554,13 @@ public sealed class ClusterDeploymentTests : IDisposable
             commands.SubmitAsync("demo", Shutdown(true), "emergency-2", "operator")
         );
         Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
+    }
+
+    // A stopped cluster's Gateway does not answer.
+    private sealed class FailingGatewayHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("Gateway is down.");
     }
 
     private sealed class GatewayHandler : HttpMessageHandler
