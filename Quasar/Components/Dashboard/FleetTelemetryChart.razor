@@ -2,6 +2,7 @@
 @inject IJSRuntime JS
 @inject ThemePreferenceService ThemePreference
 @inject BrandingService BrandingService
+@inject ViewerTimeZone ViewerTime
 
 <section class="quasar-panel">
     <div class="quasar-panel-heading"><h2>Simulation speed</h2><a class="quasar-table-link" href="analytics">Open analytics ↗</a></div>
@@ -71,6 +72,7 @@
                 names = _sources,
                 metrics = new[] { new { key = "simspeed", containerId = _containerId, height = 220 } },
                 dark = ThemePreference.IsDarkMode, lines = true, selectable = false,
+                timeZone = ViewerTime.PreferredId,
             });
             _status = result is { Ok: false } ? "Telemetry could not be loaded. Open analytics to retry."
                 : result is { HasData: true } ? null : "No recorded telemetry yet. Start a server or cluster to see its simulation history.";

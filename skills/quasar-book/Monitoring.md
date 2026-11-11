@@ -87,7 +87,7 @@ series. Replacements and epochs share their slot's history; missing samples are
 not replaced with zero. Profiler and plugin statistics use the same selected
 nodes. Standalone servers can be compared alongside clusters.
 Hovering a chart, on Analytics or the Dashboard, shows each series' value at that
-sample and its time as `YYYY-MM-DD HH:MM:SS` in the browser's time zone. The
+sample and its time as `YYYY-MM-DD HH:MM:SS` in the zone selected under **Settings → Display**, which defaults to browser local time. The
 time axis is labeled `HH:MM:SS`, or with dates when its ticks are a day or more
 apart, as on 7d and 30d.
 
