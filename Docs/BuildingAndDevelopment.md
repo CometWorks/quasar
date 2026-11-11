@@ -87,6 +87,10 @@ checksum. No neighboring Gateway checkout or private contract package is needed.
 - Release CI locates `PluginSdk.dll` recursively in the extracted Magnetar
   archive and sets `MagnetarBin` to its directory. This supports both the older
   Linux `Bin/` layout and the current `Libraries/MagnetarInterim/` layout.
+- Linux and Windows release jobs run in parallel after the metadata job.
+  Both cache NuGet packages by OS, dependency files, and diagnostics source SHA.
+  Fallback restores stay within the same diagnostics SHA because its local
+  package keeps a fixed version. Package restore still runs to resolve changes.
 - A local-only override can live at `Quasar.Agent/Directory.Build.props`. This
   repo keeps the machine-specific override out of source control.
 - The Linux release workflow probes the Space Engineers Dedicated Server public
