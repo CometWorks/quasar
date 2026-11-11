@@ -195,6 +195,8 @@ internal static class DeploymentSelfTest
                 {
                     ["seed/world/Sandbox.sbc"] = Settings, [$"seed/{slot}/ClusterNode.cfg"] = "node settings",
                     [$"seed/{slot}/Mods/111.sbm/Data.sbc"] = "mod payload",
+                    ["seed/world/Mods/111.sbm/Data.sbc"] = "mod payload",
+                    [$"config/{slot}/config.xml"] = "<config />", [$"config/{slot}/Local/plugin/plugin.dll"] = "plugin",
                 };
                 foreach (var (relative, text) in files)
                 {
@@ -203,9 +205,10 @@ internal static class DeploymentSelfTest
                     File.WriteAllText(file, text);
                 }
                 // Production seeds reference read-only store objects (ClusterContentStore.AdoptAsync).
-                File.SetUnixFileMode(Path.Combine(config, $"seed/{slot}/Mods/111.sbm/Data.sbc"), UnixFileMode.UserRead | UnixFileMode.GroupRead);
+                foreach (string seeded in new[] { $"seed/{slot}/Mods/111.sbm/Data.sbc", "seed/world/Mods/111.sbm/Data.sbc" })
+                    File.SetUnixFileMode(Path.Combine(config, seeded), UnixFileMode.UserRead | UnixFileMode.GroupRead);
                 var node = new NodeSpawnSpec(slot, Admin.NodeRole.Regular, slot, "unused", "", [],
-                    new() { ["CLUSTER_WORLD_ID"] = "world-1" }, []);
+                    new() { ["CLUSTER_WORLD_ID"] = "world-1" }, [], ConfigurationSeed: $"config/{slot}");
                 var manifest = new BundleManifest(1, revision, [], [node], RuntimeRoot: runtime,
                     ConfigFiles: files.Keys.Select(relative => new BundleFile(relative, ExecutionBundle.Hash(File.ReadAllBytes(Path.Combine(config, relative))))).ToArray(),
                     InitialDirectories: new() { [Path.GetRelativePath(runtime, data)] = $"seed/{slot}", ["world"] = "seed/world" },
@@ -232,6 +235,21 @@ internal static class DeploymentSelfTest
             Directory.CreateDirectory(Path.Combine(data, "cluster/handover-diff"));
             File.WriteAllText(Path.Combine(data, "cluster/handover-diff/7-a-source.xml.gz"), "diagnostic dump");
             File.WriteAllText(Path.Combine(data, "Mods/111.sbm/Data.sbcB5"), "cache the DS wrote");
+            // SE-1348: what the restore or the next start writes again stays out too, plugin-owned files do not.
+            string node = Path.GetDirectoryName(data)!;
+            var firstBundle = ExecutionBundle.Load(first.Path, first.Hash);
+            ExecutionBundle.PrepareNodeConfiguration(first.Path, firstBundle.Manifest, firstBundle.Manifest.Nodes[0], node, "cluster");
+            foreach (string relative in new[] { "config/Local/plugin/state.json", "config/Preloader/Sandbox.Game.dll", "config/info.log",
+                "data/NativeWrapperCache/libHavok.so", "data/Performance/Cache/code.bin", "data/Performance/settings.xml",
+                "data/SpaceEngineersDedicated_1.log", "data/cluster/saves/P-1/g1-s1.mps" })
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(node, relative))!);
+                File.WriteAllText(Path.Combine(node, relative), relative);
+            }
+            Directory.CreateDirectory(Path.Combine(runtime, "gateway"));
+            File.WriteAllText(Path.Combine(runtime, "gateway/gateway.log"), "gateway log");
+            string worldMod = Path.Combine(runtime, "world/Mods/111.sbm/Data.sbc");
+            Assert(Quasar.ClusterDeployment.ClusterContentStore.ReferenceCount(worldMod) == 2, "the world seed did not link its mod");
 
             var snapshots = new DeploymentSnapshots(state, "host", attachments,
                 new NodeActualizer(state, "host"), new GatewayActualizer(state, "host"));
@@ -243,6 +261,25 @@ internal static class DeploymentSelfTest
                 && names.Any(name => name.StartsWith("runtime/world/", StringComparison.Ordinal))
                 && !names.Any(name => name.Contains("/data/Mods") || name.Contains("handover-diff")),
                 "snapshot entries: " + string.Join(", ", names));
+            string[] kept = ["config/.quasar-config.json", "config/Local/plugin/", "config/Local/plugin/state.json",
+                "data/Performance/settings.xml", "data/cluster/saves/P-1/g1-s1.mps"];
+            string[] dropped = ["config/config.xml", "config/Local/plugin/plugin.dll", "config/Preloader", "config/info.log",
+                "data/NativeWrapperCache", "data/Performance/Cache", "data/SpaceEngineersDedicated_1.log"];
+            string nodeEntry = "runtime/" + Path.GetRelativePath(runtime, node) + "/";
+            Assert(kept.All(name => names.Contains(nodeEntry + name)) && !names.Any(name => name.StartsWith("runtime/world/Mods", StringComparison.Ordinal)
+                || name == "runtime/gateway/gateway.log"
+                || dropped.Any(left => name.StartsWith(nodeEntry + left, StringComparison.Ordinal))),
+                "lean snapshot entries: " + string.Join(", ", names));
+            using (var reader = new System.Formats.Tar.TarReader(File.OpenRead(snapshots.ArchivePath("cluster", saved.SnapshotId))))
+                while (reader.GetNextEntry() is { } entry)
+                    if (entry.Name == "snapshot.json")
+                    {
+                        var recorded = JsonNode.Parse(entry.DataStream!)!;
+                        Assert(recorded["schemaVersion"]!.GetValue<int>() == 4
+                            && recorded["reseededMods"]!.AsArray().Select(x => x!.GetValue<string>()).SequenceEqual(["world/Mods"])
+                            && recorded["pinnedConfig"]!.AsArray().Single()!.GetValue<string>() + "/" == Path.GetRelativePath(runtime, node) + "/config/"
+                            && recorded["regenerated"]!.AsArray().Count > 0, "snapshot.json does not say what it left out: " + recorded.ToJsonString());
+                    }
 
             var bare = Bundle("bare", pinsMods: false);
             try
@@ -256,6 +293,16 @@ internal static class DeploymentSelfTest
                 restored.Path, restored.Hash, variable + "_NEW"));
             Assert(!Directory.Exists(Path.Combine(data, "Mods")) && File.ReadAllText(Path.Combine(data, "ClusterNode.cfg")) == "node settings",
                 "restore did not take the node data without its mods");
+            Assert(File.ReadAllText(worldMod) == "mod payload" && Quasar.ClusterDeployment.ClusterContentStore.ReferenceCount(worldMod) == 2,
+                "restore did not link the world's mods again from the candidate seed");
+            Assert(!File.Exists(Path.Combine(node, "config/Local/plugin/plugin.dll")) && File.ReadAllText(Path.Combine(node, "config/Local/plugin/state.json")) != "",
+                "restore did not take the node configuration without its pinned plugins");
+            var restoredBundle = ExecutionBundle.Load(restored.Path, restored.Hash);
+            ExecutionBundle.PrepareNodeConfiguration(restored.Path, restoredBundle.Manifest, restoredBundle.Manifest.Nodes[0], node, "cluster");
+            Assert(File.ReadAllText(Path.Combine(node, "config/Local/plugin/plugin.dll")) == "plugin"
+                && File.ReadAllText(Path.Combine(node, "config/config.xml")) == "<config />"
+                && File.Exists(Path.Combine(node, "config/Local/plugin/state.json")),
+                "the start after a restore did not write the node's pinned configuration again");
             activation.Apply(request with { ExpectedBundleManifestSha256 = first.Hash, BundleManifestPath = restored.Path,
                 BundleManifestSha256 = restored.Hash, ExecutorTokenEnvironmentVariable = variable + "_NEW" });
             Assert(File.ReadAllText(mod) == "mod payload" && Quasar.ClusterDeployment.ClusterContentStore.ReferenceCount(mod) == 2,
@@ -327,7 +374,7 @@ internal static class DeploymentSelfTest
                 "runtime/nodes/", "runtime/nodes/one/", "runtime/nodes/one/data/", "runtime/nodes/one/data/cluster/",
                 "runtime/nodes/one/data/cluster/saves/", "runtime/nodes/one/data/cluster/saves/P-1/",
                 "runtime/gateway/registry/registry.db", "runtime/gateway/registry/events.jsonl",
-                "runtime/nodes/one/data/cluster/saves/P-1/g1-s1.mps", "runtime/nodes/one/data/node.log"]),
+                "runtime/nodes/one/data/cluster/saves/P-1/g1-s1.mps"]),
                 "online snapshot entries: " + string.Join(", ", names.Order()));
             Assert(saved == snapshots.Capture(request), "online snapshot replay changed archive identity");
 

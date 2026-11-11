@@ -143,6 +143,8 @@ Quasar also backs up a cluster before each managed update and before converting 
 
 **Keep deleted clusters (days)**, in the Servers rule (default 7, range 0 to 3650), sets how long a deleted cluster's backups, world and Host data stay. After that Quasar removes them all, manual backups included. 0 keeps them forever. See [Delete or forget a cluster](Clusters.md#delete-or-forget-a-cluster).
 
+A cluster backup holds the world, the saves and the cluster's own state. It leaves out what a restore deploys again from the backup's recorded deployment: Workshop mods, the plugins Quasar prepared for each node, Magnetar's patched game files, caches and logs. A restore prepares that deployment anew, so it brings them back, and the restored cluster starts with the same plugins and mods.
+
 Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster name>/<snapshot id>/` and do not appear in the **Stored backups** table. Conversion receipts and working copies live in `<backup folder>/Conversions/<id>/` and stay until you remove them. Restoring a cluster and taking manual cluster backups happen from the cluster's own page. See [Clusters](Clusters.md).
 
 ## Common problems

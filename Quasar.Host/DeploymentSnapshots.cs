@@ -12,7 +12,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private sealed record SnapshotManifest(int SchemaVersion, string ClusterId, string HostId, Guid SnapshotId,
         string Revision, string BundleManifestSha256, Dictionary<string, string> Files, string[] CredentialHashes, Dictionary<string, string>? StorageFormats, string CaptureFence,
-        Dictionary<string, int> Modes, Dictionary<string, int> Directories, string[]? RebuiltMods = null);
+        Dictionary<string, int> Modes, Dictionary<string, int> Directories, string[]? RebuiltMods = null,
+        string[]? ReseededMods = null, string[]? PinnedConfig = null, string[]? Regenerated = null);
     private string Root(string clusterId) => Path.Combine(stateDirectory, "snapshots", ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(clusterId)));
     internal string ArchivePath(string clusterId, Guid id) => Path.Combine(Root(clusterId), id.ToString("N") + ".tar");
 
@@ -179,8 +180,10 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
         try
         {
             var (directories, sources) = Walk(runtime, request.Online);
-            string[] rebuilt = RebuiltMods(bundle.Manifest);
-            bool Skip(string relative) => request.Online && LeftOutOnline(relative) || LeftOut(relative, rebuilt);
+            string[] rebuilt = RebuiltMods(bundle.Manifest), reseeded = ReseededMods(bundle.Manifest, rebuilt);
+            var pinned = PinnedConfigFiles(bundle.Manifest);
+            bool Skip(string relative) => request.Online && LeftOutOnline(relative) || LeftOut(relative, rebuilt)
+                || LeftOut(relative, reseeded) || pinned.Contains(relative) || Regenerated(relative);
             var files = new Dictionary<string, string>(StringComparer.Ordinal);
             var modes = new Dictionary<string, int>(StringComparer.Ordinal);
             var directoryModes = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -213,9 +216,11 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                             throw new InvalidDataException("The Gateway's registry copy does not match its checksum.");
                     }
                     if (files.Count == 0) throw new InvalidDataException("Runtime data is empty.");
-                    var manifest = new SnapshotManifest(3, request.ClusterId, hostId, request.SnapshotId, bundle.Manifest.Revision,
+                    string[] configs = PinnedConfig(bundle.Manifest);
+                    var manifest = new SnapshotManifest(4, request.ClusterId, hostId, request.SnapshotId, bundle.Manifest.Revision,
                         request.ExpectedBundleManifestSha256, files, Credentials(bundle.Manifest, attachment.TokenEnvironmentVariable), bundle.Manifest.StorageFormats, request.CaptureFence, modes, directoryModes,
-                        rebuilt.Length == 0 ? null : rebuilt);
+                        rebuilt.Length == 0 ? null : rebuilt, reseeded.Length == 0 ? null : reseeded,
+                        configs.Length == 0 ? null : configs, RegeneratedRules);
                     using var metadata = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(manifest, Json));
                     if (files.Count > MaxManifestFiles || metadata.Length > MaxManifestBytes)
                         throw new InvalidDataException($"The runtime has too many files for one snapshot ({files.Count} files, a {metadata.Length} byte manifest).");
@@ -244,8 +249,81 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     // The runtime-relative Mods directory of every node whose mods the bundle's profile pins.
     internal static string[] RebuiltMods(BundleManifest manifest) => manifest.ProfileContent is not { } profile ? []
         : manifest.Nodes.Where(node => profile.NodeModSeeds.ContainsKey(node.SlotKey))
-            .Select(node => "nodes/" + ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(node.SlotKey))[..24] + "/data/Mods")
+            .Select(node => NodeDirectory(node.SlotKey) + "/data/Mods")
             .Order(StringComparer.Ordinal).ToArray();
+
+    // SE-1348: a restore re-seeds these Mods folders from the candidate's pinned seed (the world's Workshop
+    // mods, 2 GB of a real backup). Seeds are written once, so nothing else would bring them back.
+    internal static string[] ReseededMods(BundleManifest manifest, string[] rebuiltMods) =>
+        (manifest.InitialDirectories ?? []).Where(seed => (manifest.ConfigFiles ?? [])
+                .Any(file => file.Path.StartsWith(seed.Value + "/Mods/", StringComparison.Ordinal)))
+            .Select(seed => seed.Key + "/Mods").Except(rebuiltMods, StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
+
+    // SE-1348: each node's configuration files that its seed pins, plugins included. PrepareNodeConfiguration
+    // writes them again before every start, so a copy in the snapshot is never used.
+    private static HashSet<string> PinnedConfigFiles(BundleManifest manifest)
+    {
+        var files = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var node in manifest.Nodes)
+        {
+            if (node.ConfigurationSeed is not { } seed) continue;
+            string target = NodeDirectory(node.SlotKey) + "/config/";
+            foreach (var file in manifest.ConfigFiles ?? [])
+                if (file.Path.StartsWith(seed + "/", StringComparison.Ordinal)) files.Add(target + file.Path[(seed.Length + 1)..]);
+        }
+        return files;
+    }
+
+    // The node configuration directories whose pinned files a snapshot leaves out.
+    internal static string[] PinnedConfig(BundleManifest manifest) =>
+        manifest.Nodes.Where(node => node.ConfigurationSeed is not null).Select(node => NodeDirectory(node.SlotKey) + "/config")
+            .Order(StringComparer.Ordinal).ToArray();
+
+    private static string NodeDirectory(string slotKey) => "nodes/" + ExecutionBundle.Hash(System.Text.Encoding.UTF8.GetBytes(slotKey))[..24];
+
+    // SE-1348: what a process writes again on its own: patched game assemblies (Magnetar's Preloader writes
+    // them on every start), native wrapper and compile caches, and logs.
+    private static readonly string[] RegeneratedRules =
+        ["nodes/*/config/Preloader", "nodes/*/data/NativeWrapperCache", "nodes/*/data/Performance/Cache",
+         "nodes/*/config/*.log", "nodes/*/data/*.log", "gateway/gateway.log"];
+
+    internal static bool Regenerated(string relative)
+    {
+        if (relative == "gateway/gateway.log") return true;
+        string[] parts = relative.Split('/');
+        if (parts.Length < 3 || parts[0] != "nodes") return false;
+        return parts[2] == "config" && parts.Length >= 4 && parts[3] == "Preloader"
+            || parts[2] == "data" && parts.Length >= 4 && parts[3] == "NativeWrapperCache"
+            || parts[2] == "data" && parts.Length >= 5 && parts[3] == "Performance" && parts[4] == "Cache"
+            || parts.Length == 4 && parts[2] is "config" or "data" && parts[3].EndsWith(".log", StringComparison.Ordinal);
+    }
+
+    // Writes the left-out Mods folders from the candidate's pinned seed, as InitializeData does: read-only
+    // store objects are linked, anything else is copied, and every file is checked against its pin.
+    private static void Reseed(string staging, BundleManifest candidate, string configRoot, string[] mods)
+    {
+        foreach (string relative in mods)
+        {
+            string destination = relative[..^"/Mods".Length];
+            string target = Path.Combine(staging, relative);
+            // Data that was never seeded is seeded whole, Mods included, before its first start.
+            if (!Directory.Exists(Path.Combine(staging, destination))) continue;
+            string source = candidate.InitialDirectories![destination] + "/Mods/";
+            foreach (var pin in candidate.ConfigFiles!.Where(file => file.Path.StartsWith(source, StringComparison.Ordinal)))
+            {
+                string copy = Path.Combine(target, pin.Path[source.Length..]);
+                Directory.CreateDirectory(Path.GetDirectoryName(copy)!);
+                string file = Path.Combine(configRoot, pin.Path);
+                if (!Quasar.ClusterDeployment.ClusterContentStore.TryLinkReadOnly(file, copy))
+                {
+                    using var input = File.OpenRead(file);
+                    using var output = new FileStream(copy, FileMode.CreateNew);
+                    input.CopyTo(output); output.Flush(true);
+                }
+                if (HashFile(copy) != pin.Sha256.ToLowerInvariant()) throw new InvalidDataException("Mod seed changed during restore.");
+            }
+        }
+    }
 
     // A stopped runtime must be complete and free of links. A live one changes under the walk: entries that
     // vanish (retention deletes old saves) are skipped, and files written after the walk are not copied.
@@ -380,6 +458,9 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
             ExecutionBundle.RequireCompatibleStorage(candidate.Manifest.StorageFormats, manifest.StorageFormats);
             if ((manifest.RebuiltMods ?? []).Except(RebuiltMods(candidate.Manifest), StringComparer.Ordinal).Any())
                 throw new InvalidDataException("The snapshot left out node mods that the candidate deployment does not pin; prepare it from a profile with its mods.");
+            if ((manifest.ReseededMods ?? []).Except(ReseededMods(candidate.Manifest, RebuiltMods(candidate.Manifest)), StringComparer.Ordinal).Any()
+                || (manifest.PinnedConfig ?? []).Except(PinnedConfig(candidate.Manifest), StringComparer.Ordinal).Any())
+                throw new InvalidDataException("The snapshot left out mods or node configuration that the candidate deployment does not seed.");
             var credentials = Credentials(candidate.Manifest, request.CandidateExecutorTokenEnvironmentVariable);
             if (credentials.Length == 0 || credentials.Intersect(manifest.CredentialHashes).Any()
                 || credentials.Intersect(Credentials(current.Manifest, attachment.TokenEnvironmentVariable)).Any())
@@ -411,6 +492,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                 if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(path, (UnixFileMode)fileMode);
             }
             if (seen.Count != manifest.Files.Count + manifest.Directories.Count) throw new InvalidDataException("Snapshot is incomplete.");
+            Reseed(staging, candidate.Manifest, Path.GetDirectoryName(Path.GetFullPath(request.CandidateManifestPath))!, manifest.ReseededMods ?? []);
             if (!OperatingSystem.IsWindows())
                 foreach (var (name, mode) in manifest.Directories.OrderByDescending(d => d.Key.Length))
                     File.SetUnixFileMode(Path.Combine(staging, name["runtime/".Length..]), (UnixFileMode)mode);
@@ -450,6 +532,8 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
     internal const long MaxManifestBytes = 512L * 1024 * 1024;
 
     // Schema 2 archives start with the manifest. Schema 3 archives are written in one pass and end with it.
+    // Schema 4 is schema 3 with content left out that a restore or a start writes again (SE-1348); a Host
+    // that cannot do that refuses it.
     // Leaves the stream at the start for the caller's own pass.
     private static SnapshotManifest ReadManifest(Stream archive)
     {
@@ -470,7 +554,7 @@ internal sealed class DeploymentSnapshots(string stateDirectory, string hostId, 
                 last = true;
             }
         archive.Position = 0;
-        if (manifest is null || !(manifest.SchemaVersion == 2 && first || manifest.SchemaVersion == 3 && last)
+        if (manifest is null || !(manifest.SchemaVersion == 2 && first || manifest.SchemaVersion is 3 or 4 && last)
             || manifest.Files.Count is < 1 or > MaxManifestFiles
             || manifest.Directories is null || manifest.Modes is null || manifest.Directories.Count > MaxManifestFiles
             || manifest.Modes.Count != manifest.Files.Count || manifest.Modes.Values.Concat(manifest.Directories.Values).Any(m => m < 0 || m > 511))
