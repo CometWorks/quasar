@@ -501,7 +501,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-tab-slider { height: 2px; }
 .quasar-shell .mud-expand-panel { border: 1px solid var(--quasar-palette-lines-default); background: var(--quasar-palette-surface); }
 .quasar-shell .mud-expand-panel-header { min-height: 44px; padding: 12px 16px; font-size: 13px; font-weight: 600; }
-.quasar-shell .mud-expand-panel-content { padding: 0 16px 16px; }
+.quasar-shell .mud-expand-panel-content { padding: 16px; }
 .cluster-control-page .mud-expand-panel.mud-panel-expanded > .mud-expand-panel-header {
     background: var(--quasar-palette-background-gray);
 }
