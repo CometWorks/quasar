@@ -146,8 +146,8 @@ restored as before. An older Quasar cannot read the new format, so it cannot res
 backups.
 
 On copies of five octahedron-test backups of 2026-11-11 (two online, three stopped, 43.9 GB of
-tar), the store took 5.7 GB: the first backup added 4.9 GB of objects and each later one
-0.03-0.27 GB plus a 16 MB skeleton.
+tar), the store took 5.6 GB: the first backup added 4.9 GB of objects, each later one up to
+0.25 GB (none for a stop with nothing changed) plus a 22 MB skeleton.
 
 ## Combined updates and transfer
 
