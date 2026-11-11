@@ -47,25 +47,29 @@ window.quasarCharts = (function () {
 
     const pad = (n) => (n < 10 ? "0" + n : "" + n);
 
-    function formatDate(t) {
+    function timestampParts(t, formatter) {
+        if (formatter) {
+            const parts = Object.fromEntries(formatter.formatToParts(t * 1000).map(({ type, value }) => [type, value]));
+            return [parts.year + "-" + parts.month + "-" + parts.day, parts.hour + ":" + parts.minute + ":" + parts.second];
+        }
         const d = new Date(t * 1000);
-        return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate());
+        return [
+            d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()),
+            pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds()),
+        ];
     }
 
-    function formatTime(t) {
-        const d = new Date(t * 1000);
-        return pad(d.getHours()) + ":" + pad(d.getMinutes()) + ":" + pad(d.getSeconds());
-    }
-
-    // X-axis labels: "YYYY-MM-DD" when the ticks are a day or more apart (they all sit on midnight),
-    // otherwise "HH:MM:SS". uPlot passes the tick step in seconds.
-    function formatTicks(splits, incr) {
-        return splits.map(incr >= 86400 ? formatDate : formatTime);
-    }
-
-    // Hover legend time: "YYYY-MM-DD HH:MM:SS" in the browser's time zone.
-    function formatTimestamp(t) {
-        return formatDate(t) + " " + formatTime(t);
+    function timeFormatter(timeZone) {
+        if (!timeZone) return null;
+        try {
+            return new Intl.DateTimeFormat("en-GB", {
+                timeZone, year: "numeric", month: "2-digit", day: "2-digit",
+                hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+            });
+        } catch (error) {
+            if (!(error instanceof RangeError)) throw error;
+            return null;
+        }
     }
 
     function buildYRange(axis) {
@@ -81,12 +85,13 @@ window.quasarCharts = (function () {
         };
     }
 
-    function buildOptions(chart, width, height, dark, colors, spanSeconds, xMin, xMax, appearance, lines, selectable) {
+    function buildOptions(chart, width, height, dark, colors, spanSeconds, xMin, xMax, appearance, lines, selectable, timeZone) {
         const colorsArr = colors && colors.length ? colors : ["#3b82f6", "#7dd3fc", "#a7f3d0", "#fde68a", "#f0abfc", "#c4b5fd"];
         const c = appearance || axisColors(dark);
         const valueFmt = makeValueFormatter(chart.axis);
 
-        const series = [{ value: (u, v) => (v == null ? "-" : formatTimestamp(v)) }]; // x
+        const formatter = timeFormatter(timeZone);
+        const series = [{ value: (u, v) => (v == null ? "-" : timestampParts(v, formatter).join(" ")) }]; // x
         chart.series.forEach((s, i) => {
             const color = s.color || colorsArr[i % colorsArr.length];
             series.push({
@@ -102,6 +107,7 @@ window.quasarCharts = (function () {
         return {
             width: width,
             height: height,
+            ...(formatter && uPlot.tzDate ? { tzDate: t => uPlot.tzDate(new Date(t * 1000), timeZone) } : {}),
             cursor: {
                 sync: { key: SYNC_KEY },
                 y: false,
@@ -132,7 +138,7 @@ window.quasarCharts = (function () {
                     grid: { show: false },
                     ticks: { stroke: c.tick, width: 1 },
                     size: 52,
-                    values: (u, splits, axisIdx, space, incr) => formatTicks(splits, incr),
+                    values: (u, splits, axisIdx, space, incr) => splits.map(t => timestampParts(t, formatter)[incr >= 86400 ? 0 : 1]),
                 },
                 {
                     stroke: c.label,
@@ -188,7 +194,7 @@ window.quasarCharts = (function () {
             dotNet.invokeMethodAsync("OnChartRangeSelected", from, to);
     }
 
-    function renderChart(containerId, chart, dark, colors, spanSeconds, fallbackHeight, xMin, xMax, lines = false, selectable = true) {
+    function renderChart(containerId, chart, dark, colors, spanSeconds, fallbackHeight, xMin, xMax, lines = false, selectable = true, timeZone) {
         const el = document.getElementById(containerId);
         if (!el) return;
 
@@ -201,7 +207,7 @@ window.quasarCharts = (function () {
         const fallback = axisColors(dark);
         const appearance = { label: token("text-secondary") || fallback.label, grid: token("divider") || fallback.grid, tick: token("divider") || fallback.tick };
         if (!colors?.length) colors = ["primary", "warning", "success", "secondary", "error"].map(token).filter(Boolean);
-        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, chart.series.map(s => [s.label, s.color])]);
+        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, timeZone, chart.series.map(s => [s.label, s.color])]);
         const reserve = legendReserveFor(chart.series.length, fallbackHeight);
         const existing = instances.get(containerId);
 
@@ -215,7 +221,7 @@ window.quasarCharts = (function () {
         if (existing) destroy(containerId);
 
         const size = plotSize(el, fallbackHeight, reserve);
-        const opts = buildOptions(chart, size.width, size.height, dark, colors, spanSeconds, xMin, xMax, appearance, lines, selectable);
+        const opts = buildOptions(chart, size.width, size.height, dark, colors, spanSeconds, xMin, xMax, appearance, lines, selectable, timeZone);
         const chartInstance = new uPlot(opts, data, el);
         applyXScale(chartInstance, xMin, xMax);
 
@@ -314,7 +320,7 @@ window.quasarCharts = (function () {
                 s.label = labelForSeries(names, s.uniqueName);
                 s.color = request.seriesColors?.[s.uniqueName] || request.seriesColors?.[s.uniqueName.split(" / ")[0]];
             });
-            renderChart(panel.containerId, chart, !!request.dark, request.colors, spanSeconds, heightByMetric.get(chart.metric), xMin, xMax, request.lines === true, request.selectable !== false);
+            renderChart(panel.containerId, chart, !!request.dark, request.colors, spanSeconds, heightByMetric.get(chart.metric), xMin, xMax, request.lines === true, request.selectable !== false, request.timeZone);
             present.add(panel.containerId);
             rendered++;
         }

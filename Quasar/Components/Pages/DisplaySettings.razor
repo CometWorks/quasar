@@ -1,0 +1,69 @@
+@page "/settings/display"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+@inject ViewerTimeZone ViewerTime
+@inject IJSRuntime JS
+
+<PageTitle>Display</PageTitle>
+<QuasarPageHeading Section="Settings"><Title>Display</Title></QuasarPageHeading>
+
+<section class="quasar-panel">
+    <form class="quasar-form-section" @onsubmit="SaveAsync" @onsubmit:preventDefault>
+        <h2>Time zone</h2>
+        <div class="quasar-fields">
+            <label>
+                Time zone
+                <input list="quasar-time-zones" @bind="_zoneId" placeholder="Browser local time" aria-describedby="quasar-time-zone-help" />
+            </label>
+            <datalist id="quasar-time-zones">
+                @foreach (var id in ViewerTimeZone.AvailableIds)
+                {
+                    <option value="@id"></option>
+                }
+            </datalist>
+            <p id="quasar-time-zone-help">Leave blank to use this browser's time zone@(BrowserZoneLabel). Changes apply in this browser.</p>
+        </div>
+        <div class="quasar-form-actions">
+            <button type="submit" class="quasar-button quasar-button-primary" disabled="@_saving">Save</button>
+            <button type="button" class="quasar-button" disabled="@_saving" @onclick="UseBrowserTimeAsync">Use browser time</button>
+            @if (_notice is not null)
+            {
+                <span role="@(_error ? "alert" : "status")">@_notice</span>
+            }
+        </div>
+    </form>
+</section>
+
+@code {
+    private string _zoneId = "";
+    private string? _notice;
+    private bool _error;
+    private bool _saving;
+    private string BrowserZoneLabel => ViewerTime.BrowserId is { } id ? $" ({id})" : "";
+
+    protected override void OnInitialized() => _zoneId = ViewerTime.PreferredId ?? "";
+
+    private async Task SaveAsync()
+    {
+        if (_saving)
+            return;
+
+        _saving = true;
+        try
+        {
+            _error = !await ViewerTime.TrySetPreferenceAsync(JS, _zoneId);
+            _notice = _error ? "Choose a valid time zone." : "Time zone saved.";
+            if (!_error)
+                _zoneId = ViewerTime.PreferredId ?? "";
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+
+    private Task UseBrowserTimeAsync()
+    {
+        _zoneId = "";
+        return SaveAsync();
+    }
+}

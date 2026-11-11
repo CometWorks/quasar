@@ -24,7 +24,8 @@ test('chart hover shows the sample time as local YYYY-MM-DD HH:MM:SS, day-step t
         uPlot: Plot, ResizeObserver: class { observe() {} disconnect() {} },
     });
     vm.runInContext(source, context);
-    await context.window.quasarCharts.sync({ from: t - 60, to: t, servers: ['alpha'], names: {}, metrics: [{ key: 'simspeed', containerId: 'c', height: 220 }], lines: true });
+    const request = { from: t - 60, to: t, servers: ['alpha'], names: {}, metrics: [{ key: 'simspeed', containerId: 'c', height: 220 }], lines: true };
+    await context.window.quasarCharts.sync(request);
 
     const options = plots[0].options;
     // uPlot reads x as unix seconds only with its default ms (1e-3); anything else shifts every date.
@@ -48,4 +49,10 @@ test('chart hover shows the sample time as local YYYY-MM-DD HH:MM:SS, day-step t
         if (savedTz === undefined) delete process.env.TZ; else process.env.TZ = savedTz;
     }
     assert.equal(options.series[0].value(null, null), '-');
+
+    await context.window.quasarCharts.sync({ ...request, timeZone: 'Asia/Tokyo' });
+    assert.equal(plots.length, 2);
+    assert.equal(plots[1].options.series[0].value(null, t), '2026-11-08 23:03:35');
+    assert.deepEqual(plots[1].options.axes[0].values(null, [t, t + 3600], 0, 50, 300), ['23:03:35', '00:03:35']);
+    assert.equal(plots[1].data[0][1], t);
 });

@@ -4,7 +4,8 @@ window.quasarConfigs = window.quasarConfigs || {
     getTimeZone() {
         return {
             id: Intl.DateTimeFormat().resolvedOptions().timeZone || null,
-            offsetMinutes: -new Date().getTimezoneOffset()
+            offsetMinutes: -new Date().getTimezoneOffset(),
+            preferredId: this.getLocalStorage("quasar.timeZone")
         };
     },
     getSystemDarkMode() {

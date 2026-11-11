@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Quasar.Services.Analytics;
 
 public sealed class AnalyticsViewConfig
@@ -16,15 +18,45 @@ public sealed class AnalyticsViewConfig
 
     public List<string> SelectedClusterIds { get; set; } = [];
 
-    public DateTime? CustomFromDate { get; set; } = DateTime.UtcNow.Date.AddDays(-1);
+    public DateTimeOffset? CustomFromUtc { get; set; }
 
-    public TimeSpan? CustomFromTime { get; set; } = TimeSpan.Zero;
+    public DateTimeOffset? CustomToUtc { get; set; }
 
-    public DateTime? CustomToDate { get; set; } = DateTime.UtcNow.Date;
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? CustomFromDate { get; set; }
 
-    public TimeSpan? CustomToTime { get; set; } = new TimeSpan(23, 59, 0);
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TimeSpan? CustomFromTime { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public DateTime? CustomToDate { get; set; }
+
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public TimeSpan? CustomToTime { get; set; }
 
     public List<AnalyticsPanelConfig> Panels { get; set; } = [];
+
+    internal bool MigrateCustomRange(ViewerTimeZone viewer, DateTime today)
+    {
+        var hasLegacyFrom = CustomFromDate is not null || CustomFromTime is not null;
+        var hasLegacyTo = CustomToDate is not null || CustomToTime is not null;
+        if (CustomFromUtc is null && hasLegacyFrom)
+            CustomFromUtc = viewer.FromBrowser(
+                (CustomFromDate ?? today.AddDays(-1)).Date.Add(CustomFromTime ?? TimeSpan.Zero)
+            );
+        if (CustomToUtc is null && hasLegacyTo)
+            CustomToUtc = viewer.FromBrowser(
+                (CustomToDate ?? today).Date.Add(CustomToTime ?? new TimeSpan(23, 59, 0))
+            );
+
+        CustomFromUtc = CustomFromUtc?.ToUniversalTime();
+        CustomToUtc = CustomToUtc?.ToUniversalTime();
+        CustomFromDate = null;
+        CustomFromTime = null;
+        CustomToDate = null;
+        CustomToTime = null;
+        return hasLegacyFrom || hasLegacyTo;
+    }
 }
 
 public sealed class AnalyticsPanelConfig
