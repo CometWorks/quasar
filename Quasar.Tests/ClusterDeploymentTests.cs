@@ -534,6 +534,89 @@ public sealed class ClusterDeploymentTests : IDisposable
             backups.List("demo").Select(b => b.SnapshotId));
     }
 
+    // SE-1349: a stopped cluster gets one scheduled backup per stop; its archives go into the object store,
+    // a second backup of the same content adds no object, and the bytes uploaded for a restore are the Host's.
+    [Fact]
+    public async Task ScheduledBackupsShareTheClusterObjectStoreAndSkipAnUnchangedStop()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential) { Archive = ClusterBackupStoreTests.Tar(("runtime/world/save.sbs", ClusterBackupStoreTests.Bytes(50_000, 1)),
+            ("runtime/nodes/a/data/save.mps", ClusterBackupStoreTests.Bytes(20_000, 2)), ("snapshot.json", ClusterBackupStoreTests.Bytes(9_000, 3))) };
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        async Task Stop()
+        {
+            var stopping = catalog.GetCluster("demo")!;
+            await catalog.RecordShutdownProofAsync(stopping, new(stopping.GetLifecycleId(), DateTimeOffset.UtcNow,
+                new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        }
+        await Stop();
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true, Frequency = BackupFrequency.Hourly, RetentionCount = 5 } };
+        string backupRoot = Path.Combine(root, "store-backups");
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "store-operations")), null!, new WebServiceOptions { BackupDirectory = backupRoot }, null!, null!);
+        string clusterRoot = ClusterBackupService.Root(backupRoot, "demo");
+        string[] Objects() => Directory.Exists(Path.Combine(clusterRoot, ClusterBackupStore.Objects))
+            ? Directory.GetFiles(Path.Combine(clusterRoot, ClusterBackupStore.Objects), "*", SearchOption.AllDirectories) : [];
+        void Age()
+        {
+            foreach (var old in backups.List("demo"))
+            {
+                string manifest = Path.Combine(clusterRoot, old.SnapshotId.ToString("N"), "backup.json");
+                File.WriteAllText(manifest, JsonSerializer.Serialize(old with { CreatedAt = old.CreatedAt.AddHours(-2) }, Json));
+            }
+        }
+
+        await backups.CaptureDueAsync(settings, default);
+        var first = Assert.Single(backups.List("demo"));
+        string directory = Path.Combine(clusterRoot, first.SnapshotId.ToString("N"));
+        Assert.Empty(Directory.GetFiles(directory, "*.tar"));
+        Assert.Equal(2, Directory.GetFiles(directory, "*" + ClusterBackupStore.SkeletonSuffix).Length);
+        Assert.Equal(2, Objects().Length); // two files of two Hosts with the same content; snapshot.json stays in the skeleton
+        int captures = handler.Captures.Count;
+
+        // Due again, but the cluster has not run since: no capture.
+        Age();
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(captures, handler.Captures.Count);
+        Assert.Single(backups.List("demo"));
+
+        // Started and stopped again: a new backup, and content the store has adds no object.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await Stop();
+        handler.Archive = ClusterBackupStoreTests.Tar(("runtime/world/save.sbs", ClusterBackupStoreTests.Bytes(50_000, 1)),
+            ("runtime/nodes/a/data/save.mps", ClusterBackupStoreTests.Bytes(20_000, 2)), ("snapshot.json", ClusterBackupStoreTests.Bytes(9_000, 4)));
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(2, backups.List("demo").Length);
+        Assert.Equal(2, Objects().Length);
+
+        // A changed file adds its object; pruning the backups that used the old one collects it.
+        Age();
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await Stop();
+        byte[] latest = ClusterBackupStoreTests.Tar(("runtime/world/save.sbs", ClusterBackupStoreTests.Bytes(50_000, 5)),
+            ("runtime/nodes/a/data/save.mps", ClusterBackupStoreTests.Bytes(20_000, 2)), ("snapshot.json", ClusterBackupStoreTests.Bytes(9_000, 6)));
+        handler.Archive = latest;
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(3, Objects().Length);
+        backups.Prune("demo", 1);
+        var kept = Assert.Single(backups.List("demo"));
+        Assert.Equal(2, Objects().Length);
+
+        // What a restore sends to a Host is the archive the Host gave, byte for byte.
+        var stored = kept.Hosts[0];
+        using (var archive = ClusterBackupStore.Open(clusterRoot, Path.Combine(clusterRoot, kept.SnapshotId.ToString("N"),
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(stored.HostId))) + ".tar")))
+        {
+            var target = kept.Deployment.Clone();
+            target.HostCommandUrl = "http://" + stored.HostId;
+            target.HostCommandTokenEnvironmentVariable = credential;
+            await new ClusterHostClient(new HttpClient(handler)).TransferSnapshotAsync(target, stored, "unused", true, default, archive);
+        }
+        Assert.Equal(latest, Assert.Single(handler.Uploads));
+    }
+
     [Fact]
     public async Task RetentionKeepsTheNewestQuiescentBackupBeyondTheCount()
     {
@@ -1742,6 +1825,8 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal int FailCaptures;
         internal Action<string>? CaptureObserved;
         internal readonly List<(string Host, HostSnapshotRequest Request)> Captures = [];
+        internal byte[] Archive = [1, 2, 3]; // what each Host's snapshot download returns
+        internal readonly List<byte[]> Uploads = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string host = request.RequestUri!.Host;
@@ -1749,7 +1834,8 @@ public sealed class ClusterDeploymentTests : IDisposable
             if (Deletion == "host-offline") throw new HttpRequestException("Host unreachable");
             if (request.RequestUri.AbsolutePath.Contains("/snapshots/"))
             {
-                byte[] archive = [1, 2, 3];
+                byte[] archive = Archive;
+                if (request.Method == HttpMethod.Put) Uploads.Add(await request.Content!.ReadAsByteArrayAsync(token));
                 if (request.Method == HttpMethod.Get) // the archive download is raw bytes, not an envelope
                     return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) };
                 if (request.Method == HttpMethod.Post)

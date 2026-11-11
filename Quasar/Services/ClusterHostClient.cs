@@ -139,8 +139,10 @@ public sealed partial class ClusterHostClient
         if (seen.Count != artifact.FileChecksums.Count || bytes != artifact.SizeBytes) throw new InvalidDataException("Incomplete artifact.");
     }
 
+    /// <summary>Downloads the Host's archive into <paramref name="file"/>, or into <paramref name="data"/> when given,
+    /// or uploads it from there.</summary>
     public async Task TransferSnapshotAsync(ClusterDefinition cluster, HostContract.HostSnapshot snapshot,
-        string file, bool upload, CancellationToken token)
+        string file, bool upload, CancellationToken token, Stream? data = null)
     {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(token);
         deadline.CancelAfter(TimeSpan.FromHours(2));
@@ -152,14 +154,19 @@ public sealed partial class ClusterHostClient
             ?? throw new InvalidOperationException("Host executor credential is unavailable.");
         TunnelAuthority(request);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
-        if (upload) request.Content = new StreamContent(File.OpenRead(file));
+        if (upload)
+        {
+            request.Content = new StreamContent(data ?? File.OpenRead(file));
+            request.Content.Headers.ContentLength = snapshot.ArchiveBytes;
+        }
         using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, token);
         response.EnsureSuccessStatusCode();
         if (upload) return;
         if (response.Content.Headers.ContentLength != snapshot.ArchiveBytes)
             throw new InvalidDataException("Snapshot download length mismatch.");
         using var input = await response.Content.ReadAsStreamAsync(token);
-        using var output = new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+        using var owned = data is null ? new FileStream(file, FileMode.CreateNew, FileAccess.Write, FileShare.None) : null;
+        var output = data ?? owned!;
         using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
         byte[] buffer = new byte[1024 * 1024]; long total = 0; int read;
         while ((read = await input.ReadAsync(buffer, token)) != 0)
@@ -169,7 +176,8 @@ public sealed partial class ClusterHostClient
             hash.AppendData(buffer, 0, read);
             await output.WriteAsync(buffer.AsMemory(0, read), token);
         }
-        output.Flush(true);
+        if (owned is not null) owned.Flush(true);
+        else await output.FlushAsync(token);
         if (total != snapshot.ArchiveBytes || !Convert.ToHexString(hash.GetHashAndReset()).Equals(snapshot.ArchiveSha256, StringComparison.OrdinalIgnoreCase))
             throw new InvalidDataException("Snapshot download failed SHA-256 verification.");
     }

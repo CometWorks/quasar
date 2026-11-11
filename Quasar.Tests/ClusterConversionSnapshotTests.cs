@@ -19,9 +19,10 @@ public sealed class ClusterConversionSnapshotTests : IDisposable
     private static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes));
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ExtractsVerifiedCopiesFromAllHostsAndRejectsWrongLifecycle(bool wrongLifecycle)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public async Task ExtractsVerifiedCopiesFromAllHostsAndRejectsWrongLifecycle(bool wrongLifecycle, bool deduplicated)
     {
         var id = Guid.NewGuid();
         var cluster = new ClusterDefinition { UniqueName = "demo", ActiveDeployment = new("revision", [], DateTimeOffset.UtcNow) };
@@ -31,7 +32,8 @@ public sealed class ClusterConversionSnapshotTests : IDisposable
         foreach (string host in new[] { "host-1", "host-2" })
         {
             string name = "runtime/nodes/regular/data/cluster/saves/P-0001/save.mps";
-            byte[] payload = Encoding.UTF8.GetBytes(host + " saved world data");
+            // Big enough to be an object of the store when the backup is deduplicated (SE-1349).
+            byte[] payload = Encoding.UTF8.GetBytes(host + " saved world data" + new string('.', 5000));
             var metadata = new { schemaVersion = 2, clusterId = cluster.UniqueName, hostId = host, snapshotId = id,
                 revision = "revision", bundleManifestSha256 = "bundle", captureFence = wrongLifecycle ? "wrong" : cluster.GetLifecycleId(),
                 files = new Dictionary<string, string> { [name] = Hash(payload) } };
@@ -44,6 +46,11 @@ public sealed class ClusterConversionSnapshotTests : IDisposable
                 writer.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, name) { DataStream = new MemoryStream(payload) });
             }
             byte[] archive = File.ReadAllBytes(path);
+            if (deduplicated)
+            {
+                using (var input = File.OpenRead(path)) ClusterBackupStore.Write(Path.GetDirectoryName(backupRoot)!, path, input);
+                File.Delete(path);
+            }
             snapshots.Add(new(cluster.UniqueName, host, id, "revision", "bundle", Hash(archive), archive.Length));
         }
         var backup = new ClusterBackup(id, cluster.UniqueName, DateTimeOffset.UtcNow, Admin.ExportConsistency.Quiescent, cluster, snapshots.ToArray(), false);
@@ -58,8 +65,15 @@ public sealed class ClusterConversionSnapshotTests : IDisposable
         var roots = await service.ExtractConversionSnapshotAsync(backup, target, default);
         Assert.Equal(2, roots.Count);
         foreach (var (host, directory) in roots)
-            Assert.Equal(host + " saved world data", File.ReadAllText(Path.Combine(directory, "nodes/regular/data/cluster/saves/P-0001/save.mps")));
+            Assert.Equal(host + " saved world data" + new string('.', 5000), File.ReadAllText(Path.Combine(directory, "nodes/regular/data/cluster/saves/P-0001/save.mps")));
         Assert.Equal(2, (await service.ExtractConversionSnapshotAsync(backup, target, default)).Count);
+        if (deduplicated)
+        {
+            Assert.False(File.Exists(Path.Combine(backupRoot, Hash(Encoding.UTF8.GetBytes("host-1")) + ".tar")));
+            File.Delete(Directory.EnumerateFiles(Path.Combine(Path.GetDirectoryName(backupRoot)!, ClusterBackupStore.Objects), "*", SearchOption.AllDirectories).First());
+            await Assert.ThrowsAsync<InvalidDataException>(() => service.ExtractConversionSnapshotAsync(backup, target, default));
+            return;
+        }
         string retained = Path.Combine(backupRoot, Hash(Encoding.UTF8.GetBytes("host-1")) + ".tar");
         Assert.Equal(snapshots[0].ArchiveSha256, Hash(File.ReadAllBytes(retained)));
         File.AppendAllText(retained, "corruption");
