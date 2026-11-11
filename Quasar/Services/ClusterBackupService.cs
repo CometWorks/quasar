@@ -12,10 +12,41 @@ namespace Quasar.Services;
 public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClient hosts, ClusterOperationStore operations,
     ClusterDeploymentService deployments, WebServiceOptions options, QuasarBackupSettingsService settings, ClusterGatewayClient gateway,
     ILogger<ClusterBackupService>? logger = null, ClusterDependencyService? dependencies = null,
-    ClusterCredentialStore? credentials = null, QuasarConfigProfileCatalog? profiles = null)
+    ClusterCredentialStore? credentials = null, QuasarConfigProfileCatalog? profiles = null,
+    IHostApplicationLifetime? lifetime = null)
 {
-    // A failed scheduled capture is tried again this long after its failure.
+    // A failed scheduled capture is tried again this long after its failure. One a Quasar stop interrupted
+    // is tried again as soon as Quasar is back.
     internal TimeSpan ScheduledRetryDelay { get; init; } = TimeSpan.FromHours(1);
+    // SE-1351: shared with the updater, so a planned restart and a backup never overlap.
+    internal string? BackupLeasePath { get; init; }
+    private string LeasePath => BackupLeasePath ?? Quasar.Updates.ClusterBackupLease.DefaultPath;
+    private CancellationToken Stopping => lifetime?.ApplicationStopping ?? CancellationToken.None;
+    private readonly object _leaseGate = new();
+    private FileStream? _lease;
+    private int _leaseUsers;
+
+    // Backups in this process share one hold of the lease; null while the updater holds it.
+    private IDisposable? EnterBackupLease()
+    {
+        lock (_leaseGate)
+        {
+            if (_leaseUsers == 0 && (_lease = Quasar.Updates.ClusterBackupLease.TryAcquire(LeasePath)) is null) return null;
+            _leaseUsers++;
+            return new LeaseUse(this);
+        }
+    }
+
+    private sealed class LeaseUse(ClusterBackupService owner) : IDisposable
+    {
+        private int _disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            lock (owner._leaseGate)
+                if (--owner._leaseUsers == 0) { owner._lease!.Dispose(); owner._lease = null; }
+        }
+    }
     private static readonly TimeSpan GatewayStepTimeout = TimeSpan.FromMinutes(10);
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _unreadable = new();
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
@@ -91,10 +122,20 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
 
     internal Task CaptureDueAsync(CancellationToken token) => CaptureDueAsync(settings.GetSettings(), token);
 
-    internal async Task CaptureDueAsync(QuasarBackupSettings current, CancellationToken token)
+    internal async Task CaptureDueAsync(QuasarBackupSettings current, CancellationToken stoppingToken)
     {
         var rule = current.Server;
         if (!rule.Enabled) return;
+        // The updater holds the lease while it restarts Quasar: the backups wait for the next pass.
+        using var lease = EnterBackupLease();
+        if (lease is null)
+        {
+            logger?.LogInformation("Scheduled cluster backups wait: Quasar is restarting for an update.");
+            return;
+        }
+        // A Quasar stop interrupts the capture at once instead of letting it fail half way through shutdown.
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, Stopping);
+        var token = linked.Token;
         foreach (var cluster in catalog.GetClusters())
         {
             if (cluster.ActiveDeployment is null || cluster.PendingDeploymentHash is not null || cluster.PendingRestoreHash is not null
@@ -111,7 +152,8 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                 // Stable within the lifecycle: a lost response does not capture another cut.
                 // A failed capture keeps its snapshot ID but is retried under a new operation key.
                 var id = new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster.GetLifecycleId() + ":" + rule.LastBackupUtc))[..16]);
-                string key = operations.AttemptKey(cluster.UniqueName, "cluster.backup.create", "scheduled-" + id.ToString("N"), ScheduledRetryDelay);
+                string key = operations.AttemptKey(cluster.UniqueName, "cluster.backup.create", "scheduled-" + id.ToString("N"), ScheduledRetryDelay,
+                    retryCancelledAtOnce: true);
                 bool replay = operations.Find(cluster.UniqueName, "cluster.backup.create", key) is not null;
                 var result = await CaptureAsync(cluster.UniqueName,
                     new(id, AllowCrashConsistent: online, Automatic: true, Online: online), key, "backup-scheduler",
@@ -120,7 +162,12 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                     logger?.LogError("Scheduled backup of cluster {Cluster} failed: {Code}: {Message}", cluster.UniqueName, result.Error?.Code, result.Error?.Message);
                 if (result.State == ClusterOperationState.Succeeded) Prune(cluster.UniqueName, rule.RetentionCount);
             }
-            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) when (Stopping.IsCancellationRequested)
+            {
+                logger?.LogInformation("Scheduled backup of cluster {Cluster} was interrupted by a Quasar stop; it is retried once Quasar is back.", cluster.UniqueName);
+                return;
+            }
             // One cluster's failure must not skip the scheduled backups of the others.
             catch (Exception error)
             {
@@ -144,8 +191,13 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         }
     }
 
-    public Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor, CancellationToken token) =>
-        CaptureAsync(clusterId, request, key, actor, request.Online ? settings.GetSettings().OnlineClusterMiBPerSecond * 1024L * 1024 : 0, token);
+    public async Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor, CancellationToken token)
+    {
+        using var lease = EnterBackupLease()
+            ?? throw new InvalidOperationException("Quasar is restarting for an update. Take the backup once it is back.");
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, Stopping);
+        return await CaptureAsync(clusterId, request, key, actor, request.Online ? settings.GetSettings().OnlineClusterMiBPerSecond * 1024L * 1024 : 0, linked.Token);
+    }
 
     internal Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor,
         long bytesPerSecond, CancellationToken token) =>
@@ -261,6 +313,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
         string artifactId = copy.Result?.GetValueOrDefault("artifactId") ?? throw new InvalidDataException("The Gateway's registry copy has no artifact.");
         Directory.CreateDirectory(Root(cluster.UniqueName));
         string staging = Path.Combine(Root(cluster.UniqueName), ".capture-" + request.SnapshotId.ToString("N"));
+        bool stored = false;
         try
         {
             var descriptor = (await gateway.GetArtifactAsync(cluster, artifactId, token)).Data;
@@ -293,16 +346,25 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             await File.WriteAllBytesAsync(Path.Combine(staging, "backup.json"), JsonSerializer.SerializeToUtf8Bytes(backup, Json), token);
             Verify(staging, cluster.UniqueName);
             Directory.Move(staging, destination);
+            stored = true;
             await ReleaseHostCopiesAsync(backup, token);
             return backup;
+        }
+        // SE-1351: a Quasar stop can break the Host request before the token says so (a tunnel closing), which
+        // read as host_timeout. It is an interruption: the scheduler retries it once Quasar is back.
+        catch (Exception error) when (!stored && error is not OperationCanceledException && Stopping.IsCancellationRequested)
+        {
+            throw new OperationCanceledException("Quasar stopped during the backup.", error, Stopping);
         }
         finally
         {
             if (Directory.Exists(staging)) Directory.Delete(staging, true);
             try
             {
-                await gateway.MutateAsync(cluster, "artifacts/" + Uri.EscapeDataString(artifactId), HttpMethod.Delete, null,
-                    gatewayKey + "-release", CancellationToken.None);
+                // SE-1351: only a stored, verified backup tells the Gateway it is done; that time runs the nodes'
+                // bot ship cleanup. A failed or interrupted copy only ends the retention hold.
+                await gateway.MutateAsync(cluster, "artifacts/" + Uri.EscapeDataString(artifactId) + (stored ? "?backup=stored" : ""),
+                    HttpMethod.Delete, null, gatewayKey + (stored ? "-release-stored" : "-release"), CancellationToken.None);
             }
             // It expires on its own; a cluster stopped during the copy cannot release it now.
             catch (Exception error) when (error is ClusterGatewayException or HttpRequestException or TaskCanceledException)

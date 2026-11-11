@@ -1,7 +1,9 @@
+extern alias Updater;
 using System.Net.Http.Json;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using CometWorks.ClusterGateway.AdminContract.V1;
 using Quasar.Host.Contract.V1;
@@ -353,9 +355,10 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.True(backup.Online);
         Assert.True(backup.Automatic);
         Assert.Equal(CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.CrashConsistent, backup.Consistency);
-        // save-all pins the saves, the registry copy comes next, the Hosts copy after it, then the copy is released.
+        // save-all pins the saves, the registry copy comes next, the Hosts copy after it, then the copy is released
+        // as a stored backup: SE-1351, that release runs the nodes' bot ship cleanup.
         Assert.Equal(["POST /admin/v1/save-all", "POST /admin/v1/registry-backups", "GET /admin/v1/artifacts/registry-r1",
-            "host one", "host two", "DELETE /admin/v1/artifacts/registry-r1"],
+            "host one", "host two", "DELETE /admin/v1/artifacts/registry-r1?backup=stored"],
             gatewayHandler.Calls.Where(c => !c.StartsWith("GET /admin/v1/capabilities") && !c.StartsWith("GET /admin/v1/status")));
         Assert.Equal(["one", "two"], handler.Captures.Select(c => c.Host));
         Assert.All(handler.Captures, c => Assert.True(c.Request.Online && c.Request.BytesPerSecond == 8L * 1024 * 1024));
@@ -363,6 +366,113 @@ public sealed class ClusterDeploymentTests : IDisposable
             (handler.Captures[0].Request.RegistryArtifactId, handler.Captures[0].Request.RegistrySha256));
         Assert.Null(handler.Captures[1].Request.RegistryArtifactId);
         Assert.NotEqual(catalog.GetCluster("demo")!.GetLifecycleId(), handler.Captures[0].Request.CaptureFence);
+    }
+
+    // SE-1351: a planned Quasar restart stopped the service during an online capture. The Host request broke
+    // (host_timeout), and the release in the finally block moved the Gateway's backup time: the bot ship cleanup
+    // removed ships against a backup that was never stored.
+    [Fact]
+    public async Task PlannedRestartDuringOnlineCaptureReleasesTheHoldWithoutBackupTimeAndRetriesAfterRestart()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler);
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true }, OnlineClusterMiBPerSecond = 8 };
+        string lease = Path.Combine(root, "restart-lease", "cluster-backup.lock");
+        ClusterBackupService Quasar(StopLifetime lifetime) => new(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "restart-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "restart-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler)), lifetime: lifetime) { BackupLeasePath = lease };
+
+        // The service stops while the Gateway Host copies; its tunnel drops the request.
+        var stopping = new StopLifetime();
+        var observed = handler.CaptureObserved!;
+        handler.CaptureObserved = host => { observed(host); stopping.StopApplication(); throw new TaskCanceledException("tunnel closed"); };
+        var before = Quasar(stopping);
+        await before.CaptureDueAsync(settings, default);
+
+        Assert.Empty(before.List("demo"));
+        var interrupted = Assert.Single(new ClusterOperationStore(Path.Combine(root, "restart-operations")).GetRecent(["demo"], 10));
+        Assert.Equal((ClusterOperationState.Failed, "operation_cancelled"), (interrupted.State, interrupted.Error!.Code));
+        // The registry copy's hold is still released, but not as a stored backup.
+        Assert.Equal("DELETE /admin/v1/artifacts/registry-r1", gatewayHandler.Calls.Last());
+
+        // Quasar is back: the backup is retried at once, not an hour later, and only it counts as done.
+        handler.CaptureObserved = observed;
+        gatewayHandler.Calls.Clear();
+        var after = Quasar(new StopLifetime());
+        await after.CaptureDueAsync(settings, default);
+
+        Assert.True(Assert.Single(after.List("demo")).Online);
+        Assert.Equal("DELETE /admin/v1/artifacts/registry-r1?backup=stored", gatewayHandler.Calls.Last());
+        Assert.Single(gatewayHandler.Calls, c => c.StartsWith("DELETE"));
+    }
+
+    // SE-1351: the updater holds the backup lease from just before it stops Quasar until the new release is healthy.
+    [Fact]
+    public async Task ScheduledBackupWaitsForAPlannedRestart()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler);
+        string lease = Path.Combine(root, "deferred-lease", "cluster-backup.lock");
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "deferred-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "deferred-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler))) { BackupLeasePath = lease };
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true }, OnlineClusterMiBPerSecond = 8 };
+
+        using (var restart = global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease))
+        {
+            Assert.NotNull(restart);
+            await backups.CaptureDueAsync(settings, default);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => backups.CaptureAsync("demo",
+                new ClusterBackupRequest(Guid.NewGuid(), AllowCrashConsistent: true, Online: true), "manual", "test", default));
+            Assert.Empty(gatewayHandler.Calls);
+            Assert.Empty(handler.Captures);
+            Assert.Empty(new ClusterOperationStore(Path.Combine(root, "deferred-operations")).GetRecent(["demo"], 10));
+        }
+
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Single(backups.List("demo"));
+    }
+
+    // SE-1351: a restart waits for a running backup within a bound, then goes ahead and interrupts it.
+    [Fact]
+    public async Task PlannedRestartWaitsForARunningBackupWithinABound()
+    {
+        string lease = Path.Combine(root, "updater-lease", "cluster-backup.lock");
+        var installation = new Updater::Quasar.Updates.QuasarServiceInstallation { InstallDirectory = root, DataDirectory = root };
+        var operation = new Updater::Quasar.Updates.QuasarUpdateOperation { Id = Guid.NewGuid(), Version = "1.0.0" };
+        Updater::QuasarUpdater Updater(TimeSpan wait) => new(installation, NullLogger<Updater::QuasarUpdater>.Instance)
+            { BackupLeasePath = lease, BackupWait = wait };
+
+        var backup = global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease)!;
+        var waiting = Updater(TimeSpan.FromSeconds(30)).AcquireBackupLeaseAsync(operation, default);
+        await Task.Delay(300);
+        Assert.False(waiting.IsCompleted);
+        backup.Dispose(); // the backup finished
+        using (var restart = await waiting)
+        {
+            Assert.NotNull(restart);
+            Assert.Null(global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease)); // a due backup waits now
+        }
+
+        using (global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease))
+            Assert.Null(await Updater(TimeSpan.FromSeconds(1)).AcquireBackupLeaseAsync(operation, default));
+    }
+
+    private sealed class StopLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _stopping = new();
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() => _stopping.Cancel();
     }
 
     [Fact]
@@ -462,7 +572,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string path = request.RequestUri!.AbsolutePath;
-            Calls.Add(request.Method + " " + path);
+            Calls.Add(request.Method + " " + request.RequestUri.PathAndQuery);
             AdminOperation Done(string kind, Dictionary<string, string> result) => new(kind + "-1", kind, AdminOperationState.Succeeded, "quasar",
                 request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, result, null);
             object data = path switch

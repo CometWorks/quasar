@@ -2321,7 +2321,14 @@ Retention keeps the newest **Keep last N per server** automatic backups of a clu
 plus its newest `Quiescent` one. An online backup holds no lifecycle lock, so stopping
 the cluster, even by emergency shutdown, never waits for it; Hosts refuse to activate or
 restore a cluster while they copy it. A failed scheduled capture is logged and retried
-after an hour. A manual online backup is `cluster backup NAME REQUEST.json` with
+after an hour. Backups and planned Quasar restarts (updates, restart-only operations) take
+turns through `cluster-backup.lock` in the Quasar directory: the updater waits up to 30
+minutes for a running backup before it stops Quasar, and backups that fall due during the
+restart wait until the new release is healthy. A capture a Quasar stop interrupts anyway
+is recorded as `operation_cancelled` and retried as soon as Quasar is back. Only a stored
+and verified online backup releases the Gateway's registry copy with `?backup=stored`,
+which sets the time the nodes' bot ship cleanup runs against; a failed or interrupted one
+only ends the copy's retention hold. A manual online backup is `cluster backup NAME REQUEST.json` with
 `{"snapshotId":"NEW-UUID","allowCrashConsistent":true,"online":true}`, or **Back up running
 cluster** in the deployment panel. Manual
 native backups and archived vanilla exports are retained. Snapshot capture IDs bind
