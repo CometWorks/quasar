@@ -610,15 +610,20 @@ internal static class Program
                 RunRoot = Path.Combine(root, "exiting-run"), StartGeneration = Guid.NewGuid(),
             };
             var exitingGateway = new GatewayActualizer(Path.Combine(root, "exiting-state"), "host-a");
+            // Under load the bundle preparation can outlast its wait (Missing) and the child its start (Running),
+            // so wait for the exit itself rather than a fixed window.
             HostContract.GatewayStatus exited = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
-            for (int poll = 0; poll < 100 && exited.Observed == HostContract.GatewayObservedState.Running; poll++)
+            var exitDeadline = Stopwatch.StartNew();
+            while (exited.Observed != HostContract.GatewayObservedState.Failed && exitDeadline.Elapsed < TimeSpan.FromSeconds(60))
             {
                 await Task.Delay(100);
                 exited = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
             }
             HostContract.GatewayStatus respawnWait = await exitingGateway.ReconcileAsync(exitingSpec, CancellationToken.None);
             if (exited.LaunchAttempts != 1 || respawnWait.LaunchAttempts != 1)
-                throw new InvalidOperationException("self-test Gateway launch attempts were not reported");
+                throw new InvalidOperationException("self-test Gateway launch attempts were not reported: "
+                    + $"{exited.Observed} {exited.LaunchAttempts?.ToString() ?? "-"}, "
+                    + $"{respawnWait.Observed} {respawnWait.LaunchAttempts?.ToString() ?? "-"} ({respawnWait.Failure})");
             string[] lastLines = exited.Output ?? [];
             if (exited.Observed != HostContract.GatewayObservedState.Failed
                 || exited.Failure != "process_exited:exit_code=3"
