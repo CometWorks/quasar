@@ -279,7 +279,9 @@ internal static class ClusterBackupStore
                 {
                     string sha = Convert.ToHexString(_records.ReadBytes(32)).ToLowerInvariant();
                     _left = _records.ReadInt64();
-                    _object = File.OpenRead(ObjectPath(clusterRoot, sha));
+                    string path = ObjectPath(clusterRoot, sha);
+                    if (!File.Exists(path)) throw new InvalidDataException($"Backup object {sha} is missing.");
+                    _object = File.OpenRead(path);
                     if (_object.Length != _left) throw new InvalidDataException($"Backup object {sha} has the wrong size.");
                 }
                 else if (kind == Raw) _left = _records.ReadInt64();

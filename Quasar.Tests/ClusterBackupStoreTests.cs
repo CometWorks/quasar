@@ -149,6 +149,6 @@ public sealed class ClusterBackupStoreTests : IDisposable
         Store("first", archive);
         string path = Assert.Single(Objects());
         File.Delete(path);
-        Assert.ThrowsAny<IOException>(() => Read("first"));
+        Assert.Throws<InvalidDataException>(() => Read("first"));
     }
 }
