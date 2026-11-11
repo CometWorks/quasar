@@ -54,9 +54,74 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
     private string Root(string cluster) => Root(options.BackupDirectory, cluster);
     internal static string Root(string backupDirectory, string cluster) => Path.Combine(backupDirectory, "Clusters", Convert.ToHexString(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster))));
     public ClusterBackup[] List(string cluster) => !Directory.Exists(Root(cluster)) ? []
-        : Directory.EnumerateFiles(Root(cluster), "backup.json", SearchOption.AllDirectories)
-            .Where(p => !Path.GetFileName(Path.GetDirectoryName(p)!).StartsWith('.'))
+        : Directory.EnumerateDirectories(Root(cluster)).Where(p => !Path.GetFileName(p).StartsWith('.'))
+            .Select(p => Path.Combine(p, "backup.json")).Where(File.Exists)
             .Select(TryRead).OfType<ClusterBackup>().OrderByDescending(b => b.CreatedAt).ToArray();
+
+    // SE-1349: one writer at a time per cluster's object store. A capture adds objects and their references
+    // under it, a collection removes unreferenced objects under it, and a restore reads objects under it.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> _stores = new(StringComparer.Ordinal);
+    private SemaphoreSlim Store(string cluster) => _stores.GetOrAdd(cluster, _ => new SemaphoreSlim(1, 1));
+
+    // Streams a Host's archive into the cluster's object store: the files no backup of the cluster has yet become
+    // objects, the rest of the archive its skeleton. Nothing is written for content the store already has.
+    private async Task StoreArchiveAsync(ClusterDefinition target, HostContract.HostSnapshot snapshot, string path, CancellationToken token)
+    {
+        string root = Root(target.UniqueName);
+        var gate = Store(target.UniqueName);
+        await gate.WaitAsync(token);
+        try
+        {
+            var pipe = new System.IO.Pipelines.Pipe();
+            using var abort = CancellationTokenSource.CreateLinkedTokenSource(token);
+            var stored = Task.Run(() =>
+            {
+                try
+                {
+                    using var input = pipe.Reader.AsStream();
+                    return ClusterBackupStore.Write(root, path, input);
+                }
+                catch { abort.Cancel(); throw; } // No point in downloading the rest.
+            }, CancellationToken.None);
+            try
+            {
+                await hosts.TransferSnapshotAsync(target, snapshot, path, false, abort.Token, pipe.Writer.AsStream(leaveOpen: true));
+                await pipe.Writer.CompleteAsync();
+            }
+            catch (Exception error)
+            {
+                await pipe.Writer.CompleteAsync(error);
+                Exception? storing = null;
+                try { await stored; }
+                catch (Exception failure) { storing = failure; }
+                // A store failure cancelled the download: report the store's error, else the download's.
+                if (storing is not null && error is OperationCanceledException && !token.IsCancellationRequested)
+                    System.Runtime.ExceptionServices.ExceptionDispatchInfo.Throw(storing);
+                throw;
+            }
+            var (bytes, sha256) = await stored;
+            if (bytes != snapshot.ArchiveBytes || !sha256.Equals(snapshot.ArchiveSha256, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidDataException("The stored snapshot does not match the Host's archive.");
+        }
+        finally { gate.Release(); }
+    }
+
+    // Objects that no retained backup refers to any more go; run after backups were deleted.
+    private void CollectObjects(string clusterId)
+    {
+        var gate = Store(clusterId);
+        gate.Wait();
+        try
+        {
+            long freed = ClusterBackupStore.Collect(Root(clusterId));
+            if (freed > 0) logger?.LogInformation("Cluster {Cluster} backups: removed {MiB} MiB of content no backup refers to.", clusterId, freed / (1024 * 1024));
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            logger?.LogWarning(error, "Cluster {Cluster} backups: unreferenced content was not removed; the next pruning tries again.", clusterId);
+        }
+        finally { gate.Release(); }
+    }
 
     // One unreadable manifest must not break listing, scheduling and retention for the cluster's other backups.
     private ClusterBackup? TryRead(string path)
@@ -149,6 +214,10 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             {
                 rule.LastBackupUtc = List(cluster.UniqueName).Where(b => b.Automatic).Select(b => (DateTimeOffset?)b.CreatedAt).FirstOrDefault();
                 if (!AutomaticBackupService.IsDue(rule, DateTimeOffset.UtcNow)) continue;
+                // SE-1349: nothing changes a stopped cluster without changing its lifecycle, so the newest backup
+                // of this same stop already holds what another one would.
+                if (offline && List(cluster.UniqueName).FirstOrDefault(b => b.Automatic) is { } newest
+                    && newest.Deployment.GetLifecycleId() == cluster.GetLifecycleId()) continue;
                 // Stable within the lifecycle: a lost response does not capture another cut.
                 // A failed capture keeps its snapshot ID but is retried under a new operation key.
                 var id = new Guid(SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(cluster.GetLifecycleId() + ":" + rule.LastBackupUtc))[..16]);
@@ -189,6 +258,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
             Quasar.ClusterDeployment.ClusterStorageActivity.MarkChanged(); // Its references are gone: collect after this workflow.
         }
+        CollectObjects(clusterId);
     }
 
     public async Task<ClusterOperation> CaptureAsync(string clusterId, ClusterBackupRequest request, string key, string actor, CancellationToken token)
@@ -220,6 +290,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             Directory.Delete(Path.Combine(Root(clusterId), old.SnapshotId.ToString("N")), true);
             Quasar.ClusterDeployment.ClusterStorageActivity.MarkChanged();
         }
+        CollectObjects(clusterId);
     }
 
     internal async Task<ClusterBackup> CaptureCoreAsync(ClusterDefinition cluster, ClusterBackupRequest request, CancellationToken token,
@@ -260,7 +331,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                     || snapshot.SnapshotId != request.SnapshotId || snapshot.Revision != cluster.ActiveDeployment.Revision
                     || snapshot.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
                     throw new InvalidDataException("Host snapshot does not match the stopped deployment.");
-                await hosts.TransferSnapshotAsync(target, snapshot, Path.Combine(staging, FileName(snapshot.HostId)), false, token);
+                await StoreArchiveAsync(target, snapshot, Path.Combine(staging, FileName(snapshot.HostId)), token);
                 snapshots.Add(snapshot);
             }
             var backup = new ClusterBackup(request.SnapshotId, cluster.UniqueName, DateTimeOffset.UtcNow,
@@ -338,7 +409,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                     || snapshot.SnapshotId != request.SnapshotId || snapshot.Revision != cluster.ActiveDeployment.Revision
                     || snapshot.BundleManifestSha256 != host.Deployment.BundleManifestSha256)
                     throw new InvalidDataException("Host snapshot does not match the running deployment.");
-                await hosts.TransferSnapshotAsync(target, snapshot, Path.Combine(staging, FileName(snapshot.HostId)), false, token);
+                await StoreArchiveAsync(target, snapshot, Path.Combine(staging, FileName(snapshot.HostId)), token);
                 snapshots.Add(snapshot);
             }
             var backup = new ClusterBackup(request.SnapshotId, cluster.UniqueName, DateTimeOffset.UtcNow,
@@ -403,7 +474,7 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             string root = Path.Combine(destination, Path.GetFileNameWithoutExtension(FileName(host.HostId)));
             if (Directory.Exists(root)) Directory.Delete(root, true); // Derived copy of the retained verified backup.
             Directory.CreateDirectory(root);
-            using var input = File.OpenRead(Path.Combine(source, FileName(host.HostId)));
+            using var input = ClusterBackupStore.Open(Root(backup.ClusterId), Path.Combine(source, FileName(host.HostId)));
             using var reader = new System.Formats.Tar.TarReader(input);
             var seen = new HashSet<string>(StringComparer.Ordinal);
             long total = 0;
@@ -574,7 +645,14 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
                 throw new InvalidDataException("Restore cannot relocate Hosts.");
             var target = Target(cluster, host);
             var snapshot = backup.Hosts.Single(h => h.HostId == host.HostId);
-            await hosts.TransferSnapshotAsync(target, snapshot, Path.Combine(directory, FileName(host.HostId)), true, token);
+            var gate = Store(cluster.UniqueName);
+            await gate.WaitAsync(token);
+            try
+            {
+                await using var archive = ClusterBackupStore.Open(Root(cluster.UniqueName), Path.Combine(directory, FileName(host.HostId)));
+                await hosts.TransferSnapshotAsync(target, snapshot, Path.Combine(directory, FileName(host.HostId)), true, token, archive);
+            }
+            finally { gate.Release(); }
             var restore = new HostContract.HostSnapshotRestore(cluster.UniqueName, request.RestoreId, request.SnapshotId,
                 snapshot.ArchiveSha256, candidate.Activation.BundleManifestPath, candidate.Activation.BundleManifestSha256,
                 candidate.Activation.ExecutorTokenEnvironmentVariable);
@@ -611,9 +689,13 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             throw new InvalidDataException("Backup identity or inventory is invalid.");
         foreach (var host in backup.Hosts)
         {
-            string path = Path.Combine(directory, FileName(host.HostId));
-            using var input = File.OpenRead(path);
-            if (input.Length != host.ArchiveBytes || !Convert.ToHexString(SHA256.HashData(input)).Equals(host.ArchiveSha256, StringComparison.OrdinalIgnoreCase))
+            // A tar file before SE-1349, a skeleton and the cluster's objects since.
+            using var input = ClusterBackupStore.Open(Path.GetDirectoryName(Path.GetFullPath(directory))!, Path.Combine(directory, FileName(host.HostId)));
+            using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+            byte[] buffer = new byte[1024 * 1024];
+            long length = 0;
+            for (int read; (read = input.Read(buffer)) > 0; length += read) hash.AppendData(buffer, 0, read);
+            if (length != host.ArchiveBytes || !Convert.ToHexString(hash.GetHashAndReset()).Equals(host.ArchiveSha256, StringComparison.OrdinalIgnoreCase))
                 throw new InvalidDataException("Backup archive checksum mismatch.");
         }
         return backup;

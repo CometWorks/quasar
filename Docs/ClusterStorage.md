@@ -128,6 +128,27 @@ managed update and the backup a conversion takes are recorded with their purpose
 (`purpose`: `update` or `conversion`) and Quasar keeps the newest 3 of each per cluster.
 Backups taken before this, and manual backups, stay for as long as the cluster exists.
 
+A stopped cluster gets one scheduled backup per stop: while its lifecycle has not changed since
+the newest automatic backup, the scheduler skips it, since nothing could have changed the runtime.
+
+All backups of a cluster share one content-addressed store (SE-1349). Quasar streams each Host's
+archive into it as it downloads it: every file of 4 KiB or more becomes an object under
+`.objects/<first two hex digits>/<sha256>` in the cluster's backup folder, written only when the
+store does not have it yet. What is left of the archive, its tar headers, small files and the
+Host's `snapshot.json`, goes gzipped into `<host>.tar.skeleton` in the backup's folder, next to
+`<host>.tar.objects`, the list of objects it refers to. The skeleton rebuilds the Host's archive
+byte for byte, so `backup.json` keeps its SHA-256 and size, every read checks them, and a restore
+uploads the same archive the Host sent. Bytes that do not parse as tar stay in the skeleton as
+they are. After pruning, Quasar deletes the objects no backup's list names; the staging folder of
+a capture in progress counts too. One capture, collection or restore upload at a time uses a
+cluster's store. Backups taken before this kept the archive as `<host>.tar`; they are read and
+restored as before. An older Quasar cannot read the new format, so it cannot restore these
+backups.
+
+On copies of five octahedron-test backups of 2026-11-11 (two online, three stopped, 43.9 GB of
+tar), the store took 5.7 GB: the first backup added 4.9 GB of objects and each later one
+0.03-0.27 GB plus a 16 MB skeleton.
+
 ## Combined updates and transfer
 
 Staging a release with queued content builds one candidate using the selected release,

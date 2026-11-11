@@ -145,6 +145,8 @@ Quasar also backs up a cluster before each managed update and before converting 
 
 A cluster backup holds the world, the saves and the cluster's own state. It leaves out what a restore deploys again from the backup's recorded deployment: Workshop mods, the plugins Quasar prepared for each node, Magnetar's patched game files, caches and logs. A restore prepares that deployment anew, so it brings them back, and the restored cluster starts with the same plugins and mods.
 
+A cluster's backups share their content: each file is stored once, and a new backup adds only the files that changed since the backups already kept. An hourly backup of a running cluster then takes a few hundred MB instead of the whole cluster. While a cluster stays stopped it gets one scheduled backup, not one an hour. When retention deletes a backup, the content no other backup uses is freed. Don't move or delete files inside a cluster's backup folder by hand: the `.objects` folder there belongs to all of its backups.
+
 Cluster backups are stored under `<backup folder>/Clusters/<hash of the cluster name>/<snapshot id>/` and do not appear in the **Stored backups** table. Conversion receipts and working copies live in `<backup folder>/Conversions/<id>/` and stay until you remove them. Restoring a cluster and taking manual cluster backups happen from the cluster's own page. See [Clusters](Clusters.md).
 
 ## Common problems
