@@ -394,6 +394,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-layout > .quasar-page-heading { flex: 1; }
 .quasar-text { margin: 0; line-height: 1.6; overflow-wrap: anywhere; }
 .quasar-timestamp { white-space: nowrap; }
+.quasar-stacked-timestamp { display: inline-block; white-space: pre; }
 .quasar-type-caption { font-size: 11px; }
 .quasar-type-overline { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; }
 .quasar-type-body1, .quasar-type-body2 { font-size: 13px; }

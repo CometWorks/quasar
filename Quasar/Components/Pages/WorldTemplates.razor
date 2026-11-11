@@ -11,7 +11,6 @@
 @inject ServerManagementActions ServerActions
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
-@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Worlds</PageTitle>
 <QuasarPageHeading Section="Configuration">
@@ -87,7 +86,7 @@
                                 <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">missing</MudChip>
                             }
                         </MudTd>
-                        <MudTd DataLabel="Updated">@ViewerTime.Format(context.Template.UpdatedAtUtc)</MudTd>
+                        <MudTd DataLabel="Updated"><QuasarStackedTimestamp Value="@context.Template.UpdatedAtUtc" /></MudTd>
                         <MudTd DataLabel="Name">@context.Template.Name</MudTd>
                         <MudTd DataLabel="Description">@context.Template.Description</MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">

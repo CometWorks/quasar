@@ -38,8 +38,14 @@
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Content">@context.Name <span class="quasar-text quasar-type-caption">@context.Kind · @context.Id</span></MudTd>
-                    <MudTd DataLabel="Active pin / first observed">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</MudTd>
-                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<span class="quasar-text quasar-type-caption quasar-timestamp">@ViewerTime.Format(context.ObservedAt, "")</span></MudTd>
+                    <MudTd DataLabel="Active pin / first observed"><span class="quasar-stacked-timestamp">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</span></MudTd>
+                    <MudTd DataLabel="Latest observed">
+                        <span class="quasar-stacked-timestamp">@Version(context, context.LatestVersion)</span>
+                        @if (context.ObservedAt is { } observed)
+                        {
+                            <div class="quasar-text quasar-type-caption"><QuasarStackedTimestamp Value="@observed" /></div>
+                        }
+                    </MudTd>
                     <MudTd DataLabel="Status">
                         @if (context.Error is not null)
                         {
@@ -122,6 +128,6 @@
     {
         if (value is null) return "Unknown";
         return item.Kind == "mod" && long.TryParse(value, out long timestamp) && timestamp is >= 0 and <= 253402300799
-            ? ViewerTime.Format(DateTimeOffset.FromUnixTimeSeconds(timestamp)) : value;
+            ? ViewerTime.FormatStacked(DateTimeOffset.FromUnixTimeSeconds(timestamp)) : value;
     }
 }

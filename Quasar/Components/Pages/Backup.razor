@@ -13,7 +13,6 @@
 @inject IDialogService DialogService
 @inject IJSRuntime JS
 @inject IServiceProvider Services
-@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Backups</PageTitle>
 
@@ -414,7 +413,7 @@
                             <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                         </HeaderContent>
                         <RowTemplate>
-                            <MudTd DataLabel="Created">@ViewerTime.Format(context.CreatedAtUtc)</MudTd>
+                            <MudTd DataLabel="Created"><QuasarStackedTimestamp Value="@context.CreatedAtUtc" /></MudTd>
                             <MudTd DataLabel="Type">@FormatBackupType(context)</MudTd>
                             <MudTd DataLabel="Server">@(context.ServerDisplayName ?? context.ServerUniqueName ?? "-")</MudTd>
                             <MudTd DataLabel="Size">@FormatSize(context.SizeBytes)</MudTd>
