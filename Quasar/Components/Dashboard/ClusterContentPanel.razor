@@ -39,7 +39,7 @@
                 <RowTemplate>
                     <MudTd DataLabel="Content">@context.Name <span class="quasar-text quasar-type-caption">@context.Kind · @context.Id</span></MudTd>
                     <MudTd DataLabel="Active pin / first observed">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</MudTd>
-                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<span class="quasar-text quasar-type-caption">@ViewerTime.Format(context.ObservedAt, "")</span></MudTd>
+                    <MudTd DataLabel="Latest observed">@Version(context, context.LatestVersion)<span class="quasar-text quasar-type-caption quasar-timestamp">@ViewerTime.Format(context.ObservedAt, "")</span></MudTd>
                     <MudTd DataLabel="Status">
                         @if (context.Error is not null)
                         {

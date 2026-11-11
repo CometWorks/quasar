@@ -11,7 +11,8 @@ namespace Quasar.Services;
 /// </summary>
 public sealed class ViewerTimeZone
 {
-    public const string Pattern = "yyyy-MM-dd HH:mm:ss";
+    // Non-breaking hyphens and spaces keep the timestamp together in UI text.
+    public const string Pattern = "yyyy\u2011MM\u2011dd\u00A0HH:mm:ss";
 
     public TimeZoneInfo? Zone { get; private set; }
 
@@ -56,7 +57,7 @@ public sealed class ViewerTimeZone
 
     internal static string Format(DateTimeOffset value, TimeZoneInfo? zone) =>
         zone is null
-            ? value.UtcDateTime.ToString(Pattern, CultureInfo.InvariantCulture) + " UTC"
+            ? value.UtcDateTime.ToString(Pattern, CultureInfo.InvariantCulture) + "\u00A0UTC"
             : TimeZoneInfo.ConvertTime(value, zone).ToString(Pattern, CultureInfo.InvariantCulture);
 
     /// <summary>
