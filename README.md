@@ -60,6 +60,7 @@ to choose self-hosted access or Nebula hosting. Completed setup is remembered.
 | [World import](Docs/WorldImport.md) | Direct folder/ZIP import to existing servers, Worlds page, configuration choices and safety limits. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Hosted panel](Docs/HostedPanel.md) | Optional Nebula enrollment, public path URLs, connector lifecycle and current launch gates. |
+| [Player authentication](Docs/PlayerAuthentication.md) | Browser Steam/Discord linking, role-based whitelist, promotions, priority access and public website requirements. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, headless mode, browser behavior, and optional instance health notifications. |
 | [Server directory uplink](Docs/ServerList.md) | Consent, diagnostics availability, public statistics, admin authority and directory rollout requirements. |
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |

@@ -40,6 +40,7 @@ public class AgentHello
     public string PluginId { get; set; } = string.Empty;
 
     public string PluginVersion { get; set; } = string.Empty;
+    public int PlayerAccessVersion { get; set; }
 
     public int ProcessId { get; set; }
 

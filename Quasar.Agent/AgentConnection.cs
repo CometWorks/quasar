@@ -285,7 +285,7 @@ namespace Quasar.Agent
         }
 
         /// <summary>
-        /// Queues a player's <c>!ask</c> or <c>!link</c> for Quasar. Called on the game thread,
+        /// Queues a player's <c>!ask</c> or <c>!authorize</c> for Quasar. Called on the game thread,
         /// so it never waits for the socket; false when Quasar is not connected.
         /// </summary>
         public bool TrySendPlayerRequest(PlayerRequest request)

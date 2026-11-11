@@ -1,5 +1,11 @@
 # Hosted public access with Nebula
 
+Active hosting can also supply the public website for
+[player authentication](PlayerAuthentication.md). Configure Discord OAuth on
+Quasar and register `https://dash.se-servers.net/<panel>/player-auth/signin-discord`
+as the redirect URL. Player Steam/Discord linking does not grant dashboard access.
+Pending enrollment alone does not enable this feature.
+
 Nebula provides a public URL for the complete existing Quasar application:
 `https://dash.se-servers.net/my-server-panel/`. Servers, worlds, supervision
 and credentials stay on the Quasar machine. One shared public hostname serves all

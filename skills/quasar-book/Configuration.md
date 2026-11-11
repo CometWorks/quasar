@@ -33,7 +33,8 @@ Files and folders in the data directory:
 | `dev-folders.json` | Magnetar plugin dev folders, see [Plugins](Plugins.md) |
 | `plugin-hubs.json` | Extra Magnetar plugin hubs, see [Plugins](Plugins.md#plugin-hubs) |
 | `known-players.json`, `known-player-settings.json` | Player list data |
-| `player-links.json` | Players' Discord links from `!link` and `/link`, see [Monitoring](Monitoring.md#slash-commands) |
+| `player-links.json` | Browser-authenticated Steam/Discord links and legacy links awaiting reauthentication, see [Player authentication](AccessControl.md#player-authentication) |
+| `player-access.json` | Access policies, server authorizations and encrypted Discord OAuth credentials |
 | `PushNotifications.json` | Browser push subscriptions |
 | `Magnetars/<server>/` | One folder per server: `server.json`, `DedicatedServer/`, `Magnetar/`, `History/`, `analytics.jsonl` |
 | `ConfigProfiles/`, `WorldTemplates/` | Config profiles and world templates, see [Config profiles](ConfigProfiles.md) |
@@ -129,7 +130,7 @@ Port `8080` is also the Space Engineers DS Remote API default. Quasar sets each 
 
 ### Headless mode
 
-Headless mode runs the supervisor, background jobs, HTTP APIs and the agent socket `/ws/agent`, but no web UI, UI plugins or branding assets, and no `/login`. `GET /` returns a small JSON document. Server definitions, profiles and templates are the same in both modes, so you can switch back and forth.
+Headless mode runs the supervisor, background jobs, HTTP APIs and the agent socket `/ws/agent`, but no administrator UI, UI plugins or branding assets. Steam `/login` and the public player authentication website remain available. `GET /` returns a small JSON document. Server definitions, profiles and templates are the same in both modes, so you can switch back and forth.
 
 Start it with `Quasar serve --headless`, with `QUASAR_HEADLESS=true`, or with `Quasar:Headless: true` in `appsettings.json`. `--headless` becomes the command-line setting `--Quasar:Headless=true`, so `QUASAR_HEADLESS` wins over it; `--no-headless` and `--headless=<true|false>` also work. For a service, set the key in `appsettings.json`, because the service command line is fixed.
 
@@ -352,3 +353,6 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `.env.example`
 - `Shared/Updates/BootstrapUpdateSupport.cs`
 - `Quasar/Services/Players/QuasarPlayerLinks.cs`
+
+- `Docs/PlayerAuthentication.md`
+- `Quasar/Services/Players/PlayerAccessCatalog.cs`

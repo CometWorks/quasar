@@ -49,6 +49,7 @@ public static class AdminProtocol
         "GET /admin/v1/clients",
         "GET /admin/v1/players/moderation",
         "PUT /admin/v1/players/{userId}/promotion",
+        "PUT /admin/v1/players/access",
         "DELETE /admin/v1/admission/kicks/{userId}",
         "POST /admin/v1/clients/{id}/kick",
         "GET /admin/v1/admission/bans",

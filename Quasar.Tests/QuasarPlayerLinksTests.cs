@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Quasar.Services.Players;
 using Xunit;
 
@@ -5,91 +6,72 @@ namespace Quasar.Tests;
 
 public sealed class QuasarPlayerLinksTests : IDisposable
 {
-    private const string Pilot = "76561198000000001";
-    private const string Other = "76561198000000002";
-    private readonly string _path = Path.Combine(
-        Path.GetTempPath(),
-        "player-links-" + Guid.NewGuid().ToString("N"),
-        "player-links.json"
-    );
-    private readonly Clock _clock = new();
-
-    public void Dispose()
-    {
-        try
-        {
-            Directory.Delete(Path.GetDirectoryName(_path)!, recursive: true);
-        }
-        catch (DirectoryNotFoundException) { }
-    }
-
-    private sealed class Clock : TimeProvider
-    {
-        internal DateTimeOffset Now = new(2026, 11, 5, 12, 0, 0, TimeSpan.Zero);
-
-        public override DateTimeOffset GetUtcNow() => Now;
-    }
+    private const string Pilot = "76561198000000001", Other = "76561198000000002";
+    private readonly string path = Path.Combine(Path.GetTempPath(), "player-links-" + Guid.NewGuid().ToString("N"), "player-links.json");
+    public void Dispose() { if (Directory.Exists(Path.GetDirectoryName(path))) Directory.Delete(Path.GetDirectoryName(path)!, true); }
 
     [Fact]
-    public async Task CodeLinksOnceAndExpires()
+    public async Task BrowserProofIsDurableUniqueAndDoesNotSilentlyReplaceAccounts()
     {
-        var links = new QuasarPlayerLinks(_path, _clock);
-        var code = links.IssueCode(Pilot);
-        Assert.Equal(QuasarPlayerLinks.CodeLength, code.Length);
-        Assert.DoesNotContain(code, c => "01ILO".Contains(c));
-
-        Assert.Null(await links.RedeemAsync("111", "WRONGCDE"));
-        var link = await links.RedeemAsync(
-            "111",
-            " " + code.ToLowerInvariant()[..4] + "-" + code[4..] + " "
-        );
-        Assert.Equal(Pilot, link!.SteamId);
+        var links = new QuasarPlayerLinks(path);
+        var linked = await links.AuthenticateAsync(Pilot, "111");
+        Assert.True(Guid.TryParseExact(linked.AuthenticationId, "N", out _));
+        Assert.Equal(linked, await links.AuthenticateAsync(Pilot, "111"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => links.AuthenticateAsync(Pilot, "222"));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => links.AuthenticateAsync(Other, "111"));
+        Assert.Equal(linked, new QuasarPlayerLinks(path).FindBySteamId(Pilot));
         Assert.Equal(Pilot, links.FindByDiscordUser("111")!.SteamId);
-        Assert.Null(await links.RedeemAsync("222", code)); // one-time
-
-        var late = links.IssueCode(Other);
-        _clock.Now += QuasarPlayerLinks.CodeLifetime;
-        Assert.Null(await links.RedeemAsync("222", late));
-        Assert.Throws<ArgumentException>(() => links.IssueCode("12345"));
+        if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
+        Assert.True(await links.RemoveAsync(Pilot));
+        var relinked = await links.AuthenticateAsync(Pilot, "222");
+        Assert.NotEqual(linked.AuthenticationId, relinked.AuthenticationId);
     }
 
     [Fact]
-    public async Task OnlyTheNewestCodeOfAPlayerWorks()
+    public async Task LegacyLinksRemainVisibleButCannotIdentifyPlayersUntilBothProvidersAreProven()
     {
-        var links = new QuasarPlayerLinks(_path, _clock);
-        var first = links.IssueCode(Pilot);
-        var second = links.IssueCode(Pilot);
-        Assert.Null(await links.RedeemAsync("111", first));
-        Assert.NotNull(await links.RedeemAsync("111", second));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new { links = new[] { new QuasarPlayerLink("111", Pilot, DateTimeOffset.UtcNow) } }));
+        var links = new QuasarPlayerLinks(path);
+        Assert.Single(links.GetLinks());
+        Assert.Null(links.FindBySteamId(Pilot));
+        Assert.Null(links.FindByDiscordUser("111"));
+        var verified = await links.AuthenticateAsync(Pilot, "111");
+        Assert.NotNull(verified.AuthenticationId);
+        Assert.Equal(verified, Assert.Single(links.GetLinks()));
     }
 
     [Fact]
-    public async Task RelinkingReplacesAndLinksSurviveARestart()
+    public async Task ConcurrentConflictingProofsCannotCreateDuplicateLinks()
     {
-        var links = new QuasarPlayerLinks(_path, _clock);
-        await links.RedeemAsync("111", links.IssueCode(Pilot));
-        await links.RedeemAsync("111", links.IssueCode(Other));
-        Assert.Equal(Other, Assert.Single(links.GetLinks()).SteamId);
+        var links = new QuasarPlayerLinks(path);
+        async Task<bool> Try(string discord)
+        {
+            try { await links.AuthenticateAsync(Pilot, discord); return true; }
+            catch (InvalidOperationException) { return false; }
+        }
+        var results = await Task.WhenAll(Try("111"), Try("222"));
+        Assert.Single(results.Where(result => result));
+        Assert.Single(new QuasarPlayerLinks(path).GetLinks());
+    }
 
-        // Another Discord account proving the same Steam account takes the link over.
-        await links.RedeemAsync("222", links.IssueCode(Other));
-        Assert.Equal("222", Assert.Single(links.GetLinks()).DiscordUserId);
-        await links.RedeemAsync("111", links.IssueCode(Pilot));
+    [Fact]
+    public async Task FailedPersistenceDoesNotPublishAnAuthenticatedLink()
+    {
+        var links = new QuasarPlayerLinks(path);
+        Assert.Empty(links.GetLinks());
+        Directory.CreateDirectory(path);
+        await Assert.ThrowsAnyAsync<IOException>(() => links.AuthenticateAsync(Pilot, "111"));
+        Assert.Null(links.FindBySteamId(Pilot));
+    }
 
-        var reloaded = new QuasarPlayerLinks(_path, _clock);
-        Assert.Equal(2, reloaded.GetLinks().Count);
-        Assert.Equal(Pilot, reloaded.FindByDiscordUser("111")!.SteamId);
-        if (!OperatingSystem.IsWindows())
-            Assert.Equal(
-                UnixFileMode.UserRead | UnixFileMode.UserWrite,
-                File.GetUnixFileMode(_path)
-            );
-
-        var changed = 0;
-        reloaded.Changed += () => changed++;
-        Assert.True(await reloaded.RemoveAsync(Pilot));
-        Assert.False(await reloaded.RemoveAsync(Pilot));
-        Assert.Equal(1, changed);
-        Assert.Null(new QuasarPlayerLinks(_path, _clock).FindBySteamId(Pilot));
+    [Fact]
+    public async Task DamagedIdentityDataCannotBeReplacedSilently()
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        await File.WriteAllTextAsync(path, "broken");
+        var links = new QuasarPlayerLinks(path);
+        await Assert.ThrowsAsync<InvalidDataException>(() => links.AuthenticateAsync(Pilot, "111"));
+        Assert.Equal("broken", await File.ReadAllTextAsync(path));
     }
 }

@@ -491,6 +491,15 @@ internal sealed class GatewayActualizer : IDisposable
             GatewaySpawnSpec spawn = bundle.Manifest.Gateway
                 ?? throw new InvalidDataException("Bundle manifest has no Gateway spawn specification");
             ValidateSpawn(spawn, bundle);
+            if (spec.PlayerAccess?.Enabled == true)
+            {
+                const string capability = "Package/cli/deployment-capabilities.json";
+                if (!bundle.Files.ContainsKey(capability))
+                    throw new InvalidDataException("Gateway bundle does not declare player authentication support.");
+                using var capabilities = JsonDocument.Parse(File.ReadAllBytes(ResolveBundlePath(bundle.Root, capability)));
+                if (!capabilities.RootElement.TryGetProperty("playerAuthentication", out var version) || version.GetInt32() < 1)
+                    throw new InvalidDataException("Update the Gateway package before starting with player authentication.");
+            }
             EnsureRunRoot(spec);
             int? busyPort = FindBusyPort(spec.Ports);
             if (busyPort is not null)
@@ -570,7 +579,7 @@ internal sealed class GatewayActualizer : IDisposable
         finally { process?.Dispose(); }
     }
 
-    private static ProcessStartInfo CreateStartInfo(HostContract.GatewaySpec spec,
+    internal static ProcessStartInfo CreateStartInfo(HostContract.GatewaySpec spec,
         GatewaySpawnSpec spawn, string bundleRoot, string executablePath)
     {
         string Expand(string value) => value
@@ -608,6 +617,14 @@ internal sealed class GatewayActualizer : IDisposable
             start.Environment["CLUSTER_START_GENERATION"] = generation.ToString("D");
         start.Environment["CLUSTER_START_RECOVERY"] = !spec.Recover ? "false" : spec.RecoveryUpdate ? "update" : "true";
         ExecutionBundle.ApplySecrets(start, spawn.SecretEnvironment);
+        // Only the authenticated Host spec owns these values; bundle environment cannot override them.
+        start.Environment.Remove("QUASAR_PLAYER_WHITELIST");
+        start.Environment.Remove("QUASAR_PLAYER_ACCESS_REVISION");
+        if (spec.PlayerAccess is { } intent)
+        {
+            start.Environment["QUASAR_PLAYER_WHITELIST"] = intent.Enabled && intent.Whitelist ? "true" : "false";
+            start.Environment["QUASAR_PLAYER_ACCESS_REVISION"] = intent.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
         return start;
     }
 

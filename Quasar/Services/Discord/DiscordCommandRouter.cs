@@ -9,7 +9,6 @@ public sealed class DiscordCommandRouter
 {
     private const string WhisperCommandName = "whisper";
     private const string FactionChannelCommandName = "faction-channel";
-    private const string LinkCommandName = "link";
     private readonly DiscordOptionsCatalog _optionsCatalog;
     private readonly DiscordCommandDispatcher _dispatcher;
     private readonly QuasarChatCommands _requests;
@@ -156,13 +155,7 @@ public sealed class DiscordCommandRouter
             .AddOption("server", ApplicationCommandOptionType.String, "Server name, or cluster:<name>", isRequired: true)
             .AddOption("faction", ApplicationCommandOptionType.String, "Space Engineers faction tag", isRequired: true);
 
-        var link = new SlashCommandBuilder()
-            .WithName(LinkCommandName)
-            .WithDescription("Link your Discord account to your Space Engineers player. Type !link in game for a code.")
-            .WithContextTypes(InteractionContextType.Guild)
-            .AddOption("code", ApplicationCommandOptionType.String, "The code !link whispered to you in game", isRequired: true);
-
-        List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build(), link.Build()];
+        List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build()];
         // UI plugins' commands, which exist only while their plugin is loaded.
         foreach (var command in _requests.Commands)
             commands.Add(new SlashCommandBuilder()
@@ -191,9 +184,6 @@ public sealed class DiscordCommandRouter
                     break;
                 case FactionChannelCommandName:
                     await HandleFactionChannelAsync(command, options);
-                    break;
-                case LinkCommandName:
-                    await HandleLinkAsync(command);
                     break;
                 default:
                     if (_requests.Commands.FirstOrDefault(info => info.Name == command.Data.Name) is { } plugin)
@@ -231,15 +221,6 @@ public sealed class DiscordCommandRouter
 
         await _dispatcher.SendWhisperAsync(server, recipient, message, author);
         await command.ModifyOriginalResponseAsync(properties => properties.Content = $"Whisper sent to {recipient}.");
-    }
-
-    private async Task HandleLinkAsync(SocketSlashCommand command)
-    {
-        await command.DeferAsync(ephemeral: true);
-        var link = await _requests.LinkDiscordAsync(command.User.Id.ToString(), GetOption(command, "code"), _lifetime.ApplicationStopping);
-        await command.ModifyOriginalResponseAsync(properties => properties.Content = link is null
-            ? "That code is unknown or expired. Type !link in game for a new one."
-            : "Linked. Quasar now knows your Space Engineers player.");
     }
 
     // Player commands answer privately (ephemeral); admin commands answer in the channel. The answer can take

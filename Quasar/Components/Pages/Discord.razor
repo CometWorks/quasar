@@ -71,6 +71,8 @@
                                  Min="0" />
 
                 <MudCheckBox T="bool" @bind-Value="_options.UseProxy" Label="Use system/environment proxy" />
+                <MudCheckBox T="bool" @bind-Value="_options.TrackMembers" Label="Track member and role changes for player authentication" />
+                <p class="quasar-muted">Member tracking requires the Server Members privileged intent in the Discord Developer Portal. Player authentication also checks membership periodically through the bot.</p>
                 <span class="quasar-text quasar-type-caption">Applies to Discord API requests and the gateway connection. Uses the proxy settings available to the Quasar process, including HTTPS_PROXY, HTTP_PROXY, ALL_PROXY, and NO_PROXY. Clear to connect directly. Saving reconnects the bot.</span>
 
                 <hr class="quasar-divider" />

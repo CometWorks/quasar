@@ -300,7 +300,8 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
     internal static DiscordSocketConfig CreateSocketConfig(DiscordOptions options) => new()
     {
-        GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent,
+        GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent
+            | (options.TrackMembers ? GatewayIntents.GuildMembers : GatewayIntents.None),
         RestClientProvider = DefaultRestClientProvider.Create(useProxy: options.UseProxy),
         WebSocketProvider = DefaultWebSocketProvider.Create(options.UseProxy ? HttpClient.DefaultProxy : null),
     };

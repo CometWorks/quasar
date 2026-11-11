@@ -40,6 +40,7 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
     private readonly WebServiceOptions _options;
     private readonly DiagnosticCollector? _diagnostics;
     private readonly AgentSocketAuthenticator? _agentTokens;
+    private readonly Players.PlayerAccessCatalog? _playerAccess;
     private readonly ILogger<DedicatedServerSupervisor> _logger;
     private readonly ServerRestoreCoordinator _restoreCoordinator;
     private readonly CancellationTokenSource _shutdown = new();
@@ -58,9 +59,11 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
         ServerRestoreCoordinator restoreCoordinator,
         ILogger<DedicatedServerSupervisor> logger,
         DiagnosticCollector? diagnostics = null,
-        AgentSocketAuthenticator? agentTokens = null)
+        AgentSocketAuthenticator? agentTokens = null,
+        Players.PlayerAccessCatalog? playerAccess = null)
     {
         _catalog = catalog;
+        _playerAccess = playerAccess;
         _registry = registry;
         _runtimePreparer = runtimePreparer;
         _runtimeResolver = runtimeResolver;
@@ -1208,6 +1211,15 @@ public sealed class DedicatedServerSupervisor : IHostedService, IDisposable
 
         process.StartInfo.Environment.Remove("QUASAR_LAUNCHER_TOKEN");
         process.StartInfo.Environment["QUASAR_UNIQUE_NAME"] = definition.UniqueName;
+        process.StartInfo.Environment.Remove("QUASAR_PLAYER_WHITELIST");
+        process.StartInfo.Environment.Remove("QUASAR_PLAYER_ACCESS_REVISION");
+        var accessSettings = _playerAccess?.GetSettings();
+        var accessPolicy = accessSettings?.Policies.FirstOrDefault(p => p.Target == "server:" + definition.UniqueName);
+        if (accessPolicy is not null)
+        {
+            process.StartInfo.Environment["QUASAR_PLAYER_WHITELIST"] = accessPolicy.Enabled && accessPolicy.Whitelist ? "true" : "false";
+            process.StartInfo.Environment["QUASAR_PLAYER_ACCESS_REVISION"] = accessSettings!.Revision.ToString(CultureInfo.InvariantCulture);
+        }
         process.StartInfo.Environment["QUASAR_BASE_URL"] = _options.BaseUrl;
         if (_agentTokens is not null)
             process.StartInfo.Environment[AgentSocketToken.EnvironmentVariable] = _agentTokens.ForServer(definition.UniqueName);

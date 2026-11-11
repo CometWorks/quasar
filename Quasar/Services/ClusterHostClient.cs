@@ -16,8 +16,10 @@ public sealed partial class ClusterHostClient
     private readonly HttpClient _http;
 
     private readonly ClusterCredentialStore? _credentials;
-    public ClusterHostClient(HttpClient http, ClusterCredentialStore? credentials = null)
-        => (_http, _credentials) = (http, credentials);
+    private readonly Players.PlayerAccessCatalog? _playerAccess;
+    public ClusterHostClient(HttpClient http, ClusterCredentialStore? credentials = null,
+        Players.PlayerAccessCatalog? playerAccess = null)
+        => (_http, _credentials, _playerAccess) = (http, credentials, playerAccess);
 
     private string? ResolveCredential(string reference) => _credentials?.Resolve(reference) ?? Environment.GetEnvironmentVariable(reference);
     private static void TunnelAuthority(HttpRequestMessage request)
@@ -40,11 +42,44 @@ public sealed partial class ClusterHostClient
         HttpMethod.Put, HostContract.HostProtocol.AttachmentRoute(attachment.ClusterId),
         attachment, cancellationToken);
 
-    public Task<HostContract.HostEnvelope<HostContract.GatewayStatus>> ApplyGatewayAsync(
+    public async Task<HostContract.HostEnvelope<HostContract.GatewayStatus>> ApplyGatewayAsync(
         ClusterDefinition cluster, HostContract.GatewaySpec gateway,
-        CancellationToken cancellationToken) => SendAsync<HostContract.GatewayStatus>(cluster,
-        HttpMethod.Put, HostContract.HostProtocol.GatewayRoute(gateway.ClusterId),
-        gateway, cancellationToken);
+        CancellationToken cancellationToken)
+    {
+        // Never accept launch intent supplied through the public Gateway API or persisted cluster config.
+        gateway = gateway with { PlayerAccess = PlayerAccessIntent(cluster.UniqueName) };
+        if (gateway.Goal == HostContract.GatewayGoal.On && gateway.PlayerAccess?.Enabled == true)
+            await RequirePlayerAccessHostAsync(cluster, cancellationToken);
+        return await SendAsync<HostContract.GatewayStatus>(cluster,
+            HttpMethod.Put, HostContract.HostProtocol.GatewayRoute(gateway.ClusterId), gateway, cancellationToken);
+    }
+
+    internal async Task<HostContract.HostStatus> RequirePlayerAccessHostAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        if (cluster.Gateway is null)
+            throw new InvalidOperationException("Configure a Quasar-managed Gateway before enabling cluster player authentication.");
+        var status = (await GetStatusAsync(cluster, token)).Data;
+        if (!status.PlayerAccessFencing)
+            throw new InvalidOperationException("Update the Gateway Host to support player authentication launch fencing.");
+        return status;
+    }
+
+    private HostContract.GatewayPlayerAccessIntent? PlayerAccessIntent(string clusterId)
+    {
+        var settings = _playerAccess?.GetSettings();
+        var policy = settings?.Policies.SingleOrDefault(p => p.Target == "cluster:" + clusterId);
+        return policy is null ? null : new(settings!.Revision, policy.Enabled, policy.Enabled && policy.Whitelist);
+    }
+
+    // Persist before publishing decisions, without changing process goals or recovery settings.
+    internal async Task SyncPlayerAccessIntentAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        await RequirePlayerAccessHostAsync(cluster, token);
+        var intent = PlayerAccessIntent(cluster.UniqueName)
+            ?? throw new InvalidOperationException("The cluster player access policy no longer exists.");
+        await SendAsync<HostContract.GatewayPlayerAccessIntent>(cluster, HttpMethod.Put,
+            HostContract.HostProtocol.GatewayRoute(cluster.UniqueName) + "/player-access", intent, token);
+    }
 
     public Task<HostContract.HostEnvelope<HostContract.HostClusterDetach>> DetachClusterAsync(ClusterDefinition cluster,
         string bundleManifestSha256, CancellationToken token) => SendAsync<HostContract.HostClusterDetach>(cluster,

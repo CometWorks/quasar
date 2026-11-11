@@ -776,6 +776,7 @@ public sealed class ClusterCatalog : IDisposable
             ClusterId = uniqueName,
             Goal = Quasar.Host.Contract.V1.GatewayGoal.On,
             StopFence = null,
+            PlayerAccess = null, // Derived from the private player-access catalog at the Host client boundary.
             BundleManifestPath = manifest,
             BundleManifestSha256 = hash,
             ConfigRevision = revision,

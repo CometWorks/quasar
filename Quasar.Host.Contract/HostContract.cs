@@ -74,7 +74,8 @@ public sealed record HostStatus(
     DateTimeOffset? StartedAt = null,
     string[]? Warnings = null,
     bool ClusterDetach = false,
-    HostNodeFailure[]? NodeFailures = null);
+    HostNodeFailure[]? NodeFailures = null,
+    bool PlayerAccessFencing = false);
 
 /// <summary>Why a node slot's last launch on this Host failed. <c>Cause</c> is the exception the node reported, when it
 /// reported one; <c>LogPath</c> is the node's own log on this Host. Null when there is none.</summary>
@@ -118,7 +119,10 @@ public sealed record GatewaySpec(
     string RunRoot,
     GatewayStopFence? StopFence = null, Guid? StartGeneration = null, bool Recover = false,
     // With Recover: the recovery start may also take a new revision and slot inventory (an update despite a dirty shutdown).
-    bool RecoveryUpdate = false);
+    bool RecoveryUpdate = false, GatewayPlayerAccessIntent? PlayerAccess = null);
+
+// Durable launch intent, independent of the short-lived player decisions supplied to the Gateway.
+public sealed record GatewayPlayerAccessIntent(long Revision, bool Enabled, bool Whitelist);
 
 public sealed record GatewayStopFence(int ProcessId, DateTimeOffset LaunchedAt);
 

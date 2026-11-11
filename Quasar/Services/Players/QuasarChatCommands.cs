@@ -10,7 +10,7 @@ using Quasar.Services.Auth;
 namespace Quasar.Services.Players;
 
 /// <summary>
-/// The chat commands UI plugins add (<see cref="IQuasarChatCommand"/>) and core's <c>!link</c>: takes them from the
+/// The chat commands UI plugins add (<see cref="IQuasarChatCommand"/>) and core's browser authorization: takes them from the
 /// game and Discord, builds the caller's principal from the authenticated source and hands them to the plugin.
 /// </summary>
 public sealed class QuasarChatCommands
@@ -27,7 +27,8 @@ public sealed class QuasarChatCommands
         StringComparer.OrdinalIgnoreCase
     )
     {
-        "link",
+        "authorize",
+        "link", // Retired code exchange; never let a plugin claim an old authentication command.
         "whisper",
         "faction-channel",
         "help",
@@ -43,6 +44,8 @@ public sealed class QuasarChatCommands
     private readonly RbacConfigCatalog rbac;
     private readonly QuasarRoleMapper roles;
     private readonly ILogger<QuasarChatCommands> logger;
+    private readonly PlayerAuthBrowser? browser;
+    private readonly PlayerAccessCatalog? accessCatalog;
     private readonly Dictionary<string, IQuasarChatCommand> _commands = new(
         StringComparer.OrdinalIgnoreCase
     );
@@ -55,7 +58,9 @@ public sealed class QuasarChatCommands
         RbacConfigCatalog rbac,
         QuasarRoleMapper roles,
         IEnumerable<IQuasarChatCommand> commands,
-        ILogger<QuasarChatCommands> logger
+        ILogger<QuasarChatCommands> logger,
+        PlayerAuthBrowser? browser = null,
+        PlayerAccessCatalog? accessCatalog = null
     )
     {
         this.registry = registry;
@@ -65,6 +70,8 @@ public sealed class QuasarChatCommands
         this.rbac = rbac;
         this.roles = roles;
         this.logger = logger;
+        this.browser = browser;
+        this.accessCatalog = accessCatalog;
         foreach (var command in commands)
         {
             var name = command.Info.Name;
@@ -104,7 +111,7 @@ public sealed class QuasarChatCommands
             .ToList();
 
     /// <summary>
-    /// A player's <c>!link</c> or plugin command from the agent on <paramref name="connectionId"/>. Runs off the
+    /// A player's authorization or plugin command from the agent on <paramref name="connectionId"/>. Runs off the
     /// socket's receive loop; failures are logged, never thrown.
     /// </summary>
     public void Accept(string connectionId, PlayerRequest request, CancellationToken token)
@@ -151,10 +158,19 @@ public sealed class QuasarChatCommands
 
         Func<string, CancellationToken, Task> reply = (text, ct) =>
             WhisperAsync(source, request.SteamId, text, ct);
-        if (request.Kind == PlayerRequest.LinkKind)
+        if (request.Kind == PlayerRequest.AuthorizeKind)
         {
-            var code = links.IssueCode(steamId);
-            await reply($"Type /link {code} in the server's Discord within 10 minutes.", token);
+            var target = source.IsCluster ? "cluster:" + source.ClusterId : "server:" + source.UniqueNameKey;
+            if (browser?.Ready != true || accessCatalog?.GetSettings().Policies.Any(p => p.Target == target && p.Enabled) != true)
+            { await reply("Player authentication is not available for this server. Ask an administrator to configure it.", token); return; }
+            var url = browser.Begin(target, steamId);
+            await reply("Authenticate Steam and Discord, then authorize this server: " + url, token);
+            if (!source.IsCluster && source.Hello?.PlayerAccessVersion == PlayerAccessSnapshot.ProtocolVersion)
+                await registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
+                {
+                    AgentId = source.AgentId, ServerId = source.ServerKey, UniqueName = source.UniqueNameKey,
+                    CommandType = ServerCommandType.OpenPlayerAuthentication, SteamId = request.SteamId, Text = url,
+                }, WhisperTimeout, token);
             return;
         }
 
@@ -193,12 +209,6 @@ public sealed class QuasarChatCommands
             token
         );
     }
-
-    public Task<QuasarPlayerLink?> LinkDiscordAsync(
-        string discordUserId,
-        string code,
-        CancellationToken token
-    ) => links.RedeemAsync(discordUserId, code, token);
 
     /// <summary>A plugin command on Discord. A player command runs as the linked player, or with no principal
     /// for an unlinked user; an admin command only for Discord users mapped to a Quasar subject.</summary>

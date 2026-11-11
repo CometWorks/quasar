@@ -199,16 +199,18 @@ When Quasar.Agent connects, Quasar sends it the player commands in a
 chat command the next game tick. A use comes back as a `player-request` wire
 message with the command name as its kind; Quasar takes the server from the
 authenticated connection and the Steam ID and name from the game session.
-Plugin commands and `!link` need Magnetar 2.4.3.6 or later, the first to pass
+Plugin commands need Magnetar 2.4.3.6 or later, the first to pass
 arguments to a command root's default command. Magnetar can't drop a
 registered command, so a command whose plugin is gone stays until the server
 restarts and answers that it is not available.
 
-`!link` whispers a one-time code (8 characters, valid 10 minutes, one per
-player) and `/link CODE` on Discord stores the pair in `player-links.json` in the
-Quasar data folder. A Discord user has one Steam ID and a Steam ID one Discord
-user; a new link replaces older ones. Admins see and remove links on the
-**Players** page.
+`!authorize` opens browser Steam/Discord authentication on the verified public
+website or active Nebula panel. The `!link` and Discord `/link` code exchange is
+removed. Only browser-authenticated pairs identify player callers; old links need
+reauthentication. Conflicting pairs are rejected. See
+[Player authentication](PlayerAuthentication.md) for server authorization,
+whitelist, promotions and priority access. Admins can remove links on **Players**;
+these identity links do not grant dashboard roles.
 
 ### Notice sources
 

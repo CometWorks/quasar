@@ -14,6 +14,7 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Transport;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Serialization;
+using Sandbox.Game;
 using PluginSdk;
 using PluginSdk.Commands;
 using PluginSdk.Config;
@@ -83,6 +84,7 @@ namespace Quasar.Agent
         private AgentSnapshot _latestSnapshot;
         private volatile bool _quasarRequestedStop;
         private readonly ClusterChatRelay _clusterChat = new ClusterChatRelay();
+        private readonly PlayerAccessEnforcement _playerAccess;
 
         /// <summary>
         /// True once Quasar itself asked this server to stop (via a
@@ -102,6 +104,16 @@ namespace Quasar.Agent
                     ?? $"unmanaged-{_hostId}-{_processId}")
                 .Trim();
             _pluginVersion = GetAgentVersion();
+            if (!_options.ClusterMode)
+            {
+                try { _playerAccess = new PlayerAccessEnforcement(_uniqueName); }
+                catch (Exception error)
+                {
+                    Console.WriteLine("Quasar player access recovery failed; refusing to start with unknown access state: " + error.Message);
+                    Environment.Exit(1);
+                    throw;
+                }
+            }
             MySession.OnSaved += OnWorldSaved;
         }
 
@@ -109,6 +121,7 @@ namespace Quasar.Agent
         {
             MySession.OnSaved -= OnWorldSaved;
             _clusterChat.Dispose();
+            _playerAccess?.Dispose();
             if (_chatSource != null)
                 _chatSource.ChatMessageReceived -= OnChatMessageReceived;
         }
@@ -126,6 +139,7 @@ namespace Quasar.Agent
             AgentProfiler.Update();
             RefreshChatSubscription();
             if (_options.ClusterMode) _clusterChat.Update();
+            else _playerAccess?.Update();
 
             if ((DateTime.UtcNow - _lastSnapshotUtc) < SnapshotInterval)
                 return;
@@ -289,6 +303,7 @@ namespace Quasar.Agent
                 DeploymentFailure = _options.DeploymentFailure,
                 PluginId = "quasar-agent",
                 PluginVersion = _pluginVersion,
+                PlayerAccessVersion = _playerAccess?.Ready == true ? PlayerAccessSnapshot.ProtocolVersion : 0,
                 ProcessId = _processId,
                 ProcessName = _processName,
                 GameVersion = session?.AppVersionFromSave.ToString() ?? string.Empty,
@@ -1594,11 +1609,13 @@ namespace Quasar.Agent
 
                 case ServerCommandType.PromotePlayer:
                     var promotedLevel = GetAdjacentPromoteLevel((ulong)(command.SteamId ?? 0), 1);
+                    _playerAccess?.RecordManualPromotion((ulong)(command.SteamId ?? 0), promotedLevel);
                     MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), promotedLevel);
                     return CreateResult(command, true, $"Promote requested for {command.SteamId} to {promotedLevel}.");
 
                 case ServerCommandType.DemotePlayer:
                     var demotedLevel = GetAdjacentPromoteLevel((ulong)(command.SteamId ?? 0), -1);
+                    _playerAccess?.RecordManualPromotion((ulong)(command.SteamId ?? 0), demotedLevel);
                     MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), demotedLevel);
                     return CreateResult(command, true, $"Demote requested for {command.SteamId} to {demotedLevel}.");
 
@@ -1606,8 +1623,32 @@ namespace Quasar.Agent
                     if (!TryParsePromoteLevel(command.Text, out var targetLevel))
                         return CreateResult(command, false, $"Unknown promote level '{command.Text}'.");
 
+                    _playerAccess?.RecordManualPromotion((ulong)(command.SteamId ?? 0), targetLevel);
                     MySession.Static.SetUserPromoteLevel((ulong)(command.SteamId ?? 0), targetLevel);
                     return CreateResult(command, true, $"Promote level set to {targetLevel} for {command.SteamId}.");
+
+                case ServerCommandType.UpdatePlayerAccess:
+                    if (_options.ClusterMode) return CreateResult(command, false, "Cluster player access belongs to the Gateway.");
+                    var accessUpdate = DeserializePayload<PlayerAccessSnapshot>(command.Payload);
+                    if (accessUpdate?.Enabled == true && GetPlugins().Any(plugin => plugin.IsLoaded &&
+                        (string.Equals(plugin.PluginId, "EC39AAEF-E46A-4291-A511-91ECE969D1D7", StringComparison.OrdinalIgnoreCase)
+                        || plugin.DisplayName.IndexOf("GameServerAuth", StringComparison.OrdinalIgnoreCase) >= 0)))
+                        return CreateResult(command, false, "Remove the separate GameServerAuth plugin before enabling built-in player access.");
+                    _playerAccess.Apply(accessUpdate);
+                    if (MySession.Static?.Ready != true)
+                        return CreateResult(command, false, "Player access policy staged; wait for world readiness to confirm promotion recovery.");
+                    return CreateResult(command, true, "Player access policy applied.");
+
+                case ServerCommandType.OpenPlayerAuthentication:
+                    if (_options.ClusterMode || !Uri.TryCreate(command.Text, UriKind.Absolute, out var authUrl)
+                        || authUrl.Scheme != "https" || authUrl.UserInfo.Length != 0)
+                        return CreateResult(command, false, "Invalid player authentication address.");
+                    var authPlayer = new List<IMyPlayer>();
+                    Sandbox.ModAPI.MyAPIGateway.Multiplayer?.Players?.GetPlayers(authPlayer);
+                    var targetPlayer = authPlayer.SingleOrDefault(p => p.SteamUserId == (ulong)(command.SteamId ?? 0) && !p.IsBot);
+                    if (targetPlayer == null) return CreateResult(command, false, "Player is no longer connected.");
+                    MyVisualScriptLogicProvider.OpenSteamOverlay("https://steamcommunity.com/linkfilter/?u=" + Uri.EscapeDataString(command.Text), targetPlayer.IdentityId);
+                    return CreateResult(command, true, "Player authentication opened.");
 
                 case ServerCommandType.ListEntities:
                     return ListEntities(command);
