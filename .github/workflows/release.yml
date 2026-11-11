@@ -220,14 +220,23 @@ jobs:
 
   build-linux:
     needs: metadata
+    name: build-linux (${{ matrix.part }})
     runs-on: ubuntu-latest
+    # Packaging and the browser/RTC verification share no outputs, so they run
+    # as parallel legs on separate runners. `release` needs both legs of both
+    # platforms, so nothing is published unless every check passed.
+    strategy:
+      matrix:
+        part: [package, verify]
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
+      DS64: ${{ github.workspace }}/ds64
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          # Only packaging reads the history; the checks need just the tree.
+          fetch-depth: ${{ matrix.part == 'package' && 0 || 1 }}
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -377,6 +386,7 @@ jobs:
           python-version: "3.12"
 
       - uses: actions/setup-node@v4
+        if: matrix.part == 'verify'
         with:
           node-version: "22"
 
@@ -385,28 +395,46 @@ jobs:
           go-version: "1.27.3"
           cache-dependency-path: Quasar.Peer/go.sum
 
-      - name: Prepare isolated peer and browser checks
+      - name: Verify native peer
+        if: matrix.part == 'package'
         run: |
-          mkdir -p "$RUNNER_TEMP/quasar-rtc"
-          python3 scripts/build-peer.py --runtime linux-x64 --race --output "$RUNNER_TEMP/quasar-rtc/quasar-peer"
-          npm install --prefix "$RUNNER_TEMP/quasar-rtc-browser" --no-save playwright@1.61.1
-          node "$RUNNER_TEMP/quasar-rtc-browser/node_modules/playwright/cli.js" install --with-deps chromium firefox
-          echo "QUASAR_RTC_TEST_PEER=$RUNNER_TEMP/quasar-rtc/quasar-peer" >> "$GITHUB_ENV"
-          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/quasar-rtc-browser/node_modules/playwright/index.mjs" >> "$GITHUB_ENV"
-          node -e 'console.log("CHROME_PATH="+require(process.argv[1]).chromium.executablePath())' "$RUNNER_TEMP/quasar-rtc-browser/node_modules/playwright" >> "$GITHUB_ENV"
           go -C Quasar.Peer vet ./...
           go -C Quasar.Peer test -race ./...
 
-      - name: Verify browser SDK before packaging
-        env:
-          DS64: ${{ github.workspace }}/ds64
+      - name: Build checks and install test browsers
+        if: matrix.part == 'verify'
         run: |
-          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/quasar-rtc"
+          python3 scripts/build-peer.py --runtime linux-x64 --race --output "$RUNNER_TEMP/quasar-rtc/quasar-peer"
+          browser="$RUNNER_TEMP/quasar-rtc-browser"
+          npm install --prefix "$browser" --no-save playwright@1.61.1
+          # The browser download and its system packages overlap the .NET build.
+          node "$browser/node_modules/playwright/cli.js" install --with-deps chromium firefox \
+            > "$RUNNER_TEMP/playwright-install.log" 2>&1 < /dev/null &
+          browsers=$!
+          dotnet build Quasar.Tests/Quasar.Tests.csproj -c Release
+          dotnet build tests/Quasar.Rtc.CircuitChecks -c Release
+          status=0
+          wait "$browsers" || status=$?
+          cat "$RUNNER_TEMP/playwright-install.log"
+          if [ "$status" -ne 0 ]; then
+            echo "Test browser installation failed with exit code $status." >&2
+            exit "$status"
+          fi
+          echo "QUASAR_RTC_TEST_PEER=$RUNNER_TEMP/quasar-rtc/quasar-peer" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_MODULE=$browser/node_modules/playwright/index.mjs" >> "$GITHUB_ENV"
+          node -e 'console.log("CHROME_PATH="+require(process.argv[1]).chromium.executablePath())' "$browser/node_modules/playwright" >> "$GITHUB_ENV"
+
+      - name: Verify browser SDK
+        if: matrix.part == 'verify'
+        run: |
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
           node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/Browser/*.test.mjs
-          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release
+          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release --no-build
 
       - name: Retain SDK test evidence
-        if: always()
+        if: always() && matrix.part == 'verify'
         uses: actions/upload-artifact@v4
         with:
           name: sdk-tests-linux
@@ -414,11 +442,11 @@ jobs:
           if-no-files-found: ignore
 
       - name: Package Linux release
-        env:
-          DS64: ${{ github.workspace }}/ds64
+        if: matrix.part == 'package'
         run: scripts/package-linux-release.sh
 
       - name: Verify Linux installer archive root
+        if: matrix.part == 'package'
         run: |
           set -euo pipefail
           roots="$(tar -tzf artifacts/linux/quasar-linux-x64.tar.gz | awk -F/ 'NF { print $1 }' | sort -u)"
@@ -434,6 +462,7 @@ jobs:
           fi
 
       - name: Upload Linux archives
+        if: matrix.part == 'package'
         uses: actions/upload-artifact@v4
         with:
           name: quasar-linux
@@ -443,14 +472,23 @@ jobs:
 
   build-windows:
     needs: metadata
+    name: build-windows (${{ matrix.part }})
     runs-on: windows-latest
+    # Packaging and the browser/RTC verification share no outputs, so they run
+    # as parallel legs on separate runners. `release` needs both legs of both
+    # platforms, so nothing is published unless every check passed.
+    strategy:
+      matrix:
+        part: [package, verify]
     env:
       VERSION: ${{ needs.metadata.outputs.version }}
       NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
+      DS64: ${{ github.workspace }}\ds64
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          # Only packaging reads the history; the checks need just the tree.
+          fetch-depth: ${{ matrix.part == 'package' && 0 || 1 }}
 
       - uses: actions/setup-dotnet@v4
         with:
@@ -590,6 +628,7 @@ jobs:
           python-version: "3.12"
 
       - uses: actions/setup-node@v4
+        if: matrix.part == 'verify'
         with:
           node-version: "22"
 
@@ -598,7 +637,17 @@ jobs:
           go-version: "1.27.3"
           cache-dependency-path: Quasar.Peer/go.sum
 
-      - name: Prepare isolated peer and browser checks
+      - name: Verify native peer
+        if: matrix.part == 'package'
+        shell: pwsh
+        run: |
+          go -C Quasar.Peer vet ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Native peer verification failed.' }
+          go -C Quasar.Peer test ./...
+          if ($LASTEXITCODE -ne 0) { throw 'Native peer bounds failed.' }
+
+      - name: Build checks and install test browsers
+        if: matrix.part == 'verify'
         shell: pwsh
         run: |
           $peer = Join-Path $env:RUNNER_TEMP 'quasar-rtc/quasar-peer.exe'
@@ -607,31 +656,36 @@ jobs:
           $browser = Join-Path $env:RUNNER_TEMP 'quasar-rtc-browser'
           npm install --prefix $browser --no-save playwright@1.61.1
           if ($LASTEXITCODE -ne 0) { throw 'Test-only browser dependency failed.' }
-          node (Join-Path $browser 'node_modules/playwright/cli.js') install chromium firefox
-          if ($LASTEXITCODE -ne 0) { throw 'Test-only browsers failed.' }
+          # The browser download overlaps the .NET build.
+          $log = Join-Path $env:RUNNER_TEMP 'playwright-install.log'
+          $browsers = Start-Process -FilePath node -NoNewWindow -PassThru `
+            -ArgumentList @((Join-Path $browser 'node_modules/playwright/cli.js'), 'install', 'chromium', 'firefox') `
+            -RedirectStandardOutput $log -RedirectStandardError "$log.err"
+          dotnet build Quasar.Tests/Quasar.Tests.csproj -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'SDK check build failed.' }
+          dotnet build tests/Quasar.Rtc.CircuitChecks -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Real Blazor peer check build failed.' }
+          $browsers.WaitForExit()
+          Get-Content $log, "$log.err"
+          if ($browsers.ExitCode -ne 0) { throw "Test-only browsers failed with exit code $($browsers.ExitCode)." }
           "QUASAR_RTC_TEST_PEER=$peer" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "PLAYWRIGHT_MODULE=$(Join-Path $browser 'node_modules/playwright/index.mjs')" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           node -e 'console.log("CHROME_PATH="+require(process.argv[1]).chromium.executablePath())' (Join-Path $browser 'node_modules/playwright') | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          go -C Quasar.Peer vet ./...
-          if ($LASTEXITCODE -ne 0) { throw 'Native peer verification failed.' }
-          go -C Quasar.Peer test ./...
-          if ($LASTEXITCODE -ne 0) { throw 'Native peer bounds failed.' }
 
-      - name: Verify browser SDK before packaging
+      - name: Verify browser SDK
+        if: matrix.part == 'verify'
         shell: pwsh
-        env:
-          DS64: ${{ github.workspace }}/ds64
         run: |
-          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
+          dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
           if ($LASTEXITCODE -ne 0) { throw 'SDK server checks failed.' }
           $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
           node --test @browserChecks
           if ($LASTEXITCODE -ne 0) { throw 'SDK browser checks failed.' }
-          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release
+          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release --no-build
           if ($LASTEXITCODE -ne 0) { throw 'Real Blazor peer checks failed.' }
 
       - name: Retain SDK test evidence
-        if: always()
+        if: always() && matrix.part == 'verify'
         uses: actions/upload-artifact@v4
         with:
           name: sdk-tests-windows
@@ -639,12 +693,12 @@ jobs:
           if-no-files-found: ignore
 
       - name: Package Windows release
+        if: matrix.part == 'package'
         shell: pwsh
-        env:
-          DS64: ${{ github.workspace }}\ds64
         run: scripts/package-windows-release.ps1
 
       - name: Verify Windows installer archive root
+        if: matrix.part == 'package'
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -672,6 +726,7 @@ jobs:
           if ($LASTEXITCODE -or $identity.version -ne $expected.Trim()) { throw 'Package release identity differs from application identity.' }
 
       - name: Upload Windows archives
+        if: matrix.part == 'package'
         uses: actions/upload-artifact@v4
         with:
           name: quasar-windows
