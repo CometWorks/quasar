@@ -78,7 +78,7 @@ Clusters work differently. Staging a cluster profile freezes the exact plugin bu
 The **Plugins** page (navigation **Plugins**, title "Plugin configuration") edits live settings of plugins that expose a configuration to Quasar.
 
 1. Pick the server in **Server**. Only connected servers that report at least one configurable plugin are listed. With none, the page shows "No connected server is exposing editable plugin configuration."
-2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries), with padded sections and space between fields and tab content. Values that have no dedicated field type are edited as raw JSON text.
+2. Expand a plugin. Quasar renders an editor from the plugin's own schema (tabs, sections, fields, lists, dictionaries), with padding below each expansion header, padded sections, and space between fields and tab content. Values that have no dedicated field type are edited as raw JSON text.
 3. Click the apply button. **Reset defaults** fills in the plugin's default values; you still have to apply them.
 
 Quasar sends the new values to the server through the agent and the plugin applies them on the game thread. The success message ("Applied configuration to ...") means Quasar delivered the values to the server.
@@ -313,6 +313,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Components/Pages/Configs.razor`
 - `Quasar/Components/Pages/PluginManifestPickerDialog.razor`
 - `Quasar/Components/PluginConfigEditor.razor`
+- `Quasar/wwwroot/quasar-ui.css`
 - `Quasar/Components/PluginLogPanel.razor`
 - `Quasar/Components/Dashboard/ServerDetailPanel.razor`
 - `Quasar/Components/Pages/Analytics.razor`
