@@ -1,0 +1,25 @@
+@page "/access"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<PageTitle>Access</PageTitle>
+
+<QuasarPageHeading Section="Control plane">
+    <Title>Access</Title>
+    <Description>Manage player Steam and Discord linking, whitelist access, promotions and priority joining.</Description>
+</QuasarPageHeading>
+
+<MudTabs KeepPanelsAlive="true" Elevation="0" TabPanelsClass="pt-4">
+    <MudTabPanel Text="Server access">
+        <AuthorizeView Policy="@QuasarPolicyNames.CanManageSecurity" Context="accessPermission">
+            <Authorized>
+                <PlayerAuthenticationSettings />
+            </Authorized>
+            <NotAuthorized>
+                <MudAlert Severity="Severity.Info">An administrator manages player authentication and server access policies here. You can view linked accounts on the Linked accounts tab.</MudAlert>
+            </NotAuthorized>
+        </AuthorizeView>
+    </MudTabPanel>
+    <MudTabPanel Text="Linked accounts">
+        <PlayerDiscordLinks />
+    </MudTabPanel>
+</MudTabs>

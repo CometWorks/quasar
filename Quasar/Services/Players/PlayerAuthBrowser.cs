@@ -29,7 +29,7 @@ public sealed class PlayerAuthBrowser(PlayerAccessCatalog catalog, HostedPanelSe
         }
     }
 
-    public bool Ready => PublicUrl is not null && catalog.GetSettings() is { DiscordClientId.Length: > 0, DiscordClientSecret.Length: > 0 };
+    public bool Ready => PublicUrl is not null;
 
     public bool IsCanonical(HttpContext context)
     {
@@ -40,7 +40,7 @@ public sealed class PlayerAuthBrowser(PlayerAccessCatalog catalog, HostedPanelSe
 
     public string Begin(string target, string steamId)
     {
-        if (!Ready) throw new InvalidOperationException("Player authentication needs Discord OAuth and a verified public website or active Nebula enrollment.");
+        if (!Ready) throw new InvalidOperationException("Player authentication needs a verified public website or active Nebula enrollment.");
         if (!RbacConfigCatalog.IsSteamId64(steamId)) throw new ArgumentException("Invalid Steam identity.");
         lock (sync)
         {

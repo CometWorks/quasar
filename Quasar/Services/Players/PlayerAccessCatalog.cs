@@ -10,6 +10,7 @@ public sealed class PlayerAccessSettings
 {
     public long Revision { get; set; }
     public string PublicUrl { get; set; } = "";
+    // Retained for settings compatibility. Browser linking now uses the shared authentication service.
     public string DiscordClientId { get; set; } = "";
     public string DiscordClientSecret { get; set; } = "";
     public string? VerifiedUrl { get; set; }

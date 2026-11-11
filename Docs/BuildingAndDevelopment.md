@@ -737,7 +737,7 @@ Steam/billing/tunnel acceptance remain platform deployment checks.
 ## Player authentication checks
 
 Player authentication is built into Quasar and Quasar.Agent. See
-[the operator guide](PlayerAuthentication.md) for OAuth setup, verified origins,
+[the operator guide](PlayerAuthentication.md) for Access, shared authentication, verified origins,
 policy semantics and deployment gates. No standalone GameServerAuth plugin is
 needed. Keep its control messages outside the browser's generic command surface.
 
@@ -757,6 +757,7 @@ Matching upstream checks are `ClusterRegistry --self-test player-access`,
 `ClusterRegistry --self-test player-moderation`, the Cluster CLI `--self-test`,
 and `dotnet run --project Test/PlayerModeration/PlayerModeration.csproj` in the
 Cluster source. Nebula has
-`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --public-domain-only`.
+`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --public-domain-only`
+and `dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --player-discord-only`.
 Live OAuth callbacks and player joins remain operator acceptance work; source
 checks do not publish or deploy matching Nebula/Cluster builds.

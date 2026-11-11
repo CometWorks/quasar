@@ -132,6 +132,7 @@ public sealed class RbacAuthorizationTests
     [Theory]
     [InlineData(typeof(Quasar.Components.Pages.Appearance), QuasarPolicyNames.CanManageAppearance)]
     [InlineData(typeof(Quasar.Components.Pages.Chat), QuasarPolicyNames.CanView)]
+    [InlineData(typeof(Quasar.Components.Pages.Access), QuasarPolicyNames.CanView)]
     [InlineData(typeof(Quasar.Components.Pages.ClusterDetail), QuasarPolicyNames.ClusterQuery)]
     [InlineData(typeof(Quasar.Components.Pages.Configs), QuasarPolicyNames.CanView)]
     [InlineData(typeof(Quasar.Components.Pages.Discord), QuasarPolicyNames.CanView)]

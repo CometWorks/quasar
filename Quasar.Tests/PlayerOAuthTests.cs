@@ -48,7 +48,7 @@ public sealed class PlayerOAuthTests : IDisposable
 
     private async Task<OAuthOptions> ConfigureAsync()
     {
-        await catalog.SaveSettingsAsync(new() { PublicUrl = "https://quasar.example.com", DiscordClientId = "42", DiscordClientSecret = "secret" });
+        await catalog.SaveSettingsAsync(new() { PublicUrl = "https://quasar.example.com" });
         await catalog.RecordVerificationAsync("https://quasar.example.com", DateTimeOffset.UtcNow.AddDays(1), default);
         return services.GetRequiredService<IOptionsMonitor<OAuthOptions>>().Get(PlayerAuthEndpoints.DiscordScheme);
     }
@@ -72,13 +72,16 @@ public sealed class PlayerOAuthTests : IDisposable
         Assert.True(options.UsePkce);
         Assert.Equal(["identify"], options.Scope);
         Assert.False(options.SaveTokens);
+        Assert.Equal("quasar-player-links", options.ClientId);
+        Assert.Equal("https://auth.se-servers.net/discord/authorize", options.AuthorizationEndpoint);
+        Assert.Equal("https://auth.se-servers.net/discord/token", options.TokenEndpoint);
         Assert.Equal(PlayerAuthEndpoints.ExternalCookie, options.SignInScheme);
         var ticket = Ticket(options, Steam);
         await options.Events.CreatingTicket(ticket);
         Assert.Equal("111", links.FindBySteamId(Steam)!.DiscordUserId);
         Assert.Empty(ticket.Principal!.FindAll(ClaimTypes.Role));
         var received = new TicketReceivedContext(ticket.HttpContext, ticket.Scheme, options,
-            new AuthenticationTicket(ticket.Principal, ticket.Properties, PlayerAuthEndpoints.DiscordScheme));
+            new AuthenticationTicket(ticket.Principal, ticket.Properties, PlayerAuthEndpoints.DiscordScheme)) { ReturnUri = "/player-auth" };
         await options.Events.TicketReceived(received);
         Assert.True(received.Result!.Handled);
         Assert.Equal(0, authentication.SignIns);
@@ -169,7 +172,7 @@ public sealed class PlayerOAuthTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
-            Assert.Equal("https://discord.com/api/users/@me", request.RequestUri!.AbsoluteUri);
+            Assert.Equal("https://auth.se-servers.net/discord/userinfo", request.RequestUri!.AbsoluteUri);
             Assert.Equal("Bearer", request.Headers.Authorization!.Scheme);
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"id\":\"111\"}") });
         }
