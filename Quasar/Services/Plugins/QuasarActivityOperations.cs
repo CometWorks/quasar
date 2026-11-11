@@ -20,6 +20,16 @@ public static class QuasarActivityOperations
         string DisplayName,
         string Message,
         string Level
+    )
+    {
+        internal ClusterActivityDetails? ClusterDetails { get; init; }
+    }
+
+    internal sealed record ClusterActivityDetails(
+        string OperationId,
+        string Kind,
+        DateTimeOffset StartedAt,
+        string? ErrorCode
     );
 
     /// <param name="PrincipalKind">Person, Assistant, PlayerAgent or Monitor.</param>
@@ -154,6 +164,14 @@ public static class QuasarActivityOperations
                         _ => "success",
                     }
                 )
+                {
+                    ClusterDetails = new(
+                        operation.OperationId,
+                        operation.Kind,
+                        operation.CreatedAt,
+                        operation.Error?.Code
+                    ),
+                }
             );
         }
         foreach (

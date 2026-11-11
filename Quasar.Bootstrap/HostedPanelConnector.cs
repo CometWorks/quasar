@@ -22,13 +22,13 @@ internal sealed class HostedPanelConnector(int workerPort, ILogger logger) : IAs
     private Task? run;
     private Process? process;
     private int adminPort;
+    private string? configuration;
     public void Start() => run = RunAsync(stop.Token);
     private async Task RunAsync(CancellationToken ct)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
         using var local = new HttpClient(new HttpClientHandler { UseProxy = false, AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(3), MaxResponseContentBufferSize = 128 * 1024 };
         using var remote = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false }) { Timeout = TimeSpan.FromSeconds(8), MaxResponseContentBufferSize = 64 * 1024 };
-        string? configuration = null;
         RetirePreviousConnector();
         try
         {
@@ -36,43 +36,7 @@ internal sealed class HostedPanelConnector(int workerPort, ILogger logger) : IAs
             {
                 try
                 {
-                    var state = HostedPanelState.Read();
-                    if (state is not { Choice: "hosted", Credential: not null })
-                    {
-                        StopProcess(); configuration = null;
-                        if (state is not null && HostedPanelState.IsPanelId(state.PanelId))
-                            await new HostedConnectorHealth(state.PanelId, false, false, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(ct);
-                        continue;
-                    }
-                    var binary = await EnsureBinaryAsync(ct);
-                    string trust = ExportTrust();
-                    if (process is null || process.HasExited)
-                    {
-                        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
-                        adminPort = ((IPEndPoint)listener.LocalEndpoint).Port;
-                    }
-                    string config = BuildConfiguration(state, workerPort, trust, adminPort);
-                    if (process is { HasExited: false } && configuration == config)
-                    {
-                        await ReportHealthAsync(state, local, remote, ct);
-                        continue;
-                    }
-                    StopProcess();
-                    string path = Path.Combine(HostedPanelState.DirectoryPath, "frpc.toml");
-                    await PrivateFileAsync(path, config, ct);
-                    var start = new ProcessStartInfo(binary) { UseShellExecute = false, CreateNoWindow = true,
-                        RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = HostedPanelState.DirectoryPath };
-                    start.ArgumentList.Add("-c"); start.ArgumentList.Add(path);
-                    process = Process.Start(start) ?? throw new IOException("Cannot start hosted connector.");
-                    // Drain upstream logs without recording secrets or customer request paths.
-                    process.OutputDataReceived += (_, _) => { };
-                    process.ErrorDataReceived += (_, _) => { };
-                    process.BeginOutputReadLine(); process.BeginErrorReadLine();
-                    await File.WriteAllTextAsync(ProcessLeasePath, JsonSerializer.Serialize(new ConnectorLease(
-                        process.Id, process.StartTime.ToUniversalTime().Ticks, binary)), ct);
-                    configuration = config;
-                    logger.LogInformation("Hosted connector started for {Panel}; local Quasar remains independent.", state.PanelId);
-                    await ReportHealthAsync(state, local, remote, ct);
+                    await RefreshAsync(local, remote, ct);
                 }
                 catch (Exception e) when (!ct.IsCancellationRequested)
                 { logger.LogWarning("Hosted connector unavailable ({Type}); retrying. Local Quasar continues working.", e.GetType().Name); }
@@ -80,6 +44,49 @@ internal sealed class HostedPanelConnector(int workerPort, ILogger logger) : IAs
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         finally { StopProcess(); }
+    }
+
+    internal async Task RefreshAsync(HttpClient local, HttpClient remote, CancellationToken ct)
+    {
+        var state = HostedPanelState.Read();
+        if (state is not { Choice: "hosted", Credential: not null })
+        {
+            StopProcess();
+            if (state is not null && HostedPanelState.IsPanelId(state.PanelId))
+                await StopAndReportAsync(state, ct);
+            return;
+        }
+        // Check authority before any start/restart, including after a Bootstrap
+        // restart while the worker still holds an old connector credential.
+        if (!await ReportHealthAsync(state, local, remote, ct)) return;
+        var binary = await EnsureBinaryAsync(ct);
+        string trust = ExportTrust();
+        if (process is null || process.HasExited)
+        {
+            using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
+            adminPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+        }
+        string config = BuildConfiguration(state, workerPort, trust, adminPort);
+        if (process is { HasExited: false } && configuration == config) return;
+        StopProcess();
+        string path = Path.Combine(HostedPanelState.DirectoryPath, "frpc.toml");
+        await PrivateFileAsync(path, config, ct);
+        // Download/trust/file work can outlast an enrollment refresh. Re-read
+        // immediately before launch, without letting a stale heartbeat restore it.
+        if (!IsCurrent(state)) { await StopAndReportAsync(state, ct); return; }
+        var start = new ProcessStartInfo(binary) { UseShellExecute = false, CreateNoWindow = true,
+            RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = HostedPanelState.DirectoryPath };
+        start.ArgumentList.Add("-c"); start.ArgumentList.Add(path);
+        process = Process.Start(start) ?? throw new IOException("Cannot start hosted connector.");
+        // Drain upstream logs without recording secrets or customer request paths.
+        process.OutputDataReceived += (_, _) => { };
+        process.ErrorDataReceived += (_, _) => { };
+        process.BeginOutputReadLine(); process.BeginErrorReadLine();
+        await File.WriteAllTextAsync(ProcessLeasePath, JsonSerializer.Serialize(new ConnectorLease(
+            process.Id, process.StartTime.ToUniversalTime().Ticks, binary)), ct);
+        configuration = config;
+        logger.LogInformation("Hosted connector started for {Panel}; local Quasar remains independent.", state.PanelId);
+        await ReportHealthAsync(state, local, remote, ct);
     }
 
     internal static string BuildConfiguration(HostedPanelState state, int workerPort, string caFile, int statusPort = 0)
@@ -122,7 +129,7 @@ internal sealed class HostedPanelConnector(int workerPort, ILogger logger) : IAs
             proxy.TryGetProperty("name", out var name) && name.GetString() == "quasar"
             && proxy.TryGetProperty("status", out var phase) && phase.GetString() == "running");
 
-    private async Task ReportHealthAsync(HostedPanelState state, HttpClient local, HttpClient remote, CancellationToken ct)
+    internal async Task<bool> ReportHealthAsync(HostedPanelState state, HttpClient local, HttpClient remote, CancellationToken ct)
     {
         bool registered = false, ready = false;
         try
@@ -135,13 +142,30 @@ internal sealed class HostedPanelConnector(int workerPort, ILogger logger) : IAs
             ready = worker.IsSuccessStatusCode;
         }
         catch (Exception e) when (!ct.IsCancellationRequested && e is HttpRequestException or TaskCanceledException or JsonException) { }
-        var health = new HostedConnectorHealth(state.PanelId, registered, ready, DateTimeOffset.UtcNow.ToUnixTimeSeconds());
-        await health.SaveAsync(ct);
         using var heartbeat = new HttpRequestMessage(HttpMethod.Post, HostedPanelState.Origin + "/api/v1/connector/heartbeat")
         { Content = JsonContent.Create(new { tunnelRegistered = registered, workerReady = ready }) };
         heartbeat.Headers.Authorization = new AuthenticationHeaderValue("Bearer", state.Credential);
         using var reported = await remote.SendAsync(heartbeat, ct);
-        // Entitlement/credential failures are shown by the worker's ordinary enrollment poll.
+        if (reported.StatusCode is HttpStatusCode.Unauthorized or HttpStatusCode.Forbidden)
+        {
+            await StopAndReportAsync(state, ct);
+            logger.LogInformation("Hosted access denied for {Panel}; connector stopped. Local Quasar remains available.", state.PanelId);
+            return false;
+        }
+        reported.EnsureSuccessStatusCode();
+        if (!IsCurrent(state)) { await StopAndReportAsync(state, ct); return false; }
+        await new HostedConnectorHealth(state.PanelId, registered, ready, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(ct);
+        return true;
+    }
+
+    private static bool IsCurrent(HostedPanelState expected) => HostedPanelState.Read() is { Choice: "hosted" } current
+        && current.PanelId == expected.PanelId && HostedPanelState.SecretEquals(current.Credential, expected.Credential)
+        && HostedPanelState.SecretEquals(current.LocalProxySecret, expected.LocalProxySecret);
+
+    private Task StopAndReportAsync(HostedPanelState state, CancellationToken ct)
+    {
+        StopProcess();
+        return new HostedConnectorHealth(state.PanelId, false, false, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(ct);
     }
 
     private static string ExportTrust()
@@ -251,6 +275,7 @@ internal sealed class HostedPanelConnector(int workerPort, ILogger logger) : IAs
 
     private void StopProcess()
     {
+        configuration = null;
         if (process is null) return;
         try { if (!process.HasExited) { process.Kill(entireProcessTree: true); process.WaitForExit(5000); } }
         catch (Exception e) when (e is InvalidOperationException or System.ComponentModel.Win32Exception) { }

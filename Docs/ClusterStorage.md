@@ -102,17 +102,52 @@ Windows has no collection: cluster deployments require Linux.
 
 ## Cluster backups
 
-A Host snapshot leaves out what a restore does not need: the profile-pinned `Mods` folder of
-every node, which activating the restored deployment writes again from its bundle (a
-restore always activates a newly prepared revision), and the cluster plugin's
-`data/cluster/handover-diff` dumps, which are diagnostics. The snapshot manifest lists the
-left-out mod folders (`rebuiltMods`); a restore refuses a candidate deployment that does not
-pin mods for those nodes.
+A Host snapshot leaves out what a restore does not need, because a restore always activates a
+newly prepared revision built from the backup's recorded inputs:
+
+- the profile-pinned `Mods` folder of every node, which activating that revision writes again
+  from its bundle (`rebuiltMods` in the snapshot manifest);
+- every other `Mods` folder a data seed pins, in practice `world/Mods` with the Workshop mods.
+  Seeds are written only once, so the restore itself links or copies them again from the new
+  revision's seed (`reseededMods`);
+- each node's configuration files its seed pins, the plugins in `config/Local` included. The
+  Host writes them again before every node start (`pinnedConfig`). Files a plugin wrote there
+  itself stay in the snapshot;
+- what processes write again on their own: Magnetar's patched game assemblies in
+  `config/Preloader`, `data/NativeWrapperCache`, `data/Performance/Cache`, the node logs in
+  `config` and `data`, and `gateway/gateway.log` (`regenerated`);
+- the cluster plugin's `data/cluster/handover-diff` dumps, which are diagnostics.
+
+A restore refuses a candidate deployment that does not pin or seed what its snapshot left out.
+Such a snapshot has manifest schema 4, which older Hosts refuse to restore instead of restoring
+it without its mods. `plugin-shared` stays in: plugins keep state there. On the Octahedron test
+cluster's 8.6 GB backup of 2026-11-11 these rules leave out 4.2 GB (SE-1348).
 
 Scheduled backups follow the Servers backup rule's retention. The pre-update backup of each
 managed update and the backup a conversion takes are recorded with their purpose
 (`purpose`: `update` or `conversion`) and Quasar keeps the newest 3 of each per cluster.
 Backups taken before this, and manual backups, stay for as long as the cluster exists.
+
+A stopped cluster gets one scheduled backup per stop: while its lifecycle has not changed since
+the newest automatic backup, the scheduler skips it, since nothing could have changed the runtime.
+
+All backups of a cluster share one content-addressed store (SE-1349). Quasar streams each Host's
+archive into it as it downloads it: every file of 4 KiB or more becomes an object under
+`.objects/<first two hex digits>/<sha256>` in the cluster's backup folder, written only when the
+store does not have it yet. What is left of the archive, its tar headers, small files and the
+Host's `snapshot.json`, goes gzipped into `<host>.tar.skeleton` in the backup's folder, next to
+`<host>.tar.objects`, the list of objects it refers to. The skeleton rebuilds the Host's archive
+byte for byte, so `backup.json` keeps its SHA-256 and size, every read checks them, and a restore
+uploads the same archive the Host sent. Bytes that do not parse as tar stay in the skeleton as
+they are. After pruning, Quasar deletes the objects no backup's list names; the staging folder of
+a capture in progress counts too. One capture, collection or restore upload at a time uses a
+cluster's store. Backups taken before this kept the archive as `<host>.tar`; they are read and
+restored as before. An older Quasar cannot read the new format, so it cannot restore these
+backups.
+
+On copies of five octahedron-test backups of 2026-11-11 (two online, three stopped, 43.9 GB of
+tar), the store took 5.6 GB: the first backup added 4.9 GB of objects, each later one up to
+0.25 GB (none for a stop with nothing changed) plus a 22 MB skeleton.
 
 ## Combined updates and transfer
 

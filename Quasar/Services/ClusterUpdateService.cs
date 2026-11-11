@@ -187,6 +187,11 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
         return abandoned;
     }
 
+    /// <summary>A stopped cluster stays stopped after its update; starting it is a separate decision. An update despite
+    /// a dirty shutdown is the exception: its new deployment must start once, as a recovery start.</summary>
+    internal static bool StaysStopped(ClusterUpdate update) =>
+        update.GoalBefore == DedicatedServerGoalState.Off && update.DirtyShutdown is null;
+
     private static TimeSpan Timeout(ClusterUpdatePhase phase) => phase switch
     {
         ClusterUpdatePhase.Stopping => StoppingTimeout,
@@ -273,6 +278,15 @@ public sealed class ClusterUpdateService(ClusterCatalog catalog, ClusterDeployme
                             await TimedAsync(cluster, "activation", () => deployments.ActivateCoreAsync(cluster, workflow.Deployment, token,
                                 update: true, dirtyShutdown: workflow.DirtyShutdown is not null));
                             cluster = catalog.GetCluster(cluster.UniqueName)!; // Activation changed lifecycle identity.
+                            if (StaysStopped(workflow))
+                            {
+                                // SE-1342: an update of a stopped cluster leaves it stopped. Its next start runs the new deployment.
+                                await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Complete,
+                                    LastError = null, UpdatedAt = DateTimeOffset.UtcNow }, token);
+                                logger.LogInformation("Cluster {Cluster} update activated {Seconds:0.0} s after it began; it stays stopped, as it was before the update.",
+                                    cluster.UniqueName, (DateTimeOffset.UtcNow - workflow.StartedAt).TotalSeconds);
+                                break;
+                            }
                             // After a dirty shutdown the new deployment's first start is a recovery start.
                             await catalog.RecordUpdateAsync(cluster, workflow with { Phase = ClusterUpdatePhase.Starting,
                                 LastError = null, UpdatedAt = DateTimeOffset.UtcNow, PhaseStartedAt = DateTimeOffset.UtcNow }, token,

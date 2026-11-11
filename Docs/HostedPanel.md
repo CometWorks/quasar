@@ -124,6 +124,46 @@ addresses remain invalid. Bootstrap owns frpc outside web-worker updates; its up
 connection reconnects unattended. Manager outages, expiry or suspension close
 hosted access without changing game-server goal state or local access.
 
+### Access revocation and reactivation
+
+When Nebula confirms that hosting is inactive (including after a confirmed refund),
+Quasar clears the connector credential and readiness health. It retains the panel
+name, enrollment ID, installation proof, local proxy proof and completed setup.
+A later authenticated active enrollment response can supply the credential again;
+fresh matching connector/worker health is still required before showing the
+dashboard as ready. Refund processing and billing policy remain Nebula-owned.
+Installation-authentication failure or a missing enrollment instead disconnects
+the installation and requires relinking through the existing setup flow.
+
+Bootstrap also acts on authenticated heartbeat **401/403**: it stops its own frpc
+process and records unhealthy local connector status. Before any start/restart,
+including after a launcher restart with an old credential, a successful heartbeat
+is required. Bootstrap re-reads enrollment after awaited startup work; a late
+positive heartbeat cannot restore a cleared credential, and a late denial never
+rewrites a newly activated enrollment. Only the worker writes enrollment state.
+Administration/billing-notice synchronization follows the access decision, so an
+advisory synchronization failure cannot retain already-revoked authority.
+
+These are authenticated **polling paths**, not an inbound callback or instant
+push. Both loops normally check every **10 seconds**, with non-overlapping work.
+The worker's Nebula client permits **15 seconds per request**, including its
+separate administration synchronization. Bootstrap permits **3 seconds per local
+probe** (two probes), **8 seconds for the remote heartbeat**, and waits up to
+**5 seconds** after terminating its connector. Those operations, provider-side
+refund processing, disk work and scheduling can extend the elapsed time beyond
+one check interval. A timeout/5xx response does not itself erase enrollment proof
+or prove a refund; a new connector still cannot start without a successful check.
+
+Clearing the credential also invalidates existing hosted RTC sessions through
+their current installation check, normally run every **one second**; in-flight
+checks and cleanup add time. Independently, RTC asks Nebula to renew entitlement
+every **30 seconds**, with a **5-second** request deadline, and cannot extend its
+**120-second monotonic lease** through an outage. The existing documented
+**130-second** forwarding bound is measured from the start of the last successful
+renewal request under normal scheduling, not from a refund button click. See
+[RTC authorization and lifetime](QuasarWebRtc.md). Local HTTP access, game servers
+and supervision remain independent throughout.
+
 **URL paths are not browser-origin isolation.** Cookie names/paths and server
 permissions do not isolate arbitrary customer-controlled scripts from the portal
 or other panels. The operator explicitly accepts this risk and chose open signup

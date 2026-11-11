@@ -142,6 +142,8 @@ body's padding with a heavier leading border, making the hierarchy visible witho
 opening every section. Native disclosures and remaining Mud expansion panels use
 the same grouping treatment; opening a parent no longer styles closed child headers
 as expanded. Keyboard disclosure behavior and action permissions are unchanged.
+Expanded plugin panels have a 16px top inset, keeping the first nested section
+or field clear of the parent header.
 
 `QuasarTheme` is the temporary bridge from stored palette strings to native CSS
 and Mud themes. Legacy public theme accessors remain for plugin compatibility.

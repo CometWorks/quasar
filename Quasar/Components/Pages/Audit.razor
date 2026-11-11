@@ -79,7 +79,7 @@
                     var blocker = AuditLog.UndoBlocker(entry, _entries);
                     var undone = _entries.Any(other => other.Reverses == entry.Id && other.Result == QuasarAuditResult.Ok);
                     <tr>
-                        <td class="mono">@Time(entry.Time)</td>
+                        <td class="mono"><QuasarStackedTimestamp Value="@entry.Time" /></td>
                         <td class="audit-wrap">@entry.Principal.Kind: @(entry.Principal.Name ?? entry.Principal.Subject)</td>
                         <td class="audit-wrap">@Requester(entry.Requester)</td>
                         <td class="mono audit-wrap">@entry.Operation</td>

@@ -57,6 +57,9 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
                 throw new InvalidDataException("The resolved configuration is outside its update operation.");
         }
         var payload = operation.RestartOnly || operation.RestorePrevious ? "" : preparePackage is null ? await TrustedUpdatePackage.PrepareAsync(installation, operation, token) : await preparePackage(installation, operation, token);
+        // SE-1351: a running cluster backup finishes first, within a bound. Held until the new release is healthy,
+        // so a backup that falls due meanwhile waits for Quasar to be back instead of racing the stop.
+        using var backups = await AcquireBackupLeaseAsync(operation, token);
         using (await QuasarMaintenanceLease.AcquireAsync(token))
         {
             var currentStatus = await NativeQuasarServices.ReadAsync(installation, false, token);
@@ -111,6 +114,24 @@ internal sealed class QuasarUpdater(QuasarServiceInstallation installation, ILog
             logger.LogError(exception, "Update {OperationId} failed; restoring the previous application.", operation.Id);
             await RecoverAsync(CancellationToken.None, exception.Message);
         }
+    }
+
+    // How long a restart waits for a running cluster backup. Past it the stop interrupts the backup, which
+    // releases its Gateway hold without counting as done and is retried once Quasar is back.
+    internal TimeSpan BackupWait { get; init; } = TimeSpan.FromMinutes(30);
+    internal string? BackupLeasePath { get; init; }
+
+    internal async Task<FileStream?> AcquireBackupLeaseAsync(QuasarUpdateOperation operation, CancellationToken token)
+    {
+        string path = BackupLeasePath ?? ClusterBackupLease.DefaultPath;
+        if (ClusterBackupLease.TryAcquire(path) is { } lease) return lease;
+        using (await QuasarMaintenanceLease.AcquireAsync(token))
+            if (QuasarUpdateJournal.Read() is { Stage: UpdateStage.Ready } current && current.Id == operation.Id)
+                QuasarUpdateJournal.Write(current with { Message = $"Waiting up to {BackupWait.TotalMinutes:0} minutes for a cluster backup to finish before restarting Quasar." });
+        lease = await ClusterBackupLease.AcquireAsync(path, BackupWait, token);
+        if (lease is null)
+            logger.LogWarning("A cluster backup still runs after {Minutes:0} minutes; restarting Quasar interrupts it, and it is retried once Quasar is back.", BackupWait.TotalMinutes);
+        return lease;
     }
 
     private string MaintenancePath => Path.Combine(installation.DataDirectory, "Updates", "application-maintenance");

@@ -11,6 +11,7 @@ using MudBlazor.Services;
 using Quasar.Components.Pages;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Plugin.Abstractions.Security;
+using Quasar.Services;
 using Quasar.Services.Audit;
 using Quasar.Services.Auth;
 using Quasar.Services.Plugins;
@@ -886,9 +887,12 @@ public sealed class QuasarAgentAuditTests : IDisposable
             "Undo",
             rows[0].QuerySelectorAll("button").Select(b => b.TextContent.Trim())
         );
-        Assert.Contains(
-            "Undo of " + change.Time.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
-            rows[1].TextContent
+        Assert.Contains("Undo of " + new ViewerTimeZone().Format(change.Time), rows[1].TextContent);
+        var timestamp = rows[2].QuerySelector("time")!;
+        Assert.Equal(change.Time.ToString("O"), timestamp.GetAttribute("datetime"));
+        Assert.Matches(
+            @"^\d{4}\u2011\d{2}\u2011\d{2}\n\d{2}:\d{2}:\d{2}\u00A0UTC$",
+            timestamp.TextContent
         );
         Assert.Contains("Undone", rows[2].TextContent);
         Assert.DoesNotContain(

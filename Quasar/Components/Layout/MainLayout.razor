@@ -85,7 +85,10 @@
                 </AuthorizeView>
             </div>
         </header>
-        <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">@if (ViewerTime.Resolved || !RendererInfo.IsInteractive) { @Body }</main>
+        <main id="quasar-main" class="quasar-main" tabindex="-1" inert="@(_isShuttingDown ? string.Empty : null)">
+            @if (ViewerTime.Resolved) { @Body }
+            else { <p class="quasar-muted" role="status">Loading…</p> }
+        </main>
         <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.LayoutDrawer" Parameters="@DrawerParameters" />
         <div class="quasar-overlays">
             <MudPopoverProvider />
@@ -163,7 +166,7 @@
         "" => "Fleet overview", "configs" => "Configuration profiles", "world-templates" => "World templates",
         "plugins" => "Server plugins", "players" => "Players", "chat" => "Chat", "entities" => "Entities",
         "analytics" => "Analytics", "discord" => "Discord", "hosts" => "Host machines", "hosts/enroll" => "Add host machine",
-        "backup" => "Backups", "notifications" => "Notifications", "settings/appearance" => "Appearance",
+        "backup" => "Backups", "notifications" => "Notifications", "settings/appearance" => "Appearance", "settings/display" => "Display",
         "settings/security" => "Security", "audit" => "Audit log", "settings/ui-plugins" => "UI plugins", "settings/updates" => "Updates",
         "settings/server-list" => "Server listing", "clusters/new" => "Set up cluster",
         var route when route.StartsWith("clusters/", StringComparison.Ordinal) => "Cluster management",
@@ -191,7 +194,7 @@
 
     protected override async Task OnInitializedAsync()
     {
-        // Pages format times in the browser's zone, so they start once the browser has named it.
+        // Load the viewer's zone before rendering pages that display timestamps.
         if (RendererInfo.IsInteractive)
             await ViewerTime.InitializeAsync(JS);
         Navigation.LocationChanged += OnLocationChanged;

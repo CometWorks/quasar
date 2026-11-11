@@ -1,7 +1,9 @@
+extern alias Updater;
 using System.Net.Http.Json;
 using System.Net;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using CometWorks.ClusterGateway.AdminContract.V1;
 using Quasar.Host.Contract.V1;
@@ -353,9 +355,10 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.True(backup.Online);
         Assert.True(backup.Automatic);
         Assert.Equal(CometWorks.ClusterGateway.AdminContract.V1.ExportConsistency.CrashConsistent, backup.Consistency);
-        // save-all pins the saves, the registry copy comes next, the Hosts copy after it, then the copy is released.
+        // save-all pins the saves, the registry copy comes next, the Hosts copy after it, then the copy is released
+        // as a stored backup: SE-1351, that release runs the nodes' bot ship cleanup.
         Assert.Equal(["POST /admin/v1/save-all", "POST /admin/v1/registry-backups", "GET /admin/v1/artifacts/registry-r1",
-            "host one", "host two", "DELETE /admin/v1/artifacts/registry-r1"],
+            "host one", "host two", "DELETE /admin/v1/artifacts/registry-r1?backup=stored"],
             gatewayHandler.Calls.Where(c => !c.StartsWith("GET /admin/v1/capabilities") && !c.StartsWith("GET /admin/v1/status")));
         Assert.Equal(["one", "two"], handler.Captures.Select(c => c.Host));
         Assert.All(handler.Captures, c => Assert.True(c.Request.Online && c.Request.BytesPerSecond == 8L * 1024 * 1024));
@@ -363,6 +366,113 @@ public sealed class ClusterDeploymentTests : IDisposable
             (handler.Captures[0].Request.RegistryArtifactId, handler.Captures[0].Request.RegistrySha256));
         Assert.Null(handler.Captures[1].Request.RegistryArtifactId);
         Assert.NotEqual(catalog.GetCluster("demo")!.GetLifecycleId(), handler.Captures[0].Request.CaptureFence);
+    }
+
+    // SE-1351: a planned Quasar restart stopped the service during an online capture. The Host request broke
+    // (host_timeout), and the release in the finally block moved the Gateway's backup time: the bot ship cleanup
+    // removed ships against a backup that was never stored.
+    [Fact]
+    public async Task PlannedRestartDuringOnlineCaptureReleasesTheHoldWithoutBackupTimeAndRetriesAfterRestart()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler);
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true }, OnlineClusterMiBPerSecond = 8 };
+        string lease = Path.Combine(root, "restart-lease", "cluster-backup.lock");
+        ClusterBackupService Quasar(StopLifetime lifetime) => new(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "restart-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "restart-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler)), lifetime: lifetime) { BackupLeasePath = lease };
+
+        // The service stops while the Gateway Host copies; its tunnel drops the request.
+        var stopping = new StopLifetime();
+        var observed = handler.CaptureObserved!;
+        handler.CaptureObserved = host => { observed(host); stopping.StopApplication(); throw new TaskCanceledException("tunnel closed"); };
+        var before = Quasar(stopping);
+        await before.CaptureDueAsync(settings, default);
+
+        Assert.Empty(before.List("demo"));
+        var interrupted = Assert.Single(new ClusterOperationStore(Path.Combine(root, "restart-operations")).GetRecent(["demo"], 10));
+        Assert.Equal((ClusterOperationState.Failed, "operation_cancelled"), (interrupted.State, interrupted.Error!.Code));
+        // The registry copy's hold is still released, but not as a stored backup.
+        Assert.Equal("DELETE /admin/v1/artifacts/registry-r1", gatewayHandler.Calls.Last());
+
+        // Quasar is back: the backup is retried at once, not an hour later, and only it counts as done.
+        handler.CaptureObserved = observed;
+        gatewayHandler.Calls.Clear();
+        var after = Quasar(new StopLifetime());
+        await after.CaptureDueAsync(settings, default);
+
+        Assert.True(Assert.Single(after.List("demo")).Online);
+        Assert.Equal("DELETE /admin/v1/artifacts/registry-r1?backup=stored", gatewayHandler.Calls.Last());
+        Assert.Single(gatewayHandler.Calls, c => c.StartsWith("DELETE"));
+    }
+
+    // SE-1351: the updater holds the backup lease from just before it stops Quasar until the new release is healthy.
+    [Fact]
+    public async Task ScheduledBackupWaitsForAPlannedRestart()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler);
+        string lease = Path.Combine(root, "deferred-lease", "cluster-backup.lock");
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "deferred-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "deferred-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler))) { BackupLeasePath = lease };
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true }, OnlineClusterMiBPerSecond = 8 };
+
+        using (var restart = global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease))
+        {
+            Assert.NotNull(restart);
+            await backups.CaptureDueAsync(settings, default);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => backups.CaptureAsync("demo",
+                new ClusterBackupRequest(Guid.NewGuid(), AllowCrashConsistent: true, Online: true), "manual", "test", default));
+            Assert.Empty(gatewayHandler.Calls);
+            Assert.Empty(handler.Captures);
+            Assert.Empty(new ClusterOperationStore(Path.Combine(root, "deferred-operations")).GetRecent(["demo"], 10));
+        }
+
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Single(backups.List("demo"));
+    }
+
+    // SE-1351: a restart waits for a running backup within a bound, then goes ahead and interrupts it.
+    [Fact]
+    public async Task PlannedRestartWaitsForARunningBackupWithinABound()
+    {
+        string lease = Path.Combine(root, "updater-lease", "cluster-backup.lock");
+        var installation = new Updater::Quasar.Updates.QuasarServiceInstallation { InstallDirectory = root, DataDirectory = root };
+        var operation = new Updater::Quasar.Updates.QuasarUpdateOperation { Id = Guid.NewGuid(), Version = "1.0.0" };
+        Updater::QuasarUpdater Updater(TimeSpan wait) => new(installation, NullLogger<Updater::QuasarUpdater>.Instance)
+            { BackupLeasePath = lease, BackupWait = wait };
+
+        var backup = global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease)!;
+        var waiting = Updater(TimeSpan.FromSeconds(30)).AcquireBackupLeaseAsync(operation, default);
+        await Task.Delay(300);
+        Assert.False(waiting.IsCompleted);
+        backup.Dispose(); // the backup finished
+        using (var restart = await waiting)
+        {
+            Assert.NotNull(restart);
+            Assert.Null(global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease)); // a due backup waits now
+        }
+
+        using (global::Quasar.Updates.ClusterBackupLease.TryAcquire(lease))
+            Assert.Null(await Updater(TimeSpan.FromSeconds(1)).AcquireBackupLeaseAsync(operation, default));
+    }
+
+    private sealed class StopLifetime : IHostApplicationLifetime
+    {
+        private readonly CancellationTokenSource _stopping = new();
+        public CancellationToken ApplicationStarted => CancellationToken.None;
+        public CancellationToken ApplicationStopping => _stopping.Token;
+        public CancellationToken ApplicationStopped => CancellationToken.None;
+        public void StopApplication() => _stopping.Cancel();
     }
 
     [Fact]
@@ -424,6 +534,89 @@ public sealed class ClusterDeploymentTests : IDisposable
             backups.List("demo").Select(b => b.SnapshotId));
     }
 
+    // SE-1349: a stopped cluster gets one scheduled backup per stop; its archives go into the object store,
+    // a second backup of the same content adds no object, and the bytes uploaded for a restore are the Host's.
+    [Fact]
+    public async Task ScheduledBackupsShareTheClusterObjectStoreAndSkipAnUnchangedStop()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential) { Archive = ClusterBackupStoreTests.Tar(("runtime/world/save.sbs", ClusterBackupStoreTests.Bytes(50_000, 1)),
+            ("runtime/nodes/a/data/save.mps", ClusterBackupStoreTests.Bytes(20_000, 2)), ("snapshot.json", ClusterBackupStoreTests.Bytes(9_000, 3))) };
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        async Task Stop()
+        {
+            var stopping = catalog.GetCluster("demo")!;
+            await catalog.RecordShutdownProofAsync(stopping, new(stopping.GetLifecycleId(), DateTimeOffset.UtcNow,
+                new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        }
+        await Stop();
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true, Frequency = BackupFrequency.Hourly, RetentionCount = 5 } };
+        string backupRoot = Path.Combine(root, "store-backups");
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "store-operations")), null!, new WebServiceOptions { BackupDirectory = backupRoot }, null!, null!);
+        string clusterRoot = ClusterBackupService.Root(backupRoot, "demo");
+        string[] Objects() => Directory.Exists(Path.Combine(clusterRoot, ClusterBackupStore.Objects))
+            ? Directory.GetFiles(Path.Combine(clusterRoot, ClusterBackupStore.Objects), "*", SearchOption.AllDirectories) : [];
+        void Age()
+        {
+            foreach (var old in backups.List("demo"))
+            {
+                string manifest = Path.Combine(clusterRoot, old.SnapshotId.ToString("N"), "backup.json");
+                File.WriteAllText(manifest, JsonSerializer.Serialize(old with { CreatedAt = old.CreatedAt.AddHours(-2) }, Json));
+            }
+        }
+
+        await backups.CaptureDueAsync(settings, default);
+        var first = Assert.Single(backups.List("demo"));
+        string directory = Path.Combine(clusterRoot, first.SnapshotId.ToString("N"));
+        Assert.Empty(Directory.GetFiles(directory, "*.tar"));
+        Assert.Equal(2, Directory.GetFiles(directory, "*" + ClusterBackupStore.SkeletonSuffix).Length);
+        Assert.Equal(2, Objects().Length); // two files of two Hosts with the same content; snapshot.json stays in the skeleton
+        int captures = handler.Captures.Count;
+
+        // Due again, but the cluster has not run since: no capture.
+        Age();
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(captures, handler.Captures.Count);
+        Assert.Single(backups.List("demo"));
+
+        // Started and stopped again: a new backup, and content the store has adds no object.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await Stop();
+        handler.Archive = ClusterBackupStoreTests.Tar(("runtime/world/save.sbs", ClusterBackupStoreTests.Bytes(50_000, 1)),
+            ("runtime/nodes/a/data/save.mps", ClusterBackupStoreTests.Bytes(20_000, 2)), ("snapshot.json", ClusterBackupStoreTests.Bytes(9_000, 4)));
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(2, backups.List("demo").Length);
+        Assert.Equal(2, Objects().Length);
+
+        // A changed file adds its object; pruning the backups that used the old one collects it.
+        Age();
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        await Stop();
+        byte[] latest = ClusterBackupStoreTests.Tar(("runtime/world/save.sbs", ClusterBackupStoreTests.Bytes(50_000, 5)),
+            ("runtime/nodes/a/data/save.mps", ClusterBackupStoreTests.Bytes(20_000, 2)), ("snapshot.json", ClusterBackupStoreTests.Bytes(9_000, 6)));
+        handler.Archive = latest;
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Equal(3, Objects().Length);
+        backups.Prune("demo", 1);
+        var kept = Assert.Single(backups.List("demo"));
+        Assert.Equal(2, Objects().Length);
+
+        // What a restore sends to a Host is the archive the Host gave, byte for byte.
+        var stored = kept.Hosts[0];
+        using (var archive = ClusterBackupStore.Open(clusterRoot, Path.Combine(clusterRoot, kept.SnapshotId.ToString("N"),
+            Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(stored.HostId))) + ".tar")))
+        {
+            var target = kept.Deployment.Clone();
+            target.HostCommandUrl = "http://" + stored.HostId;
+            target.HostCommandTokenEnvironmentVariable = credential;
+            await new ClusterHostClient(new HttpClient(handler)).TransferSnapshotAsync(target, stored, "unused", true, default, archive);
+        }
+        Assert.Equal(latest, Assert.Single(handler.Uploads));
+    }
+
     [Fact]
     public async Task RetentionKeepsTheNewestQuiescentBackupBeyondTheCount()
     {
@@ -462,7 +655,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string path = request.RequestUri!.AbsolutePath;
-            Calls.Add(request.Method + " " + path);
+            Calls.Add(request.Method + " " + request.RequestUri.PathAndQuery);
             AdminOperation Done(string kind, Dictionary<string, string> result) => new(kind + "-1", kind, AdminOperationState.Succeeded, "quasar",
                 request.Headers.GetValues("Idempotency-Key").Single(), DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, result, null);
             object data = path switch
@@ -632,11 +825,60 @@ public sealed class ClusterDeploymentTests : IDisposable
 
         var cluster = catalog.GetCluster("demo")!;
         Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
-        Assert.Equal(ClusterUpdatePhase.Starting, cluster.Update!.Phase);
-        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
-        Assert.Null(cluster.ActivationProof);
+        // SE-1342: it was stopped before the update, so it stays stopped.
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.Null(cluster.Update.LastError);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+        Assert.True(cluster.IsProvenStopped());
         Assert.Equal(0, handler.GatewayStops);
         Assert.Null(cluster.Update.Backup);
+    }
+
+    [Fact]
+    public async Task UpdateOfAStoppedClusterLeavesItStoppedUntilStartedOnTheNewVersion()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        var operations = new ClusterOperationStore(Path.Combine(root, "update-operations"));
+        var client = new ClusterHostClient(new HttpClient(handler));
+        var deployment = new ClusterDeploymentService(catalog, client, operations);
+        await deployment.ActivateAsync("demo", Request(), "initial", "test", default);
+        // It ran, then stopped cleanly. No Gateway answers: nothing in the update may need the live cluster.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.Off);
+        var stopped = catalog.GetCluster("demo")!;
+        await catalog.RecordShutdownProofAsync(stopped, new(stopped.GetLifecycleId(), DateTimeOffset.UtcNow,
+            new GatewayStopFence(123, DateTimeOffset.UtcNow)), default);
+        var update = new ClusterUpdateService(catalog, deployment,
+            new ClusterGatewayClient(new HttpClient(new FailingGatewayHandler())), client, operations,
+            NullLogger<ClusterUpdateService>.Instance,
+            new ClusterBackupService(catalog, client, operations, null!,
+                new WebServiceOptions { BackupDirectory = Path.Combine(root, "stopped-update-backups") }, null!, null!));
+        handler.Revision = "candidate";
+        var id = Guid.NewGuid();
+
+        await update.BeginAsync("demo", new(id, Next("revision", "candidate", 'a', 'b')), "begin", "test", default);
+        for (int i = 0; i < 3; i++) await update.AdvanceAllAsync(default);
+
+        var cluster = catalog.GetCluster("demo")!;
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.Equal("revision", cluster.PreviousDeployment!.Revision);
+        Assert.Equal(id, cluster.Update!.Id);
+        Assert.Equal(ClusterUpdatePhase.Complete, cluster.Update!.Phase);
+        Assert.Null(cluster.Update.LastError);
+        Assert.Equal(id, cluster.Update.Backup);
+        Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
+        Assert.True(cluster.IsProvenStopped(requireRun: true));
+        Assert.Equal(0, handler.GatewayStops);
+
+        // Starting it later is the operator's separate decision, and it starts the new deployment.
+        var generation = cluster.Gateway!.StartGeneration;
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        cluster = catalog.GetCluster("demo")!;
+        Assert.Equal(DedicatedServerGoalState.On, cluster.GoalState);
+        Assert.Equal("candidate", cluster.ActiveDeployment!.Revision);
+        Assert.NotEqual(generation, cluster.Gateway!.StartGeneration);
+        Assert.False(cluster.Gateway.Recover);
     }
 
     [Fact]
@@ -935,9 +1177,11 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(DedicatedServerGoalState.Off, cluster.GoalState);
 
         // Activating, half applied for a while: resuming still works (the revert after its timeout is tested separately).
-        await ProveCleanShutdown(122);
+        // The cluster runs before this update, so it starts again afterwards.
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
         var id = Guid.NewGuid();
         await update.BeginAsync("demo", new(id, candidate), "begin-4", "test", default);
+        await ProveCleanShutdown(122);
         await update.AdvanceAllAsync(default);
         Assert.Equal(id, catalog.GetCluster("demo")!.Update!.Backup);
         Assert.Single(backups.List("demo"), b => b.SnapshotId == id);
@@ -1505,6 +1749,13 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Equal(ClusterUpdatePhase.Activating, catalog.GetCluster("demo")!.Update!.Phase);
     }
 
+    // A stopped cluster's Gateway does not answer.
+    private sealed class FailingGatewayHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            throw new HttpRequestException("Gateway is down.");
+    }
+
     private sealed class GatewayHandler : HttpMessageHandler
     {
         internal bool Ready;
@@ -1574,6 +1825,8 @@ public sealed class ClusterDeploymentTests : IDisposable
         internal int FailCaptures;
         internal Action<string>? CaptureObserved;
         internal readonly List<(string Host, HostSnapshotRequest Request)> Captures = [];
+        internal byte[] Archive = [1, 2, 3]; // what each Host's snapshot download returns
+        internal readonly List<byte[]> Uploads = [];
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
         {
             string host = request.RequestUri!.Host;
@@ -1581,7 +1834,8 @@ public sealed class ClusterDeploymentTests : IDisposable
             if (Deletion == "host-offline") throw new HttpRequestException("Host unreachable");
             if (request.RequestUri.AbsolutePath.Contains("/snapshots/"))
             {
-                byte[] archive = [1, 2, 3];
+                byte[] archive = Archive;
+                if (request.Method == HttpMethod.Put) Uploads.Add(await request.Content!.ReadAsByteArrayAsync(token));
                 if (request.Method == HttpMethod.Get) // the archive download is raw bytes, not an envelope
                     return new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(archive) };
                 if (request.Method == HttpMethod.Post)

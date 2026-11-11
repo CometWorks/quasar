@@ -4,16 +4,31 @@ using Microsoft.JSInterop;
 namespace Quasar.Services;
 
 /// <summary>
-/// The browser's time zone for one Blazor circuit. Every timestamp the web UI shows goes through
-/// <see cref="Format(DateTimeOffset)"/>, so it reads <c>yyyy-MM-dd HH:mm:ss</c> in the viewer's zone,
-/// not the zone of the machine running Quasar. Until the browser has reported its zone, times are
-/// shown in UTC with a <c>UTC</c> suffix.
+/// Converts UTC timestamps at the UI boundary using the viewer's chosen zone or the browser's local zone.
 /// </summary>
 public sealed class ViewerTimeZone
 {
-    public const string Pattern = "yyyy-MM-dd HH:mm:ss";
+    private const string StorageKey = "quasar.timeZone";
+
+    // Non-breaking hyphens and spaces keep the timestamp together in UI text.
+    private const string DatePattern = "yyyy\u2011MM\u2011dd";
+    private const string TimePattern = "HH:mm:ss";
+    public const string Pattern = DatePattern + "\u00A0" + TimePattern;
+    private const string StackedPattern = DatePattern + "\n" + TimePattern;
 
     public TimeZoneInfo? Zone { get; private set; }
+    public string? PreferredId { get; private set; }
+    public string? BrowserId { get; private set; }
+    private TimeZoneInfo? _browserZone;
+
+    public static IReadOnlyList<string> AvailableIds { get; } =
+        TimeZoneInfo
+            .GetSystemTimeZones()
+            .Select(zone => AsIanaId(zone.Id))
+            .Append("UTC")
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Order(StringComparer.Ordinal)
+            .ToArray();
 
     /// <summary>True once the browser was asked, whether or not it gave a usable zone.</summary>
     public bool Resolved { get; private set; }
@@ -23,7 +38,14 @@ public sealed class ViewerTimeZone
         try
         {
             var info = await js.InvokeAsync<BrowserTimeZone>("quasarConfigs.getTimeZone");
-            Zone = Resolve(info.Id, info.OffsetMinutes);
+            BrowserId = info?.Id;
+            _browserZone = Resolve(info?.Id, info?.OffsetMinutes);
+            Zone = _browserZone;
+            if (Resolve(info?.PreferredId, null) is { } preferred)
+            {
+                PreferredId = AsIanaId(info!.PreferredId!);
+                Zone = preferred;
+            }
         }
         catch (JSException) { }
         catch (JSDisconnectedException) { }
@@ -31,7 +53,23 @@ public sealed class ViewerTimeZone
         Resolved = true;
     }
 
+    public async Task<bool> TrySetPreferenceAsync(IJSRuntime js, string id)
+    {
+        id = id.Trim();
+        var preferred = Resolve(id, null);
+        if (id.Length != 0 && preferred is null)
+            return false;
+
+        var ianaId = preferred is null ? null : AsIanaId(id);
+        await new BrowserStorageService(js).SetStringAsync(StorageKey, ianaId ?? "");
+        PreferredId = ianaId;
+        Zone = preferred ?? _browserZone;
+        return true;
+    }
+
     public string Format(DateTimeOffset value) => Format(value, Zone);
+
+    public string FormatStacked(DateTimeOffset value) => Format(value, Zone, StackedPattern);
 
     public string Format(DateTimeOffset? value, string missing) =>
         value is { } time ? Format(time) : missing;
@@ -42,22 +80,34 @@ public sealed class ViewerTimeZone
     public string FormatTicks(long ticksUtc) => Format(new DateTimeOffset(ticksUtc, TimeSpan.Zero));
 
     /// <summary>Wall-clock time of <paramref name="value"/> in the viewer's zone, for date and time inputs.</summary>
-    public DateTime ToViewer(DateTimeOffset value) =>
-        Zone is null ? value.UtcDateTime : TimeZoneInfo.ConvertTime(value, Zone).DateTime;
+    public DateTime ToViewer(DateTimeOffset value) => ToWallClock(value, Zone);
 
-    /// <summary>The instant a wall-clock time typed by the viewer stands for.</summary>
-    public DateTimeOffset FromViewer(DateTime wallClock)
+    internal DateTime ToBrowser(DateTimeOffset value) => ToWallClock(value, _browserZone);
+
+    private static DateTime ToWallClock(DateTimeOffset value, TimeZoneInfo? zone) =>
+        zone is null ? value.UtcDateTime : TimeZoneInfo.ConvertTime(value, zone).DateTime;
+
+    /// <summary>Converts wall-clock time entered in the UI to a UTC instant.</summary>
+    public DateTimeOffset FromViewer(DateTime wallClock) => ToUtc(wallClock, Zone);
+
+    internal DateTimeOffset FromBrowser(DateTime wallClock) => ToUtc(wallClock, _browserZone);
+
+    private static DateTimeOffset ToUtc(DateTime wallClock, TimeZoneInfo? zone)
     {
         var unspecified = DateTime.SpecifyKind(wallClock, DateTimeKind.Unspecified);
-        return Zone is null
+        return zone is null
             ? new DateTimeOffset(unspecified, TimeSpan.Zero)
-            : new DateTimeOffset(unspecified, Zone.GetUtcOffset(unspecified));
+            : new DateTimeOffset(unspecified, zone.GetUtcOffset(unspecified)).ToUniversalTime();
     }
 
-    internal static string Format(DateTimeOffset value, TimeZoneInfo? zone) =>
+    internal static string Format(
+        DateTimeOffset value,
+        TimeZoneInfo? zone,
+        string pattern = Pattern
+    ) =>
         zone is null
-            ? value.UtcDateTime.ToString(Pattern, CultureInfo.InvariantCulture) + " UTC"
-            : TimeZoneInfo.ConvertTime(value, zone).ToString(Pattern, CultureInfo.InvariantCulture);
+            ? value.UtcDateTime.ToString(pattern, CultureInfo.InvariantCulture) + "\u00A0UTC"
+            : TimeZoneInfo.ConvertTime(value, zone).ToString(pattern, CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The IANA zone the browser named, or a fixed offset when this machine does not know that zone.
@@ -69,7 +119,7 @@ public sealed class ViewerTimeZone
             && TimeZoneInfo.TryFindSystemTimeZoneById(id, out var zone)
         )
             return zone;
-        if (offsetMinutes is not { } minutes || Math.Abs(minutes) > 14 * 60)
+        if (offsetMinutes is not { } minutes || minutes is < -840 or > 840)
             return null;
         var offset = TimeSpan.FromMinutes(minutes);
         var name = $"UTC{(minutes < 0 ? "-" : "+")}{offset:hh\\:mm}";
@@ -81,5 +131,8 @@ public sealed class ViewerTimeZone
             ? new DateTimeOffset(value)
             : new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Utc));
 
-    private sealed record BrowserTimeZone(string? Id, int? OffsetMinutes);
+    private static string AsIanaId(string id) =>
+        TimeZoneInfo.TryConvertWindowsIdToIanaId(id, out var ianaId) ? ianaId : id;
+
+    internal sealed record BrowserTimeZone(string? Id, int? OffsetMinutes, string? PreferredId);
 }

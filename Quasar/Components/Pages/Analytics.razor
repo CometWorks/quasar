@@ -71,16 +71,16 @@
 {
     <MudGrid Class="mb-4">
         <MudItem xs="12" sm="6" lg="3">
-            <MudDatePicker Label="From date" Date="_config.CustomFromDate" DateChanged="HandleCustomFromDateChanged" Variant="Variant.Outlined" />
+            <MudDatePicker Label="From date" Date="CustomFromDisplay.Date" DateChanged="HandleCustomFromDateChanged" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="3">
-            <MudTimePicker Label="From time" Time="_config.CustomFromTime" TimeChanged="HandleCustomFromTimeChanged" Variant="Variant.Outlined" Editable="true" />
+            <MudTimePicker Label="From time" Time="CustomFromDisplay.TimeOfDay" TimeChanged="HandleCustomFromTimeChanged" Variant="Variant.Outlined" Editable="true" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="3">
-            <MudDatePicker Label="To date" Date="_config.CustomToDate" DateChanged="HandleCustomToDateChanged" Variant="Variant.Outlined" />
+            <MudDatePicker Label="To date" Date="CustomToDisplay.Date" DateChanged="HandleCustomToDateChanged" Variant="Variant.Outlined" />
         </MudItem>
         <MudItem xs="12" sm="6" lg="3">
-            <MudTimePicker Label="To time" Time="_config.CustomToTime" TimeChanged="HandleCustomToTimeChanged" Variant="Variant.Outlined" Editable="true" />
+            <MudTimePicker Label="To time" Time="CustomToDisplay.TimeOfDay" TimeChanged="HandleCustomToTimeChanged" Variant="Variant.Outlined" Editable="true" />
         </MudItem>
     </MudGrid>
 }
@@ -474,8 +474,11 @@ else
         {
             var stored = await BrowserStorage.GetJsonAsync<AnalyticsViewConfig>(StorageKey);
             _config = NormalizeConfig(stored);
+            var migrated = _config.MigrateCustomRange(ViewerTime, ViewerTime.ToBrowser(DateTimeOffset.UtcNow).Date);
             _selectionInitialized = stored is not null;
             _configLoaded = true;
+            if (migrated)
+                await PersistConfigAsync();
         }
         catch (InvalidOperationException)
         {
@@ -667,27 +670,32 @@ else
         return PersistConfigAsync();
     }
 
+    private DateTime Today => ViewerTime.ToViewer(DateTimeOffset.UtcNow).Date;
+    private static readonly TimeSpan EndOfDay = new(23, 59, 0);
+    private DateTime CustomFromDisplay => _config.CustomFromUtc is { } from ? ViewerTime.ToViewer(from) : Today.AddDays(-1);
+    private DateTime CustomToDisplay => _config.CustomToUtc is { } to ? ViewerTime.ToViewer(to) : Today.Add(EndOfDay);
+
     private Task HandleCustomFromDateChanged(DateTime? value)
     {
-        _config.CustomFromDate = value;
+        _config.CustomFromUtc = ViewerTime.FromViewer((value ?? Today.AddDays(-1)).Date + CustomFromDisplay.TimeOfDay);
         return RefreshAsync();
     }
 
     private Task HandleCustomFromTimeChanged(TimeSpan? value)
     {
-        _config.CustomFromTime = value;
+        _config.CustomFromUtc = ViewerTime.FromViewer(CustomFromDisplay.Date + (value ?? TimeSpan.Zero));
         return RefreshAsync();
     }
 
     private Task HandleCustomToDateChanged(DateTime? value)
     {
-        _config.CustomToDate = value;
+        _config.CustomToUtc = ViewerTime.FromViewer((value ?? Today).Date + CustomToDisplay.TimeOfDay);
         return RefreshAsync();
     }
 
     private Task HandleCustomToTimeChanged(TimeSpan? value)
     {
-        _config.CustomToTime = value;
+        _config.CustomToUtc = ViewerTime.FromViewer(CustomToDisplay.Date + (value ?? EndOfDay));
         return RefreshAsync();
     }
 
@@ -891,6 +899,7 @@ else
             seriesColors = _seriesColors,
             lines = _config.SelectedClusterIds.Count > 0,
             dark = _isDarkTheme,
+            timeZone = ViewerTime.PreferredId,
         };
 
         try
@@ -926,14 +935,9 @@ else
             if (toUnix - fromUnix < 1)
                 return;
 
-            var fromLocal = ViewerTime.ToViewer(DateTimeOffset.FromUnixTimeSeconds(fromUnix));
-            var toLocal = ViewerTime.ToViewer(DateTimeOffset.FromUnixTimeSeconds(toUnix));
-
             _config.SelectedRangeKey = "custom";
-            _config.CustomFromDate = fromLocal.Date;
-            _config.CustomFromTime = fromLocal.TimeOfDay;
-            _config.CustomToDate = toLocal.Date;
-            _config.CustomToTime = toLocal.TimeOfDay;
+            _config.CustomFromUtc = DateTimeOffset.FromUnixTimeSeconds(fromUnix);
+            _config.CustomToUtc = DateTimeOffset.FromUnixTimeSeconds(toUnix);
 
             UpdateRefreshTimer();
             await RefreshAsync();
@@ -1312,14 +1316,12 @@ else
         }
 
         var today = ViewerTime.ToViewer(nowUtc).Date;
-        var fromDate = (_config.CustomFromDate ?? today.AddDays(-1)).Date;
-        var toDate = (_config.CustomToDate ?? today).Date;
-        var fromLocal = fromDate.Add(_config.CustomFromTime ?? TimeSpan.Zero);
-        var toLocal = toDate.Add(_config.CustomToTime ?? new TimeSpan(23, 59, 0));
-        if (toLocal < fromLocal)
-            toLocal = fromLocal.AddHours(1);
+        var from = _config.CustomFromUtc ?? ViewerTime.FromViewer(today.AddDays(-1));
+        var to = _config.CustomToUtc ?? ViewerTime.FromViewer(today.Add(EndOfDay));
+        if (to < from)
+            to = from.AddHours(1);
 
-        return (ViewerTime.FromViewer(fromLocal).ToUnixTimeSeconds(), ViewerTime.FromViewer(toLocal).ToUnixTimeSeconds());
+        return (from.ToUnixTimeSeconds(), to.ToUnixTimeSeconds());
     }
 
     private static MetricSample[] ReadSamplesForRange(ServerMetricsStore store, long fromUnix, long toUnix, long spanSeconds)
