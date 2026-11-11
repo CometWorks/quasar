@@ -492,13 +492,6 @@ jobs:
           # Only packaging reads the history; the checks need just the tree.
           fetch-depth: ${{ matrix.part == 'package' && 0 || 1 }}
 
-      # Real-time scanning of every extracted SDK, package and compiler output
-      # makes Windows builds much slower. The runner VM is discarded after the
-      # job; the release binaries are scanned once after packaging instead.
-      - name: Pause real-time antivirus scanning
-        shell: pwsh
-        run: Set-MpPreference -DisableRealtimeMonitoring $true
-
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "10.0.x"
@@ -706,20 +699,6 @@ jobs:
         shell: pwsh
         run: scripts/package-windows-release.ps1
 
-      - name: Scan release binaries
-        if: matrix.part == 'package'
-        shell: pwsh
-        run: |
-          Set-MpPreference -DisableRealtimeMonitoring $false
-          $mpcmd = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
-          & $mpcmd -SignatureUpdate
-          if ($LASTEXITCODE -ne 0) { Write-Warning "Signature update failed with exit code $LASTEXITCODE; scanning with the installed signatures." }
-          Get-MpComputerStatus | Format-List AntivirusSignatureVersion, AntivirusSignatureLastUpdated, RealTimeProtectionEnabled
-          foreach ($target in 'artifacts\windows\publish', 'artifacts\windows\quasar-win-x64.zip', 'artifacts\windows\quasar-symbols-win-x64.zip') {
-            & $mpcmd -Scan -ScanType 3 -File (Resolve-Path $target).Path -DisableRemediation
-            if ($LASTEXITCODE -ne 0) { throw "Antivirus scan of $target failed with exit code $LASTEXITCODE." }
-          }
-
       - name: Verify Windows installer archive root
         if: matrix.part == 'package'
         shell: pwsh
@@ -756,11 +735,6 @@ jobs:
           path: |
             artifacts/windows/quasar-win-x64.zip
             artifacts/windows/quasar-symbols-win-x64.zip
-
-      - name: Resume real-time antivirus scanning
-        if: always()
-        shell: pwsh
-        run: Set-MpPreference -DisableRealtimeMonitoring $false
 
   # Publish a single GitHub release/tag carrying every Linux and Windows archive
   # plus one combined SHA256SUMS. The updater finds the asset it needs by name,
