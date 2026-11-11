@@ -76,7 +76,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton<Microsoft.AspNetCore.Components.NavigationManager>(navigation);
         var page = context.Render<NavMenu>();
         var links = page.FindAll("a").Select(a => new Uri(new Uri(navigation.BaseUri), a.GetAttribute("href")!).AbsolutePath).ToArray();
-        foreach (var route in new[] { "/", "/configs", "/world-templates", "/plugins", "/players", "/chat", "/entities", "/analytics", "/discord", "/settings/server-list", "/settings/display", "/hosts", "/notifications" })
+        foreach (var route in new[] { "/", "/configs", "/world-templates", "/plugins", "/players", "/access", "/chat", "/entities", "/analytics", "/discord", "/settings/server-list", "/settings/display", "/hosts", "/notifications" })
             Assert.Contains(prefix + route.TrimStart('/'), links);
         foreach (var route in new[] { "/settings/security", "/settings/ui-plugins", "/backup", "/settings/updates", "/settings/appearance" })
             Assert.DoesNotContain(prefix + route.TrimStart('/'), links);

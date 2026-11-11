@@ -34,7 +34,7 @@ Files and folders in the data directory:
 | `plugin-hubs.json` | Extra Magnetar plugin hubs, see [Plugins](Plugins.md#plugin-hubs) |
 | `known-players.json`, `known-player-settings.json` | Player list data |
 | `player-links.json` | Browser-authenticated Steam/Discord links and legacy links awaiting reauthentication, see [Player authentication](AccessControl.md#player-authentication) |
-| `player-access.json` | Access policies, server authorizations and encrypted Discord OAuth credentials |
+| `player-access.json` | Access policies, server authorizations and preserved legacy OAuth credentials; browser linking uses auth.se-servers.net |
 | `PushNotifications.json` | Browser push subscriptions |
 | `Magnetars/<server>/` | One folder per server: `server.json`, `DedicatedServer/`, `Magnetar/`, `History/`, `analytics.jsonl` |
 | `ConfigProfiles/`, `WorldTemplates/` | Config profiles and world templates, see [Config profiles](ConfigProfiles.md) |

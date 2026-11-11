@@ -18,8 +18,9 @@ Headless mode (`--headless`) keeps Steam `/login` and the public player authenti
 
 ## Player authentication
 
-**Security → Player authentication** configures Steam/Discord browser linking,
-role-based game promotions, whitelist and priority joining. Only Quasar admins
+**Access** in the main Control plane section configures Steam/Discord browser linking,
+role-based game promotions, whitelist and priority joining. **Server access** contains
+connection setup and policies; **Linked accounts** lists account links. Only Quasar admins
 can change this policy. Player authentication never grants dashboard roles.
 
 Configure the existing bot and guild on **Discord**. Enable its **Server Members**
@@ -27,10 +28,11 @@ privileged intent in the Discord Developer Portal and Quasar's **Track member an
 role changes for player authentication** option. Without member tracking, bot REST
 checks normally refresh roles every 30 seconds.
 
-On **Security**, enter the Discord application ID and OAuth client secret, which
-differs from the bot token. Register the displayed exact redirect URL in Discord:
-`https://quasar.example.com/player-auth/signin-discord` for self-hosting, or
-`https://dash.se-servers.net/<panel>/player-auth/signin-discord` for Nebula. Save.
+Discord browser consent uses the shared application at `https://auth.se-servers.net`.
+No per-panel Discord application ID, OAuth secret or callback registration is needed.
+Quasar's existing bot still checks guild membership and roles. It does not need to
+belong to the shared OAuth application. The shared service shows the requesting
+panel before opening Discord consent and never signs the player into Nebula.
 Keep Steam and Quasar authentication enabled, with Steam as the default provider.
 
 Use confirmed active Nebula hosting, or verify a public HTTPS hostname on port 443.
@@ -41,8 +43,10 @@ verifier must be deployed; no hosting subscription is needed for self-hosting.
 Proof lasts seven days and enabled policies attempt renewal during the last day,
 retrying hourly. An inactive or pending enrollment is insufficient.
 
-Choose a server or cluster, its matching bot guild, access and priority role IDs,
-and promotion mappings. Include a recovery SteamID64 in the explicit allowlist.
+Choose a server or cluster, named access and priority roles, and promotion mappings.
+Quasar uses its bot's configured guild automatically. Saved roles remain visible
+by ID if the bot is offline or a role is unavailable; refreshing bot and roles
+loads current names without discarding edits. Include a recovery SteamID64 in the explicit allowlist.
 Enable, save and check **Refresh enforcement status**. Servers need the updated
 Agent; clusters need a compatible connected Gateway and World Authority package,
 a Quasar-managed Gateway and an updated Gateway Host with player access launch fencing.
@@ -72,12 +76,17 @@ existing sessions. A stale whitelist denies new joins. Confirmed revocations can
 disconnect existing players.
 
 The `!link` and Discord `/link CODE` exchange is removed. Legacy links stay visible
-on **Players**, but must authenticate both accounts before identifying a player
+on **Access → Linked accounts**, but must authenticate both accounts before identifying a player
 or granting access. Conflicting authenticated links are rejected. Unlinking
 revokes linked eligibility; relinking requires fresh server authorization.
 
-Private `player-access.json` stores settings, authorizations and protected OAuth
-credentials. Preserve Data Protection keys with backups. Standalone DS AppData
+Private `player-access.json` stores settings and authorizations. Legacy per-panel
+OAuth credentials are preserved encrypted for compatibility but are unused.
+Preserve Data Protection keys with backups. New linking depends on the shared
+authentication service; existing links and bot role checks remain local. Both
+OAuth legs use PKCE, one-minute handoff codes are single-use and bound to the
+callback, and Quasar rechecks the original Steam session before linking.
+Standalone DS AppData
 also contains per-server `.quasar-player-access-<hash>.json` markers and
 `.quasar-player-promotions-<hash>.json` recovery journals. Do not delete journals
 to clear roles. Disable access, wait for acknowledgement, save and stop the world
@@ -129,7 +138,7 @@ With authentication on, every UI page requires at least `viewer`.
 
 ### What viewers can and cannot do
 
-Viewers see all pages under **Control plane** in the navigation: **Dashboard**, **Configs**, **Worlds**, **Plugins**, **Players**, **Chat**, **Entities**, **Analytics**, **Discord** and **Listings**, plus **Hosts**, **Notifications** and cluster status. They cannot change anything.
+Viewers see all pages under **Control plane** in the navigation: **Dashboard**, **Configs**, **Worlds**, **Plugins**, **Players**, **Access**, **Chat**, **Entities**, **Analytics**, **Discord** and **Listings**, plus **Hosts**, **Notifications** and cluster status. They cannot change anything.
 
 | Page | Viewer sees | Change needs |
 | --- | --- | --- |
@@ -137,6 +146,7 @@ Viewers see all pages under **Control plane** in the navigation: **Dashboard**, 
 | Worlds | Selected server saves, status and profiles; reusable templates | `CanEditServers` for direct world import; `CanEditConfigs` for templates and imported profile creation |
 | Plugins | Plugin inventory and logs; plugin configuration values hidden | `CanEditConfigs`, `ClusterManage` for cluster details |
 | Players | Known players and status | `CanControlServers` |
+| Access | Linked Steam/Discord accounts; setup and policies restricted to admins | `CanManageSecurity` for settings; `CanControlServers` to remove a link |
 | Chat | Recent chat, refresh | `CanControlServers` to send chat or commands, save, restart |
 | Entities | Entity queries and details | `CanControlServers` to delete |
 | Analytics | Charts and profiler status | `CanControlServers` to change profiler mode |
@@ -529,6 +539,8 @@ Keep the complete Quasar package and peer component together when updating.
 - `Quasar/Services/Players/PlayerAccessService.cs`
 - `Quasar/Services/Players/DiscordPlayerRoles.cs`
 - `Quasar/Components/Shared/PlayerAuthenticationSettings.razor`
+- `Quasar/Components/Pages/Access.razor`
+- `Quasar.Tests/PlayerAccessPageTests.cs`
 - `Quasar.Agent/PlayerAccessEnforcement.cs`
 - `Quasar.Host.Contract/HostContract.cs`
 - `Quasar.Host/HostCommandServer.cs`

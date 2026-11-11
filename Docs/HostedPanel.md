@@ -1,9 +1,10 @@
 # Hosted public access with Nebula
 
 Active hosting can also supply the public website for
-[player authentication](PlayerAuthentication.md). Configure Discord OAuth on
-Quasar and register `https://dash.se-servers.net/<panel>/player-auth/signin-discord`
-as the redirect URL. Player Steam/Discord linking does not grant dashboard access.
+[player authentication](PlayerAuthentication.md). Configure player policies on
+**Access**. Discord consent uses the shared application at `auth.se-servers.net`;
+Quasar's existing bot checks membership and roles. No per-panel OAuth application
+or callback registration is needed. Player linking does not grant dashboard access.
 Pending enrollment alone does not enable this feature.
 
 Nebula provides a public URL for the complete existing Quasar application:

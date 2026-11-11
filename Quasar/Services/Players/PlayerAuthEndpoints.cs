@@ -5,7 +5,6 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OAuth;
-using Microsoft.Extensions.Options;
 using Quasar.Services.Auth;
 
 namespace Quasar.Services.Players;
@@ -15,6 +14,7 @@ public static class PlayerAuthEndpoints
     internal const string DiscordScheme = "PlayerDiscord";
     internal const string ExternalCookie = "PlayerExternal";
     internal const string DiscordCallback = "/player-auth/signin-discord";
+    public const string AuthenticationOrigin = "https://auth.se-servers.net";
     private static readonly HtmlEncoder Html = HtmlEncoder.Default;
 
     public static IServiceCollection AddPlayerAuthentication(this IServiceCollection services)
@@ -39,9 +39,16 @@ public static class PlayerAuthEndpoints
         {
             options.SignInScheme = ExternalCookie;
             options.CallbackPath = DiscordCallback;
-            options.AuthorizationEndpoint = "https://discord.com/oauth2/authorize";
-            options.TokenEndpoint = "https://discord.com/api/oauth2/token";
-            options.UserInformationEndpoint = "https://discord.com/api/users/@me";
+            // This is a public OAuth client. PKCE and the exact callback bind the exchange;
+            // the placeholder secret satisfies the handler, but is not a credential.
+            options.ClientId = "quasar-player-links";
+            options.ClientSecret = "public-client";
+            options.AuthorizationEndpoint = AuthenticationOrigin + "/discord/authorize";
+            options.TokenEndpoint = AuthenticationOrigin + "/discord/token";
+            options.UserInformationEndpoint = AuthenticationOrigin + "/discord/userinfo";
+            options.BackchannelTimeout = TimeSpan.FromSeconds(15);
+            options.Backchannel = new HttpClient(new HttpClientHandler { AllowAutoRedirect = false })
+            { Timeout = TimeSpan.FromSeconds(15), MaxResponseContentBufferSize = 16384 };
             options.Scope.Add("identify");
             options.UsePkce = true;
             options.SaveTokens = false;
@@ -67,7 +74,7 @@ public static class PlayerAuthEndpoints
             {
                 // The Discord identity is proof for linking only. It never becomes a panel principal.
                 context.HandleResponse();
-                context.Response.Redirect(context.Properties!.RedirectUri!);
+                context.Response.Redirect(context.ReturnUri!);
                 return Task.CompletedTask;
             };
             options.Events.OnRemoteFailure = context =>
@@ -76,13 +83,6 @@ public static class PlayerAuthEndpoints
                 context.Response.Redirect(context.Request.PathBase + PlayerAuthBrowser.Path + "?error=authentication");
                 return Task.CompletedTask;
             };
-        });
-        services.AddOptions<OAuthOptions>(DiscordScheme).Configure<PlayerAccessCatalog>((options, catalog) =>
-        {
-            var settings = catalog.GetSettings();
-            // Handlers validate these lazily. An unconfigured installation must still serve its panel.
-            options.ClientId = settings.DiscordClientId.Length == 0 ? "unconfigured" : settings.DiscordClientId;
-            options.ClientSecret = settings.DiscordClientSecret.Length == 0 ? "unconfigured" : settings.DiscordClientSecret;
         });
         return services;
     }
@@ -115,7 +115,7 @@ public static class PlayerAuthEndpoints
         var steam = await SteamIdentityAsync(context);
         bool hasLink = steam is not null && links.GetLinks().Any(link => link.SteamId == steam);
         if (!browser.Ready)
-            return Page("Player authentication unavailable", "<p>This website needs verified public access and Discord OAuth configuration.</p>"
+            return Page("Player authentication unavailable", "<p>This website needs verified public access or active Nebula hosting.</p>"
                 + (hasLink ? UnlinkForm(context, antiforgery) : ""), context, hasLink ? 200 : 503);
         if (!browser.IsCanonical(context)) return Results.Redirect(browser.PublicUrl + PlayerAuthBrowser.Path);
         var requestKey = context.Request.Query["request"].ToString();

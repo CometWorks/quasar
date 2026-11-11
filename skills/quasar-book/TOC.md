@@ -16,7 +16,7 @@ For a term, setting, environment variable or file name, see [Index.md](Index.md)
 ## Running Quasar
 
 - [Hosted access](HostedPanel.md): Nebula enrollment, the frpc connector Quasar runs, public path URLs and their security, shared administration and billing, moving a panel, private connector files and current availability.
-- [Access control](AccessControl.md): Steam sign-in, player Steam/Discord authentication, whitelist, promotions and priority joining, the trusted-network bypass, dashboard roles, `rbac.json`, Security, agents, Audit log, API tokens, machine endpoints and lockout recovery.
+- [Access control](AccessControl.md): Steam sign-in, the Access page, shared player Steam/Discord authentication, whitelist, promotions and priority joining, the trusted-network bypass, dashboard roles, `rbac.json`, Security, agents, Audit log, API tokens, machine endpoints and lockout recovery.
 - [Configuration](Configuration.md): `appsettings.json`, where files live, the web UI port, headless mode, logging settings, environment variables, the `Quasar` command line (`serve`, `update`, `rollback`, `cluster`).
 
 ## Servers
