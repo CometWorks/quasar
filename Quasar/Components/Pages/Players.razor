@@ -14,7 +14,6 @@
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
 @inject IServiceProvider Services
-@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Players</PageTitle>
 
@@ -184,7 +183,7 @@
                             }
                         </div>
                     </MudTd>
-                    <MudTd DataLabel="Last Seen">@FormatLastSeen(context.Record.LastSeenUtc)</MudTd>
+                    <MudTd DataLabel="Last Seen"><QuasarStackedTimestamp Value="@(context.Record.LastSeenUtc == default ? null : context.Record.LastSeenUtc)" Missing="never" /></MudTd>
                     <MudTd DataLabel="" Class="quasar-actions-column">
                         @if (context.Record.IsCluster)
                         {
@@ -776,14 +775,6 @@
             private static string GetServiceLabel(string? serviceName)
             {
                 return string.IsNullOrWhiteSpace(serviceName) ? "Unknown" : serviceName.Trim();
-            }
-
-            private string FormatLastSeen(DateTimeOffset value)
-            {
-                if (value == default)
-                    return "never";
-
-                return ViewerTime.Format(value);
             }
 
             private string GetSelectedServerDisplayName()

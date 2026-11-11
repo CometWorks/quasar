@@ -11,7 +11,11 @@ namespace Quasar.Services;
 /// </summary>
 public sealed class ViewerTimeZone
 {
-    public const string Pattern = "yyyy-MM-dd HH:mm:ss";
+    // Non-breaking hyphens and spaces keep the timestamp together in UI text.
+    private const string DatePattern = "yyyy\u2011MM\u2011dd";
+    private const string TimePattern = "HH:mm:ss";
+    public const string Pattern = DatePattern + "\u00A0" + TimePattern;
+    private const string StackedPattern = DatePattern + "\n" + TimePattern;
 
     public TimeZoneInfo? Zone { get; private set; }
 
@@ -32,6 +36,8 @@ public sealed class ViewerTimeZone
     }
 
     public string Format(DateTimeOffset value) => Format(value, Zone);
+
+    public string FormatStacked(DateTimeOffset value) => Format(value, Zone, StackedPattern);
 
     public string Format(DateTimeOffset? value, string missing) =>
         value is { } time ? Format(time) : missing;
@@ -54,10 +60,14 @@ public sealed class ViewerTimeZone
             : new DateTimeOffset(unspecified, Zone.GetUtcOffset(unspecified));
     }
 
-    internal static string Format(DateTimeOffset value, TimeZoneInfo? zone) =>
+    internal static string Format(
+        DateTimeOffset value,
+        TimeZoneInfo? zone,
+        string pattern = Pattern
+    ) =>
         zone is null
-            ? value.UtcDateTime.ToString(Pattern, CultureInfo.InvariantCulture) + " UTC"
-            : TimeZoneInfo.ConvertTime(value, zone).ToString(Pattern, CultureInfo.InvariantCulture);
+            ? value.UtcDateTime.ToString(pattern, CultureInfo.InvariantCulture) + "\u00A0UTC"
+            : TimeZoneInfo.ConvertTime(value, zone).ToString(pattern, CultureInfo.InvariantCulture);
 
     /// <summary>
     /// The IANA zone the browser named, or a fixed offset when this machine does not know that zone.

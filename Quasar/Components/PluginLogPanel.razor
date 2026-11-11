@@ -2,7 +2,6 @@
 @inject PluginLogStream LogStream
 @inject AgentRegistry Registry
 @inject DedicatedServerCatalog ServerCatalog
-@inject ViewerTimeZone ViewerTime
 
 <section class="quasar-panel server-card pa-4">
     <div class="d-flex align-center justify-space-between mb-2">
@@ -72,7 +71,7 @@
                 <MudTh>Message</MudTh>
             </HeaderContent>
             <RowTemplate>
-                <MudTd DataLabel="Time">@ViewerTime.Format(context.TimestampUtc)</MudTd>
+                <MudTd DataLabel="Time"><QuasarStackedTimestamp Value="@context.TimestampUtc" /></MudTd>
                 <MudTd DataLabel="Level">
                     <p class="quasar-text quasar-type-body2 quasar-tone-@((LevelColor(context.Level)).ToString().ToLowerInvariant())">@context.Level</p>
                 </MudTd>

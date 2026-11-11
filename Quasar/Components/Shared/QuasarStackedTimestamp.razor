@@ -1,0 +1,15 @@
+@inject ViewerTimeZone ViewerTime
+
+@if (Value is { } value)
+{
+    <time class="quasar-stacked-timestamp" datetime="@value.ToString("O")">@ViewerTime.FormatStacked(value)</time>
+}
+else
+{
+    @Missing
+}
+
+@code {
+    [Parameter] public DateTimeOffset? Value { get; set; }
+    [Parameter] public string? Missing { get; set; }
+}
