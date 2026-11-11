@@ -80,6 +80,7 @@ public sealed class ClusterOperationStore
     }
 
     internal static readonly TimeSpan RecordRetention = TimeSpan.FromDays(30);
+    internal const string CancelledCode = "operation_cancelled";
 
     // One unreadable record (for example a zero-length file after power loss) must not
     // disable cluster management; it is set aside and named in the log instead.
@@ -180,13 +181,15 @@ public sealed class ClusterOperationStore
     // Idempotency key for an automatic request that is retried when it fails. A Failed operation is
     // terminal for its key, so a fixed key would replay the first failure forever. The first attempt
     // uses baseKey itself; after a failure older than retryAfter the next attempt gets a new key.
-    internal string AttemptKey(string cluster, string kind, string baseKey, TimeSpan retryAfter)
+    // retryCancelledAtOnce: an attempt cancelled by a Quasar stop gets a new key without waiting out retryAfter.
+    internal string AttemptKey(string cluster, string kind, string baseKey, TimeSpan retryAfter, bool retryCancelledAtOnce = false)
     {
         var attempts = _operations.Values.Where(o => o.Cluster.Equals(cluster, StringComparison.OrdinalIgnoreCase) && o.Kind == kind
             && (o.IdempotencyKey == baseKey || o.IdempotencyKey.StartsWith(baseKey + ":", StringComparison.Ordinal)))
             .OrderBy(o => o.CreatedAt).ToArray();
         if (attempts.Length == 0) return baseKey;
         var latest = attempts[^1];
+        if (retryCancelledAtOnce && latest.Error?.Code == CancelledCode) retryAfter = TimeSpan.Zero;
         return latest.State == ClusterOperationState.Failed && DateTimeOffset.UtcNow - latest.UpdatedAt >= retryAfter
             ? baseKey + ":" + (attempts.Length + 1) : latest.IdempotencyKey;
     }
@@ -327,7 +330,7 @@ public sealed class ClusterOperationStore
                     State = ClusterOperationState.Failed,
                     UpdatedAt = DateTimeOffset.UtcNow,
                     Error = exception is OperationCanceledException
-                        ? new ClusterOperationError("operation_cancelled", "The operation was cancelled before it completed.")
+                        ? new ClusterOperationError(CancelledCode, "The operation was cancelled before it completed.")
                         : new ClusterOperationError("operation_failed", exception.Message),
                 };
                 _operations[existing.OperationId] = existing;
