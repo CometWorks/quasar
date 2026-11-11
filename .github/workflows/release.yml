@@ -496,18 +496,6 @@ jobs:
         with:
           dotnet-version: "10.0.x"
 
-      # A cold NuGet restore costs 20-40 s on Windows against about 10 s to
-      # load this cache; on Linux it is 6 s, so only Windows caches it. Each
-      # leg restores a different set (the package leg adds the win-x64
-      # runtime packs), so each leg keeps its own entry.
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-v2-${{ runner.os }}-${{ matrix.part }}-${{ env.DIAGNOSTICS_SOURCE_REF }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'NuGet.Config', 'global.json') }}
-          restore-keys: |
-            nuget-v2-${{ runner.os }}-${{ matrix.part }}-${{ env.DIAGNOSTICS_SOURCE_REF }}-
-
       - name: Probe Dedicated Server build id
         id: dsbuild
         shell: pwsh
