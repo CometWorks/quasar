@@ -13,6 +13,14 @@ section separator, such as `QUASAR__AUTH__ENABLED=false`. Quasar's shorter
 `QUASAR_*` deployment overrides take precedence where documented. Docker users
 should also see [Docker Deployment](Docker.md).
 
+## Player authentication
+
+Configure **Security → Player authentication** for Discord OAuth, whitelist,
+promotions and priority joining. It requires verified public website access or
+active Nebula hosting. Private `player-access.json` stores settings and encrypted
+OAuth credentials. See [Player authentication](PlayerAuthentication.md), including
+migration from the removed code-based linking flow.
+
 ## Command aliases per configuration profile
 
 Open **Configs**, select a profile, then open **Command aliases**. Add a source

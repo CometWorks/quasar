@@ -73,6 +73,10 @@ public sealed class HostGatewayPreparationTests : IDisposable
             Assert.NotNull(second.Metrics?.CpuPercent);
             Assert.True(second.Metrics.CpuPercent >= 0);
             Assert.True(second.Metrics.CapturedAt >= first.Metrics.CapturedAt);
+            // Intent is persisted launch metadata; publishing a new revision must not restart a live process.
+            var changed = await actualizer.ReconcileAsync(spec with { PlayerAccess = new(20, true, true) }, CancellationToken.None);
+            Assert.Equal(running.ProcessId, changed.ProcessId);
+            Assert.Equal(running.LaunchedAt, changed.LaunchedAt);
         }
         finally { await StopAsync(actualizer, spec, running); }
     }
@@ -178,7 +182,7 @@ public sealed class HostGatewayPreparationTests : IDisposable
     public async Task HostRefusesAnOffThatCannotStopTheLiveGatewayBeforePersistingIt()
     {
         if (!OperatingSystem.IsLinux()) return;
-        GatewaySpec spec = CreateBundle();
+        GatewaySpec spec = CreateBundle() with { Recover = true, RecoveryUpdate = true };
         string state = Path.Combine(_root, "state");
         using var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
@@ -203,6 +207,17 @@ public sealed class HostGatewayPreparationTests : IDisposable
             using HttpResponseMessage started = await Put(spec);
             Assert.True(started.IsSuccessStatusCode, await started.Content.ReadAsStringAsync());
             GatewayStatus running = await ReconcileUntilAsync(actualizer, spec, GatewayObservedState.Running);
+            using (var access = await client.PutAsync(url + HostProtocol.GatewayRoute(spec.ClusterId) + "/player-access",
+                System.Net.Http.Json.JsonContent.Create(new GatewayPlayerAccessIntent(20, true, true), options: json)))
+            {
+                Assert.True(access.IsSuccessStatusCode, await access.Content.ReadAsStringAsync());
+                var persisted = store.GetAll().Single();
+                Assert.Equal(new GatewayPlayerAccessIntent(20, true, true), persisted.PlayerAccess);
+                Assert.True(persisted.Recover);
+                Assert.True(persisted.RecoveryUpdate);
+                Assert.Equal(spec.StartGeneration, persisted.StartGeneration);
+                Assert.Equal(running.ProcessId, (await actualizer.ReconcileAsync(persisted, default)).ProcessId);
+            }
             var fence = new GatewayStopFence(running.ProcessId!.Value, running.LaunchedAt!.Value);
             foreach (GatewayStopFence? refused in new GatewayStopFence?[] { null, fence with { ProcessId = fence.ProcessId + 1 } })
             {
@@ -221,6 +236,48 @@ public sealed class HostGatewayPreparationTests : IDisposable
             shutdown.Cancel();
             Environment.SetEnvironmentVariable(tokenVariable, null);
         }
+    }
+
+    [Fact]
+    public void PlayerAccessIntentSurvivesMissingSettingsAndRejectsStaleOrConflictingRevisions()
+    {
+        var spec = new GatewaySpec("cluster", GatewayGoal.Off, Path.Combine(_root, "bundle.json"),
+            new string('a', 64), "revision", [29416], Path.Combine(_root, "run"),
+            PlayerAccess: new(20, true, true));
+        var store = new HostApp.GatewaySpecStore(_root);
+        store.Apply(spec);
+        Assert.Equal(spec.PlayerAccess, store.Apply(spec with { PlayerAccess = null }).PlayerAccess);
+        Assert.Throws<InvalidOperationException>(() => store.Apply(spec with { PlayerAccess = new(19, false, false) }));
+        Assert.Throws<InvalidOperationException>(() => store.Apply(spec with { PlayerAccess = new(20, false, false) }));
+        var disabled = store.Apply(spec with { PlayerAccess = new(21, false, false) });
+        Assert.Equal(disabled.PlayerAccess, new HostApp.GatewaySpecStore(_root).GetAll().Single().PlayerAccess);
+    }
+
+    [Fact]
+    public void TrustedLaunchIntentOverridesBundleEnvironmentAndNeverLeaksFromTheHost()
+    {
+        var spec = new GatewaySpec("cluster", GatewayGoal.On, Path.Combine(_root, "bundle.json"),
+            new string('a', 64), "revision", [29416], Path.Combine(_root, "run"),
+            PlayerAccess: new(20, true, true));
+        var spawn = new HostApp.GatewaySpawnSpec("gateway", "", [], new()
+        { ["QUASAR_PLAYER_WHITELIST"] = "false", ["QUASAR_PLAYER_ACCESS_REVISION"] = "0" });
+        var start = HostApp.GatewayActualizer.CreateStartInfo(spec, spawn, _root, "/bin/sleep");
+        Assert.Equal("true", start.Environment["QUASAR_PLAYER_WHITELIST"]);
+        Assert.Equal("20", start.Environment["QUASAR_PLAYER_ACCESS_REVISION"]);
+        var absent = HostApp.GatewayActualizer.CreateStartInfo(spec with { PlayerAccess = null }, spawn, _root, "/bin/sleep");
+        Assert.False(absent.Environment.ContainsKey("QUASAR_PLAYER_WHITELIST"));
+        Assert.False(absent.Environment.ContainsKey("QUASAR_PLAYER_ACCESS_REVISION"));
+    }
+
+    [Fact]
+    public async Task ActiveAuthenticationRefusesAnOldGatewayPackageWithoutLaunchingIt()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var spec = CreateBundle() with { PlayerAccess = new(20, true, true) };
+        using var actualizer = new HostApp.GatewayActualizer(Path.Combine(_root, "state"), "host");
+        var failed = await ReconcileUntilAsync(actualizer, spec, GatewayObservedState.Failed);
+        Assert.Contains("does not declare player authentication", failed.Failure);
+        Assert.Null(failed.ProcessId);
     }
 
     private GatewaySpec CreateBundle()

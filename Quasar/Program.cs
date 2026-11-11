@@ -305,6 +305,14 @@ public class Program
             builder.Services.AddSingleton<EntityService>();
             builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
             builder.Services.AddQuasarPlayerServices();
+            builder.Services.AddPlayerAuthentication();
+            builder.Services.AddRateLimiter(limiter =>
+            {
+                limiter.RejectionStatusCode = 429;
+                limiter.AddPolicy("player-auth", context => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+                    { PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
+            });
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarPluginHubCatalog>();
@@ -453,8 +461,8 @@ public class Program
                 await next(context);
             });
             app.UseAuthorization();
-            if (!webServiceOptions.Headless)
-                app.UseAntiforgery();
+            app.UseRateLimiter();
+            app.UseAntiforgery();
 
             app.MapWebServiceProbes(authOptions);
             app.MapQuasarSdk();
@@ -464,6 +472,7 @@ public class Program
             app.MapClusterHostEnrollmentApi();
 
             app.MapQuasarCoreOperations();
+            app.MapPlayerAuthentication();
 
             // Chartable plugin-statistics metrics discovered at runtime from what plugins have
             // published (provider/group/field), so the Analytics page can offer them as panels.
@@ -475,8 +484,7 @@ public class Program
             if (authOptions.Enabled)
                 pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
 
-            if (!webServiceOptions.Headless)
-                MapAuthenticationEndpoints(app, authOptions);
+            MapAuthenticationEndpoints(app, authOptions);
 
             app.MapGet("/api/internal/update-health", (HttpContext context, WebServiceOptions options) =>
             {

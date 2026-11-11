@@ -1,0 +1,225 @@
+@using Microsoft.AspNetCore.Authentication.OAuth
+@using Microsoft.Extensions.Options
+@using Quasar.Services.Players
+@using Quasar.Services.Discord
+@inject IServiceProvider Services
+@inject QuasarPermissionService Permissions
+@implements IDisposable
+
+@if (_catalog is not null)
+{
+    <section class="quasar-panel pa-4 mb-4">
+        <div class="quasar-stack">
+            <h2 class="quasar-text quasar-type-h6">Player authentication</h2>
+            <p>Players authenticate Steam and Discord on your website. Discord roles can control whitelist access, promotion levels and priority joining. These settings never grant dashboard permissions.</p>
+            <p>Configure Discord OAuth, save, verify your public website or activate Nebula hosting, then enable a server policy. Enable the Server Members intent for your bot and member tracking on Discord for prompt role updates.</p>
+            @if (_error.Length != 0) { <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert> }
+            @if (_notice.Length != 0) { <MudAlert Severity="Severity.Success">@_notice</MudAlert> }
+            @if (_catalog.CredentialUnavailable)
+            { <MudAlert Severity="Severity.Error">The stored OAuth credential cannot be decrypted. Restore Quasar's Data Protection keys or enter the client secret again. Player authentication is unavailable; existing access restrictions remain.</MudAlert> }
+            <MudTextField T="string" @bind-Value="_settings.PublicUrl" Label="Self-hosted public website" HelperText="For example https://quasar.example.com. Leave empty when using Nebula hosting." />
+            <MudTextField T="string" @bind-Value="_settings.DiscordClientId" Label="Discord application ID" HelperText="Use the application associated with the configured Discord bot." />
+            <MudTextField T="string" @bind-Value="_settings.DiscordClientSecret" Label="Discord OAuth client secret" InputType="InputType.Password" HelperText="The OAuth client secret is separate from the bot token. Stored encrypted with Quasar's Data Protection keys." />
+            <p>Register this exact redirect URL in the Discord Developer Portal: <code>@CallbackUrl</code></p>
+            <p>Public access: @(_browser!.PublicUrl is { } url ? url : "Not verified or hosting inactive").</p>
+            @if (_settings.VerifiedUntil is { } until) { <p>Self-hosted verification expires: @until.ToString("u"). Verify again before expiry.</p> }
+            @if (_browser.Ready)
+            {
+                <MudButton Href="@(_browser.PublicUrl + PlayerAuthBrowser.Path)" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Open player authentication</MudButton>
+            }
+            <div class="quasar-row">
+                <MudButton OnClick="SaveAsync" Disabled="_busy" Color="Color.Primary" Variant="Variant.Filled">Save player authentication</MudButton>
+                <MudButton OnClick="VerifyAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_settings.PublicUrl))" Variant="Variant.Outlined">Verify saved website</MudButton>
+            </div>
+            <h3 class="quasar-text quasar-type-subtitle1">Server access policies</h3>
+            <MudSelect T="string" Value="_selected" ValueChanged="SelectTarget" Label="Server or cluster" Disabled="_busy">
+                @foreach (var target in _targets) { <MudSelectItem T="string" Value="@target.Key">@target.Name</MudSelectItem> }
+            </MudSelect>
+            @if (_policy is not null)
+            {
+                <MudCheckBox T="bool" @bind-Value="_policy.Enabled" Label="Enable player authentication for this server" />
+                <MudCheckBox T="bool" @bind-Value="_policy.Whitelist" Label="Require authorization before joining (whitelist)" />
+                <MudNumericField T="ulong" @bind-Value="_policy.GuildId" Label="Discord guild ID" HelperText="Must match the guild configured on Discord." />
+                <p>Without the whitelist, unlinked players can join; authenticated players can still receive role-based promotions and priority access. Existing bans, passwords and other access restrictions remain in force.</p>
+                <MudTextField T="string" @bind-Value="_policy.Instructions" Label="Player instructions" Lines="4" MaxLength="5000" />
+                <MudTextField T="string" @bind-Value="_requiredRoles" Label="Required Discord role IDs" HelperText="Comma-separated role IDs. Any matching role satisfies access. Empty means guild membership is enough." />
+                <MudTextField T="string" @bind-Value="_priorityRoles" Label="Priority Discord role IDs" HelperText="Comma-separated role IDs. Priority bypasses the normal player cap; it does not kick players or create a queue." />
+                <MudTextField T="string" @bind-Value="_allowedSteam" Label="Explicit Steam allowlist" Lines="3" HelperText="SteamID64 values separated by commas or newlines. These accounts can pass the whitelist without Discord. Keep a recovery administrator here." />
+                <h4 class="quasar-text quasar-type-subtitle2">Promotion roles</h4>
+                @foreach (var row in _promotions)
+                {
+                    <div class="quasar-row" @key="row">
+                        <MudTextField T="string" @bind-Value="row.Role" Label="Discord role ID" />
+                        <MudSelect T="int" @bind-Value="row.Level" Label="Game promotion">
+                            <MudSelectItem T="int" Value="0">None</MudSelectItem>
+                            <MudSelectItem T="int" Value="1">Scripter</MudSelectItem>
+                            <MudSelectItem T="int" Value="2">Moderator</MudSelectItem>
+                            <MudSelectItem T="int" Value="3">Space Master</MudSelectItem>
+                            <MudSelectItem T="int" Value="4">Admin</MudSelectItem>
+                        </MudSelect>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="Remove promotion mapping" OnClick="@(() => _promotions.Remove(row))" />
+                    </div>
+                }
+                <MudButton OnClick="@(() => _promotions.Add(new()))" Variant="Variant.Outlined">Add promotion role</MudButton>
+                <p>The highest matching promotion applies. Owner cannot be assigned. Removing a role restores the manual promotion baseline.</p>
+                <p role="status">@_worker!.Status(_selected)</p>
+                <MudButton OnClick="RefreshStatus" Variant="Variant.Text">Refresh enforcement status</MudButton>
+                <MudButton OnClick="CheckPlayersAsync" Disabled="_busy" Variant="Variant.Outlined">Check player authorization</MudButton>
+                <p class="quasar-muted">Player checks use the saved policy and show why each linked account is eligible or unavailable.</p>
+                @if (_players.Count != 0)
+                {
+                    <MudTable T="AccessRow" Items="_players" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Steam ID</MudTh><MudTh>Discord ID</MudTh><MudTh>Authorization</MudTh>
+                            <MudTh>Promotion</MudTh><MudTh>Priority</MudTh><MudTh>Decision valid until</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Steam ID">@context.Steam</MudTd>
+                            <MudTd DataLabel="Discord ID">@context.Discord</MudTd>
+                            <MudTd DataLabel="Authorization">@context.Decision.Reason</MudTd>
+                            <MudTd DataLabel="Promotion">@PromotionName(context.Decision.Grant.Promotion)</MudTd>
+                            <MudTd DataLabel="Priority">@(context.Decision.Grant.Priority ? "Yes" : "No")</MudTd>
+                            <MudTd DataLabel="Decision valid until">@context.Decision.Grant.ExpiresAt.ToString("u")</MudTd>
+                        </RowTemplate>
+                        <PagerContent><MudTablePager /></PagerContent>
+                    </MudTable>
+                }
+            }
+        </div>
+    </section>
+}
+
+@code {
+    private PlayerAccessCatalog? _catalog;
+    private PlayerAuthBrowser? _browser;
+    private PlayerAccessWorker? _worker;
+    private PlayerAccessSettings _settings = new();
+    private IReadOnlyList<PlayerAccessTarget> _targets = [];
+    private PlayerAccessPolicy? _policy;
+    private string _selected = "", _requiredRoles = "", _priorityRoles = "", _allowedSteam = "", _error = "", _notice = "";
+    private bool _busy;
+    private List<PromotionRow> _promotions = [];
+    private List<AccessRow> _players = [];
+    private readonly CancellationTokenSource _stop = new();
+    private string CallbackUrl => (_browser?.PublicUrl ?? PlayerAccessCatalog.CanonicalPublicUrl(_settings.PublicUrl) ?? "https://your-public-website") + PlayerAuthEndpoints.DiscordCallback;
+
+    protected override void OnInitialized()
+    {
+        _catalog = Services.GetService<PlayerAccessCatalog>();
+        if (_catalog is null) return;
+        _browser = Services.GetRequiredService<PlayerAuthBrowser>();
+        _worker = Services.GetRequiredService<PlayerAccessWorker>();
+        _settings = _catalog.GetSettings();
+        _targets = Services.GetRequiredService<PlayerAccessService>().Targets();
+        if (_targets.Count != 0) SelectTarget(_targets[0].Key);
+    }
+
+    private void SelectTarget(string value)
+    {
+        try { Capture(); }
+        catch (Exception error) { _error = error.Message; return; }
+        _selected = value;
+        _players = [];
+        _policy = _settings.Policies.FirstOrDefault(p => p.Target == value);
+        if (_policy is null)
+        {
+            _policy = new() { Target = value, GuildId = Services.GetRequiredService<DiscordOptionsCatalog>().GetOptions().GuildId };
+            _settings.Policies.Add(_policy);
+        }
+        _requiredRoles = string.Join(", ", _policy.RequiredRoles);
+        _priorityRoles = string.Join(", ", _policy.PriorityRoles);
+        _allowedSteam = string.Join("\n", _policy.AllowedSteamIds);
+        _promotions = _policy.Promotions.Select(p => new PromotionRow { Role = p.RoleId.ToString(), Level = p.Level }).ToList();
+    }
+
+    private static string[] Split(string value) => value.Split([',', '\n', '\r', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+    private void Capture()
+    {
+        if (_policy is null) return;
+        _policy.RequiredRoles = Split(_requiredRoles).Select(ulong.Parse).Distinct().ToList();
+        _policy.PriorityRoles = Split(_priorityRoles).Select(ulong.Parse).Distinct().ToList();
+        _policy.AllowedSteamIds = Split(_allowedSteam).Distinct().ToList();
+        _policy.Promotions = _promotions.Select(p => new PlayerPromotionMapping(ulong.Parse(p.Role), p.Level)).ToList();
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;
+        _busy = true; _error = _notice = "";
+        try
+        {
+            Capture();
+            var bot = Services.GetRequiredService<DiscordOptionsCatalog>().GetOptions();
+            foreach (var policy in _settings.Policies.Where(p => p.Enabled))
+            {
+                if (Services.GetRequiredService<AgentRegistry>().GetAgents().Any(a => a.IsConnected
+                    && (a.IsCluster ? "cluster:" + a.ClusterId : "server:" + a.UniqueNameKey) == policy.Target
+                    && a.Snapshot?.Plugins.Any(PlayerAccessWorker.IsLegacyAuthentication) == true))
+                    throw new InvalidOperationException("Remove the separate GameServerAuth plugin before enabling built-in access.");
+                if (_browser?.Ready != true || !bot.Enabled || bot.GuildId == 0 || policy.GuildId != bot.GuildId)
+                    throw new InvalidOperationException("Save OAuth credentials and verify public access first. Enable the Discord bot and use its configured guild.");
+                if (!_targets.Any(t => t.Key == policy.Target)) throw new InvalidOperationException("A configured server no longer exists.");
+                if (policy.Target.StartsWith("cluster:"))
+                {
+                    var cluster = Services.GetRequiredService<ClusterCatalog>().GetClusters().Single(c => "cluster:" + c.UniqueName == policy.Target);
+                    await Services.GetRequiredService<ClusterHostClient>().RequirePlayerAccessHostAsync(cluster, CancellationToken.None);
+                    var caps = (await Services.GetRequiredService<ClusterGatewayClient>().GetCapabilitiesAsync(cluster, CancellationToken.None)).Data;
+                    if (!caps.Operations.Contains("PUT /admin/v1/players/access")) throw new InvalidOperationException("Update and connect the cluster package before enabling player access.");
+                }
+                else if (Services.GetRequiredService<AgentRegistry>().GetAgents().Any(a => !a.IsCluster && a.IsConnected
+                    && "server:" + a.UniqueNameKey == policy.Target && a.Hello?.PlayerAccessVersion != 1))
+                    throw new InvalidOperationException("Restart this server to load the updated Agent before enabling player authentication.");
+            }
+            await _catalog!.SaveSettingsAsync(_settings);
+            Services.GetRequiredService<IOptionsMonitorCache<OAuthOptions>>().TryRemove(PlayerAuthEndpoints.DiscordScheme);
+            var selected = _selected;
+            _policy = null;
+            _settings = _catalog.GetSettings();
+            if (selected.Length != 0) SelectTarget(selected);
+            _notice = "Player authentication settings saved. Check enforcement status before relying on the whitelist.";
+        }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task VerifyAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;
+        _busy = true; _error = _notice = "";
+        try
+        {
+            await _browser!.VerifyAsync();
+            _settings.Revision = _catalog!.GetSettings().Revision;
+            _settings.VerifiedUntil = _catalog.GetSettings().VerifiedUntil;
+            _notice = "Public website verified for seven days.";
+        }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+
+    private void RefreshStatus() => StateHasChanged();
+    private async Task CheckPlayersAsync()
+    {
+        if (_busy || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity)) return;
+        _busy = true; _error = "";
+        try
+        {
+            var policy = _catalog!.GetSettings().Policies.FirstOrDefault(p => p.Target == _selected && p.Enabled)
+                ?? throw new InvalidOperationException("Save and enable this server policy before checking authorization.");
+            var links = Services.GetRequiredService<QuasarPlayerLinks>().GetLinks();
+            var decisions = new List<AccessRow>();
+            foreach (var steam in links.Select(link => link.SteamId).Concat(policy.AllowedSteamIds).Distinct().Order())
+                decisions.Add(new(steam, links.FirstOrDefault(link => link.SteamId == steam)?.DiscordUserId ?? "Not linked",
+                    await Services.GetRequiredService<PlayerAccessService>().EvaluateAsync(policy, steam, _stop.Token)));
+            _players = decisions;
+            if (decisions.Count == 0) _notice = "No linked accounts or explicit Steam entries to check.";
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        catch (Exception error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+    private static string PromotionName(int level) => new[] { "None", "Scripter", "Moderator", "Space Master", "Admin" }[level];
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+    private sealed record AccessRow(string Steam, string Discord, PlayerAccessDecision Decision);
+    private sealed class PromotionRow { public string Role { get; set; } = ""; public int Level { get; set; } }
+}

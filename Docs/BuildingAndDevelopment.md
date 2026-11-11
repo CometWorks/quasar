@@ -733,3 +733,30 @@ private state/settings preservation, stopped-process rejection, post-install URL
 routing and cancellation. bUnit covers completion persistence, pending/failure
 retry, explicit reopening and authorization. Native Windows service/UAC and real
 Steam/billing/tunnel acceptance remain platform deployment checks.
+
+## Player authentication checks
+
+Player authentication is built into Quasar and Quasar.Agent. See
+[the operator guide](PlayerAuthentication.md) for OAuth setup, verified origins,
+policy semantics and deployment gates. No standalone GameServerAuth plugin is
+needed. Keep its control messages outside the browser's generic command surface.
+
+With a current Magnetar PluginSdk reference (including the existing clustering,
+view, broadcast and alias contracts), run:
+
+```sh
+MagnetarBin=/path/to/current-sdk dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~PlayerAccessTests|FullyQualifiedName~PlayerOAuthTests|FullyQualifiedName~QuasarPlayerLinksTests|FullyQualifiedName~PlayerCommandTests|FullyQualifiedName~QuasarPlayerServicesTests|FullyQualifiedName~PlayerRequestSocketTests|FullyQualifiedName~HostGateway|FullyQualifiedName~ClusterHostClient'
+```
+
+These checks do not start Quasar or a game server. The admission IL check reads
+methods from the installed DS reference assemblies and fails if the expected
+reserved-slot check or admission entry point changed. The server handbook may
+lag those assemblies; verify runtime-facing assumptions against current code.
+
+Matching upstream checks are `ClusterRegistry --self-test player-access`,
+`ClusterRegistry --self-test player-moderation`, the Cluster CLI `--self-test`,
+and `dotnet run --project Test/PlayerModeration/PlayerModeration.csproj` in the
+Cluster source. Nebula has
+`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --public-domain-only`.
+Live OAuth callbacks and player joins remain operator acceptance work; source
+checks do not publish or deploy matching Nebula/Cluster builds.

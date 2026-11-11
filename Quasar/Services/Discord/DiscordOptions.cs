@@ -11,6 +11,7 @@ public sealed class DiscordOptions
     public bool Enabled { get; set; }
 
     public bool UseProxy { get; set; } = true;
+    public bool TrackMembers { get; set; }
 
     public DiscordPresenceOptions Presence { get; set; } = new();
 
@@ -24,6 +25,7 @@ public sealed class DiscordOptions
             GuildId = GuildId,
             Enabled = Enabled,
             UseProxy = UseProxy,
+            TrackMembers = TrackMembers,
             Presence = DiscordPresenceOptions.Normalize(Presence),
             Servers = Servers.Select(server => server.Clone()).ToList(),
         };
@@ -39,6 +41,7 @@ public sealed class DiscordOptions
             GuildId = options.GuildId,
             Enabled = options.Enabled,
             UseProxy = options.UseProxy,
+            TrackMembers = options.TrackMembers,
             Presence = DiscordPresenceOptions.Normalize(options.Presence),
             Servers = (options.Servers ?? [])
                 .Select(DiscordServerOptions.Normalize)

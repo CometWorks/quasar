@@ -73,7 +73,7 @@ public sealed class ClusterHostClientTests
         {
             Environment.SetEnvironmentVariable(TokenVariable, "test-host-token");
             var gateway = new GatewaySpec("demo", GatewayGoal.On, "/bundles/gateway.json",
-                new string('a', 64), "config-7", [28000, 28016], "/runs/gateway");
+                new string('a', 64), "config-7", [28000, 28016], "/runs/gateway", PlayerAccess: new(999, false, false));
             var envelope = new HostEnvelope<GatewayStatus>(HostProtocol.Version, DateTimeOffset.UtcNow,
                 new GatewayStatus("demo", GatewayGoal.On, GatewayObservedState.Running,
                     gateway.BundleManifestSha256, gateway.ConfigRevision, gateway.Ports,
@@ -88,10 +88,63 @@ public sealed class ClusterHostClientTests
             Assert.Equal(HttpMethod.Put, handler.Method);
             Assert.Equal("http://host.test:28400/host/v1/gateways/demo", handler.RequestUri?.ToString());
             Assert.Contains("\"goal\":\"On\"", handler.Body, StringComparison.Ordinal);
+            Assert.Contains("\"playerAccess\":null", handler.Body, StringComparison.Ordinal);
         }
         finally
         {
             Environment.SetEnvironmentVariable(TokenVariable, previous);
+        }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task GatewayAuthenticationUsesPrivatePolicyAndRequiresACapableHost(bool capable)
+    {
+        string directory = Path.Combine(Path.GetTempPath(), "host-access-" + Guid.NewGuid().ToString("N"));
+        string variable = "HOST_ACCESS_TEST_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(variable, "test-host-token");
+        try
+        {
+            var catalog = new Quasar.Services.Players.PlayerAccessCatalog(Path.Combine(directory, "access.json"),
+                new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
+            await catalog.SaveSettingsAsync(new() { Policies = [new() { Target = "cluster:demo", GuildId = 42, Enabled = true, Whitelist = true }] });
+            var gateway = new GatewaySpec("demo", GatewayGoal.On, "/bundles/gateway.json",
+                new string('a', 64), "config-7", [28016], "/runs/gateway", PlayerAccess: new(0, false, false));
+            bool applied = false;
+            var handler = new StubHandler(request =>
+            {
+                if (request.Method == HttpMethod.Get)
+                    return Response(HttpStatusCode.OK, new HostEnvelope<HostStatus>(1, DateTimeOffset.UtcNow,
+                        new("executor", "host", [], PlayerAccessFencing: capable)));
+                applied = true;
+                return Response(HttpStatusCode.OK, new HostEnvelope<GatewayStatus>(1, DateTimeOffset.UtcNow,
+                    new("demo", GatewayGoal.On, GatewayObservedState.Running, gateway.BundleManifestSha256,
+                        gateway.ConfigRevision, gateway.Ports, gateway.RunRoot, 42, DateTimeOffset.UtcNow, null)));
+            });
+            var client = new ClusterHostClient(new HttpClient(handler), playerAccess: catalog);
+            var cluster = Definition();
+            cluster.HostCommandTokenEnvironmentVariable = variable;
+            cluster.Gateway = gateway;
+            if (!capable)
+            {
+                await Assert.ThrowsAsync<InvalidOperationException>(() => client.ApplyGatewayAsync(cluster, gateway, default));
+                Assert.False(applied);
+            }
+            else
+            {
+                await client.ApplyGatewayAsync(cluster, gateway, default);
+                using var body = JsonDocument.Parse(handler.Body);
+                var intent = body.RootElement.GetProperty("playerAccess");
+                Assert.Equal(catalog.GetSettings().Revision, intent.GetProperty("revision").GetInt64());
+                Assert.True(intent.GetProperty("enabled").GetBoolean());
+                Assert.True(intent.GetProperty("whitelist").GetBoolean());
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(variable, null);
+            if (Directory.Exists(directory)) Directory.Delete(directory, true);
         }
     }
 

@@ -12,21 +12,21 @@
 {
     <section class="quasar-panel pa-4 mt-4">
         <div class="quasar-layout quasar-gap-3">
-            <h2 class="quasar-text quasar-type-h6">Discord Links</h2>
-            <p>Players link their Discord account with <code>!link</code> in game and <code>/link CODE</code> on Discord, so the assistant can answer them there about their own things.</p>
+            <h2 class="quasar-text quasar-type-h6">Authenticated player accounts</h2>
+            <p>Players authenticate Steam and Discord on the public player authentication website. Old code-based links require browser authentication before they can identify a player or grant access.</p>
             <MudTable T="QuasarPlayerLink" Items="_links" Dense="true" Hover="true">
                 <HeaderContent>
                     <MudTh>Player</MudTh>
                     <MudTh>Steam ID</MudTh>
                     <MudTh>Discord user ID</MudTh>
-                    <MudTh>Linked</MudTh>
+                    <MudTh>Authentication</MudTh>
                     <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                 </HeaderContent>
                 <RowTemplate>
                     <MudTd DataLabel="Player">@Name(context.SteamId)</MudTd>
                     <MudTd DataLabel="Steam ID" Class="mono">@context.SteamId</MudTd>
                     <MudTd DataLabel="Discord user ID" Class="mono">@context.DiscordUserId</MudTd>
-                    <MudTd DataLabel="Linked">@ViewerTime.Format(context.LinkedAtUtc)</MudTd>
+                    <MudTd DataLabel="Authentication">@(context.Authenticated ? ViewerTime.Format(context.LinkedAtUtc) : "Browser authentication required")</MudTd>
                     <MudTd DataLabel="" Class="quasar-actions-column">
                         <AuthorizeView Policy="@QuasarPolicyNames.CanControlServers" Context="permissionContext">
                             <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Color="Color.Error" aria-label="Remove Discord link"

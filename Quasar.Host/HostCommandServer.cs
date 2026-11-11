@@ -209,9 +209,26 @@ internal sealed class GatewaySpecStore
         spec = Validate(spec);
         lock (_sync)
         {
+            if (_specs.TryGetValue(spec.ClusterId, out var previous) && previous.PlayerAccess is { } intent)
+            {
+                if (spec.PlayerAccess is null) spec = spec with { PlayerAccess = intent };
+                else if (spec.PlayerAccess.Revision < intent.Revision
+                    || spec.PlayerAccess.Revision == intent.Revision && spec.PlayerAccess != intent)
+                    throw new InvalidOperationException("Stale or conflicting Gateway player access intent.");
+            }
             WriteAtomic(SpecPath(spec.ClusterId), spec);
             _specs[spec.ClusterId] = spec;
             return spec;
+        }
+    }
+
+    public HostContract.GatewayPlayerAccessIntent ApplyPlayerAccessIntent(string clusterId, HostContract.GatewayPlayerAccessIntent intent)
+    {
+        lock (_sync)
+        {
+            if (!_specs.TryGetValue(clusterId, out var spec))
+                throw new InvalidOperationException("The Gateway has no configured launch specification.");
+            return Apply(spec with { PlayerAccess = intent }).PlayerAccess!;
         }
     }
 
@@ -263,6 +280,8 @@ internal sealed class GatewaySpecStore
         string revision = spec.ConfigRevision?.Trim() ?? string.Empty;
         if (revision.Length is 0 or > 256)
             throw new ArgumentException("Gateway config revision is required and cannot exceed 256 characters");
+        if (spec.PlayerAccess is { } intent && (intent.Revision < 0 || intent.Whitelist && !intent.Enabled))
+            throw new ArgumentException("Invalid Gateway player access intent.");
         int[] ports = spec.Ports ?? [];
         if (ports.Length == 0 || ports.Any(port => port is < 1 or > 65535)
             || ports.Distinct().Count() != ports.Length)
@@ -523,7 +542,7 @@ internal sealed class HostCommandServer : IDisposable
                 _config.ExecutorId, _config.HostId, attachments, _gateways.GetStatuses(),
                 GatewayStopFencing: true, SteamClientLibrary: true, StartedAt: Program.StartedAt,
                 Warnings: HostShutdown.Warnings(_config.HostId), ClusterDetach: true,
-                NodeFailures: NodeActualizer.ReadFailures(_config.StateDirectory)), cancellationToken);
+                NodeFailures: NodeActualizer.ReadFailures(_config.StateDirectory), PlayerAccessFencing: true), cancellationToken);
             return;
         }
 
@@ -735,6 +754,14 @@ internal sealed class HostCommandServer : IDisposable
         prefix = HostContract.HostProtocol.RoutePrefix + "/gateways/";
         if (context.Request.HttpMethod == "PUT" && path.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
         {
+            const string accessSuffix = "/player-access";
+            if (path.EndsWith(accessSuffix, StringComparison.Ordinal))
+            {
+                string accessCluster = Uri.UnescapeDataString(path[prefix.Length..^accessSuffix.Length]);
+                var intent = await ReadJsonAsync<HostContract.GatewayPlayerAccessIntent>(context.Request, cancellationToken);
+                await WriteAsync(context, 200, _gateways.ApplyPlayerAccessIntent(accessCluster, intent), cancellationToken);
+                return;
+            }
             string clusterId = Uri.UnescapeDataString(path[prefix.Length..]);
             HostContract.GatewaySpec spec = await ReadJsonAsync<HostContract.GatewaySpec>(
                 context.Request, cancellationToken);

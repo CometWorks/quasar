@@ -152,6 +152,11 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, string route, HttpMethod method, object? body, string key, CancellationToken token) =>
         SendAsync<Admin.AdminOperation>(cluster, route, method, body, token, key);
 
+    internal Task<Admin.AdminEnvelope<Admin.PlayerAccessStatus>> SetPlayerAccessAsync(
+        ClusterDefinition cluster, Magnetar.Protocol.Model.PlayerAccessSnapshot policy, CancellationToken token) =>
+        SendAsync<Admin.PlayerAccessStatus>(cluster, "players/access", HttpMethod.Put, policy, token,
+            "player-access-" + policy.Revision + "-" + policy.IssuedAt.UtcTicks);
+
     private async Task<Admin.AdminEnvelope<T>> GetAsync<T>(
         ClusterDefinition cluster, string route, CancellationToken cancellationToken)
         => await SendAsync<T>(cluster, route, HttpMethod.Get, null, cancellationToken);

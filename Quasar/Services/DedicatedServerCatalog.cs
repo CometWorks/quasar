@@ -22,14 +22,17 @@ public sealed class DedicatedServerCatalog : IDisposable
     private readonly SemaphoreSlim _writeGate = new(1, 1);
     private readonly ILogger<DedicatedServerCatalog> _logger;
     private readonly ServerRestoreCoordinator? _maintenance;
+    private readonly Players.PlayerAccessCatalog? _playerAccess;
     private List<DedicatedServerDefinition> _servers;
     private string _snapshot;
     private ChildFileWatcher? _watcher;
 
-    public DedicatedServerCatalog(ILogger<DedicatedServerCatalog> logger, ServerRestoreCoordinator? maintenance = null)
+    public DedicatedServerCatalog(ILogger<DedicatedServerCatalog> logger, ServerRestoreCoordinator? maintenance = null,
+        Players.PlayerAccessCatalog? playerAccess = null)
     {
         _logger = logger;
         _maintenance = maintenance;
+        _playerAccess = playerAccess;
         _servers = LoadServers();
         _snapshot = CreateSnapshot(_servers);
         StartWatching();
@@ -121,6 +124,7 @@ public sealed class DedicatedServerCatalog : IDisposable
             }
         }
 
+        _playerAccess?.EnsureServerIdentityChangeAllowed(previousUniqueName, normalized.UniqueName);
         PrepareStorageForSave(normalized, previousUniqueName);
         await SaveServerAsync(normalized, cancellationToken);
         ReloadFromDisk();

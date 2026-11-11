@@ -1,0 +1,160 @@
+{
+  "generated_at": "2026-11-10T16:34:45.656589+00:00",
+  "nodes": {
+    "auth_quasarrolemapper_quasarrolemapper": {
+      "code_fingerprint": "bac0dc87efdc0cdfd99a7af82c1dc5f3ec347040d69cb6d9e5374c4f031f163c",
+      "label": "QuasarRoleMapper",
+      "last": "2026-08-11T09:06:12.863775+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T09:06:12.863775+00:00",
+          "outcome": "useful",
+          "q": "I want you to do a pass on RBAC permissions and controls. We got a report yesterday that people with only viewing access were able to change their own permissions and then modify unwanted things."
+        }
+      ],
+      "score": 0.121269079,
+      "source_file": "Quasar/Services/Auth/QuasarRoleMapper.cs",
+      "status": "tentative",
+      "uses": 1
+    },
+    "dedicatedserverprocesspriority": {
+      "code_fingerprint": "",
+      "label": "DedicatedServerProcessPriority",
+      "last": "2026-08-25T13:49:09.121729+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-25T13:49:09.121729+00:00",
+          "outcome": "useful",
+          "q": "Can daemonized Magnetar processes run at high priority when Quasar has a lower CPU priority in Docker?"
+        }
+      ],
+      "score": 0.168345819,
+      "source_file": "",
+      "status": "tentative",
+      "uses": 1
+    },
+    "layout_reconnectmodal_razor": {
+      "code_fingerprint": "23e1ed43402a6bafc57f2cd962606a93ebfea3aec2e61af79cb6f4bfac00ac72",
+      "label": "ReconnectModal.razor.js",
+      "last": "2026-11-05T18:29:40.665175+00:00",
+      "provenance": [
+        {
+          "date": "2026-11-05T18:29:40.665175+00:00",
+          "outcome": "useful",
+          "q": "Why can a hosted Quasar dashboard retry for five minutes after an update until manual refresh?"
+        }
+      ],
+      "score": 0.892542916,
+      "source_file": "Quasar/Components/Layout/ReconnectModal.razor.js",
+      "status": "tentative",
+      "uses": 1
+    },
+    "pages_security": {
+      "code_fingerprint": "2755a464dc78476c233bebf76f9ab1ccff564ed04c21a5a14fb29b53f91ced2e",
+      "label": "Security.razor",
+      "last": "2026-08-11T09:06:12.863775+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-11T09:06:12.863775+00:00",
+          "outcome": "useful",
+          "q": "I want you to do a pass on RBAC permissions and controls. We got a report yesterday that people with only viewing access were able to change their own permissions and then modify unwanted things."
+        }
+      ],
+      "score": 0.121269079,
+      "source_file": "Quasar/Components/Pages/Security.razor",
+      "status": "tentative",
+      "uses": 1
+    },
+    "services_dedicatedserversupervisor_dedicatedserversupervisor_startprocessasync": {
+      "code_fingerprint": "d3abf8a7cc5a893818e31b6c9873b0c59a9e48d3e32be574cc66bc31cbf631a1",
+      "label": ".StartProcessAsync()",
+      "last": "2026-08-25T13:49:09.121729+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-25T13:49:09.121729+00:00",
+          "outcome": "useful",
+          "q": "Can daemonized Magnetar processes run at high priority when Quasar has a lower CPU priority in Docker?"
+        }
+      ],
+      "score": 0.168345819,
+      "source_file": "Quasar/Services/DedicatedServerSupervisor.cs",
+      "status": "tentative",
+      "uses": 1
+    },
+    "services_dedicatedserversupervisor_dedicatedserversupervisor_tryapplyprocesspriority": {
+      "code_fingerprint": "d3abf8a7cc5a893818e31b6c9873b0c59a9e48d3e32be574cc66bc31cbf631a1",
+      "label": ".TryApplyProcessPriority()",
+      "last": "2026-08-25T13:49:09.121729+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-25T13:49:09.121729+00:00",
+          "outcome": "useful",
+          "q": "Can daemonized Magnetar processes run at high priority when Quasar has a lower CPU priority in Docker?"
+        }
+      ],
+      "score": 0.168345819,
+      "source_file": "Quasar/Services/DedicatedServerSupervisor.cs",
+      "status": "tentative",
+      "uses": 1
+    },
+    "services_dedicatedserversupervisor_dedicatedserversupervisor_tryapplyunixnice": {
+      "code_fingerprint": "d3abf8a7cc5a893818e31b6c9873b0c59a9e48d3e32be574cc66bc31cbf631a1",
+      "label": ".TryApplyUnixNice()",
+      "last": "2026-08-25T13:49:09.121729+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-25T13:49:09.121729+00:00",
+          "outcome": "useful",
+          "q": "Can daemonized Magnetar processes run at high priority when Quasar has a lower CPU priority in Docker?"
+        }
+      ],
+      "score": 0.168345819,
+      "source_file": "Quasar/Services/DedicatedServerSupervisor.cs",
+      "status": "tentative",
+      "uses": 1
+    },
+    "statemachines_blazorreconnect_blazor_circuit_reconnection": {
+      "code_fingerprint": "5087fc1a82b6581125109b3362bf9e86bab0902ec7b6c71e7e5e42551c91c158",
+      "label": "Blazor Circuit Reconnection",
+      "last": "2026-11-05T18:29:40.665175+00:00",
+      "provenance": [
+        {
+          "date": "2026-11-05T18:29:40.665175+00:00",
+          "outcome": "useful",
+          "q": "Why can a hosted Quasar dashboard retry for five minutes after an update until manual refresh?"
+        }
+      ],
+      "score": 0.892542916,
+      "source_file": "Docs/StateMachines/BlazorReconnect.md",
+      "status": "tentative",
+      "uses": 1
+    },
+    "workflows_release_unified_release_workflow": {
+      "code_fingerprint": "91cd263ef0e76dce05bcbcdde05c1ace467a64abc549fbea6cc9ef98cf4b1fd8",
+      "label": "Unified Release Workflow",
+      "last": "2026-08-25T21:20:05.121140+00:00",
+      "provenance": [
+        {
+          "date": "2026-08-25T21:20:05.121140+00:00",
+          "outcome": "useful",
+          "q": "Please make the changes so GHCR publishes one package version instead of a tagged index plus two untagged manifests."
+        },
+        {
+          "date": "2026-08-25T20:59:04.442139+00:00",
+          "outcome": "useful",
+          "q": "Also, lets make sure that PRs in any form do not trigger the docker publish pipeline. Only a push on main."
+        },
+        {
+          "date": "2026-08-25T13:41:42.950725+00:00",
+          "outcome": "useful",
+          "q": "I want you to add full docker support for Quasar. This commit is a good starting point https://github.com/CometWorks/quasar/commit/62cbaf96cd36ad0b1405170564f0deb40b9d601b. We need to make sure env passthrough, initial admin ID setup and other relevant persistent settings can be controlled from the manifest. Make sure to add a GHCR image for quasar that is versioned in the same way as our full releases through the current CI/CD."
+        }
+      ],
+      "score": 0.5074051,
+      "source_file": ".github/workflows/release.yml",
+      "status": "preferred",
+      "uses": 3
+    }
+  },
+  "version": 1
+}

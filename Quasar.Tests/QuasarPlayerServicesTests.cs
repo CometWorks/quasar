@@ -336,13 +336,7 @@ public sealed class QuasarPlayerServicesTests : IDisposable
             }
         );
 
-        await requests.HandleGameRequestAsync(
-            source,
-            new PlayerRequest { Kind = PlayerRequest.LinkKind, SteamId = long.Parse(Pilot) },
-            default
-        );
-        var code = whispers[^1].Text.Split(' ')[2];
-        Assert.Equal(Pilot, (await requests.LinkDiscordAsync("555", code, default))!.SteamId);
+        await _services.GetRequiredService<QuasarPlayerLinks>().AuthenticateAsync(Pilot, "555");
 
         // Admin commands and unknown names don't run from the game.
         foreach (var kind in new[] { "assistant", "dance" })

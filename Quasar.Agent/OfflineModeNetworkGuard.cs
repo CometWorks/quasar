@@ -23,7 +23,7 @@ namespace Quasar.Agent
             try
             {
                 _harmony = new Harmony(HarmonyId);
-                _harmony.PatchAll(typeof(OfflineModeNetworkGuard).Assembly);
+                _harmony.CreateClassProcessor(typeof(OnConnectedClientPatch)).Patch();
                 Console.WriteLine("Quasar offline-mode network guard applied.");
             }
             catch (Exception exception)

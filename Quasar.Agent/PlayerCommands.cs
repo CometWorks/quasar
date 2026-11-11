@@ -11,7 +11,7 @@ using VRage.Game.ModAPI;
 namespace Quasar.Agent
 {
     /// <summary>
-    /// Hands players' <c>!link</c> and UI plugins' chat commands to Quasar as player requests.
+    /// Hands players' authorization and UI plugins' chat commands to Quasar as player requests.
     /// The answer comes back later as whispers, so the commands only acknowledge.
     /// </summary>
     internal static class PlayerCommands
@@ -176,21 +176,21 @@ namespace Quasar.Agent
         }
     }
 
-    [CommandRoot("link", "Quasar", "Link your Discord account")]
-    public sealed class LinkCommand : CommandModule
+    [CommandRoot("authorize", "Quasar", "Authenticate Steam and Discord")]
+    public sealed class AuthorizeCommand : CommandModule
     {
         [Command(
             "",
-            "Get a code to link your Discord account",
-            "Usage: !link. Then type /link CODE in the server's Discord."
+            "Open browser authentication",
+            "Usage: !authorize. Authenticate Steam and Discord on the website and authorize this server."
         )]
         [Permission(MyPromoteLevel.None)]
-        public CommandReply Link() =>
+        public CommandReply Authorize() =>
             PlayerCommands.Forward(
                 Context,
-                PlayerRequest.LinkKind,
+                PlayerRequest.AuthorizeKind,
                 string.Empty,
-                "Creating your link code..."
+                "Opening player authentication..."
             );
     }
 }

@@ -257,6 +257,14 @@ internal static partial class ClusterDeploymentFiles
             throw new InvalidDataException("Select a cluster release with managed profile migration support to stage profile settings, mods and plugins.");
     }
 
+    internal static void RequirePlayerAuthentication(string package)
+    {
+        ValidateCapabilities(package);
+        using var capabilities = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capabilities.RootElement.TryGetProperty("playerAuthentication", out var version) || version.GetInt32() < 1)
+            throw new InvalidDataException("This cluster release cannot enforce player authentication. Disable access, confirm promotion revocation and save the world before downgrading, or select a compatible release.");
+    }
+
     /// <summary>A release older than <c>managedHotSpares</c> ignores the spare flag, so its spares would serve.</summary>
     internal static void RequireHotSpares(string package)
     {

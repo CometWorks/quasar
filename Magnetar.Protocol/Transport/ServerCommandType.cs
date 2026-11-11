@@ -32,4 +32,6 @@ public enum ServerCommandType
     /// (<see cref="Model.PositionOwnerRequest"/> in Payload, <see cref="Model.PositionOwnerResult"/> back).
     /// </summary>
     ResolvePositionOwner = 19,
+    UpdatePlayerAccess = 20,
+    OpenPlayerAuthentication = 21,
 }

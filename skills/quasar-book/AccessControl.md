@@ -12,9 +12,89 @@ Quasar has three ways to authenticate a request:
 | Trusted network bypass | Browsers and tools on the Quasar machine (loopback), optionally the local subnet | `Quasar:Auth:TrustedNetworkBypass:Roles`, default `admin` |
 | Service principal (bearer token) | Scripts and the `Quasar cluster` CLI | Scopes `cluster.query` or `cluster.manage`, cluster API only |
 
-Steam is the only interactive sign-in provider. `appsettings.json` contains an `ExternalProviders:Oidc` section and the **Security** page offers "Oidc" as a mapping provider, but Quasar does not register an OIDC sign-in, so these settings have no effect.
+Steam is the dashboard sign-in provider. Player authentication also uses Discord OAuth without granting dashboard roles. `appsettings.json` contains an `ExternalProviders:Oidc` section and the **Security** page offers "Oidc" as a mapping provider, but Quasar does not register an OIDC sign-in, so these settings have no effect.
 
-In headless mode (`--headless`) the `/login` page does not exist. Only the trusted network bypass and service principals work there.
+Headless mode (`--headless`) keeps Steam `/login` and the public player authentication website. Configure player authentication through the UI before switching to headless mode.
+
+## Player authentication
+
+**Security → Player authentication** configures Steam/Discord browser linking,
+role-based game promotions, whitelist and priority joining. Only Quasar admins
+can change this policy. Player authentication never grants dashboard roles.
+
+Configure the existing bot and guild on **Discord**. Enable its **Server Members**
+privileged intent in the Discord Developer Portal and Quasar's **Track member and
+role changes for player authentication** option. Without member tracking, bot REST
+checks normally refresh roles every 30 seconds.
+
+On **Security**, enter the Discord application ID and OAuth client secret, which
+differs from the bot token. Register the displayed exact redirect URL in Discord:
+`https://quasar.example.com/player-auth/signin-discord` for self-hosting, or
+`https://dash.se-servers.net/<panel>/player-auth/signin-discord` for Nebula. Save.
+Keep Steam and Quasar authentication enabled, with Steam as the default provider.
+
+Use confirmed active Nebula hosting, or verify a public HTTPS hostname on port 443.
+The self-hosted URL has no path, query, credentials or fragment; equivalent root URLs are normalized.
+Its verification uses an installation-specific HTTPS proof checked externally by
+Nebula, with redirects and private DNS addresses refused. The matching Nebula
+verifier must be deployed; no hosting subscription is needed for self-hosting.
+Proof lasts seven days and enabled policies attempt renewal during the last day,
+retrying hourly. An inactive or pending enrollment is insufficient.
+
+Choose a server or cluster, its matching bot guild, access and priority role IDs,
+and promotion mappings. Include a recovery SteamID64 in the explicit allowlist.
+Enable, save and check **Refresh enforcement status**. Servers need the updated
+Agent; clusters need a compatible connected Gateway and World Authority package,
+a Quasar-managed Gateway and an updated Gateway Host with player access launch fencing.
+Unsupported versions show an update requirement. **Check player authorization**
+shows each linked account's decision, promotion, priority and validity against the
+saved policy.
+
+Players open the public authentication website, sign in with Steam, authenticate
+Discord, review instructions and choose **Authorize this server**. On an open
+server, `!authorize` supplies an expiring, game-bound URL; a different Steam
+identity cannot use it. Standalone servers open the Steam overlay. Whitelist
+users authenticate from the website before joining.
+
+Whitelist requires the account pair, guild membership, any one required role when
+listed, and server authorization. An empty role list still needs membership.
+Explicit Steam allowlist entries bypass these checks. Without whitelist, other
+players can join, but role benefits still need authenticated authorization.
+The highest promotion role wins, up to Admin; Owner cannot be assigned. Any
+priority role bypasses the normal cap without kicking another player or creating
+a queue. Bans, cooldowns and the player whitelist remain authoritative.
+
+Temporary promotions overlay manual roles and restore that baseline on removal.
+Lower manual assignments through Quasar are refused while a higher Discord grant
+is active. Independent manual reserved slots remain. Membership-derived grants
+expire within two minutes; unknown membership does not trigger mass kicks of
+existing sessions. A stale whitelist denies new joins. Confirmed revocations can
+disconnect existing players.
+
+The `!link` and Discord `/link CODE` exchange is removed. Legacy links stay visible
+on **Players**, but must authenticate both accounts before identifying a player
+or granting access. Conflicting authenticated links are rejected. Unlinking
+revokes linked eligibility; relinking requires fresh server authorization.
+
+Private `player-access.json` stores settings, authorizations and protected OAuth
+credentials. Preserve Data Protection keys with backups. Standalone DS AppData
+also contains per-server `.quasar-player-access-<hash>.json` markers and
+`.quasar-player-promotions-<hash>.json` recovery journals. Do not delete journals
+to clear roles. Disable access, wait for acknowledgement, save and stop the world
+before unsupported downgrades or server/cluster conversion. Policies do not move
+automatically to a converted target. Missing settings do not open an existing
+whitelist. After restoring an older Quasar settings backup, save player
+authentication settings again to advance the runtime policy revision.
+
+Gateway Hosts retain whitelist launch intent independently of Registry backups.
+An enabled whitelist starts closed before Quasar publishes decisions, including
+with fresh or older restored Registry state. Missing launch intent preserves the
+previous setting; only a fresh policy removes the persisted restriction. Updating
+intent does not restart a live Gateway. Disable an active standalone policy before
+changing its canonical server identity; display names can be changed normally.
+
+See [the full operator guide](https://github.com/CometWorks/quasar/blob/main/Docs/PlayerAuthentication.md) for freshness,
+recovery and the live OAuth/join acceptance checks still required before production.
 
 ## Steam sign-in
 
@@ -441,3 +521,16 @@ Keep the complete Quasar package and peer component together when updating.
 - `Quasar/Components/Pages/ServerWorldImportDialog.razor`
 - `Quasar/Components/Shared/DiscordSubjectMappings.razor`
 - `Quasar/Services/Plugins/QuasarMyOperations.cs`
+
+- `Docs/PlayerAuthentication.md`
+- `Quasar/Services/Players/PlayerAccessCatalog.cs`
+- `Quasar/Services/Players/PlayerAuthBrowser.cs`
+- `Quasar/Services/Players/PlayerAuthEndpoints.cs`
+- `Quasar/Services/Players/PlayerAccessService.cs`
+- `Quasar/Services/Players/DiscordPlayerRoles.cs`
+- `Quasar/Components/Shared/PlayerAuthenticationSettings.razor`
+- `Quasar.Agent/PlayerAccessEnforcement.cs`
+- `Quasar.Host.Contract/HostContract.cs`
+- `Quasar.Host/HostCommandServer.cs`
+- `Quasar.Host/GatewayActualizer.cs`
+- `Quasar/Services/ClusterHostClient.cs`

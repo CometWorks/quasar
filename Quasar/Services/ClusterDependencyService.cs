@@ -17,6 +17,7 @@ public sealed class ClusterDependencyService
     private readonly Func<Dictionary<string, string>> _sources;
     private readonly string _directory;
     private readonly ClusterPackageService _packages;
+    private readonly Players.PlayerAccessCatalog? _playerAccess;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     // Caller owns the storage collection lease, so no staging/selection can race it.
@@ -53,12 +54,12 @@ public sealed class ClusterDependencyService
     }
 
     public ClusterDependencyService(ManagedDedicatedServerRuntimeResolver runtime, IConfiguration configuration,
-        ClusterPackageService packages)
+        ClusterPackageService packages, Players.PlayerAccessCatalog? playerAccess = null)
         : this(() => ResolveSources(runtime, configuration),
-            Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "ClusterDependencies"), packages) { }
+            Path.Combine(MagnetarPaths.GetQuasarManagedRuntimeToolsDirectory(), "ClusterDependencies"), packages, playerAccess) { }
 
-    internal ClusterDependencyService(Func<Dictionary<string, string>> sources, string directory, ClusterPackageService packages)
-        => (_sources, _directory, _packages) = (sources, directory, packages);
+    internal ClusterDependencyService(Func<Dictionary<string, string>> sources, string directory, ClusterPackageService packages, Players.PlayerAccessCatalog? playerAccess = null)
+        => (_sources, _directory, _packages, _playerAccess) = (sources, directory, packages, playerAccess);
 
     public async Task<ClusterDependencyCandidate> InspectAsync(ClusterDefinition cluster, CancellationToken token)
         => await InspectAsync(cluster, null, token);
@@ -174,6 +175,8 @@ public sealed class ClusterDependencyService
             await VerifyAsyncCore(selected, hash, token);
             var package = await _packages.GetInstalledAsync(new(selected.Version, selected.Sha256), token);
             ClusterDeploymentFiles.ValidateCapabilities(package.PackagePath);
+            if (_playerAccess?.GetSettings().Policies.Any(p => p.Target == "cluster:" + cluster.UniqueName && p.Enabled) == true)
+                ClusterDeploymentFiles.RequirePlayerAuthentication(package.PackagePath);
             string dependencies = Path.Combine(_directory, hash);
             var packageFiles = await ClusterDeploymentFiles.InspectAsync(package.PackagePath, token);
             if (packageFiles.Count != package.Files.Count || packageFiles.Any(x =>

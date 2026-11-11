@@ -40,7 +40,7 @@ public sealed class PlayerCommandTests
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
-    public void LinkIsRegisteredForEveryPlayerInBothModes(bool clusterMode)
+    public void AuthorizationIsRegisteredForEveryPlayerInBothModes(bool clusterMode)
     {
         var previous = ServerCommands.Registrar;
         try
@@ -48,7 +48,7 @@ public sealed class PlayerCommandTests
             var registrar = new Registrar();
             ServerCommands.Registrar = registrar;
             AdminPlugin.RegisterCommands(clusterMode);
-            Assert.Contains(typeof(LinkCommand), registrar.Types);
+            Assert.Contains(typeof(AuthorizeCommand), registrar.Types);
             Assert.Equal(!clusterMode, registrar.Types.Contains(typeof(StopCommand)));
             Assert.True(PlayerCommands.Registered);
         }
@@ -58,7 +58,7 @@ public sealed class PlayerCommandTests
         }
 
         foreach (
-            var method in typeof(LinkCommand)
+            var method in typeof(AuthorizeCommand)
                 .GetMethods()
                 .Where(m => m.IsDefined(typeof(CommandAttribute)))
         )
@@ -72,7 +72,7 @@ public sealed class PlayerCommandTests
     public void PlayerCommandsSendTheCallersIdentityAndRefuseTheConsole()
     {
         var registry = new CommandRegistry();
-        registry.RegisterModule(typeof(LinkCommand), "quasar-agent");
+        registry.RegisterModule(typeof(AuthorizeCommand), "quasar-agent");
         var previousRegistrar = ServerCommands.Registrar;
         var registrar = new Registrar(registry);
         ServerCommands.Registrar = registrar;
@@ -130,12 +130,12 @@ public sealed class PlayerCommandTests
 
             Assert.True(
                 dispatcher.Handle(
-                    "!link",
+                    "!authorize",
                     new CommandCaller(Pilot, 34, "Pilot", MyPromoteLevel.None),
                     new Responder()
                 )
             );
-            Assert.Equal(PlayerRequest.LinkKind, sent[^1].Kind);
+            Assert.Equal(PlayerRequest.AuthorizeKind, sent[^1].Kind);
             Assert.Equal(string.Empty, sent[^1].Text);
 
             sent.Clear();
@@ -146,7 +146,7 @@ public sealed class PlayerCommandTests
                 refused
             );
             dispatcher.Handle(
-                "!link",
+                "!authorize",
                 new CommandCaller(0, 0, "Ghost", MyPromoteLevel.None),
                 refused
             );

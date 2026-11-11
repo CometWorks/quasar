@@ -82,10 +82,10 @@ namespace Quasar.Agent
         {
             var assembly = typeof(AdminPlugin).Assembly;
             if (clusterMode)
-                ServerCommands.Register(assembly, typeof(LinkCommand));
+                ServerCommands.Register(assembly, typeof(AuthorizeCommand));
             else
                 ServerCommands.Register(assembly, typeof(StopCommand), typeof(RestartCommand), typeof(QuitCommand),
-                    typeof(LinkCommand));
+                    typeof(AuthorizeCommand));
             PlayerCommands.Registered = true;
         }
 
