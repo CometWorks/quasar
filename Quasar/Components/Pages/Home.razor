@@ -19,6 +19,7 @@
 @inject BrowserStorageService BrowserStorage
 @inject QuasarPermissionService Permissions
 @inject IServiceProvider Services
+@inject ViewerTimeZone ViewerTime
 
 <PageTitle>Fleet overview</PageTitle>
 
@@ -539,7 +540,40 @@ else
             <ol class="quasar-activity">
                 @foreach (var activity in RecentActivity)
                 {
-                    <li><QuasarStackedTimestamp Value="@activity.At" /><div><strong class="@Tone(activity.Level)">@activity.Message</strong><p>@activity.DisplayName</p></div></li>
+                    <li @key="activity.ClusterDetails?.OperationId">
+                        <QuasarStackedTimestamp Value="@activity.At" />
+                        @if (activity.ClusterDetails is { } operation)
+                        {
+                            <details class="quasar-activity-details">
+                                <summary>
+                                    <strong class="@Tone(activity.Level)">@activity.Message</strong>
+                                    <span class="quasar-activity-name">@activity.DisplayName</span>
+                                </summary>
+                                <dl>
+                                    <dt>Operation type</dt>
+                                    <dd><code>@operation.Kind</code></dd>
+                                    <dt>Operation ID</dt>
+                                    <dd><code>@operation.OperationId</code></dd>
+                                    <dt>Started</dt>
+                                    <dd><time datetime="@operation.StartedAt.ToString("O")">@ViewerTime.Format(operation.StartedAt)</time></dd>
+                                    <dt>Last updated</dt>
+                                    <dd><time datetime="@activity.At.ToString("O")">@ViewerTime.Format(activity.At)</time></dd>
+                                    @if (operation.ErrorCode is { } errorCode)
+                                    {
+                                        <dt>Error code</dt>
+                                        <dd><code>@errorCode</code></dd>
+                                    }
+                                </dl>
+                            </details>
+                        }
+                        else
+                        {
+                            <div>
+                                <strong class="@Tone(activity.Level)">@activity.Message</strong>
+                                <p class="quasar-activity-name">@activity.DisplayName</p>
+                            </div>
+                        }
+                    </li>
                 }
             </ol>
         }

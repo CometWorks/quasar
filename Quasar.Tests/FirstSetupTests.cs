@@ -237,15 +237,30 @@ public sealed class FirstSetupTests : IDisposable
             var operations = context.Services.GetRequiredService<ClusterOperationStore>();
             var page = context.Render<Home>();
             Assert.Contains("No recent activity", page.Markup);
-            await operations.ExecuteAsync("fleet", "cluster.goal.set", "start", "admin", new { goal = "On" },
+            var start = await operations.ExecuteAsync("fleet", "cluster.goal.set", "start", "admin", new { goal = "On" },
                 _ => Task.FromResult(new CometWorks.ClusterGateway.AdminContract.V1.AdminEnvelope<ClusterGoalResult>(1, DateTimeOffset.UtcNow,
                     new("fleet", Quasar.Models.DedicatedServerGoalState.On, DateTimeOffset.UtcNow))), default);
             await page.WaitForAssertionAsync(() => Assert.Contains("Cluster start requested · completed", page.Markup));
             Assert.Contains("My cluster", page.Find(".quasar-activity").TextContent);
+            var details = page.Find(".quasar-activity details");
+            Assert.False(details.HasAttribute("open"));
+            Assert.Contains(
+                "Cluster start requested · completed",
+                details.QuerySelector("summary")!.TextContent
+            );
+            Assert.Equal(
+                new[] { "cluster.goal.set", start.OperationId },
+                details.QuerySelectorAll("code").Select(code => code.TextContent)
+            );
+            Assert.Equal(
+                new[] { start.CreatedAt.ToString("O"), start.UpdatedAt.ToString("O") },
+                details.QuerySelectorAll("time").Select(time => time.GetAttribute("datetime"))
+            );
             Assert.Empty(context.Services.GetRequiredService<AgentRegistry>().GetAgents());
             await operations.ExecuteAsync<object, object>("fleet", "cluster.save-all", "failed-save", "admin", new { },
                 _ => throw new ClusterPackageException("sensitive transport detail"), default);
             await page.WaitForAssertionAsync(() => Assert.Contains("Cluster world save · failed", page.Markup));
+            Assert.Contains("cluster_package_failed", page.Find(".quasar-activity details dl").TextContent);
             Assert.DoesNotContain("sensitive transport detail", page.Markup);
         }
         await using (var context = Context())

@@ -436,10 +436,20 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-activity { margin: 0; padding: 0; list-style: none; }
 .quasar-activity li { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 12px; padding: 9px 16px; border-bottom: 1px solid var(--quasar-palette-table-lines); font-size: 12px; }
 .quasar-activity li:last-child { border-bottom: 0; }
-.quasar-activity time { font: 10px ui-monospace, monospace; color: var(--quasar-palette-text-secondary); margin-top: 3px; }
+.quasar-activity li > time { font: 10px ui-monospace, monospace; color: var(--quasar-palette-text-secondary); margin-top: 3px; }
 .quasar-activity strong { font-size: 12px; font-weight: 500; }
 .quasar-activity li > div { overflow-wrap: anywhere; }
-.quasar-activity p { margin: 4px 0 0; color: var(--quasar-palette-text-secondary); font-size: 11px; }
+.quasar-activity-name { display: block; margin: 4px 0 0; color: var(--quasar-palette-text-secondary); font-size: 11px; }
+.quasar-activity-details { container-type: inline-size; padding-inline-start: 14px; overflow-wrap: anywhere; }
+.quasar-activity-details > summary { cursor: pointer; }
+.quasar-activity-details > summary::marker { color: var(--quasar-palette-primary); }
+.quasar-activity-details > dl { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 10px; margin: 8px 0 0; padding-top: 8px; border-top: 1px solid var(--quasar-palette-divider); font-size: 11px; }
+.quasar-activity-details dt { color: var(--quasar-palette-text-secondary); }
+.quasar-activity-details dd { margin: 0; }
+@container (max-width: 220px) {
+    .quasar-activity-details > dl { grid-template-columns: minmax(0, 1fr); }
+    .quasar-activity-details dt:not(:first-child) { margin-top: 4px; }
+}
 .quasar-chart-body { padding: 14px 16px 10px; min-height: 230px; }
 .quasar-chart-body .u-legend { font-size: 11px; }
 .quasar-chart-state { min-height: 205px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; font-size: 12px; color: var(--quasar-palette-text-secondary); }
