@@ -72,7 +72,7 @@
                     <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
                                Disabled="@(_busy || UpdateLocked || !Current.HasPreparedUpdate || Current.QueuedContentUpdates is not null || Current.GoalState == DedicatedServerGoalState.Off && Current.Gateway is not null && !Current.IsProvenStopped())"
                                StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
-                    <span class="quasar-text quasar-type-caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime.</span>
+                    <span class="quasar-text quasar-type-caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime. A cluster that is already stopped stays stopped; it runs the new deployment when you start it.</span>
                 </div>
             </section>
         }
