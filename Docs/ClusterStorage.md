@@ -102,12 +102,26 @@ Windows has no collection: cluster deployments require Linux.
 
 ## Cluster backups
 
-A Host snapshot leaves out what a restore does not need: the profile-pinned `Mods` folder of
-every node, which activating the restored deployment writes again from its bundle (a
-restore always activates a newly prepared revision), and the cluster plugin's
-`data/cluster/handover-diff` dumps, which are diagnostics. The snapshot manifest lists the
-left-out mod folders (`rebuiltMods`); a restore refuses a candidate deployment that does not
-pin mods for those nodes.
+A Host snapshot leaves out what a restore does not need, because a restore always activates a
+newly prepared revision built from the backup's recorded inputs:
+
+- the profile-pinned `Mods` folder of every node, which activating that revision writes again
+  from its bundle (`rebuiltMods` in the snapshot manifest);
+- every other `Mods` folder a data seed pins, in practice `world/Mods` with the Workshop mods.
+  Seeds are written only once, so the restore itself links or copies them again from the new
+  revision's seed (`reseededMods`);
+- each node's configuration files its seed pins, the plugins in `config/Local` included. The
+  Host writes them again before every node start (`pinnedConfig`). Files a plugin wrote there
+  itself stay in the snapshot;
+- what processes write again on their own: Magnetar's patched game assemblies in
+  `config/Preloader`, `data/NativeWrapperCache`, `data/Performance/Cache`, the node logs in
+  `config` and `data`, and `gateway/gateway.log` (`regenerated`);
+- the cluster plugin's `data/cluster/handover-diff` dumps, which are diagnostics.
+
+A restore refuses a candidate deployment that does not pin or seed what its snapshot left out.
+Such a snapshot has manifest schema 4, which older Hosts refuse to restore instead of restoring
+it without its mods. `plugin-shared` stays in: plugins keep state there. On the Octahedron test
+cluster's 8.6 GB backup of 2026-11-11 these rules leave out 4.2 GB (SE-1348).
 
 Scheduled backups follow the Servers backup rule's retention. The pre-update backup of each
 managed update and the backup a conversion takes are recorded with their purpose
