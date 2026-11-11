@@ -78,6 +78,11 @@ test(`RTC 2 real Quasar cookie/session boundary: ${mode}`, { timeout: 90000 }, a
                 abandoned.pc.close();
             }
             const connected = await pair();
+            for (const update of [{ candidates: Array(65).fill({ candidate: "candidate:x" }) },
+                { candidates: [{ candidate: "x".repeat(513) }] }, { candidates: [], offset: -1 }, { candidates: [null] }]) {
+                const invalid = await response(`_quasar/sdk/v1/rtc/attempts/${connected.id}/ice`, update, "POST", csrf);
+                if (invalid.status !== 400) throw new Error("Unbounded ICE update accepted");
+            }
             // Keep only the public attempt ID for the second, same-user browser.
             globalThis.testPeerId = connected.id;
             if (mode === "hosted") {
@@ -124,7 +129,12 @@ test(`RTC 2 real Quasar cookie/session boundary: ${mode}`, { timeout: 90000 }, a
             const otherStatus = await other.evaluate(async id => {
                 await fetch(new URL("fixture/login", location.href), { method: "POST" });
                 await fetch(new URL("_quasar/sdk/v1/session", location.href));
-                return (await fetch(new URL(`_quasar/sdk/v1/rtc/attempts/${id}`, location.href))).status;
+                const root = new URL("_quasar/sdk/v1/", location.href);
+                const session = await (await fetch(new URL("session", root))).json();
+                const ice = await fetch(new URL(`rtc/attempts/${id}/ice`, root), { method: "POST",
+                    headers: { "Content-Type": "application/json", [session.headerName]: session.requestToken }, body: JSON.stringify({ candidates: [] }) });
+                if (ice.status !== 404) throw new Error("Another browser session exchanged peer candidates");
+                return (await fetch(new URL(`rtc/attempts/${id}`, root))).status;
             }, result.id);
             assert.equal(otherStatus, 404, "A separate browser session for the same user must not substitute its identity");
             await page.evaluate(async () => {

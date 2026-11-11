@@ -22,7 +22,10 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
             const request = (op, payload = {}) => client.request("rtc.fixture", op, payload);
             const read = options => client.openRead("rtc.fixture", "file", {}, options);
             const until = async check => { for (let i = 0; i < 100; i++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error("Cleanup deadline"); };
+            const setupStarted = performance.now();
             const large = await request("large");
+            const setupMilliseconds = performance.now() - setupStarted;
+            if (setupMilliseconds > 4000) throw new Error(`Peer startup waited for STUN gathering: ${setupMilliseconds} ms`);
             if (large.length !== 150000 || !/^x+$/.test(large)) throw new Error("Large JSON truncated");
             const range = await read({ range: "bytes=10-19" });
             if (range.status !== 206 || range.contentRange !== "bytes 10-19/33554432" || [...new Uint8Array(await new Response(range.body).arrayBuffer())].join() !== "10,11,12,13,14,15,16,17,18,19") throw new Error("Range mismatch");
@@ -79,7 +82,7 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
             if (!forbidden || performance.now() - revoking > 2500) throw new Error("Existing stream survived authorization change");
             try { await read(); throw new Error("Disabled operation accepted"); } catch (error) { if (error.status !== 403) throw error; }
             await fetch(new URL("fixture/file-allow", location.href), { method: "POST" });
-            return { length, latency, duration: performance.now() - started, bounded: after.read - before.read };
+            return { setupMilliseconds, length, latency, duration: performance.now() - started, bounded: after.read - before.read };
         });
         const downloadEvent = page.waitForEvent("download");
         const transfer = page.evaluate(() => globalThis.sdk.download("rtc.fixture", "file", {}, { fileName: "direct.bin" })).then(() => null, error => error);

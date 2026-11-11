@@ -54,6 +54,14 @@ public static class QuasarRtcEndpoints
             var binding = await sessions.BindHttpSessionAsync(http);
             return Results.Json(await peers.CreateAsync(binding, HostedPanelRequest.IsHosted(http), request, http.RequestAborted));
         });
+        rtc.MapPost("/attempts/{id}/ice", async (string id, HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
+        {
+            await antiforgery.ValidateRequestAsync(http);
+            using var body = await QuasarSdkEndpoints.ReadJsonAsync(http) ?? throw new QuasarOperationException(413, "ICE updates are limited to 64 KiB.");
+            var update = body.RootElement.Deserialize<QuasarRtcIceUpdate>(new JsonSerializerOptions(JsonSerializerDefaults.Web))
+                ?? throw new QuasarOperationException(400, "An ICE update is required.");
+            return Results.Json(await peers.ExchangeIceAsync(await sessions.BindHttpSessionAsync(http), id, update, http.RequestAborted));
+        });
         rtc.MapPost("/attempts/{id}/confirm", async (string id, HttpContext http, IAntiforgery antiforgery, QuasarBrowserSessions sessions, QuasarRtcSessions peers) =>
         {
             await antiforgery.ValidateRequestAsync(http);

@@ -44,7 +44,11 @@ public sealed partial class QuasarRtcTests
     public async Task RealSdkDirectStreamsUploadsSubscriptionsAndDownloads()
     {
         await HostedPanelState.SaveAsync(new HostedPanelState { Choice = "hosted", PanelId = Prefix[1..], Credential = Prefix[1..] + "." + new string('a', 64) });
-        await using var app = await StartAsync(network: true, hosted: true);
+        // Keep a UDP socket open without replying: both browsers and native Pion
+        // must connect before their STUN gathering timeout, using host candidates.
+        using var blackhole = new System.Net.Sockets.UdpClient(new System.Net.IPEndPoint(System.Net.IPAddress.Loopback, 0));
+        var port = ((System.Net.IPEndPoint)blackhole.Client.LocalEndPoint!).Port;
+        await using var app = await StartAsync(network: true, hosted: true, stunUrl: $"stun:127.0.0.1:{port}");
         await BrowserAsync(app, "data");
         await UntilAsync(() => app.Services.GetRequiredService<Quasar.Services.Plugins.QuasarRtcSessions>().PeerCount == 0);
     }

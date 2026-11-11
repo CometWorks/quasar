@@ -54,11 +54,13 @@ public sealed partial class QuasarRtcTests : IDisposable
         using var client = app.GetTestClient();
         var endpoint = Prefix + QuasarSdkEndpoints.Prefix + "/rtc/attempts";
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync(endpoint, new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await client.PostAsJsonAsync(endpoint + "/" + new string('a', 32) + "/ice", new { candidates = Array.Empty<object>() })).StatusCode);
         client.DefaultRequestHeaders.Add("X-Fixture-Key", fixtureKey);
         using var login = await client.PostAsync(Prefix + "/fixture/login", null);
         var cookies = login.Headers.GetValues("Set-Cookie").Select(cookie => cookie.Split(';')[0]).ToList();
         client.DefaultRequestHeaders.Add("Cookie", string.Join("; ", cookies));
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(endpoint, new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(endpoint + "/" + new string('a', 32) + "/ice", new { candidates = Array.Empty<object>() })).StatusCode);
         using var session = await client.GetAsync(Prefix + QuasarSdkEndpoints.Prefix + "/session");
         cookies.AddRange(session.Headers.GetValues("Set-Cookie").Select(cookie => cookie.Split(';')[0]));
         client.DefaultRequestHeaders.Remove("Cookie");
@@ -124,7 +126,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         await UntilAsync(() => hosted.Services.GetRequiredService<QuasarRtcSessions>().PeerCount == 0);
     }
 
-    private async Task<WebApplication> StartAsync(bool network, FakeTimeProvider? fakeTime = null, bool hosted = false)
+    private async Task<WebApplication> StartAsync(bool network, FakeTimeProvider? fakeTime = null, bool hosted = false, string? stunUrl = null)
     {
         await rbac.UpdateAsync(config =>
         {
@@ -159,7 +161,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         builder.Services.AddQuasarRtc(builder.Configuration);
         builder.Services.PostConfigure<QuasarRtcOptions>(options =>
         {
-            options.StunUrls = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_STUN") is { Length: > 0 } stun ? [stun] : [];
+            options.StunUrls = stunUrl is not null ? [stunUrl] : Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_STUN") is { Length: > 0 } stun ? [stun] : [];
             options.PeerExecutable = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER") ?? Path.Combine(root, "absent-peer");
         });
         var manager = new Manager();
