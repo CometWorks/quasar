@@ -354,6 +354,11 @@ also carries Blazor circuits using the same stored session and renews current
 roles on reconnect after RBAC changes. Installed and native Windows acceptance
 remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
 
+Connection setup exchanges discovered network candidates as they arrive, so a
+slow STUN lookup does not hold up an already usable path. These setup requests
+require the same signed-in browser session and permissions. Update the browser
+assets, Quasar worker and peer component together.
+
 If a hosted page displays its initial HTML but buttons remain inactive, check
 the browser's failed RTC setup requests. A rejected peer negotiation also stops
 Blazor hydration, including when opening the hosted URL on the Quasar host itself.

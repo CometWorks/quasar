@@ -22,6 +22,20 @@ a fresh 256-bit nonce and a data-only SDP offer with one SHA-256 DTLS identity.
 The worker returns an answer and a one-use 30-second setup grant. After the
 channels open, the same browser binding confirms the grant through the protected
 HTTP path. A different browser session, even for the same user, cannot claim it.
+The SDK requests `trickle: true` and sends its offer immediately. The native
+answer also returns before candidate gathering finishes. During setup,
+`POST /_quasar/sdk/v1/rtc/attempts/{id}/ice` exchanges newly discovered candidates
+under the same authentication, antiforgery and exact-session checks. The request
+contains `candidates`, a native candidate `offset` and a `complete` flag; the
+response contains new `candidates` and native `complete`. Incremental candidates
+are capped cumulatively at 64 per direction, with 512 bytes per candidate, inside
+the existing 64 KiB/depth 32 JSON boundary. Candidate addresses remain setup data,
+not status diagnostics. Setup exchanges stop when both channels open, within a
+15-second deadline including signaling, and application work still waits for
+confirmation. Slow STUN discovery can continue without blocking usable paths.
+Older offers without the flag retain complete-answer behavior. Update the browser
+assets, worker and native peer together.
+
 Nonce tombstones last two minutes. Admission limits are four peers per browser
 session, 16 per user and 64 per worker, plus 16 setup attempts per session and
 64 per user in that two-minute window.
@@ -35,7 +49,8 @@ authorization on every operation and its active resources.
 
 The private child HTTP control listener binds only `127.0.0.1` on an ephemeral
 port and requires a fresh worker-only token. Its fixed routes accept peer setup,
-status, pulse and teardown; it is not an application URL proxy. Pion candidate logging is suppressed, so it cannot disclose addresses or fill
+incremental ICE, status, pulse and teardown; it is not an application URL proxy.
+Pion candidate logging is suppressed, so it cannot disclose addresses or fill
 the readiness pipe. The child inherits no Quasar configuration environment or
 browser cookies. Installation credentials,
 portal cookies and data-protection keys are not sent to it or to JavaScript.
@@ -109,7 +124,10 @@ The browser fixtures normally omit STUN to run on isolated loopback networks.
 Set `QUASAR_RTC_TEST_STUN=stun:rtc.se-servers.net:3478` (or a test STUN endpoint)
 for `Quasar.Tests.QuasarRtcTests` and `tests/Quasar.Rtc.CircuitChecks` to also
 exercise configured discovery through the real worker/native peer boundary.
-This mode requires that endpoint to be reachable. ICE JSON omits absent STUN
+This mode requires that endpoint to be reachable. The SDK data/browser check
+instead supplies an intentionally unresponsive loopback STUN socket and requires
+its first application response within four seconds in both browsers, proving that
+startup no longer waits for discovery to finish. ICE JSON omits absent STUN
 credentials: Pion rejects a present null username before SDP negotiation, which
 otherwise prevents hosted Blazor hydration even when both peers can connect
 locally. The HTTP JSON contract check also verifies TURN credentials remain intact.

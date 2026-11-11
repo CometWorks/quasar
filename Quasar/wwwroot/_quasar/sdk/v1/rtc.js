@@ -236,17 +236,57 @@ async function pair(root, tokens, lifetime) {
     try {
         lifetime.throwIfAborted();
         const opened = Promise.all([new Promise(resolve => control.onopen = resolve), new Promise(resolve => bulk.onopen = resolve)]);
-        await pc.setLocalDescription(await pc.createOffer());
-        if (pc.iceGatheringState !== "complete") await wait(new Promise(resolve => pc.onicegatheringstatechange = () => {
-            if (pc.iceGatheringState === "complete") resolve();
-        }), AbortSignal.any([stop.signal, AbortSignal.timeout(10000)]));
+        // Signal immediately; STUN/TURN discovery must not block usable candidates.
+        const candidates = [];
+        let candidateCount = 0, complete = false;
+        pc.onicecandidate = event => {
+            if (!event.candidate || !event.candidate.candidate) { complete = true; return; }
+            const candidate = event.candidate.toJSON();
+            if (++candidateCount > 64 || candidate.candidate.length > 512) {
+                fail(new QuasarSdkError(426, "Too many or oversized ICE candidates.")); return;
+            }
+            candidates.push(candidate);
+        };
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
         const nonce = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
-        const setup = await (await post("rtc/attempts", { version: 1, nonce, description: pc.localDescription.toJSON(), ...(tokens.relayTicket ? { relayTicket: tokens.relayTicket } : {}) })).json();
+        const setupSignal = AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]);
+        const setup = await (await post("rtc/attempts", { version: 1, nonce, description: offer, trickle: true,
+            ...(tokens.relayTicket ? { relayTicket: tokens.relayTicket } : {}) }, setupSignal)).json();
         if (setup.version !== 1 || !/^[a-f0-9]{32}$/.test(setup.id) || !/^[a-fA-F0-9]{64}$/.test(setup.grant) || setup.description?.type !== "answer")
             throw new QuasarSdkError(426, "Incompatible direct SDK setup.");
         peerId = setup.id;
+        if (setup.trickle !== true) throw new QuasarSdkError(426, "Incremental ICE setup is unavailable.");
         await pc.setRemoteDescription(setup.description);
-        await wait(opened, AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]));
+        const iceStop = new AbortController();
+        const iceSignal = AbortSignal.any([setupSignal, iceStop.signal]);
+        const exchange = (async () => {
+            let offset = 0;
+            while (true) {
+                const localComplete = complete;
+                const update = await (await post(`rtc/attempts/${peerId}/ice`, {
+                    candidates: candidates.splice(0), offset, complete: localComplete,
+                }, iceSignal)).json();
+                if (!Array.isArray(update.candidates) || offset + update.candidates.length > 64 || typeof update.complete !== "boolean")
+                    throw new QuasarSdkError(426, "Invalid peer ICE update.");
+                for (const candidate of update.candidates) {
+                    if (typeof candidate?.candidate !== "string" || candidate.candidate.length > 512)
+                        throw new QuasarSdkError(426, "Invalid peer ICE candidate.");
+                    await pc.addIceCandidate(candidate);
+                }
+                offset += update.candidates.length;
+                if (update.complete) await pc.addIceCandidate(null);
+                if (localComplete && update.complete) return;
+                // Only setup polls; established sessions carry no candidate HTTP traffic.
+                await wait(new Promise(resolve => setTimeout(resolve, 100)), iceSignal);
+            }
+        })();
+        try { await wait(Promise.race([opened, exchange.then(() => opened)]), setupSignal); }
+        finally {
+            pc.onicecandidate = null;
+            iceStop.abort();
+            await exchange.catch(() => {});
+        }
         if (!pc.sctp || pc.sctp.maxMessageSize < CONTROL) throw new QuasarSdkError(426, "This browser cannot support the SDK message size.");
         const confirmed = await post(`rtc/attempts/${peerId}/confirm`, { grant: setup.grant });
         stats.path = confirmed.headers.get("X-Quasar-Transport");

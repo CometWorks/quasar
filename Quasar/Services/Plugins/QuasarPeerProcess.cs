@@ -46,6 +46,10 @@ public sealed record QuasarRtcDescription(string Type, string Sdp)
     }
 }
 
+public sealed record QuasarRtcCandidate(string Candidate, string? SdpMid = null, ushort? SdpMLineIndex = null);
+public sealed record QuasarRtcIceUpdate(QuasarRtcCandidate[] Candidates, int Offset = 0, bool Complete = false);
+public sealed record QuasarRtcIceResult(QuasarRtcCandidate[] Candidates, bool Complete);
+
 public sealed record QuasarRtcPeerStatus(string State, string Path, string? LocalCandidateType, string? RemoteCandidateType, long ReceivedBytes = 0, long SentBytes = 0, long MaximumBufferedBytes = 0);
 
 /// <summary>Private, fixed-route IPC to the worker's native peer; never an application HTTP proxy.</summary>
@@ -54,14 +58,22 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
     private readonly SemaphoreSlim startGate = new(1, 1);
     private Connection? connection;
 
-    public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token, bool hosted = false, QuasarRtcIce[]? relay = null)
+    public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token, bool hosted = false, QuasarRtcIce[]? relay = null, bool trickle = false)
     {
         var current = await StartAsync(token);
-        using var request = new HttpRequestMessage(HttpMethod.Post, Route(id)) { Content = JsonContent.Create(new { offer.Type, offer.Sdp, iceServers = relay ?? (hosted ? options.Value.ValidatedStunUrls().Select(url => new QuasarRtcIce([url])).ToArray() : []) }) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, Route(id)) { Content = JsonContent.Create(new { offer.Type, offer.Sdp, trickle, iceServers = relay ?? (hosted ? options.Value.ValidatedStunUrls().Select(url => new QuasarRtcIce([url])).ToArray() : []) }) };
         using var response = await current.Http.SendAsync(request, token);
         if (!response.IsSuccessStatusCode) throw new QuasarOperationException((int)response.StatusCode, "The direct peer could not accept this connection.");
         return await response.Content.ReadFromJsonAsync<QuasarRtcDescription>(token)
             ?? throw new QuasarOperationException(503, "The direct peer returned no answer.");
+    }
+
+    public async Task<QuasarRtcIceResult> ExchangeIceAsync(string id, QuasarRtcIceUpdate update, CancellationToken token)
+    {
+        using var response = await Current().Http.PostAsJsonAsync(Route(id) + "/ice", update, token);
+        if (!response.IsSuccessStatusCode) throw new QuasarOperationException((int)response.StatusCode, "The peer rejected the ICE update.");
+        return await response.Content.ReadFromJsonAsync<QuasarRtcIceResult>(token)
+            ?? throw new QuasarOperationException(503, "The peer returned no ICE update.");
     }
 
     public async Task<QuasarRtcPeerStatus> StatusAsync(string id, CancellationToken token)

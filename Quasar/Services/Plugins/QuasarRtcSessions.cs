@@ -11,12 +11,12 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.Plugins;
 
-public sealed record QuasarRtcOffer(int Version, string Nonce, QuasarRtcDescription Description, string? RelayTicket = null);
+public sealed record QuasarRtcOffer(int Version, string Nonce, QuasarRtcDescription Description, string? RelayTicket = null, bool Trickle = false);
 public sealed record QuasarRtcIce(string[] Urls,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Username = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Credential = null);
 public sealed record QuasarRtcRelaySetup(string Ticket, QuasarRtcIce[] IceServers, int ValidForSeconds);
-public sealed record QuasarRtcSetup(string Id, string Grant, QuasarRtcDescription Description, int Version = 1, int SetupSeconds = 30);
+public sealed record QuasarRtcSetup(string Id, string Grant, QuasarRtcDescription Description, int Version = 1, int SetupSeconds = 30, bool Trickle = false);
 
 /// <summary>Owns the exact core browser binding; native peer messages cannot supply a principal.</summary>
 public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeerProcess native,
@@ -116,14 +116,14 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
                 || peers.Values.Count(item => item.Binding.Owner == binding.Owner) + prepared.Values.Count(item => item.Browser.Owner == binding.Owner) - reserved >= 16)
                 throw new QuasarOperationException(429, "Too many peer attempts. Close an existing connection first.");
             if (request.RelayTicket is not null) prepared.Remove(request.RelayTicket);
-            peer = new(binding, hosted, shutdown.Token, clock, relay?.PeerId) { Relay = relay };
+            peer = new(binding, hosted, shutdown.Token, clock, relay?.PeerId) { Relay = relay, Trickle = request.Trickle };
             peers.Add(peer.Id, peer);
             replay.Add(replayKey, new(binding.Id, binding.Owner, clock.GetTimestamp()));
         }
         using var setup = CancellationTokenSource.CreateLinkedTokenSource(peer.Token, token);
         try
         {
-            var answer = await native.CreateAsync(peer.Id, request.Description, setup.Token, hosted, peer.Relay?.Grant is { } relayGrant ? [new(relayGrant.Urls, relayGrant.Username, relayGrant.Password)] : null);
+            var answer = await native.CreateAsync(peer.Id, request.Description, setup.Token, hosted, peer.Relay?.Grant is { } relayGrant ? [new(relayGrant.Urls, relayGrant.Username, relayGrant.Password)] : null, request.Trickle);
             if (answer.Type != "answer") throw new QuasarOperationException(503, "Invalid direct connection answer.");
             var fingerprint = answer.Fingerprint();
             if (state is not null)
@@ -136,7 +136,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             }
             sessions.Verify(binding, setup.Token);
             peer.Monitor = WatchAsync(peer);
-            return new(peer.Id, peer.Grant!, answer);
+            return new(peer.Id, peer.Grant!, answer, Trickle: request.Trickle);
         }
         catch
         {
@@ -144,6 +144,18 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
             await RetireAsync(peer);
             throw;
         }
+    }
+
+    public async Task<QuasarRtcIceResult> ExchangeIceAsync(QuasarBrowserSession binding, string id, QuasarRtcIceUpdate update, CancellationToken token)
+    {
+        var peer = Get(binding, id, token);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(peer.Token, token);
+        await CheckCallerAsync(binding, linked.Token);
+        if (update.Candidates is null || update.Candidates.Length > 64 || update.Offset is < 0 or > 64
+            || update.Candidates.Any(candidate => candidate is null || candidate.Candidate is not { Length: > 0 and <= 512 } || candidate.SdpMid?.Length > 64))
+            throw new QuasarOperationException(400, "Invalid or excessive ICE candidates.");
+        if (!peer.Trickle) throw new QuasarOperationException(409, "This attempt does not support incremental ICE.");
+        return await native.ExchangeIceAsync(peer.Id, update, linked.Token);
     }
 
     public async Task ConfirmAsync(QuasarBrowserSession binding, string id, string grant, CancellationToken token)
@@ -440,6 +452,7 @@ public sealed class QuasarRtcSessions(QuasarBrowserSessions sessions, QuasarPeer
         public string Id { get; }
         public QuasarBrowserSession Binding { get; }
         public bool Hosted { get; }
+        internal bool Trickle { get; init; }
         public CancellationToken Token { get; }
         public QuasarRtcPeerStatus Status { get; internal set; } = new("connecting", "unavailable", null, null);
         private int active;

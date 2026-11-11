@@ -22,6 +22,8 @@ import (
 )
 
 const maximumPeers = 64
+const maximumCandidates = 64
+const maximumCandidateLength = 512
 const maximumMessage = 66 * 1024 // 64 KiB request JSON plus its fixed envelope.
 const bulkMessage = 16*1024 + 8
 const sendWindow = 256 * 1024
@@ -33,17 +35,22 @@ type endpoint struct {
 }
 
 type peer struct {
-	pc              *webrtc.PeerConnection
-	mu              sync.Mutex
-	expires         time.Time
-	channels        map[string]*webrtc.DataChannel
-	ctx             context.Context
-	cancel          context.CancelFunc
-	retiring        sync.Once
-	bridges         map[string]*bridge
-	received        atomic.Uint64
-	sent            atomic.Uint64
-	maximumBuffered atomic.Uint64
+	pc               *webrtc.PeerConnection
+	mu               sync.Mutex
+	expires          time.Time
+	channels         map[string]*webrtc.DataChannel
+	ctx              context.Context
+	cancel           context.CancelFunc
+	retiring         sync.Once
+	bridges          map[string]*bridge
+	received         atomic.Uint64
+	sent             atomic.Uint64
+	maximumBuffered  atomic.Uint64
+	candidates       []webrtc.ICECandidateInit
+	gathered         bool
+	remoteCandidates int
+	remoteComplete   bool
+	trickle          bool
 }
 
 type bridge struct {
@@ -202,6 +209,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 		var offer struct {
 			webrtc.SessionDescription
 			ICEServers []webrtc.ICEServer `json:"iceServers"`
+			Trickle    bool               `json:"trickle"`
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maximumMessage)
 		if json.NewDecoder(r.Body).Decode(&offer) != nil || offer.Type != webrtc.SDPTypeOffer {
@@ -247,13 +255,30 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		ctx, cancel := context.WithCancel(context.Background())
-		p := &peer{pc: pc, expires: time.Now().Add(30 * time.Second), channels: map[string]*webrtc.DataChannel{}, ctx: ctx, cancel: cancel,
+		p := &peer{pc: pc, trickle: offer.Trickle, expires: time.Now().Add(30 * time.Second), channels: map[string]*webrtc.DataChannel{}, ctx: ctx, cancel: cancel,
 			bridges: map[string]*bridge{
 				"control": {maximumQueued: 8 * maximumMessage, ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 128), low: make(chan struct{}, 1)},
 				"bulk":    {maximumQueued: 16 * bulkMessage, ready: make(chan struct{}), queue: make(chan webrtc.DataChannelMessage, 16), low: make(chan struct{}, 1)},
 			}}
 		e.peers[id] = p
 		e.mu.Unlock()
+		pc.OnICECandidate(func(candidate *webrtc.ICECandidate) {
+			p.mu.Lock()
+			if candidate == nil {
+				p.gathered = true
+				p.mu.Unlock()
+				return
+			}
+			value := candidate.ToJSON()
+			overflow := len(p.candidates) >= maximumCandidates || len(value.Candidate) > maximumCandidateLength
+			if !overflow {
+				p.candidates = append(p.candidates, value)
+			}
+			p.mu.Unlock()
+			if overflow {
+				e.retire(id, p)
+			}
+		})
 		pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 			if state == webrtc.PeerConnectionStateFailed {
 				e.retire(id, p)
@@ -326,15 +351,17 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "cannot set answer", 400)
 			return
 		}
-		select {
-		case <-gathered:
-		case <-r.Context().Done():
-			e.remove(id)
-			return
-		case <-time.After(10 * time.Second):
-			e.remove(id)
-			http.Error(w, "ICE gathering deadline", 504)
-			return
+		if !offer.Trickle {
+			select {
+			case <-gathered:
+			case <-r.Context().Done():
+				e.remove(id)
+				return
+			case <-time.After(10 * time.Second):
+				e.remove(id)
+				http.Error(w, "ICE gathering deadline", 504)
+				return
+			}
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(pc.LocalDescription())
@@ -345,6 +372,49 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 	e.mu.Unlock()
 	if p == nil {
 		http.NotFound(w, r)
+		return
+	}
+	if len(parts) == 3 && parts[2] == "ice" && r.Method == "POST" {
+		var update struct {
+			Candidates []webrtc.ICECandidateInit `json:"candidates"`
+			Offset     int                       `json:"offset"`
+			Complete   bool                      `json:"complete"`
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, maximumMessage)
+		if json.NewDecoder(r.Body).Decode(&update) != nil || update.Offset < 0 || len(update.Candidates) > maximumCandidates {
+			http.Error(w, "invalid ICE update", 400)
+			return
+		}
+		for _, candidate := range update.Candidates {
+			if len(candidate.Candidate) == 0 || len(candidate.Candidate) > maximumCandidateLength ||
+				(candidate.SDPMid != nil && len(*candidate.SDPMid) > 64) {
+				http.Error(w, "invalid ICE candidate", 400)
+				return
+			}
+		}
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if !p.trickle || !time.Now().Before(p.expires) || update.Offset > len(p.candidates) ||
+			p.remoteCandidates+len(update.Candidates) > maximumCandidates || p.remoteComplete && len(update.Candidates) > 0 {
+			http.Error(w, "ICE update unavailable", 409)
+			return
+		}
+		p.remoteCandidates += len(update.Candidates)
+		for _, candidate := range update.Candidates {
+			if p.pc.AddICECandidate(candidate) != nil {
+				http.Error(w, "invalid ICE candidate", 400)
+				return
+			}
+		}
+		if update.Complete && !p.remoteComplete {
+			if p.pc.AddICECandidate(webrtc.ICECandidateInit{}) != nil {
+				http.Error(w, "invalid ICE completion", 400)
+				return
+			}
+			p.remoteComplete = true
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"candidates": append([]webrtc.ICECandidateInit{}, p.candidates[update.Offset:]...), "complete": p.gathered})
 		return
 	}
 	if len(parts) == 4 && parts[2] == "channels" && r.Method == "GET" {
