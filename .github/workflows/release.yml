@@ -503,7 +503,7 @@ jobs:
       - name: Cache NuGet packages
         uses: actions/cache@v4
         with:
-          path: ${{ env.NUGET_PACKAGES }}
+          path: ~/.nuget/packages
           key: nuget-v2-${{ runner.os }}-${{ matrix.part }}-${{ env.DIAGNOSTICS_SOURCE_REF }}-${{ hashFiles('**/*.csproj', '**/*.props', '**/*.targets', 'NuGet.Config', 'global.json') }}
           restore-keys: |
             nuget-v2-${{ runner.os }}-${{ matrix.part }}-${{ env.DIAGNOSTICS_SOURCE_REF }}-
