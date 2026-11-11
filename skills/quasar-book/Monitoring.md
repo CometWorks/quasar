@@ -54,6 +54,7 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 - **Managed Runtime** shows SteamCMD, Dedicated Server and Magnetar download progress until all are ready. See [Updates](Updates.md#managed-runtime-warmup).
 - **Simulation speed** charts the last 30 minutes for standalone servers and cluster node slots (1.00x is real time) and links to Analytics. Each cluster line is labeled with the cluster name and slot. Node replacements and restarts share the same slot history; missing samples stay missing.
 - **Recent activity** lists the last 5 events: server starts and stops, restarts with their reason, and agent command results. A server that crashed, faulted or failed to start shows its error message in red instead of "Server stopped". Cluster actions come from the saved operation log, with in-progress, completed or failed status, so they remain visible without connected agents and after a page refresh or Quasar restart. A completed start request means the desired state was saved, not that all cluster processes are ready. The chart and cluster activity respect cluster access restrictions. Plugins and their AI agents read the same events with the `activity.recent` operation, optionally for one server or cluster.
+  Select a cluster activity row to see its operation type, ID, start time, last update time, and error code when available.
 - **Data Handling Consent** appears until a decision is stored. See [Diagnostics](Diagnostics.md#consent-choices).
 
 ## Analytics
