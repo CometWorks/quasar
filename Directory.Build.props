@@ -43,11 +43,11 @@
   </PropertyGroup>
   <!-- Keep license notices beside binaries, including single-file publishes. -->
   <ItemGroup>
-    <None Include="$(MSBuildThisFileDirectory)LICENSE;$(MSBuildThisFileDirectory)LICENSE.MIT;$(MSBuildThisFileDirectory)NOTICE"
+    <None Include="$(MSBuildThisFileDirectory)LICENSE;$(MSBuildThisFileDirectory)LICENSE.MIT;$(MSBuildThisFileDirectory)NOTICE;$(MSBuildThisFileDirectory)EXCEPTION.md"
           Link="%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
           Pack="true" PackagePath="" />
-    <None Include="$(MSBuildThisFileDirectory)Docs/Licensing.md"
+    <None Include="$(MSBuildThisFileDirectory)LICENSING.md"
           Link="LICENSING.md" CopyToOutputDirectory="PreserveNewest"
           CopyToPublishDirectory="PreserveNewest" ExcludeFromSingleFile="true"
           Pack="true" PackagePath="LICENSING.md" />

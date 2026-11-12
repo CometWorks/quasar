@@ -178,6 +178,7 @@ required_application_files=(
     "LICENSE.MIT"
     "NOTICE"
     "LICENSING.md"
+    "EXCEPTION.md"
     "Peer/quasar-peer"
     "Peer/quasar-peer.json"
     "Peer/NOTICES.txt"

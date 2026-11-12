@@ -78,7 +78,7 @@ def package(repo, publish, output, runtime, configuration, version):
     try:
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
             for source, destination in [("LICENSE", "LICENSE"), ("LICENSE.MIT", "LICENSE.MIT"), ("NOTICE", "NOTICE"),
-                                        ("Docs/Licensing.md", "LICENSING.md")]:
+                                        ("LICENSING.md", "LICENSING.md"), ("EXCEPTION.md", "EXCEPTION.md")]:
                 archive.write(repo / source, destination)
             for name, project, executable in targets:
                 build = repo / project / "bin" / configuration / "net10.0" / runtime

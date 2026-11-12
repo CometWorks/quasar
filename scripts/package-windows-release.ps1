@@ -250,6 +250,7 @@ $requiredApplicationFiles = @(
     'LICENSE.MIT',
     'NOTICE',
     'LICENSING.md',
+    'EXCEPTION.md',
     'Peer/quasar-peer.exe',
     'Peer/quasar-peer.exe.json',
     'Peer/NOTICES.txt',

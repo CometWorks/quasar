@@ -6,7 +6,8 @@ Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
 without a license fee or registration. The CometWorks Independent Extension
 Exception grants additional permission only to qualifying Independent Extensions.
-Read the definitions and conditions in `Docs/Licensing.md` before relying on it.
+Read the guide in `LICENSING.md` and the binding definitions and conditions in
+`EXCEPTION.md` before relying on the exception.
 
 A plugin label, public access modifier, wrapper, network transport or separate
 process does not by itself establish independence. The exception excludes copied
@@ -48,7 +49,7 @@ including your changes.
 
 Binary and container redistribution must also meet AGPL section 6's
 Corresponding Source requirements. Keep the license, copyright and warranty
-notices. The build copies `LICENSE`, `LICENSE.MIT`, `NOTICE` and `LICENSING.md`
+notices. The build copies `LICENSE`, `LICENSE.MIT`, `NOTICE`, `LICENSING.md` and `EXCEPTION.md`
 next to the binaries, so the complete platform packages include them.
 The symbols archives, which are CI build artifacts and not release assets,
 include them too. The Docker image carries them in `/opt/quasar`. Official source is available from
@@ -58,7 +59,7 @@ exact commit in `manifest.json`. Keep any source you must supply yourself,
 since release cleanup removes older releases.
 
 Read the full license and transition guidance at
-https://github.com/CometWorks/quasar/blob/main/Docs/Licensing.md. Separately
+https://github.com/CometWorks/quasar/blob/main/LICENSING.md. Separately
 licensed components, Space Engineers, Magnetar and downloaded plugins keep
 their own terms.
 
@@ -66,7 +67,8 @@ their own terms.
 - `LICENSE`
 - `LICENSE.MIT`
 - `NOTICE`
-- `Docs/Licensing.md`
+- `LICENSING.md`
+- `EXCEPTION.md`
 - `Directory.Build.props`
 - `scripts/package-linux-release.sh`
 - `scripts/package-windows-release.ps1`
