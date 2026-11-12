@@ -4,11 +4,31 @@ Copyright (c) 2026 CometWorks (https://github.com/CometWorks).
 
 Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
-without a license fee or registration. Its independent-extension exception permits
-proprietary server/UI plugins and integrations using supported APIs; the public
-SDK and contract paths listed in `Docs/Licensing.md` are also available under MIT.
-Changes to Quasar or Quasar.Agent implementation code remain AGPL-covered.
-Open-source plugins and upstream PRs are encouraged, not required.
+without a license fee or registration. The CometWorks Independent Extension
+Exception grants additional permission only to qualifying Independent Extensions.
+Read the definitions and conditions in `Docs/Licensing.md` before relying on it.
+
+A plugin label, public access modifier, wrapper, network transport or separate
+process does not by itself establish independence. The exception excludes copied
+or adapted core code, internal runtime patches, unsupported access routed through
+shims, and core modifications divided into separately packaged components.
+A documented UI replacement point remains an eligible interface; an independently
+written feature does not lose eligibility merely because its functionality
+resembles a core feature. Exclusion from the exception is not, by itself, a
+finding that copyright law requires a work to be AGPL-licensed.
+
+The specified public SDK/contract paths remain available under MIT. An unchanged
+independent plugin does not lose its eligibility merely because the host has a
+separate core patch. Quasar and Agent implementation changes retain applicable
+AGPL source obligations. Open-source plugins and upstream PRs are encouraged.
+
+## Alternative licensing
+
+CometWorks continues to invite requests for a separate written license where the
+AGPL and the exception do not accommodate a proposed use. The relevant copyright
+holders must agree the scope, duration, applicable products/deployments and any
+fee in writing. Asking does not grant different rights or suspend existing
+obligations. Qualifying Independent Extensions need no paid alternate license.
 
 ## Previous MIT distribution
 
