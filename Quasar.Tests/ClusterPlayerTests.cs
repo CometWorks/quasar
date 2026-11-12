@@ -503,6 +503,29 @@ public sealed class ClusterPlayerTests : IDisposable
     }
 
     [Fact]
+    public async Task ServerCellSeparatesInstanceNameFromAdmissionState()
+    {
+        // SE-1389: the state was glued to the instance name, like "octahedron-testTicketPending".
+        using var handler = new Gateway();
+        handler.Clients = [Gateway.Player with { AdmissionState = "TicketPending" }, Gateway.Player with { ClientId = 9, PlayerName = "Admitted player" }];
+        await using var context = await PlayerContextAsync(handler);
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Players>();
+        string Detail(string player) => page.FindAll("tbody tr").Single(row => row.TextContent.Contains(player))
+            .QuerySelectorAll("td[data-label=Server] .quasar-type-caption").Single().TextContent;
+
+        var pending = Detail("Cluster player");
+        Assert.EndsWith(" · Ticket pending · node-a / 1", pending);
+        Assert.False(string.IsNullOrWhiteSpace(pending[..pending.IndexOf(" · ", StringComparison.Ordinal)]));
+        Assert.EndsWith(" · Admitted · node-a / 1", Detail("Admitted player"));
+
+        handler.Clients = [];
+        await page.InvokeAsync(() => context.Services.GetRequiredService<ClusterPlayerService>().RefreshAsync(
+            context.Services.GetRequiredService<ClusterCatalog>().GetClusters().Single(), default));
+        page.WaitForAssertion(() => Assert.DoesNotContain(" · ", Detail("Cluster player")));
+    }
+
+    [Fact]
     public async Task AgentFailureIsShownInsteadOfOnlyReportingCommandSent()
     {
         using var handler = new Gateway();
