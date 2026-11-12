@@ -1,7 +1,9 @@
 # Quasar
 
 Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
-(`AGPL-3.0-only`). The previous MIT distribution is preserved by the
+(`AGPL-3.0-only`) with an independent-extension exception. Supported server/UI
+plugins and API integrations may remain proprietary; SDK and contract code is
+also available under MIT. The previous MIT distribution is preserved by the
 [`archive/mit` tag](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 See [licensing and source availability](Docs/Licensing.md) for the transition,
 redistribution, and modified hosted versions.

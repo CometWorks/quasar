@@ -246,6 +246,10 @@ Get-ChildItem -LiteralPath $PublishDir -Recurse -File -Filter '*.pdb' | Remove-I
 
 $requiredApplicationFiles = @(
     'Quasar.exe',
+    'LICENSE',
+    'LICENSE.MIT',
+    'NOTICE',
+    'LICENSING.md',
     'Peer/quasar-peer.exe',
     'Peer/quasar-peer.exe.json',
     'Peer/NOTICES.txt',

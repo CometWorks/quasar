@@ -11,7 +11,42 @@ WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR
 A PARTICULAR PURPOSE. See the full license at
 https://github.com/CometWorks/quasar/blob/main/LICENSE or
 https://www.gnu.org/licenses/agpl-3.0.html. Binary distributions include it as
-`LICENSE`, alongside `NOTICE` and this document as `LICENSING.md`.
+`LICENSE`, alongside `LICENSE.MIT`, `NOTICE` and this document as `LICENSING.md`.
+
+## MIT SDK and contract code
+
+The following source paths and their compiled libraries are additionally
+available under the MIT licence in `LICENSE.MIT` at the repository/package root:
+
+- `Quasar.Plugin.Abstractions/`
+- `Magnetar.Protocol/`
+- `Quasar.Host.Contract/`
+- `Contracts/ClusterGateway.AdminContract/`
+- `Quasar/wwwroot/_quasar/sdk/v1/client.js`
+- `Quasar/wwwroot/_quasar/sdk/v1/rtc.js`
+- `Quasar/wwwroot/_quasar/sdk/v1/download-worker.js`
+
+## Independent extensions: additional permission under AGPL section 7
+
+The copyright holders permit you to develop, use, modify, link, load, combine and
+convey independent extensions with this Program through its official SDKs,
+public APIs, protocols and supported extension points, under any licence,
+including proprietary terms. This includes server/UI/companion plugins, client
+mods, external services, clustering APIs, callbacks and shared API data, even
+within the same process.
+
+Independent extensions do not incorporate or adapt this Program's AGPL-covered
+implementation code; permissively licensed SDK, contract and example code retains
+its own terms.
+Independent extensions are excluded from Corresponding Source required solely
+because of this combination or interaction. The Program and modifications to its
+AGPL-covered implementation remain covered, even if moved into a plugin.
+
+The copyright holders also permit linking, combining and conveying this Program
+with separately licensed Space Engineers client/server binaries, VRage and their
+supplied third-party runtime libraries. Their source is not required solely
+because of this combination. This grants no rights in third-party software and
+applies only to code the granting copyright holders are entitled to license.
 
 ## MIT archive and transition
 
@@ -22,16 +57,26 @@ tag preserves the last main-branch snapshot before this change:
 - Commit: `80eddddb51d034517ffe699c09ff7e84f00b0021`
 - License at that commit: MIT, with the original copyright and permission notice.
 
-The current distribution and subsequent Quasar development use `AGPL-3.0-only`.
+The implementation uses `AGPL-3.0-only` with the additional permission above;
+the listed SDK and contract paths are also available under MIT.
 The transition does not revoke the MIT permissions for code already received
 under MIT. The original MIT notice is retained in `NOTICE` for inherited code;
-it does not make the current distribution dual-licensed. No permission to use
-future AGPL versions is granted by the `AGPL-3.0-only` identifier.
+it does not make the whole current distribution dual-licensed. No permission to
+use future AGPL versions is granted by the `AGPL-3.0-only` identifier.
 
 ## Using and hosting Quasar
 
 You may run Quasar, including commercially, under the AGPL. There is no license
-fee or registration step.
+fee or registration step. Independent extensions using supported APIs may be
+proprietary under the additional permission above; this includes Quasar UI plugins
+and companion plugins using the public contracts. Changes to Quasar.Agent itself
+remain AGPL-covered. Open-source plugins and upstream contributions are encouraged.
+Alternate licensing is available by agreement for other needs.
+
+Running an unmodified version does not itself trigger section 13. Small core
+patches do count as modifications; submitting a PR upstream is not required. For
+a modified game-server stack, our compliance guidance is to include players in
+the source offer, for example through a join notice linking to matching source.
 
 If you modify Quasar and let users interact with that modified version over a
 network, AGPL section 13 requires a prominent offer to those users to download

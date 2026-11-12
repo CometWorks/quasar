@@ -4,15 +4,19 @@ Copyright (c) 2026 CometWorks (https://github.com/CometWorks).
 
 Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
-without a license fee or registration.
+without a license fee or registration. Its independent-extension exception permits
+proprietary server/UI plugins and integrations using supported APIs; the public
+SDK and contract paths listed in `Docs/Licensing.md` are also available under MIT.
+Changes to Quasar or Quasar.Agent implementation code remain AGPL-covered.
+Open-source plugins and upstream PRs are encouraged, not required.
 
 ## Previous MIT distribution
 
 The transition is dated 1 November 2026. The frozen MIT snapshot is preserved by
 the tag https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit at commit
 `80eddddb51d034517ffe699c09ff7e84f00b0021`. Code already received under MIT keeps
-those permissions. The current distribution uses AGPL; the retained original
-MIT notice does not make it dual-licensed.
+those permissions. The implementation uses AGPL with the extension exception;
+the retained original MIT notice does not make the whole distribution dual-licensed.
 
 ## Modified hosted versions and redistribution
 
@@ -24,8 +28,8 @@ including your changes.
 
 Binary and container redistribution must also meet AGPL section 6's
 Corresponding Source requirements. Keep the license, copyright and warranty
-notices. The build copies `LICENSE`, `NOTICE` and `LICENSING.md` next to the
-binaries of every project, so the complete platform packages include them.
+notices. The build copies `LICENSE`, `LICENSE.MIT`, `NOTICE` and `LICENSING.md`
+next to the binaries, so the complete platform packages include them.
 The symbols archives, which are CI build artifacts and not release assets,
 include them too. The Docker image carries them in `/opt/quasar`. Official source is available from
 the matching release tag and source archives at
@@ -40,6 +44,7 @@ their own terms.
 
 ## Sources
 - `LICENSE`
+- `LICENSE.MIT`
 - `NOTICE`
 - `Docs/Licensing.md`
 - `Directory.Build.props`

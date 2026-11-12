@@ -77,7 +77,7 @@ def package(repo, publish, output, runtime, configuration, version):
     temporary = output.with_suffix(output.suffix + ".tmp")
     try:
         with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
-            for source, destination in [("LICENSE", "LICENSE"), ("NOTICE", "NOTICE"),
+            for source, destination in [("LICENSE", "LICENSE"), ("LICENSE.MIT", "LICENSE.MIT"), ("NOTICE", "NOTICE"),
                                         ("Docs/Licensing.md", "LICENSING.md")]:
                 archive.write(repo / source, destination)
             for name, project, executable in targets:

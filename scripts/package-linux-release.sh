@@ -174,6 +174,10 @@ find "$PUBLISH_DIR" -type f -iname '*.pdb' -delete
 
 required_application_files=(
     "Quasar"
+    "LICENSE"
+    "LICENSE.MIT"
+    "NOTICE"
+    "LICENSING.md"
     "Peer/quasar-peer"
     "Peer/quasar-peer.json"
     "Peer/NOTICES.txt"
