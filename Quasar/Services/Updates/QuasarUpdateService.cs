@@ -656,7 +656,11 @@ public sealed class QuasarUpdateService : BackgroundService
         {
             using var lease = await QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             if (!_options.Enabled) throw new InvalidOperationException("Quasar updates are disabled in configuration.");
-            var operation = QuasarUpdateJournal.Submit(version ?? _snapshot.SelectedWebVersion, retry);
+            var targetVersion = version ?? _snapshot.SelectedWebVersion;
+            if (!retry && string.Equals(QuasarReleaseVersion.Normalize(targetVersion),
+                    QuasarReleaseVersion.Normalize(_webOptions.Version), StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException($"Quasar {_webOptions.Version} is already installed.");
+            var operation = QuasarUpdateJournal.Submit(targetVersion, retry);
             Changed?.Invoke();
             return operation;
         }

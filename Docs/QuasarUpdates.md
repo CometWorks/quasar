@@ -49,7 +49,10 @@ that specifically need the legacy worker channel.
 
 ## Normal operation
 
-On **Updates**, select a version and press **Update Quasar**. The same operation is
+On **Updates**, select a version and press **Update Quasar**. The button is disabled
+when the selected release is already installed. Select a different release to
+upgrade or roll back. **Retry update** remains available for failed or staged
+operations. The same operation is
 available locally as:
 
 ```sh

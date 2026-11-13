@@ -560,6 +560,7 @@
     }
 
     private bool CanUpdateQuasar => !_busy && !string.IsNullOrWhiteSpace(_selectedWebVersion) &&
+        _snapshot.Web is { IsCurrent: false } &&
         _snapshot.Operation?.Stage is not (Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Restarting);
 
     private Task UpdateQuasarAsync() => SubmitQuasarUpdateAsync(false);
