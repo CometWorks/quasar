@@ -28,6 +28,7 @@ public sealed class ServerListPublisher : BackgroundService
     private CancellationTokenSource _transfers = new();
     private FileStream? _processLock;
     private string? _installationId;
+    private string? _failure;
     private long _epoch;
     private long _sequence;
     private bool _disposed;
@@ -73,21 +74,31 @@ public sealed class ServerListPublisher : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
-            try { await PublishOnceAsync(stoppingToken); }
-            catch (OperationCanceledException) { }
-            catch (HttpRequestException exception)
-            {
-                _logger.LogWarning("Server list update deferred (HTTP {StatusCode}).", (int?)exception.StatusCode);
-            }
-            catch (Exception exception)
-            {
-                // Transport messages can contain credentials and private endpoints.
-                _logger.LogWarning("Server list update deferred ({FailureType}).", exception.GetType().Name);
-            }
+            await RunOnceAsync(stoppingToken);
             var remaining = TimeSpan.FromMinutes(1) - System.Diagnostics.Stopwatch.GetElapsedTime(started);
             try { await _wake.WaitAsync(remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero, stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
+    }
+
+    // Retries every minute, so an outage is logged when it starts, when its cause changes and when it ends.
+    internal async Task RunOnceAsync(CancellationToken stoppingToken)
+    {
+        string failure;
+        try
+        {
+            await PublishOnceAsync(stoppingToken);
+            if (_failure is not null) _logger.LogInformation("Server list update succeeded after deferral ({Failure}).", _failure);
+            _failure = null;
+            return;
+        }
+        catch (OperationCanceledException) { return; }
+        catch (HttpRequestException exception) { failure = exception.StatusCode is { } code ? $"HTTP {(int)code}" : nameof(HttpRequestException); }
+        // Transport messages can contain credentials and private endpoints.
+        catch (Exception exception) { failure = exception.GetType().Name; }
+        if (failure == _failure) _logger.LogDebug("Server list update still deferred ({Failure}).", failure);
+        else _logger.LogWarning("Server list update deferred ({Failure}), retrying every minute.", failure);
+        _failure = failure;
     }
 
     // Called serially. Every attempt has a higher sequence, including withdrawal and failed sends.
