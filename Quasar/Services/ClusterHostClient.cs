@@ -132,7 +132,7 @@ public sealed partial class ClusterHostClient
     public Task<HostContract.HostEnvelope<JsonElement>> ReleaseSnapshotAsync(ClusterDefinition cluster, HostContract.HostSnapshot snapshot,
         CancellationToken token) => SendAsync<JsonElement>(cluster, HttpMethod.Delete,
             HostContract.HostProtocol.RoutePrefix + "/snapshots/" + Uri.EscapeDataString(cluster.UniqueName) + "/" + snapshot.SnapshotId
-                + "?sha256=" + snapshot.ArchiveSha256, null, token);
+                + "?sha256=" + snapshot.ArchiveSha256, null, token, longRunning: true); // SE-1405: hashes a whole archive first
 
     public async Task RetrieveArtifactAsync(ClusterDefinition cluster, CometWorks.ClusterGateway.AdminContract.V1.ArtifactDescriptor artifact,
         string directory, CancellationToken token)
