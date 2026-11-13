@@ -229,16 +229,21 @@ internal sealed class GatewayActualizer : IDisposable
     private static readonly HttpClient ControlProbe = new() { Timeout = TimeSpan.FromSeconds(2) };
     // Guarded by _gate: since when the running Gateway's control has answered persistence failure, and its control URL per spec.
     private readonly Dictionary<string, (int? ProcessId, long Since)> _unhealthy = new(StringComparer.OrdinalIgnoreCase);
-    private readonly Dictionary<string, (string SpecKey, string? Url)> _controlUrls = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string SpecKey, string? Url, string? TokenVariable)> _controlUrls = new(StringComparer.OrdinalIgnoreCase);
 
     private async Task<string?> ControlUnhealthyAsync(HostContract.GatewaySpec spec, GatewayLaunchRecord record,
         CancellationToken cancellationToken)
     {
-        if (UnhealthyRestartAfter <= TimeSpan.Zero || ControlUrl(spec) is not { } url) return null;
+        if (UnhealthyRestartAfter <= TimeSpan.Zero || Control(spec) is not ({ } url, var tokenVariable)) return null;
         bool failed;
         try
         {
-            using HttpResponseMessage response = await ControlProbe.GetAsync(url + "/registry/status", cancellationToken);
+            // SE-1422: /registry/status is an admin route. The 503 comes before the credential check, but a healthy
+            // Gateway logs a refusal for every probe that has no bearer, one per reconcile pass.
+            using var request = new HttpRequestMessage(HttpMethod.Get, url + "/registry/status");
+            if (tokenVariable is not null && Environment.GetEnvironmentVariable(tokenVariable) is { Length: > 0 } token)
+                request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
+            using HttpResponseMessage response = await ControlProbe.SendAsync(request, cancellationToken);
             failed = response.StatusCode == HttpStatusCode.ServiceUnavailable
                 && (await response.Content.ReadAsStringAsync(cancellationToken)).Contains("registry_persistence_failed", StringComparison.Ordinal);
         }
@@ -294,23 +299,27 @@ internal sealed class GatewayActualizer : IDisposable
     }
 
     /// <summary>The Gateway's control URL from its spawn spec: the last <c>--control</c> argument, else
-    /// <c>CLUSTER_CONTROL</c> (the Gateway reads the same two). A wildcard bind is asked on loopback.</summary>
-    private string? ControlUrl(HostContract.GatewaySpec spec)
+    /// <c>CLUSTER_CONTROL</c> (the Gateway reads the same two). A wildcard bind is asked on loopback.
+    /// Also the Host's variable holding the Gateway's admin token, if the spec names one.</summary>
+    private (string? Url, string? TokenVariable) Control(HostContract.GatewaySpec spec)
     {
         string specKey = SpecKey(spec);
-        if (_controlUrls.TryGetValue(spec.ClusterId, out var cached) && cached.SpecKey == specKey) return cached.Url;
-        string? url;
+        if (_controlUrls.TryGetValue(spec.ClusterId, out var cached) && cached.SpecKey == specKey)
+            return (cached.Url, cached.TokenVariable);
+        string? url, tokenVariable = null;
         try
         {
-            url = ControlUrl(ExecutionBundle.ReadManifest(spec.BundleManifestPath, spec.BundleManifestSha256).Gateway);
+            GatewaySpawnSpec? spawn = ExecutionBundle.ReadManifest(spec.BundleManifestPath, spec.BundleManifestSha256).Gateway;
+            url = ControlUrl(spawn);
+            spawn?.SecretEnvironment?.TryGetValue("CLUSTER_ADMIN_TOKEN", out tokenVariable);
         }
         catch (Exception exception) when (exception is IOException or JsonException or InvalidDataException
             or UnauthorizedAccessException or CryptographicException)
         {
             url = null;
         }
-        _controlUrls[spec.ClusterId] = (specKey, url);
-        return url;
+        _controlUrls[spec.ClusterId] = (specKey, url, tokenVariable);
+        return (url, tokenVariable);
     }
 
     internal static string? ControlUrl(GatewaySpawnSpec? spawn)
