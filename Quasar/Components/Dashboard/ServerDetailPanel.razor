@@ -50,7 +50,11 @@ else
         }
         <div><span class="quasar-eyebrow">PCU</span><strong>@Agent.Snapshot.Metrics.UsedPcu/@Agent.Snapshot.Metrics.TotalPcu</strong></div>
         <div><span class="quasar-eyebrow">Mods</span><strong>@Agent.Snapshot.Metrics.ModsLoaded</strong></div>
-        <div><span class="quasar-eyebrow">Plugins</span><strong class="quasar-tone-@(GetPluginLoadColor(pluginLoadSummary).ToString().ToLowerInvariant())">@GetPluginLoadText(pluginLoadSummary)</strong></div>
+        <div title="@pluginLoadSummary.Tooltip">
+            <span class="quasar-eyebrow">Plugins</span>
+            <strong class="quasar-tone-@(GetPluginLoadColor(pluginLoadSummary).ToString().ToLowerInvariant())">@GetPluginLoadText(pluginLoadSummary)</strong>
+            <span class="quasar-visually-hidden">@pluginLoadSummary.Tooltip</span>
+        </div>
         <div><span class="quasar-eyebrow">Uptime</span><strong>@FormatDuration(Agent.Snapshot.Metrics.UptimeSeconds)</strong></div>
     </div>
     @if (CollapseDetails)
@@ -354,23 +358,28 @@ else
         return ConfigProfiles.GetProfile(Server.ConfigProfileId);
     }
 
-    private (int Loaded, int? Total) GetPluginLoadSummary()
+    private (int Loaded, int? Total, string? Tooltip) GetPluginLoadSummary()
     {
         var snapshot = Agent?.Snapshot;
         var profile = GetServerConfigProfile();
         if (profile is null)
-            return (snapshot?.Metrics.PluginsLoaded ?? 0, null);
+            return (snapshot?.Metrics.PluginsLoaded ?? 0, null, null);
 
         var configuredPlugins = profile.Plugins
             .Where(plugin => !string.IsNullOrWhiteSpace(plugin.PluginId))
             .ToList();
         var total = configuredPlugins.Count;
         if (total == 0)
-            return (0, 0);
+            return (0, 0, null);
 
         var runtimePlugins = snapshot?.Plugins;
         if (runtimePlugins is null || runtimePlugins.Count == 0)
-            return (Math.Min(snapshot?.Metrics.PluginsLoaded ?? 0, total), total);
+        {
+            var loadedCount = Math.Min(snapshot?.Metrics.PluginsLoaded ?? 0, total);
+            return (loadedCount, total, loadedCount != total
+                ? "Some configured plugins are not loaded. Plugin names are unavailable; check the server logs."
+                : null);
+        }
 
         var loadedKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var plugin in runtimePlugins.Where(plugin => plugin.IsLoaded))
@@ -379,8 +388,11 @@ else
             AddPluginMatchKeys(loadedKeys, plugin.DisplayName);
         }
 
-        var loaded = configuredPlugins.Count(plugin => IsConfiguredPluginLoaded(plugin, loadedKeys));
-        return (loaded, total);
+        var notLoaded = configuredPlugins.Where(plugin => !IsConfiguredPluginLoaded(plugin, loadedKeys)).ToArray();
+        return (total - notLoaded.Length, total, notLoaded.Length > 0
+            ? "Not loaded: " + string.Join(", ", notLoaded.Select(plugin =>
+                string.IsNullOrWhiteSpace(plugin.DisplayName) ? plugin.PluginId : plugin.DisplayName))
+            : null);
     }
 
     private static bool IsConfiguredPluginLoaded(QuasarPluginSelection plugin, HashSet<string> loadedKeys)
@@ -438,10 +450,10 @@ else
         }
     }
 
-    private static string GetPluginLoadText((int Loaded, int? Total) summary) =>
+    private static string GetPluginLoadText((int Loaded, int? Total, string? Tooltip) summary) =>
         summary.Total is int total ? $"{summary.Loaded}/{total}" : summary.Loaded.ToString();
 
-    private static Color GetPluginLoadColor((int Loaded, int? Total) summary) =>
+    private static Color GetPluginLoadColor((int Loaded, int? Total, string? Tooltip) summary) =>
         summary.Total is int total && summary.Loaded != total
             ? Color.Warning
             : Color.Default;
