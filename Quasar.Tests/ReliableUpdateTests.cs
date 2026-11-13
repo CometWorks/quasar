@@ -68,6 +68,41 @@ public sealed class ReliableUpdateTests : IDisposable
         Assert.False(File.Exists(Path.Combine(_root, "Updates", "migration-1.4.1.json")));
     }
 
+    [Theory]
+    [InlineData("1.4.0", false)]
+    [InlineData("1.4.1", true)]
+    [InlineData("1.3.9", true)]
+    [InlineData("1.4.0.1", true)]
+    [InlineData("1.4.0-rc.1", true)]
+    public async Task UpdateButtonRequiresAReleaseOtherThanTheInstalledVersion(string version, bool expected)
+    {
+        using var catalog = new PackageCatalog(_root, packageVersion: version, releaseVersion: version);
+        using var updater = Create(catalog, false);
+        await updater.CheckNowAsync();
+        var snapshot = updater.GetSnapshot();
+        Assert.Equal(version, snapshot.SelectedWebVersion);
+        var page = new Quasar.Components.Pages.Updates();
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(Quasar.Components.Pages.Updates).GetField("_snapshot", flags)!.SetValue(page, snapshot);
+        typeof(Quasar.Components.Pages.Updates).GetField("_selectedWebVersion", flags)!.SetValue(page, version);
+        Assert.Equal(expected, typeof(Quasar.Components.Pages.Updates).GetProperty("CanUpdateQuasar", flags)!.GetValue(page));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("1.4.0")]
+    [InlineData("v1.4.0")]
+    public async Task InstalledVersionCannotBeSubmittedAsANewUpdate(string? version)
+    {
+        using var catalog = new PackageCatalog(_root, packageVersion: "1.4.0", releaseVersion: "1.4.0");
+        using var updater = Create(catalog, false);
+        await updater.CheckNowAsync();
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => updater.UpdateAsync(version));
+        Assert.Contains("already installed", error.Message);
+        Assert.Null(QuasarUpdateJournal.Read());
+        Assert.Equal(0, catalog.Downloads);
+    }
+
     [Fact]
     public async Task ManualCliStillRejectsUnverifiedPackagesWithoutAnIntermediateReleaseGate()
     {

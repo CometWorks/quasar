@@ -5,7 +5,7 @@ This page covers what Quasar records about its own errors and crashes, the conse
 ## Overview
 
 - Quasar always captures its own errors and process crashes locally. Capture does not depend on consent.
-- Nothing is uploaded until an admin gives diagnostic consent. All choices are off by default.
+- Diagnostic reports are uploaded only after diagnostic consent. Public listings have their own saved publish selections and do not depend on that consent. All choices are off by default.
 - Quasar is the only process that talks to the diagnostics backoffice. Enrolled [Quasar.Host](ClusterHosts.md) machines hand their encrypted reports to Quasar over their existing authenticated connection, and Quasar uploads them.
 - The default backoffice is `https://log.se-servers.net/`, run by CometWorks.
 - Reports are encrypted on the machine that captured them with the backoffice's public key. Quasar cannot decrypt them.
@@ -124,7 +124,7 @@ After diagnostic consent, Quasar enrolls itself automatically. No token or insta
 - `Diagnostics/machine-key.pem` is a 3072-bit RSA private key that Quasar creates on first enrollment. It never leaves the machine. The backoffice binds the installation ID to this key.
 - `Diagnostics/policy.json` holds the current consent lease for the local collector.
 
-Keep the whole `Diagnostics` folder (and `ServerList/epoch`, see below) when moving or upgrading Quasar. [Configuration backups](Backups.md) include `data-handling-consent.json` and `server-list.json` but not the `Diagnostics` or `ServerList` folders.
+Keep the whole `Diagnostics` folder (and the separate `ServerList/identity.json` and `ServerList/epoch`, see below) when moving or upgrading Quasar. [Configuration backups](Backups.md) include `data-handling-consent.json` and `server-list.json` but not the `Diagnostics` or `ServerList` folders.
 
 ## Settings
 
@@ -172,52 +172,48 @@ Before a Host kills a cluster node for hanging, it collects evidence. That happe
 
 ## Server listing on se-servers.net
 
-Quasar can publish standalone Magnetar servers and clusters to the public server directory at se-servers.net. The listing goes through the diagnostics backoffice, which forwards signed listing updates to the website.
+Quasar publishes standalone Magnetar servers and clusters directly to se-servers.net. Each update is signed by this installation's own machine key. There is no backoffice challenge, diagnostics enrollment or log-attestation step.
 
 ### Requirements
 
-All of these must be true before anything is published:
+1. Select and save **Publish this server** on Listings.
+2. Add at least one explicit Steam Admin mapping in Security, using a 17-digit SteamID64.
+3. Configure the public hostname/IP and game port on the selected source.
 
-1. **Send diagnostic reports** is on (Security). Statistics consent is not required.
-2. **Publish this server** is selected and saved on Listings. Saving the selection records listing consent without enabling diagnostic reports.
-3. At least one Steam role mapping with the Admin role exists in Security. The SteamID must be a 17-digit SteamID64.
-4. The selected server has a public hostname or IP on the Listings page.
-5. The backoffice has received current, consented Quasar logs. Quasar asks the backoffice for a challenge first and sends no server details or admin identities until the backoffice confirms recent log delivery. No crash or memory dump is needed.
-
-If any of 1 to 3 is missing, Quasar sends a withdrawal instead.
+Data-handling consent, diagnostic reports and crash dumps are independent. Turning them off does not hide listings. Removing the last Steam admin or deselecting every server sends a withdrawal.
 
 ### Configure listings
 
 1. Open **Listings** in the main navigation (`/settings/server-list`). The page is titled **Server listing**. Viewing needs the view permission; saving needs the security management permission.
 2. The page lists every standalone server and cluster. Names and game ports are pre-filled from the server's in-game name and server port. For a cluster, the port comes from its deployed Steam gateway configuration, or 28000 if that is unknown.
 3. For each server to publish, tick **Publish this server**, check **Public server name** (max 128 characters), enter **Public hostname or IP address** (no scheme, no port) and confirm **Public game port**. For a cluster use the Steam gateway address and port, not the Cluster Registry admin endpoint.
-4. Click **Save listings**. This records publication consent for the selected servers. Changes apply without a restart. The page says delivery may take up to two minutes.
+4. Click **Save listings**. This records publication consent for the selected servers. Changes apply without a restart.
 
-The page refreshes automatically as servers, clusters, saved settings, consent or Steam-admin mappings change. Source changes preserve unsaved edits. If another session saves settings while you have edits, a warning preserves your draft and blocks saving over the newer settings. Choose **Discard edits** in that warning to load the latest settings. There is no Reload button. **Save listings** sits in a separate action bar below the cards.
+The page refreshes automatically as servers, clusters, saved settings or Steam-admin mappings change. Source changes preserve unsaved edits. If another session saves settings while you have edits, a warning preserves your draft and blocks saving over the newer settings. Choose **Discard edits** in that warning to load the latest settings. There is no Reload button. **Save listings** sits in a rounded, bordered action panel below the cards, aligned with the listing grid.
 
 Unticking a server removes it from the next publication. Unticking all servers withdraws the installation's listings. Names, addresses and listing IDs stay saved.
 
-Servers hidden by an earlier global opt-out stay unselected after upgrading. Select
-and save them again to publish. Editing an address alone never opts into publication.
-The stored `listingGranted` compatibility flag is recorded automatically when
-you save a publish selection. Headless installs must still set it explicitly in
-`data-handling-consent.json`, separately from valid diagnostic consent.
+An earlier global `Enabled=false` keeps servers unselected until selected and saved again. The old data-handling `listingGranted` flag is ignored. Saving a publish selection does not change diagnostic or statistics consent.
 
-The page warns when diagnostic consent or a Steam admin mapping is missing, and when a saved source no longer exists ("This source no longer exists. Its listing will be omitted from publication.").
+The page warns about missing Steam admin mappings, invalid settings and sources that no longer exist. Diagnostic consent is not a publication requirement.
 
 ### What is public
 
 - Public: listing name, public host and port, observation time, running state, players online, max players, and simulation speed (capped at 1.00).
 - Clusters: connected client count from the gateway, online and total node counts, gateway phase and health, partition and handover counts, and per-node role, state and quarantined partition count. Nodes appear as `Node 1`, `Node 2` and so on. Max players and sim speed are not sent for clusters.
-- Private (sent to the backoffice, not public): the Steam admin SteamIDs. They let those admins edit the listing description on se-servers.net. Quasar roles other than Steam Admin mappings give no rights on the website.
+- Private (sent to the directory, excluded from public responses): the Steam admin SteamIDs. They let those admins edit the listing description on se-servers.net. Quasar roles other than Steam Admin mappings give no rights on the website.
 
 A standalone server's statistics are sent only when exactly one connected agent reports it and the snapshot is at most 60 seconds old. Otherwise the listing shows unknown values.
 
 ### Publication timing and withdrawal
 
-- Quasar publishes every minute, and immediately after a change to listing settings, consent, role mappings, servers or clusters.
-- Deselecting all servers and saving, turning off diagnostic reports, or removing the last Steam admin mapping makes Quasar send a withdrawal on the next cycle, which runs immediately.
+- Quasar publishes every minute, and immediately after a change to listing settings, role mappings, servers or clusters.
+- Deselecting all servers and saving, or removing the last Steam admin mapping makes Quasar send a withdrawal on the next cycle, which runs immediately.
 - Each publication carries an increasing epoch and sequence number. Quasar stores the epoch in `ServerList/epoch` and raises it at every start, so a delayed older update never overwrites a newer one. Do not run two Quasar instances over the same data directory.
+- The website expires listings three minutes after the last signed update. Observed live statistics expire separately after 60 seconds.
+- Keep the private `ServerList/identity.json` with `ServerList/epoch`. The identity file stores this publisher's ID and machine key atomically. Fresh publishers need no diagnostics files. Existing diagnostic ID/key pairs are adopted locally once to preserve old listing IDs.
+- Deploy the direct website receiver first and import existing publisher public-key fingerprints as described in `Docs/ServerList.md`. This preserves ownership, edited pages and votes. Old backoffice snapshots cannot overwrite publishers after they switch.
+
 
 ### Listing settings file
 
@@ -244,7 +240,7 @@ The Listings page saves to `server-list.json` in the Quasar data directory. Whil
 - `ListingId` is optional. Without it, Quasar derives a stable ID from the installation ID, kind and unique name. Keep an existing `ListingId` to keep the page's edited description and votes.
 - Up to 100 listings. `PublicHost` cannot be `localhost`, `0.0.0.0`, `::` or a loopback IP.
 - `DirectoryUrl` and `InstallationToken` are ignored.
-- Listing consent is recorded when you select **Publish this server** and save on Listings. Headless configurations must record `listingGranted: true` in `data-handling-consent.json`.
+- Selecting **Publish this server** and saving is sufficient. Headless configuration uses `Enabled` and the selected `Listings`; no data-handling flag is required.
 
 After the first save in the UI, `server-list.json` wins over `appsettings.json`. Restart Quasar after restoring `server-list.json` from a backup or editing it by hand.
 
@@ -255,9 +251,9 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - **"Listing settings changed in another session."** Someone else saved in the meantime. The page keeps your edits but blocks saving. Click **Discard edits** to load the latest settings, then redo the edit.
 - **"Invalid server list identity, source, name or public join address."** A selected listing has an empty name, a name over 128 characters, a port outside 1 to 65535, or a host that is not a valid hostname or IP, or is localhost or loopback.
 - **"You no longer have permission to manage server listings."** The signed-in account lacks the security management permission.
-- **The server is selected but not on se-servers.net.** Check the four requirements above. Quasar log delivery must be working, so check the log for `Diagnostic uplink retry pending`, `Diagnostic key unavailable` and `Server list update deferred` warnings.
+- **The server is selected but not on se-servers.net.** Check the three requirements above and `Server list update deferred` warnings. HTTP 403 for a migrated installation usually means its trusted publisher key has not been imported on the directory. HTTP 409 means stale ordering state. Keep the identity and restore current state; diagnostic delivery is unrelated.
 - **Log warnings `Diagnostic report from Host {HostId} will retry` or `Diagnostic transfer from Host {HostId} will retry`.** Quasar could not fetch reports from that host. They stay on the host and Quasar retries on the next poll.
-- **`Diagnostics identity changed; restart to re-enroll.`** The `Diagnostics/installation-id` file changed while Quasar was running. Restart Quasar.
+- **`Invalid publisher identity.`** The private `ServerList/identity.json` is invalid. Restore its matching backup instead of creating a different owner.
 
 ## Sources
 - `Docs/DiagnosticsUplink.md`

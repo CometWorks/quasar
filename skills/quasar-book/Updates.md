@@ -47,7 +47,7 @@ The Quasar release checks need Linux or Windows. On other platforms the Updates 
 - The restart capability: whether Quasar verified its native services. It names the supervisor, for example "systemd user units quasar.service + quasar-updater.service" or "Windows Services Quasar + QuasarUpdater", or says what is wrong and how to repair it. See [Native service checks](#native-service-checks).
 - The current update operation: target version, stage, message, operation ID and time.
 - An appsettings.json conflict editor, when a merge failed (see below).
-- **Update Quasar**: pick a release in **Version to install** and press **Update Quasar**. **Retry update** appears when the last operation failed or is staged.
+- **Update Quasar**: pick a release in **Version to install** and press **Update Quasar**. The button is disabled when that release is already installed; select a different release to upgrade or roll back. **Retry update** appears when the last operation failed or is staged.
 - **Advanced recovery**, a collapsed panel with the command-line commands. On an old Bootstrap installation it also has **Stage legacy worker recovery** and **Activate legacy worker recovery**. They update only the web worker and do not migrate the installation.
 - **Cluster packages** (Linux, when clusters exist), the **Managed Runtime** table with **Check Magnetar** and **Check Dedicated Server**, the update switches and the GitHub token.
 

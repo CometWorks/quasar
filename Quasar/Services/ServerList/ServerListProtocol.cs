@@ -5,10 +5,8 @@ namespace Quasar.Services.ServerList;
 
 // Private management envelope. Only Listings are public; never publish this envelope verbatim.
 public sealed record ServerListPublication(int SchemaVersion, string InstallationId, long Epoch, long Sequence,
-    long DiagnosticsGeneration, string? ConsentDecisionUtc, string Challenge,
-    IReadOnlyList<ServerListAdmin> Admins, IReadOnlyList<ServerListListing> Listings);
-public sealed record ServerListWithdrawal(int SchemaVersion, string InstallationId, long Epoch, long Sequence);
-public sealed record ServerListChallenge(string Nonce, DateTimeOffset ExpiresAtUtc, long DiagnosticsGeneration);
+    DateTimeOffset IssuedAtUtc, IReadOnlyList<ServerListAdmin> Admins, IReadOnlyList<ServerListListing> Listings);
+public sealed record SignedServerListPublication(string PublicKey, string Payload, string Signature);
 public sealed record ServerListAdmin(string Provider, string Subject);
 public sealed record ServerListListing(string ListingId, string Name, string PublicHost, int PublicPort,
     DateTimeOffset? ObservedAtUtc, bool? Running, int? PlayersOnline, int? MaxPlayers, float? SimSpeed,
@@ -19,14 +17,10 @@ public sealed record ServerListNode(string Name, string Role, string State, bool
 
 public static class ServerListProtocol
 {
-    public const int Version = 1;
+    public const int Version = 2;
     public static readonly TimeSpan Freshness = TimeSpan.FromSeconds(60);
     public static bool IsId(string? value) => value is { Length: 32 }
         && Guid.TryParseExact(value, "N", out _) && value == value.ToLowerInvariant();
-
-    public static bool HasConsent(DataHandlingConsentSettings settings) => settings.ListingGranted
-        && settings.PolicyVersion == DataHandlingConsentSettings.CurrentPolicyVersion && settings.DiagnosticsGranted && settings.Generation > 0
-        && settings.GrantedSinceUtc != default;
 
     public static ServerListAdmin[] GetAdmins(RbacConfig config) => config.SubjectRoleMappings
         .Where(m => m.Provider.Equals(QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase)
