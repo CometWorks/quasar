@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Runtime;
@@ -19,26 +21,16 @@ public sealed class ServerListPublisherTests : IDisposable
     private readonly string _root = Path.Combine(Path.GetTempPath(), "quasar-list-" + Guid.NewGuid().ToString("N"));
     private readonly FieldInfo _cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.NonPublic | BindingFlags.Static)!;
     private readonly object? _previous;
-    private readonly DataHandlingConsentCatalog _consent;
     private readonly RbacConfigCatalog _rbac;
-    private readonly string _installation = Guid.NewGuid().ToString("N");
     private readonly List<(string Path, string Body)> _sent = [];
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private int _collections;
 
     public ServerListPublisherTests()
     {
         _previous = _cache.GetValue(null);
         _cache.SetValue(null, _root);
-        Directory.CreateDirectory(Path.Combine(_root, "Diagnostics"));
-        File.WriteAllText(Path.Combine(_root, "Diagnostics", "installation-id"), _installation);
-        _consent = new(NullLogger<DataHandlingConsentCatalog>.Instance);
         _rbac = new(NullLogger<RbacConfigCatalog>.Instance);
-    }
-
-    private async Task GrantAsync()
-    {
-        await _consent.SaveAsync(true, true, false);
-        await _consent.SaveListingVisibilityAsync(true);
     }
 
     private Task SetAdminAsync(string subject = "76561198000000001") => _rbac.SaveAsync(new()
@@ -47,77 +39,101 @@ public sealed class ServerListPublisherTests : IDisposable
     });
 
     private ServerListPublisher Publisher(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? send = null,
-        Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>>? collect = null, ServerListSettingsCatalog? settings = null)
+        Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>>? collect = null, ServerListSettingsCatalog? settings = null,
+        bool enabled = true)
     {
         var http = new HttpClient(new Handler(async (request, token) =>
         {
-            Assert.Equal("Bearer", request.Headers.Authorization?.Scheme);
-            Assert.Equal(_installation, request.Headers.GetValues("X-Installation-Id").Single());
-            _sent.Add((request.RequestUri!.AbsolutePath, request.Content is null ? "" : await request.Content.ReadAsStringAsync(token)));
-            if (send is not null) return await send(request, token);
-            return request.Method == HttpMethod.Get
-                ? new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServerListChallenge(new string('a', 32),
-                    DateTimeOffset.UtcNow.AddSeconds(25), _consent.GetSettings().Generation)) }
-                : new(HttpStatusCode.NoContent);
+            Assert.Equal(HttpMethod.Put, request.Method);
+            Assert.Null(request.Headers.Authorization);
+            var envelope = (await request.Content!.ReadFromJsonAsync<SignedServerListPublication>(Json, token))!;
+            using var key = RSA.Create(); key.ImportSubjectPublicKeyInfo(Convert.FromBase64String(envelope.PublicKey), out _);
+            var payload = Convert.FromBase64String(envelope.Payload);
+            byte[] signed = [.. Encoding.ASCII.GetBytes("CometWorks.Directory.Publication.v2\n"), .. payload];
+            Assert.True(key.VerifyData(signed,
+                Convert.FromBase64String(envelope.Signature), HashAlgorithmName.SHA256, RSASignaturePadding.Pss));
+            _sent.Add((request.RequestUri!.AbsolutePath, Encoding.UTF8.GetString(payload)));
+            return send is not null ? await send(request, token) : new(HttpStatusCode.NoContent);
         }));
-        return new(new() { Enabled = true, DirectoryUrl = "https://directory.example/", InstallationToken = "private-token" },
-            _consent, _rbac, http, (options, token) =>
-            {
-                if (collect is not null) return collect(token);
-                _collections++;
-                if (settings is not null) return Task.FromResult<IReadOnlyList<ServerListListing>>(
-                    options.Listings.Where(e => e.Enabled).Select(ServerListProtocol.Unknown).ToArray());
-                return Task.FromResult<IReadOnlyList<ServerListListing>>([new(Guid.NewGuid().ToString("N"),
-                    "Public server", "play.example", 27016, DateTimeOffset.UtcNow, true, 3, 16, 1)]);
-            }, _root, NullLogger<ServerListPublisher>.Instance, diagnostics: null, settings);
+        return new(_rbac, http, (options, token) =>
+        {
+            if (collect is not null) return collect(token);
+            _collections++;
+            return Task.FromResult<IReadOnlyList<ServerListListing>>(settings is not null
+                ? options.Listings.Where(e => e.Enabled).Select(ServerListProtocol.Unknown).ToArray()
+                : [new(Guid.NewGuid().ToString("N"), "Public server", "play.example", 27016, DateTimeOffset.UtcNow, true, 3, 16, 1)]);
+        }, _root, NullLogger<ServerListPublisher>.Instance, settings, new() { Enabled = enabled });
+    }
+
+    private ServerListPublication Last() => JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, Json)!;
+    private ServerListSettingsCatalog Settings() => new(Path.Combine(_root, "server-list.json"),
+        new ConfigurationBuilder().Build(), NullLogger<ServerListSettingsCatalog>.Instance);
+    private static ServerListEntry Entry(string name = "solo") => new() { UniqueName = name, Name = name, PublicHost = "play.example" };
+
+    [Fact]
+    public async Task PublishesDirectlyWithoutDiagnosticsConsentEnrollmentOrAttestation()
+    {
+        await SetAdminAsync();
+        using var publisher = Publisher();
+        await publisher.PublishOnceAsync(default);
+        Assert.Equal("/v2/listings", Assert.Single(_sent).Path);
+        Assert.Single(Last().Listings); Assert.Single(Last().Admins);
+        Assert.Equal(2, Last().SchemaVersion);
+        Assert.False(Directory.Exists(Path.Combine(_root, "Diagnostics")));
+        Assert.DoesNotContain("consent", _sent[0].Body, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("challenge", _sent[0].Body);
+        using var state = JsonDocument.Parse(File.ReadAllText(Path.Combine(_root, "ServerList", "identity.json")));
+        using var key = RSA.Create(); key.ImportFromPem(state.RootElement.GetProperty("PrivateKeyPem").GetString());
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(key.ExportSubjectPublicKeyInfo()))[..32], Last().InstallationId);
+        if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite,
+            File.GetUnixFileMode(Path.Combine(_root, "ServerList", "identity.json")));
     }
 
     [Fact]
-    public async Task LiveSettingsEnableAddAndDeselectWithoutRestartOrIdentityLoss()
+    public async Task NeverSelectedInstallationsDoNotContactTheDirectory()
     {
-        await GrantAsync(); await SetAdminAsync();
-        var settings = new ServerListSettingsCatalog(Path.Combine(_root, "server-list.json"),
-            new ConfigurationBuilder().Build(), NullLogger<ServerListSettingsCatalog>.Instance);
+        using var publisher = Publisher(enabled: false);
+        await publisher.PublishOnceAsync(default);
+        Assert.Empty(_sent); Assert.False(Directory.Exists(Path.Combine(_root, "ServerList")));
+    }
+
+    [Fact]
+    public async Task SettingsSelectAddAndWithdrawWithoutChangingIdentityOrDiagnosticConsent()
+    {
+        await SetAdminAsync();
+        var settings = Settings();
         using var publisher = Publisher(settings: settings);
         await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", Assert.Single(_sent).Path);
-        var solo = new ServerListEntry { UniqueName = "solo", Name = "Solo", PublicHost = "play.example" };
+        Assert.Empty(_sent);
+        var solo = Entry();
         await settings.SaveAsync(new() { Enabled = true, Listings = [solo] }, 0);
         await publisher.PublishOnceAsync(default);
-        var first = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        var id = Assert.Single(first.Listings).ListingId;
+        var id = Assert.Single(Last().Listings).ListingId;
+        var installation = Last().InstallationId;
         Assert.True(ServerListProtocol.IsId(id));
-        var fleet = new ServerListEntry { Kind = "cluster", UniqueName = "fleet", Name = "Fleet",
-            PublicHost = "cluster.example", PublicPort = 28000 };
-        await settings.SaveAsync(new() { Enabled = true, Listings = [solo, fleet] }, 1);
+        await settings.SaveAsync(new() { Enabled = true, Listings = [solo, Entry("fleet")] }, 1);
         await publisher.PublishOnceAsync(default);
-        var added = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.Equal(2, added.Listings.Count);
-        Assert.Equal(id, added.Listings.Single(l => l.Name == "Solo").ListingId);
+        Assert.Equal(2, Last().Listings.Count); Assert.Equal(id, Last().Listings.Single(l => l.Name == "solo").ListingId);
         solo.Enabled = false;
-        await settings.SaveAsync(new() { Enabled = true, Listings = [solo, fleet] }, 2);
+        await settings.SaveAsync(new() { Enabled = true, Listings = [solo, Entry("fleet")] }, 2);
         await publisher.PublishOnceAsync(default);
-        var selected = JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        Assert.Equal("Fleet", Assert.Single(selected.Listings).Name);
-        await settings.SaveAsync(new() { Enabled = false, Listings = [solo, fleet] }, 3);
+        Assert.Equal("fleet", Assert.Single(Last().Listings).Name);
+        await settings.SaveAsync(new() { Enabled = false, Listings = [solo] }, 3);
         await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
+        Assert.Empty(Last().Listings); Assert.Empty(Last().Admins); Assert.Equal(installation, Last().InstallationId);
+        Assert.False(File.Exists(Path.Combine(_root, "data-handling-consent.json")));
     }
 
     [Fact]
-    public async Task ChangingSettingsCancelsInFlightPublication()
+    public async Task SettingsChangesCancelAnInFlightUpdateAndTheNextUpdateWithdraws()
     {
-        await GrantAsync(); await SetAdminAsync();
-        var settings = new ServerListSettingsCatalog(Path.Combine(_root, "server-list.json"),
-            new ConfigurationBuilder().Build(), NullLogger<ServerListSettingsCatalog>.Instance);
-        await settings.SaveAsync(new() { Enabled = true, Listings = [new() { UniqueName = "solo", Name = "Solo", PublicHost = "play.example" }] }, 0);
+        await SetAdminAsync();
+        var settings = Settings();
+        await settings.SaveAsync(new() { Enabled = true, Listings = [Entry()] }, 0);
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var publisher = Publisher(async (request, token) =>
+        using var publisher = Publisher(async (_, token) =>
         {
-            if (request.Method == HttpMethod.Get)
-                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServerListChallenge(new string('a', 32),
-                    DateTimeOffset.UtcNow.AddSeconds(25), _consent.GetSettings().Generation)) };
-            if (request.Method == HttpMethod.Put) { started.SetResult(); await Task.Delay(Timeout.Infinite, token); }
+            if (_sent.Count == 1) { started.SetResult(); await Task.Delay(Timeout.Infinite, token); }
             return new(HttpStatusCode.NoContent);
         }, settings: settings);
         var sending = publisher.PublishOnceAsync(default);
@@ -125,194 +141,92 @@ public sealed class ServerListPublisherTests : IDisposable
         await settings.SaveAsync(new(), 1);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sending);
         await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
-    }
-
-    [Theory]
-    [InlineData(null)]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task LegacyConsentCannotPublish(bool? decision)
-    {
-        if (decision.HasValue) await _consent.SaveAsync(decision.Value);
-        await SetAdminAsync();
-        using var publisher = Publisher();
-        await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", Assert.Single(_sent).Path);
-        Assert.Equal(0, _collections);
-        Assert.DoesNotContain("Public server", _sent[0].Body);
+        Assert.Empty(Last().Listings); Assert.Equal(2, Last().Sequence);
     }
 
     [Fact]
-    public async Task DiagnosticConsentAloneDoesNotPublish()
+    public async Task AdminChangesDuringCollectionPreventAnOutdatedSend()
     {
-        await _consent.SaveAsync(false, true, false);
-        await SetAdminAsync();
-        using var publisher = Publisher();
-        await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", Assert.Single(_sent).Path);
-    }
-
-    [Fact]
-    public async Task PublishesOnlyAfterDiagnosticsVerificationThenWithdraws()
-    {
-        await GrantAsync();
-        await SetAdminAsync();
-        using var publisher = Publisher();
-        await publisher.PublishOnceAsync(default);
-        Assert.Equal(["/v1/quasar/challenge", "/v1/quasar/publication"], _sent.Select(x => x.Path));
-        using var body = JsonDocument.Parse(_sent[1].Body);
-        Assert.Equal(_installation, body.RootElement.GetProperty("installationId").GetString());
-        Assert.Equal("76561198000000001", body.RootElement.GetProperty("admins")[0].GetProperty("subject").GetString());
-        Assert.Equal(_consent.GetSettings().Generation, body.RootElement.GetProperty("diagnosticsGeneration").GetInt64());
-        await _consent.SaveAsync(false, false, false);
-        await publisher.PublishOnceAsync(default);
-        using var withdrawal = JsonDocument.Parse(_sent[^1].Body);
-        Assert.True(withdrawal.RootElement.GetProperty("sequence").GetInt64() > body.RootElement.GetProperty("sequence").GetInt64());
-        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
-        Assert.Equal(1, _collections);
-    }
-
-    [Theory]
-    [InlineData("unavailable")]
-    [InlineData("expired")]
-    [InlineData("wrong-generation")]
-    [InlineData("overlong")]
-    [InlineData("oversized")]
-    public async Task InvalidOrUnavailableVerifierNeverCollectsOrPublishes(string failure)
-    {
-        await GrantAsync();
-        await SetAdminAsync();
-        using var publisher = Publisher((_, _) => Task.FromResult(failure == "unavailable"
-            ? new HttpResponseMessage(HttpStatusCode.Forbidden)
-            : new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = failure == "oversized" ? new StringContent(new string('a', 4097))
-                    : JsonContent.Create(new ServerListChallenge(new string('a', 32),
-                        failure == "expired" ? DateTimeOffset.UtcNow.AddSeconds(-1)
-                            : DateTimeOffset.UtcNow.AddSeconds(failure == "overlong" ? 120 : 25),
-                        _consent.GetSettings().Generation + (failure == "wrong-generation" ? 1 : 0))),
-            }));
-        await Assert.ThrowsAnyAsync<Exception>(() => publisher.PublishOnceAsync(default));
-        Assert.Equal("/v1/quasar/challenge", Assert.Single(_sent).Path);
-        Assert.Equal(0, _collections);
-    }
-
-    [Fact]
-    public async Task ConsentWithdrawalDuringCollectionPreventsSend()
-    {
-        await GrantAsync();
         await SetAdminAsync();
         using var publisher = Publisher(collect: async _ =>
         {
-            await _consent.SaveAsync(false, false, false);
-            return [];
+            await SetAdminAsync("76561198000000002");
+            return [new(Guid.NewGuid().ToString("N"), "Public", "play.example", 27016, null, null, null, null, null)];
         });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => publisher.PublishOnceAsync(default));
-        Assert.Equal("/v1/quasar/challenge", Assert.Single(_sent).Path);
-        await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
+        Assert.Empty(_sent);
     }
 
     [Fact]
-    public async Task RevocationCancelsInFlightPublication()
+    public async Task RemovingAdminsCancelsAnInFlightUpdateThenWithdraws()
     {
-        await GrantAsync();
         await SetAdminAsync();
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        using var publisher = Publisher(async (request, token) =>
+        using var publisher = Publisher(async (_, token) =>
         {
-            if (request.Method == HttpMethod.Get)
-                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new ServerListChallenge(new string('a', 32),
-                    DateTimeOffset.UtcNow.AddSeconds(25), _consent.GetSettings().Generation)) };
-            if (request.Method == HttpMethod.Put)
-            {
-                started.SetResult();
-                await Task.Delay(Timeout.Infinite, token);
-            }
+            if (_sent.Count == 1) { started.SetResult(); await Task.Delay(Timeout.Infinite, token); }
             return new(HttpStatusCode.NoContent);
         });
         var sending = publisher.PublishOnceAsync(default);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-        await _consent.SaveAsync(false, false, false);
+        await _rbac.SaveAsync(new() { SubjectRoleMappings =
+            [new() { Provider = "Oidc", Subject = "operator", Roles = [QuasarRoles.Admin] }] });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => sending);
         await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", _sent[^1].Path);
+        Assert.Empty(Last().Listings); Assert.Empty(Last().Admins);
     }
 
     [Fact]
-    public async Task RemovedAdminIsNotSentAgainAndRestartFencesEarlierTraffic()
+    public async Task RestartPreservesTheKeyAndIdentityAndAdvancesTheEpoch()
     {
-        await GrantAsync();
         await SetAdminAsync();
-        using (var first = Publisher())
-        {
-            await first.PublishOnceAsync(default);
-            await SetAdminAsync("76561198000000002");
-            await first.PublishOnceAsync(default);
-            Assert.DoesNotContain("76561198000000001", _sent[^1].Body);
-            Assert.Contains("76561198000000002", _sent[^1].Body);
-        }
-        using var before = JsonDocument.Parse(_sent[^1].Body);
+        using (var first = Publisher()) await first.PublishOnceAsync(default);
+        var before = Last();
+        var identity = File.ReadAllText(Path.Combine(_root, "ServerList", "identity.json"));
         using var next = Publisher();
         await next.PublishOnceAsync(default);
-        using var after = JsonDocument.Parse(_sent[^1].Body);
-        Assert.True(after.RootElement.GetProperty("epoch").GetInt64() > before.RootElement.GetProperty("epoch").GetInt64());
+        Assert.Equal(before.InstallationId, Last().InstallationId);
+        Assert.True(Last().Epoch > before.Epoch);
+        Assert.Equal(identity, File.ReadAllText(Path.Combine(_root, "ServerList", "identity.json")));
     }
 
     [Fact]
-    public async Task ExternalInvalidConsentFailsClosedAndStatisticsSavePreservesDiagnostics()
+    public async Task LegacyMachineKeyAndListingIdsAreAdoptedWithoutContactingDiagnostics()
     {
-        await GrantAsync();
-        long generation = _consent.GetSettings().Generation;
-        await _consent.SaveAsync(false);
-        Assert.True(_consent.GetSettings().DiagnosticsGranted);
-        Assert.Equal(generation, _consent.GetSettings().Generation);
-        File.WriteAllText(_consent.SettingsPath, "broken json");
-        _consent.ReloadFromDisk();
-        Assert.False(ServerListProtocol.HasConsent(_consent.GetSettings()));
-        using var publisher = Publisher();
-        await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", Assert.Single(_sent).Path);
-    }
-
-    [Fact]
-    public async Task MissingDiagnosticsIdentityCannotEnrollOrPublish()
-    {
-        await GrantAsync();
         await SetAdminAsync();
-        File.Delete(Path.Combine(_root, "Diagnostics", "installation-id"));
-        using var publisher = Publisher();
+        using var key = RSA.Create(3072);
+        var installation = Guid.NewGuid().ToString("N");
+        Directory.CreateDirectory(Path.Combine(_root, "Diagnostics"));
+        File.WriteAllText(Path.Combine(_root, "Diagnostics", "installation-id"), installation);
+        File.WriteAllText(Path.Combine(_root, "Diagnostics", "machine-key.pem"), key.ExportPkcs8PrivateKeyPem());
+        var settings = Settings();
+        await settings.SaveAsync(new() { Enabled = true, Listings = [Entry()] }, 0);
+        using var publisher = Publisher(settings: settings);
         await publisher.PublishOnceAsync(default);
+        Assert.Equal(installation, Last().InstallationId);
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(installation + "\nserver\nsolo"))[..16]),
+            Assert.Single(Last().Listings).ListingId);
+    }
+
+    [Fact]
+    public async Task CorruptSavedIdentityCannotSilentlyRotateOwnership()
+    {
+        Directory.CreateDirectory(Path.Combine(_root, "ServerList"));
+        File.WriteAllText(Path.Combine(_root, "ServerList", "identity.json"), "broken json");
+        using var publisher = Publisher();
+        await Assert.ThrowsAsync<JsonException>(() => publisher.PublishOnceAsync(default));
         Assert.Empty(_sent);
-        Assert.Equal(0, _collections);
     }
 
     [Fact]
-    public async Task NoTransferableAdminWithdrawsEvenWithConsent()
+    public async Task FailedDeliveryRetriesWithAHigherSequence()
     {
-        await GrantAsync();
-        await _rbac.SaveAsync(new() { SubjectRoleMappings =
-            [new() { Provider = "Oidc", Subject = "operator", Roles = ["admin"] }] });
-        using var publisher = Publisher();
+        await SetAdminAsync();
+        using var publisher = Publisher((_, _) => Task.FromResult(new HttpResponseMessage(
+            _sent.Count == 1 ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.NoContent)));
+        await Assert.ThrowsAsync<HttpRequestException>(() => publisher.PublishOnceAsync(default));
         await publisher.PublishOnceAsync(default);
-        Assert.Equal("/v1/quasar/withdraw", Assert.Single(_sent).Path);
-        Assert.Equal(0, _collections);
-    }
-
-    [Fact]
-    public async Task ExternalRevocationAdvancesDurableDiagnosticsGeneration()
-    {
-        await GrantAsync();
-        var settings = _consent.GetSettings();
-        long generation = settings.Generation;
-        settings.DiagnosticsGranted = false;
-        File.WriteAllText(_consent.SettingsPath, JsonSerializer.Serialize(settings, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
-        _consent.ReloadFromDisk();
-        Assert.False(_consent.GetSettings().DiagnosticsGranted);
-        Assert.True(_consent.GetSettings().Generation > generation);
-        using var reloaded = new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance, _consent.SettingsPath);
-        Assert.Equal(_consent.GetSettings().Generation, reloaded.GetSettings().Generation);
+        Assert.Equal(2, Last().Sequence);
     }
 
     [Fact]
@@ -359,7 +273,7 @@ public sealed class ServerListPublisherTests : IDisposable
     [InlineData(float.NegativeInfinity, null)]
     public async Task PublishedSimulationSpeedIsCappedAndInvalidReadingsStayUnknown(float speed, float? expected)
     {
-        await GrantAsync(); await SetAdminAsync();
+        await SetAdminAsync();
         var now = DateTimeOffset.UtcNow;
         var entry = new ServerListEntry { ListingId = Guid.NewGuid().ToString("N"), UniqueName = "local",
             Name = "Public", PublicHost = "join.example" };
@@ -375,29 +289,15 @@ public sealed class ServerListPublisherTests : IDisposable
         Assert.Equal(expected ?? speed, agent.Snapshot.Metrics.SimSpeed);
     }
 
-    [Theory]
-    [InlineData("http://directory.example")]
-    [InlineData("https://secret@directory.example")]
-    [InlineData("https://directory.example/?secret=key")]
-    [InlineData("https://directory.example/#fragment")]
-    public void RejectsInsecureOrCredentialBearingEndpoints(string url)
-    {
-        var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
-        { ["Quasar:ServerList:Enabled"] = "true", ["Quasar:ServerList:DirectoryUrl"] = url,
-            ["Quasar:ServerList:InstallationToken"] = "private-token" }).Build();
-        Assert.Throws<InvalidDataException>(() => ServerListOptions.Create(config));
-    }
-
     public void Dispose()
     {
-        _consent.Dispose();
         _rbac.Dispose();
         _cache.SetValue(null, _previous);
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
     }
-
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => send(request, token);
     }
+
 }

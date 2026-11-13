@@ -1,5 +1,6 @@
 using System.Globalization;
-using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Magnetar.Protocol.Runtime;
@@ -7,18 +8,18 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.ServerList;
 
-/// <summary>Outbound publication only. The backoffice verifies diagnostics and pushes directory visibility leases.</summary>
+/// <summary>Signed replacement sets sent directly to the public server directory.</summary>
 public sealed class ServerListPublisher : BackgroundService
 {
     private readonly ServerListOptions _options;
-    private readonly DataHandlingConsentCatalog _consent;
     private readonly RbacConfigCatalog _rbac;
     private readonly HttpClient _http;
     private readonly Func<ServerListOptions, CancellationToken, Task<IReadOnlyList<ServerListListing>>> _collect;
     private readonly ILogger<ServerListPublisher> _logger;
     private readonly string _dataDirectory;
-    private readonly Uri? _url;
-    private readonly DiagnosticsUplinkService? _diagnostics;
+    private readonly Uri _url;
+    private RSA? _key;
+    private sealed record PublisherIdentity(string InstallationId, string PrivateKeyPem);
     private readonly ServerListSettingsCatalog? _settings;
     private readonly DedicatedServerCatalog? _servers;
     private readonly ClusterCatalog? _clusters;
@@ -31,42 +32,26 @@ public sealed class ServerListPublisher : BackgroundService
     private long _sequence;
     private bool _disposed;
 
-    public ServerListPublisher(ServerListSettingsCatalog settings, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
+    public ServerListPublisher(ServerListSettingsCatalog settings, RbacConfigCatalog rbac,
         IHttpClientFactory factory, AgentRegistry agents, DedicatedServerCatalog servers, ClusterCatalog clusters,
-        ClusterGatewayClient gateway, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService diagnostics)
-        : this(settings.GetSnapshot().Options, consent, rbac, factory.CreateClient("ServerList"),
+        ClusterGatewayClient gateway, ILogger<ServerListPublisher> logger)
+        : this(rbac, factory.CreateClient("ServerList"),
             (options, token) => CollectAsync(options, agents, servers, clusters, gateway, token),
-            MagnetarPaths.GetQuasarDirectory(), logger, diagnostics, settings)
+            MagnetarPaths.GetQuasarDirectory(), logger, settings)
     {
         (_servers, _clusters) = (servers, clusters);
         servers.Changed += Invalidate;
         clusters.Changed += Invalidate;
     }
 
-    internal ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
-        HttpClient http, Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>> collect,
-        string dataDirectory, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService? diagnostics = null,
-        ServerListSettingsCatalog? settings = null)
-        : this(options, consent, rbac, http, (_, token) => collect(token), dataDirectory, logger, diagnostics, settings) { }
-
-    internal ServerListPublisher(ServerListOptions options, DataHandlingConsentCatalog consent, RbacConfigCatalog rbac,
-        HttpClient http, Func<ServerListOptions, CancellationToken, Task<IReadOnlyList<ServerListListing>>> collect,
-        string dataDirectory, ILogger<ServerListPublisher> logger, DiagnosticsUplinkService? diagnostics,
-        ServerListSettingsCatalog? settings)
+    internal ServerListPublisher(RbacConfigCatalog rbac, HttpClient http,
+        Func<ServerListOptions, CancellationToken, Task<IReadOnlyList<ServerListListing>>> collect,
+        string dataDirectory, ILogger<ServerListPublisher> logger, ServerListSettingsCatalog? settings = null,
+        ServerListOptions? options = null, Uri? endpoint = null)
     {
-        (_options, _consent, _rbac, _http, _collect, _dataDirectory, _logger) =
-            (options, consent, rbac, http, collect, dataDirectory, logger);
-        _diagnostics = diagnostics;
-        _settings = settings;
-        if (diagnostics is not null) _url = diagnostics.BackofficeUrl;
-        else if (options.Enabled || settings is not null)
-        {
-            if (!Uri.TryCreate(options.DirectoryUrl, UriKind.Absolute, out var url)
-                || !ServerListOptions.IsAllowedEndpoint(url) || string.IsNullOrWhiteSpace(options.InstallationToken))
-                throw new InvalidDataException("Invalid server list fixture endpoint or credential.");
-            _url = new Uri(url.AbsoluteUri.TrimEnd('/') + "/");
-        }
-        consent.Changed += Invalidate;
+        (_options, _rbac, _http, _collect, _dataDirectory, _logger, _settings) =
+            (options ?? new(), rbac, http, collect, dataDirectory, logger, settings);
+        _url = endpoint ?? new Uri("https://se-servers.net/");
         rbac.Changed += Invalidate;
         if (settings is not null) settings.Changed += Invalidate;
     }
@@ -85,12 +70,15 @@ public sealed class ServerListPublisher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (_url is null) return;
         while (!stoppingToken.IsCancellationRequested)
         {
             var started = System.Diagnostics.Stopwatch.GetTimestamp();
             try { await PublishOnceAsync(stoppingToken); }
             catch (OperationCanceledException) { }
+            catch (HttpRequestException exception)
+            {
+                _logger.LogWarning("Server list update deferred (HTTP {StatusCode}).", (int?)exception.StatusCode);
+            }
             catch (Exception exception)
             {
                 // Transport messages can contain credentials and private endpoints.
@@ -105,17 +93,17 @@ public sealed class ServerListPublisher : BackgroundService
     // Called serially. Every attempt has a higher sequence, including withdrawal and failed sends.
     internal async Task PublishOnceAsync(CancellationToken stoppingToken)
     {
-        if (_url is null || !await InitializeIdentityAsync(stoppingToken)) return;
         var (options, revision) = _settings?.GetSnapshot() ?? (_options.Clone(), 0L);
+        // An installation that has never published need not create an identity or contact the directory.
+        if (!options.Enabled && !Directory.Exists(Path.Combine(_dataDirectory, "ServerList"))) return;
+        await InitializeIdentityAsync(stoppingToken);
         foreach (var entry in options.Listings.Where(l => l.ListingId.Length == 0))
-            entry.ListingId = Convert.ToHexStringLower(System.Security.Cryptography.SHA256.HashData(
-                System.Text.Encoding.UTF8.GetBytes(_installationId + "\n" + entry.Kind + "\n" + entry.UniqueName.ToLowerInvariant()))[..16]);
-        DataHandlingConsentSettings consent;
+            entry.ListingId = Convert.ToHexStringLower(SHA256.HashData(
+                Encoding.UTF8.GetBytes(_installationId + "\n" + entry.Kind + "\n" + entry.UniqueName.ToLowerInvariant()))[..16]);
         CancellationTokenSource cycle;
         long sequence;
         lock (_sync)
         {
-            consent = _consent.GetSettings();
             cycle = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, _transfers.Token);
             sequence = checked(++_sequence);
         }
@@ -124,97 +112,79 @@ public sealed class ServerListPublisher : BackgroundService
             cycle.CancelAfter(TimeSpan.FromSeconds(20));
             var token = cycle.Token;
             var admins = ServerListProtocol.GetAdmins(_rbac.GetConfig());
-            if (!options.Enabled || !ServerListProtocol.HasConsent(consent) || admins.Length == 0)
+            var listings = options.Enabled && admins.Length > 0 ? await _collect(options, token) : [];
+            var publication = new ServerListPublication(ServerListProtocol.Version, _installationId!, _epoch, sequence,
+                DateTimeOffset.UtcNow, listings.Count == 0 ? [] : admins, listings);
+            var payload = JsonSerializer.SerializeToUtf8Bytes(publication, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+            if (payload.Length > 4 * 1024 * 1024) throw new InvalidDataException("Server list publication exceeds limit.");
+            byte[] signed = [.. Encoding.ASCII.GetBytes("CometWorks.Directory.Publication.v2\n"), .. payload];
+            using var request = new HttpRequestMessage(HttpMethod.Put, new Uri(_url, "v2/listings"))
             {
-                using var withdrawal = await RequestAsync(HttpMethod.Post, "v1/quasar/withdraw", token);
-                if (withdrawal is null) return;
-                withdrawal.Content = JsonContent.Create(new ServerListWithdrawal(ServerListProtocol.Version,
-                    _installationId!, _epoch, sequence));
-                using var response = await _http.SendAsync(withdrawal, token);
-                response.EnsureSuccessStatusCode();
-                return;
-            }
-
-            // No server details or admin identities leave Quasar before the backend verifies log availability.
-            using var challengeRequest = await RequestAsync(HttpMethod.Get, "v1/quasar/challenge", token);
-            if (challengeRequest is null) return;
-            challengeRequest.Headers.Add("X-Diagnostics-Generation", consent.Generation.ToString(CultureInfo.InvariantCulture));
-            using var challengeResponse = await _http.SendAsync(challengeRequest, HttpCompletionOption.ResponseHeadersRead, token);
-            challengeResponse.EnsureSuccessStatusCode();
-            var challenge = await ReadChallengeAsync(challengeResponse, token);
-            var now = DateTimeOffset.UtcNow;
-            if (challenge.DiagnosticsGeneration != consent.Generation || challenge.ExpiresAtUtc <= now
-                || challenge.ExpiresAtUtc > now.AddSeconds(30) || challenge.Nonce.Length is < 32 or > 256)
-                throw new InvalidDataException("Invalid diagnostics publication challenge.");
-
-            var listings = await _collect(options, token);
-            using var request = await RequestAsync(HttpMethod.Put, "v1/quasar/publication", token);
-            if (request is null) return;
-            request.Content = JsonContent.Create(new ServerListPublication(ServerListProtocol.Version, _installationId!,
-                _epoch, sequence, consent.Generation, consent.DecisionDateUtc, challenge.Nonce, admins, listings));
+                Content = JsonContent.Create(new SignedServerListPublication(Convert.ToBase64String(_key!.ExportSubjectPublicKeyInfo()),
+                    Convert.ToBase64String(payload), Convert.ToBase64String(_key.SignData(signed, HashAlgorithmName.SHA256, RSASignaturePadding.Pss))))
+            };
             Task<HttpResponseMessage> sending;
             lock (_sync)
             {
                 token.ThrowIfCancellationRequested();
-                if (!ServerListProtocol.HasConsent(_consent.GetSettings())
-                    || _settings is not null && !_settings.IsCurrent(revision)
-                    || _consent.GetSettings().Generation != consent.Generation
-                    || _consent.GetSettings().DecisionDateUtc != consent.DecisionDateUtc
-                    || !admins.SequenceEqual(ServerListProtocol.GetAdmins(_rbac.GetConfig()))
-                    || challenge.ExpiresAtUtc <= DateTimeOffset.UtcNow)
+                if (_settings is not null && !_settings.IsCurrent(revision)
+                    || !admins.SequenceEqual(ServerListProtocol.GetAdmins(_rbac.GetConfig())))
                     throw new OperationCanceledException(token);
                 sending = _http.SendAsync(request, token);
             }
-            using var publicationResponse = await sending;
-            publicationResponse.EnsureSuccessStatusCode();
+            using var response = await sending;
+            response.EnsureSuccessStatusCode();
         }
     }
 
-    private async Task<bool> InitializeIdentityAsync(CancellationToken token)
+    private async Task InitializeIdentityAsync(CancellationToken token)
     {
-        // Diagnostics owns this identity; do not invent a second enrollment or create it ahead of the uplink.
-        var path = Path.Combine(_dataDirectory, "Diagnostics", "installation-id");
-        if (!File.Exists(path)) return false;
-        if (new FileInfo(path).Length > 64) throw new InvalidDataException("Invalid diagnostics identity.");
-        var identity = (await File.ReadAllTextAsync(path, token)).Trim();
-        if (!ServerListProtocol.IsId(identity)) throw new InvalidDataException("Invalid diagnostics identity.");
-        if (_installationId is not null)
-        {
-            if (_installationId != identity) throw new InvalidDataException("Diagnostics identity changed; restart to re-enroll.");
-            return true;
-        }
+        if (_installationId is not null) return;
         var directory = Path.Combine(_dataDirectory, "ServerList");
         Directory.CreateDirectory(directory);
         _processLock ??= new FileStream(Path.Combine(directory, ".lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        var identityPath = Path.Combine(directory, "identity.json");
+        var legacyKey = Path.Combine(_dataDirectory, "Diagnostics", "machine-key.pem");
+        var legacyIdentity = Path.Combine(_dataDirectory, "Diagnostics", "installation-id");
+        PublisherIdentity identity;
+        using var key = RSA.Create();
+        if (File.Exists(identityPath))
+        {
+            if (new FileInfo(identityPath).Length > 16384) throw new InvalidDataException("Invalid publisher identity.");
+            identity = JsonSerializer.Deserialize<PublisherIdentity>(await File.ReadAllTextAsync(identityPath, token))
+                ?? throw new InvalidDataException("Invalid publisher identity.");
+            key.ImportFromPem(identity.PrivateKeyPem);
+        }
+        else
+        {
+            // Adopt the existing machine identity once so listing IDs, edits and votes survive the move.
+            // Diagnostics consent, enrollment and delivery are never consulted.
+            if (File.Exists(legacyKey) && File.Exists(legacyIdentity))
+            {
+                if (new FileInfo(legacyKey).Length > 8192 || new FileInfo(legacyIdentity).Length > 64)
+                    throw new InvalidDataException("Invalid legacy publisher identity.");
+                key.ImportFromPem(await File.ReadAllTextAsync(legacyKey, token));
+                identity = new((await File.ReadAllTextAsync(legacyIdentity, token)).Trim(), key.ExportPkcs8PrivateKeyPem());
+            }
+            else
+            {
+                key.KeySize = 3072;
+                identity = new(Convert.ToHexStringLower(SHA256.HashData(key.ExportSubjectPublicKeyInfo()))[..32], key.ExportPkcs8PrivateKeyPem());
+            }
+        }
+        if (!ServerListProtocol.IsId(identity.InstallationId) || key.KeySize != 3072 || key.ExportParameters(true).D is null)
+            throw new InvalidDataException("Invalid publisher identity.");
+        // One atomic private file keeps the ID and its owning key inseparable across interrupted writes.
+        if (!File.Exists(identityPath)) await AtomicFileWriter.WritePrivateTextAsync(identityPath, JsonSerializer.Serialize(identity), token);
         var epochPath = Path.Combine(directory, "epoch");
         long previous = File.Exists(epochPath)
             ? long.Parse(await File.ReadAllTextAsync(epochPath, token), CultureInfo.InvariantCulture) : 0;
         if (previous < 0) throw new InvalidDataException("Invalid publication epoch.");
         _epoch = checked(previous + 1);
-        // Reserve before any network activity. A restart always fences earlier in-flight updates.
         await AtomicFileWriter.WriteTextAsync(epochPath, _epoch.ToString(CultureInfo.InvariantCulture), token);
-        _installationId = identity;
-        return true;
-    }
-
-    private async Task<HttpRequestMessage?> RequestAsync(HttpMethod method, string path, CancellationToken token)
-    {
-        if (_diagnostics is not null) return await _diagnostics.CreateListingRequestAsync(method, path, token);
-        var request = new HttpRequestMessage(method, new Uri(_url!, path));
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.InstallationToken);
-        request.Headers.Add("X-Installation-Id", _installationId);
-        return request;
-    }
-
-    private static async Task<ServerListChallenge> ReadChallengeAsync(HttpResponseMessage response, CancellationToken token)
-    {
-        await using var stream = await response.Content.ReadAsStreamAsync(token);
-        var buffer = new byte[4097];
-        int size = 0, read;
-        while (size < buffer.Length && (read = await stream.ReadAsync(buffer.AsMemory(size), token)) > 0) size += read;
-        if (size > 4096) throw new InvalidDataException("Publication challenge exceeds limit.");
-        return JsonSerializer.Deserialize<ServerListChallenge>(buffer.AsSpan(0, size), new JsonSerializerOptions(JsonSerializerDefaults.Web)
-        { RespectRequiredConstructorParameters = true }) ?? throw new InvalidDataException("Empty publication challenge.");
+        _key?.Dispose();
+        _key = RSA.Create(); _key.ImportParameters(key.ExportParameters(true));
+        _installationId = identity.InstallationId;
     }
 
     private static async Task<IReadOnlyList<ServerListListing>> CollectAsync(ServerListOptions options,
@@ -246,7 +216,6 @@ public sealed class ServerListPublisher : BackgroundService
 
     public override void Dispose()
     {
-        _consent.Changed -= Invalidate;
         _rbac.Changed -= Invalidate;
         if (_settings is not null) _settings.Changed -= Invalidate;
         if (_servers is not null) _servers.Changed -= Invalidate;
@@ -257,6 +226,7 @@ public sealed class ServerListPublisher : BackgroundService
             _disposed = true;
             _transfers.Dispose();
         }
+        _key?.Dispose();
         _processLock?.Dispose();
     }
 }

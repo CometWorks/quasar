@@ -3,8 +3,6 @@ namespace Quasar.Services.ServerList;
 public sealed class ServerListOptions
 {
     public bool Enabled { get; set; }
-    public string? DirectoryUrl { get; set; }
-    public string? InstallationToken { get; set; }
     public List<ServerListEntry> Listings { get; set; } = [];
 
     public static ServerListOptions Create(IConfiguration configuration)
@@ -33,11 +31,8 @@ public sealed class ServerListOptions
         }
     }
 
-    public ServerListOptions Clone() => new() { Enabled = Enabled, DirectoryUrl = DirectoryUrl,
-        InstallationToken = InstallationToken, Listings = Listings.Select(l => l.Clone()).ToList() };
+    public ServerListOptions Clone() => new() { Enabled = Enabled, Listings = Listings.Select(l => l.Clone()).ToList() };
 
-    internal static bool IsAllowedEndpoint(Uri url) => url.Scheme == "https"
-        && string.IsNullOrEmpty(url.UserInfo) && string.IsNullOrEmpty(url.Query) && string.IsNullOrEmpty(url.Fragment);
 }
 
 public sealed class ServerListEntry

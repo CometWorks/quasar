@@ -50,8 +50,6 @@ public sealed class ServerListSettingsCatalog
     public async Task SaveAsync(ServerListOptions options, long expectedRevision, CancellationToken token = default)
     {
         var saved = options.Clone();
-        saved.DirectoryUrl = null;
-        saved.InstallationToken = null;
         foreach (var entry in saved.Listings)
         {
             entry.Name = entry.Name.Trim();

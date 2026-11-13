@@ -1,32 +1,20 @@
 # Server directory publication
 
-Quasar's optional publisher sends public server statistics and a private Steam-admin roster to the logging backoffice at `https://log.se-servers.net`. The backoffice confirms fresh decryptable Quasar logs and actively pushes signed visibility updates to `https://se-servers.net`. The website stores local leases and creates listing records automatically. Independently operated community deployments use the same flow.
+Quasar sends signed listing updates directly to `https://se-servers.net/v2/listings`. Data-handling consent, diagnostic enrollment, uploaded logs and backoffice attestation are not required. Diagnostic reporting remains a separate optional feature.
 
-## Consent and eligibility
+## Select listings
 
-Publication requires policy-v3 diagnostic consent, a saved **Publish this server** selection on Listings, at least one explicit Steam admin mapping in RBAC, and a configured public source/join address. Statistics-sharing consent and memory-dump consent remain independent. Accepting YES starts diagnostic sharing and automatic enrollment; it does not select servers for publication. Saving a publish selection records listing consent without granting diagnostic consent. There is no separate global visibility checkbox.
+Open **Listings**, below Discord in navigation (`/settings/server-list`). Select **Publish this server**, enter the public name, hostname/IP and game port, then **Save listings**. Keep at least one explicit Steam admin mapping in RBAC; those Steam users can edit the website description. Other identity providers and editor roles do not confer website editing authority. Viewing the page requires view permission; saving requires security-management permission.
 
-Quasar sends no listing/admin metadata before the backoffice confirms recent logs. Public data contains the chosen name, observed time, running state, player counts and simulation speed; the validated join action provides the configured public address. Raw diagnostic content and private admin/installation identities do not enter the public feed. Steam subjects are sent privately to authorize description editing.
+The page discovers standalone servers and clusters and suggests names and ports. Use the cluster's public Steam gateway address, not its admin endpoint. The suggested cluster port comes from the deployed Steam configuration, otherwise it starts at 28000 for confirmation. Editing an address alone never opts in. New sources remain unselected. An earlier global `Enabled=false` remains an opt-out. The obsolete `listingGranted` data-handling field no longer controls publication.
 
-Simulation speed is capped at **1.00** in agent metrics, incoming snapshots, analytics samples and directory publication. Valid readings from 0.00 to 1.00 are preserved; negative or non-finite readings remain unknown in directory publication. Existing analytics history is capped when loaded, including minute/hour rollups; files are updated through normal persistence/compaction. The synthetic analytics generator uses the same ceiling. This does not cap process or simulation CPU percentages.
+Saved changes apply immediately without restarting. Deselect a server to omit it from the next replacement set. Deselect all servers, or remove the last Steam admin, to withdraw all listings from this installation. Names, addresses, listing IDs, website description drafts, artwork, votes and cooldowns survive withdrawal. Changing diagnostic consent does not affect publication.
 
-Deselecting all servers and saving, or withdrawing diagnostic consent, cancels active publication and wakes the sender to withdraw. RBAC changes also wake it. A delivered withdrawal wakes the backoffice relay immediately; network outages expire the last signed website lease within one hour. No lease can outlive the last evidence's one-hour lifetime. Already displayed browser content cannot be remotely erased.
+The page refreshes when sources, saved settings or admins change. Source changes preserve unsaved edits. A conflicting save in another session preserves your draft and blocks overwriting; choose **Discard edits** to load the latest settings.
 
-## Configuration
+## Configuration and identity
 
-Open **Listings**, directly below Discord in the main navigation (`/settings/server-list`). The page discovers your standalone Magnetar servers and clusters and suggests their public names and game ports. For each server you want visible, enable **Publish this server**, enter its public hostname or IP, confirm the public game port, then choose **Save listings**. For clusters, use the Steam gateway address and port, not the Cluster Registry admin endpoint. The cluster port is suggested from its deployed Steam configuration where available; otherwise it starts at 28000 for you to confirm.
-
-The page shows missing diagnostic consent and Steam-admin mappings, with links to Security. Editing destinations alone does not opt into publication; select **Publish this server** and save. Saving requires current security-management permission. Changes cancel outdated publication attempts and wake the publisher immediately, without restarting Quasar. Deselecting a server removes it from the next replacement set; deselecting all servers withdraws the installation's listings. Names, addresses and listing IDs remain saved when deselected.
-
-Earlier global opt-outs remain private after upgrading. Their server checkboxes appear unselected until an administrator explicitly selects and saves them again. The compatibility `listingGranted` value in `data-handling-consent.json` remains enforced and is recorded automatically when a publish selection is saved; deselecting all servers disables publication through `server-list.json` without changing diagnostic consent.
-
-UI settings are stored in `server-list.json` in Quasar's application-data directory. Preserve that file with the diagnostic identity and publication epoch. Existing `Quasar:ServerList` settings below are used as initial defaults only while this file is absent; the first UI save takes precedence across restarts and upgrades. Invalid saved settings disable publication rather than falling back to legacy configuration. New sources remain unselected until explicitly configured.
-
-The page refreshes automatically when servers, clusters, saved listing settings, consent or Steam-admin mappings change. Source changes preserve unsaved edits. Settings saved in another session load automatically when you have no edits; otherwise a warning preserves your draft and blocks saving over the newer settings. Choose **Discard edits** in that warning to load the latest settings. The **Save listings** bar is spaced below the listing cards; there is no Reload button.
-
-Configuration backups include `server-list.json`. Restart Quasar after restoring a backup to load the restored listing settings.
-
-For headless deployments, the existing `appsettings.json` configuration remains supported:
+The UI saves `server-list.json` in Quasar's data directory. Before its first save, `Quasar:ServerList` supplies initial defaults:
 
 ```json
 {
@@ -45,21 +33,27 @@ For headless deployments, the existing `appsettings.json` configuration remains 
 }
 ```
 
-For headless configuration, record `listingGranted: true` in `data-handling-consent.json` after reviewing the selected listings, separately from valid diagnostic consent. The UI records this automatically when saving a publish selection. No website token, installation ID or directory endpoint must be configured. The diagnostics uplink negotiates the credential and routes listing requests to its backoffice. `DirectoryUrl`/`InstallationToken` are legacy configuration fields ignored by the production publisher.
+Use `Kind=cluster` with the cluster unique name for a cluster. Up to 100 distinct listings are supported. `ListingId` is optional; Quasar derives a stable ID from the publisher identity, source kind and case-insensitive unique name. Preserve existing assigned IDs. `DirectoryUrl` and `InstallationToken` are obsolete and ignored. No token, manual enrollment or data-handling setting is needed. Restart Quasar after restoring or externally editing `server-list.json`; UI changes apply live. Invalid saved settings disable publication instead of falling back to legacy configuration.
 
-`ListingId` is optional. If absent, Quasar derives a stable ID from its installation identity, kind and case-insensitive source UniqueName. Preserve an existing assigned `ListingId` during migration to retain edited pages/votes. Preserve `Diagnostics/installation-id`, `Diagnostics/machine-key.pem` and `ServerList/epoch` across upgrades; restarting reserves a higher durable epoch before sending. Never run two publishers over the same local state or restore ordering state backwards.
+On first publication Quasar creates `ServerList/identity.json`, an atomic private file containing the installation ID and RSA machine key. New IDs derive from the public-key fingerprint, so another key cannot claim them. An existing diagnostic installation ID/key pair is copied locally once to preserve existing generated listing IDs; consent and the diagnostic service are not consulted. Further publication uses only the independent ServerList copy.
 
-Use `Kind=cluster` with the cluster unique name and its **public Steam gateway address**. The gateway's authoritative connected-client count is published once; node counts are not summed. Cluster max-player count and simulation speed remain unknown. Standalone statistics require one connected agent and observations at most 60 seconds old. Missing, ambiguous, future or stale observations stay unknown. Deleted sources are omitted from the replacement set. Legacy configuration and external edits to `server-list.json` are read at startup; UI changes apply live. `Enabled=false` withdraws on the next publication cycle. Clear every **Publish this server** checkbox and save to withdraw promptly while online.
+Keep `ServerList/identity.json` and `ServerList/epoch` together across upgrades and moves. Configuration backups include `server-list.json` but not the private ServerList directory; preserve it separately. Never run two publishers on the same local state. Corrupt saved identity fails instead of silently replacing its owner. Restore a missing identity file from backup to retain the same owner. Restoring an old epoch can cause HTTP 409; restore current ordering state rather than deleting the identity.
 
-## Protocol and verification
+## Delivery and migration
 
-The negotiated diagnostic credential authenticates `/v1/quasar/challenge`, `/publication` and `/withdraw` on the backoffice with `X-Installation-Id`. Challenge is a fresh-evidence preflight; publication rechecks evidence and replaces the complete listings/admin roster. Durable increasing source epochs/sequences reject delayed publications. Withdrawal retains a tombstone and needs no evidence. The backoffice pushes complete RSA-PSS-signed snapshots immediately on changes and every 30 seconds. Website leases last at most one hour and are capped by one-hour evidence/publication expiry. The website fetches only the trusted backoffice's public key; it consumes no per-instance proof and performs no evidence calls during browsing, editing, voting or joining.
+Every update is a complete replacement set for this installation, authenticated by an RSA-PSS SHA256 machine signature. Increasing durable epochs and sequences reject delayed updates. Quasar sends once a minute and immediately after settings, admin or source changes. A delivered withdrawal hides listings immediately; a network outage hides them three minutes after the last update's issue time. Exact retries never extend visibility. There is no preflight challenge, enrollment request or dependency on `DiagnosticsUplinkService`.
 
-Only current explicit Steam **admin** mappings authorize description editing for the linked instance. Quasar editors, trusted-network identities and other installations inherit no directory authority. Writes retain normal CSRF/concurrency checks. Description drafts and votes survive withdrawal; see server-list's schema-3 backup/rollback instructions.
+Deploy the website's direct receiver before Quasar. Existing random installation IDs need a one-time import of their trusted public-key fingerprints from the old backoffice registry. This pins the same owners without losing pages or votes. See the [website's direct protocol and migration guide](https://github.com/CometWorks/server-list/blob/main/docs/Protocol.md). Without that import an existing publisher receives HTTP 403. Do not delete its identity or reassign its listing IDs to work around an ownership failure.
 
-`ServerListPublisherTests` exercises consent, separate visibility, live selection changes, cancellation, admin changes, ordering, public payload exclusion and observation handling. `ServerListSettingsTests` covers persistence, legacy configuration migration, validation, conflicting edits and source discovery; `ServerListingPageTests` exercises both server kinds, saving and permission rechecks. The cross-repository `error-reporting/Tests/EndToEnd/run.sh` with a server-list checkout runs actual backend/website fixtures and the real uploader/publisher. It never starts Quasar's web service.
+The website retains the legacy feed for older publishers during rollout. Legacy snapshots cannot modify or withdraw installations after their first direct update. This compatibility path is not used by current Quasar publication.
 
-Ordinary log delivery is batched every ten minutes after the first available batch. Server metadata/heartbeat publication remains every minute. Evidence must still be a nonempty, authenticated, consented Quasar log batch; a one-hour eligibility window tolerates ordinary delivery gaps. Deploy the website, backoffice and Quasar updates in that order. The two-minute Host sharing consent lease is independent and unchanged.
+## Public data and checks
+
+Public data contains the chosen name, public join action, observation time, running state, player counts and simulation speed. Private admin IDs and installation identity stay out of public responses. Raw diagnostics, world identities, private endpoints and chat are excluded.
+
+Standalone observations require one connected agent and snapshots at most 60 seconds old; missing, ambiguous, future or stale metrics stay unknown. Simulation speed is capped at 1.00, with negative/non-finite readings unknown. Clusters publish the gateway's authoritative client count once, never a sum of nodes. Cluster max-player count and simulation speed remain unknown. The website independently expires observations after 60 seconds.
+
+`ServerListPublisherTests` covers direct signatures, publication without diagnostics state, live selection changes, cancellation, restart ordering, identity migration and payload exclusion. `ServerListSettingsTests` and `ServerListingPageTests` cover persistence, discovery, permission rechecks and saving without changing data-handling consent. The `error-reporting/Tests/EndToEnd/run.sh` fixture with a server-list checkout exercises the real publisher and website before diagnostic consent and through backoffice outages. It does not start Quasar's web service.
 
 ## Public CometWorks cluster status
 
@@ -71,7 +65,6 @@ stale gateway response retains the CometWorks label with unknown live counts.
 
 Public node labels are ordinal (`Node 1`, etc.); private cluster/world/node/slot/host
 identities, endpoints, executor metadata and diagnostic reason strings are excluded.
-The website independently expires live cluster details after 60 seconds. Existing
-listing consent, verified Quasar log evidence and Steam-admin editing rules remain.
-Deploy the updated website and backoffice before enabling this extended publication.
+The website independently expires live cluster details after 60 seconds. Saved listing selections and Steam-admin editing rules apply. Direct updates do not
+require diagnostic consent or log evidence.
 Torch/Nexus publication uses the separate [Torch publisher](https://github.com/CometWorks/server-list-torch-plugin).
