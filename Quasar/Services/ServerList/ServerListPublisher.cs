@@ -216,7 +216,7 @@ public sealed class ServerListPublisher : BackgroundService
                 try
                 {
                     var status = (await gateway.GetStatusAsync(cluster, token)).Data;
-                    result.Add(ServerListProtocol.FromCluster(entry, status, DateTimeOffset.UtcNow));
+                    result.Add(ServerListProtocol.FromCluster(entry, status, cluster, snapshots, DateTimeOffset.UtcNow));
                 }
                 catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
                 catch (Exception) { result.Add(ServerListProtocol.UnknownCluster(entry)); }

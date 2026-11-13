@@ -36,7 +36,7 @@ A server card has:
   - the health summary, for example "Quasar.Agent heartbeat stale beyond 20s timeout."
   - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the time. Hover for the reason.
   - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
-- Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime.
+- Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime. Hover over a yellow **Plugins** count or label to see selected plugins not reported as loaded. If only a count is available, the tooltip directs you to the server logs. Screen readers receive the same description.
 - **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures. A process priority warning, such as "Install /usr/local/bin/quasar-renice to use High process priority on Linux.", stays here until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).
 - **Console** opens the log console (see [Servers](Servers.md#the-server-console)).
 - **Start**, **Stop**, **Restart** and **Kill** buttons (need `CanControlServers`). Their behavior is in [Servers](Servers.md#dashboard-and-server-controls).
@@ -431,6 +431,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Components/Pages/Home.razor`
 - `Quasar/Components/Dashboard/ServerCard.razor`
 - `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar.Tests/PluginLoadTooltipTests.cs`
 - `Quasar/Components/Dashboard/FleetTelemetryChart.razor`
 - `Quasar/Components/Pages/Analytics.razor`
 - `Quasar/Components/Pages/Analytics.razor.css`

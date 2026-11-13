@@ -200,10 +200,12 @@ The page warns about missing Steam admin mappings, invalid settings and sources 
 ### What is public
 
 - Public: listing name, public host and port, observation time, running state, players online, max players, and simulation speed (capped at 1.00).
-- Clusters: connected client count from the gateway, online and total node counts, gateway phase and health, partition and handover counts, and per-node role, state and quarantined partition count. Nodes appear as `Node 1`, `Node 2` and so on. Max players and sim speed are not sent for clusters.
+- Clusters: connected client count from the gateway, max players from the active deployment's admission limit, and average sim speed across fresh active simulation-node readings. World Authority, hot spares and idle nodes are excluded from the average. Also includes online and total node counts, gateway phase and health, partition and handover counts, and per-node role, state and quarantined partition count. Nodes appear as `Node 1`, `Node 2` and so on.
 - Private (sent to the directory, excluded from public responses): the Steam admin SteamIDs. They let those admins edit the listing description on se-servers.net. Quasar roles other than Steam Admin mappings give no rights on the website.
 
 A standalone server's statistics are sent only when exactly one connected agent reports it and the snapshot is at most 60 seconds old. Otherwise the listing shows unknown values.
+
+For clusters, max players stays unknown if the active deployment's saved specification is unavailable or invalid, or the gateway reports a different deployment revision. Editing a profile or staging an update does not change the public limit before activation. Sim speed excludes stale, disconnected, ambiguous and invalid readings and stays unknown if no eligible node reports. Node readings must match the gateway's current node identity and epoch, with fresh snapshots and leases. The observation time includes the oldest contributing snapshot so older readings expire normally.
 
 ### Publication timing and withdrawal
 
@@ -268,6 +270,8 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar/Services/ServerList/ServerListProtocol.cs`
 - `Quasar/Services/ServerList/ServerListPublisher.cs`
 - `Quasar/Services/ServerList/ServerListSettingsCatalog.cs`
+- `Quasar/Services/ClusterOverview.cs`
+- `Quasar/Services/ClusterFleetService.cs`
 - `Quasar/Services/Backup/QuasarBackupService.cs`
 - `Quasar/Program.cs`
 - `Quasar/Components/Pages/Security.razor`
@@ -289,6 +293,7 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar.Tests/DiagnosticCollectorTests.cs`
 - `Quasar.Tests/IncidentClassificationTests.cs`
 - `Quasar.Tests/ServerListPublisherTests.cs`
+- `Quasar.Tests/ServerListClusterTests.cs`
 - `Quasar.Tests/ServerListSettingsTests.cs`
 - `Quasar.Tests/ServerListingPageTests.cs`
 
