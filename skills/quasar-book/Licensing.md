@@ -4,31 +4,25 @@ Copyright (c) 2026 CometWorks (https://github.com/CometWorks).
 
 Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
-without a license fee or registration. The CometWorks Independent Extension
-Exception grants additional permission only to qualifying Independent Extensions.
-Read `LICENSING.md` for the guide and `EXCEPTION.md` for the binding terms.
+without a license fee or registration. Your own plugins and services can stay
+closed when they use the documented APIs and do not copy AGPL core code. Read
+`LICENSING.md` for the guide and `EXCEPTION.md` for the permission and its limits.
 
-A plugin label, public access modifier, wrapper, network transport or separate
-process does not by itself establish independence. The exception excludes copied
-or adapted core code, internal runtime patches, unsupported access routed through
-shims, and core modifications divided into separately packaged components.
-A documented UI replacement point remains an eligible interface; an independently
-written feature does not lose eligibility merely because its functionality
-resembles a core feature. Exclusion from the exception is not, by itself, a
-finding that copyright law requires a work to be AGPL-licensed.
+Calling something a plugin does not exempt copied core code, internal patches or
+private hooks routed through a wrapper. Documented UI replacement points and
+ordinary API adapters are allowed. Similar functionality alone does not make a
+plugin a copy, and a separate host patch does not make an otherwise independent
+plugin AGPL. Falling outside the exception does not itself settle copyright law.
 
-The specified public SDK/contract paths remain available under MIT. An unchanged
-independent plugin does not lose its eligibility merely because the host has a
-separate core patch. Quasar and Agent implementation changes retain applicable
-AGPL source obligations. Open-source plugins and upstream PRs are encouraged.
+The listed SDK and contract code stays MIT-licensed. Quasar and Agent changes
+keep their applicable AGPL source obligations. Upstream PRs are encouraged.
 
 ## Alternative licensing
 
-CometWorks continues to invite requests for a separate written license where the
-AGPL and the exception do not accommodate a proposed use. The relevant copyright
-holders must agree the scope, duration, applicable products/deployments and any
-fee in writing. Asking does not grant different rights or suspend existing
-obligations. Qualifying Independent Extensions need no paid alternate license.
+Contact CometWorks if you need different terms, including keeping core changes
+private. Availability, scope, fees and source obligations are agreed case by case
+in writing. Asking does not change your current obligations. Independent plugins
+that meet the exception do not need a paid alternative license.
 
 ## Previous MIT distribution
 

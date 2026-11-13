@@ -1,14 +1,12 @@
 # Quasar
 
 Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
-(`AGPL-3.0-only`), with the [CometWorks Independent Extension Exception](EXCEPTION.md).
-Only qualifying Independent Extensions may use proprietary terms under that
-exception. A plugin label, wrapper or separate process does not exempt covered
-core code or internal patches. The specified SDK/contract code is additionally
-available under MIT. The previous MIT distribution is preserved by the
-[`archive/mit` tag](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
-Read the [licence guide](LICENSING.md) for scope and source obligations. [Alternative licensing](LICENSING.md#alternative-licensing)
-remains available by separate written agreement with the relevant copyright holders.
+(`AGPL-3.0-only`). Your own plugins can stay closed under the [plugin exception](EXCEPTION.md)
+when they use documented APIs without copying core code or using private hooks.
+The [licensing guide](LICENSING.md) lists the MIT SDK/contract code and source
+requirements. [Alternative licensing](LICENSING.md#alternative-licensing) is
+available case by case. The earlier MIT version remains at
+[`archive/mit`](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 
 **Urgent security upgrade:** DIS-0042 requires saving worlds, updating Hosts and restarting game servers. Read the [upgrade order and machine endpoint policy](Docs/SecurityUpgradeDIS0042.md) before activation.
 
