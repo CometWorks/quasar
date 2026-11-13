@@ -177,6 +177,45 @@ public sealed class HostGatewayPreparationTests : IDisposable
         }
     }
 
+    // SE-1405: an online backup held the Host's storage for 9 minutes. Quasar gave up on its collections after
+    // 30 s, but the Host ran them once the copy ended, with references from before an update's preparation,
+    // and deleted the prepared configuration. A collection that cannot start in time must not run later.
+    [Fact]
+    public async Task CollectionRefusesInsteadOfRunningAfterQuasarGaveUp()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string state = Path.Combine(_root, "state");
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        listener.Stop();
+        string url = $"http://127.0.0.1:{port}";
+        string tokenVariable = "HOST_COLLECTION_TEST_" + Guid.NewGuid().ToString("N");
+        Environment.SetEnvironmentVariable(tokenVariable, "test-token");
+        var config = new HostApp.HostExecutorConfig("executor", "host", 2, [], state, new(url, tokenVariable));
+        using var shutdown = new CancellationTokenSource();
+        using var server = new HostApp.HostCommandServer(config.Command!, config, new HostApp.AttachmentStore(state, []),
+            new HostApp.GatewaySpecStore(state), new HostApp.GatewayActualizer(state, "host")) { CollectionWait = TimeSpan.FromSeconds(1) };
+        server.Start(shutdown.Token);
+        using var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization = new("Bearer", "test-token");
+        Task<HttpResponseMessage> Collect() => client.PostAsync(url + HostProtocol.RoutePrefix + "/deployment-references/demo",
+            System.Net.Http.Json.JsonContent.Create(new HostDeploymentReferences([], [], [], [])));
+
+        var copying = await Host::Quasar.ClusterDeployment.ClusterStorageActivity.BeginAsync(default); // the online capture
+        var watch = Stopwatch.StartNew();
+        using (var busy = await Collect())
+        {
+            Assert.Equal(HttpStatusCode.Conflict, busy.StatusCode);
+            Assert.Contains("Cluster storage is in use", await busy.Content.ReadAsStringAsync());
+        }
+        Assert.InRange(watch.Elapsed, TimeSpan.FromSeconds(0.5), TimeSpan.FromSeconds(10));
+        copying.Dispose();
+
+        using var idle = await Collect();
+        Assert.True(idle.IsSuccessStatusCode, await idle.Content.ReadAsStringAsync());
+    }
+
     // A respawn between Quasar's status read and its write must not leave a live Gateway under goal Off.
     [Fact]
     public async Task HostRefusesAnOffThatCannotStopTheLiveGatewayBeforePersistingIt()

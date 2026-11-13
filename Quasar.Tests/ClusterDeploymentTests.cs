@@ -441,6 +441,50 @@ public sealed class ClusterDeploymentTests : IDisposable
         Assert.Single(backups.List("demo"));
     }
 
+    // SE-1405: a starting or stopping cluster made every scheduled backup a failed operation, retried an hour later.
+    [Fact]
+    public async Task ScheduledOnlineBackupWaitsForAServingCluster()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        var gatewayHandler = new OnlineGatewayHandler(handler) { Phase = ClusterPhase.Bootstrapping };
+        var operations = new ClusterOperationStore(Path.Combine(root, "bootstrapping-operations"));
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)), operations, null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "bootstrapping-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(gatewayHandler))) { BackupLeasePath = Path.Combine(root, "bootstrapping-lease", "lock") };
+        var settings = new QuasarBackupSettings { Server = new() { Enabled = true }, OnlineClusterMiBPerSecond = 8 };
+
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Empty(operations.GetRecent(["demo"], 10));
+        Assert.Empty(handler.Captures);
+
+        gatewayHandler.Phase = ClusterPhase.Serving;
+        await backups.CaptureDueAsync(settings, default);
+        Assert.Single(backups.List("demo"));
+    }
+
+    // SE-1405: the copy was stored, then releasing the Host's archive waited behind an update's capture past
+    // the 30 s deadline, and the stored backup was reported as failed with host_timeout.
+    [Fact]
+    public async Task StoredOnlineBackupSucceedsWhenAHostKeepsItsCopy()
+    {
+        using var catalog = Catalog();
+        var handler = new Handler(credential);
+        await Service(catalog, handler).ActivateAsync("demo", Request(), "initial", "test", default);
+        await catalog.SetGoalStateAsync("demo", DedicatedServerGoalState.On);
+        handler.FailReleases = true;
+        var backups = new ClusterBackupService(catalog, new ClusterHostClient(new HttpClient(handler)),
+            new ClusterOperationStore(Path.Combine(root, "kept-copy-operations")), null!,
+            new WebServiceOptions { BackupDirectory = Path.Combine(root, "kept-copy-backups") }, null!,
+            new ClusterGatewayClient(new HttpClient(new OnlineGatewayHandler(handler))));
+        var result = await backups.CaptureAsync("demo", new ClusterBackupRequest(Guid.NewGuid(), AllowCrashConsistent: true, Online: true),
+            "kept", "test", 1024, default);
+        Assert.Equal(ClusterOperationState.Succeeded, result.State);
+        Assert.Single(backups.List("demo"));
+    }
+
     // SE-1351: a restart waits for a running backup within a bound, then goes ahead and interrupts it.
     [Fact]
     public async Task PlannedRestartWaitsForARunningBackupWithinABound()
@@ -650,6 +694,7 @@ public sealed class ClusterDeploymentTests : IDisposable
     {
         internal const string RegistrySha256 = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         internal bool RegistryBackups = true;
+        internal ClusterPhase Phase = ClusterPhase.Serving;
         internal readonly List<string> Calls = [];
         internal OnlineGatewayHandler(Handler hosts) => hosts.CaptureObserved = host => Calls.Add("host " + host);
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
@@ -663,7 +708,7 @@ public sealed class ClusterDeploymentTests : IDisposable
                 "/admin/v1/capabilities" => new AdminCapabilities("gateway", AdminScope.Manage,
                     // The current contract lists the registry copy; an older Gateway lacks it.
                     [.. AdminProtocol.Operations.Where(o => RegistryBackups || o != "POST /admin/v1/registry-backups")], new Dictionary<string, string>()),
-                "/admin/v1/status" => new ClusterStatus("demo", "world", ClusterPhase.Serving, StartupKind.Warm,
+                "/admin/v1/status" => new ClusterStatus("demo", "world", Phase, StartupKind.Warm,
                     null, null, false, false, [], new(0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0), new(null, 0, 0, default), [], [], true,
                     AdminHealth.Healthy, [], DateTimeOffset.UtcNow, "revision", true),
                 "/admin/v1/save-all" => Done("save-all", new() { ["snapshotId"] = "save-all-1" }),
@@ -1823,6 +1868,7 @@ public sealed class ClusterDeploymentTests : IDisposable
         private readonly Dictionary<string, string> active = [];
         internal readonly List<string> Applied = [];
         internal int FailCaptures;
+        internal bool FailReleases;
         internal Action<string>? CaptureObserved;
         internal readonly List<(string Host, HostSnapshotRequest Request)> Captures = [];
         internal byte[] Archive = [1, 2, 3]; // what each Host's snapshot download returns
@@ -1848,6 +1894,7 @@ public sealed class ClusterDeploymentTests : IDisposable
                     data = new HostSnapshot("demo", host, capture.SnapshotId, "revision", capture.ExpectedBundleManifestSha256,
                         Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(archive)), archive.Length);
                 }
+                else if (request.Method == HttpMethod.Delete && FailReleases) throw new TaskCanceledException("Host busy");
                 else data = new { };
             }
             else if (request.Method == HttpMethod.Delete && request.RequestUri.AbsolutePath == HostProtocol.ClusterRoute("demo"))

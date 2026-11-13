@@ -214,6 +214,12 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             {
                 rule.LastBackupUtc = List(cluster.UniqueName).Where(b => b.Automatic).Select(b => (DateTimeOffset?)b.CreatedAt).FirstOrDefault();
                 if (!AutomaticBackupService.IsDue(rule, DateTimeOffset.UtcNow)) continue;
+                // SE-1405: a cluster that is starting or stopping is not a failed backup. Wait for it to serve.
+                if (online && (await gateway.GetStatusAsync(cluster, token)).Data.Phase is var phase && phase != Admin.ClusterPhase.Serving)
+                {
+                    logger?.LogInformation("Scheduled backup of cluster {Cluster} waits: the cluster is {Phase}.", cluster.UniqueName, phase);
+                    continue;
+                }
                 // SE-1349: nothing changes a stopped cluster without changing its lifecycle, so the newest backup
                 // of this same stop already holds what another one would.
                 if (offline && List(cluster.UniqueName).FirstOrDefault(b => b.Automatic) is { } newest
@@ -418,7 +424,14 @@ public sealed class ClusterBackupService(ClusterCatalog catalog, ClusterHostClie
             Verify(staging, cluster.UniqueName);
             Directory.Move(staging, destination);
             stored = true;
-            await ReleaseHostCopiesAsync(backup, token);
+            // SE-1405: the backup is complete here. A Host busy with a stop or another capture must not fail it;
+            // the Host removes an unreleased copy itself after a day.
+            try { await ReleaseHostCopiesAsync(backup, token); }
+            catch (ClusterHostException error)
+            {
+                logger?.LogWarning("Online backup {Snapshot} of cluster {Cluster} is stored, but a Host kept its copy: {Message}",
+                    backup.SnapshotId, cluster.UniqueName, error.Message);
+            }
             return backup;
         }
         // SE-1351: a Quasar stop can break the Host request before the token says so (a tunnel closing), which
