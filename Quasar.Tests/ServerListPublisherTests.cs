@@ -7,6 +7,7 @@ using System.Text.Json;
 using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -40,7 +41,7 @@ public sealed class ServerListPublisherTests : IDisposable
 
     private ServerListPublisher Publisher(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? send = null,
         Func<CancellationToken, Task<IReadOnlyList<ServerListListing>>>? collect = null, ServerListSettingsCatalog? settings = null,
-        bool enabled = true)
+        bool enabled = true, ILogger<ServerListPublisher>? logger = null)
     {
         var http = new HttpClient(new Handler(async (request, token) =>
         {
@@ -62,7 +63,7 @@ public sealed class ServerListPublisherTests : IDisposable
             return Task.FromResult<IReadOnlyList<ServerListListing>>(settings is not null
                 ? options.Listings.Where(e => e.Enabled).Select(ServerListProtocol.Unknown).ToArray()
                 : [new(Guid.NewGuid().ToString("N"), "Public server", "play.example", 27016, DateTimeOffset.UtcNow, true, 3, 16, 1)]);
-        }, _root, NullLogger<ServerListPublisher>.Instance, settings, new() { Enabled = enabled });
+        }, _root, logger ?? NullLogger<ServerListPublisher>.Instance, settings, new() { Enabled = enabled });
     }
 
     private ServerListPublication Last() => JsonSerializer.Deserialize<ServerListPublication>(_sent[^1].Body, Json)!;
@@ -289,12 +290,42 @@ public sealed class ServerListPublisherTests : IDisposable
         Assert.Equal(expected ?? speed, agent.Snapshot.Metrics.SimSpeed);
     }
 
+    [Fact]
+    public async Task LogsAnOutageOnceWhenItStartsChangesAndEnds()
+    {
+        await SetAdminAsync();
+        var status = HttpStatusCode.Forbidden;
+        var logger = new RecordingLogger();
+        using var publisher = Publisher(send: (_, _) => Task.FromResult(new HttpResponseMessage(status)), logger: logger);
+        for (var i = 0; i < 5; i++) await publisher.RunOnceAsync(default);
+        status = HttpStatusCode.ServiceUnavailable;
+        for (var i = 0; i < 3; i++) await publisher.RunOnceAsync(default);
+        status = HttpStatusCode.NoContent;
+        for (var i = 0; i < 2; i++) await publisher.RunOnceAsync(default);
+        Assert.Equal(10, _sent.Count);
+        Assert.Equal([
+            (LogLevel.Warning, "Server list update deferred (HTTP 403), retrying every minute."),
+            (LogLevel.Warning, "Server list update deferred (HTTP 503), retrying every minute."),
+            (LogLevel.Information, "Server list update succeeded after deferral (HTTP 503)."),
+        ], logger.Entries.Where(e => e.Level > LogLevel.Debug));
+        Assert.Equal(6, logger.Entries.Count(e => e.Level == LogLevel.Debug));
+    }
+
     public void Dispose()
     {
         _rbac.Dispose();
         _cache.SetValue(null, _previous);
         if (Directory.Exists(_root)) Directory.Delete(_root, true);
     }
+    private sealed class RecordingLogger : ILogger<ServerListPublisher>
+    {
+        public readonly List<(LogLevel Level, string Message)> Entries = [];
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception,
+            Func<TState, Exception?, string> formatter) => Entries.Add((logLevel, formatter(state, exception)));
+    }
+
     private sealed class Handler(Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>> send) : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) => send(request, token);
