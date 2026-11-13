@@ -6,8 +6,7 @@ Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
 without a license fee or registration. The CometWorks Independent Extension
 Exception grants additional permission only to qualifying Independent Extensions.
-Read the guide in `LICENSING.md` and the binding definitions and conditions in
-`EXCEPTION.md` before relying on the exception.
+Read `LICENSING.md` for the guide and `EXCEPTION.md` for the binding terms.
 
 A plugin label, public access modifier, wrapper, network transport or separate
 process does not by itself establish independence. The exception excludes copied
