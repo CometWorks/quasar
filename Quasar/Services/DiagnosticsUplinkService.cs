@@ -110,19 +110,6 @@ public sealed class DiagnosticsUplinkService : BackgroundService
         if (!_configuredToken) _uploadToken = null;
     }
 
-    internal async Task<HttpRequestMessage?> CreateListingRequestAsync(HttpMethod method, string route, CancellationToken token)
-    {
-        if (_url is null) return null;
-        // Withdrawal uses an already-negotiated credential; it does not enroll or
-        // contact the backoffice for a new identity after diagnostic consent ends.
-        if (string.IsNullOrWhiteSpace(_uploadToken))
-        {
-            if (!_consent.GetSettings().DiagnosticsGranted) return null;
-            await EnsureEnrolledAsync(token);
-        }
-        return Request(method, route);
-    }
-
     private async Task EnsureEnrolledAsync(CancellationToken token, bool announcements = false)
     {
         await _enrollmentGate.WaitAsync(token);

@@ -36,7 +36,7 @@ Configure Quasar with these keys, or their equivalent environment variables:
 | `Quasar:Diagnostics:UploadToken` | `Quasar__Diagnostics__UploadToken` | Optional legacy credential; omit for automatic enrollment. |
 | `Quasar:Diagnostics:StorageDirectory` | `Quasar__Diagnostics__StorageDirectory` or `QUASAR_DIAGNOSTICS_DIRECTORY` | Optional absolute local directory for captured logs, dumps and encrypted queues. The `QUASAR_` alias takes precedence. |
 
-The default backoffice is `https://log.se-servers.net/`. It verifies delivery and pushes signed visibility updates to `https://se-servers.net`. Select **Publish this server** on Listings and save to opt into publication for that server; statistics-sharing consent is not required to list.
+The default diagnostics backoffice is `https://log.se-servers.net/`. Public listings are independent: select **Publish this server** on Listings and save to send signed updates directly to `https://se-servers.net`. Data-handling consent, diagnostics enrollment and logging attestation are not required; see [Server directory publication](ServerList.md).
 
 The uplink uses its default URL when none is supplied; an explicitly empty or invalid URL disables it. It negotiates a credential automatically after diagnostic consent. URLs containing credentials, query strings or fragments are rejected. Key and upload requests never follow redirects. Logs contain failure types and queue counts, not bearer credentials or archive plaintext.
 
@@ -148,4 +148,4 @@ Log batches use the same encrypted archive and central uploader as incidents. Th
 
 Collectors on Quasar and enrolled Hosts seal the first available ordinary log batch promptly after startup or a new diagnostic consent generation. Later ordinary batches are grouped for delivery every ten minutes; error and crash reports remain eligible on every existing collection/uplink poll. Local capture and its bounded retention continue between deliveries. This changes delivery cadence, not the amount of log text produced. Consent renewal still runs every 30 seconds with two-minute Host sharing leases, independently of batching. A revoked generation never shares its deferred logs under a later opt-in.
 
-Deploy the server-list one-hour snapshot acceptance first, then the matching logging-backend one-hour evidence/visibility window, before deploying this batching change. Public server-info/heartbeat updates remain every minute. `DiagnosticCollectorTests` covers the initial batch, ten-minute boundary, prompt incidents and generation changes.
+Public server-info/heartbeat updates go directly to the directory every minute, independently of diagnostic batching. `DiagnosticCollectorTests` covers the initial batch, ten-minute boundary, prompt incidents and generation changes.

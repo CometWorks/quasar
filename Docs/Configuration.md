@@ -121,9 +121,9 @@ player or server information. Memory dumps require separate consent and YES does
 not enable them. Existing statistics consent never silently grants diagnostics.
 
 The Magnetar flag changes on the next server start or restart. Server directory
-publishing reacts immediately to consent changes. Listings require explicit
-consent and independently verified logging/error-reporting availability; see
-[Server directory uplink](ServerList.md) for configuration and rollout dependencies.
+publication is independent of data-handling and diagnostic consent. A saved publish
+selection sends signed updates directly to se-servers.net; see
+[Server directory uplink](ServerList.md) for configuration and migration.
 Use **Listings**, below Discord in navigation, to select standalone servers and clusters,
 set public join addresses and save changes without a restart.
 
