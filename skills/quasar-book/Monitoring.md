@@ -273,6 +273,8 @@ Preferences are per account and apply to the page, the bell and browser push on 
 | **Metric alert cooldown (seconds)** | 300 (30 to 86,400). Minimum time between alerts for the same instance and metric. |
 | **Notify when an alerted metric recovers** | off |
 
+**Quasar UI plugin updates** includes restart reminders after successful manual or automatic updates to plugins with a Magnetar companion. A warning toast, bell/list notice and subscribed browser push tell you to load the update in Quasar, then restart game servers using the companion for functional changes and fixes to take effect. First installs, failed updates, UI-only plugins and same-revision reinstalls do not create new reminders. Reminders survive Quasar restarts and record the update rather than tracking server restarts. Push is deduplicated per installed revision and subscription; the toast appears once per UI session.
+
 Out-of-range values fail with "Check notification thresholds: ...".
 
 Metric alerts use telemetry no older than 30 seconds from running instances, including cluster nodes. Crash and health-restart alerts cover locally supervised servers only. Instance alerts are kept in memory for up to 24 hours, at most 100 per account, and are cleared when Quasar restarts or preferences are saved.

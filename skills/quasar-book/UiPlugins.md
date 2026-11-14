@@ -137,6 +137,8 @@ After a successful automatic update, Quasar restarts itself the same way as **Re
 
 To get a notice instead, enable **Quasar UI plugin updates** on the **Notifications** page. That notice lists installed plugins whose hub commit changed. See [Monitoring](Monitoring.md).
 
+That preference also enables a warning toast, bell/list notice and subscribed browser push reminder after a successful manual or automatic update to a plugin with a Magnetar companion. Load the update by restarting Quasar, then restart game servers using that companion so functional changes and fixes take effect. Quasar leaves game servers running until you restart them. First installs, failed updates, UI-only plugins and same-revision reinstalls do not create new reminders. The reminder survives Quasar restarts in `quasar-ui-plugin-install.json`. It records the update and does not clear when servers restart. Browser push is sent once per installed revision per subscription; the toast appears once per UI session.
+
 ## .NET 10 SDK
 
 Running Quasar needs only the ASP.NET Core runtime, but building UI plugins from source needs a .NET 10 SDK. Quasar looks for one in this order:
@@ -272,6 +274,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/Updates/QuasarUpdateOptions.cs`
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
+- `Quasar/Components/Layout/MainLayout.razor`
 - `Quasar/Components/Pages/UiPlugins.razor`
 - `Quasar/Components/Pages/UiPlugins.razor.css`
 - `Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor`
