@@ -649,6 +649,23 @@ public sealed class QuasarUpdateService : BackgroundService
         if (_webOptions.BootstrapUpdateUnavailableReason is { } reason) throw new InvalidOperationException(reason);
     }
 
+    public async Task<string> ResolveUpdateVersionAsync(string version, CancellationToken cancellationToken = default)
+    {
+        if (!_options.Enabled) throw new InvalidOperationException("Quasar updates are disabled in configuration.");
+        version = QuasarReleaseVersion.Normalize(version);
+        if (!QuasarUpdateJournal.IsVersion(version)) throw new ArgumentException("Select a valid Quasar release version.");
+        var releases = await GetReleasesAsync(cancellationToken);
+        var candidates = BuildCandidates(releases, _options.PackageAssetName, _webOptions.Version, requiresPrivilegedInstall: true)
+            .Where(candidate => !string.IsNullOrWhiteSpace(candidate.ChecksumDownloadUrl)).ToArray();
+        if (candidates.Any(candidate => string.Equals(candidate.Version, version, StringComparison.OrdinalIgnoreCase)))
+            return version;
+        var replacement = candidates.Where(candidate => !candidate.IsCurrent && QuasarReleaseVersion.IsNewer(candidate.Version, version))
+            .Aggregate((QuasarUpdateCandidate?)null, (latest, candidate) => latest is null
+                || QuasarReleaseVersion.IsNewer(candidate.Version, latest.Version) ? candidate : latest);
+        return replacement?.Version ?? throw new InvalidOperationException(
+            $"Quasar {version} is no longer available with a complete package and checksums. No later eligible release is available. Check Quasar releases and try again.");
+    }
+
     public async Task<QuasarUpdateOperation> UpdateAsync(string? version = null, bool retry = false, CancellationToken cancellationToken = default)
     {
         await MaintenanceGate.WaitAsync(cancellationToken);
@@ -656,12 +673,20 @@ public sealed class QuasarUpdateService : BackgroundService
         {
             using var lease = await QuasarMaintenanceLease.AcquireAsync(cancellationToken);
             if (!_options.Enabled) throw new InvalidOperationException("Quasar updates are disabled in configuration.");
+            if (retry && version is not null && QuasarUpdateJournal.Read() is { } previous
+                && !string.Equals(QuasarReleaseVersion.Normalize(version), previous.Version, StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException("The pending Quasar update changed. Review it before retrying.");
             var targetVersion = version ?? _snapshot.SelectedWebVersion;
             if (!retry && string.Equals(QuasarReleaseVersion.Normalize(targetVersion),
                     QuasarReleaseVersion.Normalize(_webOptions.Version), StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException($"Quasar {_webOptions.Version} is already installed.");
             var operation = QuasarUpdateJournal.Submit(targetVersion, retry);
-            Changed?.Invoke();
+            var candidate = _snapshot.WebReleases.FirstOrDefault(candidate => candidate.Version == operation.Version)
+                ?? new QuasarUpdateCandidate { Version = operation.Version,
+                    IsCurrent = operation.Version == _webOptions.Version, IsNewer = IsNewerVersion(operation.Version, _webOptions.Version) };
+            SetSnapshot(_snapshot with { SelectedWebVersion = operation.Version, Web = candidate,
+                WebReleases = _snapshot.WebReleases.Any(release => release.Version == operation.Version)
+                    ? _snapshot.WebReleases : _snapshot.WebReleases.Append(candidate).ToArray() });
             return operation;
         }
         finally { MaintenanceGate.Release(); }

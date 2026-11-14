@@ -46,7 +46,8 @@ public sealed class QuasarUiPluginHubCatalogService
         await _installGate.WaitAsync(cancellationToken);
         try
         {
-            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode && _webOptions.RestartCapability.CanRestart)
+            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode
+                && _webOptions.RestartCapability.CanRestart && shutdown.PendingRestartUpdate is null)
             {
                 await shutdown.RestartWorkerAsync();
                 AutomaticRestartPending = false;

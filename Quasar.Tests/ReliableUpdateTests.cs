@@ -9,9 +9,13 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Bunit;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.DependencyInjection;
+using MudBlazor;
+using MudBlazor.Services;
 using Quasar.Services;
 using Quasar.Services.Updates;
 using Quasar.Updates;
@@ -102,6 +106,103 @@ public sealed class ReliableUpdateTests : IDisposable
         Assert.Null(QuasarUpdateJournal.Read());
         Assert.Equal(0, catalog.Downloads);
     }
+
+    [Theory]
+    [InlineData("1.4.1", false, "1.4.1")]
+    [InlineData("1.3.0", false, "1.3.0")]
+    [InlineData("1.4.2", false, "1.4.10")]
+    [InlineData("1.4.2", true, "1.4.11-rc.1")]
+    public async Task ManualUpdateResolutionPreservesAvailableTargetsAndFindsTheNewestEligibleReplacement(string requested, bool prerelease, string expected)
+    {
+        using var catalog = new PackageCatalog(_root)
+        {
+            Releases = new[] { Release("1.4.3"), Release("1.3.0"), Release("1.4.1"), Release("1.4.10"),
+                Release("1.4.11-rc.1", prerelease: true), Release("1.4.12", draft: true),
+                Release("1.4.13", package: false), Release("1.4.14", checksum: false) },
+        };
+        using var updater = Create(catalog, false, includePrerelease: prerelease);
+        Assert.Equal(expected, await updater.ResolveUpdateVersionAsync(requested));
+        Assert.Null(QuasarUpdateJournal.Read());
+        Assert.Equal(0, catalog.Downloads);
+    }
+
+    [Fact]
+    public async Task MissingReleaseWithoutALaterTargetAndCatalogErrorsLeaveTheStagedOperationUntouched()
+    {
+        using var catalog = new PackageCatalog(_root) { Releases = new[] { Release("1.4.0"), Release("1.3.9") } };
+        using var updater = Create(catalog, false);
+        QuasarUpdateJournal.Write(new QuasarUpdateOperation { Version = "1.4.1", Stage = UpdateStage.Ready, ActivateWhenReady = false });
+        var staged = QuasarUpdateJournal.Read();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.ResolveUpdateVersionAsync("1.4.1"));
+        catalog.CatalogStatus = HttpStatusCode.Forbidden;
+        await Assert.ThrowsAsync<HttpRequestException>(() => updater.ResolveUpdateVersionAsync("1.4.1"));
+        Assert.Equal(staged, QuasarUpdateJournal.Read());
+        Assert.Equal(0, catalog.Downloads);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RemovedReleaseRequiresConfirmationOnUpdateAndRetry(bool retry, bool accept)
+    {
+        using var catalog = new PackageCatalog(_root) { Releases = new[] { Release("1.4.2") } };
+        using var updater = Create(catalog, false);
+        QuasarUpdateJournal.Write(new QuasarUpdateOperation { Version = "1.4.1", Stage = UpdateStage.Failed,
+            ResolvedSettings = "resolution-for-the-old-release" });
+        var failed = QuasarUpdateJournal.Read();
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var provider = context.Render<MudDialogProvider>();
+        var page = new Quasar.Components.Pages.Updates();
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        typeof(Quasar.Components.Pages.Updates).GetProperty("UpdateService", flags)!.SetValue(page, updater);
+        typeof(Quasar.Components.Pages.Updates).GetProperty("DialogService", flags)!.SetValue(page, context.Services.GetRequiredService<IDialogService>());
+        typeof(Quasar.Components.Pages.Updates).GetProperty("Snackbar", flags)!.SetValue(page, context.Services.GetRequiredService<ISnackbar>());
+        typeof(Quasar.Components.Pages.Updates).GetField("_snapshot", flags)!.SetValue(page, updater.GetSnapshot());
+        typeof(Quasar.Components.Pages.Updates).GetField("_selectedWebVersion", flags)!.SetValue(page, "1.4.1");
+        Task submission = null!;
+        await provider.InvokeAsync(() =>
+        {
+            submission = (Task)typeof(Quasar.Components.Pages.Updates).GetMethod("SubmitQuasarUpdateAsync", flags)!.Invoke(page, [retry])!;
+        });
+        provider.WaitForAssertion(() => Assert.Contains("Install Quasar 1.4.2 instead?", provider.Markup));
+        Assert.Equal(failed, QuasarUpdateJournal.Read());
+        provider.FindAll("button").Single(button => button.TextContent.Trim() == (accept ? "OK" : "Cancel")).Click();
+        await submission.WaitAsync(TimeSpan.FromSeconds(5));
+        if (accept)
+        {
+            var queued = QuasarUpdateJournal.Read()!;
+            Assert.Equal("1.4.2", queued.Version);
+            Assert.Equal(UpdateStage.Queued, queued.Stage);
+            Assert.NotEqual(failed!.Id, queued.Id);
+            Assert.Empty(queued.ResolvedSettings);
+            Assert.Equal("1.4.2", updater.GetSnapshot().SelectedWebVersion);
+            Assert.Contains(updater.GetSnapshot().WebReleases, release => release.Version == "1.4.2");
+        }
+        else Assert.Equal(failed, QuasarUpdateJournal.Read());
+        Assert.Equal(0, catalog.Downloads);
+    }
+
+    [Fact]
+    public async Task RetryCannotInstallADifferentOperationThanTheOneReviewed()
+    {
+        using var catalog = new PackageCatalog(_root);
+        using var updater = Create(catalog, false);
+        QuasarUpdateJournal.Write(new QuasarUpdateOperation { Version = "1.4.2", Stage = UpdateStage.Failed });
+        var changed = QuasarUpdateJournal.Read();
+        await Assert.ThrowsAsync<InvalidOperationException>(() => updater.UpdateAsync("1.4.1", retry: true));
+        Assert.Equal(changed, QuasarUpdateJournal.Read());
+    }
+
+    private static object Release(string version, bool prerelease = false, bool draft = false, bool package = true, bool checksum = true) => new
+    {
+        tag_name = "v" + version, prerelease, draft,
+        assets = (package ? new[] { new { name = new QuasarUpdateOptions().PackageAssetName, browser_download_url = "https://fixtures.test/package" } } : [])
+            .Concat(checksum ? [new { name = "SHA256SUMS", browser_download_url = "https://fixtures.test/SHA256SUMS" }] : []).ToArray(),
+    };
 
     [Fact]
     public async Task ManualCliStillRejectsUnverifiedPackagesWithoutAnIntermediateReleaseGate()
@@ -327,11 +428,11 @@ public sealed class ReliableUpdateTests : IDisposable
         Assert.Equal("saved-update-fixture", GitHubUpdateTokenReader.ReadSavedToken(NullLogger.Instance));
     }
 
-    private QuasarUpdateService Create(PackageCatalog catalog, bool supervised, string bootstrapVersion = "1.4.0", bool automatic = false)
+    private QuasarUpdateService Create(PackageCatalog catalog, bool supervised, string bootstrapVersion = "1.4.0", bool automatic = false, bool includePrerelease = false)
     {
         var credentials = new GitHubUpdateCredentialsCatalog(NullLogger<GitHubUpdateCredentialsCatalog>.Instance, new EphemeralDataProtectionProvider());
         _disposables.Add(credentials);
-        return new(catalog, new QuasarUpdateOptions { AutoApplyUpdates = automatic, AutoStageWebUpdates = false },
+        return new(catalog, new QuasarUpdateOptions { AutoApplyUpdates = automatic, AutoStageWebUpdates = false, IncludePrerelease = includePrerelease },
             new WebServiceOptions { Version = "1.4.0", BootstrapVersion = bootstrapVersion, LauncherToken = "fixture",
                 BootstrapUpdateUnavailableReason = supervised ? null : "No verified supervisor" }, credentials, NullLogger<QuasarUpdateService>.Instance);
     }
@@ -348,6 +449,8 @@ public sealed class ReliableUpdateTests : IDisposable
         private readonly string _checksum;
         private readonly string _asset = new QuasarUpdateOptions().PackageAssetName;
         public int Downloads;
+        public object? Releases { get; set; }
+        public HttpStatusCode CatalogStatus { get; set; } = HttpStatusCode.OK;
         public byte[] Archive => _archive;
         private readonly string _version;
         public PackageCatalog(string root, bool corruptChecksum = false, bool missingWorker = false, int protocol = 1, string packageVersion = "1.4.1", bool omitManifestFile = false, string releaseVersion = "1.4.1")
@@ -381,12 +484,12 @@ public sealed class ReliableUpdateTests : IDisposable
         {
             HttpContent content;
             if (request.RequestUri!.Host == "api.github.com")
-                content = JsonContent.Create(new[] { new { tag_name = "v" + _version, draft = false, assets = new[] {
+                content = JsonContent.Create(Releases ?? new[] { new { tag_name = "v" + _version, draft = false, assets = new[] {
                     new { name = _asset, browser_download_url = "https://fixtures.test/package" },
                     new { name = "SHA256SUMS", browser_download_url = "https://fixtures.test/SHA256SUMS" } } } });
             else if (request.RequestUri.AbsolutePath == "/SHA256SUMS") content = new StringContent(_checksum + "  " + _asset + "\n", Encoding.UTF8);
             else { Downloads++; content = new ByteArrayContent(_archive); }
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+            return Task.FromResult(new HttpResponseMessage(request.RequestUri.Host == "api.github.com" ? CatalogStatus : HttpStatusCode.OK) { Content = content });
         }
     }
 }
