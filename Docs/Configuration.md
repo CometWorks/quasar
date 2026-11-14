@@ -1536,8 +1536,11 @@ never derived from entity IDs. The v1.0.3 package does not publish this receipt;
 remains pending. `CLUSTER_NODE_EPOCH` must not be used as the Registry incarnation. Agent observation alone is not a prerequisite
 for cluster operation.
 
-Metrics, profiler samples, plugin statistics and logs use a filesystem-safe hash of
+Profiler samples, plugin statistics and logs use a filesystem-safe hash of
 cluster/slot/node/epoch. Unknown incarnations additionally include the process Agent ID.
+Chart metrics are kept per slot instead, under a hash of cluster/slot
+(`Magnetars/cluster-slot-<hash>/analytics.jsonl`), so node replacements and Quasar
+restarts keep one slot history. The Discord analytics export reports one entry per slot.
 Existing standalone history retains its original server key. Plugin configuration
 snapshots and edits are bound to a connection; reconnecting clears prior snapshots,
 and an editor from the old connection cannot apply to its replacement. The ordinary
