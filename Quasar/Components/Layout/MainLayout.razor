@@ -391,11 +391,13 @@
         if (_isShuttingDown || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanShutdownQuasar))
             return;
         var restart = WebServiceOptions.RestartCapability;
+        var pendingUpdate = ShutdownService.PendingRestartUpdate;
         var parameters = new DialogParameters
         {
             [nameof(QuasarControlDialog.IsRestartAvailable)] = restart.CanRestart,
             [nameof(QuasarControlDialog.RestartUnavailableReason)] = restart.Detail + " " + restart.Repair,
             [nameof(QuasarControlDialog.AgentOfflineShutdownSeconds)] = WebServiceOptions.AgentOfflineShutdownSeconds,
+            [nameof(QuasarControlDialog.PendingUpdateVersion)] = pendingUpdate?.Version,
         };
         var options = new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small };
         var dialog = await DialogService.ShowAsync<QuasarControlDialog>("Quasar power", parameters, options);
@@ -408,7 +410,12 @@
         switch (action)
         {
             case QuasarControlAction.RestartQuasar:
-                await RestartQuasarAsync();
+                if (pendingUpdate is not null && !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
+                {
+                    Snackbar.Add("Installing the pending Quasar update requires permission to manage security and updates.", Severity.Warning);
+                    return;
+                }
+                await RestartQuasarAsync(pendingUpdate?.Id);
                 break;
             case QuasarControlAction.ShutdownQuasar:
                 await ShutdownQuasarAsync();
@@ -419,7 +426,7 @@
         }
     }
 
-    private async Task RestartQuasarAsync()
+    private async Task RestartQuasarAsync(Guid? confirmedUpdateId)
     {
         _shutdownTitle = "Restarting Quasar";
         _isShuttingDown = true;
@@ -444,7 +451,7 @@
                 timeoutMessage = "Still waiting for Quasar. Reloading Dashboard now.",
             });
 
-            await ShutdownService.RestartWorkerAsync();
+            await ShutdownService.RestartWorkerAsync(confirmedUpdateId: confirmedUpdateId);
         }
         catch (Exception exception)
         {

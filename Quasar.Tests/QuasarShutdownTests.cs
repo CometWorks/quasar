@@ -118,6 +118,37 @@ public sealed class QuasarShutdownTests
         }));
     }
 
+    [Theory]
+    [InlineData(UpdateStage.Queued)]
+    [InlineData(UpdateStage.Ready)]
+    public async Task ConfirmedPendingUpdateCombinesActivationAndRestart(UpdateStage stage)
+    {
+        await WithNativeInstallationAsync(() => WithShutdownServiceAsync(true, async (service, lifetime, root) =>
+        {
+            WriteCapability(true, Environment.ProcessId);
+            var pending = new QuasarUpdateOperation { Version = "1.6.0.99", Stage = stage, ActivateWhenReady = false,
+                PackageDirectory = Path.Combine(root, "package"), ResolvedSettings = Path.Combine(root, "settings.json") };
+            QuasarUpdateJournal.Write(pending);
+            var saved = QuasarUpdateJournal.Read()!;
+            Assert.Equal(pending.Id, service.PendingRestartUpdate!.Id);
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestartWorkerAsync());
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.RestartWorkerAsync(confirmedUpdateId: Guid.NewGuid()));
+            Assert.Equal(saved, QuasarUpdateJournal.Read());
+            Assert.False(File.Exists(Path.Combine(root, "supervisor-state.json")));
+
+            await service.RestartWorkerAsync(confirmedUpdateId: pending.Id);
+            var operation = QuasarUpdateJournal.Read()!;
+            Assert.Equal(pending.Id, operation.Id);
+            Assert.Equal(pending.Version, operation.Version);
+            Assert.Equal(stage, operation.Stage);
+            Assert.Equal(pending.PackageDirectory, operation.PackageDirectory);
+            Assert.Equal(pending.ResolvedSettings, operation.ResolvedSettings);
+            Assert.True(operation.ActivateWhenReady);
+            Assert.False(operation.RestartOnly);
+            Assert.False(lifetime.Stopped);
+        }));
+    }
+
     [Fact]
     public async Task FailedLegacyRestartRequestLeavesWorkerRunning()
     {
@@ -158,6 +189,13 @@ public sealed class QuasarShutdownTests
             Assert.Equal(true, pending.GetValue(hub));
             Assert.Null(QuasarUpdateJournal.Read());
             WriteCapability(true, Environment.ProcessId);
+            var staged = new QuasarUpdateOperation { Version = "1.6.0.99", Stage = UpdateStage.Ready, ActivateWhenReady = false };
+            QuasarUpdateJournal.Write(staged);
+            var saved = QuasarUpdateJournal.Read();
+            await hub.RestartAfterAutomaticUpdatesAsync(service, CancellationToken.None);
+            Assert.Equal(saved, QuasarUpdateJournal.Read());
+            Assert.Equal(true, pending.GetValue(hub));
+            File.Delete(QuasarUpdateJournal.PathName);
             await hub.RestartAfterAutomaticUpdatesAsync(service, CancellationToken.None);
             var operation = QuasarUpdateJournal.Read()!;
             Assert.True(operation.RestartOnly);

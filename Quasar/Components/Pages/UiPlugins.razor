@@ -184,6 +184,8 @@
                     <MudButton Variant="Variant.Outlined"
                                Color="Color.Warning"
                                StartIcon="@Icons.Material.Filled.RestartAlt"
+                               Class="@(CanRestart ? "ui-plugin-restart-pending" : null)"
+                               aria-label="@(CanRestart ? "Restart Quasar to apply UI plugin changes" : "Restart Quasar")"
                                Disabled="@(!CanRestart)"
                                OnClick="RestartQuasarAsync">
                         Restart Quasar
@@ -688,6 +690,15 @@
         }
         if (!CanRestart) return;
 
+        var pendingUpdate = ShutdownService.PendingRestartUpdate;
+        if (pendingUpdate is not null)
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync("Update and restart Quasar?",
+                $"Quasar {pendingUpdate.Version} will also be installed during this restart. Running game servers continue to run.",
+                yesText: "Update and Restart Quasar", cancelText: "Cancel");
+            if (confirmed != true) return;
+        }
+
         _restartRequested = true;
         await InvokeAsync(StateHasChanged);
 
@@ -706,7 +717,7 @@
                 timeoutMessage = "Still waiting for Quasar. Reloading UI Plugins now.",
             });
             Snackbar.Add("Restarting Quasar. The page will reconnect when it is back.", Severity.Info);
-            await ShutdownService.RestartWorkerAsync();
+            await ShutdownService.RestartWorkerAsync(confirmedUpdateId: pendingUpdate?.Id);
         }
         catch (Exception exception)
         {

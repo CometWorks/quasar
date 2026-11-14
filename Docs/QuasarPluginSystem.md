@@ -266,8 +266,15 @@ instead of letting one plugin crash the worker during catalog construction.
 
 Install, update, and remove operations change files on disk only. The active
 plugin assembly set is still loaded at Quasar worker startup, so each operation
-requires a Quasar restart before it takes effect. When that restart is triggered
-from the UI Plugins page, the browser shows restart progress and polls
+requires a Quasar restart before it takes effect. On the UI Plugins page, the
+**Restart Quasar** button gently pulses whenever pending plugin changes can be
+applied by restarting. It stops while disabled or after a restart is requested.
+Browsers set to reduced motion show a steady highlight instead. When that restart
+would also activate a pending native Quasar update, the page warns which version
+will be installed and asks for confirmation. Cancel leaves the update unchanged.
+Automatic plugin restarts wait for that confirmation instead of activating a
+pending Quasar update silently. When a restart is triggered from the UI Plugins
+page, the browser shows restart progress and polls
 `/api/health` until the replacement worker is ready. The worker writes
 `Updates/worker-restart-request.json`; Bootstrap consumes that request, drains
 the current worker through `/api/internal/drain`, and starts the same active

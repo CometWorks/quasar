@@ -3,6 +3,26 @@
     justify-content: flex-end;
 }
 
+::deep .ui-plugin-restart-pending {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mud-palette-warning) 35%, transparent);
+    animation: ui-plugin-restart-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ui-plugin-restart-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--mud-palette-warning) 35%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    ::deep .ui-plugin-restart-pending {
+        animation: none;
+    }
+}
+
 .ui-plugin-hub-filter-row {
     display: flex;
     flex-wrap: wrap;

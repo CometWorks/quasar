@@ -48,4 +48,25 @@ public sealed class QuasarControlDialogTests
         Assert.False(result.Canceled);
         Assert.Equal(action, result.Data);
     }
+
+    [Fact]
+    public async Task RestartConfirmationWarnsBeforeApplyingThePendingUpdate()
+    {
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var provider = context.Render<MudDialogProvider>();
+        IDialogReference dialog = null!;
+        await provider.InvokeAsync(async () => dialog = await context.Services.GetRequiredService<IDialogService>()
+            .ShowAsync<QuasarControlDialog>("Quasar power", new DialogParameters
+            {
+                [nameof(QuasarControlDialog.IsRestartAvailable)] = true,
+                [nameof(QuasarControlDialog.PendingUpdateVersion)] = "1.6.0.99",
+            }));
+        provider.FindAll("button").Single(button => button.TextContent.Contains("Restart Quasar")).Click();
+        Assert.Contains("Quasar 1.6.0.99 will also be installed during this restart.", provider.Markup);
+        Assert.False(dialog.Result.IsCompleted);
+        provider.FindAll("button").Single(button => button.TextContent.Contains("Update and Restart Quasar")).Click();
+        Assert.Equal(QuasarControlAction.RestartQuasar, (await dialog.Result.WaitAsync(TimeSpan.FromSeconds(2)))!.Data);
+    }
 }

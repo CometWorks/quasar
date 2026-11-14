@@ -2,6 +2,11 @@
 
 How Quasar updates itself, how it keeps the managed Magnetar and Space Engineers Dedicated Server (DS) runtime current, and what to do when an update fails. Cluster Hosts and Docker installs have their own update paths, linked below.
 
+Quasar 1.6.1 adds the pending-plugin restart pulse, confirmation for combined
+application updates and restarts, and an **OK / Cancel** replacement offer when a
+selected release has disappeared from GitHub. See [UI plugins](UiPlugins.md) for
+the restart cue and the sections below for update confirmation and release selection.
+
 ## Direct installation and upgrades
 
 Install the current complete platform package directly. Fresh installs and upgrades
@@ -48,6 +53,7 @@ The Quasar release checks need Linux or Windows. On other platforms the Updates 
 - The current update operation: target version, stage, message, operation ID and time.
 - An appsettings.json conflict editor, when a merge failed (see below).
 - **Update Quasar**: pick a release in **Version to install** and press **Update Quasar**. The button is disabled when that release is already installed; select a different release to upgrade or roll back. **Retry update** appears when the last operation failed or is staged.
+- **A selected release was removed from GitHub**: **Update Quasar** and **Retry update** check availability again. If that release no longer has the complete platform package and checksums, a warning offers the newest later release allowed by the prerelease setting. **OK** queues a fresh operation for that version; **Cancel** leaves the old operation and selection unchanged. Available selected releases, including rollbacks, are kept. If there is no later eligible release or GitHub cannot be checked, no update is queued. The updater still checks provenance before stopping Quasar, so a release removed after confirmation can fail safely; use the button again to resolve a later version.
 - **Advanced recovery**, a collapsed panel with the command-line commands. On an old Bootstrap installation it also has **Stage legacy worker recovery** and **Activate legacy worker recovery**. They update only the web worker and do not migrate the installation.
 - **Cluster packages** (Linux, when clusters exist), the **Managed Runtime** table with **Check Magnetar** and **Check Dedicated Server**, the update switches and the GitHub token.
 
@@ -74,8 +80,9 @@ Application updates and restarts leave detached game servers running and save th
 
 ### Native service checks
 
-Updates go through the updater only when both native services are verified. Quasar checks this at startup and every 30 seconds. The power dialog and UI Plugins enable restart only when verification belongs to the current Quasar process. Missing, stale, unreadable or denied capability disables restart with repair guidance; a rejected request leaves Quasar running. Manual restart also refuses while an update is pending:
+Updates go through the updater only when both native services are verified. Quasar checks this at startup and every 30 seconds. The power dialog and UI Plugins enable restart only when verification belongs to the current Quasar process. Missing, stale, unreadable or denied capability disables restart with repair guidance; a rejected request leaves Quasar running.
 
+A pending or staged native update can be installed during a UI restart. The power dialog and UI Plugins warn which version will be installed and ask you to confirm **Update and Restart Quasar**. Cancel leaves Quasar running and the update unchanged. Confirmation requires permission to manage security and updates and applies only to the update you reviewed. The existing updater prepares and validates the package, then installs it and restarts once. Active preparation, cutover, recovery or another queued restart still prevents a second restart.
 
 - **Linux:** the main PID must belong to the configured systemd unit, the unit's executable and account must match the installation, and the unit needs `Restart=on-failure` and `KillMode=process`, with exit code 75 not counted as success. The updater unit must run the installed updater as its configured account with `Restart=on-failure`. System installs run the updater as the main account, with a polkit rule that lets that account start, stop and restart only its Quasar unit.
 - **Windows:** both services must be running, the main service must own the Quasar process, executables and accounts must match, and both services need restart-on-failure recovery that also covers reported service failures. New installs use `NT SERVICE\<service name>` virtual accounts.
@@ -137,7 +144,7 @@ Moving off a Windows Scheduled Task can need one game server restart, because ru
 
 Checks never downgrade, and they don't repeat a failed or completed operation. A settings conflict always needs an admin.
 
-UI plugin auto-updates are a separate opt-in. Plugin builds and Quasar updates share the same maintenance lock. After a successful plugin update the application restarts through verified native services or legacy Bootstrap. Missing capability pauses automatic plugin updates and leaves any automatic restart pending until a later catalog refresh sees successful verification.
+UI plugin auto-updates are a separate opt-in. Plugin builds and Quasar updates share the same maintenance lock. After a successful plugin update the application restarts through verified native services or legacy Bootstrap. Missing capability pauses automatic plugin updates and leaves any automatic restart pending until a later catalog refresh sees successful verification. A pending Quasar update also delays an automatic plugin restart so it cannot silently activate that release; an admin can confirm the combined update and restart from either restart control.
 
 ## Update settings
 
