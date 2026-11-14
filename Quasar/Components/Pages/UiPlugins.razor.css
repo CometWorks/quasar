@@ -33,10 +33,24 @@
 }
 
 .ui-plugin-description-line {
-    max-width: 28rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+@media (min-width: 961px) {
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-compact,
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-status {
+        width: 1%;
+    }
+
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-compact {
+        white-space: nowrap;
+    }
+
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-name {
+        width: 12%;
+        min-width: 10rem;
+    }
 }
 
 ::deep .ui-plugin-cell-stack {
@@ -118,11 +132,6 @@
     .ui-plugin-actions {
         justify-content: flex-start;
         flex-wrap: wrap;
-    }
-
-    .ui-plugin-description-line {
-        max-width: 100%;
-        white-space: normal;
     }
 
     .ui-plugin-hub-open-button {

@@ -224,13 +224,13 @@
             }
             else
             {
-                <MudTable T="QuasarUiPluginHubEntry" Items="@FilteredHubEntries" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                <MudTable T="QuasarUiPluginHubEntry" Items="@FilteredHubEntries" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="ui-plugin-hub-table">
                     <HeaderContent>
-                        <MudTh>Status</MudTh>
-                        <MudTh>Author</MudTh>
-                        <MudTh>Name</MudTh>
+                        <MudTh Class="ui-plugin-catalog-status">Status</MudTh>
+                        <MudTh Class="ui-plugin-catalog-compact">Author</MudTh>
+                        <MudTh Class="ui-plugin-catalog-name">Name</MudTh>
                         <MudTh>Description</MudTh>
-                        <MudTh>Version</MudTh>
+                        <MudTh Class="ui-plugin-catalog-compact">Version</MudTh>
                         <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
                     </HeaderContent>
                     <RowTemplate>
@@ -238,7 +238,7 @@
                             var installState = HubCatalog.GetInstallState(context);
                             var installDisabledReason = GetHubInstallDisabledReason(context);
                         }
-                        <MudTd DataLabel="Status">
+                        <MudTd DataLabel="Status" Class="ui-plugin-catalog-status">
                             <div class="quasar-layout quasar-gap-0">
                                 <MudChip T="string" Color="@GetHubStatusColor(context, installState)" Variant="Variant.Outlined" Size="Size.Small">
                                     @GetHubStatusText(context, installState)
@@ -249,15 +249,10 @@
                                 }
                             </div>
                         </MudTd>
-                        <MudTd DataLabel="Author">@FormatOptional(context.Author)</MudTd>
-                        <MudTd DataLabel="Name">
+                        <MudTd DataLabel="Author" Class="ui-plugin-catalog-compact">@FormatOptional(context.Author)</MudTd>
+                        <MudTd DataLabel="Name" Class="ui-plugin-catalog-name">
                             <div class="quasar-layout quasar-gap-0">
                                 <h3 class="quasar-text quasar-type-subtitle2">@GetHubDisplayName(context)</h3>
-                                <span class="quasar-text quasar-type-caption mud-text-secondary mono">@context.CatalogId</span>
-                                @if (!string.IsNullOrWhiteSpace(context.RepoId))
-                                {
-                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono">@context.RepoId</span>
-                                }
                                 @if (context.Hidden)
                                 {
                                     <span class="quasar-text quasar-type-caption mud-text-secondary">Hidden in hub</span>
@@ -279,11 +274,8 @@
                         <MudTd DataLabel="Description">
                             <p class="quasar-text quasar-type-body2 ui-plugin-description-line">@GetHubTooltipText(context)</p>
                         </MudTd>
-                        <MudTd DataLabel="Version">
-                            <div class="quasar-layout quasar-gap-0">
-                                <p class="quasar-text quasar-type-body2">@FormatOptional(context.QuasarVersion)</p>
-                                <span class="quasar-text quasar-type-caption mud-text-secondary mono">@GetHubCommitText(context)</span>
-                            </div>
+                        <MudTd DataLabel="Version" Class="ui-plugin-catalog-compact">
+                            <p class="quasar-text quasar-type-body2">@FormatOptional(context.QuasarVersion)</p>
                         </MudTd>
                         <MudTd DataLabel="" Class="quasar-actions-column">
                             <div class="ui-plugin-actions">
@@ -317,25 +309,12 @@
                                                        OnClick="@(() => RemoveHubPluginAsync(context))" />
                                     </MudTooltip>
                                 }
-                                @if (ShouldShowHubDescriptionDialog(context))
-                                {
-                                    <MudTooltip Text="Show full description">
-                                        <MudIconButton Icon="@Icons.Material.Filled.MoreHoriz"
-                                                       Color="Color.Default"
-                                                       Size="Size.Small"
-                                                       OnClick="@(() => ShowHubPluginDescriptionAsync(context))" />
-                                    </MudTooltip>
-                                }
-                                @if (!string.IsNullOrWhiteSpace(GetHubSourceUrl(context)))
-                                {
-                                    <MudTooltip Text="Open GitHub repository">
-                                        <MudIconButton Icon="@Icons.Material.Filled.OpenInNew"
-                                                       Color="Color.Default"
-                                                       Href="@GetHubSourceUrl(context)"
-                                                       Target="_blank"
-                                                       Size="Size.Small" />
-                                    </MudTooltip>
-                                }
+                                <MudTooltip Text="Show full description">
+                                    <MudIconButton Icon="@Icons.Material.Filled.MoreHoriz"
+                                                   Color="Color.Default"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => ShowHubPluginDescriptionAsync(context))" />
+                                </MudTooltip>
                             </div>
                         </MudTd>
                     </RowTemplate>
@@ -915,8 +894,11 @@
         var parameters = new DialogParameters
         {
             [nameof(PluginCatalogDescriptionDialog.DisplayName)] = GetHubDisplayName(entry),
-            [nameof(PluginCatalogDescriptionDialog.PluginId)] = string.IsNullOrWhiteSpace(entry.RepoId) ? entry.CatalogId : entry.RepoId,
-            [nameof(PluginCatalogDescriptionDialog.Description)] = string.IsNullOrWhiteSpace(entry.Description) ? "-" : entry.Description,
+            [nameof(PluginCatalogDescriptionDialog.PluginId)] = entry.CatalogId,
+            [nameof(PluginCatalogDescriptionDialog.RepoId)] = entry.RepoId,
+            [nameof(PluginCatalogDescriptionDialog.SourceUrl)] = GetHubSourceUrl(entry),
+            [nameof(PluginCatalogDescriptionDialog.Commit)] = entry.Commit,
+            [nameof(PluginCatalogDescriptionDialog.Description)] = string.IsNullOrWhiteSpace(entry.Description) ? GetHubTooltipText(entry) : entry.Description,
         };
 
         await DialogService.ShowAsync<PluginCatalogDescriptionDialog>(
@@ -1211,39 +1193,14 @@
     private static string GetHubTooltipText(QuasarUiPluginHubEntry entry)
     {
         var text = string.IsNullOrWhiteSpace(entry.Tooltip) ? entry.Description : entry.Tooltip;
-        return string.IsNullOrWhiteSpace(text) ? "-" : TruncateAtWordBoundary(text.Trim(), 160);
+        return string.IsNullOrWhiteSpace(text) ? "-" : text.Trim();
     }
-
-    private static bool ShouldShowHubDescriptionDialog(QuasarUiPluginHubEntry entry) =>
-        !string.IsNullOrWhiteSpace(entry.Description) &&
-        !string.Equals(entry.Description.Trim(), entry.Tooltip?.Trim(), StringComparison.Ordinal);
 
     private static string GetHubSourceUrl(QuasarUiPluginHubEntry entry) =>
         QuasarUiPluginHubCatalogService.GetRepositoryUrl(entry.RepoId);
 
-    private static string GetHubCommitText(QuasarUiPluginHubEntry entry)
-    {
-        if (string.IsNullOrWhiteSpace(entry.Commit))
-            return "-";
-
-        var commit = entry.Commit.Trim();
-        return commit.Length <= 12 ? commit : commit[..12];
-    }
-
     private string FormatRefreshTime(DateTimeOffset? refreshUtc) =>
         ViewerTime.Format(refreshUtc, "never");
-
-    private static string TruncateAtWordBoundary(string text, int maxLength)
-    {
-        if (text.Length <= maxLength)
-            return text;
-
-        var cutoff = text.LastIndexOf(' ', maxLength - 1);
-        if (cutoff <= 0)
-            cutoff = maxLength;
-
-        return $"{text[..cutoff].TrimEnd()}...";
-    }
 
     private static bool MatchesSearchTerms(string searchText, params string?[] values)
     {

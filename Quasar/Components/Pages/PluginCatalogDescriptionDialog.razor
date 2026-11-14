@@ -2,14 +2,39 @@
     <TitleContent>
         <div class="quasar-layout quasar-gap-0">
             <h2 class="quasar-text quasar-type-h6">@DisplayName</h2>
-            @if (!string.IsNullOrWhiteSpace(PluginId))
-            {
-                <span class="quasar-text quasar-type-caption mono" style="opacity: 0.78;">@PluginId</span>
-            }
         </div>
     </TitleContent>
     <DialogContent>
-        <p class="quasar-text quasar-type-body2" style="white-space: pre-wrap;">@Description</p>
+        <p class="quasar-text quasar-type-body2" style="white-space: normal; overflow-wrap: anywhere;">@Description</p>
+        @if (!string.IsNullOrWhiteSpace(PluginId) || !string.IsNullOrWhiteSpace(RepoId) || !string.IsNullOrWhiteSpace(Commit))
+        {
+            <dl class="plugin-catalog-description-details">
+                @if (!string.IsNullOrWhiteSpace(PluginId))
+                {
+                    <dt>Plugin ID</dt>
+                    <dd><code>@PluginId</code></dd>
+                }
+                @if (!string.IsNullOrWhiteSpace(RepoId))
+                {
+                    <dt>Repository</dt>
+                    <dd>
+                        @if (!string.IsNullOrWhiteSpace(SourceUrl))
+                        {
+                            <a href="@SourceUrl" target="_blank" rel="noopener noreferrer">@RepoId</a>
+                        }
+                        else
+                        {
+                            @RepoId
+                        }
+                    </dd>
+                }
+                @if (!string.IsNullOrWhiteSpace(Commit))
+                {
+                    <dt>Commit</dt>
+                    <dd><code>@Commit</code></dd>
+                }
+            </dl>
+        }
     </DialogContent>
     <DialogActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Close">Close</MudButton>
@@ -29,6 +54,15 @@
 
     [Parameter]
     public string Description { get; set; } = string.Empty;
+
+    [Parameter]
+    public string RepoId { get; set; } = string.Empty;
+
+    [Parameter]
+    public string SourceUrl { get; set; } = string.Empty;
+
+    [Parameter]
+    public string Commit { get; set; } = string.Empty;
 
     private void Close() => MudDialog.Close();
 }

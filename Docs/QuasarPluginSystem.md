@@ -189,6 +189,14 @@ The `/settings/ui-plugins` page now manages the QuasarHub catalog:
 - removes local plugin packages and records an opt-out from implicit reinstall
 - links back to the plugin repository and QuasarHub
 
+Catalog summaries wrap across the full description column without truncation.
+Rows keep status, author and version compact, leaving the remaining width for
+the description. The plugin GUID, repository link and full pinned commit appear
+in **Show full description** instead of below the name and version. That action
+is available for every catalog entry, even when its long description is empty.
+The full-description dialog displays plain text with normal word wrapping;
+line breaks and indentation used to format the source XML collapse into spaces.
+
 Installed UI plugin source packages live under:
 
 ```text

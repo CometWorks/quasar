@@ -62,6 +62,13 @@ Quasar refreshes QuasarHub when the worker starts and every 15 minutes, and when
 
 Recommended entries sort near the top and show a **Recommended** badge. Hidden entries sort last.
 
+Catalog descriptions wrap across the full column instead of being cut off. Use
+**Show full description** for the longer text, plugin GUID, repository link and
+full pinned commit hash. That button is available for every catalog entry. Rows
+keep status, author and version compact to leave room for the description. The
+dialog wraps text to its width and collapses the source XML's indentation and
+line breaks into spaces.
+
 ### Status column
 
 | Status | Meaning |
@@ -265,6 +272,9 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
 - `Quasar/Components/Pages/UiPlugins.razor`
+- `Quasar/Components/Pages/UiPlugins.razor.css`
+- `Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor`
+- `Quasar/Components/Pages/PluginCatalogDescriptionDialog.razor.css`
 - `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
 - `Quasar/Components/Shared/QuasarSdkAuthorization.razor.css`
 - `Quasar/Components/Pages/Notifications.razor`
