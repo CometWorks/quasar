@@ -11,6 +11,13 @@ public sealed class DiagnosticCollector
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private const long MaxLocalBytes = 8L << 30;
+
+    /// <summary>The newest heap dumps the size budget never deletes, whatever their size.</summary>
+    internal const int KeptHeapDumps = 3;
+
+    /// <summary>Free disk space below which the oldest kept heap dumps lose that protection.</summary>
+    internal const long MinFreeBytesForHeapDumps = 16L << 30;
+    private const string HeapDumpPattern = "heap-*.dmp";
     public const string HungNodeKind = "node_hung", ReadyTimeoutKind = "ready_timeout", HangEvidenceFile = "hang-evidence.txt";
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _policySync = new();
@@ -20,6 +27,8 @@ public sealed class DiagnosticCollector
     private long? _lastLogCollection;
     private long _logGeneration;
     internal TimeProvider Clock { get; init; } = TimeProvider.System;
+    internal long RunsBudgetBytes { get; init; } = MaxLocalBytes;
+    internal Func<string, long> FreeSpace { get; init; } = DiagnosticStorage.AvailableFreeSpace;
     private CancellationTokenSource _sharing = new();
     public string RootDirectory { get; }
     public string PolicyFilePath { get; }
@@ -486,10 +495,18 @@ public sealed class DiagnosticCollector
     private static bool DumpAllowed(CaptureRun run, HostDiagnosticPolicy policy) => policy.DumpsGranted
         && run.Context.GetValueOrDefault("dumpsGrantedAtStart") == "true"
         && run.Context.GetValueOrDefault("dumpConsentGeneration") == policy.Generation.ToString();
-    private static void TrimRuns(string runs)
+    private void TrimRuns(string runs)
     {
         var directories = Directory.GetDirectories(runs).Select(p => new DirectoryInfo(p)).OrderBy(p => p.CreationTimeUtc).ToArray();
-        long bytes = directories.Sum(p => p.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length));
+        // A heap dump is larger than the whole budget, so the budget alone would delete it as soon as its run ends.
+        var kept = directories
+            .SelectMany(p => p.EnumerateFiles(HeapDumpPattern, SearchOption.AllDirectories))
+            .OrderByDescending(f => f.LastWriteTimeUtc)
+            .Take(KeptHeapDumps)
+            .ToList();
+        long free = FreeSpace(RootDirectory);
+        for (; kept.Count > 0 && free < MinFreeBytesForHeapDumps; kept.RemoveAt(kept.Count - 1)) free += kept[^1].Length;
+        long bytes = directories.Sum(p => p.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length)) - kept.Sum(f => f.Length);
         foreach (var directory in directories)
         {
             CaptureRun? run;
@@ -499,16 +516,19 @@ public sealed class DiagnosticCollector
             {
                 if (DateTime.UtcNow - directory.LastWriteTimeUtc > TimeSpan.FromDays(7))
                 {
-                    bytes -= directory.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+                    bytes -= Unkept(directory);
                     directory.Delete(true);
                 }
                 continue;
             }
             if (run.EndedAtUtc is null) continue;
-            if (bytes <= MaxLocalBytes && DateTimeOffset.UtcNow - run.EndedAtUtc < TimeSpan.FromDays(7)) continue;
-            bytes -= directory.EnumerateFiles("*", SearchOption.AllDirectories).Sum(f => f.Length);
+            if (DateTimeOffset.UtcNow - run.EndedAtUtc < TimeSpan.FromDays(7)
+                && (bytes <= RunsBudgetBytes || kept.Any(f => f.FullName.StartsWith(directory.FullName + Path.DirectorySeparatorChar, StringComparison.Ordinal)))) continue;
+            bytes -= Unkept(directory);
             directory.Delete(true);
         }
+        long Unkept(DirectoryInfo directory) => directory.EnumerateFiles("*", SearchOption.AllDirectories)
+            .Where(f => kept.All(k => k.FullName != f.FullName)).Sum(f => f.Length);
     }
     public static void PrivateDirectory(string path)
     {
