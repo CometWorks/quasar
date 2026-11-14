@@ -49,9 +49,9 @@ public sealed class ClusterTelemetryGateTests
         using var metrics = new MetricsStoreService(null!, new AnalyticsStoreOptions(), NullLogger<MetricsStoreService>.Instance);
         var registry = new AgentRegistry(null!, metrics, new ProfilerStoreService(), new PluginStatsStoreService());
         AgentSnapshot Snapshot(string id, bool paused) => new()
-        { AgentId = id, UniqueName = "slot-server", ClusterMode = true, ClusterId = "c", ClusterSlot = "s", ClusterNodeId = id, ClusterEpoch = 1, TelemetryPaused = paused };
+        { AgentId = id, UniqueName = "slot-server", ClusterMode = true, ClusterId = "c", ClusterSlot = id, ClusterNodeId = id, ClusterEpoch = 1, TelemetryPaused = paused };
         foreach (var id in new[] { "spare", "active" })
-            registry.UpsertHello(new AgentHello { AgentId = id, UniqueName = "slot-server", ClusterMode = true, ClusterId = "c", ClusterSlot = "s", ClusterNodeId = id, ClusterEpoch = 1 },
+            registry.UpsertHello(new AgentHello { AgentId = id, UniqueName = "slot-server", ClusterMode = true, ClusterId = "c", ClusterSlot = id, ClusterNodeId = id, ClusterEpoch = 1 },
                 id, (_, _) => Task.CompletedTask);
 
         registry.UpdateSnapshot(Snapshot("spare", true), "spare");
@@ -59,10 +59,10 @@ public sealed class ClusterTelemetryGateTests
 
         var agents = registry.GetAgents().ToDictionary(a => a.AgentId);
         Assert.NotNull(agents["spare"].Snapshot);
-        Assert.Equal([agents["active"].TelemetryKey], metrics.GetUniqueNames());
+        Assert.Equal([agents["active"].AnalyticsKey], metrics.GetUniqueNames());
 
         registry.UpdateSnapshot(Snapshot("spare", false), "spare");
-        Assert.Contains(agents["spare"].TelemetryKey, metrics.GetUniqueNames());
+        Assert.Contains(agents["spare"].AnalyticsKey, metrics.GetUniqueNames());
     }
 
     private sealed class FakeProvider : IPluginClusterProvider

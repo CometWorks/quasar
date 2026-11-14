@@ -23,6 +23,7 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
     private const string RawBucket = "r";
     private const string OneMinuteBucket = "m";
     private const string OneHourBucket = "h";
+    internal const string ClusterSlotKeyPrefix = "cluster-slot-";
 
     private readonly DedicatedServerCatalog _catalog;
     private readonly AnalyticsStoreOptions _analyticsStoreOptions;
@@ -75,11 +76,11 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        foreach (var server in _catalog.GetServers())
+        foreach (var uniqueName in _catalog.GetServers().Select(server => server.UniqueName).Concat(GetPersistedClusterSlotKeys()))
         {
-            var store = GetOrCreateStore(server.UniqueName);
-            var progress = _persistProgress.GetOrAdd(server.UniqueName, _ => new PersistProgress());
-            await TryLoadFromDiskAsync(server.UniqueName, store, progress, cancellationToken);
+            var store = GetOrCreateStore(uniqueName);
+            var progress = _persistProgress.GetOrAdd(uniqueName, _ => new PersistProgress());
+            await TryLoadFromDiskAsync(uniqueName, store, progress, cancellationToken);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -201,6 +202,20 @@ public sealed class MetricsStoreService : IHostedService, IDisposable
         catch
         {
         }
+    }
+
+    // Cluster slots have no catalog entry; their history is found by its folder (AgentRuntimeState.AnalyticsKey).
+    private static IEnumerable<string> GetPersistedClusterSlotKeys()
+    {
+        var directory = MagnetarPaths.GetQuasarServersDirectory();
+        if (!Directory.Exists(directory))
+            return [];
+
+        return Directory.EnumerateDirectories(directory, ClusterSlotKeyPrefix + "*")
+            .Select(Path.GetFileName)
+            .Where(name => name is not null && File.Exists(MagnetarPaths.GetQuasarServerAnalyticsPath(name)))
+            .Select(name => name!)
+            .ToList();
     }
 
     private ServerMetricsStore GetOrCreateStore(string uniqueName)

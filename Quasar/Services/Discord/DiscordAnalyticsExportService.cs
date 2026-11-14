@@ -72,8 +72,8 @@ public sealed class DiscordAnalyticsExportService
         try
         {
             var targets = serverOptions.IsCluster
-                ? (_clusters?.GetAgents(serverOptions) ?? []).Select(a => (Key: a.TelemetryKey,
-                    Label: $"{serverOptions.UniqueName}/{a.ClusterNodeId}/{a.ClusterEpoch}")).ToArray()
+                ? (_clusters?.GetAgents(serverOptions) ?? []).DistinctBy(a => a.AnalyticsKey, StringComparer.OrdinalIgnoreCase)
+                    .Select(a => (Key: a.AnalyticsKey, Label: $"{serverOptions.UniqueName}/{a.ClusterSlot}")).ToArray()
                 : [(Key: serverOptions.UniqueName, Label: serverOptions.UniqueName)];
             foreach (var target in targets)
             {

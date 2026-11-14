@@ -143,7 +143,7 @@ Quasar keeps three tiers per server:
 
 Retention defaults to 30 days. Allowed values are 30, 45, 60 and 90; any other value falls back to 30. Set it with `QUASAR_ANALYTICS_RETENTION_DAYS`, `Quasar:AnalyticsRetentionDays` or `Quasar:Analytics:RetentionDays` (checked in that order) and restart Quasar.
 
-History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts. Old entries without simulation CPU show as gaps. Profiler and plugin statistics are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
+History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`, and per cluster slot in `<data dir>/Magnetars/cluster-slot-<hash>/analytics.jsonl`. A slot keeps one history while its node is replaced or restarted. Earlier Quasar versions kept cluster history per node process (`cluster-<hash>` folders); those folders are no longer read and can be deleted. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts, so the charts show the stored history as soon as a page opens. Old entries without simulation CPU show as gaps. Profiler and plugin statistics are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
 
 ### Profiler mode
 

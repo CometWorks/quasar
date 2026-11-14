@@ -145,6 +145,7 @@ public sealed class AgentRegistry
     {
         AgentSnapshot latestSnapshot;
         string telemetryKey;
+        string analyticsKey;
 
         lock (_sync)
         {
@@ -164,13 +165,16 @@ public sealed class AgentRegistry
             state.LastSnapshotReceivedUtc = DateTimeOffset.UtcNow;
             latestSnapshot = state.Snapshot;
             telemetryKey = state.TelemetryKey;
+            analyticsKey = state.AnalyticsKey;
         }
 
         if (!latestSnapshot.ClusterMode) _knownPlayers.ObserveSnapshot(latestSnapshot);
         if (!string.IsNullOrWhiteSpace(snapshot.UniqueName) && !snapshot.TelemetryPaused)
         {
             var sample = MetricSampleFactory.FromSnapshot(snapshot);
-            _metricsStore.Enqueue(telemetryKey, in sample);
+            // Chart metrics are kept per cluster slot, not per node process: a slot's node is recycled
+            // every few minutes, and one history per slot survives that and Quasar restarts.
+            _metricsStore.Enqueue(analyticsKey, in sample);
 
             if (snapshot.Profiler is not null)
                 _profilerStore.Enqueue(telemetryKey, snapshot.Profiler);
@@ -443,13 +447,14 @@ public sealed class AgentRegistry
     }
 
     // Maps Analytics source keys (AgentRuntimeState.AnalyticsKey) to the telemetry keys they merge: a
-    // cluster slot covers every node instance and epoch that served it. Other keys map to themselves.
+    // cluster slot covers every node instance and epoch that served it. Every key also maps to itself,
+    // where the metrics store keeps the slot's chart history.
     public IReadOnlyDictionary<string, IReadOnlyList<string>> ExpandAnalyticsKeys(IEnumerable<string> analyticsKeys)
     {
         var expanded = analyticsKeys
             .Where(key => !string.IsNullOrWhiteSpace(key))
             .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToDictionary(key => key, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+            .ToDictionary(key => key, key => new List<string> { key }, StringComparer.OrdinalIgnoreCase);
         lock (_sync)
         {
             foreach (var state in _agents.Values)
@@ -462,7 +467,7 @@ public sealed class AgentRegistry
 
         return expanded.ToDictionary(
             pair => pair.Key,
-            pair => (IReadOnlyList<string>)(pair.Value.Count > 0 ? pair.Value : [pair.Key]),
+            pair => (IReadOnlyList<string>)pair.Value,
             StringComparer.OrdinalIgnoreCase);
     }
 
@@ -531,7 +536,7 @@ public sealed class AgentRuntimeState
 
     // Analytics charts a cluster slot as one source, so its node instances and epochs share this key.
     public string AnalyticsKey => !IsCluster || ClusterId.Length == 0 || ClusterSlot.Length == 0 ? TelemetryKey
-        : "cluster-slot-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
+        : MetricsStoreService.ClusterSlotKeyPrefix + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { ClusterId, ClusterSlot }))).ToLowerInvariant();
 
     public string UniqueNameKey => Snapshot?.UniqueName ?? Hello?.UniqueName ?? ServerKey;
