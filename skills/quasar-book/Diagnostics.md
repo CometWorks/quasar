@@ -112,7 +112,7 @@ Details:
 | --- | --- |
 | Quasar outbound queue (`outbound/`) | 128 reports, 8 GiB, 7 days |
 | Sealed reports waiting on a machine (`incoming/`) | 256 reports, 8 GiB, 7 days. Log batches can fill at most 192 of the 256 slots so incidents always have room. |
-| Finished process runs (`runs/`) | Kept 7 days, cleanup target 8 GiB. A running process keeps its run folder until it exits. |
+| Finished process runs (`runs/`) | Kept 7 days, cleanup target 8 GiB. A running process keeps its run folder until it exits. The 3 newest heap dumps (`heap-*.dmp`) are kept on top of the 8 GiB for those 7 days, whatever their size, unless the disk has less than 16 GiB free. |
 
 Collection pauses when free disk space on the storage drive is less than the estimated archive size plus 1 GiB.
 
