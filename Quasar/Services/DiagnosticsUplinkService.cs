@@ -31,6 +31,10 @@ public sealed class DiagnosticsUplinkService : BackgroundService
     private long _generation;
     private bool _disposed;
     private HostContract.HostDiagnosticPolicy? _policy;
+    // Store-wide refusals (507 full store, 429 busy) pause all uploads; collection and handover continue.
+    private DateTimeOffset _uploadsPausedUntilUtc;
+    private TimeSpan _storageBackoff;
+    internal DateTimeOffset UploadsPausedUntilUtc { get => _uploadsPausedUntilUtc; set => _uploadsPausedUntilUtc = value; }
     public string StateDirectory { get; }
     private readonly string _storageDirectory;
     public string InstallationId { get; }
@@ -411,6 +415,7 @@ public sealed class DiagnosticsUplinkService : BackgroundService
 
     private async Task UploadPendingAsync(DataHandlingConsentSettings consent, CancellationToken token)
     {
+        if (DateTimeOffset.UtcNow < _uploadsPausedUntilUtc) return;
         foreach (string metadata in Directory.EnumerateFiles(SpoolDirectory, "*.json"))
         {
             token.ThrowIfCancellationRequested();
@@ -441,17 +446,43 @@ public sealed class DiagnosticsUplinkService : BackgroundService
             }
             using var response = await sending;
             if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized && !_configuredToken) _uploadToken = null;
+            // A full store refuses every report, so trying the rest of the queue only re-sends archives.
+            if (response.StatusCode == System.Net.HttpStatusCode.InsufficientStorage)
+            {
+                _storageBackoff = _storageBackoff == TimeSpan.Zero ? TimeSpan.FromMinutes(1)
+                    : TimeSpan.FromTicks(Math.Min(_storageBackoff.Ticks * 2, TimeSpan.FromHours(1).Ticks));
+                var delay = RetryAfter(response) ?? _storageBackoff;
+                _uploadsPausedUntilUtc = DateTimeOffset.UtcNow + delay;
+                _logger.LogWarning("Diagnostic backoffice storage is full (507); queued reports stay queued, next upload in {Minutes:0.#} min.",
+                    delay.TotalMinutes);
+                return;
+            }
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                _uploadsPausedUntilUtc = DateTimeOffset.UtcNow + (RetryAfter(response) ?? TimeSpan.FromSeconds(30));
+                _logger.LogDebug("Diagnostic backoffice busy (429); uploads resume after its Retry-After.");
+                return;
+            }
             // A report-specific rejection must not hold the rest of the durable queue hostage.
             // Keep the original evidence for retry until normal retention/consent cleanup.
-            if ((int)response.StatusCode is 400 or 409 or 413 or 415 or 422 or 507)
+            if ((int)response.StatusCode is 400 or 409 or 413 or 415 or 422)
             {
                 _logger.LogWarning("Diagnostic report {ReportId} remains queued after backoffice status {StatusCode}.",
                     envelope.ReportId, (int)response.StatusCode);
                 continue;
             }
             response.EnsureSuccessStatusCode();
+            _storageBackoff = TimeSpan.Zero;
             lock (_sync) { TryDelete(metadata); TryDelete(archive); }
         }
+    }
+
+    // Bounded so a hostile or broken server cannot silence the uplink for days.
+    private static TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        var header = response.Headers.RetryAfter;
+        var delay = header?.Delta ?? header?.Date - DateTimeOffset.UtcNow;
+        return delay is { } value ? TimeSpan.FromTicks(Math.Clamp(value.Ticks, TimeSpan.FromSeconds(30).Ticks, TimeSpan.FromHours(1).Ticks)) : null;
     }
 
     private static bool Allowed(ReportEnvelope envelope, DataHandlingConsentSettings consent) =>

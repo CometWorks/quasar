@@ -286,7 +286,6 @@ public sealed class DiagnosticsUplinkTests : IDisposable
     [InlineData(413)]
     [InlineData(415)]
     [InlineData(422)]
-    [InlineData(507)]
     public async Task RejectedBackendReportRetainsEvidenceAndAllowsLaterDelivery(int status)
     {
         using var consent = Catalog(Path.Combine(_root, "consent.json"));
@@ -319,6 +318,83 @@ public sealed class DiagnosticsUplinkTests : IDisposable
         Assert.Equal(bytes, await File.ReadAllBytesAsync(Path.Combine(service.SpoolDirectory, rejected + ".zip")));
         await service.PollOnceAsync(default);
         Assert.Equal(rejected, attempts.Last());
+        Assert.Single(Directory.GetFiles(service.SpoolDirectory, "*.json"));
+    }
+
+    [Theory]
+    [InlineData(507, 900, 900)]
+    [InlineData(507, null, 60)]
+    [InlineData(429, 30, 30)]
+    [InlineData(429, null, 30)]
+    public async Task StoreWideRefusalPausesUploadsUntilRetryAfterThenDrainsQueue(int status, int? retryAfter, int expectedSeconds)
+    {
+        using var consent = Catalog(Path.Combine(_root, "consent.json"));
+        await consent.SaveAsync(true, true, false);
+        using var rsa = RSA.Create(3072);
+        var key = new BackofficeKey(DiagnosticsProtocol.KeyId(rsa), rsa.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1));
+        var hosts = Hosts(out var credentials);
+        int attempts = 0;
+        bool refuse = true;
+        var backend = new HttpClient(new Handler((request, _) =>
+        {
+            if (request.Method == HttpMethod.Get)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(key) });
+            attempts++;
+            if (!refuse) return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Created));
+            var response = new HttpResponseMessage((HttpStatusCode)status);
+            if (retryAfter is { } seconds) response.Headers.RetryAfter = new(TimeSpan.FromSeconds(seconds));
+            return Task.FromResult(response);
+        }));
+        using var service = Service(consent, hosts, credentials, new Handler((_, _) => throw new Exception("No hosts expected")), backend);
+        byte[] bytes = [1, 2, 3];
+        for (int i = 0; i < 3; i++)
+        {
+            var envelope = Envelope(bytes, key.KeyId, consent.GetSettings().Generation);
+            await File.WriteAllBytesAsync(Path.Combine(service.SpoolDirectory, envelope.ReportId + ".zip"), bytes);
+            await File.WriteAllTextAsync(Path.Combine(service.SpoolDirectory, envelope.ReportId + ".json"), JsonSerializer.Serialize(envelope));
+        }
+
+        var before = DateTimeOffset.UtcNow;
+        await service.PollOnceAsync(default);
+        Assert.Equal(1, attempts);
+        Assert.Equal(3, Directory.GetFiles(service.SpoolDirectory, "*.json").Length);
+        Assert.InRange(service.UploadsPausedUntilUtc, before.AddSeconds(expectedSeconds), DateTimeOffset.UtcNow.AddSeconds(expectedSeconds));
+
+        await service.PollOnceAsync(default);
+        Assert.Equal(1, attempts);
+
+        refuse = false;
+        service.UploadsPausedUntilUtc = DateTimeOffset.UtcNow.AddSeconds(-1);
+        await service.PollOnceAsync(default);
+        Assert.Equal(4, attempts);
+        Assert.Empty(Directory.GetFiles(service.SpoolDirectory));
+    }
+
+    [Fact]
+    public async Task RepeatedFullStoreWithoutRetryAfterDoublesTheBackoffUpToOneHour()
+    {
+        using var consent = Catalog(Path.Combine(_root, "consent.json"));
+        await consent.SaveAsync(true, true, false);
+        using var rsa = RSA.Create(3072);
+        var key = new BackofficeKey(DiagnosticsProtocol.KeyId(rsa), rsa.ExportSubjectPublicKeyInfoPem(), DateTimeOffset.UtcNow.AddDays(1));
+        var hosts = Hosts(out var credentials);
+        var backend = new HttpClient(new Handler((request, _) => Task.FromResult(request.Method == HttpMethod.Get
+            ? new HttpResponseMessage(HttpStatusCode.OK) { Content = JsonContent.Create(key) }
+            : new HttpResponseMessage(HttpStatusCode.InsufficientStorage))));
+        using var service = Service(consent, hosts, credentials, new Handler((_, _) => throw new Exception("No hosts expected")), backend);
+        byte[] bytes = [1, 2, 3];
+        var envelope = Envelope(bytes, key.KeyId, consent.GetSettings().Generation);
+        await File.WriteAllBytesAsync(Path.Combine(service.SpoolDirectory, envelope.ReportId + ".zip"), bytes);
+        await File.WriteAllTextAsync(Path.Combine(service.SpoolDirectory, envelope.ReportId + ".json"), JsonSerializer.Serialize(envelope));
+        var pauses = new List<double>();
+        for (int i = 0; i < 8; i++)
+        {
+            service.UploadsPausedUntilUtc = DateTimeOffset.UtcNow.AddSeconds(-1);
+            var before = DateTimeOffset.UtcNow;
+            await service.PollOnceAsync(default);
+            pauses.Add(Math.Round((service.UploadsPausedUntilUtc - before).TotalMinutes));
+        }
+        Assert.Equal(new double[] { 1, 2, 4, 8, 16, 32, 60, 60 }, pauses);
         Assert.Single(Directory.GetFiles(service.SpoolDirectory, "*.json"));
     }
 
