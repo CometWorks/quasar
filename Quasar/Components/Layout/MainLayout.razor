@@ -138,6 +138,7 @@
     private bool _shutdownFailed;
     private bool _disposed;
     private string _lastUpdateNotice = string.Empty;
+    private readonly HashSet<string> _companionRestartToasts = new(StringComparer.Ordinal);
     private string _lastClusterNotice = string.Empty;
     private QuasarUpdateSnapshot _updateSnapshot = new();
     private ClusterReleaseSnapshot _clusterReleaseSnapshot = new(null, null, null);
@@ -253,6 +254,9 @@
     {
         try { _notices = await Notifications.GetNoticesAsync(_currentUser ?? new System.Security.Claims.ClaimsPrincipal()); }
         catch (Exception) { _notices = []; }
+        foreach (var notice in _notices.Where(notice => notice.Key.StartsWith(UpdateNotices.CompanionRestartKeyPrefix, StringComparison.Ordinal)))
+            if (_companionRestartToasts.Add(notice.Key))
+                Snackbar.Add(notice.Body, Severity.Warning);
     }
 
     private void OnClusterReleasesChanged()

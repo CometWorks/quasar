@@ -146,6 +146,8 @@ Checks never downgrade, and they don't repeat a failed or completed operation. A
 
 UI plugin auto-updates are a separate opt-in. Plugin builds and Quasar updates share the same maintenance lock. After a successful plugin update the application restarts through verified native services or legacy Bootstrap. Missing capability pauses automatic plugin updates and leaves any automatic restart pending until a later catalog refresh sees successful verification. A pending Quasar update also delays an automatic plugin restart so it cannot silently activate that release; an admin can confirm the combined update and restart from either restart control.
 
+When an updated UI plugin has a Magnetar companion, restart game servers using that companion after loading the update in Quasar so functional changes and fixes take effect. Admins who enable **Quasar UI plugin updates** on **Notifications** receive a warning toast, bell/list notice and subscribed browser push reminder for successful manual and automatic updates. See [UI plugins](UiPlugins.md#automatic-updates).
+
 ## Update settings
 
 All keys live under `Quasar:Updates` in the data directory's `appsettings.json`. Environment variables override them.

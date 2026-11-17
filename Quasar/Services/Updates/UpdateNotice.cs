@@ -16,6 +16,8 @@ public sealed record UpdateNotice(string Key, string Title, string Body, string 
 
 internal static class UpdateNotices
 {
+    internal const string CompanionRestartKeyPrefix = "ui-plugin-companion:";
+
     internal static IEnumerable<UpdateNotice> UiPlugins(IEnumerable<QuasarUiPluginHubEntry> entries,
         Func<QuasarUiPluginHubEntry, QuasarUiPluginInstallState> state, ClaimsPrincipal user)
     {
@@ -23,6 +25,11 @@ internal static class UpdateNotices
         foreach (var entry in entries.OrderBy(e => e.CatalogId, StringComparer.Ordinal))
         {
             var installed = state(entry);
+            if (installed.Installed && installed.CompanionUpdatedAtUtc is { } updatedAt)
+                yield return new(CompanionRestartKeyPrefix + entry.CatalogId + ":" + installed.InstalledCommit.ToLowerInvariant(),
+                    "UI plugin updated: restart game servers",
+                    $"{entry.FriendlyName} was updated and has a Magnetar companion. After loading the update in Quasar, restart game servers using that companion for functional changes and fixes to take effect.",
+                    "/settings/ui-plugins", updatedAt, "warning");
             if (!QuasarUiPluginHubCatalogService.HasUpdate(entry, installed)) continue;
             yield return new("ui-plugin:" + entry.CatalogId + ":" + entry.Commit,
                 "Quasar UI plugin update available", $"{entry.FriendlyName} has a new catalog revision. Open UI Plugins to review it.",

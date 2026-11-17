@@ -4,6 +4,7 @@ using System.Text.Json;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Quasar.Plugin.Abstractions.Manifests;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Quasar.Services.Plugins;
@@ -63,6 +64,61 @@ public sealed class AutomaticUpdateTests
         Assert.Empty(UpdateNotices.UiPlugins([entry], _ => state, new ClaimsPrincipal(new ClaimsIdentity([], "test"))));
         state.InstalledCommit = entry.Commit;
         Assert.Empty(UpdateNotices.UiPlugins([entry], _ => state, admin));
+    }
+
+    [Theory]
+    [InlineData(null, true, false, false)] // First install.
+    [InlineData("next", true, false, false)] // Reinstall.
+    [InlineData("old", false, false, false)] // UI-only update.
+    [InlineData("old", true, false, true)] // Package companion.
+    [InlineData("old", false, true, true)] // Catalog companion.
+    public async Task CompanionUpdateReminderIsRecordedOnlyForAnUpdatedCompanionPackage(
+        string? previousCommit, bool packageCompanion, bool catalogCompanion, bool expected)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "quasar-companion-notice-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        try
+        {
+            var entry = new QuasarUiPluginHubEntry
+            {
+                CatalogId = "viewer", Commit = "next", FriendlyName = "Entity Viewer",
+                CompanionPluginIds = catalogCompanion ? ["companion"] : [],
+            };
+            var manifest = new QuasarPluginManifest
+            {
+                Id = "viewer", DisplayName = "Entity Viewer", Version = "1.0", EntryAssembly = "Viewer.dll",
+                EntryType = "Viewer.Plugin", ProjectPath = "Viewer.csproj",
+                CompanionPluginManifests = packageCompanion ? [new() { Id = "companion" }] : [],
+            };
+            await QuasarUiPluginHubCatalogService.WriteInstallMetadataAsync(directory, entry, manifest,
+                previousCommit is null ? null : new() { Commit = previousCommit }, CancellationToken.None);
+            var metadata = QuasarUiPluginHubCatalogService.ReadInstallMetadata(directory)!;
+            Assert.Equal(expected, metadata.CompanionUpdatedAtUtc.HasValue);
+
+            // A reinstall preserves the original reminder and push receipt key across worker restarts.
+            await QuasarUiPluginHubCatalogService.WriteInstallMetadataAsync(directory, entry, manifest, metadata, CancellationToken.None);
+            var reloaded = QuasarUiPluginHubCatalogService.ReadInstallMetadata(directory)!;
+            Assert.Equal(metadata.CompanionUpdatedAtUtc, reloaded.CompanionUpdatedAtUtc);
+            var state = new QuasarUiPluginInstallState
+            {
+                Installed = true, InstalledCommit = reloaded.Commit, CompanionUpdatedAtUtc = reloaded.CompanionUpdatedAtUtc,
+            };
+            var admin = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, QuasarRoles.Admin)], "test"));
+            var notices = UpdateNotices.UiPlugins([entry], _ => state, admin).ToArray();
+            Assert.Empty(UpdateNotices.UiPlugins([entry], _ => state, new ClaimsPrincipal()));
+            if (!expected) { Assert.Empty(notices); return; }
+            var notice = Assert.Single(notices);
+            Assert.Equal("ui-plugin-companion:viewer:next", notice.Key);
+            Assert.Equal("warning", notice.Severity);
+            Assert.Equal(metadata.CompanionUpdatedAtUtc, notice.OccurredAt);
+            Assert.Contains("restart game servers", notice.Body);
+            Assert.Contains("functional changes and fixes", notice.Body);
+            state.InstalledCommit = "NEXT";
+            Assert.Equal(notice.Key, Assert.Single(UpdateNotices.UiPlugins([entry], _ => state, admin)).Key);
+            entry.Commit = "future";
+            Assert.Equal(2, UpdateNotices.UiPlugins([entry], _ => state, admin).Count());
+        }
+        finally { Directory.Delete(directory, true); }
     }
 
     [Fact]
