@@ -88,8 +88,10 @@ OAuth legs use PKCE, one-minute handoff codes are single-use and bound to the
 callback, and Quasar rechecks the original Steam session before linking.
 Standalone DS AppData
 also contains per-server `.quasar-player-access-<hash>.json` markers and
-`.quasar-player-promotions-<hash>.json` recovery journals. Do not delete journals
-to clear roles. Disable access, wait for acknowledgement, save and stop the world
+`.quasar-player-promotions-<hash>.json` recovery journals, each replaced in one
+step so a crash leaves the old or the new journal. A server log line saying the
+journals could not be synced means its filesystem can't make them safe against a
+power cut; saves still work. Do not delete journals to clear roles. Disable access, wait for acknowledgement, save and stop the world
 before unsupported downgrades or server/cluster conversion. Policies do not move
 automatically to a converted target. Missing settings do not open an existing
 whitelist. After restoring an older Quasar settings backup, save player

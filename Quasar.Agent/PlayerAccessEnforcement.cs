@@ -9,6 +9,7 @@ using System.Text;
 using HarmonyLib;
 using Magnetar.Protocol.Model;
 using Newtonsoft.Json;
+using Quasar.Updates;
 using Sandbox;
 using Sandbox.Engine.Multiplayer;
 using Sandbox.Game.Multiplayer;
@@ -220,10 +221,21 @@ namespace Quasar.Agent
                 using (var stream = new FileStream(temporary, FileMode.Create, FileAccess.Write, FileShare.None))
                 using (var writer = new StreamWriter(stream))
                 { writer.Write(json); writer.Flush(); stream.Flush(true); }
-                if (File.Exists(path)) File.Replace(temporary, path, null);
-                else File.Move(temporary, path);
+                // One rename: File.Replace on Windows moves the old file away first, and a crash then leaves no journal.
+                // Saves run on the game thread, where most callers have no catch. A folder that can't be synced does
+                // not fail a save that succeeded; it is reported once.
+                UpdateDurability.Publish(temporary, path, ReportUnsyncedFolder);
             }
             finally { if (File.Exists(temporary)) File.Delete(temporary); }
+        }
+
+        private static bool unsyncedFolderReported;
+
+        private static void ReportUnsyncedFolder(IOException error)
+        {
+            if (unsyncedFolderReported) return;
+            unsyncedFolderReported = true;
+            Console.WriteLine("Quasar player access journals are saved, but could not be synced to survive a power cut: " + error.Message);
         }
 
         public void Dispose()
