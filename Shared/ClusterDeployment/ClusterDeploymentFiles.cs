@@ -220,6 +220,24 @@ internal static partial class ClusterDeploymentFiles
     }
 
     /// <summary>
+    /// Why a cluster release can't run on a Dedicated Server of <paramref name="dedicatedServerVersion"/>
+    /// ("1.211.017", optionally followed by " b&lt;build&gt;"), or null when it can or either version is unknown.
+    /// A release names the game version its plugins were built against in <c>spaceEngineersVersion</c>.
+    /// </summary>
+    internal static string? GameVersionMismatch(string package, string dedicatedServerVersion)
+    {
+        using var capability = JsonDocument.Parse(File.ReadAllBytes(Resolve(package, "cli/deployment-capabilities.json")));
+        if (!capability.RootElement.TryGetProperty("spaceEngineersVersion", out var declared)
+            || declared.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(declared.GetString()))
+            return null;
+        string required = declared.GetString()!.Trim();
+        string actual = dedicatedServerVersion.Split(' ', 2)[0].Trim();
+        if (actual.Length == 0 || actual == required) return null;
+        return $"it is built for Space Engineers {required}, but the Dedicated Server is {actual}. "
+            + "Update the Dedicated Server in Updates, or select a cluster release built for it.";
+    }
+
+    /// <summary>
     /// The PluginSdk pin of a cluster release: its <c>pluginSdkContract</c> and the SHA-256 of the
     /// exact PluginSdk.dll it was built against. A release with plugin services declares at least one.
     /// </summary>

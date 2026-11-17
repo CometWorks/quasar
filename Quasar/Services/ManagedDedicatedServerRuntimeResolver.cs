@@ -297,9 +297,14 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         CancellationToken cancellationToken = default) =>
         EnsureManagedMagnetarInstallAsync(ManagedServerRuntime.DotNet10, progress, cancellationToken);
 
+    /// <summary>
+    /// Runs SteamCMD's <c>app_update</c> on the managed Dedicated Server and throws when it fails, also
+    /// when an older install is still there: callers must not go on with a build they meant to update.
+    /// </summary>
     public async Task EnsureManagedDedicatedServerCurrentAsync(
         IProgress<ManagedRuntimeInstallProgress>? progress = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool validate = true)
     {
         progress?.Report(new ManagedRuntimeInstallProgress(
             ManagedRuntimeInstallComponent.SteamCmd,
@@ -317,10 +322,10 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             Path: steamCmdPath,
             Version: GetFileVersion(steamCmdPath)));
 
-        var dedicatedServer64Path = await TryEnsureManagedDedicatedServerInstallAsync(
-            cancellationToken,
-            steamCmdPath,
-            progress);
+        var update = await UpdateManagedDedicatedServerAsync(cancellationToken, steamCmdPath, progress, validate);
+        var dedicatedServer64Path = update.Path;
+        if (update.Failure is not null)
+            throw new InvalidOperationException(update.Failure);
         if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
             throw new InvalidOperationException("Space Engineers Dedicated Server is not installed and could not be updated." + DescribeMissingSteamCmdLibraries());
 
@@ -331,6 +336,45 @@ public sealed class ManagedDedicatedServerRuntimeResolver
             BuildDedicatedServerReadyMessage(version),
             Path: dedicatedServer64Path,
             Version: version));
+    }
+
+    /// <summary>
+    /// Brings the managed Dedicated Server up to date as <see cref="DedicatedServerLaunchUpdateMode"/> says before
+    /// Quasar copies it into a cluster's dependencies. Only a check at startup or by hand updated it before, so a
+    /// game update left new clusters on the old build. Skip uses the installed build; a failed update throws.
+    /// </summary>
+    public async Task UpdateManagedDedicatedServerForClusterAsync(
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        CancellationToken cancellationToken)
+    {
+        var mode = _options.DedicatedServerLaunchUpdateMode;
+        if (mode == DedicatedServerLaunchUpdateMode.Skip)
+        {
+            _logger.LogInformation("Using the installed Dedicated Server {Version} as is: the launch update mode is Skip.",
+                GetDedicatedServerVersion(ResolveInstalledDedicatedServer64Path()));
+            return;
+        }
+
+        // An override or a Steam copy outside Quasar is not Quasar's to update.
+        var installed = ResolveInstalledDedicatedServer64Path();
+        var managed = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
+        if (!string.Equals(Path.GetFullPath(installed), Path.GetFullPath(managed), StringComparison.Ordinal))
+        {
+            _logger.LogWarning("Not updating the Dedicated Server at {Path}: Quasar doesn't manage it.", installed);
+            return;
+        }
+
+        try
+        {
+            await EnsureManagedDedicatedServerCurrentAsync(progress, cancellationToken, mode == DedicatedServerLaunchUpdateMode.Validate);
+        }
+        catch (InvalidOperationException exception)
+        {
+            _logger.LogError(exception, "Updating the managed Dedicated Server failed.");
+            throw new InvalidOperationException("Updating the Dedicated Server failed: " + exception.Message
+                + " Fix the cause and resume, or set the Dedicated Server launch update mode to Skip in Updates to use the installed build.",
+                exception);
+        }
     }
 
     public ManagedRuntimeVersionSnapshot GetInstalledVersions()
@@ -1273,20 +1317,36 @@ public sealed class ManagedDedicatedServerRuntimeResolver
         CancellationToken cancellationToken,
         string? steamCmdPath,
         IProgress<ManagedRuntimeInstallProgress>? progress,
-        bool validate = true)
+        bool validate = true) =>
+        (await UpdateManagedDedicatedServerAsync(cancellationToken, steamCmdPath, progress, validate)).Path;
+
+    /// <summary>The DedicatedServer64 to use, an older install when the update failed, and why it failed.</summary>
+    private sealed record DedicatedServerUpdate(string Path, string? Failure);
+
+    private async Task<DedicatedServerUpdate> UpdateManagedDedicatedServerAsync(
+        CancellationToken cancellationToken,
+        string? steamCmdPath,
+        IProgress<ManagedRuntimeInstallProgress>? progress,
+        bool validate)
     {
         var dedicatedServer64Path = Path.Combine(_options.DedicatedServerInstallDirectory, "DedicatedServer64");
         var hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
+        DedicatedServerUpdate Failed(string failure) => new(hadValidInstall ? dedicatedServer64Path : string.Empty, failure);
 
         steamCmdPath = string.IsNullOrWhiteSpace(steamCmdPath)
             ? await ResolveSteamCmdPathAsync(cancellationToken)
             : steamCmdPath.Trim();
         if (string.IsNullOrWhiteSpace(steamCmdPath))
-            return hadValidInstall ? dedicatedServer64Path : string.Empty;
+        {
+            _logger.LogWarning("SteamCMD is not installed, so the managed Dedicated Server under {Path} can't be installed or updated.",
+                _options.DedicatedServerInstallDirectory);
+            return Failed("SteamCMD is not installed, so the Dedicated Server can't be installed or updated.");
+        }
 
         await _dedicatedServerInstallLock.WaitAsync(cancellationToken);
         try
         {
+            var failure = "SteamCMD did not run.";
             for (var attempt = 1; attempt <= DedicatedServerInstallMaxAttempts; attempt++)
             {
                 hadValidInstall = IsValidDedicatedServer64Directory(dedicatedServer64Path);
@@ -1315,10 +1375,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                 {
                     if (!process.Start())
                     {
+                        failure = "SteamCMD could not be started.";
                         if (attempt < DedicatedServerInstallMaxAttempts)
                             continue;
 
-                        return string.Empty;
+                        return Failed(failure);
                     }
                 }
                 catch (Exception exception)
@@ -1328,10 +1389,11 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                         "Failed starting steamcmd for managed DS install attempt {Attempt}/{MaxAttempts}.",
                         attempt,
                         DedicatedServerInstallMaxAttempts);
+                    failure = "SteamCMD could not be started: " + exception.Message;
                     if (attempt < DedicatedServerInstallMaxAttempts)
                         continue;
 
-                    return string.Empty;
+                    return Failed(failure);
                 }
 
                 var result = await WaitForSteamCmdProcessAsync(
@@ -1353,10 +1415,12 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                         TrimForLog(result.Stdout),
                         TrimForLog(result.Stderr),
                         DescribeMissingSteamCmdLibraries(result.ExitCode));
+                    failure = $"SteamCMD failed updating the Dedicated Server (exit code {result.ExitCode}, {DedicatedServerInstallMaxAttempts} attempts)."
+                        + DescribeMissingSteamCmdLibraries(result.ExitCode);
                     if (attempt < DedicatedServerInstallMaxAttempts)
                         continue;
 
-                    return hadValidInstall ? dedicatedServer64Path : string.Empty;
+                    return Failed(failure);
                 }
 
                 if (!IsValidDedicatedServer64Directory(dedicatedServer64Path))
@@ -1366,17 +1430,19 @@ public sealed class ManagedDedicatedServerRuntimeResolver
                         _options.DedicatedServerInstallDirectory,
                         attempt,
                         DedicatedServerInstallMaxAttempts);
+                    failure = $"SteamCMD finished, but there is no Dedicated Server under {_options.DedicatedServerInstallDirectory}.";
                     if (attempt < DedicatedServerInstallMaxAttempts)
                         continue;
 
-                    return string.Empty;
+                    return Failed(failure);
                 }
 
-                _logger.LogInformation("{Action} managed DedicatedServer64 into {Path}.", hadValidInstall ? "Updated" : "Installed", dedicatedServer64Path);
-                return dedicatedServer64Path;
+                _logger.LogInformation("{Action} managed DedicatedServer64 into {Path}: {Version}.", hadValidInstall ? "Updated" : "Installed",
+                    dedicatedServer64Path, GetDedicatedServerVersion(dedicatedServer64Path));
+                return new(dedicatedServer64Path, null);
             }
 
-            return hadValidInstall ? dedicatedServer64Path : string.Empty;
+            return Failed(failure);
         }
         finally
         {

@@ -185,9 +185,101 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
         Assert.Empty(ManagedDedicatedServerRuntimeResolver.DescribeMissingSteamCmdLibraries());
     }
 
+    // QSR-27: SteamCMD that prepares its runtime, logs each call and fails app_update with exit code 5 when told to.
+    private const string UpdateScript =
+        "#!/bin/sh\necho \"$*\" >> \"$(dirname \"$0\")/calls.log\"\n"
+        + "case \"$*\" in *app_update*) test -e \"$(dirname \"$0\")/fail\" && exit 5;; esac\n"
+        + "mkdir -p \"$(dirname \"$0\")/linux64\"\ncd \"$(dirname \"$0\")/linux64\" && touch steamclient.so libtier0_s.so libvstdlib_s.so\n";
+
+    private string[] SteamCmdCalls() =>
+        File.Exists(Path.Combine(_root, "SteamCMD", "calls.log")) ? File.ReadAllLines(Path.Combine(_root, "SteamCMD", "calls.log")) : [];
+
+    // QSR-27: a game update left the managed Dedicated Server on the old build, because only startup and the
+    // manual check updated it, and every new cluster copied that build. Cluster setup now updates it first.
+    [Theory]
+    [InlineData(DedicatedServerLaunchUpdateMode.Update, false)]
+    [InlineData(DedicatedServerLaunchUpdateMode.Validate, true)]
+    public async Task ClusterUpdateRunsAppUpdateOnAnInstalledServer(DedicatedServerLaunchUpdateMode mode, bool validate)
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var resolver = CreateResolver(UpdateScript, withDedicatedServer: true, mode);
+
+        await resolver.UpdateManagedDedicatedServerForClusterAsync(null, default);
+
+        string update = Assert.Single(SteamCmdCalls(), call => call.Contains("+app_update 298740"));
+        Assert.Equal(validate, update.Contains("validate"));
+    }
+
+    [Fact]
+    public async Task ClusterUpdateSkipsSteamCmdInSkipMode()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var resolver = CreateResolver(UpdateScript, withDedicatedServer: true, DedicatedServerLaunchUpdateMode.Skip);
+
+        await resolver.UpdateManagedDedicatedServerForClusterAsync(null, default);
+
+        Assert.Empty(SteamCmdCalls());
+    }
+
+    // Before, a failed app_update kept the old install and reported it ready.
+    [Fact]
+    public async Task FailedClusterUpdateThrowsAlthoughAnOlderServerIsInstalled()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var resolver = CreateResolver(UpdateScript, withDedicatedServer: true);
+        File.WriteAllText(Path.Combine(_root, "SteamCMD", "fail"), "");
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            resolver.UpdateManagedDedicatedServerForClusterAsync(null, default));
+
+        Assert.Contains("Updating the Dedicated Server failed", error.Message);
+        Assert.Contains("exit code 5", error.Message);
+        Assert.Equal(3, SteamCmdCalls().Count(call => call.Contains("+app_update")));
+    }
+
+    [Fact]
+    public async Task FailedUpdateStopsClusterSetupBeforeItCopiesTheServer()
+    {
+        if (!OperatingSystem.IsLinux())
+            return;
+
+        var resolver = CreateResolver(UpdateScript, withDedicatedServer: true);
+        File.WriteAllText(Path.Combine(_root, "SteamCMD", "fail"), "");
+        var cache = typeof(Magnetar.Protocol.Runtime.MagnetarPaths).GetField("_cachedQuasarDirectory",
+            BindingFlags.Static | BindingFlags.NonPublic)!;
+        var previous = cache.GetValue(null);
+        cache.SetValue(null, _root);
+        try
+        {
+            string work = Path.Combine(_root, "ClusterSetup", "demo");
+            Directory.CreateDirectory(work);
+            // Only the runtime is set: setup must stop before it touches the package, catalog or dependencies.
+            var setup = new ClusterSetupService(null!, null!, null!, null!, null!, null!,
+                resolver, null!, null!, null!, null!, null!, null!, null!);
+            var request = new ClusterSetupRequest("demo", "Demo", "world", "profile", "local", 28000, [new("local", 2)]);
+
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                setup.PrepareInputsAsync(new Quasar.Models.ClusterDefinition { UniqueName = "demo" }, request, work, null, default));
+
+            Assert.Contains("exit code 5", error.Message);
+            Assert.Equal(ClusterSetupService.RuntimeProvisioningPhase, setup.GetStatus("demo")!.Phase);
+        }
+        finally
+        {
+            cache.SetValue(null, previous);
+        }
+    }
+
     private ManagedDedicatedServerRuntimeResolver CreateResolver(
         string steamCmdScript,
-        bool withDedicatedServer
+        bool withDedicatedServer,
+        DedicatedServerLaunchUpdateMode launchUpdateMode = DedicatedServerLaunchUpdateMode.Update
     )
     {
         var steamCmdDirectory = Path.Combine(_root, "SteamCMD");
@@ -223,6 +315,7 @@ public sealed class ManagedRuntimeSteamCmdFailureTests : IDisposable
             DedicatedServerInstallDirectory = dedicatedServerDirectory,
             MagnetarInstallDirectory = magnetarDirectory,
             SteamCmdArchiveUrl = "http://127.0.0.1:9/unused",
+            DedicatedServerLaunchUpdateMode = launchUpdateMode,
         };
 
         return new ManagedDedicatedServerRuntimeResolver(
