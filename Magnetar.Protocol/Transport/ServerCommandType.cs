@@ -34,4 +34,10 @@ public enum ServerCommandType
     ResolvePositionOwner = 19,
     UpdatePlayerAccess = 20,
     OpenPlayerAuthentication = 21,
+
+    /// <summary>
+    /// Runs an Entity List row action other than delete on one entity
+    /// (<see cref="Model.EntityActionRequest"/> in Payload).
+    /// </summary>
+    EntityAction = 22,
 }

@@ -100,9 +100,11 @@ instead of being added into a cluster total. See [Analytics](Monitoring.md#analy
 
 **Entities** also selects the whole cluster by name. It combines live entities
 from every responding active node, merges shared copies and routes viewer
-buttons to the entity's node. Partial coverage is marked. Cluster deletion needs
-updated agents and one verified owner; shared or moving entities cannot be
-deleted from an arbitrary node. See [Entities](Monitoring.md#entities).
+buttons to the entity's node. Partial coverage is marked. Deletion and the
+entity actions (Stop, Depower, Power on, Remove owner) need updated agents and
+one verified owner. They go to the node that owns the entity; shared or moving
+entities are refused rather than sent to an arbitrary node. See
+[Entities](Monitoring.md#entities).
 
 Overview, Maintenance and Settings stay available while the Gateway admin connection is being checked or is unavailable. Recovery, backups and local settings use the same tabs online and offline. Nodes, Events and Mods & plugins are grayed out until the authenticated capabilities endpoint responds, regardless of desired On/Off state. A selected live-only view falls back to Overview during an outage; reconnect restores its requested view and bookmark. Opened panels retain their state. The five-second poll checks availability again. Every action retains its permissions, confirmations and safety checks.
 
