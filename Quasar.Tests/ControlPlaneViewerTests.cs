@@ -530,6 +530,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         { typeof(Players), "CleanAllAsync" }, { typeof(Players), "SendPlayerCommandAsync" },
         { typeof(Chat), "RestartSelectedServerAsync" }, { typeof(PluginConfigEditor), "ApplyAsync" },
         { typeof(Entities), "DeleteSelectedEntitiesAsync" }, { typeof(Entities), "DeleteEntityAsync" },
+        { typeof(Entities), "RunEntityActionAsync" }, { typeof(Entities), "RunSelectedEntityActionAsync" },
         { typeof(DiscordPage), "SaveAsync" }, { typeof(DiscordPage), "ResetDeathTemplatesAsync" },
         { typeof(DiscordPage), "SaveDeathTemplatesAsync" }, { typeof(DiscordPage), "OpenDiscordConsoleDialogAsync" },
     };

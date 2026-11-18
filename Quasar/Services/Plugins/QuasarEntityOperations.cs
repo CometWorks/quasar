@@ -7,7 +7,7 @@ using static Quasar.Services.Plugins.QuasarCoreOperations;
 
 namespace Quasar.Services.Plugins;
 
-/// <summary>The Entities page's live entity list and deletion, for standalone servers and clusters.</summary>
+/// <summary>The Entities page's live entity list, deletion and row actions, for standalone servers and clusters.</summary>
 public static class QuasarEntityOperations
 {
     /// <param name="Type">All, Grid, Character, Float (dropped items), Voxel (asteroids and planets) or Other.</param>
@@ -60,6 +60,21 @@ public static class QuasarEntityOperations
 
     public sealed record EntityDeleteResult(string UniqueName, EntityItem Entity, string Message);
 
+    /// <param name="EntityId">The entity ID, as a string.</param>
+    /// <param name="Action">Stop, Depower, PowerOn or RemoveOwner.</param>
+    public sealed record EntityActionInput(
+        string UniqueName = "",
+        string EntityId = "",
+        string Action = ""
+    );
+
+    public sealed record EntityActionResult(
+        string UniqueName,
+        EntityItem Entity,
+        string Action,
+        string Message
+    );
+
     private static readonly string[] Types =
     [
         "All",
@@ -70,6 +85,9 @@ public static class QuasarEntityOperations
         "Other",
     ];
     private static readonly string[] Sorts = ["Size", "Pcu", "Blocks"];
+    private static readonly string[] Actions = Enum.GetNames<EntityAction>();
+    private const string ActionDescription =
+        "Stop zeroes the velocity of the entity and every grid physically connected to it. Depower turns off the power producers of a grid and every grid connected to it, docked ships included; PowerOn turns them back on. RemoveOwner gives every block of a grid and its subgrids to nobody. Not reversible by undo.";
     private const int MaxLimit = 200;
 
     // The agent caps a page at 2000 entities.
@@ -101,6 +119,18 @@ public static class QuasarEntityOperations
                     "Permanently deletes one live entity, such as a grid, by its entity ID on a standalone server. It cannot be undone.",
             }
         );
+        services.AddQuasarOperation<EntityActionInput, EntityActionResult>(
+            QuasarCoreOperations.PluginId,
+            "entities.action",
+            [QuasarPolicyNames.CanControlServers],
+            ActAsync,
+            new()
+            {
+                Description =
+                    "Runs an Alt-F10 Entity List action on one live entity by its entity ID on a standalone server. "
+                    + ActionDescription,
+            }
+        );
         services.AddQuasarOperation<EntityListRequest, EntityList>(
             QuasarCoreOperations.PluginId,
             "cluster.entities.list",
@@ -125,6 +155,19 @@ public static class QuasarEntityOperations
                 Deadline = ClusterDeadline,
                 Description =
                     "Permanently deletes one live entity by its entity ID on a cluster, through the one node that owns it. Shared or moving entities are refused; it cannot be undone.",
+            }
+        );
+        services.AddQuasarOperation<EntityActionInput, EntityActionResult>(
+            QuasarCoreOperations.PluginId,
+            "cluster.entities.action",
+            [QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterManage],
+            ActClusterAsync,
+            new()
+            {
+                Deadline = ClusterDeadline,
+                Description =
+                    "Runs an Alt-F10 Entity List action on one live entity by its entity ID on a cluster, through the one node that owns it. Shared or moving entities are refused. "
+                    + ActionDescription,
             }
         );
     }
@@ -178,8 +221,73 @@ public static class QuasarEntityOperations
         CancellationToken token
     )
     {
-        var id = ParseId(input.EntityId);
-        var agent = RequireAgent(caller.Services, input.UniqueName);
+        var (name, row) = await FindAsync(caller, input.UniqueName, input.EntityId, token);
+        return await RemoveAsync(
+            caller.Services.GetRequiredService<EntityService>(),
+            name,
+            row,
+            token
+        );
+    }
+
+    private static async Task<EntityDeleteResult> DeleteClusterAsync(
+        QuasarOperationContext caller,
+        EntityRequest input,
+        CancellationToken token
+    )
+    {
+        var (name, row) = await FindClusterAsync(caller, input.UniqueName, input.EntityId, token);
+        return await RemoveAsync(
+            caller.Services.GetRequiredService<EntityService>(),
+            name,
+            row,
+            token
+        );
+    }
+
+    private static async Task<EntityActionResult> ActAsync(
+        QuasarOperationContext caller,
+        EntityActionInput input,
+        CancellationToken token
+    )
+    {
+        var action = ParseAction(input.Action);
+        var (name, row) = await FindAsync(caller, input.UniqueName, input.EntityId, token);
+        return await RunAsync(
+            caller.Services.GetRequiredService<EntityService>(),
+            name,
+            row,
+            action,
+            token
+        );
+    }
+
+    private static async Task<EntityActionResult> ActClusterAsync(
+        QuasarOperationContext caller,
+        EntityActionInput input,
+        CancellationToken token
+    )
+    {
+        var action = ParseAction(input.Action);
+        var (name, row) = await FindClusterAsync(caller, input.UniqueName, input.EntityId, token);
+        return await RunAsync(
+            caller.Services.GetRequiredService<EntityService>(),
+            name,
+            row,
+            action,
+            token
+        );
+    }
+
+    private static async Task<(string Name, EntityQueryRow Row)> FindAsync(
+        QuasarOperationContext caller,
+        string uniqueName,
+        string entityId,
+        CancellationToken token
+    )
+    {
+        var id = ParseId(entityId);
+        var agent = RequireAgent(caller.Services, uniqueName);
         caller.Undo!.Server = agent.UniqueNameKey;
         var service = caller.Services.GetRequiredService<EntityService>();
         // The live entity by ID, so a proposal approved later never acts on a stale row.
@@ -196,17 +304,18 @@ public static class QuasarEntityOperations
                 404,
                 $"Entity {id} not found on '{agent.UniqueNameKey}'."
             );
-        return await RemoveAsync(service, agent.UniqueNameKey, row, token);
+        return (agent.UniqueNameKey, row);
     }
 
-    private static async Task<EntityDeleteResult> DeleteClusterAsync(
+    private static async Task<(string Name, EntityQueryRow Row)> FindClusterAsync(
         QuasarOperationContext caller,
-        EntityRequest input,
+        string uniqueName,
+        string entityId,
         CancellationToken token
     )
     {
-        var id = ParseId(input.EntityId);
-        var cluster = RequireCluster(caller, input.UniqueName);
+        var id = ParseId(entityId);
+        var cluster = RequireCluster(caller, uniqueName);
         caller.Undo!.Server = cluster.UniqueName;
         var service = caller.Services.GetRequiredService<EntityService>();
         var result = await Query(() =>
@@ -229,8 +338,39 @@ public static class QuasarEntityOperations
             );
         if (row.DeleteUnavailableReason is { } reason)
             throw new QuasarOperationException(409, reason);
-        return await RemoveAsync(service, cluster.UniqueName, row, token);
+        return (cluster.UniqueName, row);
     }
+
+    private static async Task<EntityActionResult> RunAsync(
+        EntityService service,
+        string uniqueName,
+        EntityQueryRow row,
+        EntityAction action,
+        CancellationToken token
+    )
+    {
+        var item = Item(row);
+        var result = await Query(() => service.RunEntityActionAsync(row, action, token));
+        if (!result.Success)
+            throw new QuasarOperationException(
+                409,
+                string.IsNullOrWhiteSpace(result.Message) ? $"{action} failed." : result.Message
+            );
+        return new(
+            uniqueName,
+            item,
+            action.ToString(),
+            string.IsNullOrWhiteSpace(result.Message) ? $"{action} done." : result.Message
+        );
+    }
+
+    private static EntityAction ParseAction(string? text) =>
+        string.IsNullOrWhiteSpace(text)
+            ? throw new QuasarOperationException(
+                400,
+                $"Action must be one of {string.Join(", ", Actions)}."
+            )
+            : Enum.Parse<EntityAction>(Pick(Actions, text, "", "Action"));
 
     private static async Task<EntityDeleteResult> RemoveAsync(
         EntityService service,

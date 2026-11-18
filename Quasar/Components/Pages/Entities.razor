@@ -17,7 +17,7 @@
 <QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.EntitiesPage">
 <QuasarPageHeading Section="Operations">
     <Title>Entities</Title>
-    <Description>Live world entities for a server or whole cluster. Query grids, characters, dropped items and terrain, then inspect or delete them with full admin control.</Description>
+    <Description>Live world entities for a server or whole cluster. Query grids, characters, dropped items and terrain, then inspect them, or stop, depower, disown and delete them like in the Alt-F10 menu.</Description>
 </QuasarPageHeading>
 
 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
@@ -118,6 +118,20 @@
             Delete selected
         </MudButton>
         </MudTooltip>
+        <MudMenu Label="Act on selected"
+                 StartIcon="@Icons.Material.Filled.PlaylistPlay"
+                 EndIcon="@Icons.Material.Filled.ArrowDropDown"
+                 Variant="Variant.Outlined"
+                 Color="Color.Primary"
+                 Dense="true"
+                 Disabled="@(_loading || _deletingSelected || _selectedEntityIds.Count == 0)">
+            @foreach (var choice in ActionChoices)
+            {
+                <MudMenuItem Icon="@choice.Icon"
+                             Disabled="@(!CanActOnSelected(choice.Action))"
+                             OnClick="@(() => RunSelectedEntityActionAsync(choice.Action))">@choice.Label</MudMenuItem>
+            }
+        </MudMenu>
         </AuthorizeView>
     }
 </div>
@@ -233,6 +247,22 @@ else
                                                Disabled="@(_loading || _deletingSelected || DeleteUnavailableReason(context) is not null)"
                                                OnClick="@(() => DeleteEntityAsync(context))" />
                             </MudTooltip>
+                            <MudMenu Dense="true"
+                                     Icon="@Icons.Material.Filled.MoreVert"
+                                     Size="Size.Small"
+                                     AriaLabel="Entity actions"
+                                     Disabled="@(_loading || _deletingSelected)"
+                                     AnchorOrigin="Origin.BottomRight"
+                                     TransformOrigin="Origin.TopRight">
+                                @foreach (var choice in ActionChoices)
+                                {
+                                    var reason = ActionUnavailableReason(context, choice.Action);
+                                    <MudMenuItem Icon="@choice.Icon"
+                                                 Disabled="@(reason is not null)"
+                                                 title="@(reason ?? choice.Hint)"
+                                                 OnClick="@(() => RunEntityActionAsync(context, choice.Action))">@choice.Label</MudMenuItem>
+                                }
+                            </MudMenu>
                         </span>
                         </AuthorizeView>
                     </QuasarExtensionOutlet>
@@ -551,6 +581,99 @@ else
         }
     }
 
+    private sealed record ActionChoice(EntityAction Action, string Label, string Icon, string Hint);
+
+    // The Alt-F10 Entity List row actions, with the in-game semantics.
+    private static readonly ActionChoice[] ActionChoices =
+    [
+        new(EntityAction.Stop, "Stop", Icons.Material.Filled.PanTool,
+            "Stops the entity and every grid physically connected to it."),
+        new(EntityAction.Depower, "Depower", Icons.Material.Filled.PowerOff,
+            "Turns off the power producers of the grid and of every grid connected to it, docked ships included."),
+        new(EntityAction.PowerOn, "Power on", Icons.Material.Filled.Power,
+            "Turns the power producers of the grid and of every grid connected to it back on."),
+        new(EntityAction.RemoveOwner, "Remove owner", Icons.Material.Filled.PersonOff,
+            "Gives every block of the grid and its subgrids to nobody. This cannot be undone."),
+    ];
+
+    private string? ActionUnavailableReason(EntitySummary entity, EntityAction action)
+    {
+        if (action == EntityAction.Stop ? entity.TypeTag == "Voxel" : entity.TypeTag != "Grid")
+            return action == EntityAction.Stop ? "Terrain does not move." : "Only grids have power and block owners.";
+        return DeleteUnavailableReason(entity);
+    }
+
+    private bool CanActOnSelected(EntityAction action) => GetSelectedTarget() is not null
+                                                          && !_loading
+                                                          && !_deletingSelected
+                                                          && _selectedEntityIds.Count > 0
+                                                          && _selectedEntityIds.All(id => _rowsById.TryGetValue(id, out var row)
+                                                              && ActionUnavailableReason(row.Entity, action) is null);
+
+    private Task RunEntityActionAsync(EntitySummary entity, EntityAction action) => RunActionAsync([entity], action, false);
+
+    private Task RunSelectedEntityActionAsync(EntityAction action) =>
+        RunActionAsync(_entities.Where(entity => _selectedEntityIds.Contains(entity.EntityId)).ToList(), action, true);
+
+    private async Task RunActionAsync(IReadOnlyList<EntitySummary> entities, EntityAction action, bool selection)
+    {
+        if (!await CanControlSelectionAsync()) return;
+        var rows = entities.Select(GetEntityRow).OfType<EntityQueryRow>().ToList();
+        if (rows.Count == 0)
+            return;
+
+        var choice = ActionChoices.Single(candidate => candidate.Action == action);
+        if (action != EntityAction.Stop || selection)
+        {
+            var subject = selection ? $"the {rows.Count} selected entities" : $"\"{rows[0].Entity.DisplayName}\" (#{rows[0].Entity.EntityId})";
+            var confirmed = await DialogService.ShowMessageBoxAsync(choice.Label, $"{choice.Label} {subject}? {choice.Hint}",
+                yesText: choice.Label, cancelText: "Cancel");
+            if (confirmed != true)
+                return;
+        }
+
+        _deletingSelected = selection;
+        var done = 0;
+        string? lastMessage = null;
+        var failedMessages = new List<string>();
+        try
+        {
+            foreach (var row in rows)
+            {
+                try
+                {
+                    if (!await CanControlEntityAsync(row)) break;
+                    var result = await EntityService.RunEntityActionAsync(row, action);
+                    if (result.Success)
+                    {
+                        done++;
+                        lastMessage = result.Message;
+                    }
+                    else
+                    {
+                        failedMessages.Add($"#{row.Entity.EntityId}: {(string.IsNullOrWhiteSpace(result.Message) ? choice.Label + " failed." : result.Message)}");
+                    }
+                }
+                catch (Exception exception)
+                {
+                    failedMessages.Add($"#{row.Entity.EntityId}: {exception.Message}");
+                }
+            }
+        }
+        finally
+        {
+            _deletingSelected = false;
+        }
+
+        if (done > 0)
+            Snackbar.Add(rows.Count == 1 && !string.IsNullOrWhiteSpace(lastMessage) ? lastMessage : $"{choice.Label}: done for {done} of {rows.Count} entities.", Severity.Success);
+        if (failedMessages.Count > 0)
+            Snackbar.Add(rows.Count == 1 ? failedMessages[0] : $"{choice.Label} failed for {failedMessages.Count} entities. First error: {failedMessages[0]}", Severity.Error);
+        if (action == EntityAction.RemoveOwner && done > 0)
+            await LoadAsync();
+        StateHasChanged();
+    }
+
     private void HandleRowClick(TableRowClickEventArgs<EntitySummary> args)
     {
         var entity = args.Item;
@@ -664,9 +787,9 @@ else
     {
         var row = GetEntityRow(entity);
         if (row?.DeletionSource is not { } source)
-            return row?.DeleteUnavailableReason ?? "Refresh the entity list before deleting.";
+            return row?.DeleteUnavailableReason ?? "Refresh the entity list first.";
         return EntityService.IsCurrent(source.Agent.AgentId, source.TelemetryKey) ? null
-            : "The entity's node disconnected or was replaced. Refresh before deleting.";
+            : "The entity's node disconnected or was replaced. Refresh first.";
     }
 
     private async Task<bool> CanControlSelectionAsync() =>

@@ -9,6 +9,7 @@ using Sandbox.Game.Entities.Character;
 using Sandbox.Game.World;
 using VRage.Game;
 using VRage.Game.Entity;
+using VRage.Game.ModAPI;
 
 namespace Quasar.Agent
 {
@@ -92,6 +93,61 @@ namespace Quasar.Agent
             entity.Close();
             message = $"Deleted {label}.";
             return true;
+        }
+
+        /// <summary>
+        /// The Alt-F10 Entity List row actions with vanilla semantics: Stop, Depower and Power go through
+        /// <see cref="MyEntityList.ProceedEntityAction"/>; Remove owner gives the blocks of the grid and its
+        /// mechanically connected subgrids to nobody.
+        /// </summary>
+        public static bool TryApply(long entityId, EntityAction action, out string message)
+        {
+            if (!MyEntities.TryGetEntityById(entityId, out var entity) || entity == null || entity.MarkedForClose)
+            {
+                message = $"Entity {entityId} no longer exists.";
+                return false;
+            }
+
+            var label = Describe(entity);
+            var grid = entity as MyCubeGrid;
+            switch (action)
+            {
+                case EntityAction.Stop:
+                    if (entity.Physics == null)
+                    {
+                        message = $"{label} has no physics to stop.";
+                        return false;
+                    }
+                    MyEntityList.ProceedEntityAction(entity, MyEntityList.EntityListAction.Stop);
+                    message = $"Stopped {label}.";
+                    return true;
+
+                case EntityAction.Depower when grid != null:
+                    MyEntityList.ProceedEntityAction(grid, MyEntityList.EntityListAction.Depower);
+                    message = $"Depowered {label}.";
+                    return true;
+
+                case EntityAction.PowerOn when grid != null:
+                    MyEntityList.ProceedEntityAction(grid, MyEntityList.EntityListAction.Power);
+                    message = $"Powered on {label}.";
+                    return true;
+
+                case EntityAction.RemoveOwner when grid != null:
+                    foreach (var node in MyCubeGridGroups.Static.GetGroups(GridLinkTypeEnum.Mechanical).GetGroupNodes(grid))
+                        node.ChangeGridOwnership(0, MyOwnershipShareModeEnum.None);
+                    message = $"Removed the owner of {label}.";
+                    return true;
+
+                case EntityAction.Depower:
+                case EntityAction.PowerOn:
+                case EntityAction.RemoveOwner:
+                    message = $"{label} is not a grid.";
+                    return false;
+
+                default:
+                    message = $"Unknown entity action '{action}'.";
+                    return false;
+            }
         }
 
         internal static string ClusterResidence(long entityId)

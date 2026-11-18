@@ -164,6 +164,101 @@ public sealed class ClusterEntityTests
         Assert.Empty(page.FindAll("tbody tr"));
     }
 
+    [Fact]
+    public async Task EntityActionsGoOnlyToTheOwningNodeAndExplainOldAgents()
+    {
+        using var fixture = new Fixture();
+        fixture.Data["a"] = [Entity(1, "Local"), Entity(2, "Local")];
+        fixture.Data["b"] = [Entity(1, "Unowned"), Entity(2, "Local")];
+        var rows = (await fixture.Service.QueryClusterAsync(fixture.Cluster, new())).Rows;
+        await fixture.Service.RunEntityActionAsync(rows.Single(row => row.Entity.EntityId == 1), EntityAction.Depower);
+        var command = Assert.Single(fixture.Commands, command => command.CommandType == ServerCommandType.EntityAction);
+        Assert.Equal("a", command.AgentId);
+        var request = JsonSerializer.Deserialize<EntityActionRequest>(command.Payload!, JsonOptions)!;
+        Assert.Equal((1L, EntityAction.Depower), (request.EntityId, request.Action));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            fixture.Service.RunEntityActionAsync(rows.Single(row => row.Entity.EntityId == 2), EntityAction.Stop));
+        Assert.Single(fixture.Commands, command => command.CommandType == ServerCommandType.EntityAction);
+
+        // An agent from before entity actions answers every unknown command type the same way.
+        fixture.Failures.Add("a");
+        fixture.Message = "Unsupported command 'EntityAction'.";
+        var old = await fixture.Service.RunEntityActionAsync(rows.Single(row => row.Entity.EntityId == 1), EntityAction.Stop);
+        Assert.False(old.Success);
+        Assert.Contains("Restart the server", old.Message);
+    }
+
+    [Fact]
+    public async Task EntitiesPageRunsRowAndSelectionActionsThroughTheOwningNode()
+    {
+        using var fixture = new Fixture();
+        fixture.Data["a"] = [Entity(1, "Local", "Freighter"), new EntitySummary { EntityId = 2, DisplayName = "Pilot", TypeTag = "Character", ClusterResidence = "Local" }];
+        fixture.Data["b"] = [Entity(1, "Unowned", "Freighter")];
+        await using var context = await PageContextAsync(fixture);
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("editor");
+        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterManage);
+        var popovers = context.Render<MudPopoverProvider>();
+        var dialogs = context.Render<MudDialogProvider>();
+        var page = context.Render<Entities>();
+        await page.WaitForAssertionAsync(() => Assert.Equal(2, page.FindAll("tbody tr").Count));
+        IReadOnlyList<ServerCommandEnvelope> Actions() => fixture.Commands.Where(command => command.CommandType == ServerCommandType.EntityAction).ToArray();
+        AngleSharp.Dom.IElement Item(string label) => popovers.FindAll(".mud-popover-open .mud-menu-item").Single(item => item.TextContent.Trim() == label);
+        static bool Disabled(AngleSharp.Dom.IElement item) => item.ClassList.Contains("mud-disabled") || item.HasAttribute("disabled");
+
+        // Power and ownership are grid actions; a character can only be stopped.
+        page.FindAll("tbody tr")[1].QuerySelector(".mud-menu button")!.Click();
+        popovers.WaitForAssertion(() => Assert.True(Disabled(Item("Depower"))));
+        Assert.True(Disabled(Item("Remove owner")));
+        Assert.False(Disabled(Item("Stop")));
+        await page.FindComponents<MudMenu>()[^1].InvokeAsync(() => page.FindComponents<MudMenu>()[^1].Instance.CloseMenuAsync());
+
+        // Stop runs at once; Depower asks first.
+        page.FindAll("tbody tr")[0].QuerySelector(".mud-menu button")!.Click();
+        popovers.WaitForAssertion(() => Item("Stop").Click());
+        page.WaitForAssertion(() => Assert.Single(Actions()));
+        page.FindAll("tbody tr")[0].QuerySelector(".mud-menu button")!.Click();
+        popovers.WaitForAssertion(() => Item("Depower").Click());
+        dialogs.WaitForAssertion(() => Assert.Contains("\"Freighter\" (#1)", dialogs.Markup));
+        dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Depower").Click();
+        page.WaitForAssertion(() => Assert.Equal(2, Actions().Count));
+        Assert.All(Actions(), command => Assert.Equal("a", command.AgentId));
+        Assert.Equal([EntityAction.Stop, EntityAction.Depower],
+            Actions().Select(command => JsonSerializer.Deserialize<EntityActionRequest>(command.Payload!, JsonOptions)!.Action));
+
+        // A mixed selection can be stopped together but not depowered.
+        page.FindAll("tbody tr")[0].Click();
+        page.FindAll("tbody tr")[1].Click(new Microsoft.AspNetCore.Components.Web.MouseEventArgs { CtrlKey = true });
+        page.FindAll("button").Single(button => button.TextContent.Trim() == "Act on selected").Click();
+        popovers.WaitForAssertion(() => Assert.True(Disabled(Item("Depower"))));
+        Item("Stop").Click();
+        dialogs.WaitForAssertion(() => Assert.Contains("the 2 selected entities", dialogs.Markup));
+        dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Stop").Click();
+        page.WaitForAssertion(() => Assert.Equal(4, Actions().Count));
+        Assert.Equal([1L, 2L], Actions().Skip(2).Select(command => JsonSerializer.Deserialize<EntityActionRequest>(command.Payload!, JsonOptions)!.EntityId).Order());
+    }
+
+    private static async Task<QuasarBunitContext> PageContextAsync(Fixture fixture)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "quasar-entity-ui-" + Guid.NewGuid().ToString("N"));
+        var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = root }).Build());
+        await clusters.CreateAsync(new("cluster", "Unified cluster", "http://gateway.test", ""), default);
+        var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton(clusters);
+        context.Services.AddSingleton(fixture.Registry);
+        context.Services.AddSingleton(fixture.Service);
+        context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
+        context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
+        context.Services.AddScoped<QuasarPermissionService>();
+        context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
+            new HostingEnvironment { ContentRootPath = root }, loadPluginAssemblies: false));
+        return context;
+    }
+
     internal static EntitySummary Entity(long id, string? residence, string? name = null) =>
         new() { EntityId = id, DisplayName = name ?? $"Entity {id}", TypeTag = "Grid", ClusterResidence = residence };
 
@@ -174,6 +269,7 @@ public sealed class ClusterEntityTests
         public AgentRegistry Registry { get; }
         public Dictionary<string, List<EntitySummary>> Data { get; } = [];
         public HashSet<string> Failures { get; } = [];
+        public string Message { get; set; } = "Test node response";
         public ConcurrentQueue<ServerCommandEnvelope> Commands { get; } = [];
         public List<Admin.NodeStatus> Nodes { get; } = [];
         public ClusterDefinition Cluster { get; } = new() { UniqueName = "cluster", GatewayUrl = "http://gateway.test" };
@@ -202,7 +298,7 @@ public sealed class ClusterEntityTests
                     Commands.Enqueue(command);
                     var filter = JsonSerializer.Deserialize<EntityListFilter>(command.Payload!, JsonOptions)!;
                     var entities = Data[id].Where(entity => filter.TypeTag == "All" || entity.TypeTag == filter.TypeTag).ToArray();
-                    Registry.UpdateCommandResult(new() { AgentId = id, CommandId = command.CommandId, Success = !Failures.Contains(id), Message = "Test node response",
+                    Registry.UpdateCommandResult(new() { AgentId = id, CommandId = command.CommandId, Success = !Failures.Contains(id), Message = Message,
                         Payload = command.CommandType == ServerCommandType.ListEntities ? JsonSerializer.Serialize(new EntityListResult {
                             Entities = entities.Skip(filter.Offset).Take(filter.Limit).ToList(), TotalCount = entities.Length, TotalEntityCount = entities.Length }, JsonOptions) : string.Empty },
                         "connection-" + id);

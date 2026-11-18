@@ -1656,6 +1656,9 @@ namespace Quasar.Agent
                 case ServerCommandType.DeleteEntity:
                     return DeleteEntity(command);
 
+                case ServerCommandType.EntityAction:
+                    return RunEntityAction(command);
+
                 case ServerCommandType.ResolvePositionOwner:
                     return ResolvePositionOwner(command);
 
@@ -1826,6 +1829,19 @@ namespace Quasar.Agent
                 return CreateResult(command, false, "This node no longer owns the entity, or it is moving. Refresh the entity list and try again.");
 
             var success = EntityInspector.TryDelete(request.EntityId, out var message);
+            return CreateResult(command, success, message);
+        }
+
+        private ServerCommandResult RunEntityAction(ServerCommandEnvelope command)
+        {
+            var request = DeserializePayload<EntityActionRequest>(command.Payload);
+            if (request == null || request.EntityId == 0)
+                return CreateResult(command, false, "Entity action request is missing an entity id.");
+
+            if (_options.ClusterMode && EntityInspector.ClusterResidence(request.EntityId) != "Local")
+                return CreateResult(command, false, "This node no longer owns the entity, or it is moving. Refresh the entity list and try again.");
+
+            var success = EntityInspector.TryApply(request.EntityId, request.Action, out var message);
             return CreateResult(command, success, message);
         }
 
