@@ -122,8 +122,12 @@ its first policy. A configured whitelist refuses startup if its admission hooks
 cannot be installed. Per-server marker and promotion journals are named
 `.quasar-player-access-<hash>.json` and `.quasar-player-promotions-<hash>.json` under
 DS AppData. The hash separates servers sharing an AppData root. Ownership history
-recovers saved temporary promotions after a crash. Do not delete a journal to
-clear a role; disable the policy, wait for acknowledgement and save the world.
+recovers saved temporary promotions after a crash. Each journal is replaced in
+one step, so a crash leaves the old or the new journal, never none. On a
+filesystem that can't sync a folder, saves still succeed and the Agent logs that
+once, since a journal is then less certain to survive a power cut. Do not delete
+a journal to clear a role; disable the policy, wait for acknowledgement and save
+the world.
 
 Clusters persist admission beside Registry state. The Gateway Host also retains
 the latest player access intent in its launch specification. It starts an enabled

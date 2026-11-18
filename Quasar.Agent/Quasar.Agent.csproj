@@ -46,6 +46,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../Shared/Networking/QuasarControlAddress.cs" Link="Networking/QuasarControlAddress.cs" />
+    <Compile Include="../Shared/Updates/UpdateDurability.cs" Link="Updates/UpdateDurability.cs" />
     <Reference Include="Sandbox.Game" HintPath="$(DS64)\Sandbox.Game.dll" Private="False" />
     <Reference Include="Sandbox.Common" HintPath="$(DS64)\Sandbox.Common.dll" Private="False" />
     <Reference Include="SpaceEngineersDedicated" HintPath="$(DS64)\SpaceEngineersDedicated.exe" Private="False" />
