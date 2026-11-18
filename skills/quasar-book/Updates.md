@@ -263,6 +263,7 @@ Quasar updates the managed DS with SteamCMD (`+login anonymous +app_update 29874
   | `Validate` | Run `app_update ... validate`, re-hashing the whole multi-GB install. Adds minutes to every start. |
 
 - when you press **Check Dedicated Server**, which always runs `app_update 298740 validate`.
+- before guided cluster setup and server-to-cluster conversion copy the DS into the cluster's dependency snapshot, by the same launch mode. Cluster nodes run from that copy, so a game update reaches a cluster only through a new setup or update. Here a failed update stops the setup with "Updating the Dedicated Server failed: …" instead of copying the old build. Resume once SteamCMD works, or set the mode to `Skip` to use the installed build on purpose.
 
 The launch mode applies only to the managed DS install. A server whose executable path points at its own `DedicatedServer64`, or a `QUASAR_DS64_PATH` override, uses that folder. Quasar does not restart running servers when the DS changes. Each server picks up the new build at its next start.
 

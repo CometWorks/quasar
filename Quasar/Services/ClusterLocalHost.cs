@@ -14,7 +14,8 @@ namespace Quasar.Services;
 /// <summary>
 /// The local Host every Quasar install on Linux x64 has without enrollment. Quasar runs Quasar.Host
 /// straight from its release, keeps its configuration and state in <c>&lt;install root&gt;/LocalHost</c>,
-/// starts it when the Hosts page, cluster setup or a cluster needs it, and adopts it again after a restart.
+/// starts it when the Hosts page, the Host list API, cluster setup or a cluster needs it, and adopts it again after a restart.
+/// Once started it is wanted: a later Quasar start starts it again, also when Quasar stopped it on the way out.
 /// It has no service unit of its own; install.sh adds one that saves its clusters at logout or shutdown.
 /// </summary>
 public sealed class ClusterLocalHost : IHostedService, IDisposable
@@ -38,6 +39,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     private (string Path, DateTime Written, long Length, string Sha256)? binaryHash;
     private string status = "Preparing the local Host executor.";
     private string? error;
+    private string? loggedError;
 
     public ClusterLocalHost(ClusterHostCatalog hosts, ClusterCredentialStore credentials, ClusterHostInstaller installer,
         ClusterHostTunnels tunnels, WebServiceOptions options, ILogger<ClusterLocalHost> logger, DedicatedServerSupervisor supervisor)
@@ -67,12 +69,37 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     public string Directory => root;
     private string ConfigPath => Path.Combine(root, "host.json");
     private string PidPath => Path.Combine(root, "host.pid");
+    // Written at the first start. Quasar stops an idle Host when it stops, and this brings it back at the next start.
+    private string WantedPath => Path.Combine(root, "host.wanted");
     internal string StopScriptPath => Path.Combine(root, "stop-clusters");
 
     /// <summary>Starts the local Host unless it already runs. Returns at once.</summary>
     public void Request()
     {
-        if (supported && !stopping.IsCancellationRequested) _ = Task.Run(() => EnsureRunningAsync(stopping.Token));
+        if (supported && !stopping.IsCancellationRequested) _ = ObserveAsync(() => EnsureRunningAsync(stopping.Token));
+    }
+
+    // Nothing awaits these tasks, so an exception would vanish without a trace.
+    private async Task ObserveAsync(Func<Task> action)
+    {
+        try { await Task.Run(action); }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested) { }
+        catch (Exception exception) { Fail(exception.Message, exception); }
+    }
+
+    private void Fail(string message, Exception? exception = null)
+    {
+        error = message;
+        status = "Local Host executor is not ready.";
+        LogFailure(message, exception);
+    }
+
+    private void LogFailure(string message, Exception? exception = null)
+    {
+        // Every page visit retries; log each different reason once.
+        if (loggedError == message) return;
+        loggedError = message;
+        logger.LogWarning(exception, "Could not start the local Host executor: {Reason}", message);
     }
 
     private async Task EnsureConnectedAsync(CancellationToken token)
@@ -92,16 +119,12 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
     public Task StartAsync(CancellationToken cancellationToken)
     {
         if (!supported) return Task.CompletedTask;
-        _ = Task.Run(async () =>
+        _ = ObserveAsync(async () =>
         {
-            try
-            {
-                // Without a cluster on this PC nothing needs the Host until someone opens Hosts or cluster setup.
-                if (ReadPid() is not null || HasClusters()) await EnsureRunningAsync(stopping.Token);
-                else await PrepareAsync(stopping.Token);
-                await WatchAsync(stopping.Token);
-            }
-            catch (OperationCanceledException) { }
+            // Until it is first needed (Hosts page, cluster setup, a cluster), a Quasar on trial doesn't start it.
+            if (ReadPid() is not null || HasClusters() || File.Exists(WantedPath)) await EnsureRunningAsync(stopping.Token);
+            else await PrepareAsync(stopping.Token);
+            await WatchAsync(stopping.Token);
         });
         return Task.CompletedTask;
     }
@@ -114,7 +137,7 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
             if (wanted && ReadPid() is null)
             {
                 logger.LogWarning("The local Host executor exited; starting it again. See {Log}.", Path.Combine(root, "host.log"));
-                await EnsureRunningAsync(token);
+                await EnsureRunningAsync(token); // Logs its own failures and never throws them.
             }
     }
 
@@ -124,15 +147,20 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         catch (OperationCanceledException) { return; }
         try
         {
-            if (token.IsCancellationRequested || !await PrepareCoreAsync(token)) return;
+            if (token.IsCancellationRequested) return;
+            if (!await PrepareCoreAsync(token))
+            {
+                LogFailure(error!);
+                return;
+            }
             wanted = true;
             string hash = BinarySha256();
             string configurationHash = Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(ConfigPath)));
-            if (ReadPid() is { } running)
+            if ((ReadPid() ?? Adopt(hash, configurationHash)) is { } running)
             {
                 if (running.Sha256 == hash && running.ConfigurationSha256 == configurationHash)
                 {
-                    error = null;
+                    error = loggedError = null;
                     return;
                 }
                 // A Host restart leaves the Gateway and nodes running; the new Host adopts them.
@@ -140,18 +168,11 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
                 await StopProcessAsync(running.Pid);
             }
             Launch(installer.BinaryPath, hash, configurationHash);
-            error = null;
+            error = loggedError = null;
             status = "Local Host executor started; waiting for its connection.";
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or ArgumentException
-            or JsonException or UnauthorizedAccessException or System.ComponentModel.Win32Exception
-            || exception is OperationCanceledException && !token.IsCancellationRequested)
-        {
-            error = exception.Message;
-            status = "Local Host executor is not ready.";
-            logger.LogWarning(exception, "Could not start the local Host executor.");
-        }
-        catch (OperationCanceledException) { }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception exception) { Fail(exception.Message, exception); }
         finally { gate.Release(); }
     }
 
@@ -172,13 +193,8 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
             if (await PrepareCoreAsync(token))
                 status = "Local Host executor ready. Quasar starts it when a cluster needs it.";
         }
-        catch (Exception exception) when (exception is IOException or InvalidOperationException or ArgumentException
-            or JsonException or UnauthorizedAccessException)
-        {
-            error = exception.Message;
-            status = "Local Host executor is not ready.";
-            logger.LogWarning(exception, "Could not prepare the local Host executor.");
-        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+        catch (Exception exception) { Fail(exception.Message, exception); }
         finally { gate.Release(); }
     }
 
@@ -261,7 +277,34 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         process = Process.Start(start) ?? throw new IOException("Could not start the local Host executor.");
         string identity = ProcessIdentity(process.Id) ?? throw new IOException("The local Host executor exited at once; see " + log + ".");
         WritePrivate(PidPath, JsonSerializer.Serialize(new HostPid(process.Id, identity, binary, hash, configurationHash)));
+        WritePrivate(WantedPath, "The local Host executor has run here; Quasar starts it when Quasar starts.\n");
         logger.LogInformation("Started the local Host executor (PID {Pid}).", process.Id);
+    }
+
+    // A Host whose PID file is gone, started by hand or by a Quasar that lost the file, still holds the state
+    // directory's lock, so a second one would only exit. Take over the one running this configuration.
+    private HostPid? Adopt(string hash, string configurationHash)
+    {
+        string[] expected = [installer.BinaryPath, "run", "--config", ConfigPath];
+        foreach (string directory in System.IO.Directory.EnumerateDirectories("/proc"))
+        {
+            if (!int.TryParse(Path.GetFileName(directory), out int pid)) continue;
+            string[] command;
+            try { command = File.ReadAllText(Path.Combine(directory, "cmdline")).TrimEnd('\0').Split('\0'); }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { continue; }
+            // A suffix, so a Host run through an interpreter or a wrapper that execs it matches too.
+            if (command.Length < expected.Length || !command[^expected.Length..].SequenceEqual(expected)
+                || ProcessIdentity(pid) is not { } identity) continue;
+            // A release update replaced the binary under a running Host: record no hash, so the caller restarts it.
+            string? image = null;
+            try { image = new FileInfo(Path.Combine(directory, "exe")).LinkTarget; }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { }
+            var record = new HostPid(pid, identity, installer.BinaryPath, image?.EndsWith(" (deleted)") == true ? "" : hash, configurationHash);
+            WritePrivate(PidPath, JsonSerializer.Serialize(record));
+            logger.LogWarning("Adopted a local Host executor that Quasar has no record of (PID {Pid}).", pid);
+            return record;
+        }
+        return null;
     }
 
     // uninstall.sh reads "Pid" and "Identity" from this file to stop the Host.

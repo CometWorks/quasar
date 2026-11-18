@@ -602,6 +602,29 @@ public sealed class ClusterDependencyTests
         await Assert.ThrowsAsync<InvalidDataException>(() => fixture.Service.ReadActivePluginPinsAsync(fixture.Cluster, default));
     }
 
+    // QSR-27: cluster 0.3.20 was built for 1.211.017, the frozen server was 1.210.014, and every node failed on its patches.
+    [Fact]
+    public void ClusterReleaseForAnotherGameVersionIsRefused()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "cluster-game-version-" + Guid.NewGuid());
+        string cli = Path.Combine(root, "cli");
+        Directory.CreateDirectory(cli);
+        string capability = Path.Combine(cli, "deployment-capabilities.json");
+        try
+        {
+            File.WriteAllText(capability, """{"schemaVersion":1,"spaceEngineersVersion":"1.211.017"}""");
+            Assert.Null(ClusterDeploymentFiles.GameVersionMismatch(root, "1.211.017 b6"));
+            Assert.Null(ClusterDeploymentFiles.GameVersionMismatch(root, "1.211.017"));
+            Assert.Contains("built for Space Engineers 1.211.017, but the Dedicated Server is 1.210.014",
+                ClusterDeploymentFiles.GameVersionMismatch(root, "1.210.014 b1"));
+            // An unknown version on either side can't be compared and is not refused.
+            Assert.Null(ClusterDeploymentFiles.GameVersionMismatch(root, ""));
+            File.WriteAllText(capability, """{"schemaVersion":1}""");
+            Assert.Null(ClusterDeploymentFiles.GameVersionMismatch(root, "1.210.014"));
+        }
+        finally { Directory.Delete(root, true); }
+    }
+
     [Fact]
     public void ClusterSdkPinRejectsMalformedReleaseMetadata()
     {
