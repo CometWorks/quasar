@@ -1417,6 +1417,11 @@ plan read for deployment checks and then reports `executor_contract_unavailable`
 No heartbeat or node actualization occurs, including for attachments without bundle
 configuration.
 
+Each state directory supports one running executor. If its lock is held, both
+`run` and `run --once` print the conflict and exit with code 5. For the local Host,
+Quasar adopts an identifiable executor or waits for the lock to become available
+before launching a replacement.
+
 `Quasar.Host stop-clusters --config host.json` asks the Gateway of every cluster whose
 Gateway this Host runs to shut down with a save, and waits for it. The systemd stop unit
 runs it at logout and machine shutdown.

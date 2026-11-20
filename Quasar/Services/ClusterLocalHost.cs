@@ -136,7 +136,8 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
         while (await timer.WaitForNextTickAsync(token))
             if (wanted && ReadPid() is null)
             {
-                logger.LogWarning("The local Host executor exited; starting it again. See {Log}.", Path.Combine(root, "host.log"));
+                if (error is null)
+                    logger.LogWarning("The local Host executor exited; checking whether it can restart. See {Log}.", Path.Combine(root, "host.log"));
                 await EnsureRunningAsync(token); // Logs its own failures and never throws them.
             }
     }
@@ -166,6 +167,11 @@ public sealed class ClusterLocalHost : IHostedService, IDisposable
                 // A Host restart leaves the Gateway and nodes running; the new Host adopts them.
                 logger.LogInformation("Restarting the local Host executor because its binary or configuration changed.");
                 await StopProcessAsync(running.Pid);
+            }
+            if (HostExecutionLock.IsHeld(Path.Combine(root, "state")))
+            {
+                Fail("The local Host state directory is locked by another process. Check for another Host using the same state directory.");
+                return;
             }
             Launch(installer.BinaryPath, hash, configurationHash);
             error = loggedError = null;
