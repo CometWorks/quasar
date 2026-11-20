@@ -123,6 +123,15 @@ restore that complete snapshot, rather than only an old executable.
 A failed operation remains failed after the old service is restored. Correct its
 reported cause, then use **Retry update** or `update --retry`. Do not delete the
 journal, maintenance marker or retained transaction to force another activation.
+Quasar stops startup if it cannot read the update journal. On Linux, run
+`Quasar update --status` as the configured service account. If a system installer
+left a root-owned journal, stop both services and run the current installer with
+`--repair-supervision`, the original paths and service name, and
+`--system --user <account>`. Repair restores the service account's ownership of
+the journal while preserving its contents and permissions. If access is still
+denied, check the journal's permissions and the account's access to the data
+directory and its parents. Keep the journal private.
+
 Internal recovery is available through `Updater/Quasar.Updater recover
 --installation <protected service-installation.json>` with both services stopped.
 It restores files; start Quasar afterward and check status. Older Bootstrap
@@ -191,6 +200,9 @@ For files already replaced while stopped, use `--repair-supervision` with the sa
 path, name and user/system flags. It repairs service registration and metadata
 without rebuilding or copying application files. Both application and updater must
 come from the new complete package.
+If a legacy Bootstrap request is present alongside an interrupted application
+replacement, finish recovery before migrating. The installer archives the
+legacy request without replacing an unrelated update journal.
 
 Windows, from an elevated PowerShell:
 

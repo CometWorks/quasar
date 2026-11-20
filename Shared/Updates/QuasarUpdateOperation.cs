@@ -45,9 +45,17 @@ internal static class QuasarUpdateJournal
 {
     internal static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     internal static string PathName => Path.Combine(MagnetarPaths.GetQuasarUpdatesDirectory(), "operation.json");
-    internal static QuasarUpdateOperation? Read() => File.Exists(PathName)
-        ? JsonSerializer.Deserialize<QuasarUpdateOperation>(ReadText(PathName), JsonOptions)
-          ?? throw new InvalidDataException($"Invalid update journal: {PathName}") : null;
+    internal static QuasarUpdateOperation? Read()
+    {
+        var path = PathName;
+        string text;
+        // File.Exists reports false for inaccessible parent directories as well as missing files.
+        try { text = ReadText(path); }
+        catch (FileNotFoundException) { return null; }
+        catch (DirectoryNotFoundException) { return null; }
+        return JsonSerializer.Deserialize<QuasarUpdateOperation>(text, JsonOptions)
+            ?? throw new InvalidDataException($"Invalid update journal: {path}");
+    }
 
     internal static string ReadText(string path)
     {
@@ -62,13 +70,16 @@ internal static class QuasarUpdateJournal
 
     internal static void WriteText(string path, string value)
     {
+        const UnixFileMode privateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         var temporary = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            using (var stream = new FileStream(temporary, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write, Share = FileShare.None };
+            if (!OperatingSystem.IsWindows()) options.UnixCreateMode = privateMode;
+            using (var stream = new FileStream(temporary, options))
             {
-                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(temporary, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(stream.SafeFileHandle, privateMode);
                 using var writer = new StreamWriter(stream, leaveOpen: true);
                 writer.Write(value);
                 writer.Flush();

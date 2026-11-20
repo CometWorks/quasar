@@ -100,10 +100,48 @@ try:
     manual = fixture('probe', check=False)
     assert manual.returncode == 4
     print('PASS manual launch refuses inferred restart capability', flush=True)
-    install = [root / 'install.sh', '--repair-supervision', '--install-dir', root, '--service-name', name, '--start']
+    install = [root / 'install.sh', '--repair-supervision', '--install-dir', root, '--service-name', name]
     if options.system:
         install += ['--system', '--user', service_account]
-    run(*install)
+    if options.system and account.pw_uid != 0:
+        updates = root / 'Updates'
+        updates.mkdir(exist_ok=True)
+        os.chown(updates, account.pw_uid, account.pw_gid)
+        legacy = updates / 'bootstrap-update-request.json'
+        legacy.write_text('{"version":"1.4.1"}')
+        run(*install)
+        operation = updates / 'operation.json'
+        assert operation.stat().st_uid == account.pw_uid and operation.stat().st_mode & 0o777 == 0o600
+        assert 'Abandoned' in fixture('update', '--status').stdout
+        assert not legacy.exists() and legacy.with_suffix('.json.migrated').is_file()
+        abandoned = operation.read_bytes()
+
+        # A stale legacy request must not overwrite native recovery or a staged rollback.
+        pending = dict(journal(), stage='Restarting', version='1.5.0', restorePrevious=True)
+        marker = updates / 'application-maintenance'
+        marker.write_text(pending['id'])
+        legacy.write_text('{"version":"1.4.1"}')
+        operation.write_text(json.dumps(pending))
+        interrupted = operation.read_bytes()
+        failed = run(*install, check=False)
+        assert failed.returncode and 'needs recovery' in failed.stderr
+        assert operation.read_bytes() == interrupted and marker.read_text() == pending['id'] and legacy.exists()
+        assert 'Restarting' in fixture('update', '--status').stdout
+        marker.unlink()
+
+        pending['stage'] = 'Ready'
+        operation.write_text(json.dumps(pending))
+        staged = operation.read_bytes()
+        os.chown(operation, 0, 0)  # Journal left by an earlier elevated migration.
+        assert fixture('update', '--status', check=False).returncode == 3
+        run(*install)
+        assert operation.stat().st_uid == account.pw_uid and operation.stat().st_mode & 0o777 == 0o600
+        assert operation.read_bytes() == staged and not legacy.exists()
+        status = fixture('update', '--status', check=False)
+        assert status.returncode == 4 and 'Ready' in status.stdout
+        operation.write_bytes(abandoned)
+        print('PASS system migration and repair keep the journal private and preserve native recovery state', flush=True)
+    run(*install, '--start')
     wait(lambda: (root / 'server.pid').exists(), 'Native main startup')
     wait(lambda: json.loads((root / 'Updates/restart-capability.json').read_text())['canRestart'], 'Native service ownership verification', timeout=10) if (root / 'Updates/restart-capability.json').exists() else None
     fixture('verify')
