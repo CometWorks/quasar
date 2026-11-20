@@ -16,7 +16,7 @@
     @if (_error != null) { <p class="quasar-notice quasar-notice-warning" role="alert">@_error</p> }
     @if (_status?.Anchor is { } station)
     {
-        <p>@station.Name · Grid @station.GridId · Partition @station.Partition · @(_status.Owner ?? "Owner unavailable")</p>
+        <p>@station.Name · Grid @station.GridId · Partition @station.Partition · @(_status.State == "offline" ? "Partition offline" : _status.Owner ?? "Owner unavailable")</p>
         <p>World position (m) · @station.Position.X, @station.Position.Y, @station.Position.Z</p>
     }
     else if (_status != null) { <p>No lobby station configured.</p> }
