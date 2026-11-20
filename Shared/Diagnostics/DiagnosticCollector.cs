@@ -191,12 +191,12 @@ public sealed class DiagnosticCollector
         if (run is null) return;
         expected |= run.ExpectedExit;
         if (run.EndedAtUtc is null) Write(path, run with { EndedAtUtc = DateTimeOffset.UtcNow, ExpectedExit = expected });
-        if (!expected && !File.Exists(Path.Combine(directory, "exit-recorded")))
+        if (!expected && !File.Exists(Path.Combine(directory, "exit-recorded")) && !File.Exists(Path.Combine(directory, "exit.json")))
         {
             Write(Path.Combine(directory, "exit.json"), new IncidentReport(1, Guid.NewGuid().ToString("N"),
                 DateTimeOffset.UtcNow, "host", "unexpected_exit", "Error",
                 exitCode.HasValue ? $"Process exited unexpectedly with code {exitCode}." : "Process disappeared; exit status is unavailable.",
-                null, new(run.Context) { ["exitCode"] = exitCode?.ToString() ?? "unknown" }));
+                null, new(run.Context) { ["exitCode"] = exitCode?.ToString() ?? "unknown" }), overwrite: false);
             File.WriteAllText(Path.Combine(directory, "exit-recorded"), "");
         }
     }
@@ -347,6 +347,7 @@ public sealed class DiagnosticCollector
                     // excluded fatal bind failure into a generic unexpected-exit upload instead.
                     var fatals = reports.Where(r => r.Report.Kind == "unhandled_exception").ToArray();
                     bool addressInUseExit = fatals.Length > 0 && fatals.All(r => IncidentClassification.IsAddressInUse(r.Report));
+                    bool hasFatalCause = fatals.Any(r => !string.IsNullOrWhiteSpace(r.Report.Exception));
                     foreach (var (path, captured) in reports)
                     {
                         var report = captured;
@@ -364,9 +365,6 @@ public sealed class DiagnosticCollector
                         context["installationId"] = policy.InstallationId;
                         report = report with { Context = context };
                         var attachments = new Dictionary<string, string>();
-                        string log = Path.Combine(directory, "process.log");
-                        // A log spanning a previous consent window cannot be shared retrospectively.
-                        if (report.Kind != "log_batch" && File.Exists(log) && run.CreatedAtUtc >= policy.GrantedSinceUtc) attachments["log-001.txt"] = Snapshot(log, directory);
                         // A hang's dump is written before its report, while the process still runs.
                         bool hang = report.Kind is HungNodeKind or ReadyTimeoutKind;
                         if (hang && File.Exists(Path.Combine(directory, HangEvidenceFile))) attachments["log-002.txt"] = Path.Combine(directory, HangEvidenceFile);
@@ -380,6 +378,14 @@ public sealed class DiagnosticCollector
                                 if (new FileInfo(dump).Length is > 0 and < (2L << 30)) attachments[$"dump-{++n:000}.dmp"] = dump;
                             if (n == 0 && !run.Native) report.Context["dumpStatus"] = "Runtime dump unavailable or larger than the supported limit.";
                         }
+                        // A fatal report includes this run's cause and process log. Only a native crash
+                        // observation or a dump adds independent evidence to the generic exit report.
+                        if (hasFatalCause && report.Kind == "unexpected_exit" && Path.GetFileName(path) == "exit.json"
+                            && !run.Context.ContainsKey("nativeExceptionCode") && !attachments.Keys.Any(name => name.EndsWith(".dmp", StringComparison.Ordinal)))
+                            continue;
+                        string log = Path.Combine(directory, "process.log");
+                        // A log spanning a previous consent window cannot be shared retrospectively.
+                        if (report.Kind != "log_batch" && File.Exists(log) && run.CreatedAtUtc >= policy.GrantedSinceUtc) attachments["log-001.txt"] = Snapshot(log, directory);
                         report.Context["dumpCapture"] = run.Native || OperatingSystem.IsWindows() ? NativeDumpCapture.Capability : "coreclr";
                         if (File.Exists(Path.Combine(directory, "core-unavailable"))) report.Context["dumpStatus"] = File.ReadAllText(Path.Combine(directory, "core-unavailable"));
                         long estimate = attachments.Values.Sum(p => new FileInfo(p).Length) + (1 << 20);
@@ -558,12 +564,13 @@ public sealed class DiagnosticCollector
             throw new InvalidDataException("Invalid diagnostic run.");
         return value;
     }
-    private static void Write<T>(string path, T value)
+    private static void Write<T>(string path, T value, bool overwrite = true)
     {
         string temp = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
         var options = new FileStreamOptions { Mode = FileMode.CreateNew, Access = FileAccess.Write };
         if (!OperatingSystem.IsWindows()) options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
-        try { using (var file = new FileStream(temp, options)) { file.Write(JsonSerializer.SerializeToUtf8Bytes(value, Json)); file.Flush(true); } File.Move(temp, path, true); }
+        try { using (var file = new FileStream(temp, options)) { file.Write(JsonSerializer.SerializeToUtf8Bytes(value, Json)); file.Flush(true); } File.Move(temp, path, overwrite); }
+        catch (IOException) when (!overwrite && File.Exists(path)) { /* Another observer published the same run exit. */ }
         finally { File.Delete(temp); }
     }
     private sealed record CaptureRun(string RunId, DateTimeOffset CreatedAtUtc, int? ProcessId,

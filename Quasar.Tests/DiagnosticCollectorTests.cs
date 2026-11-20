@@ -328,11 +328,25 @@ public sealed class DiagnosticCollectorTests : IDisposable
     }
 
     [Fact]
+    public void RepeatedExitObservationPreservesTheFirstReportAcrossAnInterruptedMarkerWrite()
+    {
+        var collector = new DiagnosticCollector(root, "host-a");
+        string directory = Configure(collector);
+        DiagnosticCollector.Exited(directory, 42, false);
+        string path = Path.Combine(directory, "exit.json");
+        var original = File.ReadAllBytes(path);
+        File.Delete(Path.Combine(directory, "exit-recorded"));
+        DiagnosticCollector.Exited(directory, null, false);
+        Assert.Equal(original, File.ReadAllBytes(path));
+    }
+
+    [Fact]
     public async Task NativeExceptionAttributionIsPreservedOnTheDumpBearingExitReport()
     {
         var collector = new DiagnosticCollector(root, "host-a");
         await collector.ApplyPolicyAsync(Policy(true), default);
         string directory = Configure(collector);
+        DiagnosticCollector.ReportFailure(directory, "unhandled_exception", "Fatal error", new InvalidOperationException("fixture"));
         DiagnosticCollector.ReportNativeException(directory, 0xc0000005, 42, 0xdeadbeef);
         File.WriteAllBytes(Path.Combine(directory, "native.dmp"), [1, 2, 3]);
         DiagnosticCollector.Exited(directory, 3, false);
