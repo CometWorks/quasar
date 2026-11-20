@@ -1,3 +1,5 @@
+// Copyright (c) 2026 CometWorks. SPDX-License-Identifier: MIT
+// See LICENSE.MIT in the Quasar source or distribution.
 import { QuasarSdkError } from "./client.js";
 
 const CHUNK = 16 * 1024, WINDOW = 256 * 1024, CONTROL = 66 * 1024;

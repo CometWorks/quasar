@@ -1,3 +1,5 @@
+// Copyright (c) 2026 CometWorks. SPDX-License-Identifier: MIT
+// See LICENSE.MIT in the Quasar source or distribution.
 // Share panel capacity across same-origin plugin frames. Feature plugins never schedule network work.
 const panelsKey = Symbol.for("Quasar.SDK.v1.panels");
 function panelState(base) {

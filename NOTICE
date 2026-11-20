@@ -1,8 +1,10 @@
 Quasar
 Copyright (c) 2026 CometWorks (https://github.com/CometWorks)
 
-The current Quasar distribution is licensed under AGPL-3.0-only. See LICENSE
-and Docs/Licensing.md (LICENSING.md in binary distributions).
+The Quasar implementation uses AGPL-3.0-only with the independent-extension
+permission in EXCEPTION.md. See LICENSING.md for the licence guide. Listed
+SDK and contract code is also available under MIT; see LICENSE.MIT. The AGPL
+text is in LICENSE.
 The distribution's license and notices were changed on 1 November 2026.
 
 Quasar includes code previously distributed under the MIT License. The original
