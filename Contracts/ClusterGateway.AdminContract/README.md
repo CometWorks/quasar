@@ -21,3 +21,5 @@ The upstream directory is ClusterRegistry.AdminContract. The local project,
 package ID and namespace retain ClusterGateway.AdminContract for compatibility.
 No neighboring checkout or private package feed is required. Source pinning does
 not publish a Cluster package or change Quasar's application version.
+
+Package `0.13.0` adds `LobbyContract.cs` and capability `lobbyAnchor=v1` for reading the lobby and adopting or creating its station.
