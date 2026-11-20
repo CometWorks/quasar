@@ -43,7 +43,37 @@ Environment.SetEnvironmentVariable("QUASAR_INSTALL_DIR", testRoot);
 try
 {
     using var lease = await QuasarMaintenanceLease.AcquireAsync(CancellationToken.None);
+    Require(QuasarUpdateJournal.Read() is null, "Missing update directory has no operation");
+    var updates = MagnetarPaths.GetQuasarUpdatesDirectory();
+    Directory.CreateDirectory(updates);
+    Require(QuasarUpdateJournal.Read() is null, "Missing journal has no operation");
     var first = QuasarUpdateJournal.Submit("1.4.1", false);
+    if (OperatingSystem.IsLinux())
+    {
+        var path = QuasarUpdateJournal.PathName;
+        var mode = File.GetUnixFileMode(path);
+        Require(mode == (UnixFileMode.UserRead | UnixFileMode.UserWrite), "Journal must be private");
+        // Changing a mode does not deny root. The user-unit integration runs this fixture as a normal account.
+        var userIds = File.ReadLines("/proc/self/status").Single(line => line.StartsWith("Uid:"));
+        var effectiveUserId = userIds.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)[2];
+        if (effectiveUserId != "0")
+        {
+            foreach (var deniedPath in new[] { path, updates })
+            {
+                var originalMode = File.GetUnixFileMode(deniedPath);
+                File.SetUnixFileMode(deniedPath, UnixFileMode.None);
+                try
+                {
+                    var errors = new StringWriter();
+                    var status = await Quasar.Bootstrap.UpdateCli.RunAsync(["update", "--status"], stdout: TextWriter.Null, stderr: errors);
+                    Require(status == 3 && errors.ToString().Contains(path), "Denied journal read must report the journal path");
+                    Reject(() => QuasarUpdateJournal.Submit("1.4.2", false), "Unreadable journal must block new operations");
+                }
+                finally { File.SetUnixFileMode(deniedPath, originalMode); }
+                Require(QuasarUpdateJournal.Read()?.Id == first.Id, "Permission failure must leave the pending operation intact");
+            }
+        }
+    }
     Require(QuasarUpdateJournal.Submit("1.4.1", false).Id == first.Id, "Duplicate intent must reuse operation identity");
     Reject(() => QuasarUpdateJournal.Submit("1.4.2", false), "Concurrent target must be rejected");
     Reject(() => QuasarUpdateJournal.Submit("../evil", false), "Path-like version must be rejected");

@@ -455,6 +455,10 @@ For an existing install, run `install.sh --repair-supervision` with its original
 paths, service name, account and user/system scope, then restart the main service.
 Repair rewrites the unit without changing its `Restart=on-failure` policy.
 See [safe restart and capability checks](QuasarUpdates.md#restart-quasar-safely).
+If startup reports access denied on `Updates/operation.json`, stop both services
+before running repair. For a system install, the current installer returns a
+root-owned journal to the configured service account.
+See [durable status and recovery](QuasarUpdates.md#durable-status-and-recovery).
 
 ## Post-install access setup
 

@@ -286,6 +286,7 @@ Read the operation ID, target, stage and message on Updates, with `Quasar update
 - `Failed` stays recorded after the previous application is restored. Fix the cause (permissions, service setup, download, settings conflict), then press **Retry update** or run `update --retry`. A retry downloads and verifies again.
 - If Quasar restarts during `Downloading` or `Verified`, the operation fails with "Update preparation was interrupted. Use update --retry to download and verify again."
 - If the updater stops during `Restarting`, it finishes or rolls back that update when it starts again, before it accepts a new one.
+- If Linux startup reports permission denied on `Updates/operation.json`, stop both services. For a system install, run the current installer with `--repair-supervision`, the existing install path and service name, and `--system --user <account>`. This returns a root-owned journal to the service account and keeps its contents and permissions. Run `Quasar update --status` as that account to check access. If access is still denied, check the file and parent directory permissions and keep the journal private.
 
 Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTransaction` to force an update. If the Quasar executable does not load at all, stop both services and use `Quasar activate-release --restore` (see [Command-line UI recovery](#command-line-ui-recovery)).
 
