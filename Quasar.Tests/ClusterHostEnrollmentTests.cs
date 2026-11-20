@@ -142,6 +142,35 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
     }
 
     [Fact]
+    public async Task LocalHostWaitsForUnrecognizedLockOwnerBeforeLaunching()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string release = Path.Combine(root, "release");
+        string binary = FakeHost(release);
+        using var local = LocalHost(binary, Path.Combine(root, "install"));
+        string state = Path.Combine(local.Directory, "state");
+        Directory.CreateDirectory(state);
+        try
+        {
+            using (var incumbent = new FileStream(Path.Combine(state, "executor.lock"),
+                FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            {
+                await local.EnsureRunningAsync(default);
+                await local.EnsureRunningAsync(default);
+                Assert.Null(local.ReadPid());
+                Assert.Contains("state directory is locked", local.Error);
+                Assert.False(File.Exists(Path.Combine(release, "calls.log")));
+            }
+
+            await local.EnsureRunningAsync(default);
+            Assert.Single(await WaitForCallsAsync(binary, 1));
+            Assert.NotNull(local.ReadPid());
+            Assert.Null(local.Error);
+        }
+        finally { await local.StopAsync(default); }
+    }
+
+    [Fact]
     public async Task LocalHostLogsWhyItCannotStartOncePerReason()
     {
         if (!OperatingSystem.IsLinux()) return;
