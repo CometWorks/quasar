@@ -63,6 +63,61 @@ public sealed class ClusterOfflineApiTests
         Assert.DoesNotContain(fixture.Requests, r => r.Uri.AbsolutePath.EndsWith("/prediction"));
     }
 
+    [Theory]
+    [InlineData(QuasarRoles.Admin, HttpStatusCode.OK)]
+    [InlineData(QuasarRoles.Editor, HttpStatusCode.Forbidden)]
+    [InlineData(QuasarRoles.Viewer, HttpStatusCode.Forbidden)]
+    public async Task LobbyApiRestrictsBothMutationEntryPoints(string role, HttpStatusCode expected)
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true };
+        await using var app = App(fixture, role);
+        await app.StartAsync();
+        using var http = app.GetTestClient();
+        var update = new CometWorks.ClusterGateway.AdminContract.V1.LobbyUpdate(1, 321, 7);
+        using var put = new HttpRequestMessage(HttpMethod.Put, "/api/v1/clusters/demo/lobby")
+            { Content = JsonContent.Create(update) };
+        put.Headers.Add("Idempotency-Key", "adopt");
+        using var response = await http.SendAsync(put);
+        Assert.Equal(expected, response.StatusCode);
+        using var command = new HttpRequestMessage(HttpMethod.Post, "/api/v1/clusters/demo/commands")
+            { Content = JsonContent.Create(ClusterAdminCommand.Create("lobby-set", update)) };
+        command.Headers.Add("Idempotency-Key", "adopt");
+        using var replay = await http.SendAsync(command);
+        Assert.Equal(expected, replay.StatusCode);
+        Assert.Equal(expected == HttpStatusCode.OK ? 1 : 0, fixture.Requests.Count(r => r.Method == "PUT"));
+    }
+
+    [Theory]
+    [InlineData(true, HttpStatusCode.OK)]
+    [InlineData(false, HttpStatusCode.NotImplemented)]
+    public async Task ViewerReadsLobbyOnlyWhenGatewaySupportsIt(bool supported, HttpStatusCode expected)
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = supported };
+        await using var app = App(fixture, QuasarRoles.Viewer);
+        await app.StartAsync();
+        using var http = app.GetTestClient();
+        using var response = await http.GetAsync("/api/v1/clusters/demo/lobby");
+        Assert.Equal(expected, response.StatusCode);
+        Assert.Equal(supported, fixture.Requests.Any(r => r.Uri.AbsolutePath.EndsWith("/lobby")));
+    }
+
+    [Fact]
+    public async Task IncompleteLobbyCoordinatesAreRejectedBeforePlacement()
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true };
+        await using var app = App(fixture, QuasarRoles.Admin);
+        await app.StartAsync();
+        using var http = app.GetTestClient();
+        using var request = new HttpRequestMessage(HttpMethod.Put, "/api/v1/clusters/demo/lobby")
+        {
+            Content = JsonContent.Create(new { expectedRevision = 0, blueprintXml = "<Definitions/>", position = new { x = 1000000 } })
+        };
+        request.Headers.Add("Idempotency-Key", "partial-position");
+        using var response = await http.SendAsync(request);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Empty(fixture.Requests);
+    }
+
     private static WebApplication App(OfflineGatewayFixture fixture, string role)
     {
         var builder = WebApplication.CreateBuilder();

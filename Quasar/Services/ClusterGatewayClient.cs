@@ -62,6 +62,26 @@ public sealed class ClusterGatewayClient
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.SnapshotSummary[]>(cluster, "snapshots", token);
     public Task<Admin.AdminEnvelope<Admin.PartitionSummary[]>> GetPartitionsAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.PartitionSummary[]>(cluster, "partitions", token);
+    public async Task<Admin.AdminEnvelope<Admin.LobbyStatus>> GetLobbyAsync(ClusterDefinition cluster, CancellationToken token)
+    {
+        await RequireLobbyAsync(cluster, token);
+        return await GetAsync<Admin.LobbyStatus>(cluster, "lobby", token);
+    }
+
+    internal async Task RequireLobbyAsync(ClusterDefinition cluster, CancellationToken token, bool manage = false)
+    {
+        var caps = (await GetCapabilitiesAsync(cluster, token)).Data;
+        if (!SupportsLobby(caps, manage))
+            throw new ClusterGatewayException(HttpStatusCode.NotImplemented, "lobby_unsupported",
+                "This Gateway package does not support the requested lobby operation.");
+        if (manage && caps.Scope != Admin.AdminScope.Manage)
+            throw new ClusterGatewayException(HttpStatusCode.Forbidden, "manage_scope_required", "Cluster credentials allow observation only.");
+    }
+
+    internal static bool SupportsLobby(Admin.AdminCapabilities caps, bool manage = false) =>
+        caps.Features?.TryGetValue("lobbyAnchor", out var version) == true && version == "v1"
+        && caps.Operations?.Contains(manage ? "PUT /admin/v1/lobby" : "GET /admin/v1/lobby", StringComparer.Ordinal) == true;
+
     public Task<Admin.AdminEnvelope<Admin.RotationStatus>> GetRotationAsync(
         ClusterDefinition cluster, CancellationToken token) => GetAsync<Admin.RotationStatus>(cluster, "rotation", token);
     public Task<Admin.AdminEnvelope<Admin.DiagnosticsSnapshot>> GetClientDiagnosticsAsync(

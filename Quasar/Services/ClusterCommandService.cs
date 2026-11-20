@@ -251,6 +251,11 @@ public sealed class ClusterCommandService
                         + (scope.Node is null ? "" : "&node=" + Uri.EscapeDataString(scope.Node))
                         + (scope.Partition is null ? "" : "&partition=" + scope.Partition.Value);
                     body = new { }; break;
+                case "lobby-set":
+                    var lobby = Read<Admin.LobbyUpdate>();
+                    if (lobby.ValidationError() is { } invalid) throw Invalid("invalid_lobby", invalid);
+                    await _client.RequireLobbyAsync(cluster, token, manage: true);
+                    method = "PUT"; route = "lobby"; body = lobby; break;
                 case "offline-cache-clear":
                     var clear = Read<Admin.OfflineCacheClearRequest>();
                     if (string.IsNullOrWhiteSpace(clear.Key) || clear.Key.Length > 4096 || clear.ExpectedEpoch < 0)
@@ -298,7 +303,7 @@ public sealed record ClusterGoalResult(string ClusterId,
 public sealed record ClusterAdminCommand(string Action, JsonElement? Parameters = null, string? Target = null)
 {
     [JsonIgnore]
-    public bool RequiresAdministrator => Action?.Trim().ToLowerInvariant() == "offline-cache-clear"
+    public bool RequiresAdministrator => Action?.Trim().ToLowerInvariant() is "offline-cache-clear" or "lobby-set"
         || Action?.Trim().ToLowerInvariant() == "trigger" && Target == "profile";
     public static ClusterAdminCommand Create(string action, object? parameters = null, string? target = null) =>
         new(action, parameters is null ? null : JsonSerializer.SerializeToElement(parameters,

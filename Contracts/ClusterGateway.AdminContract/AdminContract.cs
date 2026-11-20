@@ -21,6 +21,8 @@ public static class AdminProtocol
         "GET /admin/v1/recovery-readiness",
         "GET /admin/v1/nodes",
         "GET /admin/v1/world-authority",
+        "GET /admin/v1/lobby",
+        "PUT /admin/v1/lobby",
         "GET /admin/v1/partitions",
         "GET /admin/v1/offline/partitions",
         "GET /admin/v1/offline/details",

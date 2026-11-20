@@ -117,6 +117,12 @@ point, the panel explains that recovery after a crash is not confirmed; this doe
 not mean no files have been saved. A failed check says recovery information is
 unavailable. Progress since the last save can be lost even when recovery is ready.
 
+### Configure the lobby station
+
+Open **Cluster → Partitions → Lobby** on a Gateway with `lobbyAnchor=v1`. An administrator can choose an online partition with a single static grid, or enter the station grid entity ID if it contains several. **Set lobby station** adopts the existing grid in place.
+
+To build a hall from a local blueprint, choose **Upload grid blueprint**, pick a `bp.sbc` containing one static grid (up to 1 MiB), and enter X, Y and Z in metres. Keep the station within 1 km of its pivot and choose a pivot over 101 km from other partition bounds. The cluster checks world bounds and block definitions. **Create and set lobby** places the station and waits for its save. Use **Refresh lobby** to see the operation and owning node. On an unconfirmed placement, inspect the grid ID in the error before trying a fresh upload. A successful replacement leaves the former station in the world. CLI commands are `Quasar cluster lobby NAME` and `Quasar cluster lobby-set NAME request.json --idempotency-key KEY`.
+
 ### Offline partitions and compensation
 
 Open the cluster’s **Partitions** view to inspect Registry placement, offline Final holders, profile readiness, confidence, unknown reasons and remote users. Bookmark it with `#cluster-partitions`. It becomes available when the Gateway responds, and switching views preserves the selection. Profile reads and predictions show progress and elapsed time. Refresh and Inspect only read state. Remote users pin ordinary offlining and clientless movement; a `remote-use` conflict means another node is using the partition remotely.
@@ -498,6 +504,8 @@ collisions, limits and the required Magnetar version.
 
 - `Docs/ClusterOfflineCompensation.md`
 - `Quasar/Components/Dashboard/ClusterPartitionsPanel.razor`
+- `Quasar/Components/Dashboard/ClusterLobbyPanel.razor`
+- `Contracts/ClusterGateway.AdminContract/LobbyContract.cs`
 - `Quasar/Components/Dashboard/ClusterOfflineResults.razor`
 - `Contracts/ClusterGateway.AdminContract/OfflineContract.cs`
 - `Docs/ClusterOverview.md`
