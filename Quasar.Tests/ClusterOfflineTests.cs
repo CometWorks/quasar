@@ -50,6 +50,20 @@ public sealed class ClusterOfflineTests
         Assert.Equal(new LobbyUpdate(1, 321, 7), JsonSerializer.Deserialize<LobbyUpdate>(request.Body, OfflineGatewayFixture.Json));
     }
 
+    [Theory]
+    [InlineData("offline", "Partition offline")]
+    [InlineData("unavailable", "Owner unavailable")]
+    public async Task ReadingUnownedLobbyShowsAvailabilityWithoutWakingIt(string state, string label)
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true, LobbyState = state };
+        await using var context = Context(fixture, QuasarRoles.Viewer);
+        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var lobby = panel.Find("section[aria-label='Lobby anchor']");
+        Assert.Contains("Hall", lobby.TextContent);
+        Assert.Contains(label, lobby.TextContent);
+        Assert.All(fixture.Requests, request => Assert.Equal("GET", request.Method));
+    }
+
     [Fact]
     public async Task LobbyFilePickerSubmitsBlueprintAndCoordinates()
     {
@@ -322,6 +336,7 @@ internal sealed class OfflineGatewayFixture : HttpMessageHandler
     internal ClusterCommandService Commands { get; }
     internal ClusterOperationStore Store { get; }
     internal bool Supported = true, Empty, LobbySupported;
+    internal string LobbyState = "assigned";
     internal AdminScope Scope = AdminScope.Manage;
     internal int CacheEpoch = 4;
     internal string? MutationError;
@@ -357,7 +372,7 @@ internal sealed class OfflineGatewayFixture : HttpMessageHandler
         object data = request.Uri.AbsolutePath switch
         {
             "/admin/v1/capabilities" => new AdminCapabilities("registry", Scope, AdminProtocol.Operations, LobbySupported ? new Dictionary<string,string>() { ["lobbyAnchor"] = "v1" } : Supported ? new Dictionary<string, string> { ["offlinePartitions"] = "v1" } : new()),
-            "/admin/v1/lobby" when request.Method == "GET" => new LobbyStatus(1, new(321, 7, "Hall", new(1000000, 0, 0)), "node-1", "assigned"),
+            "/admin/v1/lobby" when request.Method == "GET" => new LobbyStatus(1, new(321, 7, "Hall", new(1000000, 0, 0)), LobbyState == "assigned" ? "node-1" : null, LobbyState),
             "/admin/v1/partitions" => Empty ? Array.Empty<PartitionSummary>() : new[]
             {
                 new PartitionSummary(7, "node-1", 1, 1, DateTimeOffset.UtcNow.AddMinutes(1), false, false, false, ProfileGroups: [Group(7)], RemoteUsers: [81]),
