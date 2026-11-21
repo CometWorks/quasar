@@ -36,7 +36,7 @@ A server card has:
   - the health summary, for example "Quasar.Agent heartbeat stale beyond 20s timeout."
   - the last restart record: "Restart pending", "Last restart failed" or "Last restart recovered", with the cause (Health policy, Agent attach recovery, Scheduled, Maximum uptime, Manual, In-game, Crash recovery) and the time. Hover for the reason.
   - the latest error line, only for a **Crashed** or **Faulted** server. Click it to open the console at the error lines.
-- Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime.
+- Live metrics: players, sim speed, process CPU, memory, PCU, mods, plugins loaded, uptime. Hover over a yellow **Plugins** count or label to see selected plugins not reported as loaded. If only a count is available, the tooltip directs you to the server logs. Screen readers receive the same description.
 - **Live details** (expand it): **Refresh**, **Save**, a **Broadcast message** box with **Send**, the players table with **Set role**, **Kick** and **Ban**, **Recent Chat** (the last 12 messages, multi-line messages keep their line breaks) and **Recent Command Results**. A **Mod download failed during world initialization.** box lists up to 5 failure lines when the DS reported Workshop download failures. A process priority warning, such as "Install /usr/local/bin/quasar-renice to use High process priority on Linux.", stays here until a priority applies; see [Servers](Servers.md#process-priority-and-cpu-affinity).
 - **Console** opens the log console (see [Servers](Servers.md#the-server-console)).
 - **Start**, **Stop**, **Restart** and **Kill** buttons (need `CanControlServers`). Their behavior is in [Servers](Servers.md#dashboard-and-server-controls).
@@ -143,7 +143,7 @@ Quasar keeps three tiers per server:
 
 Retention defaults to 30 days. Allowed values are 30, 45, 60 and 90; any other value falls back to 30. Set it with `QUASAR_ANALYTICS_RETENTION_DAYS`, `Quasar:AnalyticsRetentionDays` or `Quasar:Analytics:RetentionDays` (checked in that order) and restart Quasar.
 
-History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts. Old entries without simulation CPU show as gaps. Profiler and plugin statistics are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
+History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`, and per cluster slot in `<data dir>/Magnetars/cluster-slot-<hash>/analytics.jsonl`. A slot keeps one history while its node is replaced or restarted. Earlier Quasar versions kept cluster history per node process (`cluster-<hash>` folders); those folders are no longer read and can be deleted. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts, so the charts show the stored history as soon as a page opens. Old entries without simulation CPU show as gaps. Profiler and plugin statistics are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
 
 ### Profiler mode
 
@@ -197,8 +197,14 @@ Plugins and their AI agents use the `chat.messages`, `chat.commands`, `chat.send
 - Columns start with **Name**, then type, optional cluster node locations, viewer, details, quantity, blocks, PCU, size, owner and position. **Entity ID** is near the end, before actions. Types and details use admin-facing labels such as **Dropped item**, **Large-grid station** and **Antenna relay**, rather than internal game type names. Unknown details show a dash.
 - **Quantity** shows a dropped item's stack amount, including fractional amounts for resources. It is separate from the item name and details. Older agents' `x10` values also appear here. Updated agents send the numeric amount and use the item definition's display name when available. Other entity types show a dash for quantity. Search accepts readable labels as well as raw identifiers.
 - Deleting (row delete button, or select and delete several) needs `CanControlServers`. It asks "Permanently delete N selected entities? This cannot be undone." There is no undo; take a world backup first if unsure.
-- Cluster discovery also needs cluster query permission and access to that cluster. Cluster deletion needs cluster management permission and one verified owning node. It is disabled for shared, frozen, ambiguous or unknown ownership. Updated agents report ownership and check it again on the game thread before deleting. Older agents can still be browsed; update them before cluster deletion. If an entity moves or a node is replaced, refresh rather than picking a node manually.
-- Plugins and their AI agents list entities with the `entities.list` and `cluster.entities.list` operations and delete one by entity ID with `entities.delete` and `cluster.entities.delete`, under the same permissions. The Assistant proposes a delete for an admin to approve unless its settings let it apply deletes at once, and a delete has no undo.
+- The row's **⋮** menu, and **Act on selected** for a selection, run the in-game Entity List (Alt-F10) actions, with the same permissions as deleting:
+  - **Stop** zeroes the velocity of the entity and of every grid physically connected to it. A single row stops at once; a selection asks first.
+  - **Depower** turns off the power producers (batteries, reactors, engines) of a grid and of every grid connected to it, docked ships included, like the in-game button. **Power on** turns them back on, including any that were off before.
+  - **Remove owner** gives every block of a grid and its subgrids to nobody. It cannot be undone. Unlike the in-game "Remove inactive owner and his grids", it deletes nothing and leaves the player alone.
+  - Depower, Power on and Remove owner are for grids only; Stop works on anything but terrain. A selection is only accepted when the action fits every selected entity.
+  - A server whose agent predates these actions answers "This server's Quasar agent predates entity actions. Restart the server to load the updated agent."
+- Cluster discovery also needs cluster query permission and access to that cluster. Cluster deletion and the entity actions need cluster management permission and one verified owning node, and run on that node. They are disabled for shared, frozen, ambiguous or unknown ownership. Updated agents report ownership and check it again on the game thread before acting. Older agents can still be browsed; update them before cluster deletion. If an entity moves or a node is replaced, refresh rather than picking a node manually.
+- Plugins and their AI agents list entities with the `entities.list` and `cluster.entities.list` operations, delete one by entity ID with `entities.delete` and `cluster.entities.delete`, and run Stop, Depower, PowerOn or RemoveOwner on one with `entities.action` and `cluster.entities.action`, under the same permissions. The Assistant proposes these changes for an admin to approve unless its settings let it apply them at once, and none of them has an undo.
 
 The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
 
@@ -272,6 +278,8 @@ Preferences are per account and apply to the page, the bell and browser push on 
 | **Metric alert duration (seconds)** | 30 (5 to 3,600). A metric must stay past its threshold this long. |
 | **Metric alert cooldown (seconds)** | 300 (30 to 86,400). Minimum time between alerts for the same instance and metric. |
 | **Notify when an alerted metric recovers** | off |
+
+**Quasar UI plugin updates** includes restart reminders after successful manual or automatic updates to plugins with a Magnetar companion. A warning toast, bell/list notice and subscribed browser push tell you to load the update in Quasar, then restart game servers using the companion for functional changes and fixes to take effect. First installs, failed updates, UI-only plugins and same-revision reinstalls do not create new reminders. Reminders survive Quasar restarts and record the update rather than tracking server restarts. Push is deduplicated per installed revision and subscription; the toast appears once per UI session.
 
 Out-of-range values fail with "Check notification thresholds: ...".
 
@@ -431,6 +439,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Components/Pages/Home.razor`
 - `Quasar/Components/Dashboard/ServerCard.razor`
 - `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar.Tests/PluginLoadTooltipTests.cs`
 - `Quasar/Components/Dashboard/FleetTelemetryChart.razor`
 - `Quasar/Components/Pages/Analytics.razor`
 - `Quasar/Components/Pages/Analytics.razor.css`

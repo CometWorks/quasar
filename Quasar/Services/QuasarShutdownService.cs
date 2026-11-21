@@ -153,24 +153,41 @@ public sealed class QuasarShutdownService
         _lifetime.StopApplication();
     }
 
+    public Quasar.Updates.QuasarUpdateOperation? PendingRestartUpdate =>
+        Quasar.Updates.QuasarServiceInstallation.Current is not null
+        && Quasar.Updates.QuasarUpdateJournal.Read() is { RestartOnly: false,
+            Stage: Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading
+                or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Ready } update ? update : null;
+
     /// <summary>
-    /// Restarts the Quasar web worker <em>without</em> stopping any managed server.
-    /// Running Magnetar servers stay up (detached via <c>-daemon</c>) and are
-    /// re-adopted by process id after the native updater or legacy Bootstrap
-    /// restarts Quasar. Unsupported restart requests leave Quasar running.
+    /// Restarts Quasar without stopping managed servers. A pending native update
+    /// is activated instead when the caller confirms that operation's identity.
+    /// Unsupported or unconfirmed requests leave Quasar running.
     /// </summary>
-    public async Task RestartWorkerAsync(IProgress<string>? progress = null)
+    public async Task RestartWorkerAsync(IProgress<string>? progress = null, Guid? confirmedUpdateId = null)
     {
         var capability = _options.RestartCapability;
         if (!capability.CanRestart)
             throw new InvalidOperationException(capability.Detail + " " + capability.Repair);
 
-        if (Quasar.Updates.QuasarServiceInstallation.Current is not null)
+        if (Quasar.Updates.QuasarServiceInstallation.Current is { } installation)
         {
             using var lease = await Quasar.Updates.QuasarMaintenanceLease.AcquireAsync(CancellationToken.None);
             var previous = Quasar.Updates.QuasarUpdateJournal.Read();
-            if (previous?.Stage is Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Ready or Quasar.Updates.UpdateStage.Restarting)
-                throw new InvalidOperationException("An update is already pending. Wait for its outcome before restarting Quasar.");
+            if (previous?.Stage is Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Restarting
+                || previous is { RestartOnly: true, Stage: Quasar.Updates.UpdateStage.Ready }
+                || File.Exists(Path.Combine(MagnetarPaths.GetQuasarUpdatesDirectory(), "application-maintenance"))
+                || Quasar.Updates.LauncherReplacement.Phase(installation.InstallDirectory) is "installing" or "ready" or "attempted")
+                throw new InvalidOperationException("Quasar is already preparing an update, restarting or recovering. Wait for its outcome before restarting again.");
+            if (previous is { RestartOnly: false, Stage: Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Ready })
+            {
+                if (confirmedUpdateId != previous.Id)
+                    throw new InvalidOperationException($"Restarting will also install Quasar {previous.Version}. Review and confirm the pending update before restarting.");
+                progress?.Report($"Installing Quasar {previous.Version} and restarting through the updater service…");
+                Quasar.Updates.QuasarUpdateJournal.Write(previous with { ActivateWhenReady = true,
+                    Message = "Administrator confirmed installing the pending update and restarting Quasar." });
+                return;
+            }
             progress?.Report("Requesting restart through the updater service…");
             await _supervisor.BeginLauncherDrainAsync();
             Quasar.Updates.QuasarUpdateJournal.Write(new Quasar.Updates.QuasarUpdateOperation { Version = _options.Version,

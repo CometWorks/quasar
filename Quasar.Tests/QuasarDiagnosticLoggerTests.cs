@@ -134,13 +134,13 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
             shared.Add(await IncidentArchive.ValidateAsync(Path.Combine(collector.IncomingDirectory, envelope.ReportId + ".zip"), envelope, rsa));
         var batch = Assert.Single(shared, report => report.Kind == "log_batch");
         Assert.Contains(BindFailure, batch.Message);
-        Assert.Equal(excluded ? 1 : 4, shared.Count);
+        Assert.Equal(excluded ? 1 : 3, shared.Count);
         Assert.Equal(2, Reports(provider).Length); // Exclusion never deletes local exception evidence.
         if (!excluded)
         {
             Assert.Single(shared, report => report.Kind == "log");
             Assert.Single(shared, report => report.Kind == "unhandled_exception");
-            Assert.Single(shared, report => report.Kind == "unexpected_exit");
+            Assert.DoesNotContain(shared, report => report.Kind == "unexpected_exit");
         }
     }
 
@@ -164,7 +164,7 @@ public sealed class QuasarDiagnosticLoggerTests : IDisposable
         }
         else DiagnosticCollector.Exited(provider.DiagnosticDirectory!, 1, expected: false);
         await collector.CollectAsync(default);
-        Assert.Equal(unrelatedFatal ? 2 : 1, collector.GetReports().Length);
+        Assert.Single(collector.GetReports());
         Assert.True(File.Exists(Path.Combine(provider.DiagnosticDirectory!, "exit.json")));
     }
 

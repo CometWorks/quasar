@@ -15,6 +15,17 @@ Opening `Install.cmd` or `Install.desktop` installs the main and updater togethe
 manual installer commands remain available. Upgrading the updater uses this full
 package with both services stopped.
 
+## Changes in 1.6.1
+
+- The UI Plugins **Restart Quasar** button pulses when plugin changes can be
+  applied. Reduced-motion users see a steady highlight.
+- Restart controls warn when a pending Quasar release will also be installed and
+  offer **Update and Restart Quasar**. Automatic plugin restarts wait for approval
+  rather than silently activating a pending application update.
+- **Update Quasar** and **Retry update** check release availability again. If the
+  selected release disappeared, an **OK / Cancel** dialog offers the newest later
+  eligible release. Cancel keeps the existing operation unchanged.
+
 ## Direct installation and upgrades
 
 Install the current complete platform package directly, including on a fresh
@@ -49,7 +60,20 @@ that specifically need the legacy worker channel.
 
 ## Normal operation
 
-On **Updates**, select a version and press **Update Quasar**. The same operation is
+On **Updates**, select a version and press **Update Quasar**. The button is disabled
+when the selected release is already installed. Select a different release to
+upgrade or roll back. **Retry update** remains available for failed or staged
+operations. Both buttons check GitHub again before submitting. If the selected or
+retried release no longer has the complete platform package and checksums, Quasar
+offers the newest later eligible release, respecting the prerelease setting.
+A warning names both versions: **OK** queues the replacement; **Cancel** leaves
+the existing operation and selection unchanged. An available selected release,
+including a rollback, is kept. If no later release exists or GitHub cannot be
+checked, nothing is queued. Accepting a replacement starts a new operation, with
+a fresh package and configuration merge rather than reusing the old resolution.
+The updater still verifies GitHub provenance before stopping Quasar; a release
+removed after confirmation can still fail safely and be retried.
+The same operation is
 available locally as:
 
 ```sh
@@ -99,6 +123,15 @@ restore that complete snapshot, rather than only an old executable.
 A failed operation remains failed after the old service is restored. Correct its
 reported cause, then use **Retry update** or `update --retry`. Do not delete the
 journal, maintenance marker or retained transaction to force another activation.
+Quasar stops startup if it cannot read the update journal. On Linux, run
+`Quasar update --status` as the configured service account. If a system installer
+left a root-owned journal, stop both services and run the current installer with
+`--repair-supervision`, the original paths and service name, and
+`--system --user <account>`. Repair restores the service account's ownership of
+the journal while preserving its contents and permissions. If access is still
+denied, check the journal's permissions and the account's access to the data
+directory and its parents. Keep the journal private.
+
 Internal recovery is available through `Updater/Quasar.Updater recover
 --installation <protected service-installation.json>` with both services stopped.
 It restores files; start Quasar afterward and check status. Older Bootstrap
@@ -167,6 +200,9 @@ For files already replaced while stopped, use `--repair-supervision` with the sa
 path, name and user/system flags. It repairs service registration and metadata
 without rebuilding or copying application files. Both application and updater must
 come from the new complete package.
+If a legacy Bootstrap request is present alongside an interrupted application
+replacement, finish recovery before migrating. The installer archives the
+legacy request without replacing an unrelated update journal.
 
 Windows, from an elevated PowerShell:
 
@@ -222,8 +258,17 @@ after native service verification succeeds for the current Quasar process. If
 verification is missing, stale, unreadable or denied, the button stays disabled and
 shows repair guidance. An unsupported restart request leaves Quasar running. Wait for
 the next verification on Updates or repair supervision with the current installer,
-preserving paths, service names, account and scope. A pending update must finish before
-a manual restart can be queued. Native restarts are durable restart-only operations
+preserving paths, service names, account and scope. When a native update is pending
+or staged, both restart controls warn that Quasar will install that version during
+the restart. **Update and Restart Quasar** confirms the combined operation; cancel
+leaves the update staged and Quasar running. This requires permission to manage
+security and updates. The existing update operation handles preparation, validation
+and one restart, keeping its staged package and configuration resolution. If the
+pending operation changes after confirmation, Quasar asks you to review it again.
+Active preparation, cutover, recovery or another queued restart still prevents a
+second restart. Automatic UI plugin restarts wait for an admin to confirm a pending
+Quasar update rather than activating it silently.
+Without a pending update, native restarts are durable restart-only operations
 handled by the updater; it verifies the services again before stopping and starting the
 main service. Legacy Bootstrap keeps its worker-restart request path. Failed request
 writes leave Quasar running. Running game servers keep their PIDs for adoption after

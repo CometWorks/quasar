@@ -3,6 +3,26 @@
     justify-content: flex-end;
 }
 
+::deep .ui-plugin-restart-pending {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--mud-palette-warning) 35%, transparent);
+    animation: ui-plugin-restart-pulse 2s ease-in-out infinite;
+}
+
+@keyframes ui-plugin-restart-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 transparent;
+    }
+    50% {
+        box-shadow: 0 0 0 5px color-mix(in srgb, var(--mud-palette-warning) 35%, transparent);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    ::deep .ui-plugin-restart-pending {
+        animation: none;
+    }
+}
+
 .ui-plugin-hub-filter-row {
     display: flex;
     flex-wrap: wrap;
@@ -33,10 +53,24 @@
 }
 
 .ui-plugin-description-line {
-    max-width: 28rem;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+@media (min-width: 961px) {
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-compact,
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-status {
+        width: 1%;
+    }
+
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-compact {
+        white-space: nowrap;
+    }
+
+    ::deep .ui-plugin-hub-table .ui-plugin-catalog-name {
+        width: 12%;
+        min-width: 10rem;
+    }
 }
 
 ::deep .ui-plugin-cell-stack {
@@ -118,11 +152,6 @@
     .ui-plugin-actions {
         justify-content: flex-start;
         flex-wrap: wrap;
-    }
-
-    .ui-plugin-description-line {
-        max-width: 100%;
-        white-space: normal;
     }
 
     .ui-plugin-hub-open-button {

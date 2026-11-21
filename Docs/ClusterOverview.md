@@ -155,3 +155,15 @@ Set `MagnetarBin` to a current Magnetar SDK directory as described in
 `QUASAR_CLUSTER_PREVIEW_OUTPUT` to a temporary path to export the actual map
 component with sample data for offline layout inspection. This export does not
 exercise a live Blazor circuit, game cluster, firewall or network listener.
+
+## Lobby anchor
+
+Use **Partitions → Lobby** to bind a station grid to the cluster lobby or select a local Space Engineers grid blueprint (`bp.sbc`) and create a new station at a remote position. Check the coordinates in metres before submitting. Refresh to see the current owner after a node drain or restart. Replacing the binding preserves the previous station. Editing requires a Quasar administrator with access to the cluster and a manage-scoped Gateway credential.
+
+The Quasar HTTP endpoint is `/api/v1/clusters/{uniqueName}/lobby`. Discover
+`lobbyAnchor=v1` and the advertised GET or PUT operation through the cluster
+capabilities endpoint. Older packages return HTTP 501 with `lobby_unsupported`.
+
+- **GET** returns the Gateway v1 envelope. Read `data.revision` before editing. An unconfigured lobby has revision zero and a null anchor.
+- **PUT** takes JSON and an `Idempotency-Key`. To adopt, send `{"expectedRevision":0,"partition":42}`. Add `gridId` if several stations share the partition. To create, send `expectedRevision`, the blueprint text in `blueprintXml` and `position` with all three coordinates (`x`, `y`, `z`) in metres.
+- Poll the Quasar operation URL in the `Location` header while the response is HTTP 202. HTTP 200 returns a terminal operation. Check its state and error before treating the change as applied. On a lost response, repeat the same request with the same key. On a revision conflict, refresh the lobby before submitting a new edit.

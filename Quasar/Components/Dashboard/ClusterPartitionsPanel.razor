@@ -9,6 +9,11 @@
 @inject QuasarRoleMapper RoleMapper
 @inject ViewerTimeZone ViewerTime
 
+@if (_capabilities != null && ClusterGatewayClient.SupportsLobby(_capabilities))
+{
+    <ClusterLobbyPanel Cluster="Cluster" Partitions="@(_partitions ?? [])" GatewayManage="@(_capabilities.Scope == Admin.AdminScope.Manage && ClusterGatewayClient.SupportsLobby(_capabilities, manage: true))" @key="Cluster.UniqueName" />
+}
+
 <section class="quasar-panel quasar-card-content quasar-stack" aria-label="Partitions and offline compensation">
     <div class="quasar-row quasar-between quasar-wrap-wrap">
         <h2 class="quasar-text quasar-type-h6">Partitions</h2>

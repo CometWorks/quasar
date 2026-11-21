@@ -225,6 +225,7 @@ internal static class ClusterCli
             "recovery-readiness" when values.Length == 2 => ClusterRoute("recovery-readiness"),
             "config" when values.Length == 2 => ClusterRoute("config"),
             "rotation" when values.Length == 2 => ClusterRoute("rotation"),
+            "lobby-set" when values.Length == 3 => ClusterRoute("lobby"),
             "rotation-set" when values.Length == 3 => ClusterRoute("rotation"),
             "client-diagnostics" when values.Length == 3 => ClusterRoute("client-diagnostics?node=" + Uri.EscapeDataString(values[2])),
             "package-release" when values.Length == 2 => ClusterRoute("package-release"),
@@ -234,7 +235,7 @@ internal static class ClusterCli
             "dependency-candidate" or "dependencies" or "deployment-inputs" or "deployment" when values.Length == 2 => ClusterRoute(command),
             "dependencies-stage" when values.Length == 3 => ClusterRoute("dependencies"),
             "deployment-activate" when values.Length == 3 => ClusterRoute("deployment"),
-            "capabilities" or "fleet" or "nodes" or "world-authority" or "snapshots" or "partitions" or "clients" or "gateway-operations" when values.Length == 2 => ClusterRoute(command),
+            "capabilities" or "fleet" or "nodes" or "world-authority" or "snapshots" or "partitions" or "lobby" or "clients" or "gateway-operations" when values.Length == 2 => ClusterRoute(command),
             "bans" when values.Length == 2 => ClusterRoute("admission/bans"),
             "events" when values.Length == 2 => ClusterRoute($"events?cursor={options.Cursor}&limit={options.Limit}"),
             "chat-history" when values.Length == 2 => ClusterRoute($"chat/history?cursor={options.Cursor}&limit={options.Limit}"),
@@ -313,7 +314,7 @@ internal static class ClusterCli
             body = new { };
             mutation = true;
         }
-        else if (command is "rotation-set" or "command" or "dependencies-stage" or "deployment-activate" or "deployment-prepare" or "create" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server")
+        else if (command is "rotation-set" or "lobby-set" or "command" or "dependencies-stage" or "deployment-activate" or "deployment-prepare" or "create" or "backup" or "restore" or "update" or "recover" or "convert-to-cluster" or "convert-to-server")
         {
             try
             {
@@ -426,7 +427,7 @@ internal static class ClusterCli
     }
 
     private static void WriteUsage(TextWriter writer) => writer.WriteLine(
-        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|regular-nodes-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; regular-nodes-prepare takes COUNT [HOST]; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
+        "Usage: Quasar cluster <list|create|conversion-review|conversion-plugins|convert-to-cluster|convert-to-server|conversion-status|deployment-prepare|release-update-prepare|world-files|world-files-prepare|regular-nodes-prepare|backups|backup|restore|update|update-status|update-abandon|diagnostics|handover-config|artifacts|artifact|artifact-backup|health|status|lifecycle|plan|recovery-readiness|config|rotation|rotation-set|client-diagnostics|package-release|package-stage|package-selection|package-select|dependency-candidate|dependencies|dependencies-stage|deployment-inputs|deployment|deployment-activate|capabilities|fleet|nodes|world-authority|snapshots|partitions|lobby|lobby-set|clients|events|chat-history|bans|gateway-operations|operation|goal|purge|gateway-restart|gateway-recover|recover|command> [cluster] [value] [--url URL] [--token-env NAME] [--idempotency-key KEY] [--cursor N] [--limit N] [--wait] (command, lobby-set, rotation-set, dependencies-stage, deployment-activate, convert-to-cluster and convert-to-server take a JSON file or - for stdin; world-files-prepare takes a folder holding the world's Storage/ files; regular-nodes-prepare takes COUNT [HOST]; package-stage takes VERSION SHA256; package-select takes VERSION SHA256 EXPECTED_REVISION; purge deletes what a deleted cluster left behind so its ID can be set up again)");
 
     private sealed record Options(string? BaseUrl, string TokenEnvironmentVariable,
         string? IdempotencyKey, Guid? RequestId, int TimeoutSeconds, bool Wait,

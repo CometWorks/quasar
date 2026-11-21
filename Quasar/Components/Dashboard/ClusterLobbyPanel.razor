@@ -1,0 +1,142 @@
+@using System.Text
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject ClusterGatewayClient Gateway
+@inject ClusterCommandService Commands
+@inject ClusterOperationStore Operations
+@inject QuasarPermissionService Permissions
+@inject AuthenticationStateProvider AuthenticationState
+@inject QuasarRoleMapper RoleMapper
+@implements IDisposable
+
+<section class="quasar-panel quasar-card-content quasar-stack" aria-label="Lobby anchor">
+    <div class="quasar-row quasar-between">
+        <h2 class="quasar-text quasar-type-h6">Lobby</h2>
+        <button type="button" class="quasar-button" disabled="@_busy" @onclick="RefreshAsync">Refresh lobby</button>
+    </div>
+    @if (_error != null) { <p class="quasar-notice quasar-notice-warning" role="alert">@_error</p> }
+    @if (_status?.Anchor is { } station)
+    {
+        <p>@station.Name · Grid @station.GridId · Partition @station.Partition · @(_status.State == "offline" ? "Partition offline" : _status.Owner ?? "Owner unavailable")</p>
+        <p>World position (m) · @station.Position.X, @station.Position.Y, @station.Position.Z</p>
+    }
+    else if (_status != null) { <p>No lobby station configured.</p> }
+    @if (_status?.PendingOperation is { } pending) { <p role="status">Applying lobby change · @pending</p> }
+    @if (_operation != null)
+    {
+        <p role="status">Lobby update · @_operation.State @(_operation.Error?.Message)</p>
+    }
+    @if (_canEdit && _status != null)
+    {
+        <fieldset class="quasar-stack" disabled="@(_busy || _status.PendingOperation != null || _operation?.State == ClusterOperationState.Running)">
+            <legend>@(_status.Anchor == null ? "Configure lobby" : "Change lobby station")</legend>
+            <label class="quasar-field">Station source
+                <select @bind="_source" @bind:after="SourceChanged"><option value="existing">Existing station</option><option value="file">Upload grid blueprint</option></select>
+            </label>
+            @if (_source == "existing")
+            {
+                <label class="quasar-field">Partition
+                    <select @bind="_partition"><option value="0">Choose an online partition</option>
+                        @foreach (var row in Partitions.Where(p => p.Node != null && !p.Retired && !p.Offline && !p.Recovering && !p.Quarantined))
+                        { <option value="@row.Partition">@row.Partition · @row.Node</option> }
+                    </select>
+                </label>
+                <label class="quasar-field">Station grid entity ID (optional for a partition with one station) <input @bind="_grid" inputmode="numeric" /></label>
+            }
+            else
+            {
+                <label class="quasar-field">Station blueprint (bp.sbc, up to 1 MiB)
+                    <InputFile accept=".sbc" OnChange="ChooseFile" />
+                </label>
+                <p>Choose a position inside the world, more than 101 km from other partitions. Enter coordinates in metres.</p>
+                <div class="quasar-row quasar-wrap-wrap">
+                    <label>X <input type="number" step="any" @bind="_x" /></label>
+                    <label>Y <input type="number" step="any" @bind="_y" /></label>
+                    <label>Z <input type="number" step="any" @bind="_z" /></label>
+                </div>
+            }
+            <button class="quasar-button" type="button" disabled="@(!ValidInput)" @onclick="ApplyAsync">@(_source == "file" ? "Create and set lobby" : "Set lobby station")</button>
+        </fieldset>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public ClusterDefinition Cluster { get; set; } = null!;
+    [Parameter] public Admin.PartitionSummary[] Partitions { get; set; } = [];
+    [Parameter] public bool GatewayManage { get; set; }
+    private Admin.LobbyStatus? _status;
+    private ClusterOperation? _operation;
+    private IBrowserFile? _file;
+    private bool _busy, _canEdit;
+    private string _source = "existing", _grid = "";
+    private string? _error;
+    private ulong _partition;
+    private double? _x, _y, _z;
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool ValidInput => _source == "existing" ? _partition != 0 && (string.IsNullOrWhiteSpace(_grid) || long.TryParse(_grid, out var id) && id > 0)
+        : _file != null && _x.HasValue && _y.HasValue && _z.HasValue;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private void SourceChanged() { _file = null; _error = null; }
+
+    private void ChooseFile(InputFileChangeEventArgs change)
+    {
+        _file = null;
+        _error = null;
+        if (change.File.Size is <= 0 or > Admin.LobbyUpdate.MaxBlueprintBytes)
+            _error = "Choose a nonempty grid blueprint up to 1 MiB.";
+        else _file = change.File;
+    }
+
+    private async Task<bool> AuthorizedAsync()
+    {
+        var user = RoleMapper.RefreshRoles((await AuthenticationState.GetAuthenticationStateAsync()).User);
+        return GatewayManage && user.CanQueryCluster(Cluster.UniqueName)
+            && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)
+            && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterMaintenance);
+    }
+
+    private async Task RefreshAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _canEdit = await AuthorizedAsync();
+            _status = (await Gateway.GetLobbyAsync(Cluster, _lifetime.Token)).Data;
+            if (_operation != null) _operation = Operations.Get(_operation.OperationId);
+        }
+        catch (ClusterGatewayException error) { _status = null; _error = error.Message; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_busy || !ValidInput || _status == null) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (!await AuthorizedAsync()) { _error = "Administrator access is required."; return; }
+            Admin.LobbyUpdate update;
+            if (_source == "file")
+            {
+                await using var stream = _file!.OpenReadStream(Admin.LobbyUpdate.MaxBlueprintBytes, _lifetime.Token);
+                using var reader = new StreamReader(stream, new UTF8Encoding(false, true));
+                update = new(_status.Revision, BlueprintXml: await reader.ReadToEndAsync(_lifetime.Token), Position: new(_x!.Value, _y!.Value, _z!.Value));
+            }
+            else update = new(_status.Revision, string.IsNullOrWhiteSpace(_grid) ? null : long.Parse(_grid), _partition);
+            var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
+            _operation = await Commands.SubmitAsync(Cluster.UniqueName, ClusterAdminCommand.Create("lobby-set", update),
+                Guid.NewGuid().ToString("N"), user.Identity?.Name ?? "web-ui", _lifetime.Token);
+            _status = (await Gateway.GetLobbyAsync(Cluster, _lifetime.Token)).Data;
+        }
+        catch (Exception error) when (error is ClusterGatewayException or ClusterOperationConflictException
+            or ClusterOperationStoreUnavailableException or IOException or DecoderFallbackException) { _error = error.Message; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

@@ -20,8 +20,15 @@ public sealed class HostGatewayControlHealthTests : IDisposable
     );
     private volatile string _answer = "healthy";
 
+    // SE-1422: /registry/status is an admin route; a probe without the admin bearer is logged as a refusal.
+    private readonly string _tokenVariable = "QSR_MANAGED_TEST_" + Guid.NewGuid().ToString("N");
+    private readonly string _token = Guid.NewGuid().ToString("N");
+    private int _probes;
+    private int _probesWithoutToken;
+
     public void Dispose()
     {
+        Environment.SetEnvironmentVariable(_tokenVariable, null);
         if (Directory.Exists(_root))
             Directory.Delete(_root, true);
     }
@@ -36,6 +43,7 @@ public sealed class HostGatewayControlHealthTests : IDisposable
         control.Prefixes.Add($"http://127.0.0.1:{controlPort}/");
         control.Start();
         _ = Task.Run(() => ServeAsync(control));
+        Environment.SetEnvironmentVariable(_tokenVariable, _token);
         GatewaySpec spec = CreateBundle($"0.0.0.0:{controlPort}");
         var actualizer = new HostApp.GatewayActualizer(Path.Combine(_root, "state"), "host")
         {
@@ -96,6 +104,8 @@ public sealed class HostGatewayControlHealthTests : IDisposable
         );
         actualizer.EnsureStopped(spec.ClusterId);
         control.Stop();
+        Assert.True(_probes > 0, "the Host probed the Gateway control");
+        Assert.Equal(0, _probesWithoutToken);
     }
 
     [Theory]
@@ -137,11 +147,16 @@ public sealed class HostGatewayControlHealthTests : IDisposable
             {
                 return;
             }
+            Interlocked.Increment(ref _probes);
+            bool authorized = context.Request.Headers["Authorization"] == "Bearer " + _token;
+            if (!authorized)
+                Interlocked.Increment(ref _probesWithoutToken);
             (int status, string code) = _answer switch
             {
                 "persistence" => (503, "registry_persistence_failed"),
                 "busy" => (503, "registry_busy"),
-                _ => (401, "unauthorized"),
+                _ when authorized => (200, "ok"),
+                _ => (401, "credential_required"),
             };
             byte[] body = JsonSerializer.SerializeToUtf8Bytes(
                 new { version = 1, error = new { code, message = "test" } }
@@ -173,7 +188,8 @@ public sealed class HostGatewayControlHealthTests : IDisposable
                 "gateway",
                 "",
                 ["60"],
-                new() { ["CLUSTER_CONTROL"] = control }
+                new() { ["CLUSTER_CONTROL"] = control },
+                new() { ["CLUSTER_ADMIN_TOKEN"] = _tokenVariable }
             ),
             RuntimeRoot: Path.Combine(_root, "runtime"),
             ClusterId: "cluster",

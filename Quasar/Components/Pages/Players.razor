@@ -150,11 +150,7 @@
                     </MudTd>
                     <MudTd DataLabel="Server">
                         <p class="quasar-text quasar-type-body2">@context.ServerDisplayName</p>
-                        <span class="quasar-text quasar-type-caption">@context.Record.UniqueName</span>
-                        @if (context.ClusterClient is { } client)
-                        {
-                            <span class="quasar-text quasar-type-caption">@client.AdmissionState · @client.Node / @client.Partition</span>
-                        }
+                        <span class="quasar-text quasar-type-caption">@GetServerDetail(context)</span>
                     </MudTd>
                     <MudTd DataLabel="Steam ID">
                         <p class="quasar-text quasar-type-body2 mono">@context.Record.SteamId</p>
@@ -744,6 +740,15 @@
                     ? record.SteamId.ToString()
                     : displayName;
             }
+
+            // SE-1389: "octahedron-test · Ticket pending · node-a / 1", not "octahedron-testTicketPending · ...".
+            private static string GetServerDetail(KnownPlayerView view) =>
+                view.ClusterClient is { } client
+                    ? $"{view.Record.UniqueName} · {FormatAdmissionState(client.AdmissionState)} · {client.Node} / {client.Partition}"
+                    : view.Record.UniqueName;
+
+            private static string FormatAdmissionState(string state) =>
+                System.Text.RegularExpressions.Regex.Replace(state, "(?<=[a-z0-9])([A-Z])", m => " " + char.ToLowerInvariant(m.Value[0]));
 
             private static string GetPlatformName(KnownPlayerRecord record)
             {

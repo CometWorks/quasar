@@ -30,6 +30,10 @@ internal static class ClusterStorageActivity
         return new Lease(true);
     }
 
+    // Null when the workflows did not end within the wait.
+    internal static async Task<IDisposable?> TryCollectAsync(TimeSpan wait, CancellationToken token) =>
+        await Writer.WaitAsync(wait, token) ? new Lease(true) : null;
+
     internal static IDisposable? TryBegin()
     {
         if (!Readers.Wait(0)) return null;

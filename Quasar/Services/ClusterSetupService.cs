@@ -225,6 +225,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         await StageAsync(request, RuntimeProvisioningPhase, null, token);
         var ready = await runtime.EnsureManagedRuntimeReadyAsync(runtimeProgress, token);
         if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
+        await runtime.UpdateManagedDedicatedServerForClusterAsync(runtimeProgress, token);
         string installedSdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
         string installedSdkHash = ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(installedSdk, token));
         cluster = await EnsureCompatiblePackageAsync(cluster, installedSdk,
@@ -474,6 +475,7 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         await report("Provisioning Dedicated Server and Magnetar");
         var ready = await runtime.EnsureManagedRuntimeReadyAsync(cancellationToken: token);
         if (!ready.IsReady) throw new InvalidOperationException(ready.FailureMessage);
+        await runtime.UpdateManagedDedicatedServerForClusterAsync(null, token);
         string sdk = Path.Combine(runtime.ResolveInstalledMagnetarInstallDirectory(), "Libraries/MagnetarInterim/PluginSdk.dll");
         string sdkHash = ClusterDeploymentFiles.Hash(await File.ReadAllBytesAsync(sdk, token));
         cluster = await EnsureCompatiblePackageAsync(cluster, sdk, report, token);
@@ -534,11 +536,17 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
     private async Task<ClusterDefinition> EnsureCompatiblePackageAsync(ClusterDefinition cluster,
         string installedSdk, Func<string, Task> report, CancellationToken token)
     {
+        string gameVersion = runtime.GetInstalledVersions().DedicatedServerVersion;
         if (cluster.PackageSelection is { } selected)
         {
             var installed = await packages.GetInstalledAsync(new(selected.Version, selected.Sha256), token);
             if (ClusterDeploymentFiles.PluginSdkMismatch(installed.PackagePath, installedSdk) is null)
+            {
+                // A release built for another game version fails every node on its patches; there is no other to pick.
+                if (ClusterDeploymentFiles.GameVersionMismatch(installed.PackagePath, gameVersion) is { } gameMismatch)
+                    throw new InvalidOperationException($"Cluster release {selected.Version} cannot run on the installed Dedicated Server: {gameMismatch}");
                 return cluster;
+            }
         }
 
         await report("Downloading a cluster release compatible with Magnetar");
@@ -547,6 +555,9 @@ public sealed class ClusterSetupService(ClusterCatalog catalog, ClusterHostCatal
         if (ClusterDeploymentFiles.PluginSdkMismatch(package.PackagePath, installedSdk) is { } mismatch)
             throw new InvalidOperationException($"Cluster release {release.Version} cannot run on the installed Magnetar: {mismatch} "
                 + "Resume after a compatible release is published.");
+        if (ClusterDeploymentFiles.GameVersionMismatch(package.PackagePath, gameVersion) is { } game)
+            throw new InvalidOperationException($"Cluster release {release.Version} cannot run on the installed Dedicated Server: {game} "
+                + "Resume after a matching release is published.");
         await catalog.SelectPackageAsync(cluster.UniqueName, cluster.PackageSelection?.Revision ?? 0,
             package, "guided-setup-" + release.Version, token);
         return catalog.GetCluster(cluster.UniqueName)!;

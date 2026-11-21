@@ -170,6 +170,61 @@ public sealed class DiagnosticCollectorTests : IDisposable
         Assert.Empty(collector.GetReports());
     }
 
+    private static string EndedRunWithHeapDump(DiagnosticCollector collector, int age, long bytes = 4096)
+    {
+        string run = Configure(collector);
+        string dump = Path.Combine(run, $"heap-{age}-8392MB.dmp");
+        File.WriteAllBytes(dump, new byte[bytes]);
+        File.SetLastWriteTimeUtc(dump, DateTime.UtcNow.AddMinutes(-age));
+        Directory.SetCreationTimeUtc(run, DateTime.UtcNow.AddMinutes(-age));
+        DiagnosticCollector.Exited(run, 3, false);
+        return run;
+    }
+
+    [Fact]
+    public async Task NewestHeapDumpsSurviveTheRunsBudgetWhateverTheirSize()
+    {
+        // Each dump alone is over the budget, like an 11.7 GiB World Authority dump against 8 GiB.
+        var collector = new DiagnosticCollector(root, "host-a") { RunsBudgetBytes = 1024, FreeSpace = _ => long.MaxValue };
+        string[] runs = [.. Enumerable.Range(0, DiagnosticCollector.KeptHeapDumps).Select(i => EndedRunWithHeapDump(collector, 10 - i))];
+        await collector.CollectAsync(default);
+        Assert.All(runs, run => Assert.Single(Directory.GetFiles(run, "heap-*.dmp")));
+
+        string newest = EndedRunWithHeapDump(collector, 1);
+        await collector.CollectAsync(default);
+        Assert.False(Directory.Exists(runs[0]));
+        Assert.All(runs.Skip(1).Append(newest), run => Assert.Single(Directory.GetFiles(run, "heap-*.dmp")));
+    }
+
+    [Fact]
+    public async Task OtherRunDataStaysUnderTheBudgetNextToKeptHeapDumps()
+    {
+        var collector = new DiagnosticCollector(root, "host-a") { RunsBudgetBytes = 1024, FreeSpace = _ => long.MaxValue };
+        string plain = Configure(collector);
+        File.WriteAllBytes(Path.Combine(plain, "dump-1-1.dmp"), new byte[4096]);
+        Directory.SetCreationTimeUtc(plain, DateTime.UtcNow.AddMinutes(-20));
+        DiagnosticCollector.Exited(plain, 3, false);
+        string kept = EndedRunWithHeapDump(collector, 10);
+        await collector.CollectAsync(default);
+        Assert.False(Directory.Exists(plain));
+        Assert.Single(Directory.GetFiles(kept, "heap-*.dmp"));
+    }
+
+    [Fact]
+    public async Task LowFreeDiskSpaceGivesUpTheOldestKeptHeapDumpsFirst()
+    {
+        // One dump's worth of space short: only the oldest dump has to go.
+        var collector = new DiagnosticCollector(root, "host-a")
+        {
+            RunsBudgetBytes = 1024,
+            FreeSpace = _ => DiagnosticCollector.MinFreeBytesForHeapDumps - 1,
+        };
+        string[] runs = [.. Enumerable.Range(0, DiagnosticCollector.KeptHeapDumps).Select(i => EndedRunWithHeapDump(collector, 10 - i))];
+        await collector.CollectAsync(default);
+        Assert.False(Directory.Exists(runs[0]));
+        Assert.All(runs.Skip(1), run => Assert.Single(Directory.GetFiles(run, "heap-*.dmp")));
+    }
+
     [Fact]
     public async Task CorruptRunMetadataUsesAgeCleanupWithoutBlockingOtherRuns()
     {
@@ -273,11 +328,25 @@ public sealed class DiagnosticCollectorTests : IDisposable
     }
 
     [Fact]
+    public void RepeatedExitObservationPreservesTheFirstReportAcrossAnInterruptedMarkerWrite()
+    {
+        var collector = new DiagnosticCollector(root, "host-a");
+        string directory = Configure(collector);
+        DiagnosticCollector.Exited(directory, 42, false);
+        string path = Path.Combine(directory, "exit.json");
+        var original = File.ReadAllBytes(path);
+        File.Delete(Path.Combine(directory, "exit-recorded"));
+        DiagnosticCollector.Exited(directory, null, false);
+        Assert.Equal(original, File.ReadAllBytes(path));
+    }
+
+    [Fact]
     public async Task NativeExceptionAttributionIsPreservedOnTheDumpBearingExitReport()
     {
         var collector = new DiagnosticCollector(root, "host-a");
         await collector.ApplyPolicyAsync(Policy(true), default);
         string directory = Configure(collector);
+        DiagnosticCollector.ReportFailure(directory, "unhandled_exception", "Fatal error", new InvalidOperationException("fixture"));
         DiagnosticCollector.ReportNativeException(directory, 0xc0000005, 42, 0xdeadbeef);
         File.WriteAllBytes(Path.Combine(directory, "native.dmp"), [1, 2, 3]);
         DiagnosticCollector.Exited(directory, 3, false);

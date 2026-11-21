@@ -15,8 +15,12 @@ internal static class ClusterHostEnrollmentApi
             catch (Exception error) when (error is InvalidOperationException or IOException or PlatformNotSupportedException or System.ComponentModel.Win32Exception)
             { return Results.Problem(error.Message, statusCode: 409); }
         });
-        management.MapGet("", (ClusterHostCatalog hosts, ClusterHostTunnels tunnels) =>
-            hosts.GetAll().Select(h => new { h.Id, h.Name, h.Address, connected = tunnels.IsConnected(h.Id) }));
+        // Like the Hosts page, the list starts the local Host: a script waiting for it to connect has no page to open.
+        management.MapGet("", (ClusterHostCatalog hosts, ClusterHostTunnels tunnels, HttpContext context) =>
+        {
+            if (!tunnels.IsConnected(ClusterLocalHost.HostId)) context.RequestServices.GetService<ClusterLocalHost>()?.Request();
+            return hosts.GetAll().Select(h => new { h.Id, h.Name, h.Address, connected = tunnels.IsConnected(h.Id) });
+        });
         management.MapPost("", async (HostEnrollmentRequest request, ClusterHostCatalog hosts, CancellationToken token) =>
             await hosts.RegisterAsync(request.Id, request.Name, request.Address, request.CommandPort, token));
         management.MapDelete("/{host}", async (string host, ClusterHostCatalog hosts, [Microsoft.AspNetCore.Mvc.FromServices] ClusterCatalog clusters,

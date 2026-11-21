@@ -7,7 +7,7 @@ using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 namespace Quasar.Services;
 
 /// <summary>
-/// Issues live entity queries and deletions to a connected agent over the existing
+/// Issues live entity queries, deletions and row actions to a connected agent over the existing
 /// command/result WebSocket channel and marshals the structured JSON payloads.
 /// </summary>
 public sealed class EntityService
@@ -129,6 +129,19 @@ public sealed class EntityService
         return await DeleteEntityAsync(source.Agent, row.Entity.EntityId, token);
     }
 
+    /// <summary>Runs Stop, Depower, Power on or Remove owner through the node that owns the entity, like a delete.</summary>
+    public async Task<ServerCommandResult> RunEntityActionAsync(EntityQueryRow row, EntityAction action, CancellationToken token = default)
+    {
+        var source = row.DeletionSource ?? throw new InvalidOperationException(row.DeleteUnavailableReason);
+        if (!IsCurrent(source.Agent.AgentId, source.TelemetryKey))
+            throw new InvalidOperationException("The entity's node disconnected or was replaced. Refresh the list first.");
+        var payload = JsonSerializer.Serialize(new EntityActionRequest { EntityId = row.Entity.EntityId, Action = action }, JsonOptions);
+        var result = await _registry.SendCommandAndWaitAsync(BuildCommand(source.Agent, ServerCommandType.EntityAction, payload), DeleteTimeout, token);
+        if (!result.Success && result.Message?.StartsWith("Unsupported command", StringComparison.Ordinal) == true)
+            result.Message = "This server's Quasar agent predates entity actions. Restart the server to load the updated agent.";
+        return result;
+    }
+
     public async Task<EntityListResult> GetEntitiesAsync(
         AgentRuntimeState agent,
         EntityListFilter filter,
@@ -198,8 +211,8 @@ public sealed record EntityQueryRow(IReadOnlyList<EntityObservation> Observation
         source.Agent.ClusterSlot == "world-authority" ? "World Authority" : source.Agent.ClusterSlot).Distinct().Order());
     public string? DeleteUnavailableReason => DeletionSource is not null ? null
         : Observations.Any(source => source.Entity.ClusterResidence is null or "Unknown")
-            ? "Entity ownership is unavailable. Update the node agents and refresh before deleting."
-            : "No single node currently owns this entity. It may be shared or moving; refresh before deleting.";
+            ? "Entity ownership is unavailable. Update the node agents and refresh first."
+            : "No single node currently owns this entity. It may be shared or moving; refresh first.";
 }
 
 public sealed record EntityQueryResult(IReadOnlyList<EntityQueryRow> Rows, int TotalCount, int? TotalEntityCount,

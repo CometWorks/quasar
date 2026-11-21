@@ -52,7 +52,7 @@ Options:
   --runtime <rid>           Publish runtime identifier (default: linux-x64)
   --no-enable               Do not enable the service at boot
   --start                   Restart/start the service after installing
-  --repair-supervision      Repair only supervisor wiring; preserve installed files/config/data
+  --repair-supervision      Repair supervisor wiring and update journal ownership; preserve installed files/config/data
   --no-build                Install from an existing publish directory
   --yes                     Run package install commands without confirmation
   -h, --help                Show this help
@@ -611,6 +611,12 @@ EOF
     if [[ "$INSTALL_MODE" == "system" ]]; then
         chown "$RUN_USER:$RUN_GROUP" "$metadata_path" "$INSTALL_DIR/service-installation.json"
         chmod 0600 "$metadata_path" "$INSTALL_DIR/service-installation.json"
+        # configure runs as root and can publish an owner-only journal during legacy migration.
+        # Also fix journals left by an earlier installer without changing their mode or contents.
+        local updates="$INSTALL_DIR/Updates"
+        if [[ ! -L "$updates" && -f "$updates/operation.json" && ! -L "$updates/operation.json" ]]; then
+            chown -h --from=+0 -- "$RUN_USER:$RUN_GROUP" "$updates/operation.json"
+        fi
     fi
     cat > "$scope_dir/$SERVICE_NAME.service" <<EOF
 [Unit]

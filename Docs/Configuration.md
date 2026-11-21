@@ -121,9 +121,9 @@ player or server information. Memory dumps require separate consent and YES does
 not enable them. Existing statistics consent never silently grants diagnostics.
 
 The Magnetar flag changes on the next server start or restart. Server directory
-publishing reacts immediately to consent changes. Listings require explicit
-consent and independently verified logging/error-reporting availability; see
-[Server directory uplink](ServerList.md) for configuration and rollout dependencies.
+publication is independent of data-handling and diagnostic consent. A saved publish
+selection sends signed updates directly to se-servers.net; see
+[Server directory uplink](ServerList.md) for configuration and migration.
 Use **Listings**, below Discord in navigation, to select standalone servers and clusters,
 set public join addresses and save changes without a restart.
 
@@ -1417,6 +1417,11 @@ plan read for deployment checks and then reports `executor_contract_unavailable`
 No heartbeat or node actualization occurs, including for attachments without bundle
 configuration.
 
+Each state directory supports one running executor. If its lock is held, both
+`run` and `run --once` print the conflict and exit with code 5. For the local Host,
+Quasar adopts an identifiable executor or waits for the lock to become available
+before launching a replacement.
+
 `Quasar.Host stop-clusters --config host.json` asks the Gateway of every cluster whose
 Gateway this Host runs to shut down with a save, and waits for it. The systemd stop unit
 runs it at logout and machine shutdown.
@@ -1536,8 +1541,11 @@ never derived from entity IDs. The v1.0.3 package does not publish this receipt;
 remains pending. `CLUSTER_NODE_EPOCH` must not be used as the Registry incarnation. Agent observation alone is not a prerequisite
 for cluster operation.
 
-Metrics, profiler samples, plugin statistics and logs use a filesystem-safe hash of
+Profiler samples, plugin statistics and logs use a filesystem-safe hash of
 cluster/slot/node/epoch. Unknown incarnations additionally include the process Agent ID.
+Chart metrics are kept per slot instead, under a hash of cluster/slot
+(`Magnetars/cluster-slot-<hash>/analytics.jsonl`), so node replacements and Quasar
+restarts keep one slot history. The Discord analytics export reports one entry per slot.
 Existing standalone history retains its original server key. Plugin configuration
 snapshots and edits are bound to a connection; reconnecting clears prior snapshots,
 and an editor from the old connection cannot apply to its replacement. The ordinary
@@ -2420,9 +2428,16 @@ cannot interrupt a build. A process exit releases that lease automatically.
 
 On **Notifications**, administrators can opt into **Quasar UI plugin updates**.
 This account preference controls the notification list, bell, and subscribed browser
-push independently of Quasar/cluster notices. Notices identify installed catalog
-revisions, disappear after installation, and use revision keys to avoid repeated
-push delivery. Automatic application does not require notifications to be enabled.
+push independently of Quasar/cluster notices. Available-update notices disappear
+after installation. Successful manual or automatic updates to plugins with a
+Magnetar companion also produce a warning toast and browser push reminder: load
+the update in Quasar, then restart game servers using that companion so functional
+changes and fixes take effect. First installs, same-revision reinstalls, failed
+updates and UI-only plugins do not create a new reminder. Reminders survive Quasar
+restarts in package install metadata and use installed-revision keys to avoid
+repeated push delivery; the toast appears once per UI session. They record an
+update, not outstanding server restarts, and do not clear when servers restart.
+Automatic application does not require notifications to be enabled.
 
 ## Hosted public panel
 

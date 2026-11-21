@@ -46,7 +46,8 @@ public sealed class QuasarUiPluginHubCatalogService
         await _installGate.WaitAsync(cancellationToken);
         try
         {
-            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode && _webOptions.RestartCapability.CanRestart)
+            if (_updateOptions.AutoUpdateUiPlugins && AutomaticRestartPending && !_uiPluginCatalog.SafeMode
+                && _webOptions.RestartCapability.CanRestart && shutdown.PendingRestartUpdate is null)
             {
                 await shutdown.RestartWorkerAsync();
                 AutomaticRestartPending = false;
@@ -262,6 +263,7 @@ public sealed class QuasarUiPluginHubCatalogService
             RuntimeDisplayName = manifest?.DisplayName ?? string.Empty,
             InstalledCommit = metadata?.Commit ?? string.Empty,
             InstalledAtUtc = metadata?.InstalledAtUtc,
+            CompanionUpdatedAtUtc = metadata?.CompanionUpdatedAtUtc,
             Enabled = pluginState.Enabled,
             ImplicitInstallSuppressed = _pluginStates.IsImplicitInstallSuppressed(entry.CatalogId),
             Error = error,
@@ -321,6 +323,7 @@ public sealed class QuasarUiPluginHubCatalogService
             throw new InvalidOperationException("Only root quasar-plugin.json package manifests are supported in this installer.");
 
         var installDirectory = GetInstallDirectory(entry);
+        var previousMetadata = ReadInstallMetadata(installDirectory);
         var installerRoot = GetInstallerCacheDirectory();
         var stagingDirectory = Path.Combine(installerRoot, $"staging-{SanitizePathSegment(entry.CatalogId)}-{Guid.NewGuid():N}");
         var backupDirectory = Path.Combine(installerRoot, $"backup-{SanitizePathSegment(entry.CatalogId)}-{Guid.NewGuid():N}");
@@ -349,7 +352,7 @@ public sealed class QuasarUiPluginHubCatalogService
             Directory.CreateDirectory(Path.GetDirectoryName(installDirectory)!);
             Directory.Move(repositoryRoot, installDirectory);
             installDirectoryReplaced = true;
-            await WriteInstallMetadataAsync(installDirectory, entry, manifest, cancellationToken);
+            await WriteInstallMetadataAsync(installDirectory, entry, manifest, previousMetadata, cancellationToken);
             if (enableAfterInstall is { } enabled)
                 await _pluginStates.SetEnabledAsync(manifest.Id, enabled, cancellationToken);
             await _pluginStates.SetImplicitInstallSuppressedAsync(
@@ -697,12 +700,17 @@ public sealed class QuasarUiPluginHubCatalogService
         await AtomicFileWriter.WriteTextAsync(GetCachePath(), json, cancellationToken);
     }
 
-    private static async Task WriteInstallMetadataAsync(
+    internal static async Task WriteInstallMetadataAsync(
         string installDirectory,
         QuasarUiPluginHubEntry entry,
         QuasarPluginManifest manifest,
+        QuasarUiPluginInstallMetadata? previous,
         CancellationToken cancellationToken)
     {
+        var installedAt = DateTimeOffset.UtcNow;
+        var hasCompanion = manifest.CompanionPluginManifests.Count > 0 || entry.CompanionPluginIds.Count > 0;
+        var changedRevision = !string.IsNullOrWhiteSpace(previous?.Commit)
+            && !string.Equals(previous.Commit, entry.Commit, StringComparison.OrdinalIgnoreCase);
         var metadata = new QuasarUiPluginInstallMetadata
         {
             CatalogId = entry.CatalogId,
@@ -710,7 +718,10 @@ public sealed class QuasarUiPluginHubCatalogService
             Commit = entry.Commit,
             RuntimePluginId = manifest.Id,
             RuntimeDisplayName = manifest.DisplayName,
-            InstalledAtUtc = DateTimeOffset.UtcNow,
+            InstalledAtUtc = installedAt,
+            CompanionUpdatedAtUtc = hasCompanion
+                ? changedRevision ? installedAt : previous?.CompanionUpdatedAtUtc
+                : null,
         };
 
         var json = JsonSerializer.Serialize(metadata, JsonOptions);
@@ -953,6 +964,8 @@ public sealed class QuasarUiPluginInstallState
 
     public DateTimeOffset? InstalledAtUtc { get; set; }
 
+    public DateTimeOffset? CompanionUpdatedAtUtc { get; set; }
+
     public string Error { get; set; } = string.Empty;
 }
 
@@ -969,4 +982,6 @@ public sealed class QuasarUiPluginInstallMetadata
     public string RuntimeDisplayName { get; set; } = string.Empty;
 
     public DateTimeOffset InstalledAtUtc { get; set; }
+
+    public DateTimeOffset? CompanionUpdatedAtUtc { get; set; }
 }

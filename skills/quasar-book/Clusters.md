@@ -100,9 +100,11 @@ instead of being added into a cluster total. See [Analytics](Monitoring.md#analy
 
 **Entities** also selects the whole cluster by name. It combines live entities
 from every responding active node, merges shared copies and routes viewer
-buttons to the entity's node. Partial coverage is marked. Cluster deletion needs
-updated agents and one verified owner; shared or moving entities cannot be
-deleted from an arbitrary node. See [Entities](Monitoring.md#entities).
+buttons to the entity's node. Partial coverage is marked. Deletion and the
+entity actions (Stop, Depower, Power on, Remove owner) need updated agents and
+one verified owner. They go to the node that owns the entity; shared or moving
+entities are refused rather than sent to an arbitrary node. See
+[Entities](Monitoring.md#entities).
 
 Overview, Maintenance and Settings stay available while the Gateway admin connection is being checked or is unavailable. Recovery, backups and local settings use the same tabs online and offline. Nodes, Events and Mods & plugins are grayed out until the authenticated capabilities endpoint responds, regardless of desired On/Off state. A selected live-only view falls back to Overview during an outage; reconnect restores its requested view and bookmark. Opened panels retain their state. The five-second poll checks availability again. Every action retains its permissions, confirmations and safety checks.
 
@@ -114,6 +116,12 @@ complete set of saved world data that can be restored together. With no reported
 point, the panel explains that recovery after a crash is not confirmed; this does
 not mean no files have been saved. A failed check says recovery information is
 unavailable. Progress since the last save can be lost even when recovery is ready.
+
+### Configure the lobby station
+
+Open **Cluster → Partitions → Lobby** on a Gateway with `lobbyAnchor=v1`. An administrator can choose an online partition with a single static grid, or enter the station grid entity ID if it contains several. **Set lobby station** adopts the existing grid in place.
+
+To build a hall from a local blueprint, choose **Upload grid blueprint**, pick a `bp.sbc` containing one static grid (up to 1 MiB), and enter X, Y and Z in metres. Keep the station within 1 km of its pivot and choose a pivot over 101 km from other partition bounds. The cluster checks world bounds and block definitions. **Create and set lobby** places the station and waits for its save. Use **Refresh lobby** to see the operation and owning node. On an unconfirmed placement, inspect the grid ID in the error before trying a fresh upload. A successful replacement leaves the former station in the world. On Gateways with ordinary lobby offlining, **Partition offline** means the station is saved and awaits an ordinary wake trigger. Refreshing the lobby leaves it asleep. CLI commands are `Quasar cluster lobby NAME` and `Quasar cluster lobby-set NAME request.json --idempotency-key KEY`.
 
 ### Offline partitions and compensation
 
@@ -327,7 +335,7 @@ Cluster backups are native snapshots taken by every Host executor.
 
 - **Back up stopped cluster** makes a clean (`Quiescent`) backup. It needs clean-shutdown proof.
 - **Back up running cluster** makes an online (`CrashConsistent`) backup without downtime. Quasar runs `save-all`, the Gateway copies its registry database, then each Host streams its runtime into the snapshot at most at the **Running cluster copy rate** (Backups page, default 32 MiB/s, range 1 to 4096). The cluster package must support online registry copies, otherwise "This cluster's Gateway cannot copy its registry while it runs. Update the cluster to get online backups." A backup refuses to start while Quasar restarts for an update ("Quasar is restarting for an update. Take the backup once it is back."); a scheduled one simply waits. A Quasar update waits up to 30 minutes for a running backup before it restarts Quasar.
-- Scheduled server backups on the **Backups** page cover clusters too: a cleanly stopped cluster gets a `Quiescent` backup, a running one a `CrashConsistent` backup. Retention keeps the newest **Keep last N per server** automatic backups plus the newest `Quiescent` one. A failed scheduled capture is retried after an hour. Manual backups are kept while the cluster exists.
+- Scheduled server backups on the **Backups** page cover clusters too: a cleanly stopped cluster gets a `Quiescent` backup, a running one a `CrashConsistent` backup. Retention keeps the newest **Keep last N per server** automatic backups plus the newest `Quiescent` one. A running cluster that is still starting or stopping is not backed up yet: the scheduler waits until its Gateway serves, and records no failure. A failed scheduled capture is retried after an hour. Manual backups are kept while the cluster exists. While an online backup copies a cluster, the Host refuses content collection ("Cluster storage is in use (an online backup or a preparation); collection is deferred." in the Quasar log); Quasar collects again after the copy.
 - The pre-update backup of each managed update and the backup a conversion takes are kept per purpose: Quasar keeps the newest 3 pre-update and the newest 3 pre-conversion backups of a cluster and deletes older ones of that kind. Older backups that don't record a purpose are kept.
 - A backup leaves out each node's mods (activating the restored deployment writes them again from the profile) and the cluster plugin's handover diagnostic dumps (`data/cluster/handover-diff`). Restoring it needs a deployment whose profile pins the mods; otherwise the restore stops with "The snapshot left out node mods that the candidate deployment does not pin".
 
@@ -496,6 +504,8 @@ collisions, limits and the required Magnetar version.
 
 - `Docs/ClusterOfflineCompensation.md`
 - `Quasar/Components/Dashboard/ClusterPartitionsPanel.razor`
+- `Quasar/Components/Dashboard/ClusterLobbyPanel.razor`
+- `Contracts/ClusterGateway.AdminContract/LobbyContract.cs`
 - `Quasar/Components/Dashboard/ClusterOfflineResults.razor`
 - `Contracts/ClusterGateway.AdminContract/OfflineContract.cs`
 - `Docs/ClusterOverview.md`

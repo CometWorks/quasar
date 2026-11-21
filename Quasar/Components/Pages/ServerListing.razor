@@ -5,7 +5,6 @@
 @inject ServerListSettingsCatalog Settings
 @inject DedicatedServerCatalog Servers
 @inject ClusterCatalog Clusters
-@inject DataHandlingConsentCatalog Consent
 @inject RbacConfigCatalog Rbac
 @inject QuasarPermissionService Permissions
 @inject ISnackbar Snackbar
@@ -13,18 +12,11 @@
 <PageTitle>Server listing</PageTitle>
 <div class="quasar-page-heading"><div><div class="quasar-eyebrow">Settings</div><h1>Server listing</h1><p>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</p></div></div>
 <p class="quasar-muted">Names and game ports are suggested from your existing servers. Enter the address players use to connect.</p>
-<section class="quasar-panel quasar-section"><div class="quasar-stack">
-    @if (!Consent.GetSettings().DiagnosticsGranted)
-    {
-        <p class="quasar-notice quasar-notice-warning" role="status">Accept diagnostic data handling in <a href="settings/security">Security</a> before publishing.</p>
-    }
-    @if (ServerListProtocol.GetAdmins(Rbac.GetConfig()).Length == 0)
-    {
-        <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="settings/security">Security</a> to publish and manage your listings.</p>
-    }
-    @if (Settings.LoadError is { } error) { <p class="quasar-notice quasar-notice-error" role="status">@error</p> }
-    <p>Choose Publish this server for each listing you want visible, then save. Listings become visible when the backoffice confirms current Quasar log delivery. No crash or memory dump is required. Saved changes apply immediately; delivery may take up to two minutes.</p>
-</div></section>
+@if (ServerListProtocol.GetAdmins(Rbac.GetConfig()).Length == 0)
+{
+    <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="settings/security">Security</a> to publish and manage your listings.</p>
+}
+@if (Settings.LoadError is { } error) { <p class="quasar-notice quasar-notice-error" role="status">@error</p> }
 @if (_entries.Count == 0)
 {
     <p class="quasar-notice">Create a standalone server or cluster first. It will appear here automatically.</p>
@@ -36,7 +28,7 @@
         <button type="button" class="quasar-button" @onclick="Reload">Discard edits</button>
     </div>
 }
-<form class="quasar-section" @onsubmit="SaveAsync" @onsubmit:preventDefault @oninput="MarkDirty" @onchange="MarkDirty">
+<form @onsubmit="SaveAsync" @onsubmit:preventDefault @oninput="MarkDirty" @onchange="MarkDirty">
     <fieldset class="quasar-fieldset quasar-stack" disabled="@(_saving || !_canManage)">
         <div class="quasar-card-grid">
             @foreach (var entry in _entries)
@@ -54,7 +46,7 @@
         </div>
         @if (_canManage)
         {
-            <div class="quasar-row quasar-form-actions">
+            <div class="quasar-panel quasar-row quasar-form-actions">
                 <button type="submit" class="quasar-button quasar-button-primary" disabled="@_settingsChanged"><QuasarIcon Icon="@QuasarIcons.Save" />Save listings</button>
             </div>
         }
@@ -77,7 +69,6 @@
         Settings.Changed += HandleChanged;
         Servers.Changed += HandleChanged;
         Clusters.Changed += HandleChanged;
-        Consent.Changed += HandleChanged;
         Rbac.Changed += HandleChanged;
         _canManage = await Permissions.IsAuthorizedAsync(QuasarPolicyNames.CanManageSecurity);
         Reload();
@@ -103,7 +94,6 @@
         Settings.Changed -= HandleChanged;
         Servers.Changed -= HandleChanged;
         Clusters.Changed -= HandleChanged;
-        Consent.Changed -= HandleChanged;
         Rbac.Changed -= HandleChanged;
     }
 
@@ -113,7 +103,7 @@
         _revision = revision;
         _savedSources = options.Listings.Select(e => (e.Kind, e.UniqueName.ToLowerInvariant())).ToHashSet();
         // Preserve an earlier global opt-out until the admin explicitly selects listings again.
-        if (!options.Enabled || !Consent.GetSettings().ListingGranted)
+        if (!options.Enabled)
             foreach (var entry in options.Listings) entry.Enabled = false;
         _entries = ServerListSettingsCatalog.CreateDrafts(options, Servers.GetServers(), Clusters.GetClusters());
         _dirty = false;
@@ -138,10 +128,6 @@
             var entries = _entries.Where(e => e.Enabled || !string.IsNullOrWhiteSpace(e.PublicHost)
                 || _savedSources.Contains((e.Kind, e.UniqueName.ToLowerInvariant()))).Select(e => e.Clone()).ToList();
             await Settings.SaveAsync(new() { Enabled = entries.Any(e => e.Enabled), Listings = entries }, _revision);
-            // Per-server publication choices are the listing opt-in. Diagnostic
-            // consent stays independent; disabling all entries withdraws through Settings.
-            if (entries.Any(e => e.Enabled) && !Consent.GetSettings().ListingGranted)
-                await Consent.SaveListingVisibilityAsync(true);
             Reload();
             Snackbar.Add("Server listings saved. Publication will update automatically.", Severity.Success);
         }

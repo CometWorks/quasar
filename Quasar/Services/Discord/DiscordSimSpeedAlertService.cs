@@ -44,13 +44,14 @@ public sealed class DiscordSimSpeedAlertService
             if (serverOptions.IsCluster && _clusters == null) continue;
             var targets = _clusters?.GetAgents(serverOptions) ?? agents.Where(a => !a.IsCluster && a.IsConnected
                 && a.Snapshot is { IsRunning: true } && a.UniqueNameKey.Equals(serverOptions.UniqueName, StringComparison.OrdinalIgnoreCase)).ToArray();
-            foreach (var agent in targets.Where(a => a.Snapshot is { IsRunning: true }))
+            // Metrics are stored per cluster slot, so overlapping node incarnations of one slot share a store.
+            foreach (var agent in targets.Where(a => a.Snapshot is { IsRunning: true }).DistinctBy(a => a.AnalyticsKey, StringComparer.OrdinalIgnoreCase))
             {
                 var channelId = serverOptions.SimSpeedAlertChannelId ?? serverOptions.AnalyticsChannelId;
                 if (!channelId.HasValue)
                     continue;
 
-                var store = _metricsStore.GetStore(agent.TelemetryKey);
+                var store = _metricsStore.GetStore(agent.AnalyticsKey);
                 if (store is null)
                     continue;
 

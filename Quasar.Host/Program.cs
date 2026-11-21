@@ -6,6 +6,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Quasar.Hosting;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using HostContract = global::Quasar.Host.Contract.V1;
 
@@ -104,8 +105,12 @@ internal static class Program
         var gatewayActualizer = new GatewayActualizer(config.StateDirectory, config.HostId, diagnostics);
         Directory.CreateDirectory(config.StateDirectory);
         Quasar.ClusterDeployment.ClusterContentStore.RootDirectory = Path.Combine(config.StateDirectory, "conversions");
-        using var executionLock = new FileStream(Path.Combine(config.StateDirectory, "executor.lock"),
-            FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+        using var executionLock = HostExecutionLock.TryAcquire(config.StateDirectory);
+        if (executionLock is null)
+        {
+            Console.Error.WriteLine($"Another process holds the Host executor lock in '{config.StateDirectory}'.");
+            return 5;
+        }
         using var executionGate = new SemaphoreSlim(1, 1);
         var executorSessions = new Dictionary<string, ExecutorSession>(StringComparer.OrdinalIgnoreCase);
         AttachmentStore attachments;

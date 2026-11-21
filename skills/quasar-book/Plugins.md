@@ -53,7 +53,7 @@ To turn one off, remove it from **Plugins to load** and click **Save Profile**. 
 
 ### Checking that plugins loaded
 
-The server's detail panel on the Dashboard shows **Plugins** as loaded/selected, for example `3/4`. Quasar compares the profile's plugin list with the plugins the agent reports as loaded. The value turns to the warning color when the numbers differ.
+The server's detail panel on the Dashboard and in expanded server-list rows shows **Plugins** as loaded/selected, for example `3/4`. Quasar compares the profile's plugin list with the plugins the agent reports as loaded. The value turns to the warning color when the numbers differ. Hover over **Plugins** or its count to see the names of selected plugins not reported as loaded. The same description is available to screen readers. If the agent only reports a count, the tooltip says names are unavailable and points to the server logs. A missing plugin is not necessarily a confirmed load error; check the logs for the cause.
 
 ## Files Quasar writes for Magnetar
 
@@ -334,6 +334,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Tests/DevFolderRuntimePreparationTests.cs`
 - `Quasar.Tests/PluginHubTests.cs`
 - `Quasar.Tests/PluginConfigSnapshotPersistenceTests.cs`
+- `Quasar.Tests/PluginLoadTooltipTests.cs`
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
 - `Quasar.Agent/SupervisedLifecycle.cs`

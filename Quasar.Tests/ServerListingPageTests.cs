@@ -61,7 +61,7 @@ public sealed class ServerListingPageTests : IDisposable
         var page = context.Render<ServerListing>();
         Assert.Contains("Standalone Magnetar server", page.Markup);
         Assert.Contains("Cluster · Steam gateway", page.Markup);
-        Assert.Contains("Accept diagnostic data handling", page.Markup);
+        Assert.DoesNotContain("Accept diagnostic data handling", page.Markup);
         Assert.Contains("Add a Steam identity", page.Markup);
         Assert.DoesNotContain("private-admin", page.Markup);
         Assert.Empty(page.FindAll("input[name='listing-visibility']"));
@@ -80,11 +80,10 @@ public sealed class ServerListingPageTests : IDisposable
         var saved = context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Options;
         Assert.True(saved.Enabled); Assert.Equal(2, saved.Listings.Count);
         Assert.All(saved.Listings, e => { Assert.True(e.Enabled); Assert.Equal("play.example.org", e.PublicHost); });
-        // Selecting publication records listing consent without enabling diagnostic collection.
+        // Selecting publication does not change data-handling or diagnostic settings.
         var consent = context.Services.GetRequiredService<DataHandlingConsentCatalog>().GetSettings();
-        Assert.True(consent.ListingGranted);
+        Assert.False(consent.ListingGranted);
         Assert.False(consent.DiagnosticsGranted);
-        Assert.False(ServerListProtocol.HasConsent(consent));
     }
 
     [Fact]
@@ -101,7 +100,7 @@ public sealed class ServerListingPageTests : IDisposable
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, false)]
-    public async Task PreviousGlobalOptOutStaysUnselectedUntilExplicitlyEnabled(bool configured, bool granted)
+    public async Task SavedSelectionIsIndependentOfLegacyDataHandlingSettings(bool configured, bool granted)
     {
         await using var context = await ContextAsync();
         var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
@@ -111,9 +110,9 @@ public sealed class ServerListingPageTests : IDisposable
         }] }, 0);
         await context.Services.GetRequiredService<DataHandlingConsentCatalog>().SaveListingVisibilityAsync(granted);
         var page = context.Render<ServerListing>();
-        Assert.All(page.FindAll("input[name='publish']"), input => Assert.False(input.HasAttribute("checked")));
+        Assert.Equal(configured ? 1 : 0, page.FindAll("input[name='publish']").Count(input => input.HasAttribute("checked")));
         await page.Find("form").SubmitAsync();
-        Assert.False(settings.GetSnapshot().Options.Enabled);
+        Assert.Equal(configured, settings.GetSnapshot().Options.Enabled);
         Assert.Equal("play.example.org", Assert.Single(settings.GetSnapshot().Options.Listings).PublicHost);
     }
 

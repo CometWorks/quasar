@@ -347,6 +347,8 @@ internal sealed class HostCommandServer : IDisposable
     };
     // Long enough that no capture is still being copied off this Host.
     internal static readonly TimeSpan OrphanArchiveAge = TimeSpan.FromHours(24);
+    // Well inside Quasar's 30 s Host command deadline, so a collection never outlives the request that named its references.
+    internal TimeSpan CollectionWait { get; init; } = TimeSpan.FromSeconds(20);
     private readonly HttpListener _listener = new();
     private readonly byte[] _tokenHash;
     private readonly Quasar.Networking.MachineEndpointPolicy _policy;
@@ -567,7 +569,11 @@ internal sealed class HostCommandServer : IDisposable
             if (references.Installations is null || references.Mods is null || references.Worlds is null || references.Configurations is null
                 || references.Installations.Length + references.Mods.Length + references.Worlds.Length + references.Configurations.Length > 30_000)
                 throw new InvalidDataException("Invalid deployment references.");
-            using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.CollectAsync(cancellationToken);
+            // SE-1405: Quasar gives up on this request after 30 s and lets preparations go ahead. A collection that
+            // waited longer (an online backup holds storage for minutes) ran later with references from before
+            // them and deleted a prepared update's configuration. Refuse instead; Quasar collects again later.
+            using var collection = await Quasar.ClusterDeployment.ClusterStorageActivity.TryCollectAsync(CollectionWait, cancellationToken)
+                ?? throw new InvalidOperationException("Cluster storage is in use (an online backup or a preparation); collection is deferred.");
             long retaining = System.Diagnostics.Stopwatch.GetTimestamp();
             var activeRoots = _attachments.GetAll().Where(a => a.BundleManifestPath is not null).Select(a =>
                 ExecutionBundle.ReadManifest(a.BundleManifestPath!, a.BundleManifestSha256!).ArtifactRoot

@@ -34,6 +34,56 @@ public sealed class ClusterOfflineTests
         await panel.SubmitAsync(ClusterAdminCommand.Create("offline-cache-clear", new OfflineCacheClearRequest("key", 0)));
     }
 
+    [Fact]
+    public async Task AdminCanAdoptFromLobbyPanelWithAnObservedRevision()
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true };
+        await using var context = Context(fixture, QuasarRoles.Admin);
+        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var lobby = panel.Find("section[aria-label='Lobby anchor']");
+        Assert.Contains("Hall", lobby.TextContent);
+        lobby.QuerySelectorAll("select")[1].Change("7");
+        lobby.QuerySelector("input")!.Change("321");
+        await panel.FindAll("button").Single(b => b.TextContent.Contains("Set lobby station")).ClickAsync(new());
+        var request = Assert.Single(fixture.Requests, r => r.Method == "PUT" && r.Uri.AbsolutePath.EndsWith("/lobby"));
+        Assert.False(string.IsNullOrEmpty(request.IdempotencyKey));
+        Assert.Equal(new LobbyUpdate(1, 321, 7), JsonSerializer.Deserialize<LobbyUpdate>(request.Body, OfflineGatewayFixture.Json));
+    }
+
+    [Theory]
+    [InlineData("offline", "Partition offline")]
+    [InlineData("unavailable", "Owner unavailable")]
+    public async Task ReadingUnownedLobbyShowsAvailabilityWithoutWakingIt(string state, string label)
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true, LobbyState = state };
+        await using var context = Context(fixture, QuasarRoles.Viewer);
+        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var lobby = panel.Find("section[aria-label='Lobby anchor']");
+        Assert.Contains("Hall", lobby.TextContent);
+        Assert.Contains(label, lobby.TextContent);
+        Assert.All(fixture.Requests, request => Assert.Equal("GET", request.Method));
+    }
+
+    [Fact]
+    public async Task LobbyFilePickerSubmitsBlueprintAndCoordinates()
+    {
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true };
+        await using var context = Context(fixture, QuasarRoles.Admin);
+        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        panel.Find("section[aria-label='Lobby anchor'] select").Change("file");
+        const string blueprint = "<Definitions><ShipBlueprints/></Definitions>";
+        panel.FindComponent<Microsoft.AspNetCore.Components.Forms.InputFile>().UploadFiles(
+            InputFileContent.CreateFromBinary(System.Text.Encoding.UTF8.GetBytes(blueprint), "bp.sbc"));
+        const string coords = "section[aria-label='Lobby anchor'] input[type=number]";
+        panel.FindAll(coords)[0].Change("20000000");
+        panel.FindAll(coords)[1].Change("0");
+        panel.FindAll(coords)[2].Change("100");
+        await panel.FindAll("button").Single(b => b.TextContent.Contains("Create and set lobby")).ClickAsync(new());
+        var request = Assert.Single(fixture.Requests, r => r.Method == "PUT");
+        Assert.Equal(new LobbyUpdate(1, BlueprintXml: blueprint, Position: new(20000000, 0, 100)),
+            JsonSerializer.Deserialize<LobbyUpdate>(request.Body, OfflineGatewayFixture.Json));
+    }
+
     private sealed class RoleState(string role) : AuthenticationStateProvider
     {
         public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(new AuthenticationState(
@@ -263,7 +313,7 @@ public sealed class ClusterOfflineTests
     {
         var context = new QuasarBunitContext();
         var auth = context.AddAuthorization(); auth.SetAuthorized("operator"); auth.SetRoles(role);
-        auth.SetPolicies(role == QuasarRoles.Admin ? [QuasarPolicyNames.ClusterMaintenance] : []);
+        auth.SetPolicies(role == QuasarRoles.Admin ? [QuasarPolicyNames.ClusterMaintenance, QuasarPolicyNames.ClusterManage] : []);
         context.Services.AddSingleton(fixture.Gateway);
         context.Services.AddSingleton(fixture.Commands);
         context.Services.AddSingleton(fixture.Store);
@@ -285,7 +335,8 @@ internal sealed class OfflineGatewayFixture : HttpMessageHandler
     internal ClusterGatewayClient Gateway { get; }
     internal ClusterCommandService Commands { get; }
     internal ClusterOperationStore Store { get; }
-    internal bool Supported = true, Empty;
+    internal bool Supported = true, Empty, LobbySupported;
+    internal string LobbyState = "assigned";
     internal AdminScope Scope = AdminScope.Manage;
     internal int CacheEpoch = 4;
     internal string? MutationError;
@@ -320,7 +371,8 @@ internal sealed class OfflineGatewayFixture : HttpMessageHandler
         ulong partition = ulong.TryParse(query.GetValueOrDefault("partition"), out var id) ? id : 17;
         object data = request.Uri.AbsolutePath switch
         {
-            "/admin/v1/capabilities" => new AdminCapabilities("registry", Scope, AdminProtocol.Operations, Supported ? new Dictionary<string, string> { ["offlinePartitions"] = "v1" } : new()),
+            "/admin/v1/capabilities" => new AdminCapabilities("registry", Scope, AdminProtocol.Operations, LobbySupported ? new Dictionary<string,string>() { ["lobbyAnchor"] = "v1" } : Supported ? new Dictionary<string, string> { ["offlinePartitions"] = "v1" } : new()),
+            "/admin/v1/lobby" when request.Method == "GET" => new LobbyStatus(1, new(321, 7, "Hall", new(1000000, 0, 0)), LobbyState == "assigned" ? "node-1" : null, LobbyState),
             "/admin/v1/partitions" => Empty ? Array.Empty<PartitionSummary>() : new[]
             {
                 new PartitionSummary(7, "node-1", 1, 1, DateTimeOffset.UtcNow.AddMinutes(1), false, false, false, ProfileGroups: [Group(7)], RemoteUsers: [81]),
@@ -330,7 +382,7 @@ internal sealed class OfflineGatewayFixture : HttpMessageHandler
             "/admin/v1/offline/details" => new OfflinePartitionDetails(query["node"]!, 1, partition, partition == 17, partition == 17 ? "17:2:3" : null, [Group((long)partition)], [Result((long)partition)]),
             "/admin/v1/offline/cache" => new OfflineCacheView("wa-1", 3, [new("rate/key?x=1", 0.5, 0.48, 3, 0.04, true, CacheEpoch)]),
             "/admin/v1/offline/prediction" => new OfflinePrediction(query["node"]!, 1, partition, "17:2:3", double.Parse(query["hours"]!, System.Globalization.CultureInfo.InvariantCulture), [Result(17)]),
-            "/admin/v1/triggers/profile" or "/admin/v1/offline/cache/clear" => new AdminOperation("op-" + request.IdempotencyKey, "fixture", MutationError is null ? AdminOperationState.Succeeded : AdminOperationState.Failed,
+            "/admin/v1/triggers/profile" or "/admin/v1/offline/cache/clear" or "/admin/v1/lobby" => new AdminOperation("op-" + request.IdempotencyKey, "fixture", MutationError is null ? AdminOperationState.Succeeded : AdminOperationState.Failed,
                 "admin", request.IdempotencyKey!, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow, null, null, MutationError is null ? null : new(MutationError, "State changed; refresh and review before retrying.")),
             _ => throw new InvalidOperationException("Unexpected gateway route: " + request.Uri.AbsolutePath),
         };

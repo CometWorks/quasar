@@ -106,7 +106,7 @@ public sealed class ClusterAgentIdentityTests : IDisposable
         Assert.Equal("standalone", new AgentRuntimeState { Hello = new() { UniqueName = "standalone" } }.AnalyticsKey);
 
         var expanded = registry.ExpandAnalyticsKeys([old.AnalyticsKey, "standalone"]);
-        Assert.Equal(new[] { old.TelemetryKey, current.TelemetryKey }.Order(), expanded[old.AnalyticsKey].Order());
+        Assert.Equal(new[] { old.AnalyticsKey, old.TelemetryKey, current.TelemetryKey }.Order(), expanded[old.AnalyticsKey].Order());
         Assert.Equal(["standalone"], expanded["standalone"]);
 
         // Both epochs land in one series under the slot key, not one series per incarnation.

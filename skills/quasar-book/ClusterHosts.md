@@ -52,10 +52,13 @@ On Linux x64 every Quasar install runs its own Host executor, ID `local`, withou
 | `LocalHost/state/` | State directory, laid out as on any host machine (credentials, deployments, cluster saves). |
 | `LocalHost/host.log` | The output of the Host, its Gateways and its nodes. The Host rotates it to `host.log.1` once it passes 64 MB, keeping `host.log.1` to `host.log.3`, and Quasar does the same at a Host start once it passes 10 MB. |
 | `LocalHost/host.pid` | PID, process identity, binary hash and configuration hash of the running Host. |
+| `LocalHost/host.wanted` | Written at the Host's first start. With it, every Quasar start starts the Host. |
 | `LocalHost/stop-clusters` | Runs `Quasar.Host stop-clusters` for this Host. The clusters unit calls it. |
 
 - The binary is the running Quasar release's `Host/Quasar.Host` (`QUASAR_HOST_BINARY` overrides it). It is not copied.
-- Quasar starts the Host when the Hosts page or cluster setup is opened, when Quasar needs it for a cluster, and at Quasar start when a cluster is deployed on this PC. It runs in its own session (`setsid`), so `Ctrl+C` on a foreground Quasar doesn't reach it. If it exits, Quasar starts it again within 15 seconds.
+- Quasar starts the Host when the Hosts page or cluster setup is opened, when the host list `GET /api/v1/host-enrollment` is read, when Quasar needs it for a cluster, and at Quasar start once it has run on this install (`host.wanted`) or when a cluster is deployed on this PC. A Quasar that never needed it, such as a trial run, doesn't start it. It runs in its own session (`setsid`), so `Ctrl+C` on a foreground Quasar doesn't reach it. If it exits, Quasar starts it again within 15 seconds. When it can't start, Quasar logs a warning with the reason once per reason and shows it on the Hosts page.
+- A Host that runs this install's `host.json` but has no `host.pid`, for example one started by hand, is adopted instead of started a second time.
+- If Quasar cannot identify the process holding the state directory lock, it shows the lock conflict on **Hosts** and waits for the lock to be released before starting another Host. Check for another Host configured to use the same state directory.
 - Commands to the local Host wait for its authenticated connection within a 30-second connection deadline, including commands from startup storage maintenance. A launch failure or timeout fails the operation without stopping Quasar; storage maintenance defers collection and applies a one-minute retry backoff. Caller cancellation and Quasar shutdown cancel the wait.
 - A restarted or updated Quasar adopts the running Host by its PID and process identity when its binary and configuration hashes match. A changed binary or configuration, including Quasar's address or port, restarts the Host. The first update from a version without a configuration hash restarts it once. The Gateway and nodes keep running, as with any Host restart.
 - When Quasar stops, it stops the Host unless a Gateway with goal On runs on it, or this PC takes part in a cluster whose Gateway runs elsewhere. Then the Host keeps running, like managed servers do, and the next Quasar start adopts it. With `Quasar:PreserveManagedServersOnShutdown` set to `false`, Quasar saves and stops those clusters with `stop-clusters` first, then stops the Host. An application update by the native updater always leaves them running.
@@ -218,6 +221,8 @@ The Host also reports Gateway working-set RAM and total process CPU for the [clu
 | `Quasar.Host deployment configure …`, `deployment export`, `deployment import` | Offline preparation and transfer of installations. |
 | `Quasar.Host --self-test` | Built-in test. |
 
+Both `run` and `run --once` exit with code 5 if another process holds the executor lock for that state directory. The running executor keeps control. The lock file may remain after the executor exits and can be reused at the next start.
+
 `--token-env` takes the name of an environment variable holding the control credential. For an enrolled Host, that name is `command.tokenEnvironmentVariable` in `host.json` and its value is in `state/credentials.json`:
 
 ```bash
@@ -308,6 +313,7 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `scripts/package-linux-release.sh`
 - `scripts/package-windows-release.ps1`
 - `Shared/ClusterDeployment/ClusterContentStore.cs`
+- `Shared/Hosting/HostExecutionLock.cs`
 - `Shared/Networking/QuasarControlAddress.cs`
 - `Shared/Networking/MachineEndpointPolicy.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`

@@ -132,6 +132,7 @@ internal static class ClusterApi
         MapRead("nodes", (c, d, t) => c.GetNodesAsync(d, t));
         MapRead("world-authority", (c, d, t) => c.GetWorldAuthorityAsync(d, t));
         MapRead("snapshots", (c, d, t) => c.GetSnapshotsAsync(d, t));
+        MapRead("lobby", (c, d, t) => c.GetLobbyAsync(d, t));
         MapRead("partitions", (c, d, t) => c.GetPartitionsAsync(d, t));
         MapRead("offline/partitions", (c, d, t) => c.GetOfflinePartitionsAsync(d, t));
         MapRead("offline/cache", (c, d, t) => c.GetOfflineCacheAsync(d, t));
@@ -302,6 +303,7 @@ internal static class ClusterApi
         });
         RouteHandlerBuilder stageDependencies = routes.MapPut("/{uniqueName}/dependencies", StageDependencies);
         RouteHandlerBuilder submitCommand = routes.MapPost("/{uniqueName}/commands", SubmitCommand);
+        RouteHandlerBuilder setLobby = routes.MapPut("/{uniqueName}/lobby", SetLobby);
         RouteHandlerBuilder setRotation = routes.MapPut("/{uniqueName}/rotation", SetRotation);
         RouteHandlerBuilder setConfig = routes.MapPut("/{uniqueName}/config", SetPolicy);
         RouteHandlerBuilder setAdministration = routes.MapPut("/{uniqueName}/administration", SetAdministration);
@@ -349,6 +351,7 @@ internal static class ClusterApi
             restoreBackup.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             deploymentInputs.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setConfig.RequireAuthorization(QuasarPolicyNames.ClusterManage);
+            setLobby.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.ClusterMaintenance);
             setRotation.RequireAuthorization(QuasarPolicyNames.ClusterManage);
             setAdministration.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
             stageProfile.RequireAuthorization(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs);
@@ -811,7 +814,7 @@ internal static class ClusterApi
             return Error(403, "cluster_forbidden", "The credential cannot access this cluster.");
         if (command.RequiresAdministrator && !(await context.RequestServices.GetRequiredService<IAuthorizationService>()
                 .AuthorizeAsync(context.User, null, QuasarPolicyNames.ClusterMaintenance)).Succeeded)
-            return Error(403, "administrator_required", "Offline maintenance requires the Administrator role.");
+            return Error(403, "administrator_required", "This operation requires the Administrator role.");
         try
         {
             var operation = await commands.SubmitAsync(uniqueName, command,
@@ -848,6 +851,10 @@ internal static class ClusterApi
             return Error((int)exception.StatusCode, exception.Code, exception.Message);
         }
     }
+
+    private static Task<IResult> SetLobby(string uniqueName, Admin.LobbyUpdate update,
+        HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>
+        SubmitCommand(uniqueName, ClusterAdminCommand.Create("lobby-set", update), context, catalog, commands, token);
 
     private static Task<IResult> SetRotation(string uniqueName, Admin.RotationPublication publication,
         HttpContext context, ClusterCatalog catalog, ClusterCommandService commands, CancellationToken token) =>

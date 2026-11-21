@@ -32,6 +32,16 @@ access for co-located and nested data. On failure it prints owner/protection/SDD
 and service paths/accounts, without credentials. Linux syntax checks cannot prove
 Windows ACL or SCM behavior.
 
+For an update stuck at Ready with `Service executable/action or execution account
+differs from the installation metadata`, compare the commands shown by `sc.exe qc
+Quasar` and `sc.exe qc QuasarUpdater` with the installation record. Current
+verification accepts missing quotes only around paths without whitespace. Older
+releases can reject those equivalent commands. Install the current complete package
+with the existing paths and service names to update both binaries; use
+`-RepairSupervision` when those binaries are already current. Keep all data and
+metadata. Spaced executable paths must be quoted, and real path, argument or account
+mismatches still fail. See [native service checks](Updates.md#native-service-checks).
+
 ## Where the logs are
 
 `<data dir>` below is the Quasar data directory, for example `~/.local/share/Quasar` on Linux, `%ProgramData%\Quasar` for a new Windows service installation, `/data` in Docker (`./quasar-data` on the host). See [Changing the data directory](#changing-the-data-directory) for how Quasar finds it, and [Configuration](Configuration.md#where-files-live).
@@ -202,6 +212,7 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 - The shipped `Quasar:Host` is `0.0.0.0` (all interfaces) on port `8080`. If it is `127.0.0.1`, only local browsers can connect. Remote access also needs a firewall rule for the TCP port.
 - Quasar exits at once with "Quasar 1.5 and later require a completed Quasar 1.4.1 migration first. ...": see [Self-update failures](#self-update-failures).
 - "Cannot read this installation: ...": Quasar can't read `service-installation.json` or the protected file it points to. Run the command as the service account or from an elevated Windows shell, or repair the installation with its installer.
+- Permission denied on `Updates/operation.json`: Quasar stops because it can't read its update state. For Linux ownership repair, see [When an update fails](Updates.md#when-an-update-fails).
 - A UI plugin breaks the web UI: start in safe boot by creating `ui-plugins.safe-mode` in the data directory, then restart Quasar. Quasar no longer turns safe boot on by itself after repeated start failures. See [UI plugins](UiPlugins.md#safe-boot).
 - Quasar defaults to private LAN HTTP mode. If `Quasar:Auth:RequireHttpsForPublicAccess=true`, remote plain-HTTP requests return HTTP 400. Use that setting with an HTTPS reverse proxy that sends trusted `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` headers; loopback HTTP remains available for local checks. See [Access control](AccessControl.md#behind-a-reverse-proxy).
 - `Quasar authentication can be disabled only on loopback listeners.` means `Auth:Enabled=false` was combined with a public `Quasar:Host`, `QUASAR_WEB_HOST`, or `ASPNETCORE_URLS` binding. Restore authentication or bind every listener to localhost/`127.0.0.1`/`::1`.

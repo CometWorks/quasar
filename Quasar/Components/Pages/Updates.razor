@@ -560,6 +560,7 @@
     }
 
     private bool CanUpdateQuasar => !_busy && !string.IsNullOrWhiteSpace(_selectedWebVersion) &&
+        _snapshot.Web is { IsCurrent: false } &&
         _snapshot.Operation?.Stage is not (Quasar.Updates.UpdateStage.Queued or Quasar.Updates.UpdateStage.Downloading or Quasar.Updates.UpdateStage.Verified or Quasar.Updates.UpdateStage.Restarting);
 
     private Task UpdateQuasarAsync() => SubmitQuasarUpdateAsync(false);
@@ -569,7 +570,18 @@
         _busy = true;
         try
         {
-            await UpdateService.UpdateAsync(_selectedWebVersion, retry);
+            var requestedVersion = retry ? _snapshot.Operation?.Version ?? _selectedWebVersion : _selectedWebVersion;
+            var resolvedVersion = await UpdateService.ResolveUpdateVersionAsync(requestedVersion);
+            var changed = !string.Equals(resolvedVersion, requestedVersion, StringComparison.OrdinalIgnoreCase);
+            if (changed)
+            {
+                var accepted = await DialogService.ShowMessageBoxAsync("Selected release is no longer available",
+                    $"Quasar {requestedVersion} is no longer available with a complete package and checksums on GitHub. Install Quasar {resolvedVersion} instead? Running game servers continue to run.",
+                    yesText: "OK", cancelText: "Cancel");
+                if (accepted != true) return;
+            }
+            await UpdateService.UpdateAsync(resolvedVersion, retry && !changed);
+            _selectedWebVersion = resolvedVersion;
             _snapshot = UpdateService.GetSnapshot();
             Snackbar.Add("Update queued. Progress and any recovery instructions will appear here.", Severity.Info);
         }

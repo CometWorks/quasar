@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
 using Quasar.Services;
 using Xunit;
 
@@ -59,6 +60,169 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             await Task.Delay(50);
         }
         throw new TimeoutException("The fake Host was not called.");
+    }
+
+    // A Host that keeps its command line, like the real one: `exec sleep` would replace it.
+    private string FakeHostKeepingCommandLine(string directory)
+    {
+        Directory.CreateDirectory(directory);
+        string path = Path.Combine(directory, "Quasar.Host");
+        File.WriteAllText(path, "#!/bin/sh\necho \"$$ $*\" >> \"$(dirname \"$0\")/calls.log\"\n"
+            + "case \"$1\" in run) while :; do sleep 1; done;; esac\n");
+        File.SetUnixFileMode(path, (UnixFileMode)0x1c0);
+        return path;
+    }
+
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        for (int i = 0; i < 100 && !condition(); i++) await Task.Delay(50);
+        Assert.True(condition());
+    }
+
+    // QSR-27: a Quasar service restart with no cluster left stopped the Host, and the next Quasar kept it
+    // stopped until a Hosts page visit, so a script that only waited for the connection waited forever.
+    [Fact]
+    public async Task LocalHostStartsAgainAfterQuasarStoppedItWithoutClusters()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string binary = FakeHost(Path.Combine(root, "release"));
+        string install = Path.Combine(root, "install");
+        using var first = LocalHost(binary, install);
+        await first.EnsureRunningAsync(default);
+        await WaitForCallsAsync(binary, 1);
+        var stopped = first.ReadPid()!;
+        await first.StopAsync(default);
+        Assert.Null(ClusterLocalHost.ProcessIdentity(stopped.Pid));
+
+        using var second = LocalHost(binary, install);
+        await second.StartAsync(default);
+        try
+        {
+            await WaitForAsync(() => second.ReadPid() is not null || second.Error is not null);
+            Assert.True(second.Error is null, second.Error);
+            Assert.Equal(2, (await WaitForCallsAsync(binary, 2)).Length);
+        }
+        finally { await second.StopAsync(default); }
+    }
+
+    [Fact]
+    public async Task LocalHostStaysStoppedOnAnInstallThatNeverUsedIt()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string binary = FakeHost(Path.Combine(root, "release"));
+        using var local = LocalHost(binary, Path.Combine(root, "install"));
+        await local.StartAsync(default);
+        await WaitForAsync(() => File.Exists(local.StopScriptPath));
+        await Task.Delay(500);
+        Assert.False(File.Exists(Path.Combine(root, "release", "calls.log")));
+        await local.StopAsync(default);
+    }
+
+    // The live Host was started by hand without a PID file. A second one exits on the state lock, so Quasar
+    // must take over the running one instead of starting another.
+    [Fact]
+    public async Task LocalHostAdoptsARunningHostWithoutAPidFile()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string binary = FakeHostKeepingCommandLine(Path.Combine(root, "release"));
+        string install = Path.Combine(root, "install");
+        using var first = LocalHost(binary, install);
+        await first.EnsureRunningAsync(default);
+        var running = first.ReadPid()!;
+        try
+        {
+            File.Delete(Path.Combine(install, "LocalHost", "host.pid"));
+            using var second = LocalHost(binary, install);
+            await second.EnsureRunningAsync(default);
+            Assert.Equal(running.Pid, second.ReadPid()?.Pid);
+            Assert.Single(await WaitForCallsAsync(binary, 1));
+            Assert.Null(second.Error);
+        }
+        finally { Process(running.Pid)?.Kill(); }
+    }
+
+    [Fact]
+    public async Task LocalHostWaitsForUnrecognizedLockOwnerBeforeLaunching()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string release = Path.Combine(root, "release");
+        string binary = FakeHost(release);
+        using var local = LocalHost(binary, Path.Combine(root, "install"));
+        string state = Path.Combine(local.Directory, "state");
+        Directory.CreateDirectory(state);
+        try
+        {
+            using (var incumbent = new FileStream(Path.Combine(state, "executor.lock"),
+                FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            {
+                await local.EnsureRunningAsync(default);
+                await local.EnsureRunningAsync(default);
+                Assert.Null(local.ReadPid());
+                Assert.Contains("state directory is locked", local.Error);
+                Assert.False(File.Exists(Path.Combine(release, "calls.log")));
+            }
+
+            await local.EnsureRunningAsync(default);
+            Assert.Single(await WaitForCallsAsync(binary, 1));
+            Assert.NotNull(local.ReadPid());
+            Assert.Null(local.Error);
+        }
+        finally { await local.StopAsync(default); }
+    }
+
+    [Fact]
+    public async Task LocalHostLogsWhyItCannotStartOncePerReason()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        var logger = new RecordingLogger();
+        using var local = new ClusterLocalHost(hosts, credentials,
+            new ClusterHostInstaller(hosts, credentials, Path.Combine(root, "missing-host"), TimeProvider.System),
+            new ClusterHostTunnels(), new WebServiceOptions(), logger, Path.Combine(root, "install", "LocalHost"), supported: true);
+        local.Request();
+        local.Request();
+        await WaitForAsync(() => !logger.Messages.IsEmpty);
+        await Task.Delay(300);
+        string message = Assert.Single(logger.Messages);
+        Assert.Contains("Could not start the local Host executor", message);
+        Assert.Contains(ClusterHostInstaller.BinaryVariable, message);
+    }
+
+    // deploy scripts wait on this list; the Hosts page only renders after its browser connection.
+    [Fact]
+    public async Task HostListApiStartsTheLocalHost()
+    {
+        if (!OperatingSystem.IsLinux()) return;
+        string binary = FakeHost(Path.Combine(root, "release"));
+        var builder = WebApplication.CreateBuilder();
+        builder.WebHost.UseUrls("http://127.0.0.1:0");
+        builder.Services.AddAuthorization(options => options.AddPolicy(Quasar.Services.Auth.QuasarPolicyNames.CanManageSecurity,
+            policy => policy.RequireAssertion(_ => true)));
+        var tunnels = new ClusterHostTunnels();
+        builder.Services.AddSingleton(hosts); builder.Services.AddSingleton(tunnels);
+        builder.Services.AddSingleton(new ClusterHostInstaller(hosts, credentials, binary, TimeProvider.System));
+        using var local = LocalHost(binary, Path.Combine(root, "install"), tunnels: tunnels);
+        builder.Services.AddSingleton(local);
+        await using var app = builder.Build();
+        app.MapClusterHostEnrollmentApi();
+        await app.StartAsync();
+        using var client = new HttpClient();
+        try
+        {
+            await client.GetStringAsync(app.Urls.Single() + "/api/v1/host-enrollment");
+            await WaitForCallsAsync(binary, 1);
+        }
+        finally { foreach (var record in new[] { local.ReadPid() }.OfType<ClusterLocalHost.HostPid>()) Process(record.Pid)?.Kill(); }
+    }
+
+    private sealed class RecordingLogger : ILogger<ClusterLocalHost>
+    {
+        public System.Collections.Concurrent.ConcurrentQueue<string> Messages { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel >= LogLevel.Warning) Messages.Enqueue(formatter(state, exception));
+        }
     }
 
     [Fact]
@@ -236,7 +400,7 @@ public sealed class ClusterHostEnrollmentTests : IDisposable
             string folder = Path.Combine(install, "LocalHost");
             // The Host's shell opens host.log before it runs the Host, so the first call means the log exists.
             string call = Assert.Single(await WaitForCallsAsync(binary, 1));
-            Assert.Equal(new[] { "host.json", "host.log", "host.pid", "state", "stop-clusters" },
+            Assert.Equal(new[] { "host.json", "host.log", "host.pid", "host.wanted", "state", "stop-clusters" },
                 Directory.EnumerateFileSystemEntries(folder).Select(Path.GetFileName).Order().ToArray());
             using (var config = JsonDocument.Parse(File.ReadAllText(Path.Combine(folder, "host.json"))))
             {

@@ -88,8 +88,10 @@ OAuth legs use PKCE, one-minute handoff codes are single-use and bound to the
 callback, and Quasar rechecks the original Steam session before linking.
 Standalone DS AppData
 also contains per-server `.quasar-player-access-<hash>.json` markers and
-`.quasar-player-promotions-<hash>.json` recovery journals. Do not delete journals
-to clear roles. Disable access, wait for acknowledgement, save and stop the world
+`.quasar-player-promotions-<hash>.json` recovery journals, each replaced in one
+step so a crash leaves the old or the new journal. A server log line saying the
+journals could not be synced means its filesystem can't make them safe against a
+power cut; saves still work. Do not delete journals to clear roles. Disable access, wait for acknowledgement, save and stop the world
 before unsupported downgrades or server/cluster conversion. Policies do not move
 automatically to a converted target. Missing settings do not open an existing
 whitelist. After restoring an older Quasar settings backup, save player
@@ -123,7 +125,7 @@ There are three roles: `viewer`, `editor` and `admin`. Each page or action check
 | `CanView` | viewer, editor, admin | Opening any UI page, read APIs, log downloads for DS and Magnetar logs |
 | `CanEditConfigs` | editor, admin | Config profiles, world templates, Magnetar plugin settings |
 | `CanEditServers` | editor, admin | Creating, editing, importing and deleting servers; direct world import |
-| `CanControlServers` | editor, admin | Start, stop, restart, chat and commands, player actions, entity deletion, profiler mode |
+| `CanControlServers` | editor, admin | Start, stop, restart, chat and commands, player actions, entity deletion and actions, profiler mode |
 | `CanManageDiscord` | editor, admin | Discord bot settings, Discord log download |
 | `CanManageAppearance` | editor, admin | **Appearance** page |
 | `CanManageSecurity` | admin | **Security**, **UI Plugins**, **Backups**, **Updates**, host enrollment, listing changes, backup downloads |
@@ -148,7 +150,7 @@ Viewers see all pages under **Control plane** in the navigation: **Dashboard**, 
 | Players | Known players and status | `CanControlServers` |
 | Access | Linked Steam/Discord accounts; setup and policies restricted to admins | `CanManageSecurity` for settings; `CanControlServers` to remove a link |
 | Chat | Recent chat, refresh | `CanControlServers` to send chat or commands, save, restart |
-| Entities | Entity queries and details | `CanControlServers` to delete |
+| Entities | Entity queries and details | `CanControlServers` to delete, stop, depower, power on or remove owners |
 | Analytics | Charts and profiler status | `CanControlServers` to change profiler mode |
 | Discord | Bot status and channel bindings; token and console log hidden | `CanManageDiscord` |
 | Listings | Publication settings | `CanManageSecurity` |

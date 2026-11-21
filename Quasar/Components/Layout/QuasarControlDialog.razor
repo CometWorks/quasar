@@ -88,11 +88,14 @@
     [Parameter]
     public int AgentOfflineShutdownSeconds { get; set; }
 
+    [Parameter]
+    public string? PendingUpdateVersion { get; set; }
+
     private QuasarControlAction? _pendingAction;
 
     private Severity ConfirmationSeverity => _pendingAction switch
     {
-        QuasarControlAction.RestartQuasar => Severity.Info,
+        QuasarControlAction.RestartQuasar when PendingUpdateVersion is null => Severity.Info,
         _ => Severity.Warning,
     };
 
@@ -111,6 +114,7 @@
 
     private string ConfirmationButtonText => _pendingAction switch
     {
+        QuasarControlAction.RestartQuasar when PendingUpdateVersion is not null => "Update and Restart Quasar",
         QuasarControlAction.RestartQuasar => "Restart Quasar",
         QuasarControlAction.ShutdownAllServers => "Save and Stop Servers",
         _ => "Shutdown Quasar",
@@ -118,6 +122,8 @@
 
     private string ConfirmationLead => _pendingAction switch
     {
+        QuasarControlAction.RestartQuasar when PendingUpdateVersion is not null =>
+            $"Quasar {PendingUpdateVersion} will also be installed during this restart. Running game servers continue to run.",
         QuasarControlAction.RestartQuasar => "Running servers continue to run.",
         QuasarControlAction.ShutdownAllServers => "Standalone servers and managed clusters will save and stop.",
         _ => "Quasar will stop. Running servers continue.",

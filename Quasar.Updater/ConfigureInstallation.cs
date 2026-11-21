@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text.Json;
+using Magnetar.Protocol.Runtime;
 using Quasar.Updates;
 
 internal static class ConfigureInstallation
@@ -44,22 +45,46 @@ internal static class ConfigureInstallation
             ReleaseOwner = releaseOwner, ReleaseRepository = releaseRepository, PackageAsset = packageAsset,
             HealthUrl = Option("--health-url", healthUrl),
             HealthToken = previous?.HealthToken ?? Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)) };
+        Environment.SetEnvironmentVariable("QUASAR_INSTALL_DIR", data);
+        MigrateLegacyRequest(root);
+
         // Protected original for the updater; discoverable copy for application/CLI.
         QuasarUpdateJournal.WriteJson(metadata, installation);
         if (Path.GetFullPath(metadata) != Path.Combine(root, QuasarServiceInstallation.FileName))
             QuasarUpdateJournal.WriteJson(Path.Combine(root, QuasarServiceInstallation.FileName), new { metadataPath = metadata });
         QuasarServiceInstallation.Load(metadata);
-        Environment.SetEnvironmentVariable("QUASAR_INSTALL_DIR", data);
-        var legacyRequest = Path.Combine(data, "Updates", "bootstrap-update-request.json");
-        if (File.Exists(legacyRequest))
-        {
-            var target = "unknown";
-            try { using var request = JsonDocument.Parse(File.ReadAllText(legacyRequest)); if (request.RootElement.TryGetProperty("version", out var version)) target = version.GetString() ?? target; }
-            catch (JsonException) { }
-            QuasarUpdateJournal.Write(new QuasarUpdateOperation { Version = target, Stage = UpdateStage.Abandoned,
-                Message = "Legacy Bootstrap activation abandoned during native-service migration. It will not be replayed." });
-            File.Move(legacyRequest, legacyRequest + ".migrated", overwrite: true);
-        }
         return 0;
+    }
+
+    private static void MigrateLegacyRequest(string root)
+    {
+        var legacyRequest = MagnetarPaths.GetQuasarBootstrapUpdateRequestPath();
+        if (!File.Exists(legacyRequest)) return;
+        var operation = QuasarUpdateJournal.Read();
+        if (operation?.Stage == UpdateStage.Restarting ||
+            File.Exists(Path.Combine(MagnetarPaths.GetQuasarUpdatesDirectory(), "application-maintenance")) ||
+            LauncherReplacement.Phase(root) is "installing" or "ready" or "attempted")
+            throw new InvalidOperationException("An interrupted Quasar replacement needs recovery before migrating the legacy Bootstrap request.");
+
+        var target = "unknown";
+        var legacyOperationId = Guid.Empty;
+        try
+        {
+            using var request = JsonDocument.Parse(File.ReadAllText(legacyRequest));
+            if (request.RootElement.ValueKind == JsonValueKind.Object)
+            {
+                if (request.RootElement.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String)
+                    target = version.GetString() ?? target;
+                if (request.RootElement.TryGetProperty("operationId", out var id) && id.ValueKind == JsonValueKind.String)
+                    id.TryGetGuid(out legacyOperationId);
+            }
+        }
+        catch (JsonException) { }
+        // The legacy request can only abandon its own operation. Preserve an unrelated journal.
+        if (operation is null || legacyOperationId != Guid.Empty && operation.Id == legacyOperationId &&
+            operation.Stage is (UpdateStage.Queued or UpdateStage.Downloading or UpdateStage.Verified or UpdateStage.Ready))
+            QuasarUpdateJournal.Write((operation ?? new QuasarUpdateOperation { Version = target }) with { Stage = UpdateStage.Abandoned,
+                Message = "Legacy Bootstrap activation abandoned during native-service migration. It will not be replayed." });
+        File.Move(legacyRequest, legacyRequest + ".migrated", overwrite: true);
     }
 }
