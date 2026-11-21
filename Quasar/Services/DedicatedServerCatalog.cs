@@ -380,6 +380,10 @@ public sealed class DedicatedServerCatalog : IDisposable
         server.DsLogFilesToKeep = server.DsLogFilesToKeep < DedicatedServerDefinition.MinimumDsLogFilesToKeep
             ? DedicatedServerDefinition.DefaultDsLogFilesToKeep
             : Math.Min(server.DsLogFilesToKeep, DedicatedServerDefinition.MaximumDsLogFilesToKeep);
+        if (server.LogMaxAgeDays < 0)
+            server.LogMaxAgeDays = DedicatedServerDefinition.DefaultLogMaxAgeDays;
+        if (server.LogMaxSizeMB < 0)
+            server.LogMaxSizeMB = DedicatedServerDefinition.DefaultLogMaxSizeMB;
         server.AutoStart = server.GoalState == DedicatedServerGoalState.On || server.AutoStart;
         server.GoalState = server.AutoStart ? DedicatedServerGoalState.On : DedicatedServerGoalState.Off;
         var legacyStartupPolicy = server.AgentStartupHardLimitSeconds < 1;

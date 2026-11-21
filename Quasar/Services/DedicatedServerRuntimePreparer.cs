@@ -22,6 +22,8 @@ public sealed class DedicatedServerRuntimePreparer
     private static readonly Regex NoSplashPattern = new(@"(?<!\S)-nosplash(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex DaemonPattern = new(@"(?<!\S)-daemon(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly Regex NoImplicitModPattern = new(@"(?<!\S)-noimplicitmod(?!\S)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // The server definition owns the log retention limits; a repeated value would stop Magnetar.
+    private static readonly Regex LogRetentionOptionPattern = new(@"(?<!\S)-logmax(?:agedays|sizemb)(?:[=:]\S*|(?!\S)(?:\s+(?!-)\S+)?)", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     // Quasar owns the consent choice, so every user-supplied form is stripped: the
     // value-taking -consent <accept|deny|withdraw> (the value is only consumed when it
     // does not look like another option) plus the legacy bare -consent, -noconsent and
@@ -117,6 +119,18 @@ public sealed class DedicatedServerRuntimePreparer
         await WriteLastSessionAsync(definition, worldPath, dedicatedServerAppDataPath, lastSessionPath, cancellationToken);
 
         var gitHubToken = _githubCredentials.Token;
+        var magnetarVersion = MagnetarLogRetention.TryReadMagnetarVersion(magnetarExecutablePath ?? definition.ExecutablePath);
+        if (!MagnetarLogRetention.IsSupported(magnetarVersion) &&
+            (definition.LogMaxAgeDays != DedicatedServerDefinition.DefaultLogMaxAgeDays ||
+             definition.LogMaxSizeMB != DedicatedServerDefinition.DefaultLogMaxSizeMB))
+        {
+            _logger.LogWarning(
+                "Server {UniqueName} runs Magnetar {MagnetarVersion}; the log retention limits need {FirstSupportedVersion} or newer and are not passed.",
+                definition.UniqueName,
+                magnetarVersion?.ToString() ?? "of unknown version",
+                MagnetarLogRetention.FirstSupportedVersion);
+        }
+
         var arguments = BuildLaunchArguments(
             definition,
             dedicatedServerAppDataPath,
@@ -127,7 +141,8 @@ public sealed class DedicatedServerRuntimePreparer
             _options,
             _dataHandlingConsent.GetSettings().ConsentGranted,
             launchArgumentStyle,
-            gitHubToken);
+            gitHubToken,
+            magnetarVersion);
 
         return new PreparedDedicatedServerLaunch(
             dedicatedServerAppDataPath,
@@ -930,7 +945,8 @@ public sealed class DedicatedServerRuntimePreparer
         // LEGACY-MAGNETAR-COMPAT: both parameters below exist only for pre-2.3.3.0 Magnetar
         // builds. Remove them in the first 2027 Quasar release.
         MagnetarLaunchArgumentStyle launchArgumentStyle,
-        string gitHubToken)
+        string gitHubToken,
+        Version? magnetarVersion = null)
     {
         var baseArguments = ExpandLaunchArguments(
             definition,
@@ -955,6 +971,7 @@ public sealed class DedicatedServerRuntimePreparer
 
         if (definition.DisableImplicitMagnetarModLoad)
             additions.Add("-noimplicitmod");
+        additions.AddRange(MagnetarLogRetention.BuildArguments(definition, magnetarVersion));
 
         additions.Add($"-path {QuoteArgument(dedicatedServerAppDataPath)}");
         additions.Add($"-config {QuoteArgument(magnetarAppDataPath)}");
@@ -1017,6 +1034,7 @@ public sealed class DedicatedServerRuntimePreparer
         sanitized = NoSplashPattern.Replace(sanitized, string.Empty);
         sanitized = DaemonPattern.Replace(sanitized, string.Empty);
         sanitized = NoImplicitModPattern.Replace(sanitized, string.Empty);
+        sanitized = LogRetentionOptionPattern.Replace(sanitized, string.Empty);
         sanitized = ConsentOptionPattern.Replace(sanitized, string.Empty);
         sanitized = GitHubTokenOptionPattern.Replace(sanitized, string.Empty);
         sanitized = Regex.Replace(sanitized, @"\s{2,}", " ");

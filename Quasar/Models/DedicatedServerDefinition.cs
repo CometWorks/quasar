@@ -7,6 +7,9 @@ public sealed class DedicatedServerDefinition
     public const int DefaultDsLogFilesToKeep = 5;
     public const int MinimumDsLogFilesToKeep = 1;
     public const int MaximumDsLogFilesToKeep = 1000;
+    // Magnetar's own defaults for -logMaxAgeDays and -logMaxSizeMB; 0 turns a limit off.
+    public const int DefaultLogMaxAgeDays = 14;
+    public const int DefaultLogMaxSizeMB = 1024;
     public const int DefaultMaxRestartAttempts = 3;
     public const int LegacyAgentStartupGraceSeconds = 180;
     public const int DefaultAgentStartupGraceSeconds = 60;
@@ -59,6 +62,10 @@ public sealed class DedicatedServerDefinition
     public string AgentProfilerMode { get; set; } = "SafeContinuous";
 
     public int DsLogFilesToKeep { get; set; } = DefaultDsLogFilesToKeep;
+
+    public int LogMaxAgeDays { get; set; } = DefaultLogMaxAgeDays;
+
+    public int LogMaxSizeMB { get; set; } = DefaultLogMaxSizeMB;
 
     public int ServerPort { get; set; } = 27016;
 
@@ -139,6 +146,8 @@ public sealed class DedicatedServerDefinition
             LogLaunchEnvironment = LogLaunchEnvironment,
             AgentProfilerMode = AgentProfilerMode,
             DsLogFilesToKeep = DsLogFilesToKeep,
+            LogMaxAgeDays = LogMaxAgeDays,
+            LogMaxSizeMB = LogMaxSizeMB,
             ServerPort = ServerPort,
             ServerIP = ServerIP,
             AutoStart = AutoStart,

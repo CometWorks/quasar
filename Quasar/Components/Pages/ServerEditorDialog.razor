@@ -337,6 +337,22 @@
                                                      HelperText="Keeps the newest SpaceEngineersDedicated*.log files in the DS app-data folder; older files are deleted on start and stop." />
                                 </MudItem>
                                 <MudItem xs="12" md="6">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.LogMaxAgeDays"
+                                                     Label="Delete DS logs older than (days)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0"
+                                                     HelperText="Magnetar deletes older SpaceEngineersDedicated*.log files at start. 0 = no age limit. Needs Magnetar 2.4.3.11 or newer." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.LogMaxSizeMB"
+                                                     Label="DS logs total size limit (MB)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0"
+                                                     HelperText="Magnetar deletes the oldest DS logs at start until the rest fit. 0 = no size limit. Needs Magnetar 2.4.3.11 or newer." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
                                     <MudCheckBox @bind-Value="_editor.LogLaunchEnvironment"
                                                  Label="Log launch environment"
                                                  Color="Color.Warning" />
@@ -368,7 +384,7 @@
                                         Lines="3"
                                         Sizing="InputSizing.Auto"
                                         MaxLines="10000"
-                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar owns -noconsole, -daemon, -noimplicitmod, -path, -config, and -ds64 for managed servers." />
+                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar owns -noconsole, -daemon, -noimplicitmod, -logMaxAgeDays, -logMaxSizeMB, -path, -config, and -ds64 for managed servers." />
                                 </MudItem>
                             </MudGrid>
                         </ChildContent>
