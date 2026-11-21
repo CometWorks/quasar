@@ -1,3 +1,5 @@
+// Copyright (c) 2026 CometWorks. SPDX-License-Identifier: MIT
+// See LICENSE.MIT in the Quasar source or distribution.
 // Only SDK-owned download URLs use this narrower worker. Ordinary app/push scopes stay intact.
 const tickets = new Map();
 const base = new URL("../../../../", self.registration.scope);

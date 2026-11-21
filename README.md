@@ -1,10 +1,13 @@
 # Quasar
 
 Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
-(`AGPL-3.0-only`). The previous MIT distribution is preserved by the
-[`archive/mit` tag](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
-See [licensing and source availability](Docs/Licensing.md) for the transition,
-redistribution, and modified hosted versions.
+(`AGPL-3.0-only`). Your own plugins can stay closed under the [plugin exception](EXCEPTION.md),
+including plugins that patch internals at runtime. Copied core code still follows
+AGPL.
+The [licensing guide](LICENSING.md) lists the MIT SDK/contract code and source
+requirements. [Alternative licensing](LICENSING.md#alternative-licensing) is
+available case by case. The earlier MIT version remains at
+[`archive/mit`](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 
 Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)
 dedicated servers, with an optional Blazor Server UI. It supervises multiple DS
