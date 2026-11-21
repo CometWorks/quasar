@@ -32,6 +32,16 @@ access for co-located and nested data. On failure it prints owner/protection/SDD
 and service paths/accounts, without credentials. Linux syntax checks cannot prove
 Windows ACL or SCM behavior.
 
+For an update stuck at Ready with `Service executable/action or execution account
+differs from the installation metadata`, compare the commands shown by `sc.exe qc
+Quasar` and `sc.exe qc QuasarUpdater` with the installation record. Current
+verification accepts missing quotes only around paths without whitespace. Older
+releases can reject those equivalent commands. Install the current complete package
+with the existing paths and service names to update both binaries; use
+`-RepairSupervision` when those binaries are already current. Keep all data and
+metadata. Spaced executable paths must be quoted, and real path, argument or account
+mismatches still fail. See [native service checks](Updates.md#native-service-checks).
+
 ## Where the logs are
 
 `<data dir>` below is the Quasar data directory, for example `~/.local/share/Quasar` on Linux, `%ProgramData%\Quasar` for a new Windows service installation, `/data` in Docker (`./quasar-data` on the host). See [Changing the data directory](#changing-the-data-directory) for how Quasar finds it, and [Configuration](Configuration.md#where-files-live).

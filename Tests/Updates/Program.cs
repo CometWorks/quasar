@@ -36,6 +36,7 @@ if (args.FirstOrDefault() == "verify")
     return capability.CanRestart ? 0 : 4;
 }
 if (args.FirstOrDefault() != "self-test") return 2;
+WindowsServiceCommandTests.Run();
 
 var testRoot = Path.Combine(Path.GetTempPath(), "quasar-update-shared-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(testRoot);

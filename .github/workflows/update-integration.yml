@@ -63,7 +63,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        data-layout: [colocated, nested]
+        include:
+          - {shell: pwsh, data-layout: colocated, path-layout: spaced}
+          - {shell: pwsh, data-layout: nested, path-layout: space-free}
+          - {shell: powershell, data-layout: colocated, path-layout: space-free}
+          - {shell: powershell, data-layout: nested, path-layout: spaced}
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
@@ -78,10 +82,6 @@ jobs:
         shell: pwsh
         run: Tests/Updates/install-copy.ps1
       - name: Real isolated native Windows Services, migration, locks, ACLs and recovery
-        shell: pwsh
+        shell: ${{ matrix.shell }}
         run: |
-          if ('${{ matrix.data-layout }}' -eq 'nested') {
-            Tests/Updates/windows-services.ps1 -NestedData
-          } else {
-            Tests/Updates/windows-services.ps1
-          }
+          Tests/Updates/windows-services.ps1 -NestedData:('${{ matrix.data-layout }}' -eq 'nested') -SpaceFreePath:('${{ matrix.path-layout }}' -eq 'space-free')

@@ -117,6 +117,30 @@ and unrelated data remain in place. The portable copy fixture is
 
 For the historical `v1.4.1.1` identity/permission failure, use the current complete package with the [recovery guidance](QuasarUpdates.md#broken-1411-package). No intermediate release or receipt is required.
 
+## Service command verification
+
+The installer preserves quotes around executable paths and the updater's
+installation-record argument in both Windows PowerShell 5.1 and PowerShell 7.
+PowerShell 5.1's legacy native argument passing otherwise consumes embedded quotes
+before `sc.exe` receives the `binPath` value.
+
+Verification accepts an existing service command without quotes when each unquoted
+path has no whitespace. For example, `C:\Quasar\Quasar.exe serve --service` is
+equivalent to `"C:\Quasar\Quasar.exe" serve --service`. Paths containing spaces
+must remain quoted. The complete executable path, arguments in their original
+order, service accounts, process ownership and recovery policies still have to
+match the protected installation record.
+
+If an older release stays at **Ready** with `Service executable/action or execution
+account differs from the installation metadata` and **Restart Quasar** is disabled,
+install the current complete package with the existing application/data paths and
+service names. This updates both Quasar and the separate updater, which normal
+application updates do not replace. Do not delete data or the installation record.
+If the current binaries are already in place, `install.ps1 -RepairSupervision`
+rewrites quoted commands. An unquoted executable path containing spaces needs
+repair before automatic updates or restarts are allowed. Recheck Updates after
+both services start; a real command or account mismatch still needs correction.
+
 ## Command-line UI rollback
 
 Current `Quasar --rollback` restores the retained complete application through the updater. The following worker-only behavior applies to legacy Bootstrap installations.

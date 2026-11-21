@@ -1,6 +1,6 @@
 # Real isolated native SCM services, virtual accounts and production updater code.
 # Fixture app and sealed local package provider replace Quasar/GitHub; no live installs.
-param([switch]$NestedData)
+param([switch]$NestedData, [switch]$SpaceFreePath)
 $ErrorActionPreference='Stop'
 $PSNativeCommandUseErrorActionPreference=$false
 $repo=Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
@@ -10,7 +10,7 @@ $bin=Join-Path $PSScriptRoot 'bin/Debug/net10.0'
 $dll=Join-Path $bin 'Quasar.UpdateIntegration.dll'
 & dotnet $dll self-test
 if($LASTEXITCODE){throw 'Shared tests failed'}
-$root=Join-Path ([IO.Path]::GetTempPath()) ('quasar native services '+[guid]::NewGuid().ToString('N'))
+$root=if($SpaceFreePath){Join-Path ($env:SystemDrive+'\') ('QuasarUpdateFixture'+[guid]::NewGuid().ToString('N'))}else{Join-Path ([IO.Path]::GetTempPath()) ('quasar native services '+[guid]::NewGuid().ToString('N'))}
 $data=if($NestedData){Join-Path $root 'Data'}else{$root}
 $name='QuasarUpdateFixture'+[guid]::NewGuid().ToString('N')
 $updater=$name+'Updater'
@@ -30,6 +30,22 @@ function Request-Package([string]$Payload){
  $id=& dotnet $dll request $Payload
  if($LASTEXITCODE){throw 'Request failed'}
  return $id
+}
+function Set-ServiceCommand([string]$ServiceName,[string]$Command){
+ # Start-Process takes a raw argument string in both PowerShell 5.1 and 7.
+ $process=Start-Process -FilePath "$env:SystemRoot/System32/sc.exe" -ArgumentList ('config '+$ServiceName+' binPath= "'+$Command.Replace('"','\"')+'"') -NoNewWindow -Wait -PassThru
+ if($process.ExitCode){throw "Cannot configure fixture command for $ServiceName"}
+}
+function Assert-ServiceCommands {
+ $metadata=Join-Path $env:ProgramData ('Quasar-ServiceInstallations/'+$name+'.json')
+ foreach($entry in @(@($name,('"'+(Join-Path $root 'Quasar.exe')+'" serve --service')),
+                     @($updater,('"'+(Join-Path $root 'Updater/Quasar.Updater.exe')+'" --installation "'+$metadata+'"')))){
+  $serviceName,$expected=$entry
+  $actual=(Get-CimInstance Win32_Service -Filter "Name='$serviceName'").PathName
+  if($actual -cne $expected){throw "Installer did not preserve quoted SCM command: $actual"}
+ }
+ & dotnet $dll verify
+ if($LASTEXITCODE){throw 'Installed service commands did not verify'}
 }
 function Assert-Sentinel{if(-not(Get-Process -Id $sentinel -ErrorAction SilentlyContinue)){throw 'Detached server-process sentinel died'}}
 function Service-Security {
@@ -131,21 +147,40 @@ try{
  Disable-ScheduledTask -TaskName $task|Out-Null
  # A real service descriptor includes an audit SACL after its access DACL.
  # Keep those audit rules intact while granting the updater control rights.
- & sc.exe create $name binPath= ('"'+(Join-Path $root 'Quasar.exe')+'" serve --service') obj= ('NT SERVICE\'+$name) start= demand|Out-Null
+ # The installer configures this placeholder before any attempt to start it.
+ & sc.exe create $name binPath= unused obj= ('NT SERVICE\'+$name) start= demand|Out-Null
  if($LASTEXITCODE){throw 'Cannot create fixture service'}
  $originalAudit=(Service-Security).GetSddlForm([Security.AccessControl.AccessControlSections]::Audit)
  if(-not $originalAudit){throw 'Fixture requires native service audit rules'}
  & (Join-Path $repo 'scripts/install.ps1') -RepairSupervision -InstallDir $root -DataDir $data -ServiceName $name -UpdaterServiceName $updater -MigrateScheduledTask -TaskName $task -Start
+ Assert-ServiceCommands
  Assert-ServiceControl
  Assert-InstallationAccess
  Wait-Until {Test-Path -LiteralPath (Join-Path $data 'server.pid')} 'Native main service did not start'
  $sentinel=[int](Get-Content -LiteralPath (Join-Path $data 'server.pid') -Raw)
  if((Get-Process -Id $sentinel).Path -ieq (Join-Path $root 'Quasar.exe')){throw 'Detached server sentinel must use a separate executable from Quasar'}
  & (Join-Path $repo 'scripts/install.ps1') -RepairSupervision -InstallDir $root -DataDir $data -ServiceName $name -UpdaterServiceName $updater -MigrateScheduledTask -TaskName $task -Start
+ Assert-ServiceCommands
  Assert-ServiceControl
  Assert-InstallationAccess
  Assert-Sentinel
  Write-Host 'PASS native service DACL grant preserves audit rules and remains idempotent after repair'
+ # Verify the security gates still fail on actual ownership/account mismatches.
+ foreach($invalid in @('--wrong-pid','--wrong-account')){
+  & dotnet $dll verify $invalid
+  if($LASTEXITCODE -ne 4){throw "Verifier accepted $invalid"}
+ }
+ if($SpaceFreePath){
+  # Reproduce the legacy PowerShell 5.1 result independently of native quote passing.
+  $metadata=Join-Path $env:ProgramData ('Quasar-ServiceInstallations/'+$name+'.json')
+  if($metadata -match '\s'){throw 'Space-free regression needs a space-free ProgramData path'}
+  Set-ServiceCommand $name ((Join-Path $root 'Quasar.exe')+' serve --service')
+  Set-ServiceCommand $updater ((Join-Path $root 'Updater/Quasar.Updater.exe')+' --installation '+$metadata)
+  & dotnet $dll verify
+  if($LASTEXITCODE){throw 'Equivalent legacy unquoted service commands did not verify'}
+  Write-Host 'PASS legacy unquoted space-free SCM commands; subsequent updates use these commands'
+ }
+
  if((Get-ScheduledTask -TaskName $task).State -ne 'Disabled'){throw 'Legacy task was not retained disabled'}
  & dotnet $dll token-create
  if($LASTEXITCODE){throw 'Credential fixture creation failed'}
