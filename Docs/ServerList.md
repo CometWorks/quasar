@@ -51,7 +51,7 @@ The website retains the legacy feed for older publishers during rollout. Legacy 
 
 Public data contains the chosen name, public join action, observation time, running state, player counts and simulation speed. Private admin IDs and installation identity stay out of public responses. Raw diagnostics, world identities, private endpoints and chat are excluded.
 
-Standalone observations require one connected agent and snapshots at most 60 seconds old; missing, ambiguous, future or stale metrics stay unknown. Simulation speed is capped at 1.00, with negative/non-finite readings unknown. Clusters publish the gateway's authoritative client count once, never a sum of nodes. The website independently expires observations after 60 seconds.
+Standalone observations require exactly one connected agent and snapshots at most 60 seconds old. Disconnected agents retained from earlier server processes are ignored, so restarting a server does not make its live statistics ambiguous. Missing, multiple connected, future or stale observations stay unknown. Simulation speed is capped at 1.00, with negative/non-finite readings unknown. Clusters publish the gateway's authoritative client count once, never a sum of nodes. The website independently expires observations after 60 seconds.
 
 Cluster max players comes from `memberLimit` in the active deployment's saved specification, not from a node's session settings or a staged profile. It stays unknown when active deployment provenance is unavailable, the limit is invalid, or the gateway reports a different deployment revision.
 
