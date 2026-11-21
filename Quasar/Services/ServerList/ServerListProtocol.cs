@@ -34,11 +34,12 @@ public static class ServerListProtocol
     public static ServerListListing FromAgent(ServerListEntry entry, IReadOnlyList<AgentRuntimeState> agents,
         DateTimeOffset now)
     {
-        var matches = agents.Where(a => !a.IsCluster && a.UniqueNameKey.Equals(entry.UniqueName,
+        // The registry retains disconnected agents from earlier server processes.
+        var matches = agents.Where(a => a.IsConnected && !a.IsCluster && a.UniqueNameKey.Equals(entry.UniqueName,
             StringComparison.OrdinalIgnoreCase)).ToArray();
         var agent = matches.Length == 1 ? matches[0] : null;
         var snapshot = agent?.Snapshot;
-        if (agent is null || !agent.IsConnected || snapshot is null
+        if (agent is null || snapshot is null
             || !IsFresh(agent.LastSnapshotReceivedUtc, now) || !IsFresh(snapshot.CapturedAtUtc, now))
             return Unknown(entry);
         var metrics = snapshot.Metrics;

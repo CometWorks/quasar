@@ -263,6 +263,36 @@ public sealed class ServerListPublisherTests : IDisposable
     }
 
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DisconnectedAgentsFromEarlierProcessesDoNotHideALiveStandaloneServer(bool oldAgentFirst)
+    {
+        await SetAdminAsync();
+        var now = DateTimeOffset.UtcNow;
+        var entry = Entry();
+        var old = new AgentRuntimeState { AgentId = "solo:100", IsConnected = false,
+            LastSnapshotReceivedUtc = now, Snapshot = new() { UniqueName = "solo", CapturedAtUtc = now,
+                IsRunning = false, Metrics = new() { PlayersOnline = 0, MaxPlayers = 8, SimSpeed = 0 } } };
+        var live = new AgentRuntimeState { AgentId = "solo:200", IsConnected = true,
+            LastSnapshotReceivedUtc = now, Snapshot = new() { UniqueName = "SOLO", CapturedAtUtc = now,
+                IsRunning = true, Metrics = new() { PlayersOnline = 3, MaxPlayers = 16, SimSpeed = 0.95f } } };
+        AgentRuntimeState[] agents = oldAgentFirst ? [old, live] : [live, old];
+        using var publisher = Publisher(collect: _ => Task.FromResult<IReadOnlyList<ServerListListing>>(
+            [ServerListProtocol.FromAgent(entry, agents, now)]));
+        await publisher.PublishOnceAsync(default);
+        var listing = Assert.Single(Last().Listings);
+        Assert.True(listing.Running);
+        Assert.Equal(now, listing.ObservedAtUtc);
+        Assert.Equal(3, listing.PlayersOnline);
+        Assert.Equal(16, listing.MaxPlayers);
+        Assert.Equal(0.95f, listing.SimSpeed);
+
+        live.IsConnected = false;
+        await publisher.PublishOnceAsync(default);
+        Assert.Equal(ServerListProtocol.Unknown(entry), Assert.Single(Last().Listings));
+    }
+
+    [Theory]
     [InlineData(0f, 0f)]
     [InlineData(0.75f, 0.75f)]
     [InlineData(1f, 1f)]
