@@ -119,8 +119,30 @@ averages and total process memory. With clusters selected, process CPU is summed
 across the selected processes. Player, PCU, grid and entity totals are omitted
 from these chips because nodes can report shared world data; their charts keep
 the individual node readings. A **Plugin statistics** section appears when
-Magnetar plugins on the selected processes publish metrics. **Show plugin
-statistics charts** adds them, one line per instance.
+Magnetar plugins on the selected processes publish metrics, or when stored plugin
+statistics history exists. **Show plugin statistics charts** adds the live charts,
+one line per instance.
+
+### Plugin statistics history
+
+**History per label** in that section opens **Plugin statistics history**
+(`/analytics/plugin-history`). It charts one statistic of one row label over 1h,
+6h, 24h, 48h, 7d or 30d. A label is whatever the plugin names its rows by, for
+example a player's Steam ID; the **Label** list shows each label seen, newest
+first, with the time it was last seen. Pick a standalone server or a whole
+cluster: a cluster keeps one history for all of its nodes, so a player's rows
+stay together across node replacements and handovers between slots. Each chart
+point folds the stored rows by the field's own time hint (mean, max, min, sum,
+last or median), so a "max" field shows the worst value in that bucket rather
+than an average.
+
+The same data is available over HTTP, with `CanView`:
+`GET /api/analytics/plugin-stats/history/sources`,
+`GET /api/analytics/plugin-stats/history/fields?source=...` and
+`GET /api/analytics/plugin-stats/history/labels?source=...&provider=...&group=...`.
+`quasar.core/analytics.series.read` charts one label with the metric key
+`plugin-history:<provider>:<group>:<field>:<label>` (each part URL-escaped) and
+the source as the server.
 
 ### Process CPU and simulation CPU
 
@@ -143,7 +165,9 @@ Quasar keeps three tiers per server:
 
 Retention defaults to 30 days. Allowed values are 30, 45, 60 and 90; any other value falls back to 30. Set it with `QUASAR_ANALYTICS_RETENTION_DAYS`, `Quasar:AnalyticsRetentionDays` or `Quasar:Analytics:RetentionDays` (checked in that order) and restart Quasar.
 
-History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`, and per cluster slot in `<data dir>/Magnetars/cluster-slot-<hash>/analytics.jsonl`. A slot keeps one history while its node is replaced or restarted. Earlier Quasar versions kept cluster history per node process (`cluster-<hash>` folders); those folders are no longer read and can be deleted. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts, so the charts show the stored history as soon as a page opens. Old entries without simulation CPU show as gaps. Profiler and plugin statistics are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
+History is stored per server in `<data dir>/Magnetars/<server>/analytics.jsonl`, and per cluster slot in `<data dir>/Magnetars/cluster-slot-<hash>/analytics.jsonl`. A slot keeps one history while its node is replaced or restarted. Earlier Quasar versions kept cluster history per node process (`cluster-<hash>` folders); those folders are no longer read and can be deleted. Quasar writes it about every 7 minutes, on **Export** and on shutdown, and compacts it every 12 hours or when the file passes 32 MiB. It survives Quasar restarts, so the charts show the stored history as soon as a page opens. Old entries without simulation CPU show as gaps. Profiler samples and the live plugin statistics charts are kept in memory only (720 samples per server or metric) and are lost when Quasar restarts.
+
+Plugin statistics history is stored per server in `<data dir>/Magnetars/<server>/plugin-stats/<provider>.jsonl`, and per cluster in `<data dir>/Magnetars/cluster-stats-<hash>/plugin-stats/<provider>.jsonl`. Every published row is kept for 48 hours, then folded into 1-minute rows kept for 7 days, then into 1-hour rows kept for the analytics retention days. Set the first two with `QUASAR_PLUGIN_STATS_RAW_RETENTION_HOURS` or `Quasar:Analytics:PluginStatsRawRetentionHours`, and `QUASAR_PLUGIN_STATS_MINUTE_RETENTION_DAYS` or `Quasar:Analytics:PluginStatsMinuteRetentionDays`, then restart Quasar. Quasar appends new rows once a minute and on shutdown, and compacts each file hourly. A file that passes 32 MiB is compacted at once, folding its oldest rows into the coarser steps earlier than usual until it fits, so history is dropped only as a last resort. The history is loaded again when Quasar starts.
 
 ### Profiler mode
 
@@ -464,6 +488,8 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/Analytics/ServerMetricsStore.cs`
 - `Quasar/Services/Analytics/ProfilerStoreService.cs`
 - `Quasar/Services/Analytics/PluginStatsStoreService.cs`
+- `Quasar/Services/Analytics/PluginStatsHistoryService.cs`
+- `Quasar/Components/Pages/PluginStatsHistory.razor`
 - `Quasar/Services/AgentRegistry.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/KnownPlayerCatalog.cs`

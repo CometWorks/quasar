@@ -7,6 +7,7 @@
 @inject AgentRegistry Registry
 @inject ProfilerStoreService ProfilerStore
 @inject PluginStatsStoreService PluginStatsStore
+@inject PluginStatsHistoryService PluginStatsHistory
 @inject ISnackbar Snackbar
 @inject BrowserStorageService BrowserStorage
 @inject IDialogService DialogService
@@ -246,23 +247,30 @@
     </MudExpansionPanel>
 </MudExpansionPanels>
 
-@if (_pluginPanels.Count > 0)
+@if (_pluginPanels.Count > 0 || PluginStatsHistory.GetSources().Count > 0)
 {
     <section class="quasar-panel pa-4 mb-4">
         <div class="quasar-layout quasar-gap-2">
             <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
                 <h2 class="quasar-text quasar-type-h6">Plugin statistics</h2>
                 <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.History" Href="analytics/plugin-history">
+                        History per label
+                    </MudButton>
+                    @if (_pluginPanels.Count > 0)
+                    {
                     <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="ShowPluginStatsPanelsAsync">
                         Show plugin statistics charts
                     </MudButton>
                     <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.VisibilityOff" OnClick="HidePluginStatsPanelsAsync">
                         Hide all
                     </MudButton>
+                    }
                 </div>
             </div>
             <p class="quasar-text quasar-type-body2">
-                @_pluginPanels.Count metric@(_pluginPanels.Count == 1 ? "" : "s") published by plugins on the selected server@(_effectiveServers.Count == 1 ? "" : "s"), discovered from the schema each plugin ships. Show them all here, or add individual metrics from "Add panel". Each chart draws one line per instance (e.g. per cache).
+                @_pluginPanels.Count live metric@(_pluginPanels.Count == 1 ? "" : "s") published by plugins on the selected server@(_effectiveServers.Count == 1 ? "" : "s"), discovered from the schema each plugin ships. Show them all here, or add individual metrics from "Add panel". Each chart draws one line per instance (e.g. per cache).
+                "History per label" charts the stored history of one row, for example one player, over up to @PluginStatsHistory.RetentionDays days.
             </p>
         </div>
     </section>

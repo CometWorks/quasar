@@ -362,6 +362,7 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(metrics);
         context.Services.AddSingleton(profiler);
         context.Services.AddSingleton(stats);
+        context.Services.AddSingleton(new PluginStatsHistoryService(new(), NullLogger<PluginStatsHistoryService>.Instance));
         context.Services.AddSingleton(registry);
         context.Services.AddSingleton(new BrowserStorageService(context.JSInterop.JSRuntime));
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
@@ -651,6 +652,42 @@ public sealed class NativeAppearanceTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token) =>
             Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.ServiceUnavailable));
+    }
+
+    [Fact]
+    public async Task PluginStatsHistoryChartsOneLabelOfAWholeCluster()
+    {
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
+        using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(_root, "clusters") }).Build());
+        await clusters.CreateAsync(new("cluster", "Survival cluster", "http://gateway.test", "ADMIN"), default);
+        using var history = new PluginStatsHistoryService(new(), NullLogger<PluginStatsHistoryService>.Instance);
+        var clusterKey = PluginStatsHistoryService.ClusterKey("cluster");
+        history.Record(clusterKey, new PluginStatsProvider
+        {
+            Provider = "client-lag", CapturedAtUtc = DateTimeOffset.UtcNow.AddMinutes(-1),
+            Groups = [new() { Name = "ClientLagRow", LabelDescription = "Player Steam ID",
+                Fields = [new() { Name = "P99Ms", Kind = "gauge", Description = "Tick time p99", Unit = "ms", OverTime = "Max" }],
+                Instances = [new() { Label = "76561198000000001", Values = [12.5] }] }],
+        });
+        context.Services.AddSingleton(catalog);
+        context.Services.AddSingleton(clusters);
+        context.Services.AddSingleton(history);
+        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
+        context.Render<MudPopoverProvider>();
+
+        var page = context.Render<PluginStatsHistory>();
+
+        await page.WaitForAssertionAsync(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarCharts.sync"]));
+        var request = JsonDocument.Parse(JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0])).RootElement;
+        Assert.Equal([clusterKey], request.GetProperty("servers").EnumerateArray().Select(server => server.GetString()));
+        Assert.Equal("Survival cluster (cluster)", request.GetProperty("names").GetProperty(clusterKey).GetString());
+        Assert.Equal(PluginStatsHistoryService.BuildMetricKey("client-lag", "ClientLagRow", "P99Ms", "76561198000000001"),
+            request.GetProperty("metrics")[0].GetProperty("key").GetString());
+        Assert.Contains("Player Steam ID", page.Markup);
     }
 
     public void Dispose()
