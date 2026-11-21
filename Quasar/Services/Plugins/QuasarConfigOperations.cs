@@ -108,6 +108,8 @@ public static class QuasarConfigOperations
             nameof(DedicatedServerDefinition.ServerIP),
             nameof(DedicatedServerDefinition.AgentProfilerMode),
             nameof(DedicatedServerDefinition.DsLogFilesToKeep),
+            nameof(DedicatedServerDefinition.LogMaxAgeDays),
+            nameof(DedicatedServerDefinition.LogMaxSizeMB),
             nameof(DedicatedServerDefinition.EnableHealthMonitoring),
             nameof(DedicatedServerDefinition.AutoRestartOnUnhealthy),
             nameof(DedicatedServerDefinition.AgentStartupGraceSeconds),
