@@ -690,9 +690,17 @@ The fixture CLI starts with `QUASAR_INSTALL_DIR` pointing to the application roo
 so it can locate service metadata. Loading that metadata selects the configured
 data directory inside each fixture process.
 
-The Windows native recovery CI job runs both the default co-located data layout
-and `Tests/Updates/windows-services.ps1 -NestedData`. Both layouts run the actual
-installer and repeat supervision repair before exercising replacement/recovery.
+The Windows native recovery CI job covers Windows PowerShell 5.1 (`powershell`)
+and PowerShell 7 (`pwsh`), spaced and space-free application paths, and co-located
+and nested data layouts. Use `-SpaceFreePath` for a dedicated folder at the system
+drive root, and `-NestedData` for a separate data subfolder. All runs need elevation
+and the .NET 10 SDK. Each runs the actual installer and repeats supervision repair
+before exercising replacement/recovery. It checks that SCM retains the exact
+quoted commands and that wrong accounts and process ownership fail verification.
+Space-free runs then set equivalent legacy unquoted commands and use those through
+the update/recovery checks. The portable `self-test` also checks safe quoted and
+unquoted commands, spaced paths, malformed quotes, executable mismatches and
+extra or reordered arguments.
 The detached server sentinel uses a system sleep process with a separate executable,
 as Magnetar does, so it does not keep old Quasar application images locked. The CLI
 still runs from the application being replaced to exercise its real image mapping.

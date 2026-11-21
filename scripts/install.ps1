@@ -181,8 +181,11 @@ try {
     $updaterCommand = '"' + (Join-Path $InstallDir 'Updater/Quasar.Updater.exe') + '" --installation "' + $metadata + '"'
     foreach ($definition in @(@($ServiceName,$mainCommand,$mainAccount), @($UpdaterServiceName,$updaterCommand,$updaterAccount))) {
         $name,$command,$account = $definition
-        if (Get-Service -Name $name -ErrorAction SilentlyContinue) { & sc.exe config $name binPath= $command obj= $account start= auto | Out-Null }
-        else { & sc.exe create $name binPath= $command obj= $account start= auto | Out-Null }
+        # Windows PowerShell 5.1 and PowerShell's Legacy native argument mode
+        # consume embedded quotes unless escaped for the native command-line parser.
+        $nativeCommand = if ($PSNativeCommandArgumentPassing -in @('Standard', 'Windows')) { $command } else { $command.Replace('"', '\"') }
+        if (Get-Service -Name $name -ErrorAction SilentlyContinue) { & sc.exe config $name binPath= $nativeCommand obj= $account start= auto | Out-Null }
+        else { & sc.exe create $name binPath= $nativeCommand obj= $account start= auto | Out-Null }
         if ($LASTEXITCODE) { throw "Cannot register $name" }
         & sc.exe sidtype $name unrestricted | Out-Null
         & sc.exe failure $name reset= 86400 actions= restart/5000/restart/15000/restart/60000 | Out-Null

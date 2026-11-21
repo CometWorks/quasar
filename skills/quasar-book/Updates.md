@@ -89,6 +89,21 @@ A pending or staged native update can be installed during a UI restart. The powe
 
 A token, a launch flag or an environment variable is not enough. If the check fails, the page shows the reason and says to run the current installer in repair mode with the existing names, paths and account (`install.sh --repair-supervision`, `install.ps1 -RepairSupervision`). Until then updates are only staged: "Staged safely. Stop Quasar, run Quasar update --retry, then start Quasar manually."
 
+On Windows, quotes are optional only around paths with no whitespace. For example,
+`C:\Quasar\Quasar.exe serve --service` and `"C:\Quasar\Quasar.exe" serve --service`
+verify as the same command. Spaced executable paths must stay quoted. The full
+executable and each argument, in order, must still match the installation record.
+The installer preserves quotes in Windows PowerShell 5.1 and PowerShell 7.
+
+If an older release stays at Ready with `Service executable/action or execution
+account differs from the installation metadata` and **Restart Quasar** is disabled
+only because quotes are missing, install the current complete package with the
+existing paths and service names. This updates both the application and its
+separate updater. Normal application updates do not replace the updater itself.
+Keep the data and installation record. If the current binaries are already in
+place, repair supervision and start both services, then recheck Updates. A real
+path, argument, account or recovery mismatch still needs repair.
+
 ### Rolling back Quasar UI and Bootstrap
 
 To go back, select an older release and press **Update Quasar**. It installs that complete package the same way. Only releases with the complete package layout can be installed. Automatic checks never downgrade.
@@ -385,3 +400,4 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Tests/Updates/NativeFixture.cs`
 - `scripts/test_cleanup_releases.py`
 - `Tests/Updates/Program.cs`
+- `Tests/Updates/WindowsServiceCommandTests.cs`

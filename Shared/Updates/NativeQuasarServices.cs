@@ -54,8 +54,8 @@ internal static class NativeQuasarServices
             var updaterExecutable = Path.Combine(installation.InstallDirectory, "Updater", OperatingSystem.IsWindows() ? "Quasar.Updater.exe" : "Quasar.Updater");
             if (OperatingSystem.IsWindows())
             {
-                if (!string.Equals(main.Executable, $"\"{installation.Executable}\" serve --service", StringComparison.OrdinalIgnoreCase) ||
-                    !string.Equals(updater.Executable, $"\"{updaterExecutable}\" --installation \"{installation.MetadataPath}\"", StringComparison.OrdinalIgnoreCase) ||
+                if (!MatchesWindowsCommand(main.Executable, installation.Executable, "serve", "--service") ||
+                    !MatchesWindowsCommand(updater.Executable, updaterExecutable, "--installation", installation.MetadataPath) ||
                     !string.Equals(main.Account, installation.Account, StringComparison.OrdinalIgnoreCase) ||
                     !string.Equals(updater.Account, installation.UpdaterAccount, StringComparison.OrdinalIgnoreCase))
                     throw new InvalidOperationException("Service executable/action or execution account differs from the installation metadata.");
@@ -93,6 +93,35 @@ internal static class NativeQuasarServices
         }
         catch (Exception exception) when (exception is not OperationCanceledException) { failure = exception.Message; }
         return BootstrapUpdateSupport.Unavailable(failure) with { Repair = "Run the current installer in repair mode with this installation's existing service names, paths and account/scope. Foreground launches can stage safely and require manual restart." };
+    }
+
+    // Match the complete expected command, not a quote-stripped string. An unquoted
+    // executable containing whitespace is ambiguous to CreateProcess/SCM and unsafe.
+    internal static bool MatchesWindowsCommand(string command, string executable, params string[] arguments)
+    {
+        var remaining = command.AsSpan();
+        string[] tokens = [executable, .. arguments];
+        for (var i = 0; i < tokens.Length; i++)
+        {
+            var expected = tokens[i];
+            if (expected.Length == 0 || expected.Any(c => c == '"' || char.IsControl(c))) return false;
+            var quoted = remaining.StartsWith("\"", StringComparison.Ordinal);
+            if (quoted) remaining = remaining[1..];
+            else if (expected.Any(char.IsWhiteSpace)) return false;
+            if (!remaining.StartsWith(expected, StringComparison.OrdinalIgnoreCase)) return false;
+            remaining = remaining[expected.Length..];
+            if (quoted)
+            {
+                if (remaining.IsEmpty || remaining[0] != '"') return false;
+                remaining = remaining[1..];
+            }
+            if (i < tokens.Length - 1)
+            {
+                if (remaining.IsEmpty || remaining[0] != ' ') return false;
+                remaining = remaining[1..];
+            }
+        }
+        return remaining.IsEmpty;
     }
 
     internal static async Task StopAsync(QuasarServiceInstallation installation, CancellationToken token)

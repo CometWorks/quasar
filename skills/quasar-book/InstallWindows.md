@@ -118,6 +118,14 @@ Recovery also applies when a service stops with an error code, but a clean stop 
 
 Quasar checks this wiring on start and shows the result on Updates: the `Quasar` service must own the running process, both commands and accounts must match the installation record, and both services need the restart recovery. When something doesn't match, Quasar reports that it can't restart itself; the fix is `install.ps1 -RepairSupervision` with the existing folders and names.
 
+The installer keeps executable and installation-record paths quoted in Windows
+PowerShell 5.1 and PowerShell 7. Existing commands with unquoted paths also verify
+when those paths contain no whitespace and the complete command still matches.
+An executable path containing spaces must be quoted. Extra or reordered arguments,
+a different executable, account, process owner or recovery policy still fail.
+See [Windows update repair](Updates.md#native-service-checks) if an older
+release gets stuck at Ready because quotes are missing.
+
 ## Install as a Scheduled Task
 
 Quasar no longer installs as a Scheduled Task. Older versions ran Bootstrap from a task named `Quasar`; the current installer moves such an installation to the services.
