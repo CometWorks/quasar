@@ -1,4 +1,4 @@
-@inject FileBrowserService Browser
+@inject IJSRuntime JS
 
 <MudDialog>
     <TitleContent>
@@ -23,7 +23,14 @@
                 <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" title="Up" OnClick="GoUp" />
             </div>
 
-            <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden entries" Dense="true" />
+            <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden folders" Dense="true" />
+
+            <MudTextField @bind-Value="_entrySearch"
+                          Label="Filter current folder"
+                          Variant="Variant.Outlined"
+                          Immediate="true"
+                          Adornment="Adornment.Start"
+                          AdornmentIcon="@Icons.Material.Filled.Search" />
 
             @if (_shortcuts.Count > 0)
             {
@@ -55,33 +62,23 @@
             {
                 <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@_error</MudAlert>
             }
-            else if (_xmlFiles.Count == 0)
+            else if (RequireWorldFolder && _directory?.IsWorld == true)
             {
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                    No XML manifests in this folder. Navigate into a folder that contains your plugin's manifest.
+                <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Dense="true">
+                    Sandbox.sbc found. Click "Use this folder" to select it.
                 </MudAlert>
             }
 
-            <MudList T="string" Dense="true" Style="max-height: 320px; overflow-y: auto;">
-                @foreach (var entry in _entries)
+            <MudList T="FileBrowserEntry" Dense="true" Style="max-height: 320px; overflow-y: auto;">
+                @foreach (var entry in FilteredEntries)
                 {
-                    <MudListItem T="string" OnClick="@(() => NavigateTo(entry.FullPath))">
+                    <MudListItem T="FileBrowserEntry" OnClick="@(() => NavigateTo(entry.FullPath))">
                         <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
-                            <QuasarIcon Icon="@Icons.Material.Filled.Folder" />
+                            <QuasarIcon Icon="@(entry.IsWorldFolder ? Icons.Material.Filled.Public : Icons.Material.Filled.Folder)" Class="@("quasar-tone-" + ((entry.IsWorldFolder ? Color.Success : Color.Default)).ToString().ToLowerInvariant())" />
                             <p class="quasar-text quasar-type-body2">@entry.Name</p>
-                        </div>
-                    </MudListItem>
-                }
-                @foreach (var xml in _xmlFiles)
-                {
-                    var isSelected = string.Equals(xml.FullPath, _selectedXmlPath, StringComparison.OrdinalIgnoreCase);
-                    <MudListItem T="string" OnClick="@(() => SelectXml(xml.FullPath))" Class="@(isSelected ? "mud-selected-item" : string.Empty)">
-                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
-                            <QuasarIcon Icon="@Icons.Material.Filled.Description" Class="@("quasar-tone-" + ((isSelected ? Color.Primary : Color.Default)).ToString().ToLowerInvariant())" />
-                            <p class="quasar-text quasar-type-body2">@xml.Name</p>
-                            @if (isSelected)
+                            @if (entry.IsWorldFolder)
                             {
-                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">selected</MudChip>
+                                <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">world</MudChip>
                             }
                         </div>
                     </MudListItem>
@@ -93,9 +90,9 @@
         <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
         <MudButton Variant="Variant.Filled"
                    Color="Color.Primary"
-                   Disabled="@(string.IsNullOrWhiteSpace(_selectedXmlPath))"
-                   OnClick="UseSelected">
-            Use this manifest
+                   Disabled="@(!CanUseCurrentFolder)"
+                   OnClick="UseCurrent">
+            Use this folder
         </MudButton>
     </DialogActions>
 </MudDialog>
@@ -109,75 +106,73 @@
     public string? InitialPath { get; set; }
 
     [Parameter]
-    public string DialogTitle { get; set; } = "Pick plugin manifest";
+    public string DialogTitle { get; set; } = "Pick world folder";
+
+    [Parameter]
+    public bool RequireWorldFolder { get; set; } = true;
+
+    [Parameter]
+    public IReadOnlyList<FileBrowserShortcut> AdditionalShortcuts { get; set; } = Array.Empty<FileBrowserShortcut>();
 
     private string _currentPath = string.Empty;
     private string _error = string.Empty;
-    private string _selectedXmlPath = string.Empty;
+    private string _entrySearch = string.Empty;
     private IReadOnlyList<FileBrowserEntry> _entries = Array.Empty<FileBrowserEntry>();
-    private IReadOnlyList<FileBrowserFileEntry> _xmlFiles = Array.Empty<FileBrowserFileEntry>();
     private IReadOnlyList<FileBrowserBreadcrumb> _breadcrumbs = Array.Empty<FileBrowserBreadcrumb>();
     private IReadOnlyList<FileBrowserShortcut> _shortcuts = Array.Empty<FileBrowserShortcut>();
     private bool _showHidden;
+    private bool CanUseCurrentFolder =>
+        string.IsNullOrWhiteSpace(_error) &&
+        _directory?.Path == _currentPath &&
+        (!RequireWorldFolder || _directory?.IsWorld == true);
 
-    protected override void OnInitialized()
+    private List<FileBrowserEntry> FilteredEntries
     {
-        _shortcuts = Browser.GetShortcuts();
-        var seed = string.IsNullOrWhiteSpace(InitialPath)
-            ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)
-            : InitialPath;
-        NavigateTo(seed);
+        get
+        {
+            var search = _entrySearch.Trim();
+            return _entries
+                .Where(entry => string.IsNullOrEmpty(search) ||
+                    entry.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+        }
     }
 
-    private void NavigateTo(string path)
+    [Parameter] public Func<string, bool, Task<ConfigDirectory>>? BrowseDirectory { get; set; }
+    private ConfigDirectory? _directory;
+    private int _request;
+    protected override Task OnInitializedAsync() => NavigateTo(InitialPath ?? string.Empty);
+
+    private async Task NavigateTo(string path)
     {
+        var request = ++_request;
         try
         {
-            var resolved = FileBrowserService.ResolvePath(path);
-            _entries = Browser.ListDirectories(resolved, _showHidden);
-            _xmlFiles = Browser.ListXmlFiles(resolved, _showHidden);
-            _breadcrumbs = FileBrowserService.GetBreadcrumbs(resolved);
-            _currentPath = resolved;
-            _selectedXmlPath = _xmlFiles.Count == 1 ? _xmlFiles[0].FullPath : string.Empty;
+            var directory = BrowseDirectory is not null ? await BrowseDirectory(path, _showHidden) : await new ConfigDashboard(JS).ReadAsync<ConfigDirectory>("directory", new { path, showHidden = _showHidden, xml = false });
+            if (request != _request) return;
+            _directory = directory;
+            _entries = directory.Directories;
+            _breadcrumbs = directory.Breadcrumbs;
+            _shortcuts = directory.Shortcuts.Concat(AdditionalShortcuts).DistinctBy(s => s.FullPath, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (_currentPath != directory.Path) _entrySearch = string.Empty;
+            _currentPath = directory.Path;
             _error = string.Empty;
         }
-        catch (Exception exception)
+        catch (JSException error)
         {
-            _error = exception.Message;
+            if (request != _request) return;
+            _directory = null;
+            _entries = [];
+            _error = error.Message;
         }
     }
 
-    private void SelectXml(string fullPath) => _selectedXmlPath = fullPath;
-
-    private void Navigate() => NavigateTo(_currentPath);
-
-    private async Task HandlePathKeyDownAsync(KeyboardEventArgs args)
-    {
-        if (args.Key == "Enter")
-            Navigate();
-
-        await Task.CompletedTask;
-    }
-
-    private Task HandleShowHiddenChanged(bool value)
-    {
-        _showHidden = value;
-        Navigate();
-        return Task.CompletedTask;
-    }
-
-    private void GoUp()
-    {
-        var parent = Directory.GetParent(_currentPath);
-        if (parent is not null)
-            NavigateTo(parent.FullName);
-    }
+    private Task Navigate() => NavigateTo(_currentPath);
+    private Task HandlePathKeyDownAsync(KeyboardEventArgs args) => args.Key == "Enter" ? Navigate() : Task.CompletedTask;
+    private Task HandleShowHiddenChanged(bool value) { _showHidden = value; return Navigate(); }
+    private Task GoUp() => _breadcrumbs.Count > 1 ? NavigateTo(_breadcrumbs[^2].FullPath) : Task.CompletedTask;
 
     private void Cancel() => MudDialog.Cancel();
 
-    private void UseSelected()
-    {
-        if (!string.IsNullOrWhiteSpace(_selectedXmlPath))
-            MudDialog.Close(DialogResult.Ok(_selectedXmlPath));
-    }
+    private void UseCurrent() => MudDialog.Close(DialogResult.Ok(_currentPath));
 }

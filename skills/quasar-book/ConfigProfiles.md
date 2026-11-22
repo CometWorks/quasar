@@ -12,7 +12,7 @@ Each server definition points to one profile (**Configuration profile**) and one
 
 ## Config profiles
 
-Open **Configs** in the navigation menu (page title "Configuration profiles"). Clicking a server's profile name on the Dashboard opens the same editor as a full-screen **Config Profiles** dialog.
+Open **Configs** in the navigation menu (page title "Configuration profiles"). The dashboard links to the selected profile. Both `configs?profileId=<id>` and `configs?profile=<id>` open the same browser editor. A viewer can browse the profile, including the password-configured indicator. Quasar checks edit permissions on the worker before applying changes. Workshop Web API keys and Steam passwords stay on the worker.
 
 The left column lists profiles. Type a name in **New profile name** and click **Create profile** to add an empty profile. Each profile has **Clone <name>** and **Delete <name>** buttons.
 

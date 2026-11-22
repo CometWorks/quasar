@@ -1,0 +1,169 @@
+@namespace Quasar.Components.Pages
+@using Quasar.Client.Configs
+@inject IJSRuntime JS
+
+<MudDialog>
+    <TitleContent>
+        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Cancel" />
+            <h2 class="quasar-text quasar-type-h6">@DialogTitle</h2>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-2" style="min-width: 480px;">
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                <MudTextField @bind-Value="_currentPath"
+                              Variant="Variant.Outlined"
+                              Immediate="false"
+                              Label="Path"
+                              Class="mono flex-grow-1"
+                              OnKeyDown="HandlePathKeyDownAsync"
+                              OnAdornmentClick="Navigate"
+                              Adornment="Adornment.End"
+                              AdornmentIcon="@Icons.Material.Filled.Refresh" />
+                <MudButton Variant="Variant.Outlined" OnClick="Navigate">Go</MudButton>
+                <MudIconButton Icon="@Icons.Material.Filled.ArrowUpward" title="Up" OnClick="GoUp" />
+            </div>
+
+            <MudCheckBox T="bool" Value="_showHidden" ValueChanged="HandleShowHiddenChanged" Label="Show hidden entries" Dense="true" />
+
+            @if (_shortcuts.Count > 0)
+            {
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
+                    @foreach (var shortcut in _shortcuts)
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small" OnClick="@(() => NavigateTo(shortcut.FullPath))">
+                            @shortcut.Label
+                        </MudChip>
+                    }
+                </div>
+            }
+
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-0 folder-picker-breadcrumbs">
+                @foreach (var crumb in _breadcrumbs)
+                {
+                    var isCurrent = string.Equals(crumb.FullPath, _currentPath, StringComparison.OrdinalIgnoreCase);
+                    <MudButton Variant="Variant.Text"
+                               Size="Size.Small"
+                               Disabled="@isCurrent"
+                               Class="folder-picker-breadcrumb"
+                               OnClick="@(() => NavigateTo(crumb.FullPath))">
+                        @crumb.Label
+                    </MudButton>
+                }
+            </div>
+
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@_error</MudAlert>
+            }
+            else if (_xmlFiles.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    No XML manifests in this folder. Navigate into a folder that contains your plugin's manifest.
+                </MudAlert>
+            }
+
+            <MudList T="string" Dense="true" Style="max-height: 320px; overflow-y: auto;">
+                @foreach (var entry in _entries)
+                {
+                    <MudListItem T="string" OnClick="@(() => NavigateTo(entry.FullPath))">
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                            <QuasarIcon Icon="@Icons.Material.Filled.Folder" />
+                            <p class="quasar-text quasar-type-body2">@entry.Name</p>
+                        </div>
+                    </MudListItem>
+                }
+                @foreach (var xml in _xmlFiles)
+                {
+                    var isSelected = string.Equals(xml.FullPath, _selectedXmlPath, StringComparison.OrdinalIgnoreCase);
+                    <MudListItem T="string" OnClick="@(() => SelectXml(xml.FullPath))" Class="@(isSelected ? "mud-selected-item" : string.Empty)">
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                            <QuasarIcon Icon="@Icons.Material.Filled.Description" Class="@("quasar-tone-" + ((isSelected ? Color.Primary : Color.Default)).ToString().ToLowerInvariant())" />
+                            <p class="quasar-text quasar-type-body2">@xml.Name</p>
+                            @if (isSelected)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Outlined">selected</MudChip>
+                            }
+                        </div>
+                    </MudListItem>
+                }
+            </MudList>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   Disabled="@(string.IsNullOrWhiteSpace(_selectedXmlPath))"
+                   OnClick="UseSelected">
+            Use this manifest
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string? InitialPath { get; set; }
+
+    [Parameter]
+    public string DialogTitle { get; set; } = "Pick plugin manifest";
+
+    private string _currentPath = string.Empty;
+    private string _error = string.Empty;
+    private string _selectedXmlPath = string.Empty;
+    private IReadOnlyList<FileBrowserEntry> _entries = Array.Empty<FileBrowserEntry>();
+    private IReadOnlyList<FileBrowserFileEntry> _xmlFiles = Array.Empty<FileBrowserFileEntry>();
+    private IReadOnlyList<FileBrowserBreadcrumb> _breadcrumbs = Array.Empty<FileBrowserBreadcrumb>();
+    private IReadOnlyList<FileBrowserShortcut> _shortcuts = Array.Empty<FileBrowserShortcut>();
+    private bool _showHidden;
+
+    private ConfigDirectory? _directory;
+    private int _request;
+    protected override Task OnInitializedAsync() => NavigateTo(InitialPath ?? string.Empty);
+
+    private async Task NavigateTo(string path)
+    {
+        var request = ++_request;
+        try
+        {
+            var directory = await new ConfigDashboard(JS).ReadAsync<ConfigDirectory>("directory", new { path, showHidden = _showHidden, xml = true });
+            if (request != _request) return;
+            _directory = directory;
+            _entries = directory.Directories;
+            _breadcrumbs = directory.Breadcrumbs;
+            _shortcuts = directory.Shortcuts;
+            _xmlFiles = directory.XmlFiles;
+            _selectedXmlPath = string.Empty;
+            _currentPath = directory.Path;
+            _error = string.Empty;
+        }
+        catch (JSException error)
+        {
+            if (request != _request) return;
+            _directory = null;
+            _entries = [];
+            _xmlFiles = [];
+            _selectedXmlPath = string.Empty;
+            _error = error.Message;
+        }
+    }
+
+    private Task Navigate() => NavigateTo(_currentPath);
+    private Task HandlePathKeyDownAsync(KeyboardEventArgs args) => args.Key == "Enter" ? Navigate() : Task.CompletedTask;
+    private Task HandleShowHiddenChanged(bool value) { _showHidden = value; return Navigate(); }
+    private Task GoUp() => _breadcrumbs.Count > 1 ? NavigateTo(_breadcrumbs[^2].FullPath) : Task.CompletedTask;
+
+    private void SelectXml(string path) => _selectedXmlPath = path;
+    private void Cancel() => MudDialog.Cancel();
+
+    private void UseSelected()
+    {
+        if (!string.IsNullOrWhiteSpace(_selectedXmlPath))
+            MudDialog.Close(DialogResult.Ok(_selectedXmlPath));
+    }
+}

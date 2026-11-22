@@ -1,0 +1,3264 @@
+@using System.Globalization
+@using System.Text.Json
+@using System.Text.RegularExpressions
+@implements IDisposable
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@inject IDialogService DialogService
+@inject ViewerTimeZone ViewerTime
+
+@if (_loadError is not null)
+{
+    <MudAlert Severity="Severity.Error">@_loadError <MudButton OnClick="InitializeAsync">Retry</MudButton></MudAlert>
+}
+else if (!_loaded)
+{
+    <MudProgressLinear Indeterminate="true" aria-label="Loading configuration profiles" />
+}
+else
+{
+<NavigationLock OnBeforeInternalNavigation="ConfirmNavigationAsync" ConfirmExternalNavigation="@HasPendingChanges()" />
+
+<DashboardPageHeading Section="Configuration"><Title>Configuration profiles</Title><Description>Edit server settings, Workshop mods, and plugin selections in one workspace.</Description></DashboardPageHeading>
+
+<div class="configs-page-shell">
+    <section class="quasar-panel configs-sidebar" aria-labelledby="config-profiles-heading">
+        <div>
+            <h2 id="config-profiles-heading" class="quasar-text quasar-type-h6">Profiles</h2>
+            <p class="quasar-text quasar-type-body2 config-secondary">
+                Reusable settings applied to assigned servers when they start.
+            </p>
+        </div>
+
+        @if (_snapshot.CanEdit)
+        {
+        <form class="configs-create-form" @onsubmit="CreateProfileAsync" @onsubmit:preventDefault>
+            <label class="quasar-field">
+                New profile name
+                <input @bind="_newProfileName" @bind:event="oninput" />
+            </label>
+            <button type="submit" class="quasar-button quasar-button-primary" disabled="@string.IsNullOrWhiteSpace(_newProfileName)">
+                Create profile
+            </button>
+        </form>
+        }
+
+        @if (Templates.Count == 0)
+        {
+            <p class="quasar-text quasar-type-body2 config-secondary">No config profiles yet.</p>
+        }
+        else
+        {
+            <ul class="configs-profile-list" aria-label="Configuration profiles">
+                @foreach (var template in Templates)
+                {
+                    var isSelected = string.Equals(_selectedProfileId, template.ConfigProfileId, StringComparison.OrdinalIgnoreCase);
+                    <li class="config-profile-tile" @key="template.ConfigProfileId">
+                        <button type="button" class="config-profile-button" aria-pressed="@isSelected.ToString().ToLowerInvariant()"
+                                @onclick="@(() => SelectProfileFromListAsync(template.ConfigProfileId))">
+                            <span class="config-profile-name">@template.Name</span>
+                            <span class="quasar-type-caption config-secondary">@GetProfileSummary(template)</span>
+                        </button>
+                        @if (_snapshot.CanEdit)
+        {
+                        <div class="config-profile-actions">
+                            <QuasarIconButton Icon="@QuasarIcons.ContentCopy" Label="@($"Clone {template.Name}")"
+                                              OnClick="@(() => CloneProfileAsync(template.ConfigProfileId))" />
+                            <QuasarIconButton Icon="@QuasarIcons.Delete" Label="@($"Delete {template.Name}")" Class="quasar-text-error"
+                                              OnClick="@(() => DeleteProfileAsync(template.ConfigProfileId))" />
+                        </div>
+                        }
+                    </li>
+                }
+            </ul>
+        }
+    </section>
+
+    <div class="configs-main-column">
+        @if (_editor is null)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Select profile or create new one to start editing.
+            </MudAlert>
+        }
+        else
+        {
+            @if (_snapshot.CanEdit)
+            {
+            <div class="quasar-layout quasar-gap-3">
+                <section class="quasar-panel server-card pa-4">
+                    <MudGrid>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_editor.Name" Label="Profile name" Variant="Variant.Outlined" Immediate="true" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_editor.Description" Label="Description" Variant="Variant.Outlined" Immediate="true" />
+                        </MudItem>
+                    </MudGrid>
+
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1 mt-3">
+                        <MudChip T="string" Variant="Variant.Outlined">Plugins @(_editor.Plugins.Count)</MudChip>
+                        <MudChip T="string" Variant="Variant.Outlined">Mods @(_editor.Mods.Count)</MudChip>
+                        <MudChip T="string" Variant="Variant.Outlined">Assigned Servers @GetAssignedServers(_editor.ConfigProfileId).Count</MudChip>
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.LastError))
+                        {
+                            <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">Catalog stale</MudChip>
+                        }
+                    </div>
+
+                    @if (GetAssignedServers(_editor.ConfigProfileId).Count > 0)
+                    {
+                        <span class="quasar-text quasar-type-caption d-block mt-2 config-secondary">
+                            Applied to: @string.Join(", ", GetAssignedServers(_editor.ConfigProfileId).Select(server => server.UniqueName))
+                        </span>
+                    }
+
+                    @if (_editor.SessionSettings.OnlineMode == 0)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+                            World is set to Offline, everyone will be granted Admin permissions and players will not be able to join from outside localhost.
+                        </MudAlert>
+                    }
+
+                    @if (HasInvalidSteamIdDrafts)
+                    {
+                        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mt-3">
+                            Fix the SteamID64 values in Access before saving this profile.
+                        </MudAlert>
+                    }
+
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1 mt-4">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveTemplateAsync" Disabled="@HasInvalidSteamIdDrafts">Save Profile</MudButton>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="ResetEditorAsync">Reset</MudButton>
+                        <MudButton
+                            Variant="Variant.Outlined"
+                            Color="Color.Warning"
+                            StartIcon="@Icons.Material.Filled.DeleteSweep"
+                            OnClick="ClearCurrentProfileModsAsync"
+                            Disabled="@(_editor.Mods.Count == 0)">
+                            Clear Mods
+                        </MudButton>
+                        <MudButton
+                            Variant="Variant.Outlined"
+                            Color="Color.Secondary"
+                            StartIcon="@Icons.Material.Filled.ContentCopy"
+                            OnClick="CloneCurrentProfileForCrossplayAsync"
+                            Disabled="@HasInvalidSteamIdDrafts">
+                            Clone for Crossplay
+                        </MudButton>
+                    </div>
+                </section>
+
+                <MudTabs Rounded="true"
+                         ApplyEffectsToContainer="true"
+                         KeepPanelsAlive="false"
+                         ActivePanelIndex="_activeConfigTabIndex"
+                         ActivePanelIndexChanged="HandleConfigTabChangedAsync">
+                    <MudTabPanel Text="World">
+                        @if (IsConfigTabActive(WorldTabIndex))
+                        {
+                        <section class="quasar-panel quasar-square server-card pa-4">
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
+                            <MudTextField
+                                @bind-Value="_worldSearch"
+                                Label="Search world options"
+                                Variant="Variant.Outlined"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Search"
+                                Class="configs-search-field"/>
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@string.IsNullOrWhiteSpace(FirstMatchingOptionId)" OnClick="JumpToFirstOptionAsync">
+                                Jump to First Match
+                            </MudButton>
+                            <MudChip T="string" Variant="Variant.Outlined">
+                                Matches @VisibleWorldMatchCount
+                            </MudChip>
+                        </div>
+
+                        @if (!HasVisibleWorldContent)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                No world options match current search.
+                            </MudAlert>
+                        }
+                        else
+                        {
+                            <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels">
+                                @if (TryGetVisibleCategory(ServerCategoryKey, out var serverCategory))
+                                {
+                                    var serverOptions = GetCategoryOptions(serverCategory.Key);
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(serverCategory.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(serverCategory.Key, expanded))" KeepContentAlive="false" @key="serverCategory.Key">
+                                        <TitleContent>
+                                            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                                <div class="quasar-layout quasar-gap-0">
+                                                    <h3 class="quasar-text quasar-type-subtitle1">@serverCategory.Title</h3>
+                                                    <span class="quasar-text quasar-type-caption config-secondary">@serverCategory.Description</span>
+                                                </div>
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@serverOptions.Count</MudChip>
+                                            </div>
+                                        </TitleContent>
+                                        <ChildContent>
+                                            <div class="quasar-layout quasar-gap-2 mt-2">
+                                                @foreach (var option in serverOptions)
+                                                {
+                                                    var optionCardClass = GetOptionCssClass(option);
+                                                    <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
+                                                        <TooltipContent>
+                                                            <div style="@ConfigOptionTooltipStyle">@GetOptionTooltipText(option)</div>
+                                                        </TooltipContent>
+                                                        <ChildContent>
+                                                            <section class="quasar-panel @optionCardClass" @key="option.PropertyName" id="@GetOptionAnchorId(option)" tabindex="-1">
+                                                                @switch (option.Kind)
+                                                                {
+                                                                    case QuasarConfigOptionKind.Boolean:
+                                                                        <MudCheckBox T="bool" Value="GetBoolOption(option)" ValueChanged="@(value => SetBoolOption(option, value))" Label="@option.Label"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.Integer:
+                                                                        <MudNumericField T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToIntOrDefault(option.Min, int.MinValue)" Max="@ToIntOrDefault(option.Max, int.MaxValue)" Step="@ToIntOrDefault(option.Step, 1)"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.Decimal:
+                                                                        <MudNumericField T="double" Value="GetDoubleOption(option)" ValueChanged="@(value => SetDoubleOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToDoubleOrDefault(option.Min, double.MinValue)" Max="@ToDoubleOrDefault(option.Max, double.MaxValue)" Step="@ToDoubleOrDefault(option.Step, 1d)"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.SelectInteger:
+                                                                        <MudSelect T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                            @foreach (var choice in option.SelectOptions)
+                                                                            {
+                                                                                <MudSelectItem T="int" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                            }
+                                                                        </MudSelect>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.SelectText:
+                                                                        <MudSelect T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                            @foreach (var choice in option.SelectTextOptions)
+                                                                            {
+                                                                                <MudSelectItem T="string" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                            }
+                                                                        </MudSelect>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.LongText:
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.Password:
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" InputType="InputType.Password"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.KeyValueText:
+                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8" Sizing="InputSizing.Auto" MaxLines="10000"/>
+                                                                        break;
+                                                                    default:
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
+                                                                        break;
+                                                                }
+
+                                                                @if (!string.IsNullOrWhiteSpace(option.HelperText))
+                                                                {
+                                                                    <span class="quasar-text quasar-type-caption d-block mt-2 config-secondary">@option.HelperText</span>
+                                                                }
+                                                            </section>
+                                                        </ChildContent>
+                                                    </MudTooltip>
+                                                }
+                                            </div>
+                                        </ChildContent>
+                                    </MudExpansionPanel>
+                                }
+
+                                @if (IsAccessSectionVisible)
+                                {
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(AccessCategoryKey)" ExpandedChanged="@(expanded => SetCategoryExpanded(AccessCategoryKey, expanded))" KeepContentAlive="false" @key="AccessCategoryKey">
+                                        <TitleContent>
+                                            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                                <div class="quasar-layout quasar-gap-0">
+                                                    <h3 class="quasar-text quasar-type-subtitle1">Access</h3>
+                                                    <span class="quasar-text quasar-type-caption config-secondary">Group whitelist, reserved slots, admin IDs, and banned IDs.</span>
+                                                </div>
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@GetAccessEntryCount()</MudChip>
+                                            </div>
+                                        </TitleContent>
+                                        <ChildContent>
+                                            <div class="quasar-layout quasar-gap-2 mt-2">
+                                                <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
+                                                    <TooltipContent>
+                                                        <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Limits joining to members of one Steam group. Use 0 to disable the group whitelist.")</div>
+                                                    </TooltipContent>
+                                                    <ChildContent>
+                                                        <MudNumericField T="ulong" Value="_editor.RootSettings.GroupId" ValueChanged="SetGroupId" Label="Whitelist Group ID" Variant="Variant.Outlined" Min="0" HelperText="Dedicated server supports one group ID here. Use 0 to disable." id="@AccessGroupIdAnchorId"/>
+                                                    </ChildContent>
+                                                </MudTooltip>
+                                                <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
+                                                    <TooltipContent>
+                                                        <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs that receive administrator rights on this server.")</div>
+                                                    </TooltipContent>
+                                                    <ChildContent>
+                                                        <MudTextField T="string" Value="_administratorText" ValueChanged="SetAdministratorText" Label="Admin User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" Immediate="true" Error="@(GetSteamIdListError(_administratorText) is not null)" ErrorText="@GetSteamIdListError(_administratorText)" HelperText="Comma, space, or newline separated 17-digit SteamID64 values." id="@AccessAdministratorsAnchorId"/>
+                                                    </ChildContent>
+                                                </MudTooltip>
+                                                <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
+                                                    <TooltipContent>
+                                                        <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs allowed to use reserved player slots.")</div>
+                                                    </TooltipContent>
+                                                    <ChildContent>
+                                                        <MudTextField T="string" Value="_reservedText" ValueChanged="SetReservedText" Label="Reserved Slot User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" Immediate="true" Error="@(GetSteamIdListError(_reservedText) is not null)" ErrorText="@GetSteamIdListError(_reservedText)" HelperText="Comma, space, or newline separated 17-digit SteamID64 values." id="@AccessReservedAnchorId"/>
+                                                    </ChildContent>
+                                                </MudTooltip>
+                                                <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
+                                                    <TooltipContent>
+                                                        <div style="@ConfigOptionTooltipStyle">@GetAccessTooltipText("Steam IDs blocked from joining this server.")</div>
+                                                    </TooltipContent>
+                                                    <ChildContent>
+                                                        <MudTextField T="string" Value="_bannedText" ValueChanged="SetBannedText" Label="Banned / Blacklisted User IDs" Variant="Variant.Outlined" Lines="4" Sizing="InputSizing.Auto" MaxLines="10000" Immediate="true" Error="@(GetSteamIdListError(_bannedText) is not null)" ErrorText="@GetSteamIdListError(_bannedText)" HelperText="Comma, space, or newline separated 17-digit SteamID64 values." id="@AccessBannedAnchorId"/>
+                                                    </ChildContent>
+                                                </MudTooltip>
+                                            </div>
+                                        </ChildContent>
+                                    </MudExpansionPanel>
+                                }
+
+                                @foreach (var category in RemainingVisibleCategories)
+                                {
+                                    var categoryOptions = GetCategoryOptions(category.Key);
+                                    <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsCategoryExpanded(category.Key)" ExpandedChanged="@(expanded => SetCategoryExpanded(category.Key, expanded))" KeepContentAlive="false" @key="category.Key">
+                                        <TitleContent>
+                                            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                                <div class="quasar-layout quasar-gap-0">
+                                                    <h3 class="quasar-text quasar-type-subtitle1">@category.Title</h3>
+                                                    <span class="quasar-text quasar-type-caption config-secondary">@category.Description</span>
+                                                </div>
+                                                <MudChip T="string" Variant="Variant.Outlined" Size="Size.Small">@categoryOptions.Count</MudChip>
+                                            </div>
+                                        </TitleContent>
+                                        <ChildContent>
+                                            <div class="quasar-layout quasar-gap-2 mt-2">
+                                                @foreach (var option in categoryOptions)
+                                                {
+                                                    var optionCardClass = GetOptionCssClass(option);
+                                                    <MudTooltip Placement="Placement.Top" Arrow="true" Delay="350" Inline="false">
+                                                        <TooltipContent>
+                                                            <div style="@ConfigOptionTooltipStyle">@GetOptionTooltipText(option)</div>
+                                                        </TooltipContent>
+                                                        <ChildContent>
+                                                            <section class="quasar-panel @optionCardClass" @key="option.PropertyName" id="@GetOptionAnchorId(option)" tabindex="-1">
+                                                                @switch (option.Kind)
+                                                                {
+                                                                    case QuasarConfigOptionKind.Boolean:
+                                                                        <MudCheckBox T="bool" Value="GetBoolOption(option)" ValueChanged="@(value => SetBoolOption(option, value))" Label="@option.Label"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.Integer:
+                                                                        <MudNumericField T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToIntOrDefault(option.Min, int.MinValue)" Max="@ToIntOrDefault(option.Max, int.MaxValue)" Step="@ToIntOrDefault(option.Step, 1)"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.Decimal:
+                                                                        <MudNumericField T="double" Value="GetDoubleOption(option)" ValueChanged="@(value => SetDoubleOption(option, value))" Label="@option.Label" Variant="Variant.Outlined" Min="@ToDoubleOrDefault(option.Min, double.MinValue)" Max="@ToDoubleOrDefault(option.Max, double.MaxValue)" Step="@ToDoubleOrDefault(option.Step, 1d)"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.SelectInteger:
+                                                                        <MudSelect T="int" Value="GetIntOption(option)" ValueChanged="@(value => SetIntOption(option, value))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                            @foreach (var choice in option.SelectOptions)
+                                                                            {
+                                                                                <MudSelectItem T="int" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                            }
+                                                                        </MudSelect>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.SelectText:
+                                                                        <MudSelect T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined">
+                                                                            @foreach (var choice in option.SelectTextOptions)
+                                                                            {
+                                                                                <MudSelectItem T="string" Value="@choice.Value">@choice.Label</MudSelectItem>
+                                                                            }
+                                                                        </MudSelect>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.LongText:
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="3" Sizing="InputSizing.Auto" MaxLines="10000"/>
+                                                                        break;
+                                                                    case QuasarConfigOptionKind.KeyValueText:
+                                                                        <MudTextField T="string" Value="GetKeyValueTextOption(option)" ValueChanged="@(value => SetKeyValueTextOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined" Lines="8" Sizing="InputSizing.Auto" MaxLines="10000"/>
+                                                                        break;
+                                                                    default:
+                                                                        <MudTextField T="string" Value="GetStringOption(option)" ValueChanged="@(value => SetStringOption(option, value ?? string.Empty))" Label="@option.Label" Variant="Variant.Outlined"/>
+                                                                        break;
+                                                                }
+
+                                                                @if (!string.IsNullOrWhiteSpace(option.HelperText))
+                                                                {
+                                                                    <span class="quasar-text quasar-type-caption d-block mt-2 config-secondary">@option.HelperText</span>
+                                                                }
+                                                            </section>
+                                                        </ChildContent>
+                                                    </MudTooltip>
+                                                }
+                                            </div>
+                                        </ChildContent>
+                                    </MudExpansionPanel>
+                                }
+                            </MudExpansionPanels>
+                        }
+                        </section>
+                        }
+                    </MudTabPanel>
+
+                    <MudTabPanel Text="Plugins">
+                        @if (IsConfigTabActive(PluginsTabIndex))
+                        {
+                        <section class="quasar-panel quasar-square server-card pa-4">
+                        <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginListPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(PluginListPanelKey, expanded))" KeepContentAlive="false">
+                                <TitleContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                                        <h3 class="quasar-text quasar-type-subtitle2">Plugins to load</h3>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_editor.Plugins.Count</MudChip>
+                                    </div>
+                                </TitleContent>
+                                <ChildContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-3 mt-2">
+                                        <MudTextField
+                                            @bind-Value="_pluginSearch"
+                                            Label="Filter selected plugins"
+                                            Variant="Variant.Outlined"
+                                            Immediate="true"
+                                            Adornment="Adornment.Start"
+                                            AdornmentIcon="@Icons.Material.Filled.Search"
+                                            Class="configs-search-field" />
+                                    </div>
+
+                                    <MudTable T="QuasarPluginSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="FilteredPlugins">
+                                        <HeaderContent>
+                                            <MudTh>Name</MudTh>
+                                            <MudTh>Debug build</MudTh>
+                                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            @{
+                                                var devFolder = GetDevFolderForPlugin(context.PluginId);
+                                            }
+                                            <MudTd DataLabel="Name">
+                                                <div class="quasar-layout quasar-gap-0">
+                                                    <h3 class="quasar-text quasar-type-subtitle2">@context.DisplayName</h3>
+                                                    <span class="quasar-text quasar-type-caption config-secondary mono">@context.PluginId</span>
+                                                    @if (devFolder is not null)
+                                                    {
+                                                        <span class="quasar-text quasar-type-caption config-secondary">Local dev folder</span>
+                                                    }
+                                                    else
+                                                    {
+                                                        var selectedEntry = GetCatalogEntry(context.PluginId);
+                                                        @if (selectedEntry is null)
+                                                        {
+                                                            <span class="quasar-text quasar-type-caption quasar-text-warning">Not listed by any plugin hub</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @HubCaption(selectedEntry)
+                                                        }
+                                                    }
+                                                </div>
+                                            </MudTd>
+                                            <MudTd DataLabel="Debug build">
+                                                @if (devFolder is not null)
+                                                {
+                                                    <MudCheckBox T="bool"
+                                                                 Value="@devFolder.DebugBuild"
+                                                                 ValueChanged="@(value => SetDevFolderDebugAsync(devFolder, value))"
+                                                                 Color="Color.Primary"
+                                                                 Label="Debug" />
+                                                }
+                                            </MudTd>
+                                            <MudTd DataLabel="" Class="quasar-actions-column">
+                                                <div class="plugin-actions">
+                                                    @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                    {
+                                                        <MudTooltip Text="Open GitHub repository">
+                                                            <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" />
+                                                        </MudTooltip>
+                                                    }
+                                                    <MudTooltip Text="Remove plugin">
+                                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePluginAsync(context.PluginId))" Size="Size.Small" />
+                                                    </MudTooltip>
+                                                </div>
+                                            </MudTd>
+                                        </RowTemplate>
+                                        <NoRecordsContent>
+                                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                                @(_editor.Plugins.Count == 0 ? "No plugins selected." : "No plugins match current search.")
+                                            </MudAlert>
+                                        </NoRecordsContent>
+                                    </MudTable>
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsPluginPanelExpanded(PluginCatalogPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(PluginCatalogPanelKey, expanded))" KeepContentAlive="false">
+                                <TitleContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                                        <h3 class="quasar-text quasar-type-subtitle2">Plugin catalog</h3>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@FilteredCatalogEntries.Count</MudChip>
+                                    </div>
+                                </TitleContent>
+                                <ChildContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4 mt-2">
+                                        <MudTextField
+                                            @bind-Value="_pluginSearch"
+                                            Label="Search plugin catalog"
+                                            Variant="Variant.Outlined"
+                                            Immediate="true"
+                                            Adornment="Adornment.Start"
+                                            AdornmentIcon="@Icons.Material.Filled.Search"
+                                            Class="configs-search-field configs-search-field-compact" />
+                                        @if (GlobalDevFolders.Count > 0)
+                                        {
+                                            <MudCheckBox T="bool" @bind-Value="_showDevFolderPlugins" Color="Color.Primary" Label="Show dev folders" />
+                                        }
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="@(() => RefreshPluginCatalogAsync())" Disabled="@_catalogRefreshing">
+                                            @(_catalogRefreshing ? "Refreshing..." : "Refresh Catalog")
+                                        </MudButton>
+                                        <MudChip T="string" Variant="Variant.Outlined">Selected @_editor.Plugins.Count</MudChip>
+                                    </div>
+
+                                    @if (CatalogEntries.Count == 0)
+                                    {
+                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                            Plugin catalog empty. Refresh to download the plugin hubs.
+                                        </MudAlert>
+                                    }
+                                    else if (SelectableCatalogEntryCount == 0 && HasHiddenCatalogEntries)
+                                    {
+                                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                                            The plugin hubs currently expose only hidden or automatic plugins. They are not selectable manually.
+                                        </MudAlert>
+                                    }
+                                    else
+                                    {
+                                        <MudTable T="QuasarPluginCatalogEntry" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredCatalogEntries">
+                                            <HeaderContent>
+                                                <MudTh>Use</MudTh>
+                                                <MudTh>Author</MudTh>
+                                                <MudTh>Name</MudTh>
+                                                <MudTh>Description</MudTh>
+                                                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                                            </HeaderContent>
+                                            <RowTemplate>
+                                                <MudTd DataLabel="Use">
+                                                    <MudCheckBox @key="context.PluginId" T="bool" Value="IsPluginSelected(context.PluginId)" ValueChanged="@(value => SetPluginSelection(context, value))" />
+                                                </MudTd>
+                                                <MudTd DataLabel="Author">@context.Author</MudTd>
+                                                <MudTd DataLabel="Name">
+                                                    <div class="quasar-layout quasar-gap-0">
+                                                        <h3 class="quasar-text quasar-type-subtitle2">@context.FriendlyName</h3>
+                                                        <span class="quasar-text quasar-type-caption config-secondary mono">@context.PluginId</span>
+                                                        @if (context.IsLocalDevFolder)
+                                                        {
+                                                            <span class="quasar-text quasar-type-caption config-secondary">Local dev folder</span>
+                                                        }
+                                                        else if (context.Hidden)
+                                                        {
+                                                            <span class="quasar-text quasar-type-caption config-secondary">Hidden in hub</span>
+                                                        }
+                                                        else
+                                                        {
+                                                            @HubCaption(context)
+                                                        }
+                                                    </div>
+                                                </MudTd>
+                                                <MudTd DataLabel="Description">
+                                                    <p class="quasar-text quasar-type-body2 plugin-description-line">@GetPluginTooltipText(context)</p>
+                                                </MudTd>
+                                                <MudTd DataLabel="" Class="quasar-actions-column">
+                                                    <div class="plugin-actions">
+                                                        @if (ShouldShowPluginDescriptionDialog(context))
+                                                        {
+                                                            <MudTooltip Text="Show full description">
+                                                                <MudIconButton
+                                                                    Icon="@Icons.Material.Filled.MoreHoriz"
+                                                                    Color="Color.Default"
+                                                                    Size="Size.Small"
+                                                                    Class="plugin-description-more"
+                                                                    OnClick="@(() => ShowPluginDescriptionAsync(context))" />
+                                                            </MudTooltip>
+                                                        }
+                                                        @if (!string.IsNullOrWhiteSpace(GetPluginSourceUrl(context)))
+                                                        {
+                                                            <MudTooltip Text="Open GitHub repository">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetPluginSourceUrl(context)" Target="_blank" Size="Size.Small" />
+                                                            </MudTooltip>
+                                                        }
+                                                    </div>
+                                                </MudTd>
+                                            </RowTemplate>
+                                            <NoRecordsContent>
+                                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                                    No plugin catalog entries match current search.
+                                                </MudAlert>
+                                            </NoRecordsContent>
+                                        </MudTable>
+                                    }
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual plugin setup" Expanded="@IsPluginPanelExpanded(AdvancedPluginsPanelKey)" ExpandedChanged="@(expanded => SetPluginPanelExpandedAsync(AdvancedPluginsPanelKey, expanded))" KeepContentAlive="false">
+                                <ChildContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-1 mt-2">
+                                        <MudTextField @bind-Value="_customPluginId" Label="Add custom plugin ID" Variant="Variant.Outlined" Immediate="true" />
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddCustomPlugin" Disabled="@string.IsNullOrWhiteSpace(_customPluginId)">
+                                            Add Custom
+                                        </MudButton>
+                                    </div>
+                                </ChildContent>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+                        </section>
+                        }
+                    </MudTabPanel>
+
+                    <MudTabPanel Text="Mods" Disabled="@IsModsTabLocked" ToolTip="@ModsTabTooltip">
+                        @if (IsConfigTabActive(ModsTabIndex))
+                        {
+                        <section class="quasar-panel quasar-square server-card pa-4">
+                        <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mb-4">
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(ModListPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(ModListPanelKey, expanded))" KeepContentAlive="false">
+                                <TitleContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                                        <h3 class="quasar-text quasar-type-subtitle2">Mod list</h3>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@FilteredMods.Count</MudChip>
+                                    </div>
+                                </TitleContent>
+                                <ChildContent>
+                                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-3 mt-2">
+                                    <MudTextField
+                                        @bind-Value="_modSearch"
+                                        Label="Filter selected mods"
+                                        Variant="Variant.Outlined"
+                                        Immediate="true"
+                                        Adornment="Adornment.Start"
+                                        AdornmentIcon="@Icons.Material.Filled.Search"
+                                        Class="configs-search-field" />
+                                    <MudChip T="string" Variant="Variant.Outlined">Selected mods @FilteredMods.Count</MudChip>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Primary"
+                                               StartIcon="@Icons.Material.Filled.MergeType"
+                                               OnClick="MergeModsFromWorldTemplateAsync">
+                                        Merge from World Template
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Secondary"
+                                               StartIcon="@Icons.Material.Filled.Sort"
+                                               title="Sort dependencies and save all pending profile changes."
+                                               OnClick="AutoSortModDependenciesAsync"
+                                               Disabled="@(_modDependencyCheckRunning || _editor?.Mods.Count == 0 || !_snapshot.HasWebApiKey)">
+                                        @(_modDependencyCheckRunning ? "Checking Dependencies..." : "Auto Sort Dependencies")
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="Color.Warning"
+                                               StartIcon="@Icons.Material.Filled.DeleteSweep"
+                                               OnClick="RemoveDeadModsAsync"
+                                               Disabled="@(_deadModCleanupRunning || _editor?.Mods.Count == 0)">
+                                        @(_deadModCleanupRunning ? "Checking Mods..." : "Remove Dead Mods")
+                                    </MudButton>
+                                </div>
+
+                                @if (_modDependencyTreeRows.Count > 0)
+                                {
+                                    <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mod-dependency-outline-panels">
+                                        <MudExpansionPanel Class="configs-expansion-panel mod-dependency-outline-panel" KeepContentAlive="false">
+                                            <TitleContent>
+                                                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                                                    <QuasarIcon Icon="@Icons.Material.Filled.AccountTree" />
+                                                    <h3 class="quasar-text quasar-type-subtitle2">Dependency outline</h3>
+                                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_modDependencyTreeRows.Count row(s)</MudChip>
+                                                </div>
+                                            </TitleContent>
+                                            <ChildContent>
+                                                <div class="mod-dependency-tree" role="tree" aria-label="Workshop mod dependency tree">
+                                                    @for (var rowIndex = 0; rowIndex < _modDependencyTreeRows.Count; rowIndex++)
+                                                    {
+                                                        var row = _modDependencyTreeRows[rowIndex];
+                                                        <div class="@GetDependencyTreeRowClass(row)"
+                                                             style="@GetDependencyTreeRowStyle(row)"
+                                                             role="treeitem"
+                                                             aria-level="@(row.Depth + 1)"
+                                                             @key="GetDependencyTreeRowKey(row, rowIndex)">
+                                                            <div class="mod-dependency-tree-guide" aria-hidden="true">
+                                                                <span class="mod-dependency-tree-node">
+                                                                    <QuasarIcon Icon="@GetDependencyTreeIcon(row)" Class="@("quasar-tone-" + (GetDependencyTreeIconColor(row)).ToString().ToLowerInvariant())" />
+                                                                </span>
+                                                            </div>
+                                                            <div class="mod-dependency-tree-content">
+                                                                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                                                                    <h3 class="quasar-text quasar-type-subtitle2 mod-dependency-tree-name">@row.DisplayName</h3>
+                                                                    @if (row.IsRoot)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">Root</MudChip>
+                                                                    }
+                                                                    @if (row.IsDependency)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">Dependency</MudChip>
+                                                                    }
+                                                                    @if (row.IsAlreadyListed && !row.IsCycle)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default">Already listed</MudChip>
+                                                                    }
+                                                                    @if (row.IsCycle)
+                                                                    {
+                                                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error">Cycle</MudChip>
+                                                                    }
+                                                                </div>
+                                                                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1 mod-dependency-tree-meta">
+                                                                    <span class="quasar-text quasar-type-caption mono">@row.WorkshopId</span>
+                                                                    @if (row.IsCycle)
+                                                                    {
+                                                                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Error).ToString().ToLowerInvariant())">Cycles back to @row.CycleTargetId</span>
+                                                                    }
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    }
+                                                </div>
+                                            </ChildContent>
+                                        </MudExpansionPanel>
+                                    </MudExpansionPanels>
+                                }
+
+                                @if (!string.IsNullOrWhiteSpace(_deadModCleanupSummary))
+                                {
+                                    <MudAlert Severity="@(_deadModCleanupRemoved.Count > 0 ? Severity.Success : Severity.Info)"
+                                              Variant="Variant.Outlined"
+                                              Class="mb-3">
+                                        <p class="quasar-text quasar-type-body2">@_deadModCleanupSummary</p>
+                                        @if (_deadModCleanupRemoved.Count > 0)
+                                        {
+                                            <span class="quasar-text quasar-type-caption mt-1">
+                                                Removed: @FormatModListSummary(_deadModCleanupRemoved)
+                                            </span>
+                                        }
+                                    </MudAlert>
+                                }
+
+                                @if (FilteredMods.Count == 0)
+                                {
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                        No mods match current search.
+                                    </MudAlert>
+                                }
+                                else
+                                {
+                                    <div @key="_modListRenderVersion" class="mod-load-order-table" role="table" aria-label="Selected mod load order">
+                                        <div class="mod-load-order-header" role="row">
+                                            <div role="columnheader">Priority</div>
+                                            <div role="columnheader">Name</div>
+                                            <div role="columnheader">Workshop ID</div>
+                                            <div role="columnheader" class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></div>
+                                        </div>
+                                        <MudDropContainer T="QuasarModSelection"
+                                                          Items="FilteredMods"
+                                                          ItemsSelector="@((mod, zone) => true)"
+                                                          ItemDropped="HandleModDropped"
+                                                          ItemDraggingClass="mod-load-order-row-dragging">
+                                            <ChildContent>
+                                                <MudDropZone T="QuasarModSelection"
+                                                             Identifier="@ModLoadOrderDropZone"
+                                                             AllowReorder="true"
+                                                             Class="mod-load-order-zone" />
+                                            </ChildContent>
+                                            <ItemRenderer>
+                                                <div class="mod-load-order-row" role="row" @key="context.WorkshopId">
+                                                    <div class="mod-load-order-priority" role="cell">
+                                                        <QuasarIcon Icon="@Icons.Material.Filled.DragIndicator" Class="mod-load-order-drag-icon" />
+                                                        <span class="quasar-text quasar-type-caption">@GetModLoadOrderLabel(context.WorkshopId)</span>
+                                                    </div>
+                                                    <div role="cell">
+                                                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                                                            <h3 class="quasar-text quasar-type-subtitle2">@context.DisplayName</h3>
+                                                            @if (context.IsDependency)
+                                                            {
+                                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Info">Dependency</MudChip>
+                                                            }
+                                                        </div>
+                                                    </div>
+                                                    <div role="cell" class="mono">@context.WorkshopId</div>
+                                                    <div role="cell" class="quasar-actions-column">
+                                                        <div class="plugin-actions">
+                                                            <MudTooltip Text="Remove mod">
+                                                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                                                               Color="Color.Error"
+                                                                               Size="Size.Small"
+                                                                               OnClick="@(() => RemoveModAsync(context.WorkshopId))" />
+                                                            </MudTooltip>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </ItemRenderer>
+                                        </MudDropContainer>
+                                    </div>
+                                }
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Expanded="@IsModPanelExpanded(WorkshopPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(WorkshopPanelKey, expanded))" KeepContentAlive="false">
+                                <TitleContent>
+                                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                                        <h3 class="quasar-text quasar-type-subtitle2">Steam Workshop</h3>
+                                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@_workshopResults.Count result(s)</MudChip>
+                                    </div>
+                                </TitleContent>
+                                <ChildContent>
+                                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4 mt-2">
+                                    <MudTextField
+                                        @bind-Value="_workshopSearchText"
+                                        Label="Search Steam Workshop mods"
+                                        Variant="Variant.Outlined"
+                                        Immediate="true"
+                                        Adornment="Adornment.Start"
+                                        AdornmentIcon="@Icons.Material.Filled.Search"
+                                        OnKeyDown="HandleWorkshopSearchKeyDown"
+                                        Class="configs-search-field" />
+                                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SearchWorkshopModsAsync" Disabled="@(!_snapshot.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Search">
+                                        @(_workshopSearchLoading ? "Searching..." : "Search Workshop")
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="LoadPopularWorkshopModsAsync" Disabled="@(!_snapshot.HasWebApiKey || _workshopSearchLoading)" StartIcon="@Icons.Material.Filled.Whatshot">
+                                        Popular Mods
+                                    </MudButton>
+                                    <MudChip T="string" Variant="Variant.Outlined" Color="@(_snapshot.HasWebApiKey ? Color.Success : Color.Warning)" Icon="@(_snapshot.HasWebApiKey ? Icons.Material.Filled.Key : Icons.Material.Filled.KeyOff)">
+                                        @(_snapshot.HasWebApiKey ? "Workshop API key set" : "Workshop API key needed")
+                                    </MudChip>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenWorkshopApiKeyDialogAsync" StartIcon="@Icons.Material.Filled.Key">
+                                        @(_snapshot.HasWebApiKey ? "Update API Key" : "Add API Key")
+                                    </MudButton>
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="OpenSteamAccountDialogAsync" StartIcon="@Icons.Material.Filled.AccountCircle">
+                                        @(string.IsNullOrWhiteSpace(_snapshot.SteamUsername) ? "Add SteamCMD account" : "Update SteamCMD account")
+                                    </MudButton>
+                                </div>
+
+                                @if (!string.IsNullOrWhiteSpace(_workshopSearchError))
+                                {
+                                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+                                        @_workshopSearchError
+                                    </MudAlert>
+                                }
+                                else if (_workshopSearchLoading)
+                                {
+                                    <MudProgressLinear Color="Color.Primary" Indeterminate="true" Class="mb-4" />
+                                }
+                                else if (_workshopResultsLoaded && _workshopResults.Count == 0)
+                                {
+                                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+                                        No Steam Workshop mods found.
+                                    </MudAlert>
+                                }
+
+                                @if (_workshopResults.Count > 0)
+                                {
+                                    <MudTable T="QuasarWorkshopSearchResult" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_workshopResults" Class="mb-4">
+                                        <HeaderContent>
+                                            <MudTh>Use</MudTh>
+                                            <MudTh>Preview</MudTh>
+                                            <MudTh>Tags</MudTh>
+                                            <MudTh>Workshop mod</MudTh>
+                                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                                        </HeaderContent>
+                                        <RowTemplate>
+                                            <MudTd DataLabel="Use">
+                                                <MudCheckBox T="bool"
+                                                             Dense="true"
+                                                             Value="@IsModSelected(context.WorkshopId)"
+                                                             ValueChanged="@(selected => SetWorkshopResultSelection(context, selected))" />
+                                            </MudTd>
+                                            <MudTd DataLabel="Preview">
+                                                @if (!string.IsNullOrWhiteSpace(context.PreviewUrl))
+                                                {
+                                                    <MudLink Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" Underline="Underline.None">
+                                                        <img src="@context.PreviewUrl" alt="@context.Title" loading="lazy" class="workshop-thumbnail" />
+                                                    </MudLink>
+                                                }
+                                            </MudTd>
+                                            <MudTd DataLabel="Tags">@GetWorkshopTagText(context)</MudTd>
+                                            <MudTd DataLabel="Workshop mod">
+                                                <div class="quasar-layout quasar-gap-0">
+                                                    <h3 class="quasar-text quasar-type-subtitle2">@context.Title</h3>
+                                                    <span class="quasar-text quasar-type-caption mono">@context.WorkshopId</span>
+                                                    @if (!string.IsNullOrWhiteSpace(context.Description))
+                                                    {
+                                                        <span class="quasar-text quasar-type-caption config-secondary">@context.Description</span>
+                                                    }
+                                                </div>
+                                            </MudTd>
+                                            <MudTd DataLabel="" Class="quasar-actions-column">
+                                                <MudTooltip Text="Open Steam Workshop page">
+                                                    <MudIconButton Icon="@Icons.Material.Filled.OpenInNew" Color="Color.Default" Href="@GetWorkshopUrl(context.WorkshopId)" Target="_blank" />
+                                                </MudTooltip>
+                                            </MudTd>
+                                        </RowTemplate>
+                                    </MudTable>
+                                }
+                                </ChildContent>
+                            </MudExpansionPanel>
+
+                            <MudExpansionPanel Class="configs-expansion-panel" Text="Advanced/manual mod setup" Expanded="@IsModPanelExpanded(AdvancedModsPanelKey)" ExpandedChanged="@(expanded => SetModPanelExpanded(AdvancedModsPanelKey, expanded))" KeepContentAlive="false">
+                                <ChildContent>
+                                <MudGrid Class="mt-2">
+                                    <MudItem xs="12">
+                                        <MudTextField
+                                            T="string"
+                                            @bind-Value="_workshopInput"
+                                            Label="Workshop URLs, IDs, or collection"
+                                            Variant="Variant.Outlined"
+                                            Lines="4"
+                                            Sizing="InputSizing.Auto"
+                                            MaxLines="10000"
+                                            Immediate="true"
+                                            HelperText="Paste single Steam Workshop URL, collection URL/ID, or bulk list of IDs. Collections expand into individual workshop items." />
+                                    </MudItem>
+                                    <MudItem xs="12">
+                                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ResolveWorkshopModsAsync" Disabled="@(_modResolving || string.IsNullOrWhiteSpace(_workshopInput))">
+                                            @(_modResolving ? "Resolving Workshop Items..." : "Resolve and Add Workshop Mods")
+                                        </MudButton>
+                                    </MudItem>
+                                    <MudItem xs="12" md="5">
+                                        <MudTextField @bind-Value="_newModName" Label="Mod name" Variant="Variant.Outlined" Immediate="true" />
+                                    </MudItem>
+                                    <MudItem xs="12" md="4">
+                                        <MudNumericField T="long" @bind-Value="_newModWorkshopId" Label="Workshop ID" Variant="Variant.Outlined" Min="1" />
+                                    </MudItem>
+                                    <MudItem xs="12" md="3">
+                                        <MudButton Variant="Variant.Outlined" Color="Color.Default" FullWidth="true" Class="configs-add-button" OnClick="AddMod" Disabled="@(_newModWorkshopId <= 0 || string.IsNullOrWhiteSpace(_newModName))">
+                                            Add Mod
+                                        </MudButton>
+                                    </MudItem>
+                                </MudGrid>
+                                </ChildContent>
+                            </MudExpansionPanel>
+                        </MudExpansionPanels>
+                        </section>
+                        }
+                    </MudTabPanel>
+                    <MudTabPanel Text="Command aliases">
+                        @if (IsConfigTabActive(CommandAliasesTabIndex))
+                        {
+                            <CommandAliasesEditor Profile="_editor" />
+                        }
+                    </MudTabPanel>
+                </MudTabs>
+
+                <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="configs-expansion-panels mt-4">
+                    <MudExpansionPanel Class="configs-expansion-panel" Text="Developer" Expanded="@_developerPanelExpanded" ExpandedChanged="SetDeveloperPanelExpanded" KeepContentAlive="false">
+                        <ChildContent>
+                        <p class="quasar-text quasar-type-body2 mb-3 mt-2">
+                            Register local plugin source folders so they appear in the plugin catalog. Enable them per config profile before Magnetar loads them.
+                        </p>
+                        <p class="quasar-text quasar-type-body2 mb-3">
+                            A cluster builds its dev folders once, at setup and whenever its profile is staged, and runs that build until the next staging.
+                            The folder's git repository must have no uncommitted or untracked changes, and the cluster records its HEAD commit.
+                            The manifest needs a <span class="mono">RepoId</span>. The cluster build is always a release build; the Debug build setting applies to regular servers.
+                        </p>
+                        <p class="quasar-text quasar-type-body2 mb-3">
+                            A dev folder with the id of a hub plugin is a dev override: it replaces the hub build, for a core plugin such as
+                            <span class="mono">linux-compat</span> on every server and cluster, and is marked as such below, in staging progress and in the cluster content panel.
+                            Its native assets come from the manifest's asset paths. Remove the dev folder and stage again to return to the hub build.
+                        </p>
+
+                        <MudTable T="QuasarDevFolderSelection" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="GlobalDevFolders">
+                            <HeaderContent>
+                                <MudTh>Manifest</MudTh>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Folder</MudTh>
+                                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Manifest" Class="mono">@context.DataFile</MudTd>
+                                <MudTd DataLabel="Name">
+                                    <div class="quasar-layout quasar-align-start quasar-gap-0">
+                                        <h3 class="quasar-text quasar-type-subtitle2">@context.Name</h3>
+                                        <span class="quasar-text quasar-type-caption config-secondary">@context.PluginId</span>
+                                        @if (GetDevOverride(context) is { } devOverride)
+                                        {
+                                            <MudTooltip Text="@devOverride">
+                                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Warning">Dev override</MudChip>
+                                            </MudTooltip>
+                                        }
+                                    </div>
+                                </MudTd>
+                                <MudTd DataLabel="Folder">
+                                    <CopyablePath Value="@context.FolderPath" TextClass="" />
+                                </MudTd>
+                                <MudTd DataLabel="" Class="quasar-actions-column">
+                                    <MudTooltip Text="Remove dev folder">
+                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDevFolder(context))" />
+                                    </MudTooltip>
+                                </MudTd>
+                            </RowTemplate>
+                            <NoRecordsContent>
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                                    No dev folders registered.
+                                </MudAlert>
+                            </NoRecordsContent>
+                        </MudTable>
+
+                        <div class="mt-3 mb-3">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="configs-add-button" StartIcon="@Icons.Material.Filled.Description" OnClick="AddDevFolderAsync">
+                                Add dev folder...
+                            </MudButton>
+                        </div>
+
+                        <h3 class="quasar-text quasar-type-subtitle2 mt-6 mb-2">Plugin hubs</h3>
+                        <p class="quasar-text quasar-type-body2 mb-3">
+                            MagnetarHub is always used. Register another hub, a GitHub repository and branch or a local folder of plugin manifests,
+                            to select its plugins in config profiles, on regular servers and clusters alike. A private repository needs a GitHub token
+                            with read access in Updates. Every plugin id must be listed by one hub only; Quasar won't start a server with a plugin
+                            that two hubs list. A dev folder with the same id overrides the hub's plugin.
+                        </p>
+
+                        <MudTable T="QuasarPluginHubStatus" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="HubStatuses">
+                            <HeaderContent>
+                                <MudTh>Name</MudTh>
+                                <MudTh>Source</MudTh>
+                                <MudTh>Plugins</MudTh>
+                                <MudTh>Status</MudTh>
+                                <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Name">@context.Hub.Name</MudTd>
+                                <MudTd DataLabel="Source">
+                                    @if (context.Hub.IsLocal)
+                                    {
+                                        <CopyablePath Value="@context.Hub.Folder" TextClass="" />
+                                    }
+                                    else
+                                    {
+                                        <span class="mono">@context.Hub.Location</span>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Plugins">@context.PluginCount</MudTd>
+                                <MudTd DataLabel="Status">
+                                    @if (!string.IsNullOrEmpty(context.Error))
+                                    {
+                                        <span class="quasar-text quasar-type-caption quasar-text-error">@context.Error</span>
+                                    }
+                                    else if (context.LastRefreshUtc is { } refreshed)
+                                    {
+                                        <span class="quasar-text quasar-type-caption config-secondary">Read @ViewerTime.Format(refreshed)</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="quasar-text quasar-type-caption config-secondary">Not read yet</span>
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="" Class="quasar-actions-column">
+                                    @if (!context.IsDefault)
+                                    {
+                                        <MudTooltip Text="Remove hub">
+                                            <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemovePluginHubAsync(context.Hub))" />
+                                        </MudTooltip>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-1 mt-3">
+                            <MudTextField @bind-Value="_newHubRepo" Label="GitHub repository (owner/name)" Variant="Variant.Outlined" Immediate="true" />
+                            <MudTextField @bind-Value="_newHubBranch" Label="Branch" Variant="Variant.Outlined" Immediate="true" />
+                            <MudTextField @bind-Value="_newHubName" Label="Hub name (optional)" Variant="Variant.Outlined" Immediate="true" />
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" OnClick="AddGitHubHubAsync" Disabled="@(string.IsNullOrWhiteSpace(_newHubRepo) || _hubSaving)">
+                                Add GitHub hub
+                            </MudButton>
+                        </div>
+                        <div class="mt-3 mb-3">
+                            <MudButton Variant="Variant.Outlined" Color="Color.Default" Class="configs-add-button" StartIcon="@Icons.Material.Filled.Folder" OnClick="AddLocalHubAsync" Disabled="@_hubSaving">
+                                Add local hub folder...
+                            </MudButton>
+                        </div>
+                        </ChildContent>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </div>
+            }
+            else
+            {
+                <ConfigProfileReadOnly Profile="_editor" AssignedServers="@string.Join(", ", GetAssignedServers(_editor.ConfigProfileId).Select(server => server.UniqueName))" />
+            }
+        }
+    </div>
+</div>
+
+}
+
+@code
+{
+    private const string AccessCategoryKey = "access";
+    private const string ServerCategoryKey = "server";
+    private const string AccessGroupIdAnchorId = "config-access-group-id";
+    private const string AccessAdministratorsAnchorId = "config-access-administrators";
+    private const string AccessReservedAnchorId = "config-access-reserved";
+    private const string AccessBannedAnchorId = "config-access-banned";
+    private const string ModListPanelKey = "mod-list";
+    private const string ModLoadOrderDropZone = "mod-load-order";
+    private const string WorkshopPanelKey = "workshop";
+    private const string AdvancedModsPanelKey = "advanced-mods";
+    private const string PluginListPanelKey = "plugin-list";
+    private const string PluginCatalogPanelKey = "plugin-catalog";
+    private const string AdvancedPluginsPanelKey = "advanced-plugins";
+    private const int WorldTabIndex = 0;
+    private const int PluginsTabIndex = 1;
+    private const int ModsTabIndex = 2;
+    private const int CommandAliasesTabIndex = 3;
+    private const int PluginDescriptionFallbackMaxLength = 50;
+    private const string ConfigOptionTooltipStyle = "white-space: pre-line; max-width: 34rem; text-align: left; line-height: 1.35; font-size: 0.78rem;";
+    private const string CrossplayModsDisabledWarning = "Mods are disabled while Cross Platform is enabled. Turn off Cross Platform to add or edit mods.";
+    private int _activeConfigTabIndex = WorldTabIndex;
+    private string _selectedProfileId = string.Empty;
+    private QuasarConfigProfile? _editor;
+    private string _administratorText = string.Empty;
+    private string _reservedText = string.Empty;
+    private string _bannedText = string.Empty;
+    private string _newProfileName = string.Empty;
+    private string _worldSearch = string.Empty;
+    private string _pluginSearch = string.Empty;
+    private bool _showDevFolderPlugins = true;
+    private string _modSearch = string.Empty;
+    private string _workshopSearchText = string.Empty;
+    private string _customPluginId = string.Empty;
+    private string _workshopInput = string.Empty;
+    private string _newModName = string.Empty;
+    private long _newModWorkshopId;
+    private string _lastDevFolderPath = string.Empty;
+    private List<QuasarWorkshopSearchResult> _workshopResults = [];
+    private bool _catalogRefreshing;
+    private bool _workshopSearchLoading;
+    private bool _workshopResultsLoaded;
+    private bool _modResolving;
+    private bool _deadModCleanupRunning;
+    private bool _modDependencyCheckRunning;
+    private bool _modNameRefreshRunning;
+    private long _modDependencyCheckVersion;
+    private long _modListRenderVersion;
+    private IReadOnlyList<QuasarModDependencyTreeRow> _modDependencyTreeRows = [];
+    private string _deadModCleanupSummary = string.Empty;
+    private List<QuasarModSelection> _deadModCleanupRemoved = [];
+    private string? _workshopSearchError;
+    private string? _expandedCategoryKey;
+    private string _expandedModPanelKey = ModListPanelKey;
+    private string _expandedPluginPanelKey = PluginListPanelKey;
+    private bool _developerPanelExpanded;
+    private string _selectedProfileSnapshot = string.Empty;
+    private bool _hasExplicitCategoryExpansion;
+
+    [Parameter]
+    public string? InitialProfileId { get; set; }
+
+    [Parameter]
+    public string? RequestedProfileId { get; set; }
+
+    private IReadOnlyList<QuasarConfigProfile> Templates => _snapshot.Profiles;
+    private readonly StableRows<QuasarDevFolderSelection> _devFolderRows = new(folder => folder.FolderPath);
+    private readonly StableRows<QuasarPluginCatalogEntry> _catalogRows = new(entry => entry.PluginId);
+    private readonly StableRows<QuasarPluginHubStatus> _hubStatusRows = new(status => status.Hub.Key);
+    private IReadOnlyList<QuasarDevFolderSelection> GlobalDevFolders => _devFolderRows.Reuse(_snapshot.DevFolders);
+    private IReadOnlyList<QuasarPluginCatalogEntry> CatalogEntries => _catalogRows.Reuse(_snapshot.Entries);
+    private IReadOnlyList<QuasarPluginHubStatus> HubStatuses => _hubStatusRows.Reuse(_snapshot.HubStatuses);
+    private string _newHubRepo = string.Empty;
+    private string _newHubBranch = ConfigCatalogRules.DefaultHubBranch;
+    private string _newHubName = string.Empty;
+    private bool _hubSaving;
+
+    // Where a catalog plugin comes from, when that's not plainly MagnetarHub.
+    private RenderFragment HubCaption(QuasarPluginCatalogEntry entry) => @<text>
+        @if (entry.ConflictingHubs.Count > 1)
+        {
+            <span class="quasar-text quasar-type-caption quasar-text-error">Listed by more than one hub: @string.Join(", ", entry.ConflictingHubs)</span>
+        }
+        else if (!ConfigCatalogRules.IsDefaultHubEntry(entry) && !entry.IsLocalDevFolder)
+        {
+            <span class="quasar-text quasar-type-caption config-secondary">Hub: @entry.HubName</span>
+        }
+        @if (!string.IsNullOrEmpty(entry.HubError))
+        {
+            <span class="quasar-text quasar-type-caption quasar-text-warning">Hub unreachable, cached entry</span>
+        }
+    </text>;
+
+    private QuasarPluginCatalogEntry? GetCatalogEntry(string pluginId) =>
+        CatalogEntries.FirstOrDefault(entry => string.Equals(entry.PluginId, pluginId?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    private List<QuasarConfigOptionDefinition> VisibleWorldOptions => QuasarConfigMetadata.Options
+        .Where(option => !option.Hidden)
+        .Where(option => option.Matches(_worldSearch))
+        .OrderBy(option => QuasarConfigMetadata.Categories.First(category => category.Key == option.CategoryKey).Order)
+        .ThenBy(option => option.Order)
+        .ToList();
+
+    private List<QuasarConfigOptionCategory> VisibleCategories => QuasarConfigMetadata.Categories
+        .Where(category => GetCategoryOptions(category.Key).Count > 0)
+        .OrderBy(category => category.Order)
+        .ToList();
+
+    private List<QuasarConfigOptionCategory> RemainingVisibleCategories => VisibleCategories
+        .Where(category => !string.Equals(category.Key, ServerCategoryKey, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    private bool IsAccessSectionVisible => string.IsNullOrWhiteSpace(_worldSearch)
+        || TryGetFirstAccessAnchorId(out _);
+
+    private bool HasVisibleWorldContent => IsAccessSectionVisible || VisibleCategories.Count > 0;
+
+    private int VisibleWorldMatchCount => VisibleWorldOptions.Count + GetAccessMatchCount();
+
+    private string? FirstMatchingOptionId
+    {
+        get
+        {
+            if (VisibleWorldOptions.Count > 0)
+                return GetOptionAnchorId(VisibleWorldOptions[0]);
+
+            return TryGetFirstAccessAnchorId(out var accessAnchorId)
+                ? accessAnchorId
+                : null;
+        }
+    }
+
+    private List<QuasarPluginCatalogEntry> FilteredCatalogEntries => CatalogEntries
+        .Where(IsCatalogEntryVisible)
+        .Where(entry => _showDevFolderPlugins || !entry.IsLocalDevFolder)
+        .Where(MatchesPluginSearch)
+        .ToList();
+
+    private int SelectableCatalogEntryCount => CatalogEntries.Count(entry =>
+        !entry.Hidden && ConfigCatalogRules.IsManualSelectionAllowed(entry.PluginId));
+
+    private bool HasHiddenCatalogEntries => CatalogEntries.Any(entry => entry.Hidden);
+
+    private bool IsModsTabLocked => _editor?.RootSettings.CrossPlatform == true;
+
+    private string? ModsTabTooltip => IsModsTabLocked
+        ? CrossplayModsDisabledWarning
+        : null;
+
+    private static bool IsCatalogEntryVisible(QuasarPluginCatalogEntry entry) => !entry.Hidden;
+
+    private List<QuasarPluginSelection> FilteredPlugins => (_editor?.Plugins ?? [])
+        .Where(plugin => MatchesPluginSearch(plugin))
+        .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+        .ThenBy(plugin => plugin.PluginId, StringComparer.OrdinalIgnoreCase)
+        .ToList();
+
+    private QuasarDevFolderSelection? GetDevFolderForPlugin(string pluginId)
+    {
+        if (string.IsNullOrWhiteSpace(pluginId))
+            return null;
+
+        return GlobalDevFolders.FirstOrDefault(devFolder =>
+            string.Equals(
+                ConfigCatalogRules.GetDevFolderPluginId(devFolder),
+                pluginId.Trim(),
+                StringComparison.OrdinalIgnoreCase));
+    }
+
+    private List<QuasarModSelection> FilteredMods => (_editor?.Mods ?? [])
+        .Where(mod => MatchesModSearch(mod))
+        .ToList();
+
+    private void RefreshModList(bool clearDependencyTree = true, bool enableDependencyFallback = true)
+    {
+        _modListRenderVersion++;
+        if (clearDependencyTree)
+        {
+            _modDependencyTreeRows = [];
+            if (enableDependencyFallback)
+                EnableServerDependencyAutodetectFallback(_editor);
+        }
+    }
+
+    [Parameter] public string? ProfileAlias { get; set; }
+    private ConfigSnapshot _snapshot = new();
+    private ConfigDashboard Api => new(JS);
+    private bool _loaded;
+    private string? _loadError;
+    private string? _initialRequest;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        var requested = InitialProfileId ?? RequestedProfileId ?? ProfileAlias;
+        if (!_loaded) await InitializeAsync();
+        else if (_initialRequest != requested) SelectProfile(GetInitialProfileId());
+        _initialRequest = requested;
+    }
+
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool _watching;
+    public void Dispose() => _lifetime.Cancel();
+
+    private async Task WatchAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(_lifetime.Token))
+            {
+                try
+                {
+                    var revision = await JS.InvokeAsync<ConfigRevision>("quasarSdk.request", _lifetime.Token, "quasar.core", "configs.revision", new {});
+                    if (revision.CanEdit == _snapshot.CanEdit && revision.Token == _snapshot.Version) continue;
+                    var keepDraft = revision.CanEdit && _snapshot.CanEdit && HasPendingChanges();
+                    await RefreshAsync();
+                    if (_lifetime.IsCancellationRequested) return;
+                    if (!keepDraft || !_snapshot.CanEdit || !_snapshot.Profiles.Any(p => p.ConfigProfileId == _selectedProfileId))
+                        SelectProfile(FirstExistingProfileId(_selectedProfileId) ?? GetInitialProfileId());
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (JSException) { /* The next poll retries after a transient transport failure. */ }
+            }
+        }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+    }
+
+    private async Task InitializeAsync()
+    {
+        _loadError = null;
+        try
+        {
+            await RefreshAsync();
+            SelectProfile(GetInitialProfileId());
+            _loaded = true;
+            if (!_watching) { _watching = true; _ = WatchAsync(); }
+        }
+        catch (Exception error) { _loadError = error.Message; }
+    }
+    private int _refresh;
+    private async Task RefreshAsync()
+    {
+        var generation = ++_refresh;
+        var current = await Api.ReadAsync<ConfigSnapshot>("snapshot");
+        if (generation == _refresh && !_lifetime.IsCancellationRequested) _snapshot = current;
+    }
+
+    private QuasarConfigProfile? GetProfile(string id)
+    {
+        var stored = Templates.FirstOrDefault(p => p.ConfigProfileId.Equals(id, StringComparison.OrdinalIgnoreCase));
+        return stored is null ? null : JsonSerializer.SerializeToElement(stored).Deserialize<QuasarConfigProfile>();
+    }
+
+    private async Task<bool> CreateStoredProfileAsync(QuasarConfigProfile profile)
+    {
+        try
+        {
+            profile.ConfigProfileId = await Api.StoreProfileAsync(profile, create: true);
+            await RefreshAsync();
+            return true;
+        }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); return false; }
+    }
+
+    private async Task<bool> ChangeAsync(string operation, object input)
+    {
+        try
+        {
+            await Api.WriteAsync<bool>("configs." + operation, input);
+            await RefreshAsync();
+            return true;
+        }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); return false; }
+    }
+
+    private async Task CreateProfileAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        var name = _newProfileName.Trim();
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            Snackbar.Add("Profile name required.", Severity.Warning);
+            return;
+        }
+
+        var template = new QuasarConfigProfile
+        {
+            Name = name,
+        };
+        QuasarDefaultPlugins.Apply(template, enable: true);
+
+        if (!await CreateStoredProfileAsync(template)) return;
+        _newProfileName = string.Empty;
+        SelectProfile(template.ConfigProfileId);
+        Snackbar.Add("Config profile created.", Severity.Success);
+    }
+
+    private async Task SaveTemplateAsync()
+    {
+        await SaveTemplateInternalAsync(reselectAfterSave: true);
+    }
+
+    private async Task<bool> SaveTemplateInternalAsync(bool reselectAfterSave, bool sortModLoadOrder = false)
+    {
+        if (!_snapshot.CanEdit) return false;
+        if (_editor is null)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(_editor.Name))
+        {
+            Snackbar.Add("Profile name required.", Severity.Warning);
+            return false;
+        }
+
+        if (HasInvalidSteamIdDrafts)
+        {
+            Snackbar.Add("Fix the SteamID64 values in Access before saving this profile.", Severity.Warning);
+            return false;
+        }
+
+        if (!ValidateCommandAliases()) return false;
+
+        var profile = _editor;
+        await ResolveProfileModDependenciesAsync(profile, sortLoadOrder: sortModLoadOrder);
+        if (!ReferenceEquals(_editor, profile)) return false;
+        if (!_snapshot.CanEdit) return false;
+        var dependencyTreeRows = _modDependencyTreeRows;
+        try
+        {
+            // Through the operation, so the save is audited and can be undone from the Audit log.
+            await Api.StoreProfileAsync(profile, create: false);
+            await RefreshAsync();
+        }
+        catch (JSException error)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+            return false;
+        }
+        if (reselectAfterSave)
+            SelectProfile(profile.ConfigProfileId);
+        else
+        {
+            _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
+            LoadSteamIdDraftsFromEditor();
+        }
+        _modDependencyTreeRows = dependencyTreeRows;
+
+        StateHasChanged();
+        Snackbar.Add("Config profile saved.", Severity.Success);
+        return true;
+    }
+
+    private async Task CloneProfileAsync(string configProfileId)
+    {
+        if (!_snapshot.CanEdit) return;
+        var template = GetProfile(configProfileId);
+        if (template is null)
+            return;
+
+        template.ConfigProfileId = string.Empty;
+        template.Name = $"{template.Name} (Copy)";
+        await ResolveProfileModDependenciesAsync(template);
+        if (!_snapshot.CanEdit) return;
+        if (!await CreateStoredProfileAsync(template)) return;
+        SelectProfile(template.ConfigProfileId);
+        Snackbar.Add("Config profile cloned.", Severity.Success);
+    }
+
+    private async Task ClearCurrentProfileModsAsync()
+    {
+        if (_editor is null)
+            return;
+
+        if (_editor.Mods.Count == 0)
+        {
+            Snackbar.Add("No mods selected.", Severity.Info);
+            return;
+        }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clear all mods?",
+            $"{_editor.Mods.Count} mod(s) will be removed from the pending config profile changes. Save the profile to persist this change.",
+            yesText: "Clear Mods",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _editor.Mods = [];
+        _deadModCleanupSummary = string.Empty;
+        _deadModCleanupRemoved = [];
+        RefreshModList();
+        Snackbar.Add("All mods cleared. Save profile to persist.", Severity.Success);
+    }
+
+    private void QueueSelectedProfileDependencyCheck()
+    {
+        var version = ++_modDependencyCheckVersion;
+        if (_editor is null || _editor.Mods.Count == 0)
+            return;
+
+        if (!_snapshot.HasWebApiKey)
+            return;
+
+        _ = InvokeAsync(() => CheckSelectedProfileDependenciesAsync(version));
+    }
+
+    private async Task CheckSelectedProfileDependenciesAsync(long version)
+    {
+        if (_editor is null || _editor.Mods.Count == 0 || _modDependencyCheckRunning)
+            return;
+
+        _modDependencyCheckRunning = true;
+        try
+        {
+            var profile = _editor;
+            var profileId = profile.ConfigProfileId;
+            var result = await Api.ReadAsync<QuasarModDependencyResolutionResult>("workshop.dependencies", new { profile.Mods, sortLoadOrder = false });
+            if (version != _modDependencyCheckVersion ||
+                _editor is null ||
+                !string.Equals(_editor.ConfigProfileId, profileId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            ShowModDependencyResult(result);
+            if (result.AddedDependencyCount > 0)
+                Snackbar.Add($"Found {result.AddedDependencyCount} missing dependency mod(s). Save or auto-sort the profile to add them.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Mod dependency check failed: {exception.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _modDependencyCheckRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task AutoSortModDependenciesAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        if (_editor is null || _editor.Mods.Count == 0)
+            return;
+
+        if (!_snapshot.HasWebApiKey)
+        {
+            Snackbar.Add("Steam Workshop Web API key required for dependency sorting.", Severity.Warning);
+            return;
+        }
+
+        _modDependencyCheckVersion++;
+        _modDependencyCheckRunning = true;
+        try
+        {
+            await SaveTemplateInternalAsync(reselectAfterSave: true, sortModLoadOrder: true);
+        }
+        catch (Exception exception)
+        {
+            EnableServerDependencyAutodetectFallback(_editor);
+            Snackbar.Add($"Could not sort and save mod dependencies: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _modDependencyCheckRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile, bool sortLoadOrder = false)
+    {
+        if (profile.Mods.Count == 0)
+            return;
+
+        var result = await Api.ReadAsync<QuasarModDependencyResolutionResult>("workshop.dependencies", new { profile.Mods, sortLoadOrder });
+        ApplyProfileModDependencyResult(profile, result, sortLoadOrder);
+    }
+
+    private void ApplyProfileModDependencyResult(
+        QuasarConfigProfile profile,
+        QuasarModDependencyResolutionResult result,
+        bool sortLoadOrder)
+    {
+        profile.Mods = result.Mods.ToList();
+        ApplyServerDependencyAutodetectPolicy(profile, result, sortLoadOrder);
+        ShowModDependencyResult(result);
+
+        if (result.AddedDependencyCount > 0)
+            Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
+    }
+
+    private void ShowModDependencyResult(QuasarModDependencyResolutionResult result)
+    {
+        _modDependencyTreeRows = result.DependencyTreeRows;
+        RefreshModList(clearDependencyTree: false);
+
+        if (result.Warnings.Count > 0)
+            Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);
+    }
+
+    private static void ApplyServerDependencyAutodetectPolicy(
+        QuasarConfigProfile profile,
+        QuasarModDependencyResolutionResult result,
+        bool sortLoadOrder)
+    {
+        profile.RootSettings.AutodetectDependencies = RequiresServerDependencyAutodetectFallback(result, sortLoadOrder);
+    }
+
+    private static bool RequiresServerDependencyAutodetectFallback(
+        QuasarModDependencyResolutionResult result,
+        bool sortLoadOrder)
+    {
+        return result.Warnings.Any(warning =>
+            !sortLoadOrder ||
+            !warning.StartsWith("Reordered dependency ", StringComparison.Ordinal));
+    }
+
+    private static void EnableServerDependencyAutodetectFallback(QuasarConfigProfile? profile)
+    {
+        if (profile is null || profile.Mods.Count == 0)
+            return;
+
+        profile.RootSettings.AutodetectDependencies = true;
+    }
+
+    private bool ValidateCommandAliases()
+    {
+        try
+        {
+            ConfigAliasValidation.Validate(_editor?.CommandAliases);
+            return true;
+        }
+        catch (ArgumentException error)
+        {
+            Snackbar.Add(error.Message, Severity.Warning);
+            return false;
+        }
+    }
+
+    private async Task CloneCurrentProfileForCrossplayAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        if (_editor is null)
+            return;
+
+        if (HasInvalidSteamIdDrafts)
+        {
+            Snackbar.Add("Fix the SteamID64 values in Access before cloning this profile.", Severity.Warning);
+            return;
+        }
+
+        if (!ValidateCommandAliases()) return;
+
+        var sourceName = string.IsNullOrWhiteSpace(_editor.Name)
+            ? "current profile"
+            : _editor.Name.Trim();
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clone profile for crossplay?",
+            $"A new profile will be created from '{sourceName}' with EOS networking, Cross Platform enabled, Experimental Mode disabled, and all mods removed. The current profile will not be changed.",
+            yesText: "Clone",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        var clone = CreateCrossplayClone(_editor);
+        if (!_snapshot.CanEdit) return;
+        if (!await CreateStoredProfileAsync(clone)) return;
+        SelectProfile(clone.ConfigProfileId);
+        Snackbar.Add("Crossplay config profile cloned.", Severity.Success);
+    }
+
+    private async Task DeleteProfileAsync(string configProfileId)
+    {
+        if (!_snapshot.CanEdit) return;
+        var assignedServers = GetAssignedServers(configProfileId);
+        if (assignedServers.Count > 0)
+        {
+            Snackbar.Add("Profile still assigned to servers. Reassign or clear them first.", Severity.Warning);
+            return;
+        }
+
+        var profile = GetProfile(configProfileId);
+        var profileName = profile?.Name ?? configProfileId;
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete config profile?",
+            $"'{profileName}' will be permanently removed. This cannot be undone.",
+            yesText: "Delete",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        if (!_snapshot.CanEdit) return;
+        if (!await ChangeAsync("delete", new { value = configProfileId })) return;
+        if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
+            SelectProfile(Templates.FirstOrDefault(template => !string.Equals(template.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))?.ConfigProfileId ?? string.Empty);
+
+        Snackbar.Add("Config profile deleted.", Severity.Info);
+    }
+
+    private async Task ResetEditorAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Reset config profile?",
+            "Pending editor changes will be discarded and the profile will be reloaded from disk.",
+            yesText: "Reset",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        await RefreshAsync();
+        SelectProfile(_selectedProfileId);
+    }
+
+    private async Task SelectProfileFromListAsync(string configProfileId)
+    {
+        if (string.Equals(_selectedProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
+            return;
+
+        SelectProfile(configProfileId);
+    }
+
+    private Task<bool>? _pendingChangesConfirmation;
+
+    private async Task ConfirmNavigationAsync(LocationChangingContext context)
+    {
+        if (!await ConfirmPendingChangesBeforeLeavingAsync())
+            context.PreventNavigation();
+    }
+
+    public async Task<bool> ConfirmPendingChangesBeforeLeavingAsync()
+    {
+        if (!HasPendingChanges())
+            return true;
+
+        if (_pendingChangesConfirmation is not null)
+            return await _pendingChangesConfirmation;
+
+        try
+        {
+            _pendingChangesConfirmation = ShowPendingChangesDialogAsync();
+            return await _pendingChangesConfirmation;
+        }
+        finally
+        {
+            _pendingChangesConfirmation = null;
+        }
+    }
+
+    private async Task<bool> ShowPendingChangesDialogAsync()
+    {
+        var dialog = await DialogService.ShowAsync<ConfigProfilePendingChangesDialog>(
+            "Unsaved config changes",
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+
+        var result = await dialog.Result;
+        if (result is null ||
+            result.Canceled ||
+            result.Data is not ConfigProfilePendingChangesDialog.PendingChangesAction action ||
+            action == ConfigProfilePendingChangesDialog.PendingChangesAction.Cancel)
+        {
+            return false;
+        }
+
+        if (action == ConfigProfilePendingChangesDialog.PendingChangesAction.Save)
+        {
+            try
+            {
+                return await SaveTemplateInternalAsync(reselectAfterSave: false);
+            }
+            catch (Exception error)
+            {
+                Snackbar.Add($"Could not save config profile: {error.Message}", Severity.Error);
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private void SelectProfile(string configProfileId)
+    {
+        _selectedProfileId = configProfileId?.Trim() ?? string.Empty;
+        _editor = string.IsNullOrWhiteSpace(_selectedProfileId)
+            ? null
+            : GetProfile(_selectedProfileId);
+        LoadSteamIdDraftsFromEditor();
+        _selectedProfileSnapshot = CreateProfileSnapshot(_editor);
+        _deadModCleanupSummary = string.Empty;
+        _deadModCleanupRemoved = [];
+        _hasExplicitCategoryExpansion = true;
+        _expandedCategoryKey = null;
+        EnsureActiveConfigTabAllowed();
+        RefreshModList(enableDependencyFallback: false);
+        QueueSelectedProfileDependencyCheck();
+    }
+
+    private string GetInitialProfileId()
+    {
+        var requested = FirstExistingProfileId(InitialProfileId) ?? FirstExistingProfileId(RequestedProfileId) ?? FirstExistingProfileId(ProfileAlias);
+        return requested ?? Templates.FirstOrDefault()?.ConfigProfileId ?? string.Empty;
+    }
+
+    private string? FirstExistingProfileId(string? configProfileId)
+    {
+        if (string.IsNullOrWhiteSpace(configProfileId))
+            return null;
+
+        var trimmed = configProfileId.Trim();
+        return GetProfile(trimmed) is null ? null : trimmed;
+    }
+
+    private bool HasPendingChanges() =>
+        !string.Equals(CreateProfileSnapshot(_editor), _selectedProfileSnapshot, StringComparison.Ordinal) ||
+        !string.Equals(_administratorText, GetAdministratorText(), StringComparison.Ordinal) ||
+        !string.Equals(_reservedText, GetReservedText(), StringComparison.Ordinal) ||
+        !string.Equals(_bannedText, GetBannedText(), StringComparison.Ordinal);
+
+    private static string CreateProfileSnapshot(QuasarConfigProfile? profile)
+    {
+        if (profile is null)
+            return string.Empty;
+
+        var clone = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(profile)) ?? new QuasarConfigProfile();
+        clone.UpdatedAtUtc = default;
+        return JsonSerializer.Serialize(clone);
+    }
+
+    private static QuasarConfigProfile CreateCrossplayClone(QuasarConfigProfile source)
+    {
+        var clone = JsonSerializer.Deserialize<QuasarConfigProfile>(JsonSerializer.Serialize(source)) ?? new QuasarConfigProfile();
+        clone.ConfigProfileId = string.Empty;
+        clone.Name = $"{(string.IsNullOrWhiteSpace(source.Name) ? "Profile" : source.Name.Trim())} (Crossplay)";
+        clone.RootSettings ??= new QuasarWorldRootSettings();
+        clone.SessionSettings ??= new QuasarSessionSettings();
+        clone.RootSettings.NetworkType = QuasarNetworkType.EOS;
+        clone.RootSettings.CrossPlatform = true;
+        clone.SessionSettings.ExperimentalMode = false;
+        clone.Mods = [];
+        return clone;
+    }
+
+    private async Task RefreshPluginCatalogAsync(bool showSuccessMessage = true)
+    {
+        if (!_snapshot.CanEdit) return;
+        if (_catalogRefreshing)
+            return;
+
+        _catalogRefreshing = true;
+        try
+        {
+            if (!await ChangeAsync("catalog.refresh", new {})) return;
+            if (!string.IsNullOrEmpty(_snapshot.LastError))
+                Snackbar.Add("Some plugin hubs could not be read, their cached plugins are shown: " + _snapshot.LastError, Severity.Warning);
+            else if (showSuccessMessage)
+                Snackbar.Add("Plugin catalog refreshed.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _catalogRefreshing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task OpenWorkshopApiKeyDialogAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+        };
+
+        var dialog = await DialogService.ShowAsync<SteamWorkshopApiKeyDialog>("Steam Workshop API Key", new DialogParameters(), options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not string webApiKey)
+            return;
+
+        if (!await ChangeAsync("workshop.key", new { webApiKey })) return;
+
+        _workshopSearchError = null;
+        Snackbar.Add("Steam Workshop API key saved.", Severity.Success);
+        await LoadPopularWorkshopModsAsync();
+    }
+
+    private async Task OpenSteamAccountDialogAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        var dialog = await DialogService.ShowAsync<SteamWorkshopAccountDialog>("SteamCMD account",
+            new DialogParameters { ["CurrentUsername"] = _snapshot.SteamUsername });
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not SteamWorkshopAccountDialog.SteamAccountUpdate update) return;
+        if (!await ChangeAsync("workshop.account", update)) return;
+        Snackbar.Add(update.Clear ? "SteamCMD account removed." : "SteamCMD account saved.", Severity.Success);
+    }
+
+    private List<QuasarConfigOptionDefinition> GetCategoryOptions(string categoryKey)
+    {
+        return VisibleWorldOptions
+            .Where(option => string.Equals(option.CategoryKey, categoryKey, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(option => option.Order)
+            .ToList();
+    }
+
+    private bool IsCategoryExpanded(string categoryKey)
+    {
+        var expandedCategoryKey = GetExpandedCategoryKey();
+        return !string.IsNullOrWhiteSpace(expandedCategoryKey)
+            && string.Equals(categoryKey, expandedCategoryKey, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private Task SetCategoryExpanded(string categoryKey, bool expanded)
+    {
+        _hasExplicitCategoryExpansion = true;
+        _expandedCategoryKey = expanded
+            ? categoryKey
+            : null;
+        return Task.CompletedTask;
+    }
+
+    private bool IsModPanelExpanded(string panelKey) =>
+        string.Equals(_expandedModPanelKey, panelKey, StringComparison.OrdinalIgnoreCase);
+
+    private async Task SetModPanelExpanded(string panelKey, bool expanded)
+    {
+        _expandedModPanelKey = expanded
+            ? panelKey
+            : string.Empty;
+
+        if (expanded &&
+            string.Equals(panelKey, WorkshopPanelKey, StringComparison.OrdinalIgnoreCase) &&
+            !_workshopResultsLoaded &&
+            _snapshot.HasWebApiKey)
+        {
+            await LoadPopularWorkshopModsAsync();
+        }
+    }
+
+    private bool IsPluginPanelExpanded(string panelKey) =>
+        string.Equals(_expandedPluginPanelKey, panelKey, StringComparison.OrdinalIgnoreCase);
+
+    private async Task SetPluginPanelExpandedAsync(string panelKey, bool expanded)
+    {
+        _expandedPluginPanelKey = expanded
+            ? panelKey
+            : string.Empty;
+
+        if (expanded && string.Equals(panelKey, PluginCatalogPanelKey, StringComparison.OrdinalIgnoreCase))
+            await RefreshPluginCatalogAsync(showSuccessMessage: false);
+    }
+
+    private Task SetDeveloperPanelExpanded(bool expanded)
+    {
+        _developerPanelExpanded = expanded;
+        return Task.CompletedTask;
+    }
+
+    private bool IsConfigTabActive(int tabIndex) => _activeConfigTabIndex == tabIndex;
+
+    private async Task HandleConfigTabChangedAsync(int tabIndex)
+    {
+        _activeConfigTabIndex = tabIndex;
+        if (tabIndex == ModsTabIndex)
+            await RefreshModNamesAsync();
+    }
+
+    private async Task RefreshModNamesAsync()
+    {
+        if (_editor is null || _editor.Mods.Count == 0 || _modNameRefreshRunning)
+            return;
+
+        _modNameRefreshRunning = true;
+        var profile = _editor;
+        var profileId = profile.ConfigProfileId;
+        try
+        {
+            var names = await Api.ReadAsync<Dictionary<long,string>>("workshop.names", new { ids = profile.Mods.Select(mod => mod.WorkshopId) });
+            if (_editor is null ||
+                !string.Equals(_editor.ConfigProfileId, profileId, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            var updatedCount = 0;
+            foreach (var mod in profile.Mods)
+            {
+                if (!names.TryGetValue(mod.WorkshopId, out var displayName) ||
+                    string.Equals(mod.DisplayName, displayName, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                mod.DisplayName = displayName;
+                updatedCount++;
+            }
+
+            if (updatedCount == 0)
+                return;
+
+            _modDependencyTreeRows = _modDependencyTreeRows
+                .Select(row => names.TryGetValue(row.WorkshopId, out var displayName)
+                    ? row with { DisplayName = displayName }
+                    : row)
+                .ToList();
+            RefreshModList(clearDependencyTree: false, enableDependencyFallback: false);
+            Snackbar.Add($"Refreshed {updatedCount} mod name(s). Save profile to persist.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Mod name refresh failed: {exception.Message}", Severity.Warning);
+        }
+        finally
+        {
+            _modNameRefreshRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void EnsureActiveConfigTabAllowed()
+    {
+        if (IsModsTabLocked && _activeConfigTabIndex == ModsTabIndex)
+            _activeConfigTabIndex = WorldTabIndex;
+    }
+
+    private string? GetExpandedCategoryKey()
+    {
+        if (_hasExplicitCategoryExpansion)
+        {
+            if (string.IsNullOrWhiteSpace(_expandedCategoryKey))
+                return null;
+
+            if (IsCategoryVisible(_expandedCategoryKey))
+                return _expandedCategoryKey;
+        }
+
+        return GetDefaultExpandedCategoryKey();
+    }
+
+    private string? GetDefaultExpandedCategoryKey()
+    {
+        return null;
+    }
+
+    private bool IsCategoryVisible(string categoryKey)
+    {
+        if (string.Equals(categoryKey, AccessCategoryKey, StringComparison.OrdinalIgnoreCase))
+            return IsAccessSectionVisible;
+
+        return GetCategoryOptions(categoryKey).Count > 0;
+    }
+
+    private string GetOptionAnchorId(QuasarConfigOptionDefinition option) =>
+        $"config-option-{option.Scope.ToString().ToLowerInvariant()}-{option.PropertyName.ToLowerInvariant()}";
+
+    private string GetOptionCssClass(QuasarConfigOptionDefinition option)
+    {
+        if (!option.Matches(_worldSearch))
+            return "pa-3 config-option-card";
+
+        if (string.Equals(FirstMatchingOptionId, GetOptionAnchorId(option), StringComparison.Ordinal))
+            return "pa-3 config-option-card config-option-first";
+
+        return string.IsNullOrWhiteSpace(_worldSearch)
+            ? "pa-3 config-option-card"
+            : "pa-3 config-option-card config-option-highlight";
+    }
+
+    private async Task JumpToFirstOptionAsync()
+    {
+        if (string.IsNullOrWhiteSpace(FirstMatchingOptionId))
+            return;
+
+        ExpandCategoryForAnchorId(FirstMatchingOptionId);
+        await InvokeAsync(StateHasChanged);
+        await Task.Delay(1);
+        await JS.InvokeVoidAsync("quasarConfigs.focusElement", FirstMatchingOptionId);
+    }
+
+    private bool TryGetVisibleCategory(string categoryKey, out QuasarConfigOptionCategory category)
+    {
+        category = VisibleCategories.FirstOrDefault(existing => string.Equals(existing.Key, categoryKey, StringComparison.OrdinalIgnoreCase))
+            ?? new QuasarConfigOptionCategory(string.Empty, string.Empty, 0, string.Empty);
+
+        return !string.IsNullOrWhiteSpace(category.Key);
+    }
+
+    private void ExpandCategoryForAnchorId(string anchorId)
+    {
+        string? categoryKey = anchorId switch
+        {
+            AccessGroupIdAnchorId or AccessAdministratorsAnchorId or AccessReservedAnchorId or AccessBannedAnchorId => AccessCategoryKey,
+            _ => VisibleWorldOptions
+                .FirstOrDefault(option => string.Equals(GetOptionAnchorId(option), anchorId, StringComparison.Ordinal))
+                ?.CategoryKey
+        };
+
+        if (string.IsNullOrWhiteSpace(categoryKey))
+            return;
+
+        _hasExplicitCategoryExpansion = true;
+        _expandedCategoryKey = categoryKey;
+    }
+
+    private bool GetBoolOption(QuasarConfigOptionDefinition option)
+    {
+        var value = GetPropertyValue(option);
+        return value is bool boolean && boolean;
+    }
+
+    private int GetIntOption(QuasarConfigOptionDefinition option)
+    {
+        var value = GetPropertyValue(option);
+        return value is null ? 0 : Convert.ToInt32(value);
+    }
+
+    private double GetDoubleOption(QuasarConfigOptionDefinition option)
+    {
+        var value = GetPropertyValue(option);
+        return value is null ? 0 : Convert.ToDouble(value);
+    }
+
+    private string GetStringOption(QuasarConfigOptionDefinition option)
+    {
+        var value = GetPropertyValue(option);
+        return value?.ToString() ?? string.Empty;
+    }
+
+    private string GetKeyValueTextOption(QuasarConfigOptionDefinition option)
+    {
+        var value = GetPropertyValue(option);
+        if (value is not IReadOnlyDictionary<string, int> limits)
+            return string.Empty;
+
+        return string.Join(Environment.NewLine, limits.Select(limit => $"{limit.Key}={limit.Value.ToString(CultureInfo.InvariantCulture)}"));
+    }
+
+    private void SetBoolOption(QuasarConfigOptionDefinition option, bool value) => SetPropertyValue(option, value);
+
+    private void SetIntOption(QuasarConfigOptionDefinition option, int value) => SetPropertyValue(option, value);
+
+    private void SetDoubleOption(QuasarConfigOptionDefinition option, double value) => SetPropertyValue(option, value);
+
+    private void SetStringOption(QuasarConfigOptionDefinition option, string value)
+    {
+        var property = QuasarConfigMetadata.GetProperty(option);
+        if (property.PropertyType == typeof(QuasarNetworkType))
+        {
+            if (Enum.TryParse<QuasarNetworkType>(value, ignoreCase: true, out var networkType))
+                SetPropertyValue(option, networkType);
+
+            return;
+        }
+
+        SetPropertyValue(option, value);
+    }
+
+    private void SetKeyValueTextOption(QuasarConfigOptionDefinition option, string value)
+    {
+        var limits = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var invalidLines = new List<string>();
+
+        foreach (var line in value.Replace("\r", string.Empty, StringComparison.Ordinal).Split('\n'))
+        {
+            var trimmed = line.Trim();
+            if (trimmed.Length == 0)
+                continue;
+
+            var separatorIndex = trimmed.IndexOf('=');
+            if (separatorIndex < 0)
+                separatorIndex = trimmed.IndexOf(':');
+
+            if (separatorIndex <= 0 || separatorIndex == trimmed.Length - 1)
+            {
+                invalidLines.Add(trimmed);
+                continue;
+            }
+
+            var key = trimmed[..separatorIndex].Trim();
+            var rawValue = trimmed[(separatorIndex + 1)..].Trim();
+            if (key.Length == 0 ||
+                !int.TryParse(rawValue, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsedValue) ||
+                parsedValue < 0 ||
+                parsedValue > short.MaxValue)
+            {
+                invalidLines.Add(trimmed);
+                continue;
+            }
+
+            limits.TryAdd(key, parsedValue);
+        }
+
+        if (invalidLines.Count > 0)
+        {
+            var preview = string.Join(", ", invalidLines.Take(3));
+            Snackbar.Add($"Ignored invalid block limit line(s): {preview}", Severity.Warning);
+        }
+
+        SetPropertyValue(option, limits);
+    }
+
+    private object? GetPropertyValue(QuasarConfigOptionDefinition option)
+    {
+        var target = GetOptionTarget(option);
+        if (target is null)
+            return null;
+
+        return QuasarConfigMetadata.GetProperty(option).GetValue(target);
+    }
+
+    private void SetPropertyValue(QuasarConfigOptionDefinition option, object value)
+    {
+        var target = GetOptionTarget(option);
+        if (target is null)
+            return;
+
+        var property = QuasarConfigMetadata.GetProperty(option);
+        var converted = value;
+        if (value is not null && property.PropertyType != value.GetType())
+            converted = Convert.ChangeType(value, property.PropertyType, System.Globalization.CultureInfo.InvariantCulture);
+
+        property.SetValue(target, converted);
+        EnsureActiveConfigTabAllowed();
+    }
+
+    private object? GetOptionTarget(QuasarConfigOptionDefinition option)
+    {
+        if (_editor is null)
+            return null;
+
+        return option.Scope == QuasarConfigOptionScope.Root
+            ? _editor.RootSettings
+            : _editor.SessionSettings;
+    }
+
+    private string GetOptionTooltipText(QuasarConfigOptionDefinition option)
+    {
+        var lines = new List<string>
+        {
+            GetOptionExplanation(option),
+        };
+
+        if (!string.IsNullOrWhiteSpace(option.HelperText))
+            lines.Add(option.HelperText.Trim());
+
+        return string.Join(Environment.NewLine, lines);
+    }
+
+    private static string GetAccessTooltipText(string explanation)
+    {
+        return explanation;
+    }
+
+    private static string GetOptionExplanation(QuasarConfigOptionDefinition option)
+    {
+        var subject = GetTooltipSubject(option.Label);
+        return option.Kind switch
+        {
+            QuasarConfigOptionKind.Boolean when option.Label.StartsWith("Enable ", StringComparison.OrdinalIgnoreCase) =>
+                $"Turns {GetTooltipSubject(option.Label["Enable ".Length..])} on or off.",
+            QuasarConfigOptionKind.Boolean =>
+                $"Toggles {subject}.",
+            QuasarConfigOptionKind.Integer or QuasarConfigOptionKind.Decimal =>
+                $"Sets {subject}.",
+            QuasarConfigOptionKind.Text or QuasarConfigOptionKind.LongText or QuasarConfigOptionKind.Password or QuasarConfigOptionKind.KeyValueText =>
+                $"Sets {subject}.",
+            QuasarConfigOptionKind.SelectInteger or QuasarConfigOptionKind.SelectText =>
+                $"Chooses {subject}.",
+            _ =>
+                $"Controls {subject}.",
+        };
+    }
+
+    private static string GetTooltipSubject(string label)
+    {
+        if (string.IsNullOrWhiteSpace(label))
+            return "this setting";
+
+        return string.Concat(char.ToLowerInvariant(label[0]), label[1..]);
+    }
+
+    private int GetAccessEntryCount()
+    {
+        if (_editor is null)
+            return 0;
+
+        return (_editor.RootSettings.GroupId > 0 ? 1 : 0)
+            + _editor.RootSettings.Administrators.Count
+            + _editor.RootSettings.Reserved.Count
+            + _editor.RootSettings.Banned.Count;
+    }
+
+    private int GetAccessMatchCount()
+    {
+        if (_editor is null || string.IsNullOrWhiteSpace(_worldSearch))
+            return string.IsNullOrWhiteSpace(_worldSearch) && _editor is not null ? 4 : 0;
+
+        var count = 0;
+        if (MatchesSearchTerms(_worldSearch, "access whitelist group steam friends clan", "Whitelist Group ID", _editor.RootSettings.GroupId.ToString()))
+            count++;
+        if (MatchesSearchTerms(_worldSearch, "administrators admins moderators", "Admin User IDs", string.Join(' ', _editor.RootSettings.Administrators)))
+            count++;
+        if (MatchesSearchTerms(_worldSearch, "reserved reserve slots whitelist", "Reserved Slot User IDs", string.Join(' ', _editor.RootSettings.Reserved.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)))))
+            count++;
+        if (MatchesSearchTerms(_worldSearch, "banned blacklist blacklisted blocked", "Banned Blacklisted User IDs", string.Join(' ', _editor.RootSettings.Banned.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)))))
+            count++;
+
+        return count;
+    }
+
+    private bool TryGetFirstAccessAnchorId(out string? anchorId)
+    {
+        anchorId = null;
+        if (_editor is null)
+            return false;
+
+        if (MatchesSearchTerms(_worldSearch, "access whitelist group steam friends clan", "Whitelist Group ID", _editor.RootSettings.GroupId.ToString()))
+        {
+            anchorId = AccessGroupIdAnchorId;
+            return true;
+        }
+
+        if (MatchesSearchTerms(_worldSearch, "administrators admins moderators", "Admin User IDs", string.Join(' ', _editor.RootSettings.Administrators)))
+        {
+            anchorId = AccessAdministratorsAnchorId;
+            return true;
+        }
+
+        if (MatchesSearchTerms(_worldSearch, "reserved reserve slots whitelist", "Reserved Slot User IDs", string.Join(' ', _editor.RootSettings.Reserved.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)))))
+        {
+            anchorId = AccessReservedAnchorId;
+            return true;
+        }
+
+        if (MatchesSearchTerms(_worldSearch, "banned blacklist blacklisted blocked", "Banned Blacklisted User IDs", string.Join(' ', _editor.RootSettings.Banned.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)))))
+        {
+            anchorId = AccessBannedAnchorId;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void SetGroupId(ulong value)
+    {
+        if (_editor is null)
+            return;
+
+        _editor.RootSettings.GroupId = value;
+    }
+
+    private string GetAdministratorText() =>
+        _editor is null
+            ? string.Empty
+            : string.Join(Environment.NewLine, _editor.RootSettings.Administrators);
+
+    private string GetReservedText() =>
+        _editor is null
+            ? string.Empty
+            : string.Join(Environment.NewLine, _editor.RootSettings.Reserved.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+    private string GetBannedText() =>
+        _editor is null
+            ? string.Empty
+            : string.Join(Environment.NewLine, _editor.RootSettings.Banned.Select(value => value.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+
+    private void LoadSteamIdDraftsFromEditor()
+    {
+        _administratorText = GetAdministratorText();
+        _reservedText = GetReservedText();
+        _bannedText = GetBannedText();
+    }
+
+    private bool HasInvalidSteamIdDrafts =>
+        GetSteamIdListError(_administratorText) is not null ||
+        GetSteamIdListError(_reservedText) is not null ||
+        GetSteamIdListError(_bannedText) is not null;
+
+    private static string? GetSteamIdListError(string? value) =>
+        SplitListTokens(value).Any(token => !Regex.IsMatch(token, "^[0-9]{17}$", RegexOptions.CultureInvariant))
+            ? "Each entry must be a 17-digit SteamID64."
+            : null;
+
+    private void SetAdministratorText(string? value)
+    {
+        if (_editor is null)
+            return;
+
+        _administratorText = value ?? string.Empty;
+        if (GetSteamIdListError(_administratorText) is not null)
+            return;
+
+        _editor.RootSettings.Administrators = SplitListTokens(_administratorText)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(token => token, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private void SetReservedText(string? value)
+    {
+        if (_editor is null)
+            return;
+
+        _reservedText = value ?? string.Empty;
+        if (GetSteamIdListError(_reservedText) is not null)
+            return;
+
+        _editor.RootSettings.Reserved = ParseUnsignedLongList(_reservedText);
+    }
+
+    private void SetBannedText(string? value)
+    {
+        if (_editor is null)
+            return;
+
+        _bannedText = value ?? string.Empty;
+        if (GetSteamIdListError(_bannedText) is not null)
+            return;
+
+        _editor.RootSettings.Banned = ParseUnsignedLongList(_bannedText);
+    }
+
+    private bool IsPluginSelected(string pluginId)
+    {
+        return _editor?.Plugins.Any(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase)) == true;
+    }
+
+    private void SetPluginSelection(QuasarPluginCatalogEntry entry, bool selected)
+    {
+        if (_editor is null)
+            return;
+
+        if (selected && !ConfigCatalogRules.IsManualSelectionAllowed(entry.PluginId))
+        {
+            Snackbar.Add("This plugin is managed automatically by Magnetar and cannot be selected manually.", Severity.Info);
+            return;
+        }
+
+        if (selected && entry.ConflictingHubs.Count > 1)
+        {
+            Snackbar.Add($"More than one plugin hub lists this plugin ({string.Join(", ", entry.ConflictingHubs)}). Remove it from all but one hub first.", Severity.Warning);
+            return;
+        }
+
+        if (selected && entry.Hidden)
+        {
+            var message = entry.IsLocalDevFolder
+                ? "Enable the dev folder source before selecting it in a config profile."
+                : $"This plugin is hidden in {entry.HubName} and cannot be selected manually.";
+            Snackbar.Add(message, Severity.Info);
+            return;
+        }
+
+        var existing = _editor.Plugins.FirstOrDefault(plugin =>
+            string.Equals(plugin.PluginId, entry.PluginId, StringComparison.OrdinalIgnoreCase));
+
+        if (selected)
+        {
+            if (existing is null)
+            {
+                _editor.Plugins.Add(new QuasarPluginSelection
+                {
+                    PluginId = entry.PluginId,
+                    DisplayName = string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.PluginId : entry.FriendlyName,
+                });
+                _editor.Plugins = _editor.Plugins
+                    .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
+        }
+        else if (existing is not null)
+        {
+            _editor.Plugins.Remove(existing);
+        }
+    }
+
+    private async Task RemovePluginAsync(string pluginId)
+    {
+        if (_editor is null)
+            return;
+
+        var displayName = _editor.Plugins
+            .FirstOrDefault(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase))
+            ?.DisplayName;
+        var name = string.IsNullOrWhiteSpace(displayName) ? pluginId : displayName.Trim();
+        if (!await ConfirmDestructiveActionAsync(
+                "Remove plugin?",
+                $"Plugin '{name}' will be removed from the pending config profile changes.",
+                "Remove"))
+        {
+            return;
+        }
+
+        _editor.Plugins.RemoveAll(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private void AddCustomPlugin()
+    {
+        if (_editor is null)
+            return;
+
+        var pluginId = _customPluginId.Trim();
+        if (string.IsNullOrWhiteSpace(pluginId))
+            return;
+
+        if (!ConfigCatalogRules.IsManualSelectionAllowed(pluginId))
+        {
+            Snackbar.Add("This plugin is managed automatically by Magnetar and cannot be added manually.", Severity.Warning);
+            return;
+        }
+
+        if (_editor.Plugins.Any(plugin => string.Equals(plugin.PluginId, pluginId, StringComparison.OrdinalIgnoreCase)))
+        {
+            Snackbar.Add("Plugin already selected.", Severity.Info);
+            return;
+        }
+
+        var entry = GetCatalogEntry(pluginId);
+        if (entry?.ConflictingHubs.Count > 1)
+        {
+            Snackbar.Add($"More than one plugin hub lists this plugin ({string.Join(", ", entry.ConflictingHubs)}). Remove it from all but one hub first.", Severity.Warning);
+            return;
+        }
+
+        _editor.Plugins.Add(new QuasarPluginSelection
+        {
+            PluginId = entry?.PluginId ?? pluginId,
+            DisplayName = string.IsNullOrWhiteSpace(entry?.FriendlyName) ? pluginId : entry.FriendlyName,
+        });
+        _editor.Plugins = _editor.Plugins
+            .OrderBy(plugin => plugin.DisplayName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        _customPluginId = string.Empty;
+        if (entry is null)
+            Snackbar.Add("No plugin hub or dev folder lists this plugin yet. Magnetar won't load it, and cluster setup refuses it, until one does.", Severity.Warning);
+    }
+
+    private void AddMod()
+    {
+        if (_editor is null)
+            return;
+
+        if (_newModWorkshopId <= 0 || string.IsNullOrWhiteSpace(_newModName))
+        {
+            Snackbar.Add("Mod name and workshop ID required.", Severity.Warning);
+            return;
+        }
+
+        if (_editor.Mods.Any(mod => mod.WorkshopId == _newModWorkshopId))
+        {
+            Snackbar.Add("Mod already selected.", Severity.Info);
+            return;
+        }
+
+        _editor.Mods.Add(new QuasarModSelection
+        {
+            WorkshopId = _newModWorkshopId,
+            DisplayName = _newModName.Trim(),
+        });
+        RefreshModList();
+        _newModName = string.Empty;
+        _newModWorkshopId = 0;
+    }
+
+    private async Task RemoveDeadModsAsync()
+    {
+        if (_editor is null)
+            return;
+
+        if (_editor.Mods.Count == 0)
+        {
+            Snackbar.Add("No selected mods to check.", Severity.Info);
+            return;
+        }
+
+        _deadModCleanupRunning = true;
+        _deadModCleanupSummary = string.Empty;
+        _deadModCleanupRemoved = [];
+
+        try
+        {
+            var result = await Api.ReadAsync<QuasarWorkshopAvailabilityResult>("workshop.availability", new { _editor.Mods });
+            _deadModCleanupRemoved = result.UnavailableMods.ToList();
+
+            if (_deadModCleanupRemoved.Count == 0)
+            {
+                _deadModCleanupSummary = $"Checked {result.CheckedCount} selected mod(s). No dead mods found.";
+                Snackbar.Add("No dead mods found.", Severity.Info);
+                return;
+            }
+
+            var unavailableIds = _deadModCleanupRemoved
+                .Select(mod => mod.WorkshopId)
+                .ToHashSet();
+
+            _editor.Mods = _editor.Mods
+                .Where(mod => !unavailableIds.Contains(mod.WorkshopId))
+                .ToList();
+            RefreshModList();
+
+            _deadModCleanupSummary =
+                $"Removed {_deadModCleanupRemoved.Count} dead mod(s) from {result.CheckedCount} checked. Save the profile to persist the change.";
+            Snackbar.Add($"Removed {_deadModCleanupRemoved.Count} dead mod(s). Save profile to persist.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _deadModCleanupSummary = $"Dead mod check failed: {exception.Message}";
+            Snackbar.Add(_deadModCleanupSummary, Severity.Error);
+        }
+        finally
+        {
+            _deadModCleanupRunning = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task HandleWorkshopSearchKeyDown(KeyboardEventArgs args)
+    {
+        if (string.Equals(args.Key, "Enter", StringComparison.OrdinalIgnoreCase))
+            await SearchWorkshopModsAsync();
+    }
+
+    private Task LoadPopularWorkshopModsAsync() =>
+        LoadWorkshopResultsAsync(() => Api.ReadAsync<QuasarWorkshopSearchResultSet>("workshop.search", new { value = string.Empty }), clearSearch: true);
+
+    private Task SearchWorkshopModsAsync()
+    {
+        var searchText = _workshopSearchText.Trim();
+        return string.IsNullOrWhiteSpace(searchText)
+            ? LoadPopularWorkshopModsAsync()
+            : LoadWorkshopResultsAsync(() => Api.ReadAsync<QuasarWorkshopSearchResultSet>("workshop.search", new { value = searchText }), clearSearch: false);
+    }
+
+    private async Task LoadWorkshopResultsAsync(
+        Func<Task<QuasarWorkshopSearchResultSet>> load,
+        bool clearSearch)
+    {
+        if (_workshopSearchLoading)
+            return;
+
+        _workshopSearchLoading = true;
+        _workshopSearchError = null;
+        try
+        {
+            if (clearSearch)
+                _workshopSearchText = string.Empty;
+
+            var result = await load();
+            _workshopResults = result.Mods.ToList();
+            _workshopResultsLoaded = true;
+        }
+        catch (Exception exception)
+        {
+            _workshopResults = [];
+            _workshopResultsLoaded = true;
+            _workshopSearchError = exception.Message;
+        }
+        finally
+        {
+            _workshopSearchLoading = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void SetWorkshopResultSelection(QuasarWorkshopSearchResult result, bool selected)
+    {
+        if (selected)
+            AddWorkshopResult(result, showSnackbar: false);
+        else
+            RemoveMod(result.WorkshopId);
+    }
+
+    private void AddWorkshopResult(QuasarWorkshopSearchResult result, bool showSnackbar = true)
+    {
+        if (_editor is null)
+            return;
+
+        if (IsModSelected(result.WorkshopId))
+        {
+            if (showSnackbar)
+                Snackbar.Add("Mod already selected.", Severity.Info);
+            return;
+        }
+
+        _editor.Mods.Add(new QuasarModSelection
+        {
+            WorkshopId = result.WorkshopId,
+            DisplayName = string.IsNullOrWhiteSpace(result.Title)
+                ? result.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : result.Title.Trim(),
+        });
+        RefreshModList();
+
+        if (showSnackbar)
+            Snackbar.Add("Workshop mod added.", Severity.Success);
+    }
+
+    private async Task ResolveWorkshopModsAsync()
+    {
+        if (_editor is null)
+            return;
+
+        var input = _workshopInput.Trim();
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            Snackbar.Add("Workshop input required.", Severity.Warning);
+            return;
+        }
+
+        _modResolving = true;
+        try
+        {
+            var result = await Api.ReadAsync<QuasarWorkshopResolutionResult>("workshop.resolve", new { value = input });
+            var added = 0;
+            var duplicates = 0;
+
+            foreach (var mod in result.Mods)
+            {
+                if (_editor.Mods.Any(existing => existing.WorkshopId == mod.WorkshopId))
+                {
+                    duplicates++;
+                    continue;
+                }
+
+                _editor.Mods.Add(mod);
+                added++;
+            }
+
+            _workshopInput = string.Empty;
+            if (added > 0)
+                RefreshModList();
+
+            if (added > 0)
+            {
+                var detail = duplicates > 0
+                    ? $"Added {added} workshop mod(s). {duplicates} already selected."
+                    : $"Added {added} workshop mod(s).";
+                Snackbar.Add(detail, Severity.Success);
+            }
+            else if (duplicates > 0)
+            {
+                Snackbar.Add("All resolved workshop mods already selected.", Severity.Info);
+            }
+
+            if (result.Warnings.Count > 0)
+                Snackbar.Add(SummarizeWarnings(result.Warnings), Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _modResolving = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void RemoveMod(long workshopId)
+    {
+        if (_editor is null)
+            return;
+
+        if (_editor.Mods.RemoveAll(mod => mod.WorkshopId == workshopId) > 0)
+            RefreshModList();
+    }
+
+    private void HandleModDropped(MudItemDropInfo<QuasarModSelection> dropInfo)
+    {
+        if (dropInfo.Item is null)
+            return;
+
+        MoveModToVisibleIndex(dropInfo.Item.WorkshopId, dropInfo.IndexInZone);
+    }
+
+    private void MoveModToVisibleIndex(long workshopId, int visibleIndex)
+    {
+        if (_editor is null)
+            return;
+
+        var sourceIndex = GetModIndex(workshopId);
+        if (sourceIndex < 0)
+            return;
+
+        var item = _editor.Mods[sourceIndex];
+        _editor.Mods.RemoveAt(sourceIndex);
+
+        var visibleMods = _editor.Mods
+            .Where(MatchesModSearch)
+            .ToList();
+        if (visibleMods.Count == 0)
+        {
+            _editor.Mods.Insert(Math.Clamp(sourceIndex, 0, _editor.Mods.Count), item);
+            RefreshModList();
+            return;
+        }
+
+        var normalizedVisibleIndex = Math.Max(0, visibleIndex);
+        int insertIndex;
+        if (normalizedVisibleIndex >= visibleMods.Count)
+        {
+            var lastVisibleIndex = GetModIndex(visibleMods[^1].WorkshopId);
+            insertIndex = lastVisibleIndex < 0 ? _editor.Mods.Count : lastVisibleIndex + 1;
+        }
+        else
+        {
+            insertIndex = GetModIndex(visibleMods[normalizedVisibleIndex].WorkshopId);
+            if (insertIndex < 0)
+                insertIndex = _editor.Mods.Count;
+        }
+
+        _editor.Mods.Insert(Math.Clamp(insertIndex, 0, _editor.Mods.Count), item);
+        RefreshModList();
+    }
+
+    private int GetModIndex(long workshopId) =>
+        _editor?.Mods.FindIndex(mod => mod.WorkshopId == workshopId) ?? -1;
+
+    private string GetModLoadOrderLabel(long workshopId)
+    {
+        var index = GetModIndex(workshopId);
+        return index < 0
+            ? "-"
+            : (index + 1).ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string GetDependencyTreeRowClass(QuasarModDependencyTreeRow row)
+    {
+        var classes = new List<string> { "mod-dependency-tree-row" };
+        if (row.IsAlreadyListed)
+            classes.Add("mod-dependency-tree-row-muted");
+        if (row.IsCycle)
+            classes.Add("mod-dependency-tree-row-cycle");
+
+        return string.Join(' ', classes);
+    }
+
+    private static string GetDependencyTreeRowStyle(QuasarModDependencyTreeRow row)
+    {
+        var paddingLeftRem = 0.75 + Math.Max(0, row.Depth) * 1.4;
+        return $"padding-left: {paddingLeftRem.ToString("0.##", CultureInfo.InvariantCulture)}rem;";
+    }
+
+    private static string GetDependencyTreeIcon(QuasarModDependencyTreeRow row)
+    {
+        if (row.IsCycle)
+            return Icons.Material.Filled.ErrorOutline;
+        if (row.IsAlreadyListed)
+            return Icons.Material.Filled.DoneAll;
+        if (row.IsRoot)
+            return Icons.Material.Filled.AccountTree;
+
+        return Icons.Material.Filled.Extension;
+    }
+
+    private static Color GetDependencyTreeIconColor(QuasarModDependencyTreeRow row)
+    {
+        if (row.IsCycle)
+            return Color.Error;
+        if (row.IsAlreadyListed)
+            return Color.Default;
+        if (row.IsRoot)
+            return Color.Primary;
+
+        return Color.Info;
+    }
+
+    private static string GetDependencyTreeRowKey(QuasarModDependencyTreeRow row, int rowIndex) =>
+        $"{rowIndex}:{row.Depth}:{row.WorkshopId}:{row.IsCycle}:{row.IsAlreadyListed}";
+
+    private async Task RemoveModAsync(long workshopId)
+    {
+        if (_editor is null)
+            return;
+
+        var modName = _editor.Mods.FirstOrDefault(mod => mod.WorkshopId == workshopId)?.DisplayName;
+        var name = string.IsNullOrWhiteSpace(modName) ? workshopId.ToString(System.Globalization.CultureInfo.InvariantCulture) : modName.Trim();
+        if (!await ConfirmDestructiveActionAsync(
+                "Remove mod?",
+                $"Mod '{name}' will be removed from the pending config profile changes.",
+                "Remove"))
+        {
+            return;
+        }
+
+        RemoveMod(workshopId);
+    }
+
+    private async Task AddDevFolderAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        var parameters = new DialogParameters
+        {
+            [nameof(PluginManifestPickerDialog.InitialPath)] = _lastDevFolderPath,
+            [nameof(PluginManifestPickerDialog.DialogTitle)] = "Pick plugin manifest",
+        };
+
+        var dialog = await DialogService.ShowAsync<PluginManifestPickerDialog>(
+            "Pick plugin manifest",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: string xmlPath })
+            return;
+
+        try
+        {
+            _lastDevFolderPath = await Api.WriteAsync<string>("configs.dev.add", new { value = xmlPath });
+            await RefreshAsync();
+            Snackbar.Add("Dev folder added.", Severity.Success);
+        }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
+    }
+
+    // A dev folder with the id of a hub plugin replaces it wherever that id loads; a core plugin
+    // loads on every Linux server and cluster node whatever the profile selects.
+    private string? GetDevOverride(QuasarDevFolderSelection devFolder)
+    {
+        var pluginId = ConfigCatalogRules.GetDevFolderPluginId(devFolder);
+        var hub = _snapshot.HubEntries.FirstOrDefault(entry => string.Equals(entry.PluginId, pluginId, StringComparison.OrdinalIgnoreCase));
+        var pin = hub is null ? string.Empty : $" pinned by {hub.HubName} at {hub.SourceCommit[..Math.Min(8, hub.SourceCommit.Length)]}";
+        if (ConfigCatalogRules.CorePluginIds.Contains(pluginId, StringComparer.OrdinalIgnoreCase))
+            return $"Replaces the Magnetar core plugin {pluginId}{pin} on every server start and every cluster staging. Remove the dev folder to return to the hub build.";
+        return hub is null ? null
+            : $"Replaces the plugin {pluginId}{pin} in every profile that selects it, from the next server start or cluster staging. Remove the dev folder to return to the hub build.";
+    }
+
+    private async Task SetDevFolderDebugAsync(QuasarDevFolderSelection devFolder, bool value)
+    {
+        if (!_snapshot.CanEdit) return;
+        await ChangeAsync("dev.debug", new { devFolder.FolderPath, devFolder.DataFile, debugBuild = value });
+    }
+
+    private async Task RemoveDevFolder(QuasarDevFolderSelection devFolder)
+    {
+        if (!_snapshot.CanEdit) return;
+        var name = string.IsNullOrWhiteSpace(devFolder.Name) ? devFolder.FolderPath : devFolder.Name.Trim();
+        if (!await ConfirmDestructiveActionAsync(
+                "Remove dev folder?",
+                $"Dev folder '{name}' will be removed from Quasar.",
+                "Remove"))
+        {
+            return;
+        }
+
+        if (!_snapshot.CanEdit) return;
+        await ChangeAsync("dev.remove", new { devFolder.FolderPath, devFolder.DataFile });
+    }
+
+    private async Task AddGitHubHubAsync()
+    {
+        if (await AddPluginHubAsync(new QuasarPluginHub { Name = _newHubName, Repo = _newHubRepo, Branch = _newHubBranch }))
+        {
+            _newHubRepo = string.Empty;
+            _newHubName = string.Empty;
+            _newHubBranch = ConfigCatalogRules.DefaultHubBranch;
+        }
+    }
+
+    private async Task AddLocalHubAsync()
+    {
+        if (!_snapshot.CanEdit) return;
+        var parameters = new DialogParameters
+        {
+            [nameof(FolderPickerDialog.InitialPath)] = _lastDevFolderPath,
+            [nameof(FolderPickerDialog.DialogTitle)] = "Pick plugin hub folder",
+            [nameof(FolderPickerDialog.RequireWorldFolder)] = false,
+        };
+
+        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
+            "Pick plugin hub folder",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Medium, FullWidth = true });
+
+        var result = await dialog.Result;
+        if (result is not { Canceled: false, Data: string folder })
+            return;
+
+        _lastDevFolderPath = folder;
+        await AddPluginHubAsync(new QuasarPluginHub { Folder = folder });
+    }
+
+    private async Task<bool> AddPluginHubAsync(QuasarPluginHub hub)
+    {
+        if (!_snapshot.CanEdit) return false;
+        _hubSaving = true;
+        try
+        {
+            var added = await Api.WriteAsync<QuasarPluginHub>("configs.hubs.add", hub);
+            if (!await ChangeAsync("catalog.refresh", new {})) return true;
+            var status = _snapshot.HubStatuses.FirstOrDefault(item => string.Equals(item.Hub.Key, added.Key, StringComparison.OrdinalIgnoreCase));
+            if (status is { Error.Length: > 0 })
+                Snackbar.Add($"Hub added, but it could not be read: {status.Error}", Severity.Warning);
+            else
+                Snackbar.Add($"Hub added with {status?.PluginCount ?? 0} plugins.", Severity.Success);
+
+            var conflicts = _snapshot.HubEntries.Where(entry => entry.ConflictingHubs.Contains(added.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            if (conflicts.Count != 0)
+                Snackbar.Add("Other hubs also list " + string.Join(", ", conflicts.Select(entry => entry.PluginId))
+                    + ". Servers selecting these plugins won't start until only one hub lists each.", Severity.Warning);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+            return false;
+        }
+        finally
+        {
+            _hubSaving = false;
+        }
+    }
+
+    private async Task RemovePluginHubAsync(QuasarPluginHub hub)
+    {
+        if (!_snapshot.CanEdit) return;
+        // The plugins only this hub provides; a dev folder or another hub keeps the others available.
+        var pluginIds = CatalogEntries
+            .Where(entry => string.Equals(entry.HubName, hub.Name, StringComparison.OrdinalIgnoreCase) && entry.ConflictingHubs.Count == 0)
+            .Select(entry => entry.PluginId)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var users = Templates
+            .Select(profile => (profile.Name, Plugins: profile.Plugins.Where(plugin => pluginIds.Contains(plugin.PluginId)).Select(plugin => plugin.DisplayName).ToList()))
+            .Where(item => item.Plugins.Count != 0)
+            .Select(item => $"{item.Name} ({string.Join(", ", item.Plugins)})")
+            .ToList();
+        var message = users.Count == 0
+            ? $"Hub '{hub.Name}' will be removed from Quasar. No config profile uses its plugins."
+            : $"Hub '{hub.Name}' will be removed from Quasar. These config profiles use its plugins: {string.Join("; ", users)}. "
+              + "Servers will start without them, and cluster setup and profile staging will refuse them, until another hub lists them or they are removed from the profiles.";
+        if (!await ConfirmDestructiveActionAsync("Remove plugin hub?", message, "Remove"))
+            return;
+
+        if (!_snapshot.CanEdit) return;
+        await ChangeAsync("hubs.remove", new { value = hub.Key });
+    }
+
+    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            message,
+            yesText: yesText,
+            cancelText: "Cancel");
+
+        return confirmed == true;
+    }
+
+    private async Task MergeModsFromWorldTemplateAsync()
+    {
+        if (_editor is null)
+            return;
+
+        var parameters = new DialogParameters
+        {
+            [nameof(MergeWorldTemplateModsDialog.ExistingWorkshopIds)] =
+                _editor.Mods.Select(mod => mod.WorkshopId).ToArray(),
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            FullWidth = true,
+            MaxWidth = MaxWidth.Medium,
+        };
+
+        var dialog = await DialogService.ShowAsync<MergeWorldTemplateModsDialog>(
+            "Merge mods from world template",
+            parameters,
+            options);
+
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not List<QuasarModSelection> mergedMods)
+            return;
+
+        if (mergedMods.Count == 0)
+            return;
+
+        var existing = _editor.Mods
+            .Select(mod => mod.WorkshopId)
+            .ToHashSet();
+
+        var added = 0;
+        foreach (var mod in mergedMods)
+        {
+            if (mod.WorkshopId <= 0 || !existing.Add(mod.WorkshopId))
+                continue;
+
+            _editor.Mods.Add(mod);
+            added++;
+        }
+
+        if (added > 0)
+        {
+            RefreshModList();
+            Snackbar.Add($"Merged {added} mod(s) from world template.", Severity.Success);
+        }
+        else
+        {
+            Snackbar.Add("All template mods were already in this profile.", Severity.Info);
+        }
+    }
+
+    private string GetProfileSummary(QuasarConfigProfile template)
+    {
+        return $"{template.Plugins.Count} plugins, {template.Mods.Count} mods, {GetAssignedServers(template.ConfigProfileId).Count} servers";
+    }
+
+    private static string FormatModListSummary(IReadOnlyList<QuasarModSelection> mods)
+    {
+        var names = mods
+            .Take(8)
+            .Select(mod => string.IsNullOrWhiteSpace(mod.DisplayName)
+                ? mod.WorkshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)
+                : $"{mod.DisplayName} ({mod.WorkshopId})");
+
+        var summary = string.Join(", ", names);
+        return mods.Count > 8
+            ? $"{summary}, +{mods.Count - 8} more"
+            : summary;
+    }
+
+    private List<ConfigAssignment> GetAssignedServers(string configProfileId)
+    {
+        return _snapshot.Servers
+            .Where(server => string.Equals(server.ConfigProfileId, configProfileId, StringComparison.OrdinalIgnoreCase))
+            .OrderBy(server => server.UniqueName, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+    }
+
+    private bool MatchesPluginSearch(QuasarPluginCatalogEntry entry)
+        => MatchesSearchTerms(_pluginSearch, entry.FriendlyName, entry.PluginId, entry.Author, entry.Description, entry.Tooltip);
+
+    private bool MatchesPluginSearch(QuasarPluginSelection plugin)
+        => MatchesSearchTerms(_pluginSearch, plugin.DisplayName, plugin.PluginId);
+
+    private bool MatchesModSearch(QuasarModSelection mod)
+        => MatchesSearchTerms(_modSearch, mod.DisplayName, mod.WorkshopId.ToString());
+
+    private bool IsModSelected(long workshopId) =>
+        _editor?.Mods.Any(mod => mod.WorkshopId == workshopId) == true;
+
+    private static string GetWorkshopUrl(long workshopId) =>
+        $"https://steamcommunity.com/sharedfiles/filedetails/?id={workshopId.ToString(System.Globalization.CultureInfo.InvariantCulture)}";
+
+    private static string GetWorkshopTagText(QuasarWorkshopSearchResult result)
+    {
+        var tags = result.Tags
+            .Where(tag => !string.IsNullOrWhiteSpace(tag))
+            .Take(4)
+            .ToList();
+
+        return tags.Count == 0 ? "-" : string.Join(", ", tags);
+    }
+
+    // The catalog column shows the full Tooltip (short, usually single line). When the
+    // Tooltip is empty it falls back to a short word-boundary preview of the Description.
+    private string GetPluginTooltipText(QuasarPluginCatalogEntry entry)
+    {
+        if (!string.IsNullOrWhiteSpace(entry.Tooltip))
+            return NormalizePluginDescription(entry.Tooltip);
+
+        if (string.IsNullOrWhiteSpace(entry.Description))
+            return "-";
+
+        var description = NormalizePluginDescription(entry.Description);
+        return description.Length <= PluginDescriptionFallbackMaxLength
+            ? description
+            : TruncateAtWordBoundary(description, PluginDescriptionFallbackMaxLength);
+    }
+
+    private bool ShouldShowPluginDescriptionDialog(QuasarPluginCatalogEntry entry)
+    {
+        // The dialog shows the full Description, so there must be one to show.
+        if (string.IsNullOrWhiteSpace(entry.Description))
+            return false;
+
+        // When a Tooltip is shown inline the full Description is not visible, so always offer it.
+        if (!string.IsNullOrWhiteSpace(entry.Tooltip))
+            return true;
+
+        // Otherwise the Description is shown inline; only offer the dialog when it was truncated.
+        return NormalizePluginDescription(entry.Description).Length > PluginDescriptionFallbackMaxLength;
+    }
+
+    private static string NormalizePluginDescription(string description) =>
+        string.Join(' ', description
+            .Split(["\r\n", "\n", "\r"], StringSplitOptions.None)
+            .Select(line => line.Trim())
+            .Where(line => !string.IsNullOrWhiteSpace(line)));
+
+    private static string TruncateAtWordBoundary(string text, int maxLength)
+    {
+        if (text.Length <= maxLength)
+            return text;
+
+        var cutoff = text.LastIndexOf(' ', maxLength - 1);
+        if (cutoff <= 0)
+            cutoff = maxLength;
+
+        return $"{text[..cutoff].TrimEnd()}...";
+    }
+
+    private async Task ShowPluginDescriptionAsync(QuasarPluginCatalogEntry entry)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(PluginCatalogDescriptionDialog.DisplayName)] = string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.PluginId : entry.FriendlyName,
+            [nameof(PluginCatalogDescriptionDialog.PluginId)] = entry.PluginId,
+            [nameof(PluginCatalogDescriptionDialog.Description)] = string.IsNullOrWhiteSpace(entry.Description) ? "-" : entry.Description,
+        };
+
+        await DialogService.ShowAsync<PluginCatalogDescriptionDialog>(
+            "Plugin description",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    private string GetPluginSourceUrl(QuasarPluginSelection plugin)
+    {
+        var entry = CatalogEntries.FirstOrDefault(catalogEntry =>
+            string.Equals(catalogEntry.PluginId, plugin.PluginId, StringComparison.OrdinalIgnoreCase));
+
+        return entry is null
+            ? string.Empty
+            : GetPluginSourceUrl(entry);
+    }
+
+    private static string GetPluginSourceUrl(QuasarPluginCatalogEntry entry) =>
+        entry.IsLocalDevFolder
+            ? string.Empty
+            : ConfigCatalogRules.GetRepositoryUrl(entry.SourceRepo);
+
+    private static bool MatchesSearchTerms(string searchText, params string[] values)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            return true;
+
+        var blob = string.Join(' ', values.Where(value => !string.IsNullOrWhiteSpace(value)));
+        return searchText
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(term => blob.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static List<ulong> ParseUnsignedLongList(string? value) =>
+        SplitListTokens(value)
+            .Select(token => ulong.Parse(token, NumberStyles.None, CultureInfo.InvariantCulture))
+            .Distinct()
+            .OrderBy(item => item)
+            .ToList();
+
+    private static List<string> SplitListTokens(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return [];
+
+        return value
+            .Split([',', ';', '\r', '\n', '\t', ' '], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(token => !string.IsNullOrWhiteSpace(token))
+            .ToList();
+    }
+
+    private static string SummarizeWarnings(IReadOnlyList<string> warnings)
+    {
+        var preview = warnings.Take(2).ToList();
+        var summary = string.Join(" ", preview);
+        if (warnings.Count > preview.Count)
+            summary = $"{summary} (+{warnings.Count - preview.Count} more)";
+
+        return summary;
+    }
+
+    private static int ToIntOrDefault(double? value, int fallback) =>
+        value is null ? fallback : Convert.ToInt32(value.Value);
+
+    private static double ToDoubleOrDefault(double? value, double fallback) =>
+        value ?? fallback;
+}

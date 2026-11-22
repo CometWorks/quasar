@@ -1,3 +1,5 @@
+@namespace Quasar.Components.Pages
+@using Quasar.Client.Configs
 @using MudBlazor
 
 <MudDialog>
@@ -20,7 +22,7 @@
                 </div>
             </MudAlert>
             <p class="quasar-text quasar-type-body2 quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                @StorageProtectionDescription
+                Quasar encrypts the key using the worker installation’s Data Protection keyring. Enter a replacement key to update it.
             </p>
             <MudTextField
                 @bind-Value="_webApiKey"
@@ -43,20 +45,7 @@
     [CascadingParameter]
     private IMudDialogInstance MudDialog { get; set; } = default!;
 
-    [Parameter]
-    public string CurrentWebApiKey { get; set; } = string.Empty;
-
     private string _webApiKey = string.Empty;
-
-    private static string StorageProtectionDescription =>
-        $"After saving, Quasar stores an encrypted value in {System.IO.Path.GetFileName(MagnetarPaths.GetQuasarWorkshopOptionsPath())} under {GetPlatformStorageLocation()}. " +
-        "It can be decrypted only by this Quasar installation while its local Data Protection keyring is intact. " +
-        GetPlatformFileProtectionDescription();
-
-    protected override void OnInitialized()
-    {
-        _webApiKey = CurrentWebApiKey;
-    }
 
     private void Cancel()
     {
@@ -70,27 +59,5 @@
             return;
 
         MudDialog.Close(DialogResult.Ok(key));
-    }
-
-    private static string GetPlatformStorageLocation()
-    {
-        if (OperatingSystem.IsWindows())
-            return "the Quasar install directory";
-
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-            return "the Quasar install directory";
-
-        return "the Quasar install directory";
-    }
-
-    private static string GetPlatformFileProtectionDescription()
-    {
-        if (OperatingSystem.IsWindows())
-            return "Windows access is controlled by the current account's profile ACLs.";
-
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-            return "On this platform Quasar also restricts the credentials file to owner read/write permissions (0600) when the filesystem supports it.";
-
-        return "Restrict access to the Quasar install directory with the host operating system's file permissions.";
     }
 }
