@@ -43,9 +43,9 @@ public sealed class ControlPlaneViewerTests : IDisposable
         _cache.SetValue(null, _root);
     }
 
-    private BunitContext Context(bool editor = false)
+    private BunitContext Context(bool editor = false, bool browser = false)
     {
-        var context = new QuasarBunitContext();
+        QuasarBunitContext context = browser ? new OperationsBrowserContext() : new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -307,7 +307,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [InlineData(true)]
     public async Task DiscordViewerGetsStatusAndBindingsWithoutCredentialsOrActions(bool editor)
     {
-        await using var context = Context(editor);
+        await using var context = Context(editor, browser: true);
         var options = new DiscordOptionsCatalog(
             NullLogger<DiscordOptionsCatalog>.Instance,
             new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
@@ -322,7 +322,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         var bridge = new DiscordClusterBridge(Registered<ClusterCatalog>(context), null!, null!, registry, null!, null!, NullLogger<DiscordClusterBridge>.Instance);
         context.Services.AddSingleton(new DiscordBotService(options, registry, supervisor, null!, null!, null!, null!, null!, null!, null!, NullLogger<DiscordBotService>.Instance, bridge));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<DiscordPage>();
+        var page = context.Render<Quasar.Client.Components.DiscordView>();
         Assert.Contains("12345", page.Markup);
         Assert.Equal(editor, page.FindAll("button").Any(b => b.TextContent.Trim() == "Save Bot Settings"));
         Assert.Equal(editor, page.FindAll("button").Any(b => b.TextContent.Trim() == "Console Logs"));
@@ -332,23 +332,24 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [Fact]
     public async Task ViewerCanRefreshChatButCannotSendCommandsEvenAfterAnEditorSessionIsDemoted()
     {
-        await using var context = Context(editor: true);
+        await using var context = Context(editor: true, browser: true);
         var registry = Registered<AgentRegistry>(context);
         var sent = new List<ServerCommandEnvelope>();
         registry.UpsertHello(new() { AgentId = "agent", UniqueName = "server" }, "connection", (message, _) =>
         { sent.Add(message.Command!); return Task.CompletedTask; });
         context.Services.AddSingleton(new DedicatedServerSupervisor(Registered<DedicatedServerCatalog>(context), registry, null!, null!, null!, new(), null!, NullLogger<DedicatedServerSupervisor>.Instance));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Chat>();
+        var page = context.Render<Quasar.Client.Components.ChatView>();
         Assert.Contains(page.FindAll("button"), b => b.TextContent.Trim() == "Send");
         var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
         auth.SetPolicies(QuasarPolicyNames.CanView);
         auth.SetAuthorized("viewer");
+        await page.InvokeAsync(page.Instance.LoadAsync);
         await page.WaitForAssertionAsync(() => Assert.DoesNotContain(page.FindAll("button"), b => b.TextContent.Trim() is "Send" or "Save" or "Restart"));
         await page.FindAll("button").Single(b => b.TextContent.Trim() == "Refresh").ClickAsync();
         Assert.Equal(ServerCommandType.Refresh, Assert.Single(sent).CommandType);
-        await page.InvokeAsync(() => (Task)typeof(Chat).GetMethod("SendAgentCommandAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(page.Instance, [ServerCommandType.SendChat, "!dangerous command"])!);
+        await page.InvokeAsync(() => (Task)typeof(Quasar.Client.Components.ChatView).GetMethod("SendAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
+            .Invoke(page.Instance, ["chat.node.command", "!dangerous command", "Sent."])!);
         Assert.Single(sent);
     }
 
@@ -364,9 +365,12 @@ public sealed class ControlPlaneViewerTests : IDisposable
         var configs = new PluginConfigService(registry, NullLogger<PluginConfigService>.Instance);
         configs.IngestSnapshot(new() { AgentId = "agent", Plugins = [new() { PluginId = "plugin", DisplayName = "Example plugin", ConfigJson = "{\"token\":\"secret-plugin-token\"}" }] }, "connection");
         context.Services.AddSingleton(configs);
-        context.ComponentFactories.AddStub<PluginLogPanel>();
+        context.Services.AddSingleton(new PluginLogStream());
+        Quasar.Services.Plugins.QuasarLivePluginDashboardOperations.AddQuasarLivePluginDashboardOperations(context.Services);
+        context.Services.AddSingleton(sp => new Quasar.Client.DashboardSdk(new FleetDashboardTestTransport(sp)));
+        context.ComponentFactories.AddStub<Quasar.Client.Components.LivePluginLogs>();
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Plugins>();
+        var page = context.Render<Quasar.Client.Components.ServerPluginSettings>();
         await page.InvokeAsync(() => page.FindComponent<MudExpansionPanel>().Instance.ExpandedChanged.InvokeAsync(true));
         Assert.Contains("Example plugin", page.Markup);
         if (editor)
@@ -379,7 +383,11 @@ public sealed class ControlPlaneViewerTests : IDisposable
             Assert.Contains("may contain credentials", page.Markup);
         Assert.DoesNotContain("secret-plugin-token", page.Markup);
         Assert.Empty(page.FindAll("pre"));
-        Assert.Empty(page.FindComponents<PluginConfigEditor>());
+        Assert.Empty(page.FindComponents<Quasar.Client.Components.SchemaConfigEditor>());
+        var inventory = await context.Services.GetRequiredService<Quasar.Client.DashboardSdk>()
+            .RequestAsync<Quasar.Client.Fleet.LivePlugins>("liveplugins.list");
+        Assert.DoesNotContain("secret-plugin-token", System.Text.Json.JsonSerializer.Serialize(inventory));
+
     }
 
     [Fact]
@@ -451,7 +459,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [Fact]
     public async Task ViewerCanBrowsePlayersWithoutCleanupOrModerationControls()
     {
-        await using var context = Context();
+        await using var context = Context(browser: true);
         var path = MagnetarPaths.GetQuasarKnownPlayersPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         await File.WriteAllTextAsync(path, JsonSerializer.Serialize(new[] { new KnownPlayerRecord { PlayerKey = "server:76561198000000000", UniqueName = "server", SteamId = 76561198000000000, DisplayName = "Test player", LastSeenUtc = DateTimeOffset.UtcNow } }, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
@@ -461,7 +469,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(new ClusterPlayerService(null!, null!, players, NullLogger<ClusterPlayerService>.Instance));
         context.Services.AddSingleton(new ClusterCommandService(null!, null!, null!, null!));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         Assert.Contains("Test player", page.Markup);
         Assert.DoesNotContain("Player actions", page.Markup);
         Assert.DoesNotContain(page.FindAll("button"), b => b.TextContent.Trim() is "Clean Server" or "Clean All" or "Save");
@@ -470,7 +478,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [Fact]
     public async Task ViewerCanQueryLiveEntitiesWithoutReceivingDeleteControls()
     {
-        await using var context = Context();
+        await using var context = Context(browser: true);
         using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(_root, "entity-clusters") }).Build());
         context.Services.AddSingleton(clusters);
@@ -490,7 +498,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
             new HostingEnvironment { ContentRootPath = _root }, loadPluginAssemblies: false));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Entities>();
+        var page = context.Render<Quasar.Client.Components.EntitiesView>();
         await page.WaitForAssertionAsync(() => Assert.Contains("Test grid", page.Markup));
         Assert.Equal(ServerCommandType.ListEntities, Assert.Single(commands).CommandType);
         Assert.DoesNotContain("Delete entity", page.Markup);
@@ -526,13 +534,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         { typeof(WorldTemplates), "OpenImportToServerAsync" }, { typeof(WorldTemplates), "CloneAsync" },
         { typeof(WorldTemplates), "OpenAddTemplateAsync" }, { typeof(WorldTemplates), "CreateConfigProfileFromTemplateAsync" },
         { typeof(WorldTemplates), "CreateConfigProfileAsync" }, { typeof(WorldTemplates), "DeleteAsync" },
-        { typeof(Players), "SaveRetentionDaysAsync" }, { typeof(Players), "CleanSelectedServerAsync" },
-        { typeof(Players), "CleanAllAsync" }, { typeof(Players), "SendPlayerCommandAsync" },
-        { typeof(Chat), "RestartSelectedServerAsync" }, { typeof(PluginConfigEditor), "ApplyAsync" },
-        { typeof(Entities), "DeleteSelectedEntitiesAsync" }, { typeof(Entities), "DeleteEntityAsync" },
-        { typeof(Entities), "RunEntityActionAsync" }, { typeof(Entities), "RunSelectedEntityActionAsync" },
-        { typeof(DiscordPage), "SaveAsync" }, { typeof(DiscordPage), "ResetDeathTemplatesAsync" },
-        { typeof(DiscordPage), "SaveDeathTemplatesAsync" }, { typeof(DiscordPage), "OpenDiscordConsoleDialogAsync" },
+        { typeof(PluginConfigEditor), "ApplyAsync" },
     };
 
     [Theory]

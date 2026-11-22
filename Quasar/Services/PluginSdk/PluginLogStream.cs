@@ -20,6 +20,8 @@ public sealed class PluginLogStream
         new(StringComparer.OrdinalIgnoreCase);
 
     public event Action? Changed;
+    private long _revision;
+    public long Revision => Interlocked.Read(ref _revision);
 
     /// <summary>Appends one entry, evicting the oldest beyond the per-server cap.</summary>
     public void Append(PluginLogEntry entry)
@@ -40,6 +42,7 @@ public sealed class PluginLogStream
             }
 
             queue.Enqueue(entry);
+            Interlocked.Increment(ref _revision);
             while (queue.Count > MaxEntriesPerServer)
                 queue.Dequeue();
         }
@@ -151,6 +154,7 @@ public sealed class PluginLogStream
         lock (_sync)
         {
             removed = _byUniqueName.Remove(uniqueName);
+            if (removed) Interlocked.Increment(ref _revision);
         }
 
         if (removed)

@@ -396,26 +396,6 @@ public sealed class ClusterCreateTests : IDisposable
         public void StopApplication() { }
     }
 
-    private sealed class InProcessDashboardTransport(IServiceProvider services) : IJSRuntime
-    {
-        public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) =>
-            InvokeAsync<T>(identifier, default, args);
-
-        public async ValueTask<T> InvokeAsync<T>(string identifier, CancellationToken token, object?[]? args)
-        {
-            Assert.Equal("quasarSdk.request", identifier);
-            Assert.Equal("quasar.core", args![0]);
-            var operation = services.GetServices<QuasarOperation>().Single(o => o.OperationId == (string)args[1]!);
-            var principal = (await services.GetRequiredService<AuthenticationStateProvider>().GetAuthenticationStateAsync()).User;
-            try
-            {
-                var value = await operation.InvokeAsync(new(principal, services), JsonSerializer.SerializeToElement(args[2]), token);
-                return JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))!;
-            }
-            catch (QuasarOperationException error) { throw new JSException(error.Message); }
-        }
-    }
-
     [Fact]
     public async Task HostManagementOperationsDenyViewersAndReserveLocalRegistration()
     {
@@ -462,7 +442,7 @@ public sealed class ClusterCreateTests : IDisposable
         context.Services.AddQuasarConversionDashboardOperations();
         context.Services.AddQuasarClusterSetupDashboardOperations();
         context.Services.AddSingleton(new ClusterOperationStore(Path.Combine(_root, "operations")));
-        context.Services.AddSingleton(sp => new DashboardSdk(new InProcessDashboardTransport(sp)));
+        context.Services.AddSingleton(sp => new DashboardSdk(new FleetDashboardTestTransport(sp)));
         if (conversionAuthorization is not null)
             context.Services.AddSingleton(conversionAuthorization);
         var credentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(_root, "credentials.json"));

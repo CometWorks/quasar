@@ -1,0 +1,41 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using System.Text.Json
+@using Quasar.Client.Fleet
+@implements IDisposable
+@inject IJSRuntime JS
+
+@if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+else if (_config is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading plugin configuration" /> }
+else
+{
+    <SchemaConfigEditor PluginId="@Selection.PluginId" DisplayName="@DisplayName" ConfigJson="@_config" SaveValues="ApplyAsync" />
+}
+
+@code {
+    [Parameter, EditorRequired] public PluginSelection Selection { get; set; } = null!;
+    [Parameter, EditorRequired] public string DisplayName { get; set; } = "";
+    [Parameter] public long Revision { get; set; }
+    private readonly CancellationTokenSource _stop = new();
+    private long _revision = -1;
+    private string? _config, _error;
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_revision == Revision) return;
+        var revision = _revision = Revision;
+        try
+        {
+            var envelope = await JS.InvokeAsync<JsonElement>("quasarSdk.readJson", _stop.Token, "quasar.core", "liveplugins.schema", Selection);
+            if (_revision != revision) return;
+            _config = envelope.GetRawText();
+            _error = null;
+        }
+        catch (JSException error) { if (_revision == revision) { _config = null; _error = error.Message; _revision = -1; } }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private async Task ApplyAsync(string values) =>
+        await JS.InvokeVoidAsync("quasarSdk.uploadJson", _stop.Token, "quasar.core", "liveplugins.apply", Selection, values);
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

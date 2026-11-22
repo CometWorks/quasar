@@ -1,0 +1,1321 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components.Web
+@using System.Globalization
+@using System.Text.Json
+@using System.Text.Json.Nodes
+
+@using MudBlazor.Utilities
+@using Quasar.Services.PluginSdk
+
+@if (_envelope is null)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+        This plugin did not provide an editable configuration schema.
+    </MudAlert>
+}
+else if (_tabs.Count == 0)
+{
+    <p class="quasar-text quasar-type-body2 mud-text-secondary">No configurable options.</p>
+}
+else
+{
+    <div class="plugin-config-editor quasar-layout quasar-gap-4">
+        @if (_tabs.Count == 1)
+        {
+            @RenderContainerBody(_tabs[0])
+        }
+        else
+        {
+            <MudTabs Elevation="0" Rounded="true" TabPanelsClass="pt-4">
+                @foreach (var tab in _tabs)
+                {
+                    <MudTabPanel Text="@tab.Caption">
+                        @RenderContainerBody(tab)
+                    </MudTabPanel>
+                }
+            </MudTabs>
+        }
+
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-flexend quasar-gap-3 mt-2">
+            @if (_dirty)
+            {
+                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Unsaved changes</span>
+            }
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Default"
+                       StartIcon="@Icons.Material.Filled.RestartAlt"
+                       Disabled="@(_applying)"
+                       OnClick="ResetToDefaults">
+                Reset defaults
+            </MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Save"
+                       Disabled="@(!_dirty || _applying)"
+                       OnClick="ApplyAsync">
+                @(_applying ? "Applying..." : ApplyLabel)
+            </MudButton>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter, EditorRequired] public string PluginId { get; set; } = "";
+    [Parameter, EditorRequired] public string DisplayName { get; set; } = "";
+    [Parameter, EditorRequired] public string ConfigJson { get; set; } = "";
+    [Parameter, EditorRequired] public Func<string, Task> SaveValues { get; set; } = null!;
+    [Parameter] public string ApplyLabel { get; set; } = "Apply changes";
+    [Parameter] public string? SuccessMessage { get; set; }
+
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+
+    [Inject] private IDialogService DialogService { get; set; } = default!;
+
+    private PluginConfigEnvelope? _envelope;
+    private JsonObject _values = new();
+    private string? _signature;
+    private bool _dirty;
+    private bool _applying;
+    private readonly Dictionary<string, string?> _rawErrors = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _newDictKeys = new(StringComparer.Ordinal);
+
+    private Dictionary<string, LayoutContainerDto> _containersById = new(StringComparer.Ordinal);
+    private Dictionary<string, ContainerModel> _containers = new(StringComparer.Ordinal);
+    private List<ContainerModel> _tabs = new();
+
+    protected override void OnParametersSet()
+    {
+        var signature = PluginId + "\u0001" + ConfigJson;
+
+        if (signature == _signature)
+            return;
+
+        if (_dirty && _signature is not null)
+            return;
+
+        _signature = signature;
+        _envelope = PluginConfigEnvelope.Parse(ConfigJson);
+        _values = _envelope?.CloneValues() ?? new JsonObject();
+        _dirty = false;
+        _rawErrors.Clear();
+        _newDictKeys.Clear();
+        BuildLayout();
+    }
+
+    private void BuildLayout()
+    {
+        _containersById = new Dictionary<string, LayoutContainerDto>(StringComparer.Ordinal);
+        _containers = new Dictionary<string, ContainerModel>(StringComparer.Ordinal);
+        _tabs = new List<ContainerModel>();
+
+        var schema = _envelope?.Schema;
+        if (schema is null)
+            return;
+
+        foreach (var dto in schema.Layout)
+        {
+            if (string.IsNullOrWhiteSpace(dto.Id))
+                continue;
+
+            _containersById[dto.Id!] = dto;
+            _containers[dto.Id!] = new ContainerModel
+            {
+                Id = dto.Id!,
+                Parent = dto.Parent ?? string.Empty,
+                Kind = string.IsNullOrWhiteSpace(dto.Kind) ? "section" : dto.Kind!,
+                Caption = string.IsNullOrWhiteSpace(dto.Caption) ? dto.Id! : dto.Caption!,
+            };
+        }
+
+        foreach (var container in _containers.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(container.Parent) && _containers.TryGetValue(container.Parent, out var parent))
+                parent.Children.Add(container);
+        }
+
+        var root = new ContainerModel { Id = string.Empty, Kind = "root", Caption = "General" };
+        foreach (var property in schema.Properties ?? new List<ConfigPropertyDto>())
+        {
+            var field = FieldModel.FromProperty(property);
+            if (!string.IsNullOrWhiteSpace(property.Parent) && _containers.TryGetValue(property.Parent!, out var parent))
+                parent.Fields.Add(field);
+            else
+                root.Fields.Add(field);
+        }
+
+        var topContainers = _containers.Values
+            .Where(container => string.IsNullOrWhiteSpace(container.Parent) || !_containers.ContainsKey(container.Parent))
+            .ToList();
+
+        if (root.Fields.Count > 0)
+            _tabs.Add(root);
+
+        var topTabs = topContainers.Where(container => string.Equals(container.Kind, "tab", StringComparison.OrdinalIgnoreCase)).ToList();
+        if (topTabs.Count > 0)
+        {
+            _tabs.AddRange(topTabs.Where(HasContent));
+            foreach (var nonTab in topContainers.Except(topTabs).Where(HasContent))
+                root.Children.Add(nonTab);
+
+            if (root.Children.Count > 0 && !_tabs.Contains(root))
+                _tabs.Insert(0, root);
+        }
+        else
+        {
+            root.Children.AddRange(topContainers.Where(HasContent));
+            if (!_tabs.Contains(root) && HasContent(root))
+                _tabs.Add(root);
+        }
+    }
+
+    private bool HasContent(ContainerModel container)
+        => container.Fields.Count > 0 || container.Children.Any(HasContent);
+
+    private RenderFragment RenderContainerBody(ContainerModel container) => @<div class="quasar-layout quasar-gap-4 plugin-config-container">
+        @foreach (var group in container.Children.Where(child => string.Equals(child.Kind, "column", StringComparison.OrdinalIgnoreCase)).Chunk(3))
+        {
+            <MudGrid Spacing="2">
+                @foreach (var column in group)
+                {
+                    <MudItem xs="12" md="@(12 / Math.Max(1, group.Length))">
+                        @RenderContainerContent(column, framed: false)
+                    </MudItem>
+                }
+            </MudGrid>
+        }
+
+        @foreach (var child in container.Children.Where(child => !string.Equals(child.Kind, "column", StringComparison.OrdinalIgnoreCase)))
+        {
+            @RenderContainerContent(child, framed: true)
+        }
+
+        @foreach (var field in container.Fields)
+        {
+            @RenderField(field, () => _values[field.JsonKey], value => SetObjectValue(_values, field.JsonKey, value), field.JsonKey, null)
+        }
+    </div>;
+
+    private RenderFragment RenderContainerContent(ContainerModel container, bool framed) => @<div>
+        @if (framed || string.Equals(container.Kind, "section", StringComparison.OrdinalIgnoreCase))
+        {
+            <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true">
+                <MudExpansionPanel Text="@container.Caption" Expanded="true">
+                    @RenderContainerBody(container)
+                </MudExpansionPanel>
+            </MudExpansionPanels>
+        }
+        else
+        {
+            @if (!string.IsNullOrWhiteSpace(container.Caption))
+            {
+                <h3 class="quasar-text quasar-type-subtitle2 mb-2">@container.Caption</h3>
+            }
+            @RenderContainerBody(container)
+        }
+    </div>;
+
+    private RenderFragment RenderField(
+        FieldModel field,
+        Func<JsonNode?> get,
+        Action<JsonNode?> set,
+        string path,
+        TreeContext? treeContext) => @<div class="plugin-config-field">
+        @switch (field.Type)
+        {
+            case "bool":
+                <MudCheckBox T="bool"
+                             Label="@field.Name"
+                             Value="@GetBool(get())"
+                             ValueChanged="@((bool value) => { set(JsonValue.Create(value)); MarkDirty(); })" />
+                @RenderDescription(field)
+                break;
+
+            case "int":
+            case "long":
+            case "float":
+            case "double":
+                @if (treeContext is not null && string.Equals(field.JsonKey, treeContext.ParentJsonKey, StringComparison.OrdinalIgnoreCase))
+                {
+                    @RenderTreeParentSelector(field, get, set, treeContext)
+                }
+                else
+                {
+                    <MudNumericField T="double?" Label="@field.Name"
+                                     Value="@GetNumber(get())"
+                                     ValueChanged="@((double? value) => { set(CreateNumberValue(field.Type, value)); MarkDirty(); })"
+                                     Min="@field.Min" Max="@field.Max"
+                                     HelperText="@field.Description" Immediate="true"
+                                     Class="plugin-config-number-field" />
+                }
+                break;
+
+            case "string":
+                <MudTextField T="string" Label="@field.Name"
+                              Value="@GetString(get())"
+                              ValueChanged="@((string value) => { set(JsonValue.Create(value ?? string.Empty)); MarkDirty(); })"
+                              MaxLength="@(field.MaxLength ?? 524288)"
+                              Lines="@(field.Multiline ? 3 : 1)"
+                              Sizing="@(field.Multiline ? InputSizing.Auto : InputSizing.Fixed)"
+                              MaxLines="@(field.Multiline ? 10000 : 1)"
+                              Immediate="true"
+                              HelperText="@field.Description" />
+                break;
+
+            case "enum":
+            case "Direction":
+                @RenderEnumField(field, get, set)
+                break;
+
+            case "Color":
+                @RenderColorField(field, get, set)
+                break;
+
+            case "Vector2D":
+                @RenderVectorField(field, get, set, path, integer: false, dimensions: 2)
+                break;
+
+            case "Vector3D":
+                @RenderVectorField(field, get, set, path, integer: false, dimensions: 3)
+                break;
+
+            case "Vector2I":
+                @RenderVectorField(field, get, set, path, integer: true, dimensions: 2)
+                break;
+
+            case "Vector3I":
+                @RenderVectorField(field, get, set, path, integer: true, dimensions: 3)
+                break;
+
+            case "MyPositionAndOrientation":
+                @RenderPoseField(field, get, set, path)
+                break;
+
+            case "struct":
+                @RenderStructField(field, get, set, path, treeContext)
+                break;
+
+            case "list":
+                @RenderListField(field, get, set, path)
+                break;
+
+            case "dict":
+                @RenderDictField(field, get, set, path)
+                break;
+
+            default:
+                @RenderRawField(field, get, set, path)
+                break;
+        }
+    </div>;
+
+    private RenderFragment RenderDescription(FieldModel field) => @<text>
+        @if (!string.IsNullOrWhiteSpace(field.Description))
+        {
+            <span class="quasar-text quasar-type-caption mud-text-secondary d-block">@field.Description</span>
+        }
+    </text>;
+
+    private RenderFragment RenderEnumField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set) => @<MudSelect T="string"
+        Label="@field.Name"
+        Value="@GetString(get())"
+        ValueChanged="@((string value) => { set(JsonValue.Create(value ?? string.Empty)); MarkDirty(); })"
+        HelperText="@field.Description">
+        @foreach (var enumValue in EnumValues(field))
+        {
+            <MudSelectItem T="string" Value="@enumValue.Name">@enumValue.Caption</MudSelectItem>
+        }
+    </MudSelect>;
+
+    private RenderFragment RenderColorField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set) => @<div class="quasar-layout quasar-gap-1">
+        <MudColorPicker Label="@field.Name"
+                        Value="@GetMudColor(get())"
+                        ValueChanged="@((MudColor color) => { set(JsonValue.Create(FormatColor(color, field.HasAlpha))); MarkDirty(); })"
+                        ShowAlpha="@field.HasAlpha"
+                        ColorPickerView="ColorPickerView.Spectrum"
+                        HelperText="@field.Description" />
+        <span class="quasar-text quasar-type-caption mud-text-secondary">@GetString(get())</span>
+    </div>;
+
+    private RenderFragment RenderVectorField(
+        FieldModel field,
+        Func<JsonNode?> get,
+        Action<JsonNode?> set,
+        string path,
+        bool integer,
+        int dimensions) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
+        @RenderDescription(field)
+        <MudGrid Spacing="2" Class="mt-1">
+            @foreach (var component in VectorComponents.Take(dimensions))
+            {
+                <MudItem xs="12" sm="@(dimensions == 2 ? 6 : 4)">
+                    <MudNumericField T="double?" Label="@component.ToUpperInvariant()"
+                                     Value="@GetObjectNumber(get(), component)"
+                                     ValueChanged="@((double? value) => { SetVectorComponent(get, set, component, value, integer); })"
+                                     Immediate="true"
+                                     Class="plugin-config-number-field" />
+                </MudItem>
+            }
+        </MudGrid>
+    </section>;
+
+    private RenderFragment RenderPoseField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
+        @RenderDescription(field)
+        <MudGrid Spacing="2" Class="mt-1">
+            <MudItem xs="12" lg="4">
+                @RenderNestedVector("Position", get, set, "position", integer: false)
+            </MudItem>
+            <MudItem xs="12" lg="4">
+                @RenderNestedVector("Forward", get, set, "forward", integer: false)
+            </MudItem>
+            <MudItem xs="12" lg="4">
+                @RenderNestedVector("Up", get, set, "up", integer: false)
+            </MudItem>
+        </MudGrid>
+    </section>;
+
+    private RenderFragment RenderNestedVector(string label, Func<JsonNode?> get, Action<JsonNode?> set, string key, bool integer) => @<section class="quasar-panel pa-2 plugin-config-nested">
+        <span class="quasar-text quasar-type-caption mud-text-secondary">@label</span>
+        <MudGrid Spacing="1">
+            @foreach (var component in VectorComponents)
+            {
+                <MudItem xs="4">
+                    <MudNumericField T="double?" Label="@component.ToUpperInvariant()"
+                                     Value="@GetObjectNumber(GetNestedObject(get, key), component)"
+                                     ValueChanged="@((double? value) => { SetNestedVectorComponent(get, set, key, component, value, integer); })"
+                                     Immediate="true"
+                                     Class="plugin-config-number-field" />
+                </MudItem>
+            }
+        </MudGrid>
+    </section>;
+
+    private RenderFragment RenderStructField(
+        FieldModel field,
+        Func<JsonNode?> get,
+        Action<JsonNode?> set,
+        string path,
+        TreeContext? treeContext) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
+        @RenderDescription(field)
+        @RenderStructMembers(field.StructName, get, set, path, treeContext)
+    </section>;
+
+    private RenderFragment RenderStructMembers(
+        string? structName,
+        Func<JsonNode?> get,
+        Action<JsonNode?> set,
+        string path,
+        TreeContext? treeContext) => @<div class="quasar-layout quasar-gap-2 mt-2">
+        @{
+            var structInfo = GetStruct(structName);
+            var obj = EnsureObject(get, set);
+        }
+        @if (structInfo is null)
+        {
+            @RenderRawField(FieldModel.Raw("Struct JSON", "struct"), get, set, path)
+        }
+        else
+        {
+            @foreach (var member in structInfo.Members)
+            {
+                var memberField = FieldModel.FromMember(member);
+                var memberPath = $"{path}.{memberField.JsonKey}";
+                @RenderField(memberField, () => obj[memberField.JsonKey], value => SetObjectValue(obj, memberField.JsonKey, value), memberPath, treeContext)
+            }
+        }
+    </div>;
+
+    private RenderFragment RenderListField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        @{
+            var array = EnsureArray(get, set);
+            var maxReached = field.MaxCount is > 0 && array.Count >= field.MaxCount.Value;
+            var listField = FieldModel.FromListElement(field);
+            var treeContext = BuildTreeContext(field, array);
+        }
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+            <div class="quasar-layout quasar-gap-0">
+                <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
+                @if (!string.IsNullOrWhiteSpace(field.Description))
+                {
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">@field.Description</span>
+                }
+            </div>
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Size="Size.Small"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       Disabled="@maxReached"
+                       OnClick="@(() => AddListItem(array, field))">
+                Add
+            </MudButton>
+        </div>
+        @if (field.MaxCount is > 0)
+        {
+            <span class="quasar-text quasar-type-caption mud-text-secondary">@array.Count / @field.MaxCount items</span>
+        }
+        @if (array.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">No items.</MudAlert>
+        }
+        else if (string.Equals(listField.Type, "struct", StringComparison.OrdinalIgnoreCase))
+        {
+            <MudExpansionPanels MultiExpansion="true" Elevation="0" Dense="true" Class="mt-2">
+                @foreach (var entry in GetListOrder(array, treeContext))
+                {
+                    var index = entry.Index;
+                    var itemPath = $"{path}[{index}]";
+                    <MudExpansionPanel Expanded="@(index == 0)">
+                        <TitleContent>
+                            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1" style="@($"padding-left:{entry.Depth * 1.25:0.##}rem")">
+                                    @if (treeContext is not null)
+                                    {
+                                        <MudIcon Icon="@Icons.Material.Filled.AccountTree" />
+                                    }
+                                    <h3 class="quasar-text quasar-type-subtitle2">@GetListItemCaption(field, array[index], index)</h3>
+                                </div>
+                                <div class="quasar-layout quasar-layout-row quasar-gap-0">
+                                    <MudTooltip Text="Move item up">
+                                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Move item down">
+                                        <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
+                                    </MudTooltip>
+                                    <MudTooltip Text="Remove item">
+                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
+                                    </MudTooltip>
+                                </div>
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            @RenderStructMembers(field.ElementStruct, () => array[index], value => SetArrayValue(array, index, value), itemPath, treeContext?.ForIndex(index))
+                        </ChildContent>
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+        }
+        else
+        {
+            <div class="quasar-layout quasar-gap-1 mt-2">
+                @for (var i = 0; i < array.Count; i++)
+                {
+                    var index = i;
+                    var itemPath = $"{path}[{index}]";
+                    <section class="quasar-panel pa-2 plugin-config-list-row">
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
+                            <span class="quasar-text quasar-type-caption mud-text-secondary plugin-config-row-index">@(index + 1)</span>
+                            <div class="plugin-config-row-editor">
+                                @RenderField(listField.WithName($"Item {index + 1}"), () => array[index], value => SetArrayValue(array, index, value), itemPath, null)
+                            </div>
+                            <div class="quasar-layout quasar-layout-row quasar-gap-0">
+                                <MudTooltip Text="Move item up">
+                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowUp" Size="Size.Small" Disabled="@(index == 0)" OnClick="@(() => MoveListItem(array, index, -1))" />
+                                </MudTooltip>
+                                <MudTooltip Text="Move item down">
+                                    <MudIconButton Icon="@Icons.Material.Filled.KeyboardArrowDown" Size="Size.Small" Disabled="@(index >= array.Count - 1)" OnClick="@(() => MoveListItem(array, index, 1))" />
+                                </MudTooltip>
+                                <MudTooltip Text="Remove item">
+                                    <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Size="Size.Small" Color="Color.Error" OnClick="@(() => RemoveListItemAsync(array, index))" />
+                                </MudTooltip>
+                            </div>
+                        </div>
+                    </section>
+                }
+            </div>
+        }
+    </section>;
+
+    private RenderFragment RenderDictField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<section class="quasar-panel pa-3 plugin-config-composite">
+        @{
+            var dict = EnsureObject(get, set);
+            var entries = dict.ToList();
+            var maxReached = field.MaxCount is > 0 && entries.Count >= field.MaxCount.Value;
+            var valueField = FieldModel.FromDictValue(field);
+            var keyValue = _newDictKeys.TryGetValue(path, out var pendingKey) ? pendingKey : string.Empty;
+        }
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+            <div class="quasar-layout quasar-gap-0">
+                <h3 class="quasar-text quasar-type-subtitle2">@field.Name</h3>
+                @if (!string.IsNullOrWhiteSpace(field.Description))
+                {
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">@field.Description</span>
+                }
+            </div>
+            @if (field.MaxCount is > 0)
+            {
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@entries.Count / @field.MaxCount</MudChip>
+            }
+        </div>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-end quasar-gap-1 mt-2">
+            <MudTextField T="string"
+                          Label="@($"New {field.KeyType ?? "key"} key")"
+                          Value="@keyValue"
+                          ValueChanged="@((string value) => _newDictKeys[path] = value ?? string.Empty)"
+                          Immediate="true" />
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       StartIcon="@Icons.Material.Filled.Add"
+                       Disabled="@maxReached"
+                       OnClick="@(() => AddDictEntry(dict, field, path))">
+                Add entry
+            </MudButton>
+        </div>
+        @if (entries.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2">No entries.</MudAlert>
+        }
+        else
+        {
+            <div class="quasar-layout quasar-gap-1 mt-2">
+                @foreach (var entry in entries)
+                {
+                    var key = entry.Key;
+                    var itemPath = $"{path}.{key}";
+                    <section class="quasar-panel pa-2 plugin-config-list-row">
+                        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
+                            <MudTextField T="string"
+                                          Label="Key"
+                                          Value="@key"
+                                          ValueChanged="@((string value) => RenameDictKey(dict, field, key, value))"
+                                          Immediate="true"
+                                          Class="plugin-config-key-field" />
+                            <div class="plugin-config-row-editor">
+                                @RenderField(valueField.WithName(key), () => dict[key], value => SetObjectValue(dict, key, value), itemPath, null)
+                            </div>
+                            <MudTooltip Text="Remove entry">
+                                <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline" Color="Color.Error" OnClick="@(() => RemoveDictEntryAsync(dict, key))" />
+                            </MudTooltip>
+                        </div>
+                    </section>
+                }
+            </div>
+        }
+    </section>;
+
+    private RenderFragment RenderTreeParentSelector(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, TreeContext treeContext) => @<MudSelect T="string"
+        Label="@field.Name"
+        Value="@GetScalarKey(get())"
+        ValueChanged="@((string value) => { set(ParseKeyValue(field.Type, value)); MarkDirty(); })"
+        HelperText="@field.Description">
+        @foreach (var option in treeContext.Options)
+        {
+            <MudSelectItem T="string" Value="@option.Value" Disabled="@(option.Index == treeContext.CurrentIndex)">@option.Caption</MudSelectItem>
+        }
+    </MudSelect>;
+
+    private RenderFragment RenderRawField(FieldModel field, Func<JsonNode?> get, Action<JsonNode?> set, string path) => @<MudTextField T="string"
+        Label="@($"{field.Name} ({field.Type})")"
+        Value="@GetRaw(get())"
+        ValueChanged="@((string value) => OnRaw(path, value, set))"
+        Lines="3"
+        Sizing="InputSizing.Auto"
+        MaxLines="10000"
+        Immediate="true"
+        Error="@(_rawErrors.TryGetValue(path, out var error) && error is not null)"
+        ErrorText="@(_rawErrors.TryGetValue(path, out var errorText) ? errorText : null)"
+        HelperText="@(field.Description ?? "Raw JSON value")" />;
+
+    private List<EnumValueDto> EnumValues(FieldModel field)
+    {
+        if (!string.IsNullOrEmpty(field.EnumName)
+            && _envelope?.Schema.Enums.TryGetValue(field.EnumName!, out var values) == true)
+        {
+            return values;
+        }
+
+        return new List<EnumValueDto>();
+    }
+
+    private StructDto? GetStruct(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return null;
+
+        return _envelope?.Schema.Structs.TryGetValue(name, out var value) == true ? value : null;
+    }
+
+    private static bool GetBool(JsonNode? value)
+    {
+        try { return value?.GetValue<bool>() ?? false; }
+        catch { return false; }
+    }
+
+    private static double? GetNumber(JsonNode? value)
+    {
+        if (value is null)
+            return null;
+
+        try { return value.GetValue<double>(); }
+        catch { return null; }
+    }
+
+    private static string GetString(JsonNode? value)
+    {
+        if (value is null)
+            return string.Empty;
+
+        try { return value.GetValue<string>() ?? string.Empty; }
+        catch { return value.ToJsonString(); }
+    }
+
+    private static string GetRaw(JsonNode? value)
+        => value is null ? "null" : value.ToJsonString(RawOptions);
+
+    private static JsonNode? CreateNumberValue(string type, double? value)
+    {
+        if (value is null)
+            return null;
+
+        return type switch
+        {
+            "int" => JsonValue.Create((int)Math.Round(value.Value)),
+            "long" => JsonValue.Create((long)Math.Round(value.Value)),
+            "float" => JsonValue.Create((float)value.Value),
+            _ => JsonValue.Create(value.Value),
+        };
+    }
+
+    private static JsonNode? ParseKeyValue(string type, string value)
+    {
+        value ??= string.Empty;
+        return type switch
+        {
+            "int" => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue) ? JsonValue.Create(intValue) : JsonValue.Create(0),
+            "long" => long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue) ? JsonValue.Create(longValue) : JsonValue.Create(0L),
+            _ => JsonValue.Create(value),
+        };
+    }
+
+    private static string GetScalarKey(JsonNode? value)
+    {
+        if (value is null)
+            return string.Empty;
+
+        try
+        {
+            return value.GetValue<object>() switch
+            {
+                null => string.Empty,
+                IFormattable formattable => formattable.ToString(null, CultureInfo.InvariantCulture) ?? string.Empty,
+                var scalar => scalar.ToString() ?? string.Empty,
+            };
+        }
+        catch
+        {
+            return GetString(value);
+        }
+    }
+
+    private JsonObject EnsureObject(Func<JsonNode?> get, Action<JsonNode?> set)
+    {
+        if (get() is JsonObject obj)
+            return obj;
+
+        obj = new JsonObject();
+        set(obj);
+        return obj;
+    }
+
+    private JsonArray EnsureArray(Func<JsonNode?> get, Action<JsonNode?> set)
+    {
+        if (get() is JsonArray array)
+            return array;
+
+        array = new JsonArray();
+        set(array);
+        return array;
+    }
+
+    private static JsonObject? GetNestedObject(Func<JsonNode?> get)
+    {
+        return get() as JsonObject;
+    }
+
+    private static JsonObject? GetNestedObject(Func<JsonNode?> get, string key)
+    {
+        return (get() as JsonObject)?[key] as JsonObject;
+    }
+
+    private static double? GetObjectNumber(JsonNode? value, string propertyName)
+    {
+        if (value is not JsonObject obj)
+            return null;
+
+        return GetNumber(obj[propertyName]);
+    }
+
+    private static double? GetObjectNumber(JsonObject? obj, string propertyName)
+        => obj is null ? null : GetNumber(obj[propertyName]);
+
+    private void SetVectorComponent(Func<JsonNode?> get, Action<JsonNode?> set, string component, double? value, bool integer)
+    {
+        var obj = EnsureObject(get, set);
+        obj[component] = integer
+            ? JsonValue.Create((int)Math.Round(value ?? 0))
+            : JsonValue.Create(value ?? 0);
+        MarkDirty();
+    }
+
+    private void SetNestedVectorComponent(Func<JsonNode?> get, Action<JsonNode?> set, string key, string component, double? value, bool integer)
+    {
+        var obj = EnsureObject(get, set);
+        if (obj[key] is not JsonObject nested)
+        {
+            nested = CreateVectorObject(3, integer: false);
+            obj[key] = nested;
+        }
+
+        nested[component] = integer
+            ? JsonValue.Create((int)Math.Round(value ?? 0))
+            : JsonValue.Create(value ?? 0);
+        MarkDirty();
+    }
+
+    private static JsonObject CreateVectorObject(int dimensions, bool integer)
+    {
+        var obj = new JsonObject();
+        foreach (var component in VectorComponents.Take(dimensions))
+            obj[component] = integer ? JsonValue.Create(0) : JsonValue.Create(0d);
+        return obj;
+    }
+
+    private static JsonObject CreatePoseObject() => new()
+    {
+        ["position"] = CreateVectorObject(3, integer: false),
+        ["forward"] = new JsonObject { ["x"] = 0d, ["y"] = 0d, ["z"] = -1d },
+        ["up"] = new JsonObject { ["x"] = 0d, ["y"] = 1d, ["z"] = 0d },
+    };
+
+    private static MudColor GetMudColor(JsonNode? value)
+    {
+        var text = GetString(value);
+        return string.IsNullOrWhiteSpace(text) ? new MudColor("#FFFFFFFF") : new MudColor(text);
+    }
+
+    private static string FormatColor(MudColor color, bool hasAlpha)
+    {
+        var hex = color.ToString(MudColorOutputFormats.HexA).Trim();
+        if (!hex.StartsWith("#", StringComparison.Ordinal))
+            hex = "#" + hex;
+
+        if (hex.Length == 7)
+            hex += "FF";
+
+        if (!hasAlpha && hex.Length >= 7)
+            hex = hex[..7] + "FF";
+
+        return hex.ToUpperInvariant();
+    }
+
+    private void SetObjectValue(JsonObject obj, string key, JsonNode? value)
+    {
+        obj[key] = value;
+        MarkDirty();
+    }
+
+    private void SetArrayValue(JsonArray array, int index, JsonNode? value)
+    {
+        if (index < 0 || index >= array.Count)
+            return;
+
+        array[index] = value;
+        MarkDirty();
+    }
+
+    private void AddListItem(JsonArray array, FieldModel field)
+    {
+        if (field.MaxCount is > 0 && array.Count >= field.MaxCount.Value)
+            return;
+
+        array.Add(CreateDefaultValue(FieldModel.FromListElement(field)));
+        MarkDirty();
+    }
+
+    private async Task RemoveListItemAsync(JsonArray array, int index)
+    {
+        if (index < 0 || index >= array.Count)
+            return;
+
+        if (!await ConfirmDestructiveActionAsync("Remove list item?", "This item will be removed from the pending plugin configuration changes.", "Remove"))
+            return;
+
+        array.RemoveAt(index);
+        MarkDirty();
+    }
+
+    private void MoveListItem(JsonArray array, int index, int delta)
+    {
+        var target = index + delta;
+        if (index < 0 || target < 0 || index >= array.Count || target >= array.Count)
+            return;
+
+        var item = array[index];
+        array.RemoveAt(index);
+        array.Insert(target, item);
+        MarkDirty();
+    }
+
+    private JsonNode? CreateDefaultValue(FieldModel field)
+    {
+        return field.Type switch
+        {
+            "bool" => JsonValue.Create(false),
+            "int" => JsonValue.Create(0),
+            "long" => JsonValue.Create(0L),
+            "float" => JsonValue.Create(0f),
+            "double" => JsonValue.Create(0d),
+            "string" => JsonValue.Create(string.Empty),
+            "enum" or "Direction" => JsonValue.Create(EnumValues(field).FirstOrDefault()?.Name ?? string.Empty),
+            "Color" => JsonValue.Create(field.HasAlpha ? "#FFFFFFFF" : "#FFFFFF"),
+            "Vector2D" => CreateVectorObject(2, integer: false),
+            "Vector3D" => CreateVectorObject(3, integer: false),
+            "Vector2I" => CreateVectorObject(2, integer: true),
+            "Vector3I" => CreateVectorObject(3, integer: true),
+            "MyPositionAndOrientation" => CreatePoseObject(),
+            "struct" => CreateDefaultStruct(field.StructName),
+            "list" => new JsonArray(),
+            "dict" => new JsonObject(),
+            _ => null,
+        };
+    }
+
+    private JsonObject CreateDefaultStruct(string? structName)
+    {
+        var obj = new JsonObject();
+        var structInfo = GetStruct(structName);
+        if (structInfo is null)
+            return obj;
+
+        foreach (var member in structInfo.Members)
+        {
+            var field = FieldModel.FromMember(member);
+            obj[field.JsonKey] = CreateDefaultValue(field);
+        }
+
+        return obj;
+    }
+
+    private void AddDictEntry(JsonObject dict, FieldModel field, string path)
+    {
+        var rawKey = _newDictKeys.TryGetValue(path, out var pendingKey) ? pendingKey : string.Empty;
+        if (!TryNormalizeDictKey(field.KeyType, rawKey, out var key, out var error))
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+
+        if (dict.ContainsKey(key))
+        {
+            Snackbar.Add("An entry with that key already exists.", Severity.Warning);
+            return;
+        }
+
+        dict[key] = CreateDefaultValue(FieldModel.FromDictValue(field));
+        _newDictKeys[path] = string.Empty;
+        MarkDirty();
+    }
+
+    private async Task RemoveDictEntryAsync(JsonObject dict, string key)
+    {
+        if (!await ConfirmDestructiveActionAsync("Remove dictionary entry?", $"Entry '{key}' will be removed from the pending plugin configuration changes.", "Remove"))
+            return;
+
+        dict.Remove(key);
+        MarkDirty();
+    }
+
+    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            title,
+            message,
+            yesText: yesText,
+            cancelText: "Cancel");
+
+        return confirmed == true;
+    }
+
+    private void RenameDictKey(JsonObject dict, FieldModel field, string oldKey, string? newKeyRaw)
+    {
+        if (string.Equals(oldKey, newKeyRaw, StringComparison.Ordinal))
+            return;
+
+        if (!TryNormalizeDictKey(field.KeyType, newKeyRaw ?? string.Empty, out var newKey, out var error))
+        {
+            Snackbar.Add(error, Severity.Warning);
+            return;
+        }
+
+        if (dict.ContainsKey(newKey))
+        {
+            Snackbar.Add("An entry with that key already exists.", Severity.Warning);
+            return;
+        }
+
+        var value = dict[oldKey];
+        dict.Remove(oldKey);
+        dict[newKey] = value;
+        MarkDirty();
+    }
+
+    private static bool TryNormalizeDictKey(string? keyType, string raw, out string key, out string error)
+    {
+        raw = (raw ?? string.Empty).Trim();
+        key = raw;
+        error = string.Empty;
+
+        if (raw.Length == 0)
+        {
+            error = "Key is required.";
+            return false;
+        }
+
+        switch (keyType)
+        {
+            case "int":
+                if (!int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var intValue))
+                {
+                    error = "Key must be a valid integer.";
+                    return false;
+                }
+                key = intValue.ToString(CultureInfo.InvariantCulture);
+                return true;
+
+            case "long":
+                if (!long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var longValue))
+                {
+                    error = "Key must be a valid long integer.";
+                    return false;
+                }
+                key = longValue.ToString(CultureInfo.InvariantCulture);
+                return true;
+
+            default:
+                return true;
+        }
+    }
+
+    private TreeContext? BuildTreeContext(FieldModel field, JsonArray array)
+    {
+        if (string.IsNullOrWhiteSpace(field.TreeParentField) || string.IsNullOrWhiteSpace(field.ElementStruct))
+            return null;
+
+        var structInfo = GetStruct(field.ElementStruct);
+        if (structInfo is null)
+            return null;
+
+        var parentField = structInfo.Members.FirstOrDefault(member => string.Equals(member.Name, field.TreeParentField, StringComparison.Ordinal));
+        if (parentField is null)
+            return null;
+
+        var idField = structInfo.Members.FirstOrDefault(member => string.Equals(member.Name, "Id", StringComparison.OrdinalIgnoreCase));
+        var parentJsonKey = ToJsonKey(parentField.Name);
+        var idJsonKey = idField is null ? string.Empty : ToJsonKey(idField.Name);
+        var options = new List<TreeOption> { new(TreeRootValue(parentField.Type), "Root", -1) };
+
+        if (!string.IsNullOrEmpty(idJsonKey))
+        {
+            for (var i = 0; i < array.Count; i++)
+            {
+                if (array[i] is not JsonObject item)
+                    continue;
+
+                var id = GetScalarKey(item[idJsonKey]);
+                if (string.IsNullOrWhiteSpace(id))
+                    continue;
+
+                options.Add(new TreeOption(id, GetListItemCaption(field, item, i), i));
+            }
+        }
+
+        return new TreeContext(parentJsonKey, idJsonKey, options, -1);
+    }
+
+    private static string TreeRootValue(string parentType)
+        => parentType is "int" or "long" ? "0" : string.Empty;
+
+    private List<ListEntry> GetListOrder(JsonArray array, TreeContext? treeContext)
+    {
+        if (treeContext is null || string.IsNullOrWhiteSpace(treeContext.IdJsonKey))
+            return Enumerable.Range(0, array.Count).Select(index => new ListEntry(index, 0)).ToList();
+
+        var byParent = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        var byId = new HashSet<string>(StringComparer.Ordinal);
+
+        for (var i = 0; i < array.Count; i++)
+        {
+            if (array[i] is not JsonObject item)
+                continue;
+
+            var id = GetScalarKey(item[treeContext.IdJsonKey]);
+            if (!string.IsNullOrWhiteSpace(id))
+                byId.Add(id);
+
+            var parent = GetScalarKey(item[treeContext.ParentJsonKey]);
+            if (!byParent.TryGetValue(parent, out var children))
+            {
+                children = new List<int>();
+                byParent[parent] = children;
+            }
+
+            children.Add(i);
+        }
+
+        var result = new List<ListEntry>();
+        var visited = new HashSet<int>();
+
+        void AddChildren(string parent, int depth)
+        {
+            if (!byParent.TryGetValue(parent, out var children))
+                return;
+
+            foreach (var index in children)
+            {
+                if (!visited.Add(index))
+                    continue;
+
+                result.Add(new ListEntry(index, depth));
+                if (array[index] is JsonObject item)
+                {
+                    var id = GetScalarKey(item[treeContext.IdJsonKey]);
+                    if (!string.IsNullOrWhiteSpace(id))
+                        AddChildren(id, depth + 1);
+                }
+            }
+        }
+
+        AddChildren(string.Empty, 0);
+        AddChildren("0", 0);
+
+        for (var i = 0; i < array.Count; i++)
+        {
+            if (!visited.Contains(i))
+                result.Add(new ListEntry(i, 0));
+        }
+
+        return result;
+    }
+
+    private string GetListItemCaption(FieldModel field, JsonNode? value, int index)
+    {
+        var structInfo = GetStruct(field.ElementStruct ?? field.StructName);
+        if (structInfo?.CaptionMember is { Length: > 0 } captionMember
+            && value is JsonObject obj)
+        {
+            var caption = GetString(obj[ToJsonKey(captionMember)]);
+            if (!string.IsNullOrWhiteSpace(caption))
+                return caption;
+        }
+
+        return $"Item {index + 1}";
+    }
+
+    private void OnRaw(string path, string value, Action<JsonNode?> set)
+    {
+        try
+        {
+            set(string.IsNullOrWhiteSpace(value) ? null : JsonNode.Parse(value));
+            _rawErrors[path] = null;
+            MarkDirty();
+        }
+        catch (JsonException exception)
+        {
+            _rawErrors[path] = exception.Message;
+        }
+    }
+
+    private void ResetToDefaults()
+    {
+        if (_envelope is null)
+            return;
+
+        _values = _envelope.CloneDefaults();
+        _dirty = true;
+        _rawErrors.Clear();
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_applying) return;
+
+        if (_rawErrors.Values.Any(error => error is not null))
+        {
+            Snackbar.Add("Fix the invalid JSON values before applying.", Severity.Error);
+            return;
+        }
+
+        _applying = true;
+        try
+        {
+            var json = _values.ToJsonString();
+            await SaveValues(json);
+            _dirty = false;
+            Snackbar.Add(SuccessMessage ?? $"Applied configuration to {DisplayName}.", Severity.Success);
+        }
+        catch (InvalidOperationException exception)
+        {
+            Snackbar.Add($"Could not reach the server: {exception.Message}", Severity.Error);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed to apply configuration: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _applying = false;
+        }
+    }
+
+    private void MarkDirty() => _dirty = true;
+
+    private static string ToJsonKey(string name)
+        => string.IsNullOrEmpty(name) ? name : char.ToLowerInvariant(name[0]) + name[1..];
+
+    private static readonly JsonSerializerOptions RawOptions = new() { WriteIndented = true };
+    private static readonly string[] VectorComponents = { "x", "y", "z" };
+
+    private sealed class ContainerModel
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Parent { get; set; } = string.Empty;
+        public string Kind { get; set; } = "section";
+        public string Caption { get; set; } = string.Empty;
+        public List<ContainerModel> Children { get; } = new();
+        public List<FieldModel> Fields { get; } = new();
+    }
+
+    private sealed class FieldModel
+    {
+        public string Name { get; init; } = string.Empty;
+        public string JsonKey { get; init; } = string.Empty;
+        public string Type { get; init; } = string.Empty;
+        public string? Description { get; init; }
+        public double? Min { get; init; }
+        public double? Max { get; init; }
+        public int? MaxLength { get; init; }
+        public bool Multiline { get; init; }
+        public int? MaxCount { get; init; }
+        public string? ElementType { get; init; }
+        public string? ElementStruct { get; init; }
+        public string? ElementEnum { get; init; }
+        public string? KeyType { get; init; }
+        public string? ValueType { get; init; }
+        public string? ValueStruct { get; init; }
+        public string? ValueEnum { get; init; }
+        public string? TreeParentField { get; init; }
+        public string? StructName { get; init; }
+        public string? EnumName { get; init; }
+        public bool HasAlpha { get; init; } = true;
+
+        public FieldModel WithName(string name) => new()
+        {
+            Name = name,
+            JsonKey = JsonKey,
+            Type = Type,
+            Description = Description,
+            Min = Min,
+            Max = Max,
+            MaxLength = MaxLength,
+            Multiline = Multiline,
+            MaxCount = MaxCount,
+            ElementType = ElementType,
+            ElementStruct = ElementStruct,
+            ElementEnum = ElementEnum,
+            KeyType = KeyType,
+            ValueType = ValueType,
+            ValueStruct = ValueStruct,
+            ValueEnum = ValueEnum,
+            TreeParentField = TreeParentField,
+            StructName = StructName,
+            EnumName = EnumName,
+            HasAlpha = HasAlpha,
+        };
+
+        public static FieldModel FromProperty(ConfigPropertyDto property) => new()
+        {
+            Name = property.Name,
+            JsonKey = property.JsonKey,
+            Type = NormalizeType(property.Type),
+            Description = property.Description,
+            Min = property.Min,
+            Max = property.Max,
+            MaxLength = property.MaxLength,
+            Multiline = property.Multiline ?? false,
+            MaxCount = property.MaxCount,
+            ElementType = NormalizeType(property.ElementType),
+            ElementStruct = property.ElementStruct,
+            ElementEnum = property.ElementEnum,
+            KeyType = NormalizeType(property.KeyType),
+            ValueType = NormalizeType(property.ValueType),
+            ValueStruct = property.ValueStruct,
+            ValueEnum = property.ValueEnum,
+            TreeParentField = property.TreeParentField,
+            StructName = property.StructName,
+            EnumName = property.EnumName,
+            HasAlpha = property.HasAlpha ?? true,
+        };
+
+        public static FieldModel FromMember(StructMemberDto member) => new()
+        {
+            Name = member.Name,
+            JsonKey = ToJsonKey(member.Name),
+            Type = NormalizeType(member.Type),
+            Description = member.Description,
+            ElementType = NormalizeType(member.ElementType),
+            ElementStruct = member.ElementStruct,
+            ElementEnum = member.ElementEnum,
+            KeyType = NormalizeType(member.KeyType),
+            ValueType = NormalizeType(member.ValueType),
+            ValueStruct = member.ValueStruct,
+            ValueEnum = member.ValueEnum,
+            StructName = member.StructName,
+            EnumName = member.EnumName,
+        };
+
+        public static FieldModel FromListElement(FieldModel list) => new()
+        {
+            Name = "Item",
+            JsonKey = "item",
+            Type = NormalizeType(list.ElementType),
+            StructName = list.ElementStruct,
+            EnumName = list.ElementEnum,
+            HasAlpha = true,
+        };
+
+        public static FieldModel FromDictValue(FieldModel dict) => new()
+        {
+            Name = "Value",
+            JsonKey = "value",
+            Type = NormalizeType(dict.ValueType),
+            StructName = dict.ValueStruct,
+            EnumName = dict.ValueEnum,
+            HasAlpha = true,
+        };
+
+        public static FieldModel Raw(string name, string type) => new()
+        {
+            Name = name,
+            JsonKey = ToJsonKey(name),
+            Type = type,
+        };
+
+        private static string NormalizeType(string? type)
+            => type switch
+            {
+                "Base6Directions.Direction" => "Direction",
+                _ => type ?? string.Empty,
+            };
+    }
+
+    private sealed record TreeOption(string Value, string Caption, int Index);
+
+    private sealed record ListEntry(int Index, int Depth);
+
+    private sealed record TreeContext(string ParentJsonKey, string IdJsonKey, List<TreeOption> Options, int CurrentIndex)
+    {
+        public TreeContext ForIndex(int index)
+            => this with { CurrentIndex = index };
+    }
+}
