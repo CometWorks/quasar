@@ -51,7 +51,7 @@
   "EXCEPTION.md": "5c86d595208d159e3a7a0b859ac11008da02d06e09659a0cc822ac6a81f9563e",
   "LICENSE": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
   "LICENSE.MIT": "d3fef09ec8651ff80abb454aba25f6c6843b5c1956d3c9ba517e1a24144405f6",
-  "LICENSING.md": "32ab66024cf275275ecc12830a2c3003f4528cba4c1ae1c2250ce38518e43ffc",
+  "LICENSING.md": "00478e6349cbfacc818950366ba801197fd933763cdf045cc4d298e4ab854340",
   "Magnetar.Protocol/Bridge/IQuasarCompanionRequestHandler.cs": "4d9bcf326d07fd968c1ff761be5a96f14cabf5e470b4a38d6783c6bf9103d69c",
   "Magnetar.Protocol/Bridge/IQuasarConfigProvider.cs": "4ce0e56755d67443303471d6651912f9cceec7384b74fc8898004a5e6a9ee5e7",
   "Magnetar.Protocol/Model/CompanionPluginRequest.cs": "8313dedb3c52b1dd63e13ecc02418fbc3c3a855120f4571b6fe904c4e0134838",
