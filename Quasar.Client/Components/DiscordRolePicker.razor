@@ -1,0 +1,47 @@
+@using Microsoft.AspNetCore.Components.Web
+
+<fieldset class="quasar-fieldset quasar-stack" disabled="@Disabled">
+    <legend>@Label</legend>
+    <label class="quasar-field">
+        <span class="quasar-visually-hidden">Search @Label</span>
+        <input type="search" placeholder="Search by role name or ID" @bind="_search" @bind:event="oninput" />
+    </label>
+    <div class="quasar-role-options">
+        @{ var matches = MatchingRoles(); }
+        @foreach (var id in matches)
+        {
+            <label class="quasar-check" @key="id">
+                <input type="checkbox" checked="@Value.Contains(id)" @onchange="e => SetRole(id, e.Value is true)" />
+                @RoleName(id)
+            </label>
+        }
+        @if (matches.Length == 0)
+        {
+            <span class="quasar-muted">@(string.IsNullOrWhiteSpace(_search) ? "No Discord roles available." : "No matching roles.")</span>
+        }
+    </div>
+    <small class="quasar-muted">@Value.Count selected. @Help</small>
+</fieldset>
+
+@code {
+    [Parameter, EditorRequired] public string Label { get; set; } = "";
+    [Parameter, EditorRequired] public string Help { get; set; } = "";
+    [Parameter, EditorRequired] public IReadOnlyDictionary<ulong, string> Roles { get; set; } = null!;
+    [Parameter, EditorRequired] public List<ulong> Value { get; set; } = [];
+    [Parameter] public EventCallback<List<ulong>> ValueChanged { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+
+    private string _search = "";
+    private string RoleName(ulong id) => Roles.GetValueOrDefault(id) ?? $"Unavailable role ({id})";
+
+    private ulong[] MatchingRoles()
+    {
+        var search = _search.Trim();
+        return Roles.Keys.Concat(Value).Distinct()
+            .Where(id => RoleName(id).Contains(search, StringComparison.OrdinalIgnoreCase))
+            .ToArray();
+    }
+
+    private Task SetRole(ulong id, bool selected) => ValueChanged.InvokeAsync(
+        selected ? Value.Append(id).Distinct().ToList() : Value.Where(v => v != id).ToList());
+}

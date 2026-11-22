@@ -18,9 +18,7 @@ should also see [Docker Deployment](Docker.md).
 Configure **Access** for player linking, whitelist, promotions and priority joining.
 Players run `/authorize` in Discord and authenticate through the shared
 `auth.se-servers.net` service. Quasar's bot checks membership and roles. The panel
-can stay private. Verified public website access or active Nebula hosting enables
-an optional web entry point. Private `player-access.json` stores
-settings, authorizations and preserved legacy OAuth credentials. See [Player authentication](PlayerAuthentication.md), including
+can stay private. Private `player-access.json` stores policies and server authorizations. See [Player authentication](PlayerAuthentication.md), including
 migration from the removed code-based linking flow.
 
 ## Command aliases per configuration profile

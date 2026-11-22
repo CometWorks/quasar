@@ -1639,17 +1639,6 @@ namespace Quasar.Agent
                         return CreateResult(command, false, "Player access policy staged; wait for world readiness to confirm promotion recovery.");
                     return CreateResult(command, true, "Player access policy applied.");
 
-                case ServerCommandType.OpenPlayerAuthentication:
-                    if (_options.ClusterMode || !Uri.TryCreate(command.Text, UriKind.Absolute, out var authUrl)
-                        || authUrl.Scheme != "https" || authUrl.UserInfo.Length != 0)
-                        return CreateResult(command, false, "Invalid player authentication address.");
-                    var authPlayer = new List<IMyPlayer>();
-                    Sandbox.ModAPI.MyAPIGateway.Multiplayer?.Players?.GetPlayers(authPlayer);
-                    var targetPlayer = authPlayer.SingleOrDefault(p => p.SteamUserId == (ulong)(command.SteamId ?? 0) && !p.IsBot);
-                    if (targetPlayer == null) return CreateResult(command, false, "Player is no longer connected.");
-                    MyVisualScriptLogicProvider.OpenSteamOverlay("https://steamcommunity.com/linkfilter/?u=" + Uri.EscapeDataString(command.Text), targetPlayer.IdentityId);
-                    return CreateResult(command, true, "Player authentication opened.");
-
                 case ServerCommandType.ListEntities:
                     return ListEntities(command);
 

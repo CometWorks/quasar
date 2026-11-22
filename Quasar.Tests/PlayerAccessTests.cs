@@ -1,6 +1,6 @@
 using HarmonyLib;
 using Magnetar.Protocol.Model;
-using Microsoft.AspNetCore.DataProtection;
+using System.Text.Json;
 using Quasar.Agent;
 using Quasar.ClusterDeployment;
 using Quasar.Services.Players;
@@ -16,42 +16,38 @@ public sealed class PlayerAccessTests : IDisposable
     public void Dispose() { if (Directory.Exists(directory)) Directory.Delete(directory, true); }
 
     [Fact]
-    public async Task SettingsProtectCredentialsRejectLostUpdatesAndInvalidateChangedDomains()
+    public async Task LegacyWebsiteSettingsAreDiscardedWhilePolicyAndAuthorizationSurvive()
     {
-        var protection = new EphemeralDataProtectionProvider();
+        Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "player-access.json");
-        var catalog = new PlayerAccessCatalog(path, protection);
-        var settings = new PlayerAccessSettings { PublicUrl = "https://quasar.example.com", DiscordClientId = "42", DiscordClientSecret = "oauth-secret" };
-        settings.Policies.Add(new() { Target = "server:alpha", GuildId = 42, Enabled = true });
+        await File.WriteAllTextAsync(path, """
+            {
+              "settings": {
+                "revision": 42, "publicUrl": "https://panel.example.com",
+                "verifiedUrl": "https://panel.example.com", "verifiedUntil": "2030-01-01T00:00:00Z",
+                "discordClientId": "123", "discordClientSecret": "obsolete-protected-value",
+                "policies": [{ "target": "server:alpha", "guildId": 77, "enabled": true, "whitelist": true }]
+              },
+              "authorizations": [{ "target": "server:alpha", "authenticationId": "existing-link" }]
+            }
+            """);
+        var catalog = new PlayerAccessCatalog(path);
+        var settings = catalog.GetSettings();
+        Assert.Equal(42, settings.Revision);
+        var policy = Assert.Single(settings.Policies);
+        Assert.True(policy.Whitelist);
+        await catalog.AuthorizeAsync(policy, "another-link", default);
         await catalog.SaveSettingsAsync(settings);
-        Assert.DoesNotContain("oauth-secret", File.ReadAllText(path));
-        await catalog.RecordVerificationAsync(settings.PublicUrl, DateTimeOffset.UtcNow.AddDays(7), default);
-        var verified = catalog.GetSettings();
-        Assert.NotNull(verified.VerifiedUntil);
-        await catalog.AuthorizeAsync(catalog.GetSettings().Policies.Single(), "authenticated-link", default);
-        Assert.True(catalog.IsAuthorized("server:alpha", "authenticated-link"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.SaveSettingsAsync(settings));
-        verified.PublicUrl = "https://new.example.com";
-        await catalog.SaveSettingsAsync(verified);
-        var reloaded = new PlayerAccessCatalog(path, protection);
-        Assert.Equal("oauth-secret", reloaded.GetSettings().DiscordClientSecret);
-        Assert.Null(reloaded.GetSettings().VerifiedUntil);
-        Assert.True(reloaded.IsAuthorized("server:alpha", "authenticated-link"));
+        var reloaded = new PlayerAccessCatalog(path);
+        Assert.True(reloaded.IsAuthorized("server:alpha", "existing-link"));
+        Assert.True(reloaded.IsAuthorized("server:alpha", "another-link"));
+        Assert.True(Assert.Single(reloaded.GetSettings().Policies).Enabled);
+        using var document = JsonDocument.Parse(await File.ReadAllTextAsync(path));
+        var stored = document.RootElement.GetProperty("settings");
+        Assert.Equal(new[] { "policies", "revision" }, stored.EnumerateObject().Select(p => p.Name).Order());
         if (!OperatingSystem.IsWindows()) Assert.Equal(UnixFileMode.UserRead | UnixFileMode.UserWrite, File.GetUnixFileMode(path));
     }
-
-    [Theory]
-    [InlineData("http://quasar.example.com")]
-    [InlineData("https://127.0.0.1")]
-    [InlineData("https://localhost")]
-    [InlineData("https://user:password@quasar.example.com")]
-    [InlineData("https://quasar.example.com/private")]
-    [InlineData("https://quasar.example.com?redirect=https://attacker.test")]
-    public void InvalidPublicOriginsAreRejected(string url) => Assert.False(PlayerAccessCatalog.IsPublicUrl(url));
-
-    [Fact]
-    public void EquivalentWebsiteFormsUseOneCanonicalOrigin() =>
-        Assert.Equal("https://quasar.example.com", PlayerAccessCatalog.CanonicalPublicUrl(" https://QUASAR.EXAMPLE.COM:443/ "));
 
     [Fact]
     public void ActiveAuthenticationCannotDeployAPackageWithoutTheDeclaredCapability()
@@ -65,25 +61,9 @@ public sealed class PlayerAccessTests : IDisposable
     }
 
     [Fact]
-    public async Task LostProtectionKeysDisableOAuthWithoutErasingTheCredentialOrStoppingOtherSettings()
-    {
-        var originalKey = new EphemeralDataProtectionProvider();
-        var path = Path.Combine(directory, "player-access.json");
-        var original = new PlayerAccessCatalog(path, originalKey);
-        await original.SaveSettingsAsync(new() { DiscordClientId = "42", DiscordClientSecret = "recoverable-secret" });
-        var lost = new PlayerAccessCatalog(path, new EphemeralDataProtectionProvider());
-        Assert.True(lost.CredentialUnavailable);
-        Assert.Empty(lost.GetSettings().DiscordClientSecret);
-        var settings = lost.GetSettings();
-        settings.PublicUrl = "https://new.example.com";
-        await lost.SaveSettingsAsync(settings);
-        Assert.Equal("recoverable-secret", new PlayerAccessCatalog(path, originalKey).GetSettings().DiscordClientSecret);
-    }
-
-    [Fact]
     public async Task CanonicalRenamesCannotSilentlyRemoveAnActiveAuthenticationPolicy()
     {
-        var catalog = new PlayerAccessCatalog(Path.Combine(directory, "access.json"), new EphemeralDataProtectionProvider());
+        var catalog = new PlayerAccessCatalog(Path.Combine(directory, "access.json"));
         await catalog.SaveSettingsAsync(new() { Policies = [new() { Target = "server:alpha", Enabled = true, GuildId = 42 }] });
         catalog.EnsureServerIdentityChangeAllowed("alpha", "alpha");
         Assert.Throws<InvalidOperationException>(() => catalog.EnsureServerIdentityChangeAllowed("alpha", "beta"));

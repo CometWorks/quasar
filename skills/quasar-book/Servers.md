@@ -133,7 +133,7 @@ On standalone servers and cluster nodes it also registers commands every player 
 
 | Command | Effect |
 | --- | --- |
-| `!authorize` | Supplies a browser URL to authenticate Steam and Discord and authorize this server. Standalone servers open the Steam overlay. Whitelist users authenticate on the public website before joining, see [Player authentication](AccessControl.md#player-authentication). |
+| `!authorize` | Directs players to run `/authorize` in the game server’s Discord. Whitelist users can do this before joining, see [Player authentication](AccessControl.md#player-authentication). |
 | UI plugins' player commands, such as `!ask <question>` of the assistant plugin | Quasar sends them to the agent when it connects, and the agent registers them a game tick later, so they appear in `!help`. The player sees the plugin's acknowledgement, such as "Asking the assistant...", and gets the answer as private messages. A command whose plugin was removed since the server started answers "This command is not available on this server." When Quasar is not connected: "Quasar is not reachable right now. Try again later." |
 
 On a cluster the node the player is on runs these commands, and the answer reaches the player on whatever node they are on by then.

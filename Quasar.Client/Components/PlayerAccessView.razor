@@ -10,29 +10,11 @@
 {
 
     @if (_notice.Length != 0) { <MudAlert Severity="Severity.Success" Class="mb-4">@_notice</MudAlert> }
-    <MudExpansionPanels Class="mb-4">
-        <MudExpansionPanel Text="@(_state.Ready ? "Public player website · Ready" : "Public player website · Optional")">
-        <div class="quasar-stack">
-            <p>Players can also start from a public player page. It uses <a href="https://auth.se-servers.net" target="_blank" rel="noopener noreferrer">auth.se-servers.net</a> for Discord sign-in.</p>
-            <MudTextField T="string" @bind-Value="_settings.PublicUrl" Label="Self-hosted public website" HelperText="For example https://quasar.example.com. Leave empty when using Nebula hosting." />
-            <p>Public access: @(_state.PublicUrl is { } url ? url : "Not verified or hosting inactive").</p>
-            @if (_settings.VerifiedUntil is { } until) { <p>Self-hosted verification expires: @until.ToString("u"). Verify again before expiry.</p> }
-            @if (_state.Ready)
-            {
-                <MudButton Href="@(_state.PublicUrl + "/player-auth")" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Open player authentication</MudButton>
-            }
-            <div class="quasar-row">
-                <MudButton OnClick="SaveAsync" Disabled="_busy" Color="Color.Primary" Variant="Variant.Filled">Save access settings</MudButton>
-                <MudButton OnClick="VerifyAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_settings.PublicUrl))" Variant="Variant.Outlined">Verify saved website</MudButton>
-            </div>
-        </div>
-        </MudExpansionPanel>
-    </MudExpansionPanels>
     <section class="quasar-panel pa-4 mb-4">
         <div class="quasar-stack">
             <h2 class="quasar-text quasar-type-h6">Server access policies</h2>
             <p>Choose who can join each server or cluster and which Discord roles grant game privileges.</p>
-            <p>Players run <code>/authorize</code> in your Discord server to link their accounts and request access. Quasar can stay private.</p>
+            <p>Players run <code>/authorize</code> in your Discord server and follow the bot’s private link to <strong>auth.se-servers.net</strong> to sign in with Steam and Discord.</p>
             <p>Quasar's existing Discord bot checks membership and roles. Enable the Server Members intent and member tracking on <a href="discord">Discord</a>.</p>
             <p>Discord server: <strong>@DiscordServerName</strong>. <a href="discord">Manage bot</a></p>
             @if (!BotConfigured)
@@ -57,21 +39,19 @@
                 <MudCheckBox T="bool" @bind-Value="_policy.Whitelist" Label="Require authorization before joining (whitelist)" />
                 <p>Without the whitelist, unlinked players can join; authenticated players can still receive role-based promotions and priority access. Existing bans, passwords and other access restrictions remain in force.</p>
                 <MudTextField T="string" @bind-Value="_policy.Instructions" Label="Player instructions" Lines="4" MaxLength="5000" />
-                <MudSelect T="ulong" MultiSelection="true" SelectedValues="_policy.RequiredRoles" SelectedValuesChanged="@(values => _policy.RequiredRoles = values.ToList())"
-                           ToStringFunc="RoleName" Label="Required Discord roles" HelperText="Any selected role grants access. Leave empty to allow every member of the bot's Discord server." Disabled="_busy">
-                    @foreach (var role in Roles) { <MudSelectItem T="ulong" Value="@role.Id">@role.Name</MudSelectItem> }
-                </MudSelect>
-                <MudSelect T="ulong" MultiSelection="true" SelectedValues="_policy.PriorityRoles" SelectedValuesChanged="@(values => _policy.PriorityRoles = values.ToList())"
-                           ToStringFunc="RoleName" Label="Priority Discord roles" HelperText="Bypass the normal player cap without kicking players or creating a queue." Disabled="_busy">
-                    @foreach (var role in Roles) { <MudSelectItem T="ulong" Value="@role.Id">@role.Name</MudSelectItem> }
-                </MudSelect>
+                <div class="quasar-stack" @key="_policy">
+                    <DiscordRolePicker Label="Required Discord roles" Roles="_guildRoles" @bind-Value="_policy.RequiredRoles" Disabled="_busy"
+                                      Help="Any selected role grants access. Leave empty to allow every member of the bot's Discord server." />
+                    <DiscordRolePicker Label="Priority Discord roles" Roles="_guildRoles" @bind-Value="_policy.PriorityRoles" Disabled="_busy"
+                                      Help="Selected roles bypass the normal player cap without kicking players or creating a queue." />
+                </div>
                 <MudTextField T="string" @bind-Value="_allowedSteam" Label="Explicit Steam allowlist" Lines="3" HelperText="SteamID64 values separated by commas or newlines. These accounts can pass the whitelist without Discord. Keep a recovery administrator here." />
                 <h4 class="quasar-text quasar-type-subtitle2">Promotion roles</h4>
                 @foreach (var row in _promotions)
                 {
                     <div class="quasar-row" @key="row">
                         <MudSelect T="ulong" @bind-Value="row.Role" ToStringFunc="RoleName" Label="Discord role" Disabled="_busy">
-                            @foreach (var role in Roles) { <MudSelectItem T="ulong" Value="@role.Id">@role.Name</MudSelectItem> }
+                            @foreach (var id in PromotionRoles) { <MudSelectItem T="ulong" Value="@id">@RoleName(id)</MudSelectItem> }
                         </MudSelect>
                         <MudSelect T="int" @bind-Value="row.Level" Label="Game promotion">
                             <MudSelectItem T="int" Value="0">None</MudSelectItem>
@@ -127,18 +107,9 @@
     private readonly CancellationTokenSource _stop = new();
     private bool BotConfigured => _state?.Configured == true;
     private string DiscordServerName => _state?.GuildName ?? "Not configured";
-    private IReadOnlyList<(ulong Id, string Name)> Roles
-    {
-        get
-        {
-            var roles = _state?.Roles.Select(r => (Id: ulong.Parse(r.Id), r.Name)).ToList() ?? [];
-            var saved = _settings.Policies.SelectMany(p => p.RequiredRoles.Concat(p.PriorityRoles).Concat(p.Promotions.Select(m => m.RoleId)))
-                .Concat(_promotions.Select(p => p.Role)).Where(id => id != 0).Distinct();
-            foreach (var id in saved.Where(id => roles.All(r => r.Id != id))) roles.Add((id, "Unavailable role (" + id + ")"));
-            return roles;
-        }
-    }
-    private string RoleName(ulong id) => id == 0 ? "Choose a Discord role" : Roles.FirstOrDefault(r => r.Id == id).Name ?? id.ToString();
+    private IReadOnlyDictionary<ulong, string> _guildRoles = new Dictionary<ulong, string>();
+    private IEnumerable<ulong> PromotionRoles => _guildRoles.Keys.Concat(_promotions.Select(p => p.Role)).Where(id => id != 0).Distinct();
+    private string RoleName(ulong id) => id == 0 ? "Choose a Discord role" : _guildRoles.GetValueOrDefault(id) ?? $"Unavailable role ({id})";
 
     protected override Task OnInitializedAsync() => LoadAsync(true);
 
@@ -147,6 +118,7 @@
         try
         {
             _state = await Sdk.RequestAsync<AccessDashboard>("access.dashboard", token: _stop.Token);
+            _guildRoles = _state.Roles.ToDictionary(r => ulong.Parse(r.Id), r => r.Name);
             _targets = _state.Targets;
             if (settings)
             {
@@ -194,22 +166,6 @@
             await Sdk.RequestAsync<bool>("access.settings.save", new { Settings = JsonSerializer.Serialize(_settings) }, _stop.Token);
             await LoadAsync(true);
             _notice = "Access settings saved. Check enforcement status before relying on the whitelist.";
-        }
-        catch (Exception error) { _error = error.Message; }
-        finally { _busy = false; }
-    }
-
-    private async Task VerifyAsync()
-    {
-        if (_busy) return;
-        _busy = true; _error = _notice = "";
-        try
-        {
-            await Sdk.RequestAsync<bool>("access.website.verify", token: _stop.Token);
-            await LoadAsync(false);
-            var saved = JsonSerializer.Deserialize<PlayerAccessSettings>(_state!.Settings)!;
-            _settings.Revision = saved.Revision; _settings.VerifiedUntil = saved.VerifiedUntil;
-            _notice = "Public website verified for seven days.";
         }
         catch (Exception error) { _error = error.Message; }
         finally { _busy = false; }

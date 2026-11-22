@@ -45,7 +45,6 @@ public sealed class QuasarChatCommands
     private readonly RbacConfigCatalog rbac;
     private readonly QuasarRoleMapper roles;
     private readonly ILogger<QuasarChatCommands> logger;
-    private readonly PlayerAuthBrowser? browser;
     private readonly PlayerAccessCatalog? accessCatalog;
     private readonly Dictionary<string, IQuasarChatCommand> _commands = new(
         StringComparer.OrdinalIgnoreCase
@@ -60,7 +59,6 @@ public sealed class QuasarChatCommands
         QuasarRoleMapper roles,
         IEnumerable<IQuasarChatCommand> commands,
         ILogger<QuasarChatCommands> logger,
-        PlayerAuthBrowser? browser = null,
         PlayerAccessCatalog? accessCatalog = null
     )
     {
@@ -71,7 +69,6 @@ public sealed class QuasarChatCommands
         this.rbac = rbac;
         this.roles = roles;
         this.logger = logger;
-        this.browser = browser;
         this.accessCatalog = accessCatalog;
         foreach (var command in commands)
         {
@@ -164,19 +161,7 @@ public sealed class QuasarChatCommands
             var target = source.IsCluster ? "cluster:" + source.ClusterId : "server:" + source.UniqueNameKey;
             if (accessCatalog?.GetSettings().Policies.Any(p => p.Target == target && p.Enabled) != true)
             { await reply("Player authentication is not available for this server. Ask an administrator to configure it.", token); return; }
-            if (browser?.Ready != true)
-            {
-                await reply("Run /authorize in this game's Discord server and select this server or cluster.", token);
-                return;
-            }
-            var url = browser.Begin(target, steamId);
-            await reply("Authenticate Steam and Discord, then authorize this server: " + url, token);
-            if (!source.IsCluster && source.Hello?.PlayerAccessVersion == PlayerAccessSnapshot.ProtocolVersion)
-                await registry.SendCommandAndWaitAsync(new ServerCommandEnvelope
-                {
-                    AgentId = source.AgentId, ServerId = source.ServerKey, UniqueName = source.UniqueNameKey,
-                    CommandType = ServerCommandType.OpenPlayerAuthentication, SteamId = request.SteamId, Text = url,
-                }, WhisperTimeout, token);
+            await reply("Run /authorize in this game's Discord server and select this server or cluster.", token);
             return;
         }
 
@@ -427,4 +412,21 @@ public static class QuasarPlayerServicesRegistration
                 provider.GetRequiredService<QuasarServerQueries>()
             )
             .AddSingleton<QuasarPlayerTools>();
+
+    public static IServiceCollection AddPlayerAuthentication(this IServiceCollection services)
+    {
+        services.AddSingleton<PlayerAccessCatalog>();
+        services.AddSingleton<PrivatePlayerAuthorization>();
+        services.AddSingleton<DiscordPlayerRoles>();
+        services.AddSingleton<PlayerAccessService>();
+        services.AddSingleton<PlayerAccessWorker>();
+        services.AddHostedService(p => p.GetRequiredService<PlayerAccessWorker>());
+        services.AddHttpClient(PrivatePlayerAuthorization.ClientName, client =>
+        {
+            client.BaseAddress = PrivatePlayerAuthorization.AuthenticationOrigin;
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.MaxResponseContentBufferSize = 4096;
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        return services;
+    }
 }

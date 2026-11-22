@@ -1,6 +1,6 @@
 # Open questions
 
-- Player authentication has automated OAuth binding, admission and promotion recovery checks. Live Discord callbacks, public proxy routing and real player joins still need operator acceptance. Self-hosted verification needs the new Nebula verifier deployed, and clusters need a package advertising `PUT /admin/v1/players/access` plus World Authority promotion leases. Source implementation alone does not establish those external deployments. (`Docs/PlayerAuthentication.md`)
+- Live player authentication through Discord and real player joins still need operator acceptance. Clusters need a package advertising `PUT /admin/v1/players/access` plus World Authority promotion leases. Source implementation alone does not establish those external deployments. (`Docs/PlayerAuthentication.md`)
 
 Things the Quasar code leaves unclear, places where the repository's `Docs/` and the code disagree, and features the docs describe that the code doesn't do yet. Found while writing this handbook. Where docs and code disagree, the pages follow the code.
 

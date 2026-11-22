@@ -13,7 +13,8 @@ public sealed class PrivatePlayerAuthorization(IHttpClientFactory clients, Playe
     PlayerAccessService access, QuasarPlayerLinks links, DiscordOptionsCatalog discord)
 {
     internal const string ClientName = "PrivatePlayerAuthorization";
-    private static readonly Uri LinkPage = new(PlayerAuthEndpoints.AuthenticationOrigin + "/link");
+    internal static readonly Uri AuthenticationOrigin = new("https://auth.se-servers.net/");
+    private static readonly Uri LinkPage = new(AuthenticationOrigin, "link");
     private readonly ConcurrentDictionary<ulong, byte> pendingPlayers = new();
     private readonly SemaphoreSlim pendingLimit = new(32);
 

@@ -1,7 +1,5 @@
 using System.Text.Json;
-using System.Security.Cryptography;
 using Magnetar.Protocol.Runtime;
-using Microsoft.AspNetCore.DataProtection;
 using Quasar.Services.Auth;
 
 namespace Quasar.Services.Players;
@@ -13,31 +11,18 @@ public sealed class PlayerAccessCatalog
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
     private readonly string path;
-    private readonly IDataProtector protector;
     private readonly SemaphoreSlim gate = new(1, 1);
     private readonly object sync = new();
     private AccessFile file;
-    private string? unreadableCredential;
-    public bool CredentialUnavailable => unreadableCredential is not null;
 
-    public PlayerAccessCatalog(IDataProtectionProvider protection)
-        : this(Path.Combine(MagnetarPaths.GetQuasarDirectory(), "player-access.json"), protection) { }
+    public PlayerAccessCatalog()
+        : this(Path.Combine(MagnetarPaths.GetQuasarDirectory(), "player-access.json")) { }
 
-    internal PlayerAccessCatalog(string path, IDataProtectionProvider protection)
+    internal PlayerAccessCatalog(string path)
     {
         this.path = path;
-        protector = protection.CreateProtector("Quasar.PlayerAccess.v1");
         file = File.Exists(path) ? JsonSerializer.Deserialize<AccessFile>(File.ReadAllText(path), Json)
             ?? throw new InvalidDataException("Player access settings are damaged.") : new();
-        if (file.Settings.DiscordClientSecret.Length != 0)
-        {
-            try { file.Settings.DiscordClientSecret = protector.Unprotect(file.Settings.DiscordClientSecret); }
-            catch (CryptographicException)
-            {
-                unreadableCredential = file.Settings.DiscordClientSecret;
-                file.Settings.DiscordClientSecret = "";
-            }
-        }
         Validate(file.Settings);
     }
 
@@ -56,31 +41,15 @@ public sealed class PlayerAccessCatalog
     public async Task SaveSettingsAsync(PlayerAccessSettings settings, CancellationToken token = default)
     {
         var next = Copy(settings);
-        next.PublicUrl = next.PublicUrl.Trim();
-        if (next.PublicUrl.Length != 0) next.PublicUrl = CanonicalPublicUrl(next.PublicUrl)
-            ?? throw new ArgumentException("Use a public HTTPS hostname without a path, credentials, query or fragment.");
         Validate(next);
         await ChangeAsync(current =>
         {
             if (next.Revision != current.Settings.Revision)
                 throw new InvalidOperationException("Player access settings changed. Reload before saving.");
-            if (next.PublicUrl != current.Settings.PublicUrl)
-            { next.VerifiedUrl = null; next.VerifiedUntil = null; }
-            // Verification is written only by the verifier, never accepted from the settings form.
-            else { next.VerifiedUrl = current.Settings.VerifiedUrl; next.VerifiedUntil = current.Settings.VerifiedUntil; }
             next.Revision = NextRevision(next.Revision);
             current.Settings = next;
         }, token);
     }
-
-    internal Task RecordVerificationAsync(string url, DateTimeOffset until, CancellationToken token) =>
-        ChangeAsync(current =>
-        {
-            if (current.Settings.PublicUrl != url) throw new InvalidOperationException("Public URL changed during verification.");
-            current.Settings.VerifiedUrl = url;
-            current.Settings.VerifiedUntil = until;
-            current.Settings.Revision = NextRevision(current.Settings.Revision);
-        }, token);
 
     internal Task AuthorizeAsync(PlayerAccessPolicy policy, string authenticationId, CancellationToken token) =>
         ChangeAsync(current =>
@@ -99,14 +68,8 @@ public sealed class PlayerAccessCatalog
             AccessFile next;
             lock (sync) next = Copy(file);
             change(next);
-            var persisted = Copy(next);
-            if (persisted.Settings.DiscordClientSecret.Length != 0)
-                persisted.Settings.DiscordClientSecret = protector.Protect(persisted.Settings.DiscordClientSecret);
-            else if (unreadableCredential is not null)
-                persisted.Settings.DiscordClientSecret = unreadableCredential;
-            await AtomicFileWriter.WritePrivateTextAsync(path, JsonSerializer.Serialize(persisted, Json), token);
+            await AtomicFileWriter.WritePrivateTextAsync(path, JsonSerializer.Serialize(next, Json), token);
             lock (sync) file = next;
-            if (next.Settings.DiscordClientSecret.Length != 0) unreadableCredential = null;
         }
         finally { gate.Release(); }
         Changed?.Invoke();
@@ -114,11 +77,7 @@ public sealed class PlayerAccessCatalog
 
     internal static void Validate(PlayerAccessSettings settings)
     {
-        if (settings.PublicUrl.Length != 0 && !IsPublicUrl(settings.PublicUrl))
-            throw new ArgumentException("Use a public HTTPS hostname with no path, credentials, query or fragment.");
-        if (settings.DiscordClientId.Length != 0 && (!ulong.TryParse(settings.DiscordClientId, out var id) || id == 0))
-            throw new ArgumentException("Discord application ID must be a numeric identifier.");
-        if (settings.DiscordClientSecret.Length > 512 || settings.Policies.Count > 1000
+        if (settings.Policies.Count > 1000
             || settings.Policies.Select(p => p.Target).Distinct(StringComparer.OrdinalIgnoreCase).Count() != settings.Policies.Count)
             throw new ArgumentException("Invalid or duplicate player access settings.");
         foreach (var policy in settings.Policies)
@@ -132,13 +91,6 @@ public sealed class PlayerAccessCatalog
                 throw new ArgumentException("Invalid player access policy, role, Steam ID or promotion level.");
         }
     }
-
-    internal static bool IsPublicUrl(string value) => CanonicalPublicUrl(value) is not null;
-    internal static string? CanonicalPublicUrl(string value) => Uri.TryCreate(value.Trim(), UriKind.Absolute, out var uri)
-        && uri.Scheme == "https" && uri.Port == 443 && uri.HostNameType == UriHostNameType.Dns && uri.Host.Contains('.')
-        && !uri.Host.EndsWith(".localhost", StringComparison.OrdinalIgnoreCase) && uri.Host != "localhost"
-        && uri.UserInfo.Length == 0 && uri.AbsolutePath == "/" && uri.Query.Length == 0 && uri.Fragment.Length == 0
-        ? uri.GetLeftPart(UriPartial.Authority) : null;
 
     private static T Copy<T>(T value) => JsonSerializer.Deserialize<T>(JsonSerializer.Serialize(value, Json), Json)!;
     private static long NextRevision(long previous) => Math.Max(checked(previous + 1), DateTimeOffset.UtcNow.UtcTicks);

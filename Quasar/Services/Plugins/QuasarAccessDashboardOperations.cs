@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Discord;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
 using Quasar.Services.Discord;
@@ -22,18 +23,16 @@ internal static class QuasarAccessDashboardOperations
         {
             var scope = caller.Services;
             var settings = scope.GetRequiredService<PlayerAccessCatalog>().GetSettings();
-            settings.DiscordClientSecret = ""; settings.DiscordClientId = "";
             settings.Policies.RemoveAll(p => !InScope(caller, p.Target));
             var bot = scope.GetRequiredService<DiscordOptionsCatalog>().GetOptions();
-            var guild = scope.GetService<DiscordBotService>()?.CurrentClient?.GetGuild(bot.GuildId);
+            var client = scope.GetService<DiscordBotService>()?.CurrentClient;
+            var guild = bot.Enabled && client?.ConnectionState == ConnectionState.Connected ? client.GetGuild(bot.GuildId) : null;
             var worker = scope.GetRequiredService<PlayerAccessWorker>();
-            var browser = scope.GetRequiredService<PlayerAuthBrowser>();
             return Task.FromResult(new AccessDashboard(JsonSerializer.Serialize(settings), bot.GuildId.ToString(), bot.Enabled && bot.GuildId != 0, guild is not null,
                 guild?.Name ?? (bot.GuildId == 0 ? "Not configured" : bot.GuildId.ToString()),
                 guild?.Roles.Where(r => !r.IsEveryone).OrderByDescending(r => r.Position).Select(r => new AccessRole(r.Id.ToString(), r.Name + " (" + r.Id + ")")).ToArray() ?? [],
-                scope.GetRequiredService<PlayerAccessService>().Targets().Where(t => InScope(caller, t.Key)).Select(t => new AccessTarget(t.Key, t.Name, worker.Status(t.Key))).ToArray(),
-                browser.Ready, browser.PublicUrl));
-        }, read with { Description = "Returns the server access settings and verification state." });
+                scope.GetRequiredService<PlayerAccessService>().Targets().Where(t => InScope(caller, t.Key)).Select(t => new AccessTarget(t.Key, t.Name, worker.Status(t.Key))).ToArray()));
+        }, read with { Description = "Returns the server access policies and enforcement status." });
         services.AddQuasarOperation<AccessEdit, bool>(PluginId, "access.settings.save", manage, async (caller, input, ct) =>
         {
             var scope = caller.Services;
@@ -41,7 +40,6 @@ internal static class QuasarAccessDashboardOperations
             var current = store.GetSettings();
             var settings = JsonSerializer.Deserialize<PlayerAccessSettings>(input.Settings) ?? throw new QuasarOperationException(400, "Invalid settings.");
             if (settings.Policies.Any(p => !InScope(caller, p.Target))) throw new QuasarOperationException(403, "Cluster access denied.");
-            settings.DiscordClientSecret = current.DiscordClientSecret; settings.DiscordClientId = current.DiscordClientId;
             var targets = scope.GetRequiredService<PlayerAccessService>().Targets();
             var bot = scope.GetRequiredService<DiscordOptionsCatalog>().GetOptions();
             foreach (var policy in settings.Policies.Where(p => p.Enabled))
@@ -68,11 +66,6 @@ internal static class QuasarAccessDashboardOperations
             await store.SaveSettingsAsync(settings, ct);
             return true;
         }, change with { Description = "Saves the selected server's access settings." });
-        services.AddQuasarOperation<EmptyRequest, bool>(PluginId, "access.website.verify", manage, async (caller, _, ct) =>
-        {
-            await caller.Services.GetRequiredService<PlayerAuthBrowser>().VerifyAsync(ct);
-            return true;
-        }, change with { Description = "Verifies the configured website connection." });
         services.AddQuasarOperation<Selection, List<AccessRow>>(PluginId, "access.players.check", manage, async (caller, input, ct) =>
         {
             if (!InScope(caller, input.Key)) throw new QuasarOperationException(403, "Cluster access denied.");

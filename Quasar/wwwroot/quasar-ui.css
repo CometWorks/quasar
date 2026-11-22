@@ -314,6 +314,8 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-runtime-table th { width: 180px; }
 .quasar-runtime-table pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .quasar-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.quasar-role-options { display: grid; gap: 4px; max-height: 12rem; overflow-y: auto; }
+.quasar-role-options .quasar-check { min-height: 28px; overflow-wrap: anywhere; }
 .quasar-check input { accent-color: var(--quasar-palette-primary); }
 .quasar-fieldset:disabled { opacity: .7; }
 .quasar-details {

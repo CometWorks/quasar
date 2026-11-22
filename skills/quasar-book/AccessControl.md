@@ -14,13 +14,13 @@ Quasar has three ways to authenticate a request:
 
 Steam is the dashboard sign-in provider. Player authentication also uses Discord OAuth without granting dashboard roles. `appsettings.json` contains an `ExternalProviders:Oidc` section and the **Security** page offers "Oidc" as a mapping provider, but Quasar does not register an OIDC sign-in, so these settings have no effect.
 
-Headless mode (`--headless`) keeps Steam `/login` and the public player authentication website. Configure player authentication through the UI before switching to headless mode.
+Headless mode (`--headless`) keeps Steam `/login` and Discord player linking. Configure player authentication through the UI before switching to headless mode.
 
 ## Player authentication
 
 **Access** in the main Control plane section configures Steam/Discord browser linking,
 role-based game promotions, whitelist and priority joining. **Server access** contains
-connection setup and policies; **Linked accounts** lists account links. Only Quasar admins
+server and cluster policies; **Linked accounts** lists account links. Only Quasar admins
 can change this policy. Player authentication never grants dashboard roles.
 
 Configure the existing bot and guild on **Discord**. Enable its **Server Members**
@@ -33,13 +33,7 @@ Players can link through the existing Quasar bot. Quasar needs outbound HTTPS to
 private. No hosting enrollment, per-panel OAuth secret or public callback is
 required. Quasar's bot checks guild membership and roles locally.
 
-For an optional public player page, enable Quasar's Steam authentication as the
-default provider and use active Nebula hosting or verify a public HTTPS root URL
-on port 443. The verification service at `auth.se-servers.net` refuses redirects
-and private addresses. Proof lasts seven days. Enabled policies attempt renewal
-during the last day and retry hourly.
-
-Choose a server or cluster, named access and priority roles, and promotion mappings.
+Choose a server or cluster. Search the required and priority role lists by name or ID, select the roles that apply, and configure promotion mappings.
 Quasar uses its bot's configured guild automatically. Saved roles remain visible
 by ID if the bot is offline or a role is unavailable; refreshing bot and roles
 loads current names without discarding edits. Include a recovery SteamID64 in the explicit allowlist.
@@ -53,9 +47,7 @@ saved policy.
 Players run `/authorize` in the server's Discord, enter the game server or cluster
 name, then follow the bot's private link and authenticate both accounts. The bot
 reports whether access was authorized. Whitelist players can do this before
-joining. In-game `!authorize` directs players to Discord or opens the configured
-public player page. The public page accepts a game-bound request only from the
-same Steam account and has a separate **Authorize this server** action.
+joining. In-game `!authorize` directs players to that Discord command.
 
 Whitelist requires the account pair, guild membership, any one required role when
 listed, and server authorization. An empty role list still needs membership.
@@ -75,12 +67,11 @@ disconnect existing players.
 The `!link` and Discord `/link CODE` exchange is removed. Legacy links stay visible
 on **Access → Linked accounts**, but must authenticate both accounts before identifying a player
 or granting access. Conflicting authenticated links are rejected. Players can
-unlink with `/unlink-accounts` in Discord or through the public player page.
+unlink with `/unlink-accounts` in Discord.
 Unlinking revokes linked eligibility. Relinking requires fresh authorization.
 
-Private `player-access.json` stores settings and authorizations. Legacy per-panel
-OAuth credentials are preserved encrypted for compatibility but are unused.
-Preserve Data Protection keys with backups. New linking depends on the shared
+Private `player-access.json` stores settings and authorizations. Retired website settings
+and per-panel credentials are ignored and dropped on the next write. New linking depends on the shared
 authentication service. Existing links, server authorizations and bot role
 checks remain usable during relay outages. Discord-initiated linking uses a
 short-lived, single-use proof that Quasar retrieves over outbound HTTPS.
@@ -516,11 +507,11 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Services/Plugins/QuasarMyOperations.cs`
 - `Docs/PlayerAuthentication.md`
 - `Quasar/Services/Players/PlayerAccessCatalog.cs`
-- `Quasar/Services/Players/PlayerAuthBrowser.cs`
-- `Quasar/Services/Players/PlayerAuthEndpoints.cs`
+- `Quasar/Services/Players/PrivatePlayerAuthorization.cs`
 - `Quasar/Services/Players/PlayerAccessService.cs`
 - `Quasar/Services/Players/DiscordPlayerRoles.cs`
 - `Quasar.Client/Components/PlayerAccessView.razor`
+- `Quasar.Client/Components/DiscordRolePicker.razor`
 - `Quasar.Client/Components/AccessView.razor`
 - `Quasar.Tests/PlayerAccessPageTests.cs`
 - `Quasar.Agent/PlayerAccessEnforcement.cs`

@@ -285,13 +285,6 @@ public class Program
             builder.Services.AddSingleton<IQuasarCompanionChannel, QuasarCompanionChannel>();
             builder.Services.AddQuasarPlayerServices();
             builder.Services.AddPlayerAuthentication();
-            builder.Services.AddRateLimiter(limiter =>
-            {
-                limiter.RejectionStatusCode = 429;
-                limiter.AddPolicy("player-auth", context => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
-                    context.Connection.RemoteIpAddress?.ToString() ?? "unknown", _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
-                    { PermitLimit = 30, Window = TimeSpan.FromMinutes(1), QueueLimit = 0 }));
-            });
             builder.Services.AddSingleton<QuasarConfigProfileCatalog>();
             builder.Services.AddSingleton<QuasarDevFolderCatalog>();
             builder.Services.AddSingleton<QuasarPluginHubCatalog>();
@@ -435,7 +428,6 @@ public class Program
                 await next(context);
             });
             app.UseAuthorization();
-            app.UseRateLimiter();
             app.UseAntiforgery();
 
             app.MapWebServiceProbes(authOptions);
@@ -446,7 +438,6 @@ public class Program
             app.MapClusterHostEnrollmentApi();
 
             app.MapQuasarCoreOperations();
-            app.MapPlayerAuthentication();
 
             // Chartable plugin-statistics metrics discovered at runtime from what plugins have
             // published (provider/group/field), so the Analytics page can offer them as panels.

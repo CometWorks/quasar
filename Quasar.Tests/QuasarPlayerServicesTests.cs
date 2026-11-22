@@ -1,3 +1,4 @@
+using System.Net.Http.Json;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
@@ -5,6 +6,8 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Plugin.Abstractions.Commands;
@@ -15,6 +18,7 @@ using Quasar.Plugin.Abstractions.Servers;
 using Quasar.Services;
 using Quasar.Services.Audit;
 using Quasar.Services.Auth;
+using Quasar.Services.Discord;
 using Quasar.Services.Players;
 using Quasar.Services.Plugins;
 using Xunit;
@@ -99,6 +103,64 @@ public sealed class QuasarPlayerServicesTests : IDisposable
             Directory.Delete(_root, recursive: true);
         }
         catch (IOException) { }
+    }
+
+    [Fact]
+    public async Task PrivatePanelLinksThroughTheSharedServiceAndChecksGuildMembershipSeparately()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder().Build());
+        services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
+        services.AddSingleton<DiscordOptionsCatalog>();
+        services.AddSingleton<DedicatedServerCatalog>();
+        services.AddSingleton<ClusterCatalog>();
+        services.AddSingleton<QuasarPlayerLinks>();
+        services.AddPlayerAuthentication();
+        // A configured bot with no live Discord connection cannot confirm membership.
+        services.AddSingleton(sp => new DiscordBotService(sp.GetRequiredService<DiscordOptionsCatalog>(), _registry,
+            null!, null!, null!, null!, null!, null!, null!, null!, NullLogger<DiscordBotService>.Instance, null!));
+        services.AddHttpClient(PrivatePlayerAuthorization.ClientName)
+            .ConfigurePrimaryHttpMessageHandler(() => new SharedLinkService());
+        using var provider = services.BuildServiceProvider();
+        await provider.GetRequiredService<DedicatedServerCatalog>().UpsertAsync(
+            new Quasar.Models.DedicatedServerDefinition { UniqueName = "alpha", DisplayName = "Alpha", WorldSaveName = "world" });
+        await provider.GetRequiredService<DiscordOptionsCatalog>().SaveAsync(new() { Enabled = true, GuildId = 42, BotToken = "fixture-token" });
+        var catalog = provider.GetRequiredService<PlayerAccessCatalog>();
+        await catalog.SaveSettingsAsync(new() { Policies = [new() { Target = "server:alpha", Enabled = true, GuildId = 42 }] });
+
+        var authorization = provider.GetRequiredService<PrivatePlayerAuthorization>();
+        Uri? sent = null;
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            authorization.AuthorizeAsync(42, "Guild", 123, "Alpha", url => { sent = url; return Task.CompletedTask; }, deadline.Token));
+        Assert.Equal(new Uri("https://auth.se-servers.net/link?request=" + SharedLinkService.RequestId), sent);
+        Assert.Contains("membership", failure.Message);
+        var links = provider.GetRequiredService<QuasarPlayerLinks>();
+        var link = Assert.Single(links.GetLinks());
+        Assert.Equal(Pilot, link.SteamId);
+        Assert.Equal("123", link.DiscordUserId);
+        Assert.True(link.Authenticated);
+        Assert.False(catalog.IsAuthorized("server:alpha", link.AuthenticationId!));
+        await authorization.UnlinkAsync(42, 123, deadline.Token);
+        Assert.Empty(links.GetLinks());
+    }
+
+    private sealed class SharedLinkService : HttpMessageHandler
+    {
+        internal static readonly string RequestId = new('a', 43);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            var response = request.RequestUri!.AbsoluteUri switch
+            {
+                "https://auth.se-servers.net/link/requests" => JsonContent.Create(new { requestId = RequestId }),
+                "https://auth.se-servers.net/link/redeem" => JsonContent.Create(new { steamId = Pilot, discordId = "123" }),
+                _ => throw new InvalidOperationException("Unexpected request to " + request.RequestUri)
+            };
+            return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = response });
+        }
     }
 
     [Fact]

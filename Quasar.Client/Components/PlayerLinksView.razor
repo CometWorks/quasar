@@ -11,7 +11,7 @@
     <section class="quasar-panel pa-4 mt-4">
         <div class="quasar-layout quasar-gap-3">
             <h2 class="quasar-text quasar-type-h6">Authenticated player accounts</h2>
-            <p>Players authenticate Steam and Discord on the public player authentication website. Old code-based links require browser authentication before they can identify a player or grant access.</p>
+            <p>Players authenticate Steam and Discord through the private link from <code>/authorize</code> in Discord. Old code-based links require browser authentication before they can identify a player or grant access.</p>
             <MudTable T="LinkedPlayer" Items="_links" Dense="true" Hover="true">
                 <HeaderContent>
                     <MudTh>Player</MudTh>
@@ -39,7 +39,7 @@
 }
 else
 {
-    <MudAlert Severity="Severity.Info">No player accounts are linked yet. Players link Steam and Discord through the public player authentication website.</MudAlert>
+    <MudAlert Severity="Severity.Info">No player accounts are linked yet. Players link Steam and Discord by running <code>/authorize</code> in Discord.</MudAlert>
 }
 
 

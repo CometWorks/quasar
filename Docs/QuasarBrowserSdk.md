@@ -210,12 +210,11 @@ arguments to a command root's default command. Magnetar can't drop a
 registered command, so a command whose plugin is gone stays until the server
 restarts and answers that it is not available.
 
-`!authorize` opens browser Steam/Discord authentication on the verified public
-website or active Nebula panel. The `!link` and Discord `/link` code exchange is
+`!authorize` directs players to run `/authorize` in the server's Discord. The `!link` and Discord `/link` code exchange is
 removed. Only browser-authenticated pairs identify player callers; old links need
 reauthentication. Conflicting pairs are rejected. See
 [Player authentication](PlayerAuthentication.md) for server authorization,
-whitelist, promotions and priority access. Admins can remove links on **Players**;
+whitelist, promotions and priority access. Admins can remove links on **Access → Linked accounts**;
 these identity links do not grant dashboard roles.
 
 ### Notice sources

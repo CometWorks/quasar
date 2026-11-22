@@ -748,7 +748,7 @@ Steam/billing/tunnel acceptance remain platform deployment checks.
 ## Player authentication checks
 
 Player authentication is built into Quasar and Quasar.Agent. See
-[the operator guide](PlayerAuthentication.md) for Access, shared authentication, verified origins,
+[the operator guide](PlayerAuthentication.md) for Access, Discord-initiated linking,
 policy semantics and deployment gates. No standalone GameServerAuth plugin is
 needed. Keep its control messages outside the browser's generic command surface.
 
@@ -756,7 +756,7 @@ With a current Magnetar PluginSdk reference (including the existing clustering,
 view, broadcast and alias contracts), run:
 
 ```sh
-MagnetarBin=/path/to/current-sdk dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~PlayerAccessTests|FullyQualifiedName~PlayerOAuthTests|FullyQualifiedName~QuasarPlayerLinksTests|FullyQualifiedName~PlayerCommandTests|FullyQualifiedName~QuasarPlayerServicesTests|FullyQualifiedName~PlayerRequestSocketTests|FullyQualifiedName~HostGateway|FullyQualifiedName~ClusterHostClient'
+MagnetarBin=/path/to/current-sdk dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~PlayerAccessTests|FullyQualifiedName~PlayerAccessPageTests|FullyQualifiedName~QuasarPlayerLinksTests|FullyQualifiedName~PlayerCommandTests|FullyQualifiedName~QuasarPlayerServicesTests|FullyQualifiedName~PlayerRequestSocketTests|FullyQualifiedName~HostGateway|FullyQualifiedName~ClusterHostClient'
 ```
 
 These checks do not start Quasar or a game server. The admission IL check reads
@@ -767,8 +767,7 @@ lag those assemblies; verify runtime-facing assumptions against current code.
 Matching upstream checks are `ClusterRegistry --self-test player-access`,
 `ClusterRegistry --self-test player-moderation`, the Cluster CLI `--self-test`,
 and `dotnet run --project Test/PlayerModeration/PlayerModeration.csproj` in the
-Cluster source. Nebula has
-`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --public-domain-only`
-and `dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --player-discord-only`.
+Cluster source. For the shared auth service, run
+`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --player-discord-only`.
 Live OAuth callbacks and player joins remain operator acceptance work; source
 checks do not publish or deploy matching Nebula/Cluster builds.
