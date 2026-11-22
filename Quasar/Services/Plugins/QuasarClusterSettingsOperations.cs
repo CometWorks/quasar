@@ -36,7 +36,10 @@ internal static partial class QuasarClusterDetailOperations
                 edit ? profiles.GetProfiles().Select(p => new ClusterProfileChoice(p.ConfigProfileId, p.Name,
                     QuasarDefaultPlugins.Pending(p).Select(d => d.DisplayName).ToArray())).ToArray() : [],
                 profiles.GetProfile(cluster.ConfigProfileId)?.Name ?? cluster.ConfigProfileId,
-                worlds.GetTemplate(cluster.WorldTemplateId)?.Name ?? cluster.WorldTemplateId));
+                worlds.GetTemplate(cluster.WorldTemplateId)?.Name ?? cluster.WorldTemplateId,
+                manage && cluster.Preparation is { } prepared
+                    ? cluster.PreparedDeployment?.Revision ?? cluster.StagedRevision ?? ClusterDependencyService.DeploymentRevision(prepared)
+                    : null));
         }, Read with { Description = "Returns settings and status for the selected cluster." });
         services.AddQuasarOperation<ClusterPanelRequest, bool>(Plugin, "cluster.start.available", Manage, (caller, input, token) =>
             caller.Services.GetRequiredService<ClusterCommandService>().CanStartAsync(Cluster(caller, input.UniqueName), token), Read with { Description = "Checks whether the cluster can be started." });

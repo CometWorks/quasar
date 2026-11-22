@@ -38,7 +38,10 @@ public sealed class ClusterPluginConfigurationPanelTests
             context.ComponentFactories.AddStub<SchemaConfigEditor>();
             IRenderedComponent<ClusterPluginConfigurationPanel> Open() =>
                 context.Render<ClusterPluginConfigurationPanel>(c => c.Add(x => x.UniqueName, cluster.UniqueName));
-            Assert.Contains("No editable plugin configurations", Open().Markup);
+            ClusterDashboard Dashboard() => BrowserClusterFixture.Dashboard(cluster) with
+                { GoalOn = true, PreparationRevision = catalog.GetCluster("test")?.PreparedDeployment?.Revision };
+            var page = context.Render<ClusterAdminPanel>(parameters => parameters.Add(c => c.Cluster, Dashboard()));
+            Assert.Contains("No editable plugin configurations", page.Markup);
 
             var preparation = new ClusterPreparationRequest(new string('a', 64), """
                 {"pluginConfigurations":{"quasar-agent":{"configType":"Primary",
@@ -50,7 +53,8 @@ public sealed class ClusterPluginConfigurationPanelTests
             Assert.Empty(denied.FindComponents<Stub<SchemaConfigEditor>>());
             Assert.DoesNotContain("limit", denied.Markup);
             auth.SetPolicies(QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
-            var editor = Open().FindComponent<Stub<SchemaConfigEditor>>();
+            page.Render(parameters => parameters.Add(c => c.Cluster, Dashboard()));
+            var editor = page.FindComponent<Stub<SchemaConfigEditor>>();
             Assert.Contains("\"limit\":1", editor.Instance.Parameters.Get(p => p.ConfigJson));
             var save = editor.Instance.Parameters.Get(p => p.SaveValues)!;
             auth.SetPolicies();
@@ -61,7 +65,8 @@ public sealed class ClusterPluginConfigurationPanelTests
                 { SpecificationJson = preparation.SpecificationJson.Replace("\"limit\":1", "\"limit\":2") },
                 new(null, "next", []), default);
             auth.SetPolicies(QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
-            Assert.Contains("\"limit\":2", Open().FindComponent<Stub<SchemaConfigEditor>>().Instance.Parameters.Get(p => p.ConfigJson));
+            page.Render(parameters => parameters.Add(c => c.Cluster, Dashboard()));
+            Assert.Contains("\"limit\":2", page.FindComponent<Stub<SchemaConfigEditor>>().Instance.Parameters.Get(p => p.ConfigJson));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

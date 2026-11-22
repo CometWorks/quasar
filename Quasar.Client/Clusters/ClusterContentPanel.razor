@@ -81,6 +81,7 @@
         try
         {
             Snapshot = await Sdk.RequestAsync<ClusterContentView>("cluster.content.read", new ClusterPanelRequest(UniqueName), _stop.Token);
+            _error = null;
             bool available = Snapshot.Items.Any(i => i.HasUpdate);
             if (_hasUpdates != available) _expanded = available;
             _hasUpdates = available;

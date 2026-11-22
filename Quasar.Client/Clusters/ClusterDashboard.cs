@@ -4,7 +4,7 @@ public sealed record ClusterDashboard(string UniqueName, string DisplayName, boo
     bool Deployed, string? DeployedVersion, string? LatestVersion, bool UpdateAvailable, DateTimeOffset? ReleaseChecked, string? ReleaseError,
     string? SetupPhase, string? SetupError, bool CanManage, bool CanMaintain, bool CanEdit,
     string ConfigProfileId, string? PendingProfileId, int ShutdownGracePeriodSeconds, int HotSpares, HostNodeCount[] RegularNodes,
-    ClusterProfileChoice[] Profiles, string ProfileName, string WorldName);
+    ClusterProfileChoice[] Profiles, string ProfileName, string WorldName, string? PreparationRevision = null);
 public sealed record HostNodeCount(string HostId, int RegularNodes);
 public sealed record ClusterProfileChoice(string ConfigProfileId, string Name, string[] MissingDefaults);
 public sealed record SaveClusterSettings(string DisplayName, int ShutdownGracePeriodSeconds);

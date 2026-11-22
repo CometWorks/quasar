@@ -102,7 +102,7 @@
                             </div>
                         </details>
                 }
-                <ClusterPluginConfigurationPanel UniqueName="@Cluster.UniqueName" />
+                <ClusterPluginConfigurationPanel @key="(Cluster.UniqueName, Cluster.PreparationRevision)" UniqueName="@Cluster.UniqueName" />
                 <details class="quasar-details"><summary>Advanced cluster controls</summary>
                 <div class="quasar-stack">
                 @if (Cluster.GoalOn && Cluster.HasGateway)
