@@ -1,11 +1,12 @@
 # Hosted public access with Nebula
 
-Active hosting can also supply the public website for
+Active hosting can supply an optional public website for
 [player authentication](PlayerAuthentication.md). Configure player policies on
 **Access**. Discord consent uses the shared application at `auth.se-servers.net`;
 Quasar's existing bot checks membership and roles. No per-panel OAuth application
 or callback registration is needed. Player linking does not grant dashboard access.
-Pending enrollment alone does not enable this feature.
+Pending enrollment does not supply a public website. Players can authorize from
+their server's Discord while Quasar runs on a private network.
 
 Nebula provides a public URL for the complete existing Quasar application:
 `https://dash.se-servers.net/my-server-panel/`. Servers, worlds, supervision

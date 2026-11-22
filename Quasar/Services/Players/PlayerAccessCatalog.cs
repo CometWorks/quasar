@@ -108,12 +108,12 @@ public sealed class PlayerAccessCatalog
             current.Settings.Revision = NextRevision(current.Settings.Revision);
         }, token);
 
-    internal Task AuthorizeAsync(string target, string authenticationId, CancellationToken token) =>
+    internal Task AuthorizeAsync(PlayerAccessPolicy policy, string authenticationId, CancellationToken token) =>
         ChangeAsync(current =>
         {
-            if (!current.Settings.Policies.Any(p => p.Target == target && p.Enabled))
+            if (!current.Settings.Policies.Any(p => p.Target == policy.Target && p.Enabled && p.GuildId == policy.GuildId))
                 throw new InvalidOperationException("Player authorization is not enabled for this server.");
-            var authorization = new PlayerAuthorization(target, authenticationId);
+            var authorization = new PlayerAuthorization(policy.Target, authenticationId);
             if (!current.Authorizations.Contains(authorization)) current.Authorizations.Add(authorization);
         }, token);
 

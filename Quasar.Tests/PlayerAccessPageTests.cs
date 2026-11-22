@@ -55,7 +55,7 @@ public sealed class PlayerAccessPageTests : IDisposable
     }
 
     [Fact]
-    public async Task AdminUsesBotGuildAndPreservesSavedRoleIdsWhileBotIsOffline()
+    public async Task AdminCanEnablePrivatePlayerAccessAndPreserveRoleIdsWhileBotIsOffline()
     {
         await using var context = Context(true);
         var catalog = new PlayerAccessCatalog(Path.Combine(root, "access.json"), new EphemeralDataProtectionProvider());
@@ -70,11 +70,12 @@ public sealed class PlayerAccessPageTests : IDisposable
         { ["Quasar:ClusterCatalogPath"] = Path.Combine(root, "Clusters") }).Build();
         var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, configuration);
         using var discord = new DiscordOptionsCatalog(NullLogger<DiscordOptionsCatalog>.Instance, new EphemeralDataProtectionProvider(), Path.Combine(root, "discord.json"));
-        await discord.SaveAsync(new() { GuildId = 77 });
+        await discord.SaveAsync(new() { Enabled = true, GuildId = 77, BotToken = "fixture-token" });
         var browser = new PlayerAuthBrowser(catalog, new HostedPanelService(null!, NullLogger<HostedPanelService>.Instance), new(), null!);
-        var access = new PlayerAccessService(catalog, null!, browser, null!, servers, clusters);
+        var access = new PlayerAccessService(catalog, null!, null!, servers, clusters);
         context.Services.AddSingleton(catalog); context.Services.AddSingleton(discord);
         context.Services.AddSingleton(browser); context.Services.AddSingleton(access);
+        context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new PlayerAccessWorker(access, catalog, null!, clusters, null!, null!, browser, NullLogger<PlayerAccessWorker>.Instance));
         context.Render<MudPopoverProvider>();
         var page = context.Render<Access>();
@@ -86,8 +87,11 @@ public sealed class PlayerAccessPageTests : IDisposable
         Assert.Contains("Unavailable role (100)", page.Markup);
         Assert.Contains("Unavailable role (200)", page.Markup);
         Assert.Contains("Unavailable role (300)", page.Markup);
+        Assert.False(browser.Ready);
+        page.FindAll("input[type=checkbox]").First().Change(true);
         await page.FindAll("button").Last(button => button.TextContent.Trim() == "Save access settings").ClickAsync();
         var saved = Assert.Single(catalog.GetSettings().Policies);
+        Assert.True(saved.Enabled);
         Assert.Equal(77UL, saved.GuildId); Assert.Equal([100UL], saved.RequiredRoles); Assert.Equal([200UL], saved.PriorityRoles);
         Assert.Equal(new PlayerPromotionMapping(300, 2), Assert.Single(saved.Promotions));
         var revision = catalog.GetSettings().Revision;

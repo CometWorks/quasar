@@ -28,6 +28,7 @@ public sealed class QuasarChatCommands
     )
     {
         "authorize",
+        "unlink-accounts",
         "link", // Retired code exchange; never let a plugin claim an old authentication command.
         "whisper",
         "faction-channel",
@@ -161,8 +162,13 @@ public sealed class QuasarChatCommands
         if (request.Kind == PlayerRequest.AuthorizeKind)
         {
             var target = source.IsCluster ? "cluster:" + source.ClusterId : "server:" + source.UniqueNameKey;
-            if (browser?.Ready != true || accessCatalog?.GetSettings().Policies.Any(p => p.Target == target && p.Enabled) != true)
+            if (accessCatalog?.GetSettings().Policies.Any(p => p.Target == target && p.Enabled) != true)
             { await reply("Player authentication is not available for this server. Ask an administrator to configure it.", token); return; }
+            if (browser?.Ready != true)
+            {
+                await reply("Run /authorize in this game's Discord server and select this server or cluster.", token);
+                return;
+            }
             var url = browser.Begin(target, steamId);
             await reply("Authenticate Steam and Discord, then authorize this server: " + url, token);
             if (!source.IsCluster && source.Hello?.PlayerAccessVersion == PlayerAccessSnapshot.ProtocolVersion)

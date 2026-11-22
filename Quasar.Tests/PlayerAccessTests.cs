@@ -28,7 +28,7 @@ public sealed class PlayerAccessTests : IDisposable
         await catalog.RecordVerificationAsync(settings.PublicUrl, DateTimeOffset.UtcNow.AddDays(7), default);
         var verified = catalog.GetSettings();
         Assert.NotNull(verified.VerifiedUntil);
-        await catalog.AuthorizeAsync("server:alpha", "authenticated-link", default);
+        await catalog.AuthorizeAsync(catalog.GetSettings().Policies.Single(), "authenticated-link", default);
         Assert.True(catalog.IsAuthorized("server:alpha", "authenticated-link"));
         await Assert.ThrowsAsync<InvalidOperationException>(() => catalog.SaveSettingsAsync(settings));
         verified.PublicUrl = "https://new.example.com";
