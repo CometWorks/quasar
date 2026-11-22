@@ -24,7 +24,7 @@ function observeDashboard(context, circuits, errors) {
 for (const browserType of [chromium, firefox]) {
     const browser = await browserType.launch(browserType === chromium ? { executablePath: process.env.CHROME_PATH } : {});
     try {
-        const context = await browser.newContext();
+        const context = await browser.newContext({ignoreHTTPSErrors: true});
         const errors = [], circuits = [], shared = [], fallbacks = [];
         observeDashboard(context, circuits, errors);
         const page = await context.newPage();
@@ -37,8 +37,9 @@ for (const browserType of [chromium, firefox]) {
         for (const prefix of ["/", "/fixture-panel/"]) {
             const base = address + prefix;
             if (process.env.QUASAR_FLEET_CHECKS === "1") await (await import("./fleet.test.mjs")).checkFleet(browser, base);
-            if (prefix === "/") assert.equal((await context.request.get(base + "settings/display")).status(), 401);
-            await context.request.get(base + "fixture/login");
+            // The root login in this browser must not authorize the hosted panel.
+            assert.equal((await context.request.get(base + "settings/display")).status(), 401);
+            assert.equal((await context.request.get(base + "fixture/login")).status(), 200);
             await page.goto(base + "fixture/tool/42");
             const heading = page.getByRole("heading", { name: "Fixture tool 42" });
             await heading.waitFor();
@@ -54,7 +55,7 @@ for (const browserType of [chromium, firefox]) {
                 const etag = first.headers().etag;
                 assert.equal(etag, '"' + createHash("sha256").update(await first.body()).digest("base64") + '"');
                 assert.equal((await context.request.get(url, {headers: {"Accept-Encoding": "identity", "If-None-Match": etag}})).status(), 304);
-                const anonymous = await browser.newContext();
+                const anonymous = await browser.newContext({ignoreHTTPSErrors: true});
                 try { assert.equal((await anonymous.request.get(url, {headers: {"If-None-Match": etag}})).status(), 401); }
                 finally { await anonymous.close(); }
                 console.log("Verified authorized identity 304 and anonymous framework denial at " + prefix);
@@ -83,7 +84,7 @@ for (const browserType of [chromium, firefox]) {
             }
             console.log(browserType.name() + " rejected the unpublished worker page at " + prefix);
             if (pluginDriver) {
-                const operator = await browser.newContext();
+                const operator = await browser.newContext({ignoreHTTPSErrors: true});
                 observeDashboard(operator, circuits, errors);
                 try {
                     const login = await operator.request.get(base + "fixture/plugin-login");

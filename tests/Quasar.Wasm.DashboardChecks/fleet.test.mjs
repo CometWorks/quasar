@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import {join} from "node:path";
 
 export async function checkFleet(browser, base) {
-    const context = await browser.newContext();
+    const context = await browser.newContext({ignoreHTTPSErrors: true});
     try {
         const page = await context.newPage();
         const errors = [], circuits = [];

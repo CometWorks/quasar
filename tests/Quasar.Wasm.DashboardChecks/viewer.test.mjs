@@ -45,7 +45,7 @@ export async function checkViewer(page, base) {
         assert.ok(delivery?.url().startsWith(base + "_quasar/sdk/v1/ui/assemblies/cometworks.entityviewer/"));
         assert.equal(delivery.status(), 200);
         assert.equal((await delivery.allHeaders())["cache-control"], "private, no-store");
-        const anonymous = await page.context().browser().newContext();
+        const anonymous = await page.context().browser().newContext({ignoreHTTPSErrors: true});
         try { assert.equal((await anonymous.request.get(delivery.url())).status(), 401); }
         finally { await anonymous.close(); }
     } finally { page.off("response", record); }

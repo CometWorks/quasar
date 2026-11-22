@@ -1,5 +1,8 @@
 using System.Diagnostics;
+using System.Net;
 using System.Security.Claims;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.AspNetCore.Hosting.Server.Features;
@@ -27,7 +30,13 @@ try
     var release = new string('a', 64);
     builder.Configuration["QUASAR_NEBULA_RELEASE_SHA256"] = release;
     builder.Configuration["EnableStaticAssetsDevelopmentIntegrity"] = "true";
-    builder.WebHost.UseUrls("http://127.0.0.1:0");
+    using var key = ECDsa.Create(ECCurve.NamedCurves.nistP256);
+    var certificateRequest = new CertificateRequest("CN=localhost", key, HashAlgorithmName.SHA256);
+    var names = new SubjectAlternativeNameBuilder();
+    names.AddIpAddress(IPAddress.Loopback);
+    certificateRequest.CertificateExtensions.Add(names.Build());
+    using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+    builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0, endpoint => endpoint.UseHttps(certificate)));
     if (published is null) builder.WebHost.UseStaticWebAssets();
     builder.Services.AddHttpClient();
     builder.Services.AddSingleton<HostedPanelService>();
@@ -36,6 +45,8 @@ try
     builder.Services.AddCascadingAuthenticationState();
     builder.Services.AddAuthentication("fixture").AddCookie("fixture", options =>
     {
+        options.Cookie.Name = QuasarAuthSchemes.CookieName;
+        options.CookieManager = new HostedPanelCookieManager();
         Quasar.Program.ConfigureDashboardLogin(options);
         options.Events.OnRedirectToLogin = c => { c.Response.StatusCode = 401; return Task.CompletedTask; };
     });
