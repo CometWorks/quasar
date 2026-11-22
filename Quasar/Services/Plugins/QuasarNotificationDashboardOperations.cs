@@ -22,10 +22,11 @@ internal static class QuasarNotificationDashboardOperations
             {
                 var delivery = caller.Services.GetRequiredService<PushNotificationService>();
                 var notices = (await delivery.GetNoticesAsync(caller.User, token)).Where(delivery.IsCurrent).ToArray();
-                return new(notices, caller.Services.GetRequiredService<QuasarUpdateService>().GetSnapshot().GitHubTokenExpired);
-            }, read);
+                return new(notices, caller.Services.GetRequiredService<QuasarUpdateService>().GetSnapshot().GitHubTokenExpired,
+                    caller.Services.GetRequiredService<BrandingService>().Revision);
+            }, read with { Description = "Returns notices visible to the signed-in user." });
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, NotificationPreferences>(plugin, "notifications.preferences", view,
-            (caller, _, token) => caller.Services.GetRequiredService<PushNotificationService>().GetPreferencesAsync(caller.User, token), read);
+            (caller, _, token) => caller.Services.GetRequiredService<PushNotificationService>().GetPreferencesAsync(caller.User, token), read with { Description = "Returns the user's notification preferences." });
         services.AddQuasarOperation<NotificationPreferences, bool>(plugin, "notifications.preferences.save", view,
             async (caller, preferences, token) =>
             {
@@ -35,23 +36,23 @@ internal static class QuasarNotificationDashboardOperations
                 try { await delivery.SavePreferencesAsync(caller.User, preferences, token); }
                 catch (InvalidDataException error) { throw new QuasarOperationException(400, error.Message); }
                 return true;
-            }, write);
+            }, write with { Description = "Saves the user's notification preferences." });
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, string>(plugin, "notifications.push.key", view,
-            (caller, _, token) => caller.Services.GetRequiredService<PushNotificationService>().GetPublicKeyAsync(token), read);
+            (caller, _, token) => caller.Services.GetRequiredService<PushNotificationService>().GetPublicKeyAsync(token), read with { Description = "Returns the public key used by browser push subscriptions." });
         services.AddQuasarOperation<PushEndpoint, bool>(plugin, "notifications.push.status", view,
-            (caller, input, token) => caller.Services.GetRequiredService<PushNotificationService>().IsRegisteredAsync(caller.User, input.EndpointSecret, token), read);
+            (caller, input, token) => caller.Services.GetRequiredService<PushNotificationService>().IsRegisteredAsync(caller.User, input.EndpointSecret, token), read with { Description = "Checks the current browser's push subscription." });
         services.AddQuasarOperation<PushInput, bool>(plugin, "notifications.push.subscribe", view,
             async (caller, input, token) =>
             {
                 if (input.SubscriptionSecret is null) throw new QuasarOperationException(400, "Missing push subscription.");
                 await caller.Services.GetRequiredService<PushNotificationService>().SubscribeAsync(caller.User, input.SubscriptionSecret, token);
                 return true;
-            }, write);
+            }, write with { Description = "Registers the browser's push subscription." });
         services.AddQuasarOperation<PushEndpoint, bool>(plugin, "notifications.push.unsubscribe", view,
             async (caller, input, token) =>
             {
                 await caller.Services.GetRequiredService<PushNotificationService>().UnsubscribeAsync(caller.User, input.EndpointSecret, token);
                 return true;
-            }, write);
+            }, write with { Description = "Removes the browser's push subscription." });
     }
 }

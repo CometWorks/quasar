@@ -228,7 +228,7 @@
             _draft.LogoDarkPath = assets.LogoDarkPath;
             _draft.LogoLightPath = assets.LogoLightPath;
             _draft.FaviconPath = assets.FaviconPath;
-            await ApplyShellAsync(assets);
+            await assets.ApplyAsync(JS, PanelNavigation);
             Notice(kind == "favicon" ? "Favicon updated." : $"{(kind == "dark" ? "Dark" : "Light")}-mode logo updated.");
         }
         catch (Exception error) { Notice($"Upload failed: {error.Message}", true); }
@@ -242,7 +242,7 @@
         try
         {
             _draft = await Sdk.RequestAsync<BrandingSettings>("appearance.save", _draft);
-            await ApplyShellAsync(_draft);
+            await _draft.ApplyAsync(JS, PanelNavigation);
             Notice("Appearance saved.");
         }
         catch (Exception exception) { Notice($"Save failed: {exception.Message}", true); }
@@ -256,7 +256,7 @@
         try
         {
             _draft = await Sdk.RequestAsync<BrandingSettings>("appearance.reset");
-            await ApplyShellAsync(_draft);
+            await _draft.ApplyAsync(JS, PanelNavigation);
             _invalidColors.Clear();
             Notice("Appearance reset to Quasar default.");
         }
@@ -265,12 +265,6 @@
     }
 
     private void Notice(string message, bool error = false) { _notice = message; _noticeError = error; }
-
-    private ValueTask ApplyShellAsync(BrandingSettings settings) => JS.InvokeVoidAsync("quasarSdk.applyBranding",
-        new { settings.AppName, settings.AppSubtitle, darkLogo = PanelNavigation.PanelUrl(settings.LogoDarkPath ?? "Quasar.png"),
-            lightLogo = PanelNavigation.PanelUrl(settings.LogoLightPath ?? "Quasar-inverted-transparent.png"),
-            favicon = PanelNavigation.PanelUrl(settings.FaviconPath ?? "Quasar.ico"),
-            darkPalette = QuasarTheme.BuildCss(settings.DarkPalette, true), lightPalette = QuasarTheme.BuildCss(settings.LightPalette, false) });
 
     private sealed record ColorField(string Label, Func<ThemePalette, string> Get, Action<ThemePalette, string> Set);
     private sealed record ColorGroup(string Title, IReadOnlyList<ColorField> Fields);

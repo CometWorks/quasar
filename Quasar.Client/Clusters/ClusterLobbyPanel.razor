@@ -1,0 +1,132 @@
+@using System.Text
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@implements IDisposable
+
+<section class="quasar-panel quasar-card-content quasar-stack" aria-label="Lobby anchor">
+    <div class="quasar-row quasar-between">
+        <h2 class="quasar-text quasar-type-h6">Lobby</h2>
+        <button type="button" class="quasar-button" disabled="@_busy" @onclick="RefreshAsync">Refresh lobby</button>
+    </div>
+    @if (_error != null) { <p class="quasar-notice quasar-notice-warning" role="alert">@_error</p> }
+    @if (_status?.Anchor is { } station)
+    {
+        <p>@station.Name · Grid @station.GridId · Partition @station.Partition · @(_status.State == "offline" ? "Partition offline" : _status.Owner ?? "Owner unavailable")</p>
+        <p>World position (m) · @station.Position.X, @station.Position.Y, @station.Position.Z</p>
+    }
+    else if (_status != null) { <p>No lobby station configured.</p> }
+    @if (_status?.PendingOperation is { } pending) { <p role="status">Applying lobby change · @pending</p> }
+    @if (_operation != null)
+    {
+        <p role="status">Lobby update · @_operation.State @(_operation.Error?.Message)</p>
+    }
+    @if (_canEdit && _status != null)
+    {
+        <fieldset class="quasar-stack" disabled="@(_busy || _status.PendingOperation != null || _operation?.State == "Running")">
+            <legend>@(_status.Anchor == null ? "Configure lobby" : "Change lobby station")</legend>
+            <label class="quasar-field">Station source
+                <select @bind="_source" @bind:after="SourceChanged"><option value="existing">Existing station</option><option value="file">Upload grid blueprint</option></select>
+            </label>
+            @if (_source == "existing")
+            {
+                <label class="quasar-field">Partition
+                    <select @bind="_partition"><option value="0">Choose an online partition</option>
+                        @foreach (var row in Partitions.Where(p => p.Node != null && !p.Retired && !p.Offline && !p.Recovering && !p.Quarantined))
+                        { <option value="@row.Partition">@row.Partition · @row.Node</option> }
+                    </select>
+                </label>
+                <label class="quasar-field">Station grid entity ID (optional for a partition with one station) <input @bind="_grid" inputmode="numeric" /></label>
+            }
+            else
+            {
+                <label class="quasar-field">Station blueprint (bp.sbc, up to 1 MiB)
+                    <InputFile @ref="_fileInput" accept=".sbc" OnChange="ChooseFile" />
+                </label>
+                <p>Choose a position inside the world, more than 101 km from other partitions. Enter coordinates in metres.</p>
+                <div class="quasar-row quasar-wrap-wrap">
+                    <label>X <input type="number" step="any" @bind="_x" /></label>
+                    <label>Y <input type="number" step="any" @bind="_y" /></label>
+                    <label>Z <input type="number" step="any" @bind="_z" /></label>
+                </div>
+            }
+            <button class="quasar-button" type="button" disabled="@(!ValidInput)" @onclick="ApplyAsync">@(_source == "file" ? "Create and set lobby" : "Set lobby station")</button>
+        </fieldset>
+    }
+</section>
+
+@code {
+    [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
+    [Parameter] public bool CanMaintain { get; set; }
+    [Parameter] public bool CanManage { get; set; }
+    private InputFile? _fileInput;
+    [Parameter] public Admin.PartitionSummary[] Partitions { get; set; } = [];
+    [Parameter] public bool GatewayManage { get; set; }
+    private Admin.LobbyStatus? _status;
+    private PanelOperation? _operation;
+    private IBrowserFile? _file;
+    private bool _busy;
+    private bool _canEdit => CanMaintain && CanManage && GatewayManage;
+    private string _source = "existing", _grid = "";
+    private string? _error;
+    private ulong _partition;
+    private double? _x, _y, _z;
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool ValidInput => _source == "existing" ? _partition != 0 && (string.IsNullOrWhiteSpace(_grid) || long.TryParse(_grid, out var id) && id > 0)
+        : _file != null && _x.HasValue && _y.HasValue && _z.HasValue;
+
+    protected override async Task OnInitializedAsync() => await RefreshAsync();
+
+    private void SourceChanged() { _file = null; _error = null; }
+
+    private void ChooseFile(InputFileChangeEventArgs change)
+    {
+        _file = null;
+        _error = null;
+        if (change.File.Size is <= 0 or > Admin.LobbyUpdate.MaxBlueprintBytes)
+            _error = "Choose a nonempty grid blueprint up to 1 MiB.";
+        else _file = change.File;
+    }
+
+    private async Task RefreshAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            _status = await Sdk.ReadClusterAsync<Admin.LobbyStatus>("cluster.lobby", UniqueName, _lifetime.Token);
+            if (_operation != null) _operation = await Sdk.RequestAsync<PanelOperation>("cluster.panel.operation", ClusterPanelRequest.For(UniqueName, _operation.OperationId), _lifetime.Token);
+        }
+        catch (JSException error) { _status = null; _error = error.Message; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    private async Task ApplyAsync()
+    {
+        if (_busy || !ValidInput || _status == null) return;
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (!_canEdit) { _error = "Administrator access is required."; return; }
+            if (_source == "file" && _fileInput?.Element is { } input && _file is { } file)
+            {
+                var target = new LobbyBlueprintTarget(_status.Revision, new(_x!.Value, _y!.Value, _z!.Value));
+                _operation = await JS.InvokeAsync<PanelOperation>("quasarSdk.uploadFile", _lifetime.Token,
+                    "quasar.core", "cluster.lobby.upload", input, file.Name, file.Size, ClusterPanelRequest.For(UniqueName, target));
+            }
+            else if (_source == "existing")
+            {
+                var update = new Admin.LobbyUpdate(_status.Revision, string.IsNullOrWhiteSpace(_grid) ? null : long.Parse(_grid), _partition);
+                _operation = await Sdk.RequestAsync<PanelOperation>("cluster.lobby.set", ClusterPanelRequest.For(UniqueName, update), _lifetime.Token);
+            }
+            _status = await Sdk.ReadClusterAsync<Admin.LobbyStatus>("cluster.lobby", UniqueName, _lifetime.Token);
+        }
+        catch (JSException error) { _error = error.Message; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

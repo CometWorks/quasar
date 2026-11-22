@@ -1,0 +1,122 @@
+@implements IAsyncDisposable
+@inject DashboardSdk Sdk
+@inject ViewerTimeZone ViewerTime
+
+<MudExpansionPanels Class="server-card">
+    <MudExpansionPanel Text="Mods and plugins" @bind-Expanded="_expanded">
+        <div class="quasar-layout quasar-gap-2 pt-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                @if (CanManage) {
+                    <MudButton OnClick="CheckAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.SystemUpdateAlt">@(_busy ? "Checking…" : "Check content updates")</MudButton>
+                    <MudButton OnClick="QueueAsync" Disabled="@(_busy || Snapshot.CheckError is not null || !Snapshot.Items.Any(item => item.HasUpdate && item.Error is null && item.ObservedAt is not null))"
+                               Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save">Queue mod and plugin updates</MudButton>
+                }
+            </div>
+            <span class="quasar-text quasar-type-caption">Last check: @ViewerTime.Format(Snapshot.CheckedAt, "Not checked") · Scheduled checks @(Snapshot.Scheduled ? "enabled" : "disabled")</span>
+            @if (Snapshot.Queued)
+            {
+                <MudAlert Severity="Severity.Info">Observed versions queued. Select Stage queued content updates under Maintenance to pin the profile content and prepare every host machine, then apply the pending update.</MudAlert>
+            }
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Mod timestamps track changes since the first successful check; they do not identify the running mod bytes.
+                Only configured mods are monitored. Implicit companion and plugin dependencies need the upcoming content pins.
+                Plugin commits are compared with verified active deployment provenance.
+            </MudAlert>
+            @if (_error is not null || Snapshot.InventoryError is not null || Snapshot.CheckError is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@(_error ?? Snapshot.InventoryError ?? Snapshot.CheckError)</MudAlert>
+            }
+            <MudTable T="ContentItem" Items="Snapshot.Items" Dense="true" Hover="true" Elevation="0">
+                <HeaderContent>
+                    <MudTh>Content</MudTh><MudTh>Active pin / first observed</MudTh><MudTh>Latest observed</MudTh><MudTh>Status</MudTh><MudTh>Changes</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Content">@context.Name <span class="quasar-text quasar-type-caption">@context.Kind · @context.Id</span></MudTd>
+                    <MudTd DataLabel="Active pin / first observed"><span class="quasar-stacked-timestamp">@Version(context, context.PinnedVersion ?? context.BaselineVersion)</span></MudTd>
+                    <MudTd DataLabel="Latest observed">
+                        <span class="quasar-stacked-timestamp">@Version(context, context.LatestVersion)</span>
+                        @if (context.ObservedAt is { } observed)
+                        {
+                            <div class="quasar-text quasar-type-caption">@ViewerTime.FormatStacked(observed)</div>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Status">
+                        @if (context.Error is not null)
+                        {
+                            <p class="quasar-text quasar-type-body1 quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">@context.Error</p>
+                            @if (context.HasUpdate) { <span class="quasar-text quasar-type-caption">Change detected at the last successful check</span> }
+                        }
+                        else
+                        {
+                            <p class="quasar-text quasar-type-body1 quasar-tone-@(((context.HasUpdate ? Color.Warning : Color.Default)).ToString().ToLowerInvariant())">@(context.HasUpdate ? context.Kind == "mod" ? "Changed since first check" : "Different manifest commit available" : context.Kind == "mod" ? "No change observed" : "Matches active pin")</p>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Changes">
+                        @if (context.DetailsUrl is { } url)
+                        {
+                            <MudLink Href="@url" Target="_blank" rel="noopener noreferrer">@(context.Kind == "mod" ? "Workshop changelog" : "Source changes")</MudLink>
+                        }
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent><p class="quasar-text quasar-type-body1">No content observations yet.</p></NoRecordsContent>
+            </MudTable>
+            <p class="quasar-text quasar-type-body2">Stage queued content updates in Maintenance, then apply the prepared update during full cluster downtime. Checks and staging do not interrupt running servers or block players from joining.</p>
+        </div>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@code {
+    [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
+    [Parameter] public bool CanManage { get; set; }
+    private bool _busy, _expanded;
+    private bool? _hasUpdates;
+    private string? _error;
+    private ClusterContentView Snapshot = new(false,false,null,[],null,null);
+    private readonly CancellationTokenSource _stop = new();
+    private Task? _loop;
+    protected override async Task OnInitializedAsync() { await RefreshAsync(); _loop = PollAsync(); }
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            Snapshot = await Sdk.RequestAsync<ClusterContentView>("cluster.content.read", new ClusterPanelRequest(UniqueName), _stop.Token);
+            bool available = Snapshot.Items.Any(i => i.HasUpdate);
+            if (_hasUpdates != available) _expanded = available;
+            _hasUpdates = available;
+        }
+        catch (JSException e) { _error = e.Message; }
+    }
+    private async Task PollAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+            while (await timer.WaitForNextTickAsync(_stop.Token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+    private Task CheckAsync() => RunAsync("cluster.content.check");
+    private Task QueueAsync() => RunAsync("cluster.content.queue");
+    private async Task RunAsync(string operation)
+    {
+        if (_busy || !CanManage) return;
+        _busy = true; _error = null;
+        try { await Sdk.RequestAsync<bool>(operation,new ClusterPanelRequest(UniqueName),_stop.Token); await RefreshAsync(); }
+        catch (JSException e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+    public async ValueTask DisposeAsync()
+    {
+        await _stop.CancelAsync();
+        if (_loop is not null) await _loop;
+        _stop.Dispose();
+    }
+    private string Version(ContentItem item, string? value)
+    {
+        if (value is null) return "Unknown";
+        return item.Kind == "mod" && long.TryParse(value, out long timestamp) && timestamp is >= 0 and <= 253402300799
+            ? ViewerTime.FormatStacked(DateTimeOffset.FromUnixTimeSeconds(timestamp)) : value;
+    }
+}

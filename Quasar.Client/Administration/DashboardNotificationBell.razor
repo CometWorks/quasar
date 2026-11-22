@@ -1,5 +1,6 @@
 @implements IDisposable
 @inject DashboardSdk Sdk
+@inject IJSRuntime JS
 @inject DashboardPushState Push
 @inject NavigationManager PanelNavigation
 <a class="quasar-icon-button quasar-update-bell @Tone" href="@PanelNavigation.PanelUrl(Notice is { IsAnnouncement: false } notice ? notice.Url : "/notifications")"
@@ -11,6 +12,7 @@
 @code {
     private UpdateNotice? Notice;
     private bool TokenExpired;
+    private string? _brandingRevision;
     private readonly CancellationTokenSource _stop = new();
 
     protected override async Task OnInitializedAsync()
@@ -40,6 +42,12 @@
         {
             var current = await Sdk.RequestAsync<DashboardNotices>("notifications.current", token: token);
             Notice = current.Notices.FirstOrDefault(); TokenExpired = current.TokenExpired;
+            if (current.BrandingRevision is { } revision && revision != _brandingRevision)
+            {
+                var settings = await Sdk.RequestAsync<BrandingSettings>("appearance.read", token: token);
+                await settings.ApplyAsync(JS, PanelNavigation);
+                _brandingRevision = revision;
+            }
         }
         catch (JSException) { Notice = null; }
     }

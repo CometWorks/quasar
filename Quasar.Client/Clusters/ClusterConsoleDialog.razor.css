@@ -1,0 +1,16 @@
+.cluster-console-event {
+    display: grid;
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    gap: 0.25rem 1.5rem;
+}
+
+.cluster-console-event > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+@media (max-width: 800px) {
+    .cluster-console-event {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}

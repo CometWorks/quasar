@@ -1,34 +1,39 @@
 @page "/clusters/{UniqueName}"
-@implements IDisposable
+@implements IAsyncDisposable
 @attribute [Authorize(Policy = QuasarPolicyNames.ClusterQuery)]
-@inject ClusterCatalog ClusterCatalog
-@inject AuthenticationStateProvider AuthenticationState
-@inject ClusterSetupService Setup
-@inject ClusterReleaseMonitor ClusterReleases
+@using Quasar.Client
+@using Quasar.Client.Clusters
+@using Quasar.Services
+@using Microsoft.JSInterop
+@inject DashboardSdk Sdk
 @inject NavigationManager Navigation
 @inject ViewerTimeZone ViewerTime
 
 <PageTitle>@(Cluster?.DisplayName ?? "Cluster")</PageTitle>
 
-@if (Cluster is null)
+@if (Cluster is null && _error is null)
+{
+    <Quasar.Components.Shared.QuasarProgress Label="Loading cluster" Indeterminate="true" />
+}
+else if (Cluster is null)
 {
     <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
-        Cluster '@UniqueName' was not found.
+        @_error <button type="button" class="quasar-button" @onclick="RefreshAsync">Retry</button>
     </MudAlert>
 }
 else
 {
-    <ClusterBetaNotice />
+    <BrowserClusterNotice />
     <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-3">
         <div>
-            <QuasarPageHeading Section="Infrastructure"><Title>@Cluster.DisplayName</Title></QuasarPageHeading>
+            <DashboardPageHeading Section="Infrastructure"><Title>@Cluster.DisplayName</Title></DashboardPageHeading>
             <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
                 <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary">Cluster</MudChip>
                 <p class="quasar-text quasar-type-body2 mono">@Cluster.UniqueName</p>
             </div>
         </div>
         <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
-        <ClusterConsoleButton Cluster="Cluster" />
+        <ClusterConsoleButton UniqueName="@Cluster.UniqueName" DisplayName="@Cluster.DisplayName" />
         <MudButton Href="./" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack">
             Servers
         </MudButton>
@@ -36,29 +41,29 @@ else
     </div>
 
     <div class="quasar-layout quasar-gap-4 cluster-control-page" @key="Cluster.UniqueName">
-        @if (ClusterReleaseMonitor.IsUpdateAvailable(Cluster, ClusterReleases.GetSnapshot().Release))
+        @if (Cluster.UpdateAvailable)
         {
             <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                The latest published cluster package (@ClusterReleases.GetSnapshot().Release!.Version) differs from the selected package.
-                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                The latest published cluster package (@Cluster.LatestVersion) differs from the selected package.
+                @if (Cluster.CanManage) {
                     <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanSelectView("configuration"))" @onclick='() => SelectView("configuration")'>Open cluster update</button>
-                </AuthorizeView>
+                }
             </MudAlert>
         }
-        @if (Cluster.ActiveDeployment is null)
+        @if (!Cluster.Deployed)
         {
             <MudAlert Severity="Severity.Info">
-                @if (Setup.GetStatus(Cluster.UniqueName) is { } setup)
+                @if (Cluster.SetupPhase is { } phase)
                 {
-                    <p class="quasar-text quasar-type-body1">@setup.Phase @setup.Error</p>
-                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage">
+                    <p class="quasar-text quasar-type-body1">@phase @Cluster.SetupError</p>
+                    @if (Cluster.CanManage) {
                         <MudButton Href="@($"clusters/new?resume={Uri.EscapeDataString(Cluster.UniqueName)}")" Variant="Variant.Outlined" Color="Color.Primary">Resume guided setup</MudButton>
-                    </AuthorizeView>
+                    }
                 }
                 else
                 {
                     <p class="quasar-text quasar-type-body1">This cluster has no active deployment. Use guided setup to create a managed cluster, or remove this registration if it is no longer needed.</p>
-                    <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><MudButton Href="clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton></AuthorizeView>
+                    @if (Cluster.CanManage) {<MudButton Href="clusters/new" Variant="Variant.Outlined" Color="Color.Primary">Set up a new cluster</MudButton>}
                 }
             </MudAlert>
         }
@@ -77,70 +82,68 @@ else
                 : "Gateway admin connection unavailable. Nodes, Partitions, Events and Mods & plugins will be available when it reconnects. Maintenance and Settings remain available.")</p>
         }
         <section id="cluster-settings" aria-label="Cluster controls and settings">
-            <ClusterAdminPanel @ref="_admin" Cluster="Cluster" Compact="@(_view != "settings")" GatewayAvailable="@(_gatewayAvailable == true)" />
+            <ClusterAdminPanel @ref="_admin" Changed="RefreshAsync" Cluster="Cluster" Capabilities="_runtime?.Capabilities" CapabilityError="@_runtimeError" Compact="@(_view != "settings")" GatewayAvailable="@(_gatewayAvailable == true)" />
             @if (_view == "settings")
             {
-                <AuthorizeView Policy="@QuasarPolicyNames.ClusterManage"><Authorized Context="settingsAuthorization">
-                    <details class="quasar-details"><summary>Remove cluster</summary><p>Stop the cluster before removing it. Review the removal dialog before continuing.</p><ClusterDeleteButton Cluster="Cluster" ReturnToServers="true" /></details>
-                </Authorized><NotAuthorized><p>Cluster management permission is required to edit settings.</p></NotAuthorized></AuthorizeView>
+                @if (Cluster.CanManage) {
+                    <details class="quasar-details"><summary>Remove cluster</summary><p>Stop the cluster before removing it. Review the removal dialog before continuing.</p><ClusterDeleteButton UniqueName="@Cluster.UniqueName" DisplayName="@Cluster.DisplayName" ReturnToServers="true" /></details>
+                } else { <p>Cluster management permission is required to edit settings.</p> }
             }
         </section>
         <section id="cluster-overview" aria-label="Cluster overview" hidden="@(_view != "overview")">
-            <ClusterDetailPanel Cluster="Cluster" ShowConfigurationLinks="false" CollapseDetails="true" ShowTopology="true"
-                                GatewayAvailabilityChanged="GatewayAvailabilityChanged" />
+            <ClusterDetailPanel Cluster="Cluster" Runtime="_runtime" ReadError="@_runtimeError" CollapseDetails="true" ShowTopology="true" />
         </section>
         <section id="cluster-nodes" aria-label="Cluster nodes" hidden="@(_view != "nodes")">
             @if (_visited.Contains("nodes"))
             {
-                <ClusterFleetPanel Cluster="Cluster" Command="ExecuteCommandAsync" ShowEvents="false" />
+                <ClusterFleetPanel Runtime="_runtime" Cluster="Cluster" Command="ExecuteCommandAsync" ShowEvents="false" />
             }
         </section>
         <section id="cluster-partitions" aria-label="Cluster partitions" hidden="@(_view != "partitions")">
             @if (_visited.Contains("partitions"))
             {
-                <ClusterPartitionsPanel Cluster="Cluster" @key="Cluster.UniqueName" />
+                <ClusterPartitionsPanel UniqueName="@Cluster.UniqueName" CanManage="@Cluster.CanManage" CanMaintain="@Cluster.CanMaintain" @key="Cluster.UniqueName" />
             }
         </section>
         <section id="cluster-events" aria-label="Cluster events" hidden="@(_view != "events")">
             @if (_visited.Contains("events"))
             {
-                <ClusterFleetPanel Cluster="Cluster" ShowEvents="true" />
+                <ClusterFleetPanel Runtime="_runtime" Cluster="Cluster" ShowEvents="true" />
             }
         </section>
         <section id="cluster-content" aria-label="Cluster content updates" hidden="@(_view != "content")">
             @if (_visited.Contains("content"))
             {
-                @if (Cluster.ActiveDeployment is not null) { <ClusterContentPanel Cluster="Cluster" /> }
+                @if (Cluster.Deployed) { <ClusterContentPanel UniqueName="@Cluster.UniqueName" CanManage="@Cluster.CanManage" /> }
                 else { <p>Deploy the cluster to manage its mods and plugins.</p> }
             }
         </section>
         <section id="cluster-configuration" aria-label="Cluster maintenance" hidden="@(_view != "configuration")" class="quasar-stack">
             @if (_visited.Contains("configuration"))
             {
-                var releaseSnapshot = ClusterReleases.GetSnapshot();
                 <details class="quasar-details" open="@(_view == "configuration")">
                 <summary>Maintenance</summary>
                 <section class="quasar-panel quasar-card-content" aria-label="Cluster versions">
                     <div class="quasar-detail-metrics">
                         <div>
                             <p class="quasar-eyebrow">Deployed version</p>
-                            <strong class="cluster-long-value">@(Cluster.ActiveDeployment is null ? "Not deployed" : ClusterReleaseMonitor.GetDeployedVersion(Cluster) ?? "Unknown")</strong>
+                            <strong class="cluster-long-value">@(!Cluster.Deployed ? "Not deployed" : Cluster.DeployedVersion ?? "Unknown")</strong>
                         </div>
                         <div>
                             <p class="quasar-eyebrow">Latest available version</p>
-                            <strong class="cluster-long-value">@(releaseSnapshot.Release?.Version ?? (releaseSnapshot.Error is not null ? "Unavailable" : "Not checked"))</strong>
+                            <strong class="cluster-long-value">@(Cluster.LatestVersion ?? (Cluster.ReleaseError is not null ? "Unavailable" : "Not checked"))</strong>
                         </div>
                     </div>
-                    @if (releaseSnapshot.LastCheckedUtc is { } checkedAt)
+                    @if (Cluster.ReleaseChecked is { } checkedAt)
                     {
                         <p class="quasar-muted quasar-caption">Release checked: @ViewerTime.Format(checkedAt)</p>
                     }
-                    @if (releaseSnapshot.Error is { } releaseError)
+                    @if (Cluster.ReleaseError is { } releaseError)
                     {
                         <p class="quasar-text-warning">@releaseError</p>
                     }
                 </section>
-                <ClusterDeploymentPanel Cluster="Cluster" />
+                <ClusterDeploymentPanel UniqueName="@Cluster.UniqueName" />
                 </details>
             }
         </section>
@@ -152,7 +155,7 @@ else
     [Parameter]
     public string UniqueName { get; set; } = string.Empty;
 
-    private ClusterDefinition? Cluster { get; set; }
+    private ClusterDashboard? Cluster { get; set; }
     private ClusterAdminPanel? _admin;
     private static readonly (string Key, string Label)[] Views = [("overview", "Overview"), ("nodes", "Nodes"), ("partitions", "Partitions"), ("events", "Events"), ("content", "Mods & plugins"), ("configuration", "Maintenance"), ("settings", "Settings")];
     private string _requestedView = "overview";
@@ -163,7 +166,7 @@ else
     private void SelectView(string view)
     {
         if (!CanSelectView(view)) return;
-        // Blazor's same-page fragment navigation does not notify server LocationChanged listeners.
+        // Update selection immediately when navigating to a fragment on this page.
         _requestedView = view;
         _visited.Add(view);
         Navigation.NavigateTo($"clusters/{Uri.EscapeDataString(UniqueName)}#cluster-{view}");
@@ -181,32 +184,77 @@ else
     }
     private void LocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args)
         => _ = InvokeAsync(() => { ReadView(); StateHasChanged(); });
-    private Task ExecuteCommandAsync(ClusterAdminCommand command) => _admin?.SubmitAsync(command) ?? Task.CompletedTask;
+    private Task ExecuteCommandAsync(PanelCommand command) => _admin?.SubmitAsync(command) ?? Task.CompletedTask;
 
-    protected override void OnInitialized()
-    {
-        Navigation.LocationChanged += LocationChanged;
-        ReadView();
-        ClusterCatalog.Changed += CatalogChanged;
-        ClusterReleases.Changed += CatalogChanged;
-    }
-    private void CatalogChanged() => _ = InvokeAsync(async () => { await OnParametersSetAsync(); StateHasChanged(); });
-    public void Dispose()
-    {
-        Navigation.LocationChanged -= LocationChanged;
-        ClusterCatalog.Changed -= CatalogChanged;
-        ClusterReleases.Changed -= CatalogChanged;
-    }
-
+    private string? _error, _runtimeError;
+    private ClusterRuntime? _runtime;
+    private string? _loadedName;
+    private CancellationTokenSource? _selection;
+    private Task? _poll;
+    private int _request;
+    protected override void OnInitialized() => Navigation.LocationChanged += LocationChanged;
     protected override async Task OnParametersSetAsync()
     {
-        if (!string.Equals(Cluster?.UniqueName, UniqueName, StringComparison.OrdinalIgnoreCase))
+        if (_loadedName == UniqueName) return;
+        await StopPollingAsync();
+        _loadedName = UniqueName;
+        Cluster = null; _runtime = null; _error = null; _runtimeError = null;
+        _gatewayAvailable = null; _visited.Clear(); ReadView();
+        _selection = new();
+        await RefreshAsync();
+        if (_selection is { IsCancellationRequested: false } selection && _poll is null) _poll = PollAsync(selection.Token);
+    }
+    private async Task RefreshAsync()
+    {
+        if (_selection is not { } selection) return;
+        string name = UniqueName;
+        int request = ++_request;
+        bool Current() => request == _request && !selection.IsCancellationRequested && name == UniqueName;
+        try
         {
-            _gatewayAvailable = null;
-            _visited.Clear();
-            ReadView();
+            var dashboard = await Sdk.ReadClusterAsync<ClusterDashboard>("cluster.dashboard", name, selection.Token);
+            if (!Current()) return;
+            Cluster = dashboard; _error = null;
         }
-        var user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
-        Cluster = user.CanQueryCluster(UniqueName) ? ClusterCatalog.GetCluster(UniqueName) : null;
+        catch (OperationCanceledException) when (selection.IsCancellationRequested) { return; }
+        catch (JSException error)
+        {
+            if (Current()) { Cluster = null; _runtime = null; _error = error.Message; GatewayAvailabilityChanged(false); }
+            return;
+        }
+        try
+        {
+            var runtime = await Sdk.ReadClusterAsync<ClusterRuntime>("cluster.runtime", name, selection.Token);
+            if (Current()) { _runtime = runtime; _runtimeError = null; GatewayAvailabilityChanged(runtime.Capabilities is not null); }
+        }
+        catch (OperationCanceledException) when (selection.IsCancellationRequested) { }
+        catch (JSException error)
+        {
+            if (Current()) { _runtime = null; _runtimeError = error.Message; GatewayAvailabilityChanged(false); }
+        }
+    }
+    private async Task PollAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+    private async Task StopPollingAsync()
+    {
+        if (_selection is not { } selection) return;
+        _selection = null;
+        await selection.CancelAsync();
+        if (_poll is not null) await _poll;
+        _poll = null;
+        selection.Dispose();
+    }
+    public async ValueTask DisposeAsync()
+    {
+        Navigation.LocationChanged -= LocationChanged;
+        await StopPollingAsync();
     }
 }

@@ -1,0 +1,40 @@
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+
+@if (_canManage) {
+    <QuasarIconButton Label="Delete cluster" Icon="@QuasarIcons.Delete" OnClick="DeleteAsync" Class="quasar-tone-error" Disabled="_busy" />
+}
+
+@code {
+    [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
+    [Parameter, EditorRequired] public string DisplayName { get; set; } = "";
+    [Parameter] public bool ReturnToServers { get; set; }
+    private bool _busy;
+
+    private bool _canManage;
+    protected override async Task OnInitializedAsync() { _canManage = await Sdk.AllowedAsync("ClusterManage"); }
+
+    private async Task DeleteAsync()
+    {
+        if (_busy || !_canManage) return;
+        _busy = true;
+        try
+        {
+            var dialog = await Dialogs.ShowAsync<ClusterRemoveDialog>("Remove cluster",
+                new DialogParameters<ClusterRemoveDialog> { { p => p.UniqueName, UniqueName }, { p => p.DisplayName, DisplayName } },
+                new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+            var result = await dialog.Result;
+            if (result?.Canceled != false || result.Data is not string confirmation) return;
+            await Sdk.RequestAsync<bool>("cluster.registration.remove", new { UniqueName, forget = confirmation.Length > 0, confirmation });
+            Snackbar.Add("Cluster definition deleted. Quasar removes its world, Host data and backups, manual ones included, when the retention set on the Backup page ends.", Severity.Success);
+            if (ReturnToServers) Navigation.NavigateTo("./");
+        }
+        catch (JSException error)
+        {
+            Snackbar.Add(error.Message, Severity.Error);
+        }
+        finally { _busy = false; }
+    }
+}

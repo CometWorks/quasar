@@ -92,8 +92,9 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
         // Keep bounded leases for idle transfers while a slow, authorized backup can make forward progress.
         internal void RecordProgress()
         {
-            // Transfers are removed and disposed by their owner after the streaming callback finishes.
-            if (!Token.IsCancellationRequested) Stop.CancelAfter(ActiveLifetime);
+            if (Token.IsCancellationRequested) return;
+            try { Stop.CancelAfter(ActiveLifetime); }
+            catch (ObjectDisposedException) when (Token.IsCancellationRequested) { }
         }
         internal CancellationTokenSource Stop { get; }
         public CancellationToken Token { get; }

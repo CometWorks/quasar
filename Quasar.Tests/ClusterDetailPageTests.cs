@@ -6,7 +6,11 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor.Services;
 using Quasar.Host.Contract.V1;
 using Quasar.Models;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Clusters;
+using Quasar.Client.Components;
+using System.Net;
+using System.Net.Http.Json;
+using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using Quasar.Components.Pages;
 using Quasar.Components.Shared;
 using Quasar.Services;
@@ -24,6 +28,23 @@ public sealed class ClusterDetailPageTests
         internal FragmentNavigation() => Initialize("http://localhost/", "http://localhost/");
         protected override void NavigateToCore(string uri, NavigationOptions options) => Uri = ToAbsoluteUri(uri).AbsoluteUri;
         internal void BrowserNavigate(string uri) { Uri = ToAbsoluteUri(uri).AbsoluteUri; NotifyLocationChanged(false); }
+    }
+
+    private sealed class Gateway : HttpMessageHandler
+    {
+        internal bool Available;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            var online = Available && request.RequestUri!.AbsolutePath == "/admin/v1/capabilities";
+            var response = new HttpResponseMessage(online ? HttpStatusCode.OK : HttpStatusCode.ServiceUnavailable)
+            {
+                Content = online ? JsonContent.Create(new Admin.AdminEnvelope<Admin.AdminCapabilities>(1, DateTimeOffset.UtcNow,
+                    new("gateway", Admin.AdminScope.Query, [], new Dictionary<string,string>()))) :
+                    JsonContent.Create(new Admin.AdminErrorEnvelope(1, DateTimeOffset.UtcNow, new("not_ready","Fixture unavailable"))),
+            };
+            response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
+            return Task.FromResult(response);
+        }
     }
 
     // A typed replacement supports the page's component reference without running command polling.
@@ -49,12 +70,12 @@ public sealed class ClusterDetailPageTests
         string root = Path.Combine(Path.GetTempPath(), "cluster-views-" + Guid.NewGuid().ToString("N"));
         try
         {
-            await using var context = new QuasarBunitContext();
+            await using var context = new OperationsBrowserContext();
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var auth = context.AddAuthorization();
             auth.SetAuthorized("operator");
-            auth.SetPolicies("ClusterManage");
+            auth.SetPolicies("ClusterManage", "ClusterQuery");
             var config = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?> {
                 ["Quasar:ClusterCatalogPath"] = root }).Build();
             var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, config);
@@ -69,13 +90,18 @@ public sealed class ClusterDetailPageTests
             context.Services.AddSingleton(new QuasarPermissionService(null!, null!, null!));
             context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
             context.Services.AddSingleton(new ClusterOperationStore(Path.Combine(root, "operations")));
-            using var http = new HttpClient();
+            var handler = new Gateway();
+            using var http = new HttpClient(handler);
+            context.Services.AddSingleton(new ClusterHostClient(http));
+            context.Services.AddSingleton(new ClusterHostCatalog(null!, Path.Combine(root,"hosts")));
+            context.Services.AddSingleton(new ClusterReconciler(null!,null!,null!,null!,NullLogger<ClusterReconciler>.Instance));
+            context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
             context.Services.AddSingleton(new ClusterGatewayClient(http));
             context.Services.AddSingleton(new ClusterCommandService(null!, null!, null!, null!));
             context.Services.AddSingleton(new ClusterUpdatePreparationService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
             context.Services.AddSingleton(new ClusterReleaseMonitor(catalog, null!, new(), NullLogger<ClusterReleaseMonitor>.Instance));
             context.Services.AddSingleton(new ClusterSetupService(null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!, null!));
-            context.ComponentFactories.AddStub<ClusterBetaNotice>();
+            context.ComponentFactories.AddStub<BrowserClusterNotice>();
             context.ComponentFactories.AddStub<ClusterConsoleButton>();
             context.ComponentFactories.AddStub<ClusterDeleteButton>();
             context.ComponentFactories.Add<ClusterAdminPanel, AdminStub>();
@@ -95,8 +121,8 @@ public sealed class ClusterDetailPageTests
             Assert.All(page.FindAll("nav button"), button => Assert.Single(page.FindAll("#" + button.GetAttribute("aria-controls"))));
             var admin = page.FindComponent<AdminStub>();
             var overview = page.FindComponent<Bunit.TestDoubles.Stub<ClusterDetailPanel>>();
-            var availability = overview.Instance.Parameters.Get(p => p.GatewayAvailabilityChanged);
-            await page.InvokeAsync(() => availability.InvokeAsync(true));
+            async Task Availability(bool online) { handler.Available = online; await admin.Instance.Changed.InvokeAsync(); }
+            await page.InvokeAsync(() => Availability(true));
             Assert.Equal(initialView, page.Find("nav button[aria-pressed=true]").TextContent);
             Assert.All(page.FindAll("nav button"), button => Assert.False(button.HasAttribute("disabled")));
             page.FindAll("nav button").Single(b => b.TextContent == "Partitions").Click();
@@ -125,26 +151,26 @@ public sealed class ClusterDetailPageTests
             // Maintenance stays reachable during an outage; live-only views retain their bookmark.
             page.FindAll("nav button").Single(b => b.TextContent == "Maintenance").Click();
             var maintenance = page.FindComponent<Bunit.TestDoubles.Stub<ClusterDeploymentPanel>>();
-            await page.InvokeAsync(() => availability.InvokeAsync(false));
+            await page.InvokeAsync(() => Availability(false));
             Assert.Equal("Maintenance", page.Find("nav button[aria-pressed=true]").TextContent);
             Assert.False(admin.Instance.GatewayAvailable);
             Assert.All(page.FindAll("nav button"), button => Assert.Equal(
                 button.TextContent is "Nodes" or "Partitions" or "Events" or "Mods & plugins", button.HasAttribute("disabled")));
             Assert.Contains("unavailable", page.Find("#cluster-gateway-connection").TextContent);
             Assert.False(page.Find("#cluster-configuration").HasAttribute("hidden"));
-            await page.InvokeAsync(() => availability.InvokeAsync(true));
+            await page.InvokeAsync(() => Availability(true));
             Assert.Equal("Maintenance", page.Find("nav button[aria-pressed=true]").TextContent);
             Assert.Same(admin.Instance, page.FindComponent<AdminStub>().Instance);
             Assert.Same(maintenance.Instance, page.FindComponent<Bunit.TestDoubles.Stub<ClusterDeploymentPanel>>().Instance);
             page.FindAll("nav button").Single(b => b.TextContent == "Nodes").Click();
-            await page.InvokeAsync(() => availability.InvokeAsync(false));
+            await page.InvokeAsync(() => Availability(false));
             Assert.Equal("Overview", page.Find("nav button[aria-pressed=true]").TextContent);
-            await page.InvokeAsync(() => availability.InvokeAsync(true));
+            await page.InvokeAsync(() => Availability(true));
             Assert.Equal("Nodes", page.Find("nav button[aria-pressed=true]").TextContent);
             page.FindAll("nav button").Single(b => b.TextContent == "Partitions").Click();
-            await page.InvokeAsync(() => availability.InvokeAsync(false));
+            await page.InvokeAsync(() => Availability(false));
             Assert.Equal("Overview", page.Find("nav button[aria-pressed=true]").TextContent);
-            await page.InvokeAsync(() => availability.InvokeAsync(true));
+            await page.InvokeAsync(() => Availability(true));
             Assert.Equal("Partitions", page.Find("nav button[aria-pressed=true]").TextContent);
             Assert.Same(partitions.Instance, page.FindComponent<Bunit.TestDoubles.Stub<ClusterPartitionsPanel>>().Instance);
             await page.InvokeAsync(() => navigation.BrowserNavigate("/clusters/test#cluster-nodes"));

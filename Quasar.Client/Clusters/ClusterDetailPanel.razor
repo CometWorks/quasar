@@ -1,0 +1,202 @@
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject ViewerTimeZone ViewerTime
+
+<section class="@(CollapseDetails ? "quasar-cluster-summary" : "quasar-panel quasar-section")">
+<div class="quasar-card-content">
+<div class="quasar-stack">
+    @if (!CollapseDetails) { <h2>Cluster overview</h2> }
+
+    @if (_loading && _status is null)
+    {
+        <QuasarProgress Label="Refreshing cluster status" Indeterminate="true" />
+    }
+    @if (_error is not null)
+    {
+        <div class="quasar-notice quasar-notice-error" role="status">@_error</div>
+    }
+    @if (RecoveryRequired)
+    {
+        <div class="quasar-notice quasar-notice-error" role="status">@Runtime?.ReconcileMessage</div>
+    }
+
+    @if (Cluster.GoalOn && _observedAt is { } observed)
+    {
+        <p class="quasar-muted quasar-caption">@(_stale ? "Stale observation" : "Observed") · @ViewerTime.Format(observed) · Health: @(_stale ? "Unknown" : _status?.Health.ToString())</p>
+    }
+    @if (_capabilities?.Scope == Admin.AdminScope.Query)
+    {
+        <div class="quasar-notice quasar-notice-info" role="status">Cluster Registry access is query-only.</div>
+    }
+
+    <div class="quasar-detail-metrics">
+        <div class="quasar-detail-metric">
+            <div>
+                <p class="quasar-eyebrow">Status</p>
+                <h2 class="quasar-tone-@(PhaseColor.ToString().ToLowerInvariant())">@PhaseText</h2>
+                <p class="d-block quasar-muted quasar-caption">Cluster Registry · @GatewayText</p>
+                <p class="d-block quasar-muted quasar-caption">World Authority · @WorldAuthorityText</p>
+            </div>
+        </div>
+        @if (Cluster.GoalOn)
+        {
+        @if (!ShowTopology)
+        {
+        <div class="quasar-detail-metric">
+            <div>
+                <p class="quasar-eyebrow">Players</p>
+                <h2>@PlayerText</h2>
+                <p class="quasar-muted quasar-caption">@JoinText</p>
+            </div>
+        </div>
+        }
+        <div class="quasar-detail-metric">
+            <div>
+                <p class="quasar-eyebrow">Capacity</p>
+                <h2>@CapacityText</h2>
+                <p class="quasar-muted quasar-caption">@CapacityDetail</p>
+            </div>
+        </div>
+        <div class="quasar-detail-metric">
+            <div>
+                <p class="quasar-eyebrow">Crash recovery readiness</p>
+                <h2 class="quasar-tone-@(RecoveryColor.ToString().ToLowerInvariant())">@RecoveryText</h2>
+                <p class="quasar-muted quasar-caption">@RecoveryDetail</p>
+            </div>
+        </div>
+        }
+    </div>
+
+    @if (Cluster.GoalOn && !_stale && _status?.ReasonCodes.Length > 0)
+    {
+        <div class="quasar-notice quasar-notice-warning" role="status">
+            @string.Join(" · ", _status.ReasonCodes)
+        </div>
+    }
+
+    @if (ShowTopology && Runtime is not null)
+    {
+        <ClusterHealthOverview Runtime="Runtime" />
+    }
+
+    @if (CollapseDetails)
+    {
+        <details class="quasar-card-disclosure"><summary>Cluster details <span class="quasar-muted">World, configuration &amp; runtime</span></summary>@RuntimeDetails</details>
+    }
+    else { @RuntimeDetails }
+
+</div>
+</div>
+</section>
+
+@code
+{
+    [Parameter] public bool CollapseDetails { get; set; }
+    [Parameter] public bool ShowTopology { get; set; }
+    [Parameter] public EventCallback<bool> GatewayAvailabilityChanged { get; set; }
+    private RenderFragment RuntimeDetails => @<div class="quasar-live-details">
+    <div>
+        <h2>World and configuration</h2>
+        <p>Active world: @(_status?.WorldId ?? "Unknown")</p>
+        <p>Configuration profile: @(ValueOrDash(Cluster.ProfileName))</p>
+        <p>World template: @(ValueOrDash(Cluster.WorldName))</p>
+    </div>
+
+    <hr class="quasar-divider">
+    <h3>Runtime details</h3>
+    <table class="cluster-details-table quasar-server-table quasar-runtime-table">
+        <tbody>
+            <tr><th>Desired state</th><td>@(Cluster.GoalOn ? "On" : "Off")</td></tr>
+            <tr><th><MudTooltip Text="Quasar checks whether the cluster is running or stopped as requested and starts or stops its services when needed."><span tabindex="0">Automatic cluster control</span></MudTooltip></th><td>@ReconcileText</td></tr>
+            @if (GatewayOutput is { Length: > 0 } output)
+            {
+                <tr><th>Last Cluster Registry process output</th><td><pre class="cluster-gateway-output">@string.Join('\n', output)</pre></td></tr>
+            }
+            <tr><th><MudTooltip Text="Quasar.Host is the management service on the host machine. It starts, stops and monitors the cluster's processes."><span tabindex="0">Host management service</span></MudTooltip></th><td>@HostText</td></tr>
+            <tr><th>Cluster Registry process</th><td>@GatewayExecutorText</td></tr>
+            <tr><th><MudTooltip Text="The Cluster Registry saves its coordination data as a snapshot and a log of later updates. This is separate from a world backup."><span tabindex="0">Saved coordination state</span></MudTooltip></th><td>@RegistryText</td></tr>
+        </tbody>
+    </table>    </div>;
+
+    [Parameter, EditorRequired] public ClusterDashboard Cluster { get; set; } = null!;
+    [Parameter] public ClusterRuntime? Runtime { get; set; }
+    [Parameter] public string? ReadError { get; set; }
+    private Admin.ClusterStatus? _status;
+    private DateTimeOffset? _observedAt;
+    protected override void OnParametersSet()
+    {
+        if (Runtime?.Status is { } status) { _status = status; _observedAt = Runtime.CapturedAt; }
+    }
+    private string? _error => ReadError ?? Runtime?.Error;
+    private bool _loading => Runtime is null && ReadError is null;
+    private bool _stale => Runtime?.Status is null || ReadError is not null;
+    private Admin.NodePlan[] _plan => Runtime?.Plan ?? [];
+    private Admin.AdminCapabilities? _capabilities => Runtime?.Capabilities;
+    private Admin.RecoveryReadiness? _recovery => Runtime?.Recovery;
+    private bool IsCleanlyStopped => Runtime?.Stopped == true;
+    private bool RecoveryRequired => !Cluster.GoalOn && Runtime?.ReconcileState == "ConfigurationRequired";
+    private string PhaseText => RecoveryRequired ? "Recovery required" : IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.Phase.ToString() ?? "Unavailable";
+    private Color PhaseColor => RecoveryRequired ? Color.Error : _stale ? Color.Default : _status?.Health switch
+    {
+        Admin.AdminHealth.Healthy => Color.Success,
+        Admin.AdminHealth.Warning => Color.Warning,
+        Admin.AdminHealth.Unhealthy => Color.Error,
+        _ => Color.Default,
+    };
+    private string GatewayText => IsCleanlyStopped ? "Stopped" : _stale || _status is null ? "Unavailable" : "Online";
+    private string PlayerText => _stale || _status is null ? "-" : $"{_status.Counts.ConnectedClients} connected";
+    private string JoinText => _status?.AcceptingPlayers == true && !_stale
+        ? "Accepting players." : "Player entry point is not serving yet.";
+    private int ReadyNodes => _plan.Count(item => item.Observed == Admin.NodeObservation.Ready);
+    private int WantedNodes => _plan.Count(item => item.Goal == Admin.NodeGoal.Wanted);
+    private string CapacityText => _stale || _status is null ? "-" : $"{ReadyNodes}/{WantedNodes} ready";
+    private string CapacityDetail => _stale || _status is null ? "Capacity unavailable."
+        : $"{_status.Counts.Nodes} registered; {_plan.Count(item => item.FailureAlert)} alerting; "
+            + $"{Cluster.HotSpares} hot spare(s) configured.";
+    private string WorldAuthorityText => IsCleanlyStopped ? "Stopped" : _stale ? "Unavailable" : _status?.WorldAuthority.Node ?? "Unavailable";
+    private string RecoveryText => _recovery?.State switch
+    {
+        Admin.RecoveryReadinessState.Ready => "Ready to recover",
+        Admin.RecoveryReadinessState.AtRisk => "Recovery at risk",
+        Admin.RecoveryReadinessState.NotReconstructible => "Complete recovery unavailable",
+        _ => "Recovery status unavailable",
+    };
+    private Color RecoveryColor => _recovery?.State switch
+    {
+        Admin.RecoveryReadinessState.Ready => Color.Success,
+        Admin.RecoveryReadinessState.AtRisk => Color.Warning,
+        Admin.RecoveryReadinessState.NotReconstructible => Color.Error,
+        _ => Color.Default,
+    };
+    private string RecoveryDetail => _recovery switch
+    {
+        null => "Quasar could not check whether the saved world data can be restored after a crash.",
+        { State: Admin.RecoveryReadinessState.NotReconstructible } =>
+            "The reported saved data cannot currently restore the whole cluster after a crash.",
+        { LatestPoint: null } =>
+            "No complete recovery point has been reported. Recovery after a crash is not confirmed.",
+        { State: Admin.RecoveryReadinessState.AtRisk } =>
+            "A recovery point exists, but the Cluster Registry reports risks that could prevent a complete restore after a crash.",
+        { State: Admin.RecoveryReadinessState.Ready } =>
+            "The Cluster Registry reports a usable recovery point. Progress since the last save may be lost after a crash.",
+        _ => "The Cluster Registry has not provided a recognized recovery status.",
+    };
+    private string HostText => Runtime?.HostText ?? "Unavailable";
+    private string GatewayExecutorText => Runtime?.GatewayText ?? "Unavailable";
+    private string ReconcileText
+    {
+        get
+        {
+            var state = Runtime?.ReconcileState switch
+            {
+                "Pending" => "Waiting for first check", "Observing" => "Monitoring only", "ConfigurationRequired" => "Setup needed",
+                "Converging" => "Applying requested state", "Converged" => "Requested state reached", "Failed" => "Needs attention", _ => "Unknown",
+            };
+            return Runtime?.ReconcileError is { } error ? $"{state} · {error}: {Runtime.ReconcileMessage}" : $"{state} · {Runtime?.ReconcileMessage}";
+        }
+    }
+    private string[]? GatewayOutput => Runtime?.GatewayOutput;
+    private string RegistryText => _recovery is null ? "-"
+        : $"{(_recovery.Registry.SnapshotPresent ? "Saved snapshot available" : "No saved snapshot")} · {_recovery.Registry.WalRecords} logged updates";
+
+    private static string ValueOrDash(string value) => string.IsNullOrWhiteSpace(value) ? "-" : value;
+}

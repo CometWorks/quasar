@@ -1,0 +1,372 @@
+@implements IAsyncDisposable
+@using System.Text.Json
+@using Admin = CometWorks.ClusterGateway.AdminContract.V1
+@inject DashboardSdk Sdk
+@inject IDialogService Dialogs
+@inject IJSRuntime JS
+
+@if (Cluster.CanManage)
+{
+        <section class="@(Compact ? "quasar-cluster-compact" : "quasar-panel quasar-section")">
+        <div class="@(Compact ? null : "quasar-card-content")">
+        <div class="quasar-stack">
+            @if (!Compact) { <h2>Administration</h2> }
+            @if ((_error ?? (Compact ? null : CapabilityError)) is { } message)
+            {
+                <div class="quasar-notice quasar-notice-warning" role="status">@message</div>
+            }
+            <div class="quasar-row">
+                @if (Cluster.GoalOn && Compact)
+                {
+                    <span class="quasar-tooltip" title="@SaveWorldHint"><button class="quasar-icon-button" aria-label="Save world" type="button" disabled="@(!CanSaveWorld)" @onclick="SaveAsync"><QuasarIcon Icon="@QuasarIcons.Save" /></button></span>
+                }
+                else if (Cluster.GoalOn)
+                {
+                    <span class="quasar-tooltip" title="@SaveWorldHint"><button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanSaveWorld)" @onclick="SaveAsync">Save world</button></span>
+                }
+                @if (!Cluster.GoalOn)
+                {
+                    <span class="quasar-tooltip" title="@(_canStart ? "Start cluster" : "Wait for stable stopped cluster services before starting")">
+                        <button class="quasar-button quasar-tone-@((_canStart ? Color.Success : Color.Default).ToString().ToLowerInvariant()) quasar-button-fill" type="button" disabled="@(Busy || !_canStart)" @onclick="StartAsync"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />Start</button>
+                    </span>
+                }
+                else
+                {
+                    <button class="quasar-button quasar-tone-error quasar-button-fill" type="button" disabled="@(Busy || !ManagedLifecycle && !CanRun("POST /admin/v1/shutdown"))" @onclick="ShutdownAsync"><QuasarIcon Icon="@QuasarIcons.Stop" />Stop</button>
+                }
+            </div>
+            @if (_capabilities?.Scope == Admin.AdminScope.Query)
+            {
+                <p>Cluster Registry credentials allow observation only.</p>
+            }
+            @if (_operation is not null)
+            {
+                <p>@_operation.Kind · @_operation.State · @_operation.OperationId</p>
+                @if (_operation.Error is { } error)
+                {
+                    <p class="quasar-tone-warning">@error.Code: @error.Message</p>
+                }
+            }
+            @if (_settingsOpened)
+            {
+            <div class="quasar-stack" hidden="@Compact">
+                @if (Cluster.CanEdit) {
+                        <details class="quasar-details"><summary>Cluster settings</summary>
+                            <div class="py-2 cluster-form-section quasar-stack">
+                                <label class="quasar-field"><span>Server name</span><input @bind="_displayName" disabled="@Busy" @bind:event="oninput" @onblur="@(_ => EnsureServerName())" /><small>Server name shown in Quasar lists and dashboards. A blank name receives an editable generated suggestion.</small></label>
+                                <div class="quasar-notice quasar-notice-info" role="status">
+                                    Stage session settings, administrators, mods and plugin selections, then apply the pending update from Maintenance during full downtime. Quasar downloads and pins each mod, prepares matching plugins and backs up the stopped cluster before changing preserved worlds. Network and dedicated-server root settings cannot be changed here.
+                                </div>
+                                @if (string.IsNullOrEmpty(Cluster.ConfigProfileId))
+                                {
+                                    <div class="quasar-notice quasar-notice-warning" role="status">The restored world has no matching saved profile because that profile changed after its deployment. Choose a profile and stage it before the next update.</div>
+                                }
+                                <label class="quasar-field"><span>Configuration profile</span><select @bind="_configProfileId" disabled="@Busy">
+                                    @foreach (var profile in Cluster.Profiles)
+                                    {
+                                        <option value="@profile.ConfigProfileId">@profile.Name</option>
+                                    }
+                                </select><small>Selection remains pending until the prepared cluster update is applied.</small></label>
+                                @if (Cluster.Profiles.FirstOrDefault(p => p.ConfigProfileId == _configProfileId) is { } selectedProfile && selectedProfile.MissingDefaults is { Length: > 0 } missingDefaults)
+                                {
+                                    <div class="quasar-notice quasar-notice-info" role="status">
+                                        <p>Quasar enables @string.Join(" and ", missingDefaults) on new clusters, and profile @selectedProfile.Name doesn't have @(missingDefaults.Length == 1 ? "it" : "them"). Adding saves the profile with the MagnetarHub @(missingDefaults.Length == 1 ? "plugin" : "plugins") and default settings; stage the profile changes afterwards to deploy @(missingDefaults.Length == 1 ? "it" : "them"). Other servers and clusters that use this profile get @(missingDefaults.Length == 1 ? "it" : "them") at their next restart or profile update.</p>
+                                        <div class="quasar-row">
+                                            <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="@(() => OfferDefaultPluginsAsync(true))">Add to profile</button>
+                                            <button class="quasar-button" type="button" disabled="@Busy" @onclick="@(() => OfferDefaultPluginsAsync(false))">Don't offer again</button>
+                                        </div>
+                                    </div>
+                                }
+                                <a class="quasar-button quasar-tone-primary" href="configs">Manage configuration profiles</a>
+                                @if (Cluster.PendingProfileId is { } pendingProfile)
+                                {
+                                    <p>Pending profile: @(Cluster.Profiles.FirstOrDefault(p => p.ConfigProfileId == pendingProfile)?.Name ?? pendingProfile). Apply it from Maintenance.</p>
+                                }
+                                <button class="quasar-button quasar-tone-primary" type="button" disabled="@(Busy || !Cluster.Deployed || string.IsNullOrWhiteSpace(_configProfileId))" @onclick="StageProfileAsync">Stage profile changes</button>
+                                <label class="quasar-field"><span>Hot spares</span><input type="number" @bind="_hotSpares" disabled="@Busy" min="0" max="32" /><small>Warm nodes that hold nothing. When a node crashes, a hot spare takes over its partitions at once and the crashed node restarts as the new spare. Changing the count adds or removes nodes, so it stages an update; apply it from Maintenance during full downtime.</small></label>
+                                @if (_hotSpares == 0)
+                                {
+                                    <div class="quasar-notice quasar-notice-warning" role="status">Without a hot spare, the partitions of a crashed node reload on the remaining nodes, which then carry its load until it restarts.</div>
+                                }
+                                <button class="quasar-button quasar-tone-primary" type="button" disabled="@(Busy || !Cluster.Deployed || _hotSpares == PreparedHotSpares)" @onclick="StageHotSparesAsync">Stage hot spare change</button>
+                                @if (PreparedRegularNodes.Count > 1)
+                                {
+                                    <label class="quasar-field"><span>Host machine</span><select @bind="RegularNodesHost" disabled="@Busy">
+                                        @foreach (var (host, _) in PreparedRegularNodes) { <option value="@host">@host</option> }
+                                    </select></label>
+                                }
+                                <label class="quasar-field"><span>Regular nodes</span><input type="number" @bind="_regularNodes" disabled="@Busy" min="1" max="32" /><small>Nodes that serve partitions on this host machine. Changing the count keeps the world: it stages an update that adds or removes nodes, applied from Maintenance during full downtime, and the cluster then spreads its partitions over the new set of nodes. The hot spares stay as they are.</small></label>
+                                <button class="quasar-button quasar-tone-primary" type="button" disabled="@(Busy || !Cluster.Deployed || _regularNodes == PreparedRegularNodesOf(_regularNodesHost))" @onclick="StageRegularNodesAsync">Stage regular node change</button>
+                                <label class="quasar-field"><span>Shutdown grace period (seconds)</span><input type="number" @bind="_shutdownGracePeriodSeconds" disabled="@Busy" min="0" max="3600" /><small>Time allowed for the Cluster Registry to save and drain when Quasar stops the cluster.</small></label>
+                                <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(Busy || string.IsNullOrWhiteSpace(_displayName))" @onclick="SaveAdministrationAsync">Save cluster settings</button>
+                            </div>
+                        </details>
+                }
+                <ClusterPluginConfigurationPanel UniqueName="@Cluster.UniqueName" />
+                <details class="quasar-details"><summary>Advanced cluster controls</summary>
+                <div class="quasar-stack">
+                @if (Cluster.GoalOn && Cluster.HasGateway)
+                {
+                    <div class="quasar-row">
+                        <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/gateway/restart"))" @onclick="RestartAsync"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Restart Cluster Gateway</button>
+                    </div>
+                }
+                <details class="quasar-details"><summary>Diagnostics, maintenance and exports</summary>
+                    <div class="py-2 cluster-form-section quasar-stack">
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadDiagnosticsAsync">Load diagnostics</button>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadArtifactsAsync">List world exports</button>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("POST /admin/v1/world-exports"))" @onclick="ExportAsync">Export vanilla world</button>
+                    <p>Online exports are crash-consistent unless the Cluster Registry proves a stronger consistency level.</p>
+                    <label class="quasar-field"><span>Maintenance command (JSON)</span><textarea @bind="_advancedCommand" disabled="@Busy" rows="5"></textarea></label>
+                    <p class="quasar-muted quasar-caption">Example: {"action":"trigger","target":"compact","parameters":{"node":"node-1"}}</p>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="AdvancedAsync">Run command</button>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadHandoverAsync">Load handover configuration</button>
+                    <label class="quasar-field"><span>Handover settings to change (JSON)</span><textarea @bind="_handover" disabled="@Busy" rows="5"></textarea></label>
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="ApplyHandoverAsync">Apply handover settings</button>
+                    @if (_details is not null) { <pre style="max-height:400px;overflow:auto">@_details</pre> }
+                    </div>
+                </details>
+                <details class="quasar-details"><summary>Client diagnostics and rotation publication</summary>
+                    <div class="py-2 cluster-form-section quasar-stack">
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadRotationAsync">Load rotation publication</button>
+                    @if (_rotation is not null)
+                    {
+                        <p>Source: @(_rotation.Source ?? "Not published"). Revision @_rotation.Revision.
+                            @(_rotation.ValidUntil > DateTimeOffset.UtcNow ? "Publication current" : "Publication expired or unavailable").</p>
+                        <p class="quasar-muted quasar-caption">The Cluster Manager owns rotation. Renew its incarnation-bound assignments before expiry. Publishing reports due times; it does not rotate a node.</p>
+                        <label class="quasar-field"><span>RotationPublication JSON</span><textarea @bind="_rotationJson" disabled="@Busy" rows="7"></textarea></label>
+                        <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("PUT /admin/v1/rotation"))" @onclick="PublishRotationAsync">Publish rotation assignments</button>
+                        <p class="quasar-muted quasar-caption">Matching cluster clients receive F11 diagnostics over the mod channel. Only in-game Admin and Owner ranks receive the fleet and Cluster Registry fields.</p>
+                    }
+                    </div>
+                </details>
+                <details class="quasar-details"><summary>Advanced capacity configuration</summary>
+                    <div class="py-2 cluster-form-section quasar-stack">
+                    <button class="quasar-button quasar-tone-primary" type="button" disabled="@Busy" @onclick="LoadConfigAsync">Load current configuration</button>
+                    @if (_config is not null)
+                    {
+                        <p class="quasar-muted quasar-caption">Policy revision @_config.PolicyRevision. Cluster Registry owns placement and drain decisions.</p>
+                        <div class="quasar-table-scroll"><table class="quasar-server-table"><thead><tr><th scope="col">Slot</th><th scope="col">Host machine</th><th scope="col">Role</th><th scope="col">Desired state</th></tr></thead><tbody>
+                        @foreach (var slot in _config.Slots)
+                        {
+                            <tr @key="slot.SlotKey"><td>@slot.SlotKey</td><td>@slot.Host</td><td>@(slot.Role == Admin.NodeRole.WorldAuthority ? "World Authority" : slot.Role.ToString())</td><td><label class="quasar-field"><span class="quasar-visually-hidden">Desired state for @slot.SlotKey</span><select value="@slot.Goal" @onchange="@(args => ChangeGoal(slot.SlotKey, Enum.Parse<Admin.NodeGoal>((string)args.Value!)))" disabled="@Busy"><option value="@Admin.NodeGoal.Wanted">Wanted</option><option value="@Admin.NodeGoal.Draining">Draining</option></select></label></td></tr>
+                        }
+                        </tbody></table></div>
+                        <button class="quasar-button quasar-tone-primary" type="button" disabled="@(!CanRun("PUT /admin/v1/config"))" @onclick="ApplyConfigAsync">Apply configuration</button>
+                    }
+                    </div>
+                </details>
+                </div>
+                </details>
+            </div>
+            }
+        </div>
+        </div>
+        </section>
+}
+
+@code {
+    [Parameter, EditorRequired] public ClusterDashboard Cluster { get; set; } = null!;
+    [Parameter] public bool Compact { get; set; }
+    [Parameter] public bool GatewayAvailable { get; set; } = true;
+    private bool _settingsOpened;
+    protected override void OnParametersSet() => _settingsOpened |= !Compact;
+    private readonly CancellationTokenSource _shutdown = new();
+    [Parameter] public Admin.AdminCapabilities? Capabilities { get; set; }
+    private Admin.AdminCapabilities? _capabilities => Capabilities;
+    private Admin.AdminConfig? _config;
+    private Admin.RotationStatus? _rotation;
+    private string _rotationJson = string.Empty;
+    private PanelOperation? _operation;
+    private string? _error;
+    [Parameter] public string? CapabilityError { get; set; }
+    private Task? _poll;
+    private bool _submitting;
+    private string _displayName = string.Empty;
+    private string _configProfileId = string.Empty;
+    private int _shutdownGracePeriodSeconds;
+    private int _hotSpares;
+    private int PreparedHotSpares => Cluster.HotSpares;
+    private int _regularNodes;
+    private string? _regularNodesHost;
+    private IReadOnlyList<HostNodeCount> PreparedRegularNodes => Cluster.RegularNodes;
+    private int PreparedRegularNodesOf(string? host) => PreparedRegularNodes.FirstOrDefault(h => h.HostId == host)?.RegularNodes ?? 0;
+    private string? RegularNodesHost
+    {
+        get => _regularNodesHost;
+        set { _regularNodesHost = value; _regularNodes = PreparedRegularNodesOf(value); }
+    }
+    private bool _canStart;
+    private bool Busy => _submitting || _operation?.State == "Running";
+    private bool ManagedLifecycle => Cluster.ManagedLifecycle;
+    private bool CanRun(string operation) => !Busy && _capabilities?.Scope == Admin.AdminScope.Manage
+        && GatewayAvailable
+        && _capabilities.Operations.Contains(operation, StringComparer.Ordinal);
+    private bool CanSaveWorld => Cluster.GoalOn
+        && CanRun("POST /admin/v1/save-all");
+    private string SaveWorldHint => !GatewayAvailable || _capabilities is null
+        ? "Save world is unavailable while the Gateway admin connection is unavailable."
+        : CanSaveWorld ? "Save world" : "Save world is unavailable during an operation or without Gateway save permission.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        _displayName = Cluster.DisplayName;
+        _configProfileId = Cluster.PendingProfileId ?? Cluster.ConfigProfileId;
+        _shutdownGracePeriodSeconds = Cluster.ShutdownGracePeriodSeconds;
+        _hotSpares = PreparedHotSpares;
+        RegularNodesHost = PreparedRegularNodes.FirstOrDefault()?.HostId;
+        await RefreshStartAvailabilityAsync();
+        _poll = PollAsync();
+    }
+    private async Task RefreshStartAvailabilityAsync()
+    {
+        try { _canStart = Cluster.CanManage && !Cluster.GoalOn
+            && await Sdk.RequestAsync<bool>("cluster.start.available", new ClusterPanelRequest(Cluster.UniqueName), _shutdown.Token); }
+        catch (JSException error) { _canStart = false; _error = error.Message; }
+    }
+    private async Task PollAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(_shutdown.Token))
+            {
+                await RefreshStartAvailabilityAsync();
+                await InvokeAsync(async () =>
+                {
+                    if (_operation?.State == "Running")
+                    {
+                        try { _operation = await Sdk.RequestAsync<PanelOperation>("cluster.panel.operation", ClusterPanelRequest.For(Cluster.UniqueName, _operation.OperationId), _shutdown.Token); }
+                        catch (JSException error) { _error = error.Message; }
+                    }
+                    StateHasChanged();
+                });
+            }
+        }
+        catch (OperationCanceledException) { }
+    }
+    private string _advancedCommand = "", _handover = "{}";
+    private string? _details;
+    private static readonly System.Text.Json.JsonSerializerOptions DetailJson = new(System.Text.Json.JsonSerializerDefaults.Web) { WriteIndented = true };
+    private async Task ShowAsync(Func<Task<object>> read)
+    {
+        try { _details = System.Text.Json.JsonSerializer.Serialize(await read(), DetailJson); _error = null; }
+        catch (Exception error) when (error is JSException or System.Text.Json.JsonException) { _error = error.Message; }
+    }
+    private Task LoadDiagnosticsAsync() => ShowAsync(async () => await ReadAsync<JsonElement>("cluster.panel.diagnostics"));
+    private Task LoadArtifactsAsync() => ShowAsync(async () => await ReadAsync<Admin.ArtifactPage>("cluster.panel.artifacts"));
+    private Task LoadHandoverAsync() => ShowAsync(async () => await ReadAsync<JsonElement>("cluster.panel.handover"));
+    private Task ExportAsync() => SubmitAsync(PanelCommand.Create("world-export", new Admin.WorldExportRequest()));
+    private async Task AdvancedAsync()
+    {
+        try { await SubmitAsync(System.Text.Json.JsonSerializer.Deserialize<PanelCommand>(_advancedCommand, DetailJson)
+            ?? throw new System.Text.Json.JsonException("Command is required.")); }
+        catch (System.Text.Json.JsonException error) { _error = error.Message; }
+    }
+    private async Task ApplyHandoverAsync()
+    {
+        try { await SubmitAsync(PanelCommand.Create("handover-config-set",
+            System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string?>>(_handover, DetailJson))); }
+        catch (System.Text.Json.JsonException error) { _error = error.Message; }
+    }
+    private Task SaveAsync() => CanSaveWorld ? SubmitAsync(new("save-all")) : Task.CompletedTask;
+    private void EnsureServerName()
+    {
+        if (!Busy && string.IsNullOrWhiteSpace(_displayName))
+            _displayName = "cluster-" + Guid.NewGuid().ToString("N")[..12];
+    }
+    private Task<T> ReadAsync<T>(string name) => Sdk.ReadClusterAsync<T>(name, Cluster.UniqueName, _shutdown.Token);
+    private async Task SaveAdministrationAsync()
+    {
+        EnsureServerName();
+        await ChangeAsync(async () =>
+        {
+            var settings = await Sdk.RequestAsync<SaveClusterSettings>("cluster.settings.save",
+                ClusterPanelRequest.For(Cluster.UniqueName, new SaveClusterSettings(_displayName, _shutdownGracePeriodSeconds)), _shutdown.Token);
+            _displayName = settings.DisplayName;
+            _shutdownGracePeriodSeconds = settings.ShutdownGracePeriodSeconds;
+        });
+    }
+    private Task OfferDefaultPluginsAsync(bool enable) => ChangeAsync(async () =>
+    {
+        await Sdk.RequestAsync<bool>("cluster.settings.defaults", ClusterPanelRequest.For(Cluster.UniqueName,
+            new ClusterDefaultOffer(_configProfileId, enable)), _shutdown.Token);
+    });
+    private Task StageProfileAsync() => RunOperationAsync("cluster.settings.profile", _configProfileId);
+    private Task StageHotSparesAsync() => RunOperationAsync("cluster.settings.spares", _hotSpares);
+    private Task StageRegularNodesAsync() => RunOperationAsync("cluster.settings.nodes", new HostNodeCount(_regularNodesHost ?? "", _regularNodes));
+    private Task StartAsync() => ChangeGoalAsync(true);
+    private Task ChangeGoalAsync(bool on) => RunOperationAsync("cluster.panel.goal", on);
+    private Task RunOperationAsync(string operation, object args) => ChangeAsync(async () =>
+    {
+        _operation = await Sdk.RequestAsync<PanelOperation>(operation, ClusterPanelRequest.For(Cluster.UniqueName, args), _shutdown.Token);
+        _error = _operation.Error?.Message;
+    });
+    private async Task ChangeAsync(Func<Task> apply)
+    {
+        if (Busy || !Cluster.CanManage) return;
+        _submitting = true; _error = null;
+        try { await apply(); await Changed.InvokeAsync(); }
+        catch (JSException error) { _error = error.Message; }
+        finally { _submitting = false; }
+    }
+    [Parameter] public EventCallback Changed { get; set; }
+    private async Task ShutdownAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Shut down cluster?", "Players will disconnect while the cluster saves and drains.", yesText: "Shut down", cancelText: "Cancel") == true)
+        {
+            if (ManagedLifecycle)
+                await ChangeGoalAsync(false);
+            else await SubmitAsync(PanelCommand.Create("shutdown", new Admin.ShutdownRequest()));
+        }
+    }
+    private async Task RestartAsync()
+    {
+        if (await Dialogs.ShowMessageBoxAsync("Restart Cluster Gateway?", "Clients will reconnect; nodes keep simulating.", yesText: "Restart", cancelText: "Cancel") == true)
+            await SubmitAsync(new("gateway-restart"));
+    }
+    public Task SubmitAsync(PanelCommand command) => command.Action == "save-all" && !CanSaveWorld
+        ? Task.CompletedTask : ChangeAsync(async () =>
+        {
+            _operation = await JS.InvokeAsync<PanelOperation>("quasarSdk.uploadJson", _shutdown.Token, "quasar.core", "cluster.panel.command",
+                new ClusterPanelRequest(Cluster.UniqueName), JsonSerializer.Serialize(command));
+            _error = _operation.Error?.Message;
+        });
+    private async Task LoadRotationAsync()
+    {
+        try
+        {
+            _rotation = await ReadAsync<Admin.RotationStatus>("cluster.panel.rotation");
+            _rotationJson = JsonSerializer.Serialize(new Admin.RotationPublication(_rotation.Revision,
+                _rotation.Source ?? "quasar", DateTimeOffset.UtcNow.AddMinutes(2), _rotation.Enabled, _rotation.Nodes));
+            _error = null;
+        }
+        catch (JSException error) { _error = error.Message; }
+    }
+    private async Task PublishRotationAsync()
+    {
+        try
+        {
+            var publication = JsonSerializer.Deserialize<Admin.RotationPublication>(_rotationJson);
+            if (publication is null) { _error = "A rotation publication is required."; return; }
+            await SubmitAsync(PanelCommand.Create("rotation-set", publication));
+        }
+        catch (JsonException error) { _error = error.Message; }
+    }
+    private async Task LoadConfigAsync()
+    {
+        try { _config = await ReadAsync<Admin.AdminConfig>("cluster.panel.policy"); _error = null; }
+        catch (JSException error) { _error = error.Message; }
+    }
+    private void ChangeGoal(string slot, Admin.NodeGoal goal)
+    {
+        if (_config is not null) _config = _config with { Slots = _config.Slots.Select(s => s.SlotKey == slot ? s with { Goal = goal } : s).ToArray() };
+    }
+    private Task ApplyConfigAsync() => SubmitAsync(PanelCommand.Create("config-set", new Admin.AdminConfigUpdate(_config!.PolicyRevision, _config.Slots)));
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_poll is not null) await _poll;
+        _shutdown.Dispose();
+    }
+}
