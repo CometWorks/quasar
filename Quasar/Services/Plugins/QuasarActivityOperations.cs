@@ -104,12 +104,13 @@ public static class QuasarActivityOperations
     internal static IReadOnlyList<ActivityItem> Recent(
         IServiceProvider services,
         ClaimsPrincipal user,
-        int limit
+        int limit,
+        bool includeClusters = true
     )
     {
         var events = new List<ActivityItem>();
         var clusters = (services.GetService<ClusterCatalog>()?.GetClusters() ?? [])
-            .Where(cluster => user.CanQueryCluster(cluster.UniqueName))
+            .Where(cluster => includeClusters && user.CanQueryCluster(cluster.UniqueName))
             .ToDictionary(cluster => cluster.UniqueName, StringComparer.OrdinalIgnoreCase);
         foreach (
             var runtime in services.GetRequiredService<DedicatedServerSupervisor>().GetSnapshots()

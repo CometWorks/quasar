@@ -100,6 +100,8 @@ The **Dashboard** (`/`) shows two things before the first server exists:
 - **Data Handling Consent** with **YES** and **NO** buttons. The choice controls Magnetar statistics, diagnostic reports to CometWorks and server listings. Until you choose, sharing stays off. You can change it later on the **Security** page. See [Diagnostics](Diagnostics.md).
 - Preparation feedback for **SteamCMD**, **Dedicated Server** and **Magnetar**. In the first-world step this appears beside **Choose DS World** and explains the automatic checks, downloads and validation. Other Dashboard views use the **Managed Runtime** panel. Downloads and validation show SteamCMD percentages when available, plus elapsed time. The first run can take several minutes. Server starts remain blocked until the required runtime is ready. Failed steps show the error, troubleshooting guidance and **Retry preparation** (or **Retry** in Managed Runtime). Retrying requires server-edit permission and keeps your setup choices.
 
+The guide runs in the browser. The **Refresh** button updates fleet status immediately, and Quasar also refreshes it in the background. The available setup choices follow the operating system of the Quasar machine.
+
 ## The first-server dialog
 
 When no server or cluster exists, the Dashboard opens **Set Up First Server**. It
@@ -215,11 +217,11 @@ With **Network** selected, the world's online mode is copied as is, including Of
 
 - `Quasar/Components/Pages/PostInstallSetup.razor`
 - `Quasar/Components/Shared/AccessSetupPrompt.razor`
-- `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
+- `Quasar.Client/Components/FleetPreparation.razor`
 - `Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
-- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar.Client/Pages/NewServerDialog.razor`
 - `Quasar/Services/ServerManagementActions.cs`
 - `Docs/QuickStart.md`
 - `Docs/Docker.md`
@@ -230,9 +232,9 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `scripts/install.ps1`
 - `Quasar/Program.cs`
 - `Quasar/appsettings.json`
-- `Quasar/Components/Pages/Home.razor`
-- `Quasar/Components/Pages/ExistingServerImportDialog.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
+- `Quasar.Client/Pages/Home.razor`
+- `Quasar.Client/Components/ImportExistingServerDialog.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
 - `Quasar/Components/Pages/WorldTemplateConfigProfileDialog.razor`
 - `Quasar/Components/Pages/Security.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
@@ -256,4 +258,4 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `scripts/install-gui.ps1`
 - `scripts/install-gui.sh`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
-- `Quasar/Components/Pages/WorldTemplates.razor`
+- `Quasar.Client/Pages/WorldTemplates.razor`

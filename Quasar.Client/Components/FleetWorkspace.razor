@@ -1,0 +1,254 @@
+@using Quasar.Client.Fleet
+@using Quasar.Client.Clusters
+@using Quasar.Components.Pages
+@using Quasar.Components.Shared
+@using Quasar.Services
+@using Microsoft.JSInterop
+@using MudBlazor
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+
+<section class="quasar-panel quasar-servers-panel">
+    <div class="quasar-panel-heading"><h2>@(IsList ? "Dedicated servers" : "Fleet workspace")</h2>@HeaderActions</div>
+    @if (IsList)
+    {
+        <div class="quasar-toolbar">
+            <label class="quasar-field quasar-search"><span class="quasar-visually-hidden">Search fleet</span><input type="search" placeholder="Server, world, host, or profile…" @bind="_search" @bind:event="oninput" /></label>
+            <label class="quasar-field"><span class="quasar-visually-hidden">Status</span><select @bind="_status"><option value="">All statuses</option>@foreach(var state in Dashboard.Rows.Select(r=>r.State).Distinct().Order()){<option>@state</option>}</select></label>
+            <label class="quasar-field"><span class="quasar-visually-hidden">Type</span><select @bind="_kind"><option value="">All servers</option><option>Standalone</option><option>Cluster</option></select></label>
+            <label class="quasar-field"><span class="quasar-visually-hidden">Sort by</span><select @bind="_sort">@foreach(var col in Columns){<option>@col</option>}</select></label>
+            <label class="quasar-check"><input type="checkbox" @bind="_technical" />Technical columns</label>
+            <span class="quasar-toolbar-meta" role="status">@Filtered.Count() of @Dashboard.Rows.Length servers</span>
+        </div>
+    }
+    @if (Dashboard.Rows.Length == 0)
+    {
+        <div class="quasar-empty"><QuasarIcon Icon="@QuasarIcons.Storage" /><h2>Your fleet starts here</h2><p>Create a server or import an existing installation to see its health, telemetry, and lifecycle controls.</p></div>
+    }
+    else if (!IsList)
+    {
+        <div class="quasar-card-grid">
+        @foreach (var r in Dashboard.Rows)
+        {
+            <div class="quasar-card-cell" @key="r.UniqueName"><article class="quasar-fleet-card quasar-panel quasar-card-content">
+                <div class="quasar-panel-heading"><h3>@Identity(r)</h3>@Status(r)</div>
+                <dl class="quasar-card-facts">
+                    <div><dt>World</dt><dd>@(r.WorldSaveName.Length > 0 ? r.WorldSaveName : "—")</dd></div>
+                    <div><dt>Game port</dt><dd>@r.Port</dd></div><div><dt>Config</dt><dd>@Profile(r)</dd></div>
+                    <div><dt>Goal</dt><dd>@r.Goal</dd></div>
+                </dl>
+                @if (!string.IsNullOrEmpty(r.Message)) { <p>@r.Message</p> }
+                @if (!r.IsCluster && !r.Active && r.Error is {Length:>0}) { <button class="quasar-table-link quasar-text-error" @onclick="@(()=>ConsoleAsync(r,true))">@r.Error</button> }
+                <div class="quasar-detail-metrics">
+                    <div><span>Players</span><strong>@Players(r)</strong></div><div><span>Sim speed</span><strong>@Metric(r.SimSpeed,"0.00","×")</strong></div>
+                    <div><span>Process CPU</span><strong>@Metric(r.Cpu,"0","%")</strong></div><div><span>Memory</span><strong>@Memory(r)</strong></div>
+                </div>
+                <div class="quasar-card-actions">@Actions(r)</div>
+                <button class="quasar-button" aria-expanded="@Expanded(r)" @onclick="@(()=>Toggle(r))">Live details</button>
+                @if (Expanded(r)) { @Details(r) }
+            </article></div>
+        }
+        </div>
+    }
+    else if (!Filtered.Any())
+    {
+        <div class="quasar-empty" role="status"><h2>No servers match these filters</h2><button type="button" class="quasar-button" @onclick="ClearFilters">Clear filters</button></div>
+    }
+    else
+    {
+        <div class="quasar-table-scroll" role="region" aria-label="Managed servers" tabindex="0"><table class="quasar-server-table">
+        <thead><tr><th><span class="quasar-visually-hidden">Live details</span></th>
+            @foreach(var col in VisibleColumns)
+            {<th scope="col" aria-sort="@(_sort != col ? "none" : _descending ? "descending" : "ascending")"><button class="quasar-sort-button" @onclick="@(()=>Sort(col))">@(col=="Name"?"Server / world":col) @(_sort==col ? _descending ? "↓":"↑" : "")</button></th>}
+            <th><span class="quasar-visually-hidden">Actions</span></th></tr></thead>
+        <tbody>
+        @foreach (var r in Sorted)
+        {
+            <tr @key="r.UniqueName">
+                <td><QuasarIconButton Label="Show live data" Expanded="@Expanded(r)" Icon="@(Expanded(r)?QuasarIcons.ExpandLess:QuasarIcons.ExpandMore)" OnClick="@(()=>Toggle(r))" /></td>
+                <td class="quasar-server-name-cell" title="@r.UniqueName">@Identity(r)@if (_technical) {<span class="quasar-server-secondary mono">@r.UniqueName</span>}<span class="quasar-server-secondary">@(r.WorldSaveName.Length>0?r.WorldSaveName:Kind(r))</span></td>
+                <td>@Status(r) @if(r.Error is {Length:>0} && !r.Active) { <button class="quasar-table-link quasar-server-secondary quasar-text-error" title="Open console at latest error lines" @onclick="@(()=>ConsoleAsync(r,true))">@r.Error</button> }</td>
+                <td>@if(!r.IsCluster) { <button class="quasar-table-link" title="@Address(r)" @onclick="@(()=>Copy(r))">@r.Port</button> } else { @(r.Port?.ToString() ?? "—") }<span class="quasar-server-secondary">@r.Host</span></td>
+                <td>@Players(r)</td><td>@Metric(r.SimSpeed,"0.00","×")</td><td>@Metric(r.Cpu,"0","%")</td><td>@Memory(r)</td>
+                @if (_technical)
+                { <td>@Kind(r)</td><td>@Profile(r)</td><td>@(r.ProcessId?.ToString() ?? "—")</td><td>@Attachment(r)</td> }
+                <td class="quasar-server-actions">@Actions(r)</td>
+            </tr>
+            @if (Expanded(r))
+            { <tr class="quasar-server-detail-row"><td class="quasar-server-detail" colspan="@(VisibleColumns.Count()+2)">@Details(r)</td></tr> }
+        }
+        </tbody></table></div>
+    }
+    <div class="quasar-table-footer"><span>Goal-state supervision · Agent telemetry</span><span>Process CPU can exceed 100% because it represents 1 CPU</span></div>
+</section>
+@if(Dashboard.UnmanagedAgents.Length>0)
+{
+    <section class="quasar-panel quasar-section"><h2>Unmanaged Agents</h2>
+    @foreach(var agent in Dashboard.UnmanagedAgents)
+    {
+        <div class="quasar-agent-details" @key="agent.Id">
+            <button class="quasar-button" aria-expanded="@_openAgents.Contains(agent.Id)" @onclick="@(()=>ToggleAgent(agent.Id))">@agent.Name · @agent.UniqueName</button>
+            @if (_openAgents.Contains(agent.Id))
+            {
+                <p>@agent.Host · @(agent.Connected ? "Connected" : "Offline")</p>
+                @if (agent.Cluster is not null)
+                {
+                    <p>Cluster @agent.Cluster · Slot @agent.Slot · Node @agent.Node · Epoch @agent.Epoch</p>
+                    <p>Register the owning cluster to manage this node through the Cluster Registry.</p>
+                }
+                else
+                {
+                    <FleetLiveDetails UniqueName="@agent.UniqueName" AgentId="@agent.Id" Connected="agent.Connected" Running="agent.Running" CanControl="Dashboard.Control" />
+                }
+            }
+        </div>
+    }
+    </section>
+}
+@code{
+    [Parameter,EditorRequired] public FleetDashboard Dashboard {get;set;}=default!;
+    [Parameter] public bool IsList {get;set;}
+    [Parameter] public RenderFragment? HeaderActions {get;set;}
+    [Parameter] public EventCallback Changed {get;set;}
+    private readonly HashSet<string> _expanded=new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _openAgents = new(StringComparer.Ordinal);
+    private void ToggleAgent(string id) { if (!_openAgents.Add(id)) _openAgents.Remove(id); }
+    private bool _busy,_technical,_descending;
+    private string _search="",_kind="",_status="",_sort="Name";
+    private static readonly string[] Columns=["Name","Status","Game port","Players","Sim speed","CPU","Memory","Type","Config","Process","Agent / WA","Unique name"];
+    private IEnumerable<string> VisibleColumns=>Columns.Take(_technical?11:7);
+    private static string Kind(FleetRow row)=>row.IsCluster?"Cluster":"Standalone";
+    private static string Attachment(FleetRow r)=>r.IsCluster?r.Health:r.Connected?"Attached":"Waiting";
+    private IEnumerable<FleetRow> Filtered=>Dashboard.Rows.Where(r=>(_kind=="" || _kind==Kind(r)) && (_status=="" || r.State==_status) &&
+        (_search=="" || string.Join(" ",r.DisplayName,r.UniqueName,r.ProfileName,r.WorldSaveName,r.Host,r.Port).Contains(_search.Trim(),StringComparison.OrdinalIgnoreCase)));
+    private IEnumerable<FleetRow> Sorted=>_descending?Filtered.OrderByDescending(Value):Filtered.OrderBy(Value);
+    private object Value(FleetRow r)=>_sort switch {"Status"=>r.State,"Game port"=>r.Port??-1,"Players"=>r.Players??-1,"Sim speed"=>r.SimSpeed??-1,
+        "CPU"=>r.Cpu??-1,"Memory"=>r.MemoryMb??-1,"Type"=>Kind(r),"Config"=>r.ProfileName,"Process"=>r.ProcessId??-1,"Agent / WA"=>Attachment(r),"Unique name"=>r.UniqueName,_=>r.DisplayName};
+    private void Sort(string col){_descending=_sort==col&&!_descending;_sort=col;}
+    private void ClearFilters()=>_search=_kind=_status="";
+    private bool Expanded(FleetRow r)=>_expanded.Contains(r.UniqueName);
+    private void Toggle(FleetRow r){if(!_expanded.Add(r.UniqueName)) _expanded.Remove(r.UniqueName);}
+    private static string Players(FleetRow r)=>r.Players is int players ? r.Capacity is int capacity ? $"{players}/{capacity}" : players.ToString() : "—";
+    private static string Metric(float? value,string format,string unit)=>value.HasValue?value.Value.ToString(format)+unit:"—";
+    private static string Memory(FleetRow r)=>r.MemoryMb is long mb ? (mb/1024d).ToString("0.0")+" GiB":"—";
+    private static string ClusterHref(FleetRow r)=>"clusters/"+Uri.EscapeDataString(r.UniqueName);
+    private string Address(FleetRow r)
+    {
+        string host = r.Address?.Trim().Trim('[', ']') ?? "";
+        if (host is "" or "0.0.0.0" or "::" or "*" or "+") host = new Uri(Navigation.BaseUri).Host;
+        if (host is "" or "0.0.0.0" or "::" or "*" or "+") host = "127.0.0.1";
+        return (host.Contains(':')&&!host.StartsWith('[') ? "["+host+"]" : host)+":"+r.Port;
+    }
+    private async Task Copy(FleetRow r)
+    {
+        bool ok=await JS.InvokeAsync<bool>("quasarConfigs.copyText",Address(r));
+        Snackbar.Add(ok?"Copied "+Address(r):"Copy failed. Select the address manually.",ok?Severity.Info:Severity.Warning);
+    }
+    private RenderFragment Identity(FleetRow r)=>@<text>@if(r.IsCluster){ <a class="quasar-server-identity quasar-table-link" href="@ClusterHref(r)">@r.DisplayName</a> }else{ <strong class="quasar-server-identity">@r.DisplayName</strong> }</text>;
+    private RenderFragment Status(FleetRow r)=>@<span class="quasar-state-badge" title="@r.Message">@r.State</span>;
+    private RenderFragment Profile(FleetRow r)=>@<text>@if(Dashboard.EditConfigs && r.Profile.Length>0){ <a class="quasar-table-link" href="@("configs?profileId="+Uri.EscapeDataString(r.Profile))">@r.ProfileName</a> }else{ @r.ProfileName }</text>;
+    private RenderFragment Details(FleetRow r)=>@<div class="quasar-panel quasar-section">
+        <strong>@r.Health</strong><p>@r.Message</p>
+        @if(r.Details.Length>0){<ul>@foreach(var item in r.Details){<li>@item</li>}</ul>}
+        @if(r.IsCluster){ <a href="@ClusterHref(r)">Open cluster details</a> }
+        else { <FleetLiveDetails UniqueName="@r.UniqueName" Connected="r.Connected" Running="@(r.State=="Running")" CanControl="Dashboard.Control" /> }
+    </div>;
+    private RenderFragment Actions(FleetRow r)=>@<div class="quasar-dashboard-actions">
+        @if(r.IsCluster)
+        {
+            @if(Dashboard.ClusterManage && r.Goal=="Off"){<QuasarIconButton Label="Start cluster" Icon="@QuasarIcons.PlayArrow" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"cluster.start"))" />}
+            @if(Dashboard.ClusterManage && r.Goal!="Off"){<QuasarIconButton Label="Gracefully stop cluster" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"cluster.stop"))" />}
+            <QuasarIconButton Label="Open cluster details" Icon="@QuasarIcons.OpenInNew" Href="@ClusterHref(r)" />
+            @if(Dashboard.ClusterQuery){<ClusterConsoleButton UniqueName="@r.UniqueName" DisplayName="@r.DisplayName" />}
+            @if(Dashboard.ClusterManage){<ClusterDeleteButton UniqueName="@r.UniqueName" DisplayName="@r.DisplayName" />}
+        }
+        else
+        {
+            @if(Dashboard.Control && !r.Active){<QuasarIconButton Label="@(Dashboard.Warmup.State != ManagedRuntimeWarmupState.Complete ? Dashboard.Warmup.Message : !r.LaunchReady ? "Select a world save containing Sandbox.sbc." : "Start server")" Icon="@QuasarIcons.PlayArrow" Disabled="@(_busy||!r.LaunchReady||Dashboard.Warmup.State!=ManagedRuntimeWarmupState.Complete)" OnClick="@(()=>Lifecycle(r,"servers.start"))" />}
+            @if(Dashboard.Control && r.State=="Running"){
+                <QuasarIconButton Label="Stop server" Icon="@QuasarIcons.Stop" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.stop"))" />
+                <QuasarIconButton Label="Restart server" Icon="@QuasarIcons.RestartAlt" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"servers.restart"))" /> }
+            @if(Dashboard.Control && r.State is "Starting" or "Restarting"){<QuasarIconButton Label="Kill starting server" Icon="@QuasarIcons.StopCircle" Disabled="_busy" OnClick="@(()=>Lifecycle(r,"fleet.kill"))" />}
+            <QuasarIconButton Label="Show console output" Icon="@QuasarIcons.Terminal" OnClick="@(()=>ConsoleAsync(r))" />
+            @if(Dashboard.EditServers||Dashboard.EditConfigs||Dashboard.ClusterManage){
+            <button class="quasar-icon-button" aria-label="@("More actions for "+r.DisplayName)" title="More server actions" popovertarget="@Menu(r)" style="anchor-name:@("--"+Menu(r))"><QuasarIcon Icon="@Icons.Material.Filled.MoreVert" /></button>
+            <div id="@Menu(r)" popover="auto" class="quasar-server-menu" style="position-anchor:@("--"+Menu(r))"><strong>@r.DisplayName</strong>
+                @if(Dashboard.ClusterManage){<QuasarIconButton Label="Convert to cluster" ShowLabel="true" Icon="@QuasarIcons.AccountTree" Href="@("servers/"+Uri.EscapeDataString(r.UniqueName)+"/convert-to-cluster")" />}
+                @if(Dashboard.EditServers){
+                    <QuasarIconButton Label="Import World..." ShowLabel="true" Icon="@QuasarIcons.Public" Disabled="@(!r.Importable)" OnClick="@(()=>Navigation.NavigateTo("worlds?server="+Uri.EscapeDataString(r.UniqueName)))" />
+                    <QuasarIconButton Label="Clone server" ShowLabel="true" ClosePopover="@Menu(r)" Icon="@QuasarIcons.ContentCopy" OnClick="@(()=>Editor(r,true))" />
+                    <QuasarIconButton Label="Edit server" ShowLabel="true" ClosePopover="@Menu(r)" Icon="@QuasarIcons.Edit" OnClick="@(()=>Editor(r,false))" />
+                    <QuasarIconButton Label="Delete server" ShowLabel="true" ClosePopover="@Menu(r)" Icon="@QuasarIcons.Delete" Disabled="@(r.Active||r.Goal!="Off"||_busy)" OnClick="@(()=>ExistingAction(r,true))" /> }
+                @if(Dashboard.EditConfigs){<QuasarIconButton Label="Create world template" ShowLabel="true" ClosePopover="@Menu(r)" Icon="@QuasarIcons.Public" Disabled="@(!r.Importable||!r.LaunchReady||_busy)" OnClick="@(()=>ExistingAction(r,false))" />}
+            </div>
+            }
+        }
+    </div>;
+    private readonly string _id=Guid.NewGuid().ToString("N");
+    private string Menu(FleetRow r)=>"fleet-"+_id+"-"+Convert.ToHexString(System.Text.Encoding.UTF8.GetBytes(r.UniqueName));
+    private Task ConsoleAsync(FleetRow r,bool errors=false)=>Dialogs.ShowAsync<ServerConsoleDialog>($"Console — {r.DisplayName}",
+        new DialogParameters<ServerConsoleDialog>{{d=>d.UniqueName,r.UniqueName},{d=>d.InitialLogKind,errors ? r.ErrorLogKind ?? "server" : ""},{d=>d.InitialMode,errors ? "errors" : ""}},
+        new DialogOptions{FullWidth=true,MaxWidth=MaxWidth.ExtraLarge,CloseOnEscapeKey=true});
+    private async Task Editor(FleetRow r,bool clone)
+    {
+        var d=await Dialogs.ShowAsync<FleetServerEditor>(clone?"Clone Server":"Edit Server",new DialogParameters<FleetServerEditor>{{p=>p.UniqueName,r.UniqueName},{p=>p.Clone,clone}},
+            new DialogOptions{FullWidth=true,MaxWidth=MaxWidth.Large,CloseOnEscapeKey=true});
+        if(await d.Result is {Canceled:false}) await Changed.InvokeAsync();
+    }
+    private async Task Lifecycle(FleetRow r,string operation)
+    {
+        if(_busy)return;
+        _busy=true;
+        try
+        {
+            if(operation is "servers.stop" or "fleet.kill" or "cluster.stop"){
+                bool force=operation=="fleet.kill";
+                if(await Dialogs.ShowMessageBoxAsync(force?"Kill starting server?":"Gracefully stop?",force?$"Forcefully terminate {r.DisplayName} during startup?":$"Save and stop {r.DisplayName}?",yesText:force?"Kill process":"Stop",cancelText:"Cancel")!=true)return;
+            }
+            var target=new {r.UniqueName};
+            if(operation=="cluster.start" && !await Sdk.RequestAsync<bool>("cluster.start.available",target)) throw new InvalidOperationException("Wait for a stable stopped Gateway before starting.");
+            await Sdk.RequestAsync<JsonElement>(operation,target);
+            Snackbar.Add("Request accepted.",Severity.Success);
+            await Changed.InvokeAsync();
+        }
+        catch(Exception e){Snackbar.Add(e.Message,Severity.Error);}
+        finally{_busy=false;}
+    }
+    private async Task ExistingAction(FleetRow r,bool delete)
+    {
+        if(_busy)return;
+        _busy=true;
+        try
+        {
+            var target=new FleetTarget(r.UniqueName,r.Revision);
+            var paths=await Sdk.RequestAsync<FleetPaths>(delete?"fleet.delete.review":"fleet.template.review",target);
+            var options=new DialogOptions{FullWidth=true,MaxWidth=MaxWidth.Small,CloseOnEscapeKey=true};
+            if(delete)
+            {
+                var p=new DialogParameters<ServerDeleteDialog>{{d=>d.Slug,r.UniqueName},{d=>d.FolderPath,paths.Directory},{d=>d.Confirm,true}};
+                var confirm=await Dialogs.ShowAsync<ServerDeleteDialog>("Delete server?",p,options);
+                if(await confirm.Result is not {Canceled:false})return;
+                await Sdk.RequestAsync<bool>("fleet.delete",target);
+                await Changed.InvokeAsync();
+                p[nameof(ServerDeleteDialog.Confirm)]=false;
+                await Dialogs.ShowAsync<ServerDeleteDialog>("Server removed",p,options);
+            }
+            else
+            {
+                var p=new DialogParameters<WorldTemplateFromServerDialog>{{d=>d.DefaultName,$"{r.DisplayName} Snapshot {DateTime.Now:yyyy-MM-dd HHmm}"},
+                    {d=>d.DefaultDescription,$"Created from stopped server '{r.UniqueName}'."},{d=>d.WorldPath,paths.World}};
+                var confirm=await Dialogs.ShowAsync<WorldTemplateFromServerDialog>("Create World Template",p,options);
+                if(await confirm.Result is not {Canceled:false,Data:WorldTemplateFromServerDialog.TemplateRequest request})return;
+                var name=await JS.InvokeAsync<string>("quasarSdk.uploadJson","quasar.core","fleet.template.create",target,JsonSerializer.Serialize(request, JsonSerializerOptions.Web));
+                Snackbar.Add($"World template '{name}' created.",Severity.Success); await Changed.InvokeAsync();
+            }
+        }
+        catch(Exception e){Snackbar.Add(e.Message,Severity.Error);}
+        finally{_busy=false;}
+    }
+}

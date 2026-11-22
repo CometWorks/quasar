@@ -80,7 +80,11 @@ public sealed class NewServerDialogTests : IDisposable
     {
         await using var context = CreateContext(policy);
         var provider = context.Render<MudDialogProvider>();
-        await provider.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<NewServerDialog>("New server"));
+        await provider.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<NewServerDialog>("New server", new DialogParameters<NewServerDialog> {
+            { p => p.CanCreate, policy == QuasarPolicyNames.CanEditServers },
+            { p => p.CanManageCluster, policy == QuasarPolicyNames.ClusterManage },
+            { p => p.WorkerLinux, OperatingSystem.IsLinux() }
+        }));
         var choices = provider.FindAll("button").Select(b => b.TextContent.Trim()).ToArray();
         Assert.Contains(visible, choices);
         Assert.DoesNotContain(hidden, choices);

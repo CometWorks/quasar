@@ -1,28 +1,23 @@
 @page "/"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
 @implements IDisposable
-@inject AgentRegistry Registry
-@inject DedicatedServerCatalog ServerCatalog
-@inject ClusterCatalog ClusterCatalog
-@inject ClusterOperationStore ClusterOperations
-@inject ClusterPlayerService ClusterPlayers
-@inject AuthenticationStateProvider AuthenticationState
-@inject DedicatedServerSupervisor Supervisor
-@inject QuasarConfigProfileCatalog ConfigProfiles
-@inject QuasarWorldTemplateCatalog WorldTemplates
-@inject QuasarWorkshopModResolver WorkshopMods
-@inject ManagedRuntimeWarmupService RuntimeWarmup
-@inject DataHandlingConsentCatalog DataHandlingConsent
-@inject ServerManagementActions ServerActions
+@using System.Text.Json
+@using Microsoft.JSInterop
+@using Quasar.Client
+@using Quasar.Client.Fleet
+@using Quasar.Components.Shared
+@using Quasar.Services
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+@inject NavigationManager Navigation
 @inject IDialogService DialogService
 @inject ISnackbar Snackbar
-@inject NavigationManager Navigation
-@inject BrowserStorageService BrowserStorage
-@inject QuasarPermissionService Permissions
-@inject IServiceProvider Services
-@inject ViewerTimeZone ViewerTime
-
 <PageTitle>Fleet overview</PageTitle>
-
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error <button class="quasar-button" @onclick="Refresh">Retry</button></MudAlert> }
+@if (_data is null && _error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading fleet" /> }
+@if (_data is {} data)
+{
 @if (ShowDataHandlingConsentPrompt)
 {
     <section class=" mb-4 quasar-panel quasar-section">
@@ -54,13 +49,23 @@
 <div class="quasar-page-heading">
     <div><div class="quasar-eyebrow">Infrastructure / overview</div><h1>Fleet overview</h1><p>Server health, live telemetry, and lifecycle controls.</p></div>
     <div class="quasar-dashboard-actions">
-        <button type="button" class="quasar-button" disabled="@ShowSetupWizard" @onclick="ShowSetupWizardAgain"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Setup guide</button>
-        <button type="button" class="quasar-button" @onclick="OpenExistingServerImportDialogAsync"><QuasarIcon Icon="@QuasarIcons.MoveToInbox" />Import server</button>
-        <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateServerDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
+        <button type="button" class="quasar-button" aria-label="Refresh fleet" @onclick="Refresh"><QuasarIcon Icon="@QuasarIcons.Refresh" />Refresh</button>
+        @if (data.EditServers && data.EditConfigs)
+        {
+            <button type="button" class="quasar-button" disabled="@ShowSetupWizard" @onclick="ShowSetupWizardAgain"><QuasarIcon Icon="@QuasarIcons.RestartAlt" />Setup guide</button>
+        }
+        @if (data.EditServers)
+        {
+            <button type="button" class="quasar-button" @onclick="OpenExistingServerImportDialogAsync"><QuasarIcon Icon="@QuasarIcons.MoveToInbox" />Import server</button>
+        }
+        @if (data.EditServers || data.ClusterManage)
+        {
+            <button type="button" class="quasar-button quasar-button-primary" @onclick="OpenCreateServerDialogAsync"><QuasarIcon Icon="@QuasarIcons.Add" />New server</button>
+        }
     </div>
 </div>
 
-@if (Supervisor.HealthMonitoringDisabled)
+@if (data.HealthDisabled)
 {
     <div class="mb-4 quasar-notice quasar-notice-info" role="status">
         Health monitoring disabled for this Quasar instance (development mode or configuration).
@@ -70,7 +75,7 @@
 @if (_firstSetupFlow == FirstSetupFlow.Cluster)
 {
     var cluster = Clusters.FirstOrDefault();
-    var deployed = cluster?.ActiveDeployment is not null;
+    var deployed = cluster?.Deployed == true;
     var destination = deployed ? $"clusters/{Uri.EscapeDataString(cluster!.UniqueName)}"
         : cluster is not null ? $"clusters/new?resume={Uri.EscapeDataString(cluster.UniqueName)}" : "clusters/new";
     <section class="quasar-panel quasar-section mb-6">
@@ -140,7 +145,7 @@
 
                         @if (SetupWorldTemplate is null)
                         {
-                            <DedicatedServerSetupStatus />
+                            <FleetPreparation Snapshot="data.Warmup" CanRetry="data.EditServers" Retry="RetryRuntimeWarmupAsync" />
                         }
                         @if (SetupWorldTemplate is not null)
                         {
@@ -287,7 +292,7 @@
                                 {
                                     @foreach (var server in StartableServers)
                                     {
-                                        <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(IsLaunchBlocked || string.IsNullOrWhiteSpace(server.WorldSaveName))" @onclick="@(() => StartAsync(server.UniqueName))"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />
+                                        <button class="quasar-button quasar-tone-primary quasar-button-fill" type="button" disabled="@(IsLaunchBlocked || !server.LaunchReady || !data.Control)" @onclick="@(() => StartAsync(server.UniqueName))"><QuasarIcon Icon="@QuasarIcons.PlayArrow" />
                                             Start @server.UniqueName
                                         </button>
                                     }
@@ -386,7 +391,7 @@
     <div class="mb-4 quasar-notice quasar-notice-@(problemBanner.Severity.ToString().ToLowerInvariant())" role="status">
         <div class="quasar-row quasar-between">
             <p>@problemBanner.Message</p>
-            @if (!string.IsNullOrWhiteSpace(problemBanner.ClearErrorUniqueName))
+            @if (data.Control && !string.IsNullOrWhiteSpace(problemBanner.ClearErrorUniqueName))
             {
                 <button class="quasar-button quasar-tone-inherit" type="button" @onclick="@(() => ClearErrorStatusAsync(problemBanner.ClearErrorUniqueName))"><QuasarIcon Icon="@QuasarIcons.Clear" />
                     Clear Error Status
@@ -433,7 +438,7 @@
                             }
                             <div class="quasar-row quasar-between">
                                 <p class="quasar-muted quasar-caption">@GetRuntimeComponentLabel(component)</p>
-                                @if (CanRetryRuntimeComponent(component))
+                                @if (data.EditServers && CanRetryRuntimeComponent(component))
                                 {
                                     <button class="quasar-button quasar-tone-primary" type="button" @onclick="RetryRuntimeWarmupAsync"><QuasarIcon Icon="@QuasarIcons.Refresh" />
                                         Retry
@@ -448,10 +453,11 @@
     </section>
 }
 
-@{
-    var fleet = FleetSummary.Build(Servers, RuntimeSnapshotList, Agents,
-        Clusters.ToDictionary(cluster => cluster.UniqueName, cluster => ClusterPlayers.GetSnapshot(cluster.UniqueName), StringComparer.OrdinalIgnoreCase));
+@if (_worldForm && _worlds is {} worlds)
+{
+    <WorldImportForm @key="_profileForm" Inventory="worlds" TemplateOnly="@(!_profileForm)" ProfileOnly="_profileForm" Existing="@(_profileForm ? SetupWorldTemplate : null)" Saved="WorldSavedAsync" Closed="CloseWorld" />
 }
+    var fleet = data.Counts;
 <section class="quasar-summary" aria-label="Fleet summary">
     <div class="quasar-metric">
         <span class="quasar-metric-label">Servers<QuasarIcon Icon="@QuasarIcons.Storage" /></span>
@@ -474,74 +480,22 @@
         <span class="quasar-metric-note">@fleet.MemoryProcesses server and node processes reporting</span>
     </div>
 </section>
-
-@if (!IsListView)
-{
-    <div class="quasar-dashboard-heading"><h2>Fleet workspace</h2><div class="quasar-dashboard-actions">@FleetViewActions</div></div>
-}
-
-@* Keep this conditional: the landing page must not build hidden server-list/card DOM. *@
-@if (IsListView)
-{
-    <Servers Embedded="true"
-             HideHeader="true"
-             HideCreateActions="true"
-             HeaderActions="@FleetViewActions"
-             DisableResponsiveLayout="true"
-             LaunchBlocked="@IsLaunchBlocked"
-             LaunchBlockedMessage="@RuntimeWarmupSnapshot.Message"
-             ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
-}
-else if (Servers.Count == 0 && Clusters.Count == 0)
-{
-    @if (!ShowSetupWizard)
-    {
-        <p class="quasar-notice">
-            No servers configured yet. Create a server to manage a Space Engineers dedicated server.
-        </p>
-    }
-}
-else
-{
-    <div class="quasar-card-grid">
-        @foreach (var server in Servers)
-        {
-            <div class="quasar-card-cell" @key="@("server:" + server.UniqueName)">
-                <ServerCard Server="@server"
-                            Runtime="@GetRuntime(server.UniqueName)"
-                            Agent="@GetAgent(server.UniqueName)"
-                            LaunchBlocked="@IsLaunchBlocked"
-                            StartRequested="StartAsync"
-                            StopRequested="StopAsync"
-                            KillStartingRequested="KillStartingAsync"
-                            RestartRequested="RestartAsync"
-                            ConfigProfileSelected="OpenConfigProfileFromServerListAsync" />
-            </div>
-        }
-        @foreach (var cluster in Clusters)
-        {
-            <div class="quasar-card-cell" @key="@("cluster:" + cluster.UniqueName)">
-                <ClusterCard Cluster="@cluster" />
-            </div>
-        }
-    </div>
-}
-
+<FleetWorkspace Dashboard="data" IsList="IsListView" HeaderActions="FleetViewActions" Changed="Refresh" />
 <div class="quasar-insights">
-    <FleetTelemetryChart Servers="@Servers" Clusters="@Clusters" Agents="@Agents" />
+    <BrowserFleetChart Sources="data.Sources" />
     <section class="quasar-panel">
         <div class="quasar-panel-heading"><h2>Recent activity</h2><span>Lifecycle &amp; commands</span></div>
-        @if (RecentActivity.Count == 0)
+        @if (data.Activity.Length == 0)
         {
             <div class="quasar-empty"><h2>No recent activity</h2><p>Server and cluster starts, stops, restarts, and command results appear here.</p></div>
         }
         else
         {
             <ol class="quasar-activity">
-                @foreach (var activity in RecentActivity)
+                @foreach (var activity in data.Activity)
                 {
                     <li @key="activity.ClusterDetails?.OperationId">
-                        <QuasarStackedTimestamp Value="@activity.At" />
+                        <time class="quasar-stacked-timestamp" datetime="@activity.At.ToString("O")">@ViewerTime.FormatStacked(activity.At)</time>
                         @if (activity.ClusterDetails is { } operation)
                         {
                             <details class="quasar-activity-details">
@@ -579,7 +533,7 @@ else
         }
     </section>
 </div>
-
+}
 @code
 {
     private RenderFragment FleetViewActions => @<text>
@@ -605,33 +559,12 @@ else
     [SupplyParameterFromQuery(Name = "view")]
     public string? ServerViewQuery { get; set; }
 
-    private IReadOnlyList<AgentRuntimeState> Agents => Registry.GetAgents();
-    private IReadOnlyList<DedicatedServerDefinition> Servers => ServerCatalog.GetServers();
-    private System.Security.Claims.ClaimsPrincipal? _user;
-    private IReadOnlyList<ClusterDefinition> Clusters => _user is null ? []
-        : ClusterCatalog.GetClusters().Where(cluster => _user.CanQueryCluster(cluster.UniqueName)).ToArray();
-    private IReadOnlyList<DedicatedServerRuntimeSnapshot> RuntimeSnapshotList => Supervisor.GetSnapshots();
-    private ManagedRuntimeWarmupSnapshot RuntimeWarmupSnapshot => RuntimeWarmup.GetSnapshot();
-    private IReadOnlyDictionary<string, DedicatedServerRuntimeSnapshot> RuntimeSnapshots => Supervisor
-        .GetSnapshots()
-        .ToDictionary(snapshot => snapshot.UniqueName, StringComparer.OrdinalIgnoreCase);
-
-    private IReadOnlyList<DedicatedServerDefinition> StartableServers => Servers.Where(server => !IsRunning(server.UniqueName)).ToList();
-    private IReadOnlyList<DedicatedServerDefinition> LaunchedServers => Servers.Where(server => IsRunning(server.UniqueName)).ToList();
     private bool IsLaunchBlocked => RuntimeWarmupSnapshot.State != ManagedRuntimeWarmupState.Complete;
     private ManagedRuntimeComponentSnapshot? DedicatedServerWarmup =>
         RuntimeWarmupSnapshot.Components.FirstOrDefault(component =>
             component.Component == ManagedRuntimeInstallComponent.DedicatedServer);
     private bool IsDedicatedServerAvailable =>
         DedicatedServerWarmup?.State == ManagedRuntimeComponentState.Ready;
-    private bool ShowDataHandlingConsentPrompt
-    {
-        get
-        {
-            var settings = DataHandlingConsent.GetSettings();
-            return settings.ConsentGranted is null || settings.ConsentGranted == true && !settings.DiagnosticsGranted;
-        }
-    }
     private DashboardServerView _serverView = DashboardServerView.List;
     private bool _serverViewLoadedFromStorage;
     private bool _firstSetupChoiceAttempted;
@@ -640,11 +573,6 @@ else
     private bool IsCardsView => ServerView == DashboardServerView.Cards;
     private bool IsListView => ServerView == DashboardServerView.List;
 
-    private int ConnectedAgentCount => Agents.Count(agent => agent.IsConnected);
-
-    private IReadOnlyList<QuasarActivityOperations.ActivityItem> RecentActivity =>
-        _user is null ? [] : QuasarActivityOperations.Recent(Services, _user, 5);
-
     private static string Tone(string level) => level switch
     {
         "success" => "quasar-text-success",
@@ -652,71 +580,8 @@ else
         "error" => "quasar-text-error",
         _ => "",
     };
-
-    private int ConfiguredServerCount => Servers.Count + Clusters.Count;
-
-    private int RunningServerCount => RuntimeSnapshotList.Count(snapshot =>
-        snapshot.State is DedicatedServerProcessState.Starting
-            or DedicatedServerProcessState.Running
-            or DedicatedServerProcessState.Restarting
-            or DedicatedServerProcessState.Stopping);
-
-    private (Severity Severity, string Message, string? ClearErrorUniqueName)? ProblemBanner
-    {
-        get
-        {
-            var stateError = RuntimeSnapshotList.FirstOrDefault(snapshot =>
-                snapshot.State is DedicatedServerProcessState.Crashed or DedicatedServerProcessState.Faulted);
-            if (stateError is not null)
-                return (Severity.Error, $"{stateError.UniqueName}: {FirstNonEmpty(stateError.LastMessage, stateError.HealthSummary, "Server needs attention.")}", stateError.UniqueName);
-
-            var healthError = RuntimeSnapshotList.FirstOrDefault(snapshot =>
-                snapshot.HealthState == DedicatedServerHealthState.Unhealthy);
-            if (healthError is not null)
-                return (Severity.Error, $"{healthError.UniqueName}: {FirstNonEmpty(healthError.HealthSummary, healthError.LastMessage, "Server needs attention.")}", null);
-
-            var warning = RuntimeSnapshotList.FirstOrDefault(snapshot => snapshot.HealthState == DedicatedServerHealthState.Warning);
-            if (warning is not null)
-                return (Severity.Warning, $"{warning.UniqueName}: {FirstNonEmpty(warning.HealthSummary, warning.LastMessage, "Health warning.")}", null);
-
-            return null;
-        }
-    }
-
-    private int WorldTemplateCount => WorldTemplates.GetTemplates().Count;
-
     private string? _setupWorldTemplateId;
     private int? _setupStepOverride;
-
-    private QuasarWorldTemplate? SetupWorldTemplate
-    {
-        get
-        {
-            var templates = WorldTemplates.GetTemplates();
-            var selected = templates.FirstOrDefault(template =>
-                string.Equals(template.WorldTemplateId, _setupWorldTemplateId, StringComparison.OrdinalIgnoreCase));
-            if (selected is not null)
-                return selected;
-
-            return templates
-                .OrderByDescending(template => template.UpdatedAtUtc)
-                .FirstOrDefault();
-        }
-    }
-
-    private QuasarConfigProfile? SetupConfigProfile
-    {
-        get
-        {
-            var worldTemplateId = SetupWorldTemplate?.WorldTemplateId;
-            if (string.IsNullOrWhiteSpace(worldTemplateId))
-                return null;
-
-            return ConfigProfiles.GetProfiles().FirstOrDefault(profile =>
-                profile.WasCreatedFromWorldTemplate(worldTemplateId));
-        }
-    }
-
     private bool IsSetupStepComplete(int index) => index switch
     {
         0 => SetupWorldTemplate is not null,
@@ -773,7 +638,7 @@ else
         await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
     }
 
-    private bool ShowSetupWizard => _firstSetupFlow == FirstSetupFlow.SingleMagnetar;
+    private bool ShowSetupWizard => _data is {EditServers:true, EditConfigs:true} && _firstSetupFlow == FirstSetupFlow.SingleMagnetar;
 
     private Task ShowSetupWizardAgain() => OpenFirstServerSetupDialogAsync();
 
@@ -785,27 +650,10 @@ else
         _firstSetupFlow = flow;
         try
         {
-            await BrowserStorage.SetJsonAsync(FirstSetupStorageKey, new FirstSetupProgress(flow, _setupWorldTemplateId, _setupStepOverride));
+            await JS.InvokeVoidAsync("quasarConfigs.setLocalStorage",FirstSetupStorageKey,JsonSerializer.Serialize(new FirstSetupProgress(flow,_setupWorldTemplateId,_setupStepOverride),JsonSerializerOptions.Web));
         }
         catch (Exception error) when (error is InvalidOperationException or JSException) { }
     }
-
-    protected override void OnInitialized()
-    {
-        Registry.Changed += HandleRegistryChanged;
-        ServerCatalog.Changed += HandleRegistryChanged;
-        ClusterCatalog.Changed += HandleRegistryChanged;
-        ClusterOperations.Changed += HandleRegistryChanged;
-        ClusterPlayers.Changed += HandleRegistryChanged;
-        Supervisor.Changed += HandleRegistryChanged;
-        ConfigProfiles.Changed += HandleRegistryChanged;
-        WorldTemplates.Changed += HandleRegistryChanged;
-        RuntimeWarmup.Changed += HandleRegistryChanged;
-        DataHandlingConsent.Changed += HandleRegistryChanged;
-    }
-
-    protected override async Task OnInitializedAsync() =>
-        _user = (await AuthenticationState.GetAuthenticationStateAsync()).User;
 
     protected override void OnParametersSet()
     {
@@ -817,15 +665,6 @@ else
         }
     }
 
-    protected override async Task OnAfterRenderAsync(bool firstRender)
-    {
-        if (!firstRender)
-            return;
-
-        await LoadServerViewPreferenceAsync();
-        await ShowFirstSetupChoiceOnceAsync();
-    }
-
     private async Task LoadServerViewPreferenceAsync()
     {
         if (_serverViewLoadedFromStorage || TryParseServerView(ServerViewQuery, out _))
@@ -834,7 +673,7 @@ else
         _serverViewLoadedFromStorage = true;
         try
         {
-            var stored = await BrowserStorage.GetStringAsync(ServerViewStorageKey);
+            var stored = (await JS.InvokeAsync<string?>("quasarConfigs.getLocalStorage",ServerViewStorageKey))?.Trim('"');
             if (TryParseServerView(stored, out var storedView) && storedView != _serverView)
             {
                 _serverView = storedView;
@@ -858,7 +697,8 @@ else
         FirstSetupProgress? saved = null;
         try
         {
-            saved = await BrowserStorage.GetJsonAsync<FirstSetupProgress>(FirstSetupStorageKey);
+            var raw = await JS.InvokeAsync<string?>("quasarConfigs.getLocalStorage",FirstSetupStorageKey);
+            if (!string.IsNullOrWhiteSpace(raw)) saved = JsonSerializer.Deserialize<FirstSetupProgress>(raw, JsonSerializerOptions.Web);
         }
         catch (Exception error) when (error is InvalidOperationException or JSException or System.Text.Json.JsonException) { }
 
@@ -866,7 +706,7 @@ else
         if (saved?.Flow == FirstSetupFlow.Dismissed || saved is null && ConfiguredServerCount > 0)
             return;
 
-        if (!await EnsureServerSetupAuthorizedAsync())
+        if (_data is not { EditServers:true, EditConfigs:true })
             return;
 
         if (saved is not null && Enum.IsDefined(saved.Flow))
@@ -874,8 +714,8 @@ else
             _setupWorldTemplateId = saved.WorldTemplateId;
             _setupStepOverride = saved.StepOverride is >= 0 and <= 4 ? saved.StepOverride : null;
             _firstSetupFlow = saved.Flow;
-            if (_firstSetupFlow == FirstSetupFlow.Cluster && (!OperatingSystem.IsLinux()
-                || !await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage)))
+            if (_firstSetupFlow == FirstSetupFlow.Cluster && (_data?.Linux != true
+                || _data?.ClusterManage != true))
                 _firstSetupFlow = FirstSetupFlow.Choice;
             if (_firstSetupFlow is FirstSetupFlow.SingleMagnetar or FirstSetupFlow.Cluster)
             {
@@ -885,26 +725,6 @@ else
         }
 
         await OpenServerSetupDialogCoreAsync(offerCreateNew: true, startInImport: _firstSetupFlow == FirstSetupFlow.Import);
-    }
-
-    public void Dispose()
-    {
-        _disposed = true;
-        Registry.Changed -= HandleRegistryChanged;
-        ServerCatalog.Changed -= HandleRegistryChanged;
-        ClusterCatalog.Changed -= HandleRegistryChanged;
-        ClusterOperations.Changed -= HandleRegistryChanged;
-        ClusterPlayers.Changed -= HandleRegistryChanged;
-        Supervisor.Changed -= HandleRegistryChanged;
-        ConfigProfiles.Changed -= HandleRegistryChanged;
-        WorldTemplates.Changed -= HandleRegistryChanged;
-        RuntimeWarmup.Changed -= HandleRegistryChanged;
-        DataHandlingConsent.Changed -= HandleRegistryChanged;
-    }
-
-    private void HandleRegistryChanged()
-    {
-        _ = InvokeAsync(StateHasChanged);
     }
 
     private string GetSetupProgressText()
@@ -941,243 +761,6 @@ else
         return "Setup complete. Choose Close when you are ready to finish.";
     }
 
-    private async Task SaveDataHandlingConsentAsync(bool consentGranted)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanManageSecurity))
-            return;
-
-        try
-        {
-            await DataHandlingConsent.SaveAsync(consentGranted, consentGranted, false);
-            Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add($"Failed saving data handling consent: {exception.Message}", Severity.Error);
-        }
-    }
-
-    private async Task OpenSetupWorldTemplateDialogAsync()
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
-            return;
-
-        var parameters = new DialogParameters
-        {
-            [nameof(WorldTemplateQuickImportDialog.TemplateOnly)] = true,
-        };
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            FullWidth = true,
-            MaxWidth = MaxWidth.Large,
-        };
-
-        var dialog = await DialogService.ShowAsync<WorldTemplateQuickImportDialog>(
-            "Choose Dedicated Server World",
-            parameters,
-            options);
-        var result = await dialog.Result;
-        if (result is null || result.Canceled ||
-            result.Data is not WorldTemplateQuickImportDialog.WorldTemplateQuickImportResult importResult)
-        {
-            return;
-        }
-
-        _setupWorldTemplateId = importResult.Template.WorldTemplateId;
-        _setupStepOverride = null;
-        await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task OpenSetupConfigProfileDialogAsync()
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
-            return;
-
-        if (SetupConfigProfile is { } existingProfile)
-        {
-            await OpenConfigProfileFromServerListAsync(existingProfile.ConfigProfileId);
-            return;
-        }
-
-        var worldTemplate = SetupWorldTemplate;
-        if (worldTemplate is null)
-            return;
-
-        var parameters = new DialogParameters
-        {
-            [nameof(WorldTemplateConfigProfileDialog.WorldName)] = worldTemplate.Name,
-            [nameof(WorldTemplateConfigProfileDialog.WorldPath)] = WorldTemplates.GetWorldDirectory(worldTemplate.WorldTemplateId),
-            [nameof(WorldTemplateConfigProfileDialog.WorldTemplateId)] = worldTemplate.WorldTemplateId,
-            [nameof(WorldTemplateConfigProfileDialog.AllowSkip)] = false,
-        };
-        var dialog = await DialogService.ShowAsync<WorldTemplateConfigProfileDialog>(
-            "Create Matching Config Profile",
-            parameters,
-            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
-        var result = await dialog.Result;
-        if (result is null || result.Canceled ||
-            result.Data is not WorldTemplateConfigProfileDialog.WorldTemplateConfigProfileDialogResult { Profile: { } profile })
-        {
-            return;
-        }
-
-        try
-        {
-            await ResolveProfileModDependenciesAsync(profile);
-            await ConfigProfiles.UpsertAsync(profile);
-            Snackbar.Add($"Config profile '{profile.Name}' created from '{worldTemplate.Name}'.", Severity.Success);
-            _setupStepOverride = null;
-            await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
-            await InvokeAsync(StateHasChanged);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private Task OpenCreateServerDialogAsync() => ServerActions.OpenNewServerDialogAsync();
-
-    private async Task OpenExistingServerImportDialogAsync()
-    {
-        if (!await EnsureServerSetupAuthorizedAsync())
-            return;
-
-        await OpenServerSetupDialogCoreAsync(offerCreateNew: false);
-    }
-
-    private async Task OpenFirstServerSetupDialogAsync()
-    {
-        if (!await EnsureServerSetupAuthorizedAsync())
-            return;
-
-        await OpenServerSetupDialogCoreAsync(offerCreateNew: true);
-    }
-
-    private async Task<bool> EnsureServerSetupAuthorizedAsync() =>
-        await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers) &&
-        await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs);
-
-    private async Task OpenServerSetupDialogCoreAsync(bool offerCreateNew, bool startInImport = false)
-    {
-        if (_serverSetupDialogOpen || _disposed)
-            return;
-
-        _serverSetupDialogOpen = true;
-        try
-        {
-            await SetFirstSetupFlowAsync(!offerCreateNew || startInImport ? FirstSetupFlow.Import : FirstSetupFlow.Choice);
-            var parameters = new DialogParameters
-            {
-                [nameof(ExistingServerImportDialog.OfferCreateNew)] = offerCreateNew,
-                [nameof(ExistingServerImportDialog.OfferCluster)] = OperatingSystem.IsLinux()
-                    && await Permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage),
-                [nameof(ExistingServerImportDialog.StartInImport)] = startInImport,
-                [nameof(ExistingServerImportDialog.ImportModeChanged)] = EventCallback.Factory.Create<bool>(this,
-                    importing => SetFirstSetupFlowAsync(importing ? FirstSetupFlow.Import : FirstSetupFlow.Choice)),
-                [nameof(ExistingServerImportDialog.ImportCompleted)] = EventCallback.Factory.Create<ExistingServerImportResult>(this, async imported =>
-                {
-                    if (_disposed) return;
-                    _setupWorldTemplateId = imported.Server.WorldTemplateId;
-                    _setupStepOverride = null;
-                    await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
-                }),
-            };
-
-            var dialog = await DialogService.ShowAsync<ExistingServerImportDialog>(
-                offerCreateNew ? "Set Up First Server" : "Import Existing Server",
-                parameters,
-                new DialogOptions
-                {
-                    CloseOnEscapeKey = false,
-                    BackdropClick = false,
-                    FullWidth = true,
-                    MaxWidth = MaxWidth.Large,
-                });
-            var result = await dialog.Result;
-            if (_disposed) return;
-            if (result is null || result.Canceled ||
-                result.Data is not ExistingServerImportDialog.DialogOutcome outcome)
-            {
-                await HideSetupWizard();
-                return;
-            }
-
-            if (outcome.StartClusterSetup)
-            {
-                if (OperatingSystem.IsLinux() && await EnsureAuthorizedAsync(QuasarPolicyNames.ClusterManage))
-                {
-                    await SetFirstSetupFlowAsync(FirstSetupFlow.Cluster);
-                    Navigation.NavigateTo("clusters/new");
-                }
-                return;
-            }
-            if (outcome.StartNewSetup)
-            {
-                _setupStepOverride = null;
-                await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);
-                await InvokeAsync(StateHasChanged);
-                return;
-            }
-
-            if (outcome.ImportResult is not { } imported)
-                return;
-
-            await HideSetupWizard();
-            Snackbar.Add($"Imported server '{imported.Server.DisplayName}'. Review it before starting.", Severity.Success);
-            await InvokeAsync(StateHasChanged);
-        }
-        finally
-        {
-            _serverSetupDialogOpen = false;
-        }
-    }
-
-    private Task OpenSetupCreateServerDialogAsync() =>
-        ServerActions.OpenCreateDialogAsync(
-            SetupConfigProfile?.ConfigProfileId ?? string.Empty,
-            SetupWorldTemplate?.WorldTemplateId ?? string.Empty);
-
-    private async Task ResolveProfileModDependenciesAsync(QuasarConfigProfile profile)
-    {
-        if (profile.Mods.Count == 0)
-            return;
-
-        var result = await WorkshopMods.ResolveDependenciesAsync(profile.Mods);
-        profile.Mods = result.Mods.ToList();
-        profile.RootSettings.AutodetectDependencies = result.Warnings.Count > 0;
-
-        if (result.AddedDependencyCount > 0)
-            Snackbar.Add($"Added {result.AddedDependencyCount} dependency mod(s).", Severity.Success);
-
-        if (result.Warnings.Count > 0)
-            Snackbar.Add($"Mod dependency check: {SummarizeWarnings(result.Warnings)}", Severity.Warning);
-    }
-
-    private static string SummarizeWarnings(IReadOnlyList<string> warnings)
-    {
-        var preview = warnings.Take(2).ToList();
-        var summary = string.Join(" ", preview);
-        return warnings.Count > preview.Count
-            ? $"{summary} (+{warnings.Count - preview.Count} more)"
-            : summary;
-    }
-
-    private async Task OpenConfigProfileFromServerListAsync(string configProfileId)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditConfigs))
-            return;
-
-        var parameters = new DialogParameters
-        {
-            [nameof(ConfigsPageDialog.InitialProfileId)] = configProfileId,
-        };
-
-        await ShowFullScreenPageDialogAsync<ConfigsPageDialog>("Config Profiles", parameters);
-    }
-
     private async Task SetServerViewAsync(DashboardServerView view)
     {
         _serverView = view;
@@ -1190,7 +773,7 @@ else
     {
         try
         {
-            await BrowserStorage.SetStringAsync(ServerViewStorageKey, view == DashboardServerView.List ? "list" : "cards");
+            await JS.InvokeVoidAsync("quasarConfigs.setLocalStorage",ServerViewStorageKey, view == DashboardServerView.List ? "list" : "cards");
         }
         catch (InvalidOperationException)
         {
@@ -1216,287 +799,6 @@ else
 
         view = DashboardServerView.Cards;
         return false;
-    }
-
-    private async Task ShowFullScreenPageDialogAsync<TDialog>(string title, DialogParameters? parameters = null) where TDialog : ComponentBase
-    {
-        var options = new DialogOptions
-        {
-            CloseOnEscapeKey = true,
-            FullScreen = true,
-        };
-
-        var dialog = await DialogService.ShowAsync<TDialog>(title, parameters ?? new DialogParameters(), options);
-        await dialog.Result;
-    }
-
-    private async Task StartAsync(string uniqueName)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
-            return;
-
-        try
-        {
-            if (IsLaunchBlocked)
-            {
-                Snackbar.Add(RuntimeWarmupSnapshot.Message, Severity.Warning);
-                return;
-            }
-
-            var definition = ServerCatalog.GetServer(uniqueName);
-            var worldBlockMessage = GetWorldLaunchBlockMessage(definition);
-            if (worldBlockMessage is not null)
-            {
-                Snackbar.Add(worldBlockMessage, Severity.Warning);
-                return;
-            }
-
-            await Services.CallCoreOperationAsync("servers.start", new { uniqueName });
-            Snackbar.Add($"Start requested for '{uniqueName}'.", Severity.Success);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private async Task RetryRuntimeWarmupAsync()
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanEditServers))
-            return;
-
-        _ = RuntimeWarmup.RetryAsync();
-        Snackbar.Add("Dedicated Server download retry started.", Severity.Info);
-    }
-
-    private static string? GetWorldLaunchBlockMessage(DedicatedServerDefinition? definition)
-    {
-        if (definition is null)
-            return "Server definition not found.";
-
-        if (string.IsNullOrWhiteSpace(definition.WorldSaveName))
-            return "Select a world save before starting this server.";
-
-        var worldPath = definition.GetWorldSavePath();
-        if (string.IsNullOrWhiteSpace(worldPath) || !Directory.Exists(worldPath))
-            return $"World save folder not found: {worldPath}";
-
-        return File.Exists(Path.Combine(worldPath, "Sandbox.sbc"))
-            ? null
-            : $"World save '{worldPath}' is missing Sandbox.sbc.";
-    }
-
-    private async Task StopAsync(string uniqueName)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
-            return;
-
-        if (!await ConfirmDestructiveActionAsync(
-                "Stop server?",
-                $"Server '{uniqueName}' will save and shut down normally.",
-                "Stop"))
-        {
-            return;
-        }
-
-        try
-        {
-            await Services.CallCoreOperationAsync("servers.stop", new { uniqueName });
-            Snackbar.Add($"Stop requested for '{uniqueName}'.", Severity.Warning);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private async Task ClearErrorStatusAsync(string uniqueName)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
-            return;
-
-        try
-        {
-            var cleared = await Supervisor.ClearErrorStatusAsync(uniqueName);
-            Snackbar.Add(
-                cleared
-                    ? $"Error status cleared for '{uniqueName}'."
-                    : $"No clearable error status for '{uniqueName}'.",
-                cleared ? Severity.Success : Severity.Info);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private async Task KillStartingAsync(string uniqueName)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
-            return;
-
-        if (!await ConfirmDestructiveActionAsync(
-                "Kill starting server?",
-                $"Server '{uniqueName}' will be killed while it is starting. Unsaved startup progress can be lost.",
-                "Kill"))
-        {
-            return;
-        }
-
-        try
-        {
-            await Supervisor.KillStartingServerAsync(uniqueName);
-            Snackbar.Add($"Starting server '{uniqueName}' killed.", Severity.Warning);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private async Task<bool> ConfirmDestructiveActionAsync(string title, string message, string yesText)
-    {
-        var confirmed = await DialogService.ShowMessageBoxAsync(
-            title,
-            message,
-            yesText: yesText,
-            cancelText: "Cancel");
-
-        return confirmed == true;
-    }
-
-    private async Task RestartAsync(string uniqueName)
-    {
-        if (!await EnsureAuthorizedAsync(QuasarPolicyNames.CanControlServers))
-            return;
-
-        try
-        {
-            await Services.CallCoreOperationAsync("servers.restart", new { uniqueName });
-            Snackbar.Add($"Restart requested for '{uniqueName}'.", Severity.Info);
-        }
-        catch (Exception exception)
-        {
-            Snackbar.Add(exception.Message, Severity.Error);
-        }
-    }
-
-    private async Task<bool> EnsureAuthorizedAsync(string policyName)
-    {
-        if (await Permissions.IsAuthorizedAsync(policyName))
-            return true;
-
-        Snackbar.Add("Access denied: your current role cannot perform this action.", Severity.Error);
-        return false;
-    }
-
-    private bool IsRunning(string uniqueName)
-    {
-        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
-        return state is DedicatedServerProcessState.Starting
-            or DedicatedServerProcessState.Running
-            or DedicatedServerProcessState.Restarting
-            or DedicatedServerProcessState.Stopping;
-    }
-
-    private DedicatedServerRuntimeSnapshot? GetRuntime(string uniqueName)
-    {
-        RuntimeSnapshots.TryGetValue(uniqueName, out var runtime);
-        return runtime;
-    }
-
-    private AgentRuntimeState? GetAgent(string uniqueName)
-    {
-        return Agents
-            .Where(agent => agent.IsConnected && !agent.IsCluster)
-            .FirstOrDefault(agent => string.Equals(agent.UniqueNameKey, uniqueName, StringComparison.OrdinalIgnoreCase));
-    }
-
-    private bool IsOpen(string uniqueName)
-    {
-        var runtime = GetRuntime(uniqueName);
-        var agent = GetAgent(uniqueName);
-        return runtime?.State == DedicatedServerProcessState.Running &&
-               agent?.IsConnected == true &&
-               agent.Snapshot is not null;
-    }
-
-    private static string GetProblemCardClass(int count, bool error) =>
-        count <= 0
-            ? ""
-            : error
-                ? " summary-card-error"
-                : " summary-card-warning";
-
-    private static string FirstNonEmpty(params string[] values) =>
-        values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? string.Empty;
-
-    private string GetServerSetupSummary(DedicatedServerDefinition server)
-    {
-        var configProfileName = string.IsNullOrWhiteSpace(server.ConfigProfileId)
-            ? "No config profile"
-            : ConfigProfiles.GetProfile(server.ConfigProfileId)?.Name ?? $"Missing config: {server.ConfigProfileId}";
-
-        var worldTemplateName = string.IsNullOrWhiteSpace(server.WorldSaveName)
-            ? "No world save"
-            : $"Save: {server.WorldSaveName}";
-
-        return $"{configProfileName} | {worldTemplateName}";
-    }
-
-    private string GetSetupRuntimeSummary(string uniqueName)
-    {
-        var runtime = GetRuntime(uniqueName);
-        if (runtime is null)
-            return "No runtime snapshot yet.";
-
-        if (runtime.AgentAttached)
-            return "Agent attached. Live dashboard data ready.";
-
-        if (runtime.ProcessId is int processId)
-            return $"Process {processId} running. Waiting for Quasar.Agent attach.";
-
-        return "Launch requested. Waiting for process and agent.";
-    }
-
-    private string GetSetupStateText(string uniqueName)
-    {
-        return (GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped)
-            .ToString()
-            .ToLowerInvariant();
-    }
-
-    private Color GetSetupStateColor(string uniqueName)
-    {
-        var state = GetRuntime(uniqueName)?.State ?? DedicatedServerProcessState.Stopped;
-        return state switch
-        {
-            DedicatedServerProcessState.Running => Color.Success,
-            DedicatedServerProcessState.Starting => Color.Info,
-            DedicatedServerProcessState.Restarting => Color.Warning,
-            DedicatedServerProcessState.Stopping => Color.Warning,
-            DedicatedServerProcessState.Crashed => Color.Error,
-            DedicatedServerProcessState.Faulted => Color.Error,
-            _ => Color.Default,
-        };
-    }
-
-    private string GetSetupAgentText(string uniqueName)
-    {
-        var runtime = GetRuntime(uniqueName);
-        if (runtime is null)
-            return "not attached";
-
-        return runtime.AgentAttached ? "attached" : "waiting";
-    }
-
-    private Color GetSetupAgentColor(string uniqueName)
-    {
-        var runtime = GetRuntime(uniqueName);
-        if (runtime is null)
-            return Color.Default;
-
-        return runtime.AgentAttached ? Color.Success : Color.Warning;
     }
 
     private Color GetRuntimeWarmupColor()
@@ -1571,4 +873,144 @@ else
             or ManagedRuntimeInstallComponent.SteamCmd) &&
         component.State == ManagedRuntimeComponentState.Failed;
 
+
+    private readonly CancellationTokenSource _lifetime = new();
+    private FleetDashboard? _data;
+    private bool _refreshing;
+    private string? _error;
+    private bool _worldForm, _profileForm;
+    private WorldInventory? _worlds;
+    private bool ShowDataHandlingConsentPrompt => _data?.ConsentNeeded == true;
+    private IReadOnlyList<FleetRow> Servers => _data!.Rows.Where(r=>!r.IsCluster).ToList();
+    private IReadOnlyList<FleetRow> Clusters => _data!.Rows.Where(r=>r.IsCluster).ToList();
+    private IReadOnlyList<FleetRow> StartableServers => Servers.Where(s=>!s.Active).ToList();
+    private IReadOnlyList<FleetRow> LaunchedServers => Servers.Where(s=>s.Active).ToList();
+    private int ConnectedAgentCount => Servers.Count(s=>s.Connected);
+    private int ConfiguredServerCount => _data!.Rows.Length;
+    private int RunningServerCount => LaunchedServers.Count;
+    private int WorldTemplateCount => _data!.Templates.Length;
+    private WorldTemplate? SetupWorldTemplate => _data!.Templates.FirstOrDefault(t=>t.Id == _setupWorldTemplateId)
+        ?? _data.Templates.MaxBy(t=>t.Updated);
+    private FleetProfile? SetupConfigProfile => _data!.Profiles.FirstOrDefault(p=>SetupWorldTemplate is {} t && p.WorldTemplateId == t.Id);
+    private ManagedRuntimeWarmupSnapshot RuntimeWarmupSnapshot => _data!.Warmup;
+    private string GetServerSetupSummary(FleetRow row) => $"{row.ProfileName} · {row.WorldSaveName}";
+    private FleetRow Row(string id) => Servers.First(r=>r.UniqueName == id);
+    private string GetSetupRuntimeSummary(string id) => Row(id).Message;
+    private string GetSetupStateText(string id) => Row(id).State.ToLowerInvariant();
+    private Color GetSetupStateColor(string id) => Row(id).Active ? Color.Success : Color.Default;
+    private string GetSetupAgentText(string id) => Row(id).Connected ? "attached" : "waiting";
+    private Color GetSetupAgentColor(string id) => Row(id).Connected ? Color.Success : Color.Warning;
+    private (Severity Severity,string Message,string? ClearErrorUniqueName)? ProblemBanner
+    {
+        get
+        {
+            var row=Servers.FirstOrDefault(r=>r.State is "Crashed" or "Faulted") ?? Servers.FirstOrDefault(r=>r.Health == "Unhealthy") ?? Servers.FirstOrDefault(r=>r.Health == "Warning");
+            return row is null ? null : (row.Health == "Warning" ? Severity.Warning : Severity.Error,$"{row.DisplayName}: {row.Message}",row.State is "Crashed" or "Faulted" ? row.UniqueName : null);
+        }
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadServerViewPreferenceAsync();
+        await Refresh();
+        _ = PollAsync(_lifetime.Token);
+    }
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_data is not null && !_firstSetupChoiceAttempted) await ShowFirstSetupChoiceOnceAsync();
+    }
+    private async Task Refresh()
+    {
+        if (_refreshing || _disposed) return;
+        _refreshing = true;
+        try { _data = await JS.InvokeAsync<FleetDashboard>("quasarSdk.readJson",_lifetime.Token,"quasar.core","fleet.overview",new {}); _error=null; }
+        catch (OperationCanceledException) when (_disposed) { }
+        catch (Exception e) { _data=null; _error=e.Message; }
+        finally { _refreshing=false; }
+    }
+    private async Task PollAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer=new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while(await timer.WaitForNextTickAsync(token)) await InvokeAsync(async ()=>{ await Refresh(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when(token.IsCancellationRequested) {}
+    }
+    public void Dispose() { if (_disposed) return; _disposed=true; _lifetime.Cancel(); _lifetime.Dispose(); }
+    private async Task Run(string operation,object input)
+    {
+        try { await Sdk.RequestAsync<JsonElement>(operation,input); await Refresh(); }
+        catch (Exception e) { Snackbar.Add(e.Message,Severity.Error); }
+    }
+    private Task StartAsync(string id) => Run("servers.start",new {uniqueName=id});
+    private Task ClearErrorStatusAsync(string id) => Run("fleet.clear",new {uniqueName=id});
+    private Task RetryRuntimeWarmupAsync() => Run("fleet.warmup.retry",new {});
+    private Task SaveDataHandlingConsentAsync(bool consent) => Run("security.consent.save",new {consent});
+    private async Task OpenSetupWorldTemplateDialogAsync() => await OpenWorld(false);
+    private async Task OpenSetupConfigProfileDialogAsync()
+    {
+        if(SetupConfigProfile is {} p) Navigation.NavigateTo("configs?profileId="+Uri.EscapeDataString(p.Id));
+        else await OpenWorld(true);
+    }
+    private async Task OpenWorld(bool profile)
+    {
+        try { _worlds=await Sdk.RequestAsync<WorldInventory>("worlds.inventory"); _profileForm=profile; _worldForm=true; }
+        catch(Exception e) { Snackbar.Add(e.Message,Severity.Error); }
+    }
+    private void CloseWorld() => _worldForm=false;
+    private async Task WorldSavedAsync(WorldSaved result)
+    {
+        _worldForm=false; _setupWorldTemplateId=result.Template ?? _setupWorldTemplateId; _setupStepOverride=null;
+        await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar); await Refresh();
+    }
+    private Task OpenFirstServerSetupDialogAsync() => OpenServerSetupDialogCoreAsync(true);
+    private Task OpenExistingServerImportDialogAsync() => OpenServerSetupDialogCoreAsync(false,true);
+    private async Task OpenServerSetupDialogCoreAsync(bool offerCreateNew,bool startInImport=false)
+    {
+        if (_serverSetupDialogOpen || _data?.EditServers != true) return;
+        _serverSetupDialogOpen=true;
+        try
+        {
+            await SetFirstSetupFlowAsync(startInImport ? FirstSetupFlow.Import : FirstSetupFlow.Choice);
+            var parameters=new DialogParameters<ImportExistingServerDialog>
+            {
+                {d=>d.OfferCreateNew,offerCreateNew}, {d=>d.StartInImport,startInImport},
+                {d=>d.OfferCluster,_data.Linux && _data.ClusterManage},
+                {d=>d.ImportModeChanged, EventCallback.Factory.Create<bool>(this,b=>SetFirstSetupFlowAsync(b ? FirstSetupFlow.Import : FirstSetupFlow.Choice))},
+                {d=>d.ImportCompleted, EventCallback.Factory.Create<string>(this,async id=>{_setupWorldTemplateId=id; _setupStepOverride=null;await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);})},
+            };
+            var dialog=await DialogService.ShowAsync<ImportExistingServerDialog>(offerCreateNew ? "Set Up First Server" : "Import Existing Server",parameters,
+                new DialogOptions{CloseOnEscapeKey=false,BackdropClick=false,FullWidth=true,MaxWidth=MaxWidth.Large});
+            var result=await dialog.Result;
+            if (_disposed) return;
+            if(result?.Data is ImportExistingServerDialog.DialogOutcome outcome && !result.Canceled)
+            {
+                if(outcome.StartClusterSetup) { await SetFirstSetupFlowAsync(FirstSetupFlow.Cluster); Navigation.NavigateTo("clusters/new");return; }
+                if(outcome.StartNewSetup) { _setupStepOverride=null;await SetFirstSetupFlowAsync(FirstSetupFlow.SingleMagnetar);StateHasChanged();return; }
+                if(outcome.ImportedServerName is {} name) Snackbar.Add($"Imported server '{name}'. Review it before starting.",Severity.Success);
+            }
+            await HideSetupWizard(); await Refresh(); StateHasChanged();
+        }
+        finally { _serverSetupDialogOpen=false; }
+    }
+    private async Task OpenCreateServerDialogAsync()
+    {
+        if (_data is null) return;
+        var selection = await DialogService.ShowAsync<NewServerDialog>("New server",
+            new DialogParameters<NewServerDialog> { { p => p.WorkerLinux, _data.Linux }, { p => p.CanCreate, _data.EditServers }, { p => p.CanManageCluster, _data.ClusterManage } },
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Medium, CloseOnEscapeKey = true });
+        var result = await selection.Result;
+        if (result is not { Canceled: false, Data: NewServerDialog.ServerKind kind }) return;
+        if (kind == NewServerDialog.ServerKind.Cluster && _data.ClusterManage && _data.Linux)
+            Navigation.NavigateTo("clusters/new");
+        else if (kind == NewServerDialog.ServerKind.SingleMagnetar && _data.EditServers)
+            await OpenEditor("", "");
+    }
+    private Task OpenSetupCreateServerDialogAsync() => OpenEditor(SetupConfigProfile?.Id ?? "",SetupWorldTemplate?.Id ?? "");
+    private async Task OpenEditor(string profile,string template)
+    {
+        var dialog=await DialogService.ShowAsync<FleetServerEditor>("Create Server",new DialogParameters<FleetServerEditor> { { d=>d.InitialProfile,profile },{ d=>d.InitialTemplate,template } },
+            new DialogOptions { FullWidth=true,MaxWidth=MaxWidth.Large, CloseOnEscapeKey=true });
+        if(await dialog.Result is {Canceled:false}) await Refresh();
+    }
 }

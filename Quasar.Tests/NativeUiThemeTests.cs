@@ -529,7 +529,7 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task FleetOverviewUsesLiveMetricsAndPreservesViews()
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -604,11 +604,12 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Empty(page.FindAll(".quasar-server-name-cell"));
         Assert.NotEmpty(page.FindAll(".quasar-card-grid"));
         Assert.Equal(6, page.FindAll(".quasar-fleet-card").Count);
-        Assert.Equal(5, page.FindAll("details.quasar-card-disclosure").Count);
-        Assert.All(page.FindAll("details.quasar-card-disclosure"), details => Assert.False(details.HasAttribute("open")));
-        Assert.Equal(5, page.FindAll("details.quasar-card-disclosure form").Count);
-        Assert.Equal(5, page.FindAll(".quasar-card-actions button").Count(button => button.TextContent == "Stop"));
-        Assert.Single(page.FindAll(".quasar-card-actions button").Where(button => button.TextContent == "Start"));
+        Assert.Empty(page.FindAll(".quasar-players-table"));
+        page.FindAll("button").First(b=>b.TextContent.Trim()=="Live details").Click();
+        Assert.Single(page.FindAll(".quasar-players-table"));
+        Assert.Single(page.FindAll(".quasar-chat-form"));
+        Assert.Equal(5, page.FindAll(".quasar-card-actions button[title='Stop server']").Count);
+        Assert.Single(page.FindAll(".quasar-card-actions button[title='Select a world save containing Sandbox.sbc.'][disabled]"));
         if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } cardsPreview)
             await File.WriteAllTextAsync(cardsPreview + ".cards", $"<div style=\"{QuasarTheme.BuildCss(ThemePalette.QuasarDark(), true)}\">{page.Markup}</div>");
         page.FindAll(".quasar-view-selector button").Single(x => x.TextContent.Contains("List")).Click();
@@ -618,10 +619,15 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task NativeConsoleKeepsLogSelectionDownloadsAndRolloverOnTabReturn()
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddMudServices();
-        context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
+        var authorization = context.AddAuthorization();
+        authorization.SetAuthorized("viewer");
+        authorization.SetPolicies(QuasarPolicyNames.CanView);
+        var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
+        await catalog.UpsertAsync(new() { UniqueName = "console-test", DisplayName = "Console", WorldSaveName = "World", ServerPort = 27022 });
+        context.Services.AddSingleton(catalog);
         var ds = MagnetarPaths.GetQuasarServerDedicatedServerAppDataDirectory("console-test");
         var magnetar = MagnetarPaths.GetQuasarServerMagnetarAppDataDirectory("console-test");
         Directory.CreateDirectory(ds);

@@ -78,6 +78,8 @@ Editing `server.json` by hand works too: Quasar checks every `Magnetars/<Server 
 
 ## Dashboard and server controls
 
+Fleet status refreshes every five seconds. Use **Refresh** for an immediate update. Expand **Show live data** in the list or **Live details** in a card to load players, chat and recent command results for that server.
+
 The **Dashboard** shows every server as a card (**Cards** view) or as a row in a table (**List** view). Both show the state, health message, last restart record, port, config profile and the newest error line from the logs (click it to open the console at the error).
 
 | Button | Shown when | What it does |
@@ -398,7 +400,7 @@ See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
 collisions, limits and the required Magnetar version.
 
 ## Sources
-- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar.Client/Pages/NewServerDialog.razor`
 - `Docs/StateMachines/DedicatedServerLifecycle.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
 - `Docs/StateMachines/AgentConnection.md`
@@ -430,18 +432,18 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/QuasarShutdownService.cs`
 - `Quasar/Program.cs`
-- `Quasar/Components/Pages/Home.razor`
-- `Quasar/Components/Pages/Servers.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
-- `Quasar/Components/Pages/ServerDeleteDialog.razor`
-- `Quasar/Components/Pages/ServerConsoleDialog.razor`
+- `Quasar.Client/Pages/Home.razor`
+- `Quasar.Client/Components/FleetWorkspace.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
+- `Quasar.Client/Pages/ServerDeleteDialog.razor`
+- `Quasar.Client/Pages/ServerConsoleDialog.razor`
 - `Quasar/Components/Pages/Configs.razor`
 - `Quasar/Components/Pages/Updates.razor`
 - `Quasar/Components/Pages/Analytics.razor`
 - `Quasar/Components/Pages/SteamWorkshopAccountDialog.razor`
 - `Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor`
-- `Quasar/Components/Dashboard/ServerCard.razor`
-- `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
+- `Quasar.Client/Components/FleetLiveDetails.razor`
 - `Quasar.Agent/StopCommand.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar.Agent/AgentOptions.cs`

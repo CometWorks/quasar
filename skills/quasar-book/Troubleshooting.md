@@ -329,9 +329,9 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
 - `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Models/DedicatedServerDefinition.cs`
-- `Quasar/Components/Pages/ServerConsoleDialog.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
-- `Quasar/Components/Dashboard/ServerCard.razor`
+- `Quasar.Client/Pages/ServerConsoleDialog.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
 - `Quasar/Components/App.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor`
 - `Quasar/Components/Layout/ReconnectModal.razor.js`

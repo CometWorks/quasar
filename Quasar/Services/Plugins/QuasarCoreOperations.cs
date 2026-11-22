@@ -85,11 +85,12 @@ public static class QuasarCoreOperations
                 }, "application/zip", Path.GetFileName(path), EnableRanges: true));
             }, ReadDeniedToAgents with { RequireDefaultPolicies = true, Description = "Downloads a Quasar backup archive by name, or a fresh configuration backup when no name is given." });
         services.AddQuasarOperation<AnalyticsRequest, AnalyticsSeriesResponse>(PluginId, "analytics.series.read", [QuasarPolicyNames.CanView],
-            (caller, input, token) =>
+            async (caller, input, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                return Task.FromResult(caller.Services.GetRequiredService<AnalyticsSeriesService>().Build(
-                    input.From, input.To, input.Servers ?? [], input.Metrics ?? [], input.MaxPoints));
+                string[] sources = await QuasarFleetDashboardOperations.VisibleChartSources(caller, input.Servers);
+                return caller.Services.GetRequiredService<AnalyticsSeriesService>().Build(
+                    input.From, input.To, sources, input.Metrics ?? [], input.MaxPoints);
             }, Read with { Description = "Returns analytics time series of the given servers and metrics between two Unix times in milliseconds, at most maxPoints per series." });
         services.AddQuasarRead<LogRequest>(PluginId, "logs.server.read", [QuasarPolicyNames.CanView],
             (caller, input, token) => Task.FromResult(ReadLog(ResolveDedicatedServerLogPath(input.UniqueName,
