@@ -8,6 +8,11 @@ until a direct WebRTC peer is confirmed. New operations then use that peer.
 See the [transport contract](QuasarSdkTransport.md) for verified session binding,
 expiry/logout, resource limits and commit behavior.
 
+## Third-party interfaces
+
+The third-party interfaces are the browser SDK v1 client and the typed
+operation, read, upload and subscription contracts documented on this page.
+
 ## Register an operation
 
 Use `Quasar.Plugin.Abstractions.Operations` in the plugin's existing

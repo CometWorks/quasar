@@ -393,6 +393,15 @@ dotnet run -c Release --project tests/Quasar.Wasm.DashboardChecks
 
 ## Plugin Abstractions
 
+The third-party interfaces are `IQuasarPlugin` and the
+`Quasar.Plugin.Abstractions` contracts named below, including
+`IQuasarCompanionChannel`, and the
+[implemented navigation zones and component outlets](../skills/quasar-book/UiPlugins.md#documented-plans-versus-the-current-code).
+
+You can use these interfaces to build your own UI, including a full replacement
+for the built-in UI. Patches to Quasar's internal business logic fall outside
+the plugin exception.
+
 Quasar exposes the initial contract project as `Quasar.Plugin.Abstractions`.
 The core entry point is:
 
