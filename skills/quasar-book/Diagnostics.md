@@ -12,7 +12,7 @@ This page covers what Quasar records about its own errors and crashes, the conse
 
 ## Consent choices
 
-Consent lives in the **Data Handling Consent** section of **Security** (`/settings/security`, needs the security management permission, see [Access control](AccessControl.md)). The **Dashboard** also shows a **Data Handling Consent** prompt with YES and NO buttons while no decision is stored, or while statistics consent is on but diagnostic reports are off.
+Consent lives in the **Data Handling Consent** section of **Security** (`/settings/security`, needs the security management permission, see [Access control](AccessControl.md)). The **Dashboard** also shows a **Data Handling Consent** prompt with YES and NO buttons until an operator saves a statistics choice. A statistics-only choice dismisses the prompt.
 
 The Dashboard prompt keeps its text and buttons inside the standard panel padding;
 the buttons wrap below the text when space is limited.
@@ -24,13 +24,13 @@ the buttons wrap below the text when space is limited.
 | **Include crash dumps** switch | off | Process memory dumps attached to crash reports. Only available while diagnostic reports are on. |
 | **Publish this server** on Listings | off for new servers | Per-server public listing. Select and save to opt in; there is no global listing switch. See [Server listing](#server-listing-on-se-serversnet). |
 
-The status chip next to the heading shows `YES`, `NO`, `Logging consent required` (statistics on, reports off) or `No choice stored`.
+The status chip shows the saved combination of statistics and reports, or **No choice stored**. Expand **What gets sent and stored** for delivery, retention and the consent file path.
 
 ### Plugin usage statistics
 
 The statistics choice goes to Magnetar when a server starts. Quasar adds `-consent accept` or `-consent deny` to the Magnetar launch arguments (Magnetar older than 2.3.3.0 gets `-consent` or `-noconsent`). No stored decision counts as deny. Quasar removes any `-consent`, `-noconsent` or `-withdraw-consent` that an admin put into the server's own launch arguments, so the Security page is the only place to set it.
 
-Running servers keep their current statistics setting until they restart. The UI says: "Running servers keep their current Magnetar consent state until they are restarted."
+Running servers keep their current statistics setting until they restart.
 
 ### What turning a choice off does
 
@@ -275,6 +275,8 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar/Services/Backup/QuasarBackupService.cs`
 - `Quasar/Program.cs`
 - `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar.Client/Components/DataHandlingConsentSummary.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
 - `Quasar.Client/Administration/ListingPage.razor`
 - `Quasar.Client/Pages/Home.razor`
 - `Quasar/Components/Layout/NavMenu.razor`

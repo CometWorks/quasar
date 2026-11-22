@@ -224,6 +224,35 @@ public sealed class AccessSetupDialogTests : IDisposable
     }
 
     [Fact]
+    public async Task StatisticsOnlyIsASavedConsentChoiceAndDumpsRequireReports()
+    {
+        await using var context = Context();
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        using var consent = new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance);
+        context.Services.AddSingleton(consent);
+        context.ComponentFactories.AddStub<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
+        await consent.SaveAsync(true, false, false);
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<SecurityPage>();
+        var section = page.FindAll("section").Single(s => s.QuerySelector("h2")?.TextContent == "Data Handling Consent");
+        Assert.Contains("Statistics only", section.TextContent);
+        Assert.DoesNotContain("listing", section.TextContent, StringComparison.OrdinalIgnoreCase);
+        var switches = page.FindComponents<MudSwitch<bool>>();
+        var reports = switches.Single(s => s.Instance.Label == "Send diagnostic reports");
+        var dumps = switches.Single(s => s.Instance.Label == "Include crash dumps");
+        Assert.True(dumps.Instance.Disabled);
+        await reports.Find("input").ChangeAsync(new() { Value = true });
+        Assert.True(consent.GetSettings().DiagnosticsGranted);
+        Assert.False(dumps.Instance.Disabled);
+        await dumps.Find("input").ChangeAsync(new() { Value = true });
+        Assert.True(consent.GetSettings().DumpsGranted);
+        await reports.Find("input").ChangeAsync(new() { Value = false });
+        Assert.True(dumps.Instance.Disabled);
+        Assert.False(consent.GetSettings().DumpsGranted);
+        Assert.Contains("Statistics only", page.Markup);
+    }
+
+    [Fact]
     public async Task RuntimeMappingsShowVerifiedDiscordIdsAndUseTheSteamSignInName()
     {
         var profiles = new ProfileLookupHandler();

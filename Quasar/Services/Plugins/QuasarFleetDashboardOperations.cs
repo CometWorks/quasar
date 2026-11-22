@@ -110,7 +110,7 @@ internal static partial class QuasarFleetDashboardOperations
                 .Select(a => new FleetActivity(a.At, a.DisplayName, a.Message, a.Level, a.ClusterDetails is { } d ? new(d.OperationId, d.Kind, d.StartedAt, d.ErrorCode) : null)).ToArray(),
             edit || config ? services.GetRequiredService<QuasarWorldTemplateCatalog>().GetTemplates().Select(t => new WorldTemplate(t.WorldTemplateId, t.Name, t.Description, t.UpdatedAtUtc, true, 0)).ToArray() : [],
             edit || config ? profiles.Select(p => new FleetProfile(p.ConfigProfileId, p.Name, p.SourceWorldTemplateId)).ToArray() : [],
-            warmup, supervisor.HealthMonitoringDisabled, await Allowed(QuasarPolicyNames.CanManageSecurity) && (consent.ConsentGranted is null || consent.ConsentGranted == true && !consent.DiagnosticsGranted),
+            warmup, supervisor.HealthMonitoringDisabled, await Allowed(QuasarPolicyNames.CanManageSecurity) && consent.ConsentGranted is null,
             OperatingSystem.IsLinux(), edit, config, await Allowed(QuasarPolicyNames.CanControlServers), manage, query);
     }
 

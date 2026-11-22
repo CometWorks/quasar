@@ -151,21 +151,12 @@ else
             <div class="quasar-layout quasar-gap-3">
                 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
                     <h2 class="quasar-text quasar-type-h6">Data Handling Consent</h2>
-                    <MudChip T="string" Color="@DataHandlingConsentStatusColor" Variant="Variant.Outlined">
+                    <MudChip T="string" Color="Color.Default" Variant="Variant.Outlined">
                         @DataHandlingConsentStatusText
                     </MudChip>
                 </div>
 
-                <p class="quasar-text quasar-type-body2">
-                    YES automatically enrolls this Quasar instance with https://log.se-servers.net and allows anonymous plugin usage statistics and diagnostic reports to CometWorks, including error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent and are not enabled by YES. While YES and diagnostic reports remain enabled, Quasar also checks CometWorks announcements for the notification bell and Notifications page, or service logs in headless mode.
-                </p>
-                <p class="quasar-text quasar-type-body2">
-                    Server listings require consent and working log delivery. Explicitly enabled listings publish their name, join address and summary statistics; admin Steam identities are shared privately for description editing. NO cancels publishing and requests immediate withdrawal. If backoffice updates stop, its last signed publication lease expires within 60 seconds. Magnetar's statistics flag changes on the next server start.
-                </p>
-                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                    Stored at <code>@_snapshot.ConsentPath</code> <MudIconButton title="Copy path" Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" OnClick="@(() => CopyAsync(_snapshot.ConsentPath))" />.
-                </span>
-
+                <Quasar.Client.Components.DataHandlingConsentSummary />
                 <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
                     <MudButton StartIcon="@Icons.Material.Filled.Check"
                                Variant="@(DataHandlingConsentChoice == true ? Variant.Filled : Variant.Outlined)"
@@ -181,38 +172,25 @@ else
                     </MudButton>
                 </div>
 
-                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
-                    Running servers keep their current Magnetar consent state until they are restarted.
-                </MudAlert>
+                <small class="quasar-muted">Game servers apply the statistics setting on their next start.</small>
                 <hr class="quasar-divider" />
-                <h3 class="quasar-text quasar-type-subtitle1">Diagnostic reports</h3>
-                <p class="quasar-text quasar-type-body2">
-                    Allow encrypted diagnostic reports and batched application logs from Quasar and all its enrolled hosts to be sent to CometWorks?
-                    Reports include ordinary log messages, error details, bounded recent logs, software versions and host, cluster and server identifiers.
-                    Logs can contain player names, chat or other private data. Reports are retained locally for up to seven days while delivery is unavailable.
-                    Only incidents captured after enabling this choice are eligible.
-                </p>
                 <MudSwitch T="bool" Value="@_snapshot!.Consent.DiagnosticsGranted"
                            ValueChanged="@(value => SaveDiagnosticsConsentAsync(value, _snapshot!.Consent.DumpsGranted))"
                            Color="Color.Primary" Label="Send diagnostic reports" />
-                <p class="quasar-text quasar-type-body2">
-                    Crash dumps may include process memory, credentials, player data and world content. Enable only if you agree to share that sensitive content.
-                    Dumps require diagnostic reports and are encrypted for the backoffice before transfer.
-                </p>
                 <MudSwitch T="bool" Value="@_snapshot!.Consent.DumpsGranted"
                            ValueChanged="@(value => SaveDiagnosticsConsentAsync(_snapshot!.Consent.DiagnosticsGranted, value))"
                            Disabled="@(!_snapshot!.Consent.DiagnosticsGranted)"
                            Color="Color.Warning" Label="Include crash dumps" />
-                <hr class="quasar-divider" />
-                <p class="quasar-text quasar-type-body2">
-                    Choose which servers to publish on the Listings page. Public listings require diagnostic consent,
-                    current log delivery to CometWorks and a configured public join address.
-                </p>
-                <MudLink Href="settings/server-list">Configure public server listings</MudLink>
-                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
-                    Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
-                    Offline hosts stop collecting when their two-minute consent lease expires.
-                </span>
+                <small class="quasar-muted">Crash dumps can contain credentials, player data and world content from process memory.</small>
+                <details>
+                    <summary>What gets sent and stored</summary>
+                    <p>Diagnostic reports include errors, recent logs, software versions and host, cluster and server IDs.
+                        Quasar enrolls with CometWorks at <code>log.se-servers.net</code> and queues encrypted reports locally for up to seven days if delivery is unavailable.
+                        Sharing statistics and reports also enables CometWorks announcements.</p>
+                    <p>Only reports captured after consent are eligible. Turning reports or dumps off cancels active transfers and discards queued reports. Previously delivered reports cannot be recalled. Offline hosts stop collecting for upload when their two-minute consent lease expires.</p>
+                    <span class="quasar-muted">Consent file <code>@_snapshot.ConsentPath</code>
+                        <MudIconButton title="Copy consent file path" Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" OnClick="@(() => CopyAsync(_snapshot.ConsentPath))" /></span>
+                </details>
             </div>
         </section>
     </MudItem>
@@ -321,27 +299,16 @@ else
     private string _newRole = "viewer";
     private bool _addingMapping;
 
-    private bool? DataHandlingConsentChoice
-    {
-        get
-        {
-            var settings = _snapshot!.Consent;
-            return settings.ConsentGranted == true && !settings.DiagnosticsGranted ? null : settings.ConsentGranted;
-        }
-    }
+    private bool? DataHandlingConsentChoice =>
+        _snapshot!.Consent.ConsentGranted == _snapshot.Consent.DiagnosticsGranted ? _snapshot.Consent.ConsentGranted : null;
 
-    private string DataHandlingConsentStatusText => DataHandlingConsentChoice switch
+    private string DataHandlingConsentStatusText => (_snapshot!.Consent.ConsentGranted, _snapshot.Consent.DiagnosticsGranted) switch
     {
-        true => "YES",
-        false => "NO",
-        _ => _snapshot!.Consent.ConsentGranted == true ? "Logging consent required" : "No choice stored",
-    };
-
-    private Color DataHandlingConsentStatusColor => DataHandlingConsentChoice switch
-    {
-        true => Color.Success,
-        false => Color.Warning,
-        _ => Color.Default,
+        (true, true) => "Statistics and reports",
+        (true, false) => "Statistics only",
+        (_, true) => "Reports only",
+        (false, false) => "Off",
+        _ => "No choice stored",
     };
 
     private string TrustedProxySummary =>

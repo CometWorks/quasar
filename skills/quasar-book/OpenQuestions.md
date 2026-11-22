@@ -89,7 +89,6 @@ Pages: [Updates](Updates.md), [Backups](Backups.md).
 
 Pages: [Monitoring](Monitoring.md), [Diagnostics](Diagnostics.md), [Troubleshooting](Troubleshooting.md).
 
-- Website listing lease lifetime: Security page text says "its last signed publication lease expires within 60 seconds", Docs/ServerList.md says network outages expire the last signed website lease "within one hour". Which is current? (Quasar.Client/Administration/SecurityPage.razor, Docs/ServerList.md). Left out of Diagnostics.md.
 - Log batch limits (30 s, 64 lines, 7,680 characters, 512-character lines, 32-batch quota) and Magnetar SDK log capture are described in Docs/DiagnosticsUplink.md but implemented in the external CometWorks.Diagnostics package / error-reporting plugin, not in this repo. Not verifiable here, left out. (Docs/DiagnosticsUplink.md, Shared/Diagnostics/DiagnosticCollector.cs calls LogBatchCapture)
 - Configuration backups include data-handling-consent.json and server-list.json, but not Diagnostics/installation-id, Diagnostics/machine-key.pem or ServerList/epoch, which Docs/ServerList.md says to preserve together. Intentional? (Quasar/Services/Backup/QuasarBackupService.cs, Docs/ServerList.md)
 - quasar.log and discord.log use NLog FileTarget without archive or rotation settings, so they grow without limit. Intended? (Quasar/Services/QuasarLoggingConfigurator.cs)

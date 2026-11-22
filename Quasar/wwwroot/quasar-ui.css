@@ -485,7 +485,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-button { min-height: 32px; padding: 6px 12px; box-shadow: none; }
 .quasar-shell .mud-button-filled { box-shadow: none; }
 .quasar-shell .mud-button-filled-primary { font-weight: 650; }
-.quasar-shell .mud-icon-button { padding: 7px; }
+.quasar-shell .mud-icon-button:where(:not(.mud-switch-base)) { padding: 7px; }
 .quasar-shell .mud-icon-size-medium { font-size: 19px; }
 .quasar-shell .mud-chip { border-radius: 4px; font-size: 11px; min-height: 24px; height: auto; margin: 2px; }
 .quasar-shell .mud-chip-content { padding-block: 2px; }
@@ -519,7 +519,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-alert-outlined { background: var(--quasar-palette-surface); }
 .quasar-shell .mud-alert-message { padding-block: 3px; }
 .cluster-beta-notice .mud-alert-message { flex: 1; min-width: 0; }
-.quasar-shell .mud-switch { margin-left: -8px; }
+.quasar-shell label.mud-switch { margin-inline-start: -8px; }
 .quasar-shell .mud-treeview-item-content { min-height: 32px; font-size: 12px; }
 .quasar-shell .configs-sidebar { background: var(--quasar-palette-surface); }
 .quasar-shell .analytics-chart-card { border: 1px solid var(--quasar-palette-lines-default); box-shadow: none; }
