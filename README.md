@@ -1,9 +1,9 @@
 # Quasar
 
 Quasar is licensed under the [GNU Affero General Public License v3.0 only](LICENSE)
-(`AGPL-3.0-only`). Your own plugins can stay closed under the [plugin exception](EXCEPTION.md),
-including plugins that patch internals at runtime. Copied core code still follows
-AGPL.
+(`AGPL-3.0-only`).
+Your own plugins can stay closed when they use the interfaces we document for
+third-party use. See the [plugin exception](EXCEPTION.md) for details.
 The [licensing guide](LICENSING.md) lists the MIT SDK/contract code and source
 requirements. [Alternative licensing](LICENSING.md#alternative-licensing) is
 available case by case. The earlier MIT version remains at
