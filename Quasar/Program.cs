@@ -19,6 +19,7 @@ using AspNet.Security.OpenId.Steam;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -111,7 +112,7 @@ public class Program
                     options.LoginPath = "/login";
                     options.LogoutPath = "/logout";
                     options.AccessDeniedPath = "/access-denied";
-                    options.Cookie.Name = "Quasar.Auth";
+                    options.Cookie.Name = QuasarAuthSchemes.CookieName;
                     options.CookieManager = new HostedPanelCookieManager();
                     options.Cookie.HttpOnly = true;
                     options.Cookie.SameSite = SameSiteMode.Lax;
@@ -119,7 +120,7 @@ public class Program
                         ? CookieSecurePolicy.Always
                         : CookieSecurePolicy.SameAsRequest;
                     options.SlidingExpiration = true;
-                    options.ExpireTimeSpan = TimeSpan.FromHours(12);
+                    ConfigureDashboardLogin(options);
                     options.Events.OnRedirectToLogin = context =>
                         (context.Request.Path.StartsWithSegments("/_quasar/sdk") || context.Request.Path.StartsWithSegments("/_framework"))
                             ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 401)
@@ -134,21 +135,6 @@ public class Program
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 403,
                                 "scope_forbidden", "The credential cannot access this cluster operation.")
                             : Redirect(context.Response, context.RedirectUri);
-                    options.Events.OnValidatePrincipal = context =>
-                    {
-                        if (context.Principal is null)
-                            return Task.CompletedTask;
-
-                        var roleMapper = context.HttpContext.RequestServices.GetRequiredService<QuasarRoleMapper>();
-                        var refreshed = roleMapper.RefreshRoles(context.Principal);
-                        if (!HaveSameRoles(context.Principal, refreshed))
-                        {
-                            context.ReplacePrincipal(refreshed);
-                            context.ShouldRenew = true;
-                        }
-
-                        return Task.CompletedTask;
-                    };
                 })
                 .AddSteam(options =>
                 {
@@ -168,8 +154,7 @@ public class Program
                             return;
                         }
 
-                        var steamId = ExtractSteamId(context.Identifier) ??
-                                      ExtractSteamId(new ClaimsPrincipal(identity));
+                        var steamId = SteamAuthConstants.GetClaimedSteamId(context.Identifier);
                         if (steamId is null)
                         {
                             context.Ticket = null!;
@@ -549,7 +534,7 @@ public class Program
 
             if (uiPluginCatalog != null)
             {
-                app.MapDashboardStaticAssets(authOptions.Enabled);
+                app.MapDashboardStaticAssets();
 
                 // Runtime-uploaded branding assets live in the Quasar install root
                 // so web-service updates do not replace custom logos or favicons.
@@ -566,8 +551,7 @@ public class Program
                 var razorComponents = app.MapRazorComponents<App>()
                     .AddInteractiveWebAssemblyRenderMode()
                     .AddAdditionalAssemblies(uiPluginCatalog.RoutableAssemblies.Append(typeof(Quasar.Client.Components.DashboardRouter).Assembly).Distinct().ToArray());
-                if (authOptions.Enabled)
-                    razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
+                razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
             }
             else
             {
@@ -656,6 +640,38 @@ public class Program
         services.AddHostedService(provider => provider.GetRequiredService<PushNotificationService>());
     }
 
+    internal static void ConfigureDashboardLogin(CookieAuthenticationOptions options)
+    {
+        options.ExpireTimeSpan = DashboardLogin.TicketLifetime;
+        options.Events.OnSigningIn = async context =>
+        {
+            // Explicit account switching retires the previous sign-in on this browser.
+            var sessions = context.HttpContext.RequestServices.GetRequiredService<QuasarBrowserSessions>();
+            await sessions.RevokeAsync(context.HttpContext);
+            DashboardLogin.Issue(context);
+        };
+        options.Events.OnSigningOut = context =>
+            context.HttpContext.RequestServices.GetRequiredService<QuasarBrowserSessions>().RevokeAsync(context.HttpContext);
+        options.Events.OnValidatePrincipal = context =>
+        {
+            if (context.Principal is null || !DashboardLogin.Validate(context))
+            {
+                context.RejectPrincipal();
+                return Task.CompletedTask;
+            }
+
+            var roleMapper = context.HttpContext.RequestServices.GetRequiredService<QuasarRoleMapper>();
+            var refreshed = roleMapper.RefreshRoles(context.Principal);
+            if (!HaveSameRoles(context.Principal, refreshed))
+            {
+                context.ReplacePrincipal(refreshed);
+                context.ShouldRenew = true;
+            }
+
+            return Task.CompletedTask;
+        };
+    }
+
     internal static void MapAuthenticationEndpoints(WebApplication app, QuasarAuthOptions authOptions)
     {
         app.MapGet("/login", (HttpContext context) =>
@@ -691,8 +707,6 @@ public class Program
                 return Results.BadRequest();
             }
 
-            if (context.User.Identity?.IsAuthenticated == true && context.RequestServices.GetService<QuasarBrowserSessions>() is { } sessions)
-                await sessions.RevokeAsync(context);
             await context.SignOutAsync(QuasarAuthSchemes.Cookie);
             return Results.Redirect(context.Request.PathBase + "/");
         }).AllowAnonymous();
@@ -969,41 +983,6 @@ public class Program
         }
 
         return returnUrl;
-    }
-
-    private static string? ExtractSteamId(ClaimsPrincipal? principal)
-    {
-        if (principal is null)
-            return null;
-
-        foreach (var claim in principal.Claims)
-        {
-            var steamId = ExtractSteamId(claim.Value);
-            if (steamId is not null)
-                return steamId;
-        }
-
-        return null;
-    }
-
-    private static string? ExtractSteamId(string? value)
-    {
-        value = value?.Trim();
-        if (string.IsNullOrWhiteSpace(value))
-            return null;
-
-        if (value.Length == 17 && value.All(char.IsDigit))
-            return value;
-
-        var lastSlash = value.LastIndexOf('/');
-        if (lastSlash >= 0 && lastSlash + 1 < value.Length)
-        {
-            var suffix = value[(lastSlash + 1)..];
-            if (suffix.Length == 17 && suffix.All(char.IsDigit))
-                return suffix;
-        }
-
-        return null;
     }
 
     private static void AddOrReplaceClaim(ClaimsIdentity identity, string type, string value)

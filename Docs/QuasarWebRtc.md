@@ -82,8 +82,14 @@ still use Nebula's authoritative UTC clock and retain its existing clock/trust
 assumptions. No hard real-time scheduling guarantee or instantaneous rollback of
 an already committed action is implied.
 
-Core session expiry/logout and a shorter verified ticket rebinding revoke the
-stored session token. Closing a view cancels its peer, leaving other views'
+Each Steam sign-in has a server-issued login ID and a panel scope inside the
+protected HTTP-only cookie. All tabs using that login share its SDK identity.
+The worker keeps an empty file in its private `BrowserLogins/`
+directory for each active sign-in. Sign-out or switching accounts removes the
+marker and cancels that login's peer sessions and transfers. A second browser
+signed in separately stays connected. Updated workers share the markers across
+restarts. Older tickets require a fresh Steam sign-in on upgrade. Ticket expiry
+and a shorter verified ticket also limit the SDK binding. Closing a view cancels its peer, leaving other views'
 binding intact. Current panel permission and local installation state are checked
 at one-second intervals, including while idle. Each SDK operation/resource must
 also enforce its own current policies. A transient ICE disconnected state has a five-second grace period on the

@@ -35,7 +35,10 @@ try
     builder.Services.AddRazorComponents().AddInteractiveWebAssemblyComponents();
     builder.Services.AddCascadingAuthenticationState();
     builder.Services.AddAuthentication("fixture").AddCookie("fixture", options =>
-        options.Events.OnRedirectToLogin = c => { c.Response.StatusCode = 401; return Task.CompletedTask; });
+    {
+        Quasar.Program.ConfigureDashboardLogin(options);
+        options.Events.OnRedirectToLogin = c => { c.Response.StatusCode = 401; return Task.CompletedTask; };
+    });
     builder.Services.AddAuthorization(options =>
     {
         foreach (var field in typeof(QuasarPolicyNames).GetFields())
@@ -130,7 +133,7 @@ try
         app.MapGet("/fixture/plugin-login", (HttpContext c, QuasarRoleMapper roles) =>
             c.SignInAsync("fixture", roles.CreateSteamPrincipal(testAdmin)));
     }
-    app.MapDashboardStaticAssets(requireAuthorization: true, manifest: manifest);
+    app.MapDashboardStaticAssets(manifest: manifest);
     app.MapRazorComponents<App>().AddAdditionalAssemblies(catalog.RoutableAssemblies.Append(typeof(Quasar.Client.Components.DashboardRouter).Assembly).ToArray()).AddInteractiveWebAssemblyRenderMode().WithStaticAssets(manifest).RequireAuthorization();
     await app.StartAsync();
     var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();

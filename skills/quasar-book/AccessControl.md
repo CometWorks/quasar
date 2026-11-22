@@ -111,6 +111,8 @@ recovery and the live OAuth/join acceptance checks still required before product
 - The top bar shows your Steam profile name beside the sign-out button and in its tooltip. Quasar looks it up from your public Steam Community profile at sign-in without an API key and keeps it in the session cookie. If the lookup fails or takes more than five seconds, it shows `Steam <SteamID64>`. Sign out and back in to refresh the name, including after upgrading. Permissions and audit records still use SteamID64.
 - An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (an antiforgery-protected `POST /logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
 - The sign-in cookie is `Quasar.Auth`, HTTP-only, `SameSite=Lax`, valid for 12 hours with sliding renewal. With `RequireHttpsForPublicAccess` enabled it is also always Secure. Through a [hosted panel](HostedPanel.md) its name gets the panel name as a suffix, its path is the panel prefix, and it is always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
+- Public browser sign-in, the Steam callback, SDK requests and requests carrying a sign-in cookie require HTTPS. Trusted LAN clients keep the configured bypass.
+- Each Steam sign-in belongs to one panel. Signing out in any tab or switching accounts ends the old login across its tabs, peers and transfers. Other devices signed in separately keep their sessions. Quasar tracks active logins with empty files in `BrowserLogins/` under its data directory. Keep that directory across worker restarts. Clearing it signs out all Steam browsers. On upgrade from tickets without a login ID, Steam users sign in once again.
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
 - If `Quasar:Auth:Steam:Enabled` is `false`, or `Quasar:Auth:DefaultProvider` is not `Steam`, `/login` shows "Login unavailable. Steam is not enabled as the active Quasar auth provider."
 
@@ -460,6 +462,8 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
 - `Quasar.Client/Components/DashboardRouteContent.razor`
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
+- `Quasar/Services/Auth/DashboardLogin.cs`
+- `Quasar/Services/Plugins/QuasarBrowserSessions.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/QuasarAuthorizationPolicyProvider.cs`

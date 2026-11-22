@@ -927,7 +927,10 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
   proxy, trusted-network bypass is refused and the user must sign in
 
 `Quasar:Auth:RequireHttpsForPublicAccess` defaults to `false` for private LAN
-operation. Enable it before exposing Quasar through a public reverse proxy. After
+operation. Public clients require HTTPS for dashboard sign-in, the Steam callback,
+the browser SDK and requests carrying the dashboard sign-in cookie. Private LAN
+and loopback access follow the configured trust policy. Enable the setting to
+require HTTPS on the other public web routes as well. After
 applying forwarded headers from a trusted proxy, Quasar then rejects plain HTTP
 requests from non-LAN clients with HTTP 400 and marks authentication and
 Steam correlation cookies Secure. This includes the UI, login, and public

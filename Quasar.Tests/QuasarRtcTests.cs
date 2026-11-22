@@ -171,6 +171,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         builder.Services.AddAntiforgery();
         builder.Services.AddAuthentication("test").AddCookie("test", options =>
         {
+            Program.ConfigureDashboardLogin(options);
             options.Events.OnRedirectToLogin = context => QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 401);
             options.Events.OnRedirectToAccessDenied = context => QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 403);
         });
@@ -209,8 +210,8 @@ public sealed partial class QuasarRtcTests : IDisposable
             await http.SignInAsync("test", roles.CreateSteamPrincipal(user), new AuthenticationProperties { ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(10) });
             return Results.NoContent();
         });
-        fixture.MapPost("/logout", async (HttpContext http, IAntiforgery csrf, QuasarBrowserSessions sessions) =>
-        { await csrf.ValidateRequestAsync(http); await sessions.RevokeAsync(http); await http.SignOutAsync("test"); return Results.NoContent(); });
+        fixture.MapPost("/logout", async (HttpContext http, IAntiforgery csrf) =>
+        { await csrf.ValidateRequestAsync(http); await http.SignOutAsync("test"); return Results.NoContent(); });
         fixture.MapGet("/count", (QuasarRtcSessions peers) => Results.Json(new { count = peers.PeerCount }));
         fixture.MapPost("/deny", async () => { await rbac.UpdateAsync(config => { config.PolicyOverrides[QuasarPolicyNames.CanView] = []; return Task.CompletedTask; }); return Results.NoContent(); });
         fixture.MapPost("/allow", async () => { await rbac.UpdateAsync(config => { config.PolicyOverrides.Remove(QuasarPolicyNames.CanView); return Task.CompletedTask; }); return Results.NoContent(); });

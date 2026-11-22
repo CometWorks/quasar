@@ -5,10 +5,9 @@ namespace Quasar.Services;
 
 internal static class DashboardFrameworkAssets
 {
-    internal static void MapDashboardStaticAssets(this WebApplication app, bool requireAuthorization, string? manifest = null)
+    internal static void MapDashboardStaticAssets(this WebApplication app, string? manifest = null)
     {
         var assets = app.MapStaticAssets(manifest);
-        if (!requireAuthorization) return;
         // Panel-relative validators, including 304 responses, belong to the current viewer.
         // Nebula serves individually verified public release files at its own independent URLs.
         assets.Add(builder =>
