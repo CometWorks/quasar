@@ -134,7 +134,10 @@ cluster: a cluster keeps one history for all of its nodes, so a player's rows
 stay together across node replacements and handovers between slots. Each chart
 point folds the stored rows by the field's own time hint (mean, max, min, sum,
 last or median), so a "max" field shows the worst value in that bucket rather
-than an average.
+than an average. **Y axis max** fixes the top of the value axis (the bottom
+stays at 0), so one large spike doesn't flatten the rest of the chart. Higher
+values are cut off at the top of the chart. It changes only the view, not the
+stored history; leave it empty to scale automatically.
 
 The same data is available over HTTP, with `CanView`:
 `GET /api/analytics/plugin-stats/history/sources`,
