@@ -33,7 +33,7 @@ internal static class QuasarAccessDashboardOperations
                 guild?.Roles.Where(r => !r.IsEveryone).OrderByDescending(r => r.Position).Select(r => new AccessRole(r.Id.ToString(), r.Name + " (" + r.Id + ")")).ToArray() ?? [],
                 scope.GetRequiredService<PlayerAccessService>().Targets().Where(t => InScope(caller, t.Key)).Select(t => new AccessTarget(t.Key, t.Name, worker.Status(t.Key))).ToArray(),
                 browser.Ready, browser.PublicUrl));
-        }, read);
+        }, read with { Description = "Returns the server access settings and verification state." });
         services.AddQuasarOperation<AccessEdit, bool>(PluginId, "access.settings.save", manage, async (caller, input, ct) =>
         {
             var scope = caller.Services;
@@ -67,12 +67,12 @@ internal static class QuasarAccessDashboardOperations
             settings.Policies.AddRange(current.Policies.Where(p => !InScope(caller, p.Target)));
             await store.SaveSettingsAsync(settings, ct);
             return true;
-        }, change);
+        }, change with { Description = "Saves the selected server's access settings." });
         services.AddQuasarOperation<EmptyRequest, bool>(PluginId, "access.website.verify", manage, async (caller, _, ct) =>
         {
             await caller.Services.GetRequiredService<PlayerAuthBrowser>().VerifyAsync(ct);
             return true;
-        }, change);
+        }, change with { Description = "Verifies the configured website connection." });
         services.AddQuasarOperation<Selection, List<AccessRow>>(PluginId, "access.players.check", manage, async (caller, input, ct) =>
         {
             if (!InScope(caller, input.Key)) throw new QuasarOperationException(403, "Cluster access denied.");
@@ -88,7 +88,7 @@ internal static class QuasarAccessDashboardOperations
                     decision.Grant.Promotion, decision.Grant.Priority, decision.Grant.ExpiresAt));
             }
             return rows;
-        }, read);
+        }, read with { Description = "Checks current player access against the server settings." });
         services.AddQuasarOperation<EmptyRequest, LinkedPlayer[]>(PluginId, "access.links", [QuasarPolicyNames.CanView], (caller, _, _) =>
         {
             var names = caller.Services.GetRequiredService<KnownPlayerCatalog>().GetPlayers().Where(p => !string.IsNullOrWhiteSpace(p.DisplayName) &&
@@ -96,9 +96,9 @@ internal static class QuasarAccessDashboardOperations
                 .DistinctBy(p => p.SteamId).ToDictionary(p => p.SteamId.ToString(System.Globalization.CultureInfo.InvariantCulture), p => p.DisplayName);
             return Task.FromResult(caller.Services.GetRequiredService<QuasarPlayerLinks>().GetLinks().Select(l => new LinkedPlayer(l.SteamId, l.DiscordUserId,
                 l.Authenticated, l.LinkedAtUtc, names.GetValueOrDefault(l.SteamId, "Unknown"))).ToArray());
-        }, read);
+        }, read with { Description = "Lists linked game and website accounts visible to the caller." });
         services.AddQuasarOperation<Steam, bool>(PluginId, "access.links.remove", [QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers],
-            async (caller, input, ct) => { await caller.Services.GetRequiredService<QuasarPlayerLinks>().RemoveAsync(input.SteamId, ct); return true; }, change);
+            async (caller, input, ct) => { await caller.Services.GetRequiredService<QuasarPlayerLinks>().RemoveAsync(input.SteamId, ct); return true; }, change with { Description = "Removes a selected player account link." });
     }
 
     private static bool InScope(QuasarOperationContext caller, string key) =>

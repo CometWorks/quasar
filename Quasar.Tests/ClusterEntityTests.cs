@@ -135,7 +135,6 @@ public sealed class ClusterEntityTests
         using var servers = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
         context.Services.AddSingleton(servers);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
             new HostingEnvironment { ContentRootPath = root }, loadPluginAssemblies: false));
         context.Render<MudPopoverProvider>();
@@ -254,7 +253,6 @@ public sealed class ClusterEntityTests
         context.Services.AddSingleton(fixture.Service);
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
             new HostingEnvironment { ContentRootPath = root }, loadPluginAssemblies: false));
         return context;

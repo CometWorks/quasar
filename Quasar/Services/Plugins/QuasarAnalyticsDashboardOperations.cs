@@ -311,9 +311,9 @@ internal static class QuasarAnalyticsDashboardOperations
                 var clusters = (await auth.AuthorizeAsync(caller.User,null,QuasarPolicyNames.ClusterQuery)).Succeeded;
                 var control = (await auth.AuthorizeAsync(caller.User,null,QuasarPolicyNames.CanControlServers)).Succeeded;
                 return new DashboardAnalyticsProjection(caller,clusters).Read(input,control);
-            }, change with { Effect = QuasarOperationEffect.Read });
+            }, change with { Description = "Returns the data sources and panels available in Analytics.", Effect = QuasarOperationEffect.Read });
         services.AddQuasarOperation<EmptyRequest,bool>(PluginId, "analytics.persist", [QuasarPolicyNames.CanView],
-            async (caller,_,ct) => { await caller.Services.GetRequiredService<MetricsStoreService>().PersistAllAsync(); return true; }, change);
+            async (caller,_,ct) => { await caller.Services.GetRequiredService<MetricsStoreService>().PersistAllAsync(); return true; }, change with { Description = "Saves the dashboard's analytics preferences." });
         services.AddQuasarOperation<ProfilerChange,ProfilerChangeResult>(PluginId, "analytics.profiler.mode", [QuasarPolicyNames.CanView,QuasarPolicyNames.CanControlServers],
             async (caller,input,ct) =>
             {
@@ -334,6 +334,6 @@ internal static class QuasarAnalyticsDashboardOperations
                     if (!result.Success) throw new QuasarOperationException(409,result.Message);
                 }
                 return new(definition is not null,agent is not null);
-            }, change);
+            }, change with { Description = "Changes profiler collection mode for the selected server." });
     }
 }

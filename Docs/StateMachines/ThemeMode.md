@@ -1,59 +1,27 @@
-# Theme Mode
+# Theme mode
 
-The Blazor UI supports light/dark/system theming, persisted to browser local
-storage so the operator returns to the same mode. State is held by
-[`ThemePreferenceService`](../../Quasar/Services/ThemePreferenceService.cs) with
-the [`ThemeMode`](../../Quasar/Services/ThemePreferenceService.cs) enum
-(`System`, `Light`, `Dark`).
+The browser applies the selected theme as soon as the dashboard shell loads. Each panel stores its own choice under the `quasar.theme.mode` preference. Existing plain-text and JSON-quoted values are supported. [Dashboard shell](../../Quasar/wwwroot/_quasar/sdk/v1/dashboard.js)
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Uninitialized
-    Uninitialized --> System: InitializeAsync (no stored preference)
-    Uninitialized --> Light: stored "light"
-    Uninitialized --> Dark: stored "dark"
-    Uninitialized --> System: stored "system"
-    System --> Light: SetModeAsync(Light)
-    System --> Dark: SetModeAsync(Dark)
-    Light --> Dark: SetModeAsync(Dark)
-    Light --> System: SetModeAsync(System)
-    Dark --> Light: SetModeAsync(Light)
-    Dark --> System: SetModeAsync(System)
-    System --> System: SyncSystemDarkMode (OS dark/light toggles)
+    [*] --> System: Missing or unrecognized preference
+    [*] --> Light: Stored light
+    [*] --> Dark: Stored dark
+    System --> Light: Choose Light
+    System --> Dark: Choose Dark
+    Light --> Dark: Choose Dark
+    Dark --> Light: Choose Light
+    Light --> System: Choose System
+    Dark --> System: Choose System
+    System --> System: OS color scheme changes
 ```
 
 ![Theme mode](diagrams/theme-mode.png)
 
-| State | Meaning |
+| Preference | Palette |
 | --- | --- |
-| `Uninitialized` | Before `InitializeAsync` reads local storage (`quasar.theme.mode`). |
-| `System` | Follows the OS preference; `SyncSystemDarkMode` recomputes `IsDarkMode` when the OS toggles. |
-| `Light` / `Dark` | Explicit mode; `IsDarkMode` fixed to false/true. |
+| System | Follows the browser’s current `prefers-color-scheme` setting and updates when it changes. |
+| Light | Uses the configured light palette and logo. |
+| Dark | Uses the configured dark palette and logo. |
 
-`SetModeAsync` updates the mode, recomputes `IsDarkMode`, raises
-`ThemeModeChanged` when the effective dark/light value changes, and persists the
-string (`"light"` / `"dark"` / `"system"`). In `System` mode the effective
-dark/light value is queried from JS (`quasarConfigs.getSystemDarkMode`).
-
-The native shell subscribes to `prefers-color-scheme` using
-[`quasar-theme.js`](../../Quasar/wwwroot/quasar-theme.js). Each layout owns and
-disposes its listener and .NET callback reference. The listener reports initial
-and changed OS preferences; `SyncSystemDarkMode` applies them only in System
-mode. MudBlazor's observer is disabled so both native controls and legacy
-components follow the same service state. Existing `ThemeModeChanged` consumers,
-including analytics, still receive effective light/dark changes.
-
-The persisted palette schema and preset IDs are unchanged. Native CSS tokens
-and the temporary Mud compatibility theme derive from the same branding values.
-Quasar 1.3.0 defaults to the approved charcoal/cyan palette. Normalization upgrades
-only an unchanged legacy `quasar` palette pair; any custom color in either mode
-keeps both palettes. Identity/assets and other presets remain intact. Fleet and
-analytics charts read the active palette tokens and refresh cached chart styling
-after appearance changes. This does not change the browser mode preference.
-
----
-
-## Related
-
-- [Architecture › UI Theme](../QuasarArchitecture.md#ui-theme)
-- Back to the [State Machine Index](Index.md).
+An administrator can change the panel’s branded palettes and logos in Appearance. Each viewer keeps their own mode selection. [UI theme](../QuasarArchitecture.md#ui-theme)

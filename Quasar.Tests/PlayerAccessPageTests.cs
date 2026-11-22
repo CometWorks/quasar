@@ -35,7 +35,6 @@ public sealed class PlayerAccessPageTests : IDisposable
         auth.SetPolicies(admin ? [QuasarPolicyNames.CanView, QuasarPolicyNames.CanManageSecurity] : [QuasarPolicyNames.CanView]);
         context.Services.AddSingleton(auth);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new KnownPlayerCatalog(NullLogger<KnownPlayerCatalog>.Instance));
         return context;
     }

@@ -22,30 +22,30 @@ internal static class QuasarUpdatesDashboardOperations
         var metadata = new QuasarOperationMetadata { RequireDefaultPolicies = true, AgentAccess = QuasarAgentAccess.Denied };
         var read = metadata with { Effect = QuasarOperationEffect.Read };
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, UpdatesDashboard>(plugin, "updates.dashboard", manage,
-            (caller, _, _) => Task.FromResult(Snapshot(caller)), read);
-        AddCommand("updates.check", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().CheckNowAsync(token));
-        AddCommand("updates.stage", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().StageWebUpdateAsync(token));
-        AddCommand("updates.activate", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().ActivateStagedWebUpdateAsync(token));
-        AddCommand("updates.bootstrap.activate", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().RequestBootstrapUpdateActivationAsync(token));
-        AddCommand("updates.clusters.check", (provider, token) => provider.GetRequiredService<ClusterReleaseMonitor>().CheckNowAsync(token));
-        AddCommand("updates.magnetar.check", (provider, token) => provider.GetRequiredService<ManagedRuntimeWarmupService>().CheckMagnetarNowAsync(token));
-        AddCommand("updates.dedicated.check", (provider, token) => provider.GetRequiredService<ManagedRuntimeWarmupService>().CheckDedicatedServerNowAsync(token));
-        AddCommand("updates.token.clear", (provider, token) => provider.GetRequiredService<GitHubUpdateCredentialsCatalog>().ClearAsync(token));
+            (caller, _, _) => Task.FromResult(Snapshot(caller)), read with { Description = "Returns installed versions, available releases and update state." });
+        AddCommand("updates.check", "Checks for available Quasar updates.", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().CheckNowAsync(token));
+        AddCommand("updates.stage", "Stages the selected worker release.", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().StageWebUpdateAsync(token));
+        AddCommand("updates.activate", "Activates the staged Quasar worker update.", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().ActivateStagedWebUpdateAsync(token));
+        AddCommand("updates.bootstrap.activate", "Requests activation of the pending bootstrap update.", (provider, token) => provider.GetRequiredService<QuasarUpdateService>().RequestBootstrapUpdateActivationAsync(token));
+        AddCommand("updates.clusters.check", "Checks available cluster releases.", (provider, token) => provider.GetRequiredService<ClusterReleaseMonitor>().CheckNowAsync(token));
+        AddCommand("updates.magnetar.check", "Checks for managed Magnetar updates.", (provider, token) => provider.GetRequiredService<ManagedRuntimeWarmupService>().CheckMagnetarNowAsync(token));
+        AddCommand("updates.dedicated.check", "Checks the managed dedicated server runtime for updates.", (provider, token) => provider.GetRequiredService<ManagedRuntimeWarmupService>().CheckDedicatedServerNowAsync(token));
+        AddCommand("updates.token.clear", "Removes the stored GitHub update credential.", (provider, token) => provider.GetRequiredService<GitHubUpdateCredentialsCatalog>().ClearAsync(token));
         services.AddQuasarOperation<VersionInput, string>(plugin, "updates.resolve", manage,
-            (caller, input, token) => Updates(caller).ResolveUpdateVersionAsync(input.Version, token), read);
-        AddChange<VersionInput>("updates.install", (caller, input, token) => Updates(caller).UpdateAsync(input.Version, input.Retry, token));
-        AddChange<VersionInput>("updates.select", (caller, input, token) => Updates(caller).SelectWebReleaseAsync(input.Version, token));
-        AddChange<ToggleInput>("updates.prerelease", async (caller, input, token) =>
+            (caller, input, token) => Updates(caller).ResolveUpdateVersionAsync(input.Version, token), read with { Description = "Resolves a version selection to a Quasar release." });
+        AddChange<VersionInput>("updates.install", "Installs the selected Quasar release.", (caller, input, token) => Updates(caller).UpdateAsync(input.Version, input.Retry, token));
+        AddChange<VersionInput>("updates.select", "Selects a Quasar web release for staging.", (caller, input, token) => Updates(caller).SelectWebReleaseAsync(input.Version, token));
+        AddChange<ToggleInput>("updates.prerelease", "Changes whether prereleases appear in update selection.", async (caller, input, token) =>
         {
             await Updates(caller).SetIncludePrereleaseAsync(input.Enabled, token);
             await Updates(caller).CheckNowAsync(token);
         });
-        AddChange<ToggleInput>("updates.auto.apply", (caller, input, token) => Updates(caller).SetAutoApplyUpdatesAsync(input.Enabled, token));
-        AddChange<ToggleInput>("updates.auto.stage", (caller, input, token) => Updates(caller).SetAutoStageWebUpdatesAsync(input.Enabled, token));
-        AddChange<ModeInput>("updates.runtime.mode", (caller, input, token) => Enum.IsDefined(input.Mode)
+        AddChange<ToggleInput>("updates.auto.apply", "Changes whether Quasar applies updates automatically.", (caller, input, token) => Updates(caller).SetAutoApplyUpdatesAsync(input.Enabled, token));
+        AddChange<ToggleInput>("updates.auto.stage", "Changes whether Quasar stages updates automatically.", (caller, input, token) => Updates(caller).SetAutoStageWebUpdatesAsync(input.Enabled, token));
+        AddChange<ModeInput>("updates.runtime.mode", "Updates the managed runtime update policy.", (caller, input, token) => Enum.IsDefined(input.Mode)
             ? caller.Services.GetRequiredService<ManagedDedicatedServerRuntimeResolver>().SetDedicatedServerLaunchUpdateModeAsync(input.Mode, token)
             : throw new QuasarOperationException(400, "Invalid launch update mode."));
-        AddChange<TokenInput>("updates.token.save", (caller, input, token) =>
+        AddChange<TokenInput>("updates.token.save", "Saves the GitHub credential used to obtain updates.", (caller, input, token) =>
             caller.Services.GetRequiredService<GitHubUpdateCredentialsCatalog>().SaveAsync(new() { Token = input.Token }, token));
         services.AddQuasarRead<QuasarCoreOperations.EmptyRequest>(plugin, "updates.conflict.documents", manage,
             async (caller, _, token) =>
@@ -54,7 +54,7 @@ internal static class QuasarUpdatesDashboardOperations
                 var documents = await Updates(caller).ReadAppSettingsConflictDocumentsAsync(token);
                 var bytes = JsonSerializer.SerializeToUtf8Bytes(new ConflictDocuments(documents.Current, documents.Incoming), QuasarCoreOperations.Json);
                 return new QuasarRead(_ => Task.FromResult<Stream>(new MemoryStream(bytes, writable: false)), "application/json", Length: bytes.Length);
-            }, read);
+            }, read with { Description = "Returns conflicting configuration documents for review." });
         services.AddQuasarUpload<QuasarCoreOperations.EmptyRequest, bool>(plugin, "updates.conflict.resolve", manage, 32 * 1024 * 1024,
             (caller, _, stream, _) => Task.FromResult(new QuasarUpload<bool>(async token =>
             {
@@ -64,15 +64,15 @@ internal static class QuasarUpdatesDashboardOperations
                 await caller.EnsureAuthorizedAsync(token);
                 await Updates(caller).ResolveAppSettingsConflictAsync(document, token);
                 return true;
-            })), metadata);
+            })), metadata with { Description = "Saves a reviewed resolution of a configuration conflict." });
 
-        void AddCommand(string id, Func<IServiceProvider, CancellationToken, Task> run) =>
-            AddChange<QuasarCoreOperations.EmptyRequest>(id, (caller, _, token) => run(caller.Services, token));
+        void AddCommand(string id, string description, Func<IServiceProvider, CancellationToken, Task> run) =>
+            AddChange<QuasarCoreOperations.EmptyRequest>(id, description, (caller, _, token) => run(caller.Services, token));
 
-        void AddChange<T>(string id, Func<QuasarOperationContext, T, CancellationToken, Task> run) =>
+        void AddChange<T>(string id, string description, Func<QuasarOperationContext, T, CancellationToken, Task> run) =>
             services.AddQuasarOperation<T, bool>(plugin, id, manage,
                 async (caller, input, token) => { await run(caller, input, token); return true; },
-                metadata with { Deadline = QuasarOperationMetadata.MaximumDeadline });
+                metadata with { Description = description, Deadline = QuasarOperationMetadata.MaximumDeadline });
     }
 
     private static QuasarUpdateService Updates(QuasarOperationContext caller) => caller.Services.GetRequiredService<QuasarUpdateService>();

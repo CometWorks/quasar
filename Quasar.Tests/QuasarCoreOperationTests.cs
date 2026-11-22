@@ -113,15 +113,13 @@ public sealed class QuasarCoreOperationTests : IDisposable
         services.AddSingleton(_registry);
         services.AddSingleton(_supervisor);
         services.AddSingleton(backups);
-        var backupSettings = new QuasarBackupSettingsService(
-            NullLogger<QuasarBackupSettingsService>.Instance,
-            options
-        );
-        services.AddSingleton(backupSettings);
-        services.AddSingleton(
+        services.AddSingleton(_ => new QuasarBackupSettingsService(
+            NullLogger<QuasarBackupSettingsService>.Instance, options
+        ));
+        services.AddSingleton(provider =>
             new AutomaticBackupService(
                 backups,
-                backupSettings,
+                provider.GetRequiredService<QuasarBackupSettingsService>(),
                 _servers,
                 NullLogger<AutomaticBackupService>.Instance
             )

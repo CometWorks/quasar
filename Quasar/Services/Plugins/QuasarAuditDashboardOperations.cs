@@ -35,13 +35,13 @@ internal static class QuasarAuditDashboardOperations
                     entry.ConversationId, entry.Request, entry.Reason, Pretty(entry.Arguments) ?? "none", entry.Error,
                     entry.Reversal.ToString(), Pretty(entry.UndoData), entry.HasBlobs, entry.Reverses,
                     reversed.Contains(entry.Id), audit.UndoBlocker(entry, entries))).ToArray());
-            }, metadata with { Effect = QuasarOperationEffect.Read });
+            }, metadata with { Description = "Returns a filtered page of audit history.", Effect = QuasarOperationEffect.Read });
         services.AddQuasarOperation<AuditUndo, AuditOutcome>(plugin, "audit.undo", policies,
             async (caller, input, token) =>
             {
                 var outcome = await caller.Services.GetRequiredService<QuasarAuditLog>().UndoAsync(caller.User, input.EntryId, input.Force, token);
                 return new(outcome.Status.ToString(), outcome.Detail);
-            }, metadata);
+            }, metadata with { Description = "Reverses an eligible recorded operation after checking its current state." });
     }
 
     private static string? Pretty(JsonElement? value) => value is { } json

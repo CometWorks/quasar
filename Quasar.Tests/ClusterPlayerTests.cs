@@ -105,7 +105,6 @@ public sealed class ClusterPlayerTests : IDisposable
         auth.SetAuthorized("admin");
         auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
@@ -150,7 +149,6 @@ public sealed class ClusterPlayerTests : IDisposable
         auth.SetPolicies(manage ? [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage]
             : [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery]);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
@@ -589,7 +587,6 @@ public sealed class ClusterPlayerTests : IDisposable
             QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
         context.Services.AddSingleton(auth);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(_known, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));

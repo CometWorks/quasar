@@ -30,7 +30,7 @@ internal static class QuasarDiscordDashboardOperations
             options.Servers.RemoveAll(s => s.IsCluster && !caller.User.CanQueryCluster(s.UniqueName));
             // Send the settings JSON as text so the JS bridge preserves 64-bit Discord snowflakes.
             return new(editor, targets, JsonSerializer.Serialize(options), editor ? Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarDeathMessagesPath() : null, editor ? scope.GetRequiredService<DeathMessagesCatalog>().GetConfig() : null, status);
-        }, Read);
+        }, Read with { Description = "Returns Discord integration status and settings." });
         services.AddQuasarOperation<DiscordSettingsSave, bool>(PluginId, "discord.settings.save", manage, async (caller, input, ct) =>
         {
             var options = JsonSerializer.Deserialize<DiscordOptions>(input.Settings) ?? throw new QuasarOperationException(400, "Invalid Discord settings.");
@@ -41,23 +41,23 @@ internal static class QuasarDiscordDashboardOperations
             options.BotToken = input.ClearToken ? "" : string.IsNullOrWhiteSpace(input.BotToken) ? saved.BotToken : input.BotToken;
             await store.SaveAsync(options, ct);
             return true;
-        }, Change);
+        }, Change with { Description = "Saves Discord integration settings." });
         services.AddQuasarOperation<DiscordPresenceOptions, DiscordPresencePreview>(PluginId, "discord.presence.preview", manage, (caller, input, _) =>
         {
             var preview = caller.Services.GetRequiredService<DiscordBotService>().PreviewPresence(input);
             return Task.FromResult(new DiscordPresencePreview(preview.Status.ToString(), preview.Activity, preview.ActivityType.ToString()));
-        }, Read);
+        }, Read with { Description = "Previews the configured Discord presence." });
         services.AddQuasarOperation<DeathMessagesConfig, bool>(PluginId, "discord.templates.save", manage, async (caller, input, ct) =>
         {
             await caller.Services.GetRequiredService<DeathMessagesCatalog>().SaveAsync(input, ct);
             return true;
-        }, Change);
+        }, Change with { Description = "Saves the reviewed Discord message templates." });
         services.AddQuasarOperation<EmptyRequest, DeathMessagesConfig>(PluginId, "discord.templates.reset", manage, async (caller, _, ct) =>
         {
             var store = caller.Services.GetRequiredService<DeathMessagesCatalog>();
             await store.ResetAsync(ct);
             return store.GetConfig();
-        }, Change);
+        }, Change with { Description = "Restores default Discord message templates." });
         services.AddQuasarRead<LogInput>(PluginId, "discord.log.excerpt", manage, async (caller, input, ct) =>
         {
             var path = QuasarLoggingConfigurator.ResolveDiscordLogPath(caller.Services.GetRequiredService<WebServiceOptions>());
@@ -69,6 +69,6 @@ internal static class QuasarDiscordDashboardOperations
             }
             var bytes = JsonSerializer.SerializeToUtf8Bytes(excerpt, JsonSerializerOptions.Web);
             return new(_ => Task.FromResult<Stream>(new MemoryStream(bytes, false)), "application/json", Length: bytes.Length);
-        }, Read);
+        }, Read with { Description = "Streams a bounded excerpt of the Discord integration log." });
     }
 }

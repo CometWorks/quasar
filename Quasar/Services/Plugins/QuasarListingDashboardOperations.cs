@@ -30,7 +30,7 @@ internal static class QuasarListingDashboardOperations
                 }).ToArray();
                 var rbac = caller.Services.GetRequiredService<RbacConfigCatalog>().GetConfig();
                 return new(revision, ServerListProtocol.GetAdmins(rbac).Length > 0, await CanManage(caller), catalog.LoadError, drafts);
-            }, write with { Effect = QuasarOperationEffect.Read });
+            }, write with { Description = "Returns the current server listing configuration and status.", Effect = QuasarOperationEffect.Read });
         services.AddQuasarOperation<ListingSave, bool>(plugin, "listings.save", [QuasarPolicyNames.CanManageSecurity],
             async (caller, input, token) =>
             {
@@ -60,7 +60,7 @@ internal static class QuasarListingDashboardOperations
                 catch (InvalidDataException error) { throw new QuasarOperationException(400, error.Message); }
                 catch (InvalidOperationException error) { throw new QuasarOperationException(409, error.Message); }
                 return true;
-            }, write);
+            }, write with { Description = "Saves the reviewed server listing configuration." });
     }
 
     private static async Task<bool> CanManage(QuasarOperationContext caller) =>

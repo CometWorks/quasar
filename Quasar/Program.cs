@@ -284,7 +284,6 @@ public class Program
             builder.Services.AddSingleton<RbacConfigCatalog>();
             builder.Services.AddSingleton(analyticsStoreOptions);
             builder.Services.AddSingleton<QuasarRoleMapper>();
-            builder.Services.AddScoped<QuasarPermissionService>();
             builder.Services.AddSingleton<TrustedNetworkEvaluator>();
             builder.Services.AddSingleton<ServicePrincipalAuthenticator>();
             builder.Services.AddSingleton<QuasarAuthSettingsService>();
@@ -385,7 +384,6 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<AutomaticBackupService>());
             if (uiPluginCatalog != null)
             {
-                builder.Services.AddScoped<BrowserStorageService>();
                 builder.Services.AddScoped<WorldTemplateImportLocationService>();
                 builder.Services.AddSingleton<QuasarUiPluginStateStore>();
                 builder.Services.AddSingleton<QuasarManagedDotNetSdkService>();
@@ -393,8 +391,6 @@ public class Program
                 builder.Services.AddSingleton<QuasarUiPluginHubRefreshService>();
                 builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<QuasarUiPluginHubRefreshService>());
                 builder.Services.AddSingleton<BrandingService>();
-                builder.Services.AddScoped<ThemePreferenceService>();
-                builder.Services.AddScoped<ViewerTimeZone>();
                 uiPluginCatalog.ConfigurePluginServices(builder.Services);
             }
 

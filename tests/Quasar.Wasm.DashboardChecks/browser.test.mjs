@@ -75,10 +75,11 @@ for (const browserType of [chromium, firefox]) {
             await page.getByText(/page not found|^not found$/i).first().waitFor();
             assert.equal(await page.getByRole("heading", {name: "Fixture worker plugin"}).count(), 0);
             for (const route of ["fixture/unknown", "fixture/worker-tool"]) {
-                const missing = await page.goto(base + route);
+                const missing = await context.request.get(base + route);
                 assert.equal(missing.status(), 404, route);
-                await page.getByRole("heading", {name: "Not Found"}).waitFor();
-                assert.doesNotMatch(await missing.text(), /Fixture worker plugin|Worker count/);
+                const body = await missing.text();
+                assert.match(body, /<h3>Not Found<\/h3>/i);
+                assert.doesNotMatch(body, /Fixture worker plugin|Worker count/);
             }
             console.log(browserType.name() + " rejected the unpublished worker page at " + prefix);
             if (pluginDriver) {
@@ -120,6 +121,8 @@ for (const browserType of [chromium, firefox]) {
                 await page.emulateMedia({ colorScheme: "dark" });
                 await page.waitForFunction(() => document.getElementById("quasar-wasm-shell").dataset.theme === "dark");
             }
+            // Shell controls can respond before the browser router has started after a reload.
+            await input.waitFor();
             // A routed link must keep the runtime and the selected SDK transport alive.
             const generation = await page.evaluate(() => { window.fixtureGeneration = crypto.randomUUID(); return window.fixtureGeneration; });
             await page.evaluate(() => {

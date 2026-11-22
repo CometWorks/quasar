@@ -40,7 +40,7 @@ internal static class QuasarBackupDashboardOperations
                     settings.GetSettings(), settings.GetBackupDirectorySettings(), servers,
                     provider.GetRequiredService<QuasarBackupService>().ListBackups(),
                     provider.GetRequiredService<AutomaticBackupService>().GetRecentJobs()));
-            }, read);
+            }, read with { Description = "Returns backup configuration, stored archives and recent jobs." });
         services.AddQuasarOperation<QuasarBackupSettings, bool>(plugin, "backup.schedule.save", security,
             async (caller, input, token) =>
             {
@@ -53,15 +53,15 @@ internal static class QuasarBackupDashboardOperations
                 }
                 await caller.Services.GetRequiredService<QuasarBackupSettingsService>().SaveAsync(settings, token);
                 return true;
-            }, write);
+            }, write with { Description = "Saves automatic backup preferences." });
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, Guid>(plugin, "backup.schedule.run", security,
-            (caller, _, _) => Task.FromResult(caller.Services.GetRequiredService<AutomaticBackupService>().QueueEnabledBackupsNow()), write);
+            (caller, _, _) => Task.FromResult(caller.Services.GetRequiredService<AutomaticBackupService>().QueueEnabledBackupsNow()), write with { Description = "Queues a manual run of the configured backup." });
         services.AddQuasarOperation<FolderRequest, bool>(plugin, "backup.directory.save", security,
             async (caller, input, token) =>
             {
                 await caller.Services.GetRequiredService<QuasarBackupSettingsService>().SaveBackupDirectoryAsync(input.Path, token);
                 return true;
-            }, write);
+            }, write with { Description = "Changes where the worker stores Quasar backups." });
         services.AddQuasarOperation<FolderRequest, BackupFolder>(plugin, "backup.directory.browse", security,
             (caller, input, _) =>
             {
@@ -74,17 +74,17 @@ internal static class QuasarBackupDashboardOperations
                 return Task.FromResult(new BackupFolder(path,
                     browser.ListDirectories(path, input.Hidden).Select(s => new FolderItem(s.Name, s.FullPath)).ToArray(),
                     FileBrowserService.GetBreadcrumbs(path).Select(s => new FolderItem(s.Label, s.FullPath)).ToArray(), shortcuts.ToArray()));
-            }, read);
+            }, read with { Description = "Lists subdirectories in the worker's backup directory picker." });
         services.AddQuasarOperation<QuasarCoreOperations.ServerRequest, Guid>(plugin, "backup.world.stop", security,
             (caller, input, _) =>
             {
                 var server = QuasarCoreOperations.RequireServer(caller.Services, input.UniqueName);
                 return Task.FromResult(caller.Services.GetRequiredService<AutomaticBackupService>().QueueWorldBackup(server.UniqueName, WorldBackupAction.StopAndBackUp));
-            }, write);
+            }, write with { Description = "Queues a world backup after stopping the selected server." });
         services.AddQuasarOperation<QuasarCoreOperations.BackupRequest, QuasarRestoreReport>(plugin, "backup.stored.restore", security,
             (caller, input, token) => caller.Services.GetRequiredService<QuasarBackupService>().RestoreFromFileAsync(input.Name ?? "", token),
-            write with { Deadline = QuasarOperationMetadata.MaximumDeadline });
+            write with { Description = "Restores the selected Quasar backup archive.", Deadline = QuasarOperationMetadata.MaximumDeadline });
         services.AddQuasarOperation<QuasarCoreOperations.BackupRequest, bool>(plugin, "backup.stored.delete", security,
-            (caller, input, _) => Task.FromResult(caller.Services.GetRequiredService<QuasarBackupService>().DeleteBackup(input.Name ?? "")), write);
+            (caller, input, _) => Task.FromResult(caller.Services.GetRequiredService<QuasarBackupService>().DeleteBackup(input.Name ?? "")), write with { Description = "Deletes a selected stored Quasar backup." });
     }
 }

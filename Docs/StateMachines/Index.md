@@ -18,7 +18,7 @@ rendered `.png` (regenerate with the [command below](#regenerating-the-pngs)).
 | [Backup Jobs](BackupJobs.md) | Queued backup-job lifecycle | `QueuedBackupJobKind`, `QuasarBackupKind` |
 | [Agent Profiler Mode](ProfilerMode.md) | Live profiler patch-depth switching | `AgentProfilerMode` |
 | [Config Profile Changes](ConfigProfileChanges.md) | Edit / pending-decision / save lifecycle | `QuasarConfigProfileCatalog` |
-| [Theme Mode](ThemeMode.md) | System / Light / Dark preference | `ThemeMode` |
+| [Theme Mode](ThemeMode.md) | System / Light / Dark preference | Browser shell |
 
 ## How these relate
 

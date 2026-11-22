@@ -21,7 +21,10 @@ function bindShell(shell) {
     const theme = shell.querySelector("#quasar-wasm-theme");
     const system = matchMedia("(prefers-color-scheme: dark)");
     const logo = shell.querySelector(".quasar-brand-mark");
-    theme.value = quasarConfigs.getLocalStorage("quasar.theme.mode") || "system";
+    const storedMode = quasarConfigs.getLocalStorage("quasar.theme.mode");
+    // Earlier panels stored the choice as a JSON string.
+    const mode = storedMode?.replace(/^"(light|dark|system)"$/, "$1");
+    theme.value = mode === "light" || mode === "dark" ? mode : "system";
     function apply() {
         const dark = theme.value === "dark" || (theme.value !== "light" && system.matches);
         shell.style.cssText = dark ? shell.dataset.darkPalette : shell.dataset.lightPalette;

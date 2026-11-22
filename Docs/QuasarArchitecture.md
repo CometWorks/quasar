@@ -982,7 +982,7 @@ The protocol and IDs should remain compatible with those later additions.
 As of this document:
 
 - shared protocol exists
-- a first Blazor Server host exists
+- the worker serves the authenticated dashboard shell and authorized SDK operations. The dashboard runs in Blazor WebAssembly in all hosting modes.
 - a first raw WebSocket `Quasar.Agent` path exists
 - `Quasar.Bootstrap` exists as an ensure-running helper
 - Quasar logging is now separated from console noise

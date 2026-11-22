@@ -50,7 +50,6 @@ public sealed class ServerListingPageTests : IDisposable
         var rbac = new RbacConfigCatalog(NullLogger<RbacConfigCatalog>.Instance);
         context.Services.AddSingleton(rbac);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), rbac));
-        context.Services.AddSingleton<QuasarPermissionService>();
         context.Services.AddDirectCoreOperations();
         context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         return context;

@@ -153,8 +153,7 @@ dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~Cluste
 Set `MagnetarBin` to a current Magnetar SDK directory as described in
 [Building and Development](BuildingAndDevelopment.md). Set
 `QUASAR_CLUSTER_PREVIEW_OUTPUT` to a temporary path to export the actual map
-component with sample data for offline layout inspection. This export does not
-exercise a live Blazor circuit, game cluster, firewall or network listener.
+component with sample data for offline layout inspection. The export runs offline using sample cluster data.
 
 ## Lobby anchor
 

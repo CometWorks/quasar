@@ -15,7 +15,7 @@ internal static class QuasarAppearanceOperations
         var write = new QuasarOperationMetadata { AgentAccess = QuasarAgentAccess.Denied, RequireDefaultPolicies = true };
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, BrandingSettings>(plugin, "appearance.read", [QuasarPolicyNames.CanView],
             (caller, _, _) => Task.FromResult(caller.Services.GetRequiredService<BrandingService>().GetSettings()),
-            write with { Effect = QuasarOperationEffect.Read });
+            write with { Description = "Returns the active panel branding and palette.", Effect = QuasarOperationEffect.Read });
         services.AddQuasarOperation<BrandingSettings, BrandingSettings>(plugin, "appearance.save", manage, async (caller, input, token) =>
         {
             var branding = caller.Services.GetRequiredService<BrandingService>();
@@ -23,13 +23,13 @@ internal static class QuasarAppearanceOperations
             input.LogoDarkPath = assets.LogoDarkPath; input.LogoLightPath = assets.LogoLightPath; input.FaviconPath = assets.FaviconPath;
             await branding.SaveAsync(input, token);
             return branding.GetSettings();
-        }, write);
+        }, write with { Description = "Saves panel branding and palette preferences." });
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, BrandingSettings>(plugin, "appearance.reset", manage, async (caller, _, token) =>
         {
             var branding = caller.Services.GetRequiredService<BrandingService>();
             await branding.ResetToDefaultAsync(token);
             return branding.GetSettings();
-        }, write);
+        }, write with { Description = "Restores the default panel branding." });
         services.AddQuasarUpload<AssetInput, BrandingSettings>(plugin, "appearance.upload", manage, 10 * 1024 * 1024,
             (caller, input, stream, _) =>
             {
@@ -47,6 +47,6 @@ internal static class QuasarAppearanceOperations
                     else await branding.SaveLogoAsync(input.Kind == "dark", stream, ext!, token);
                     return branding.GetSettings();
                 }));
-            }, write);
+            }, write with { Description = "Stores the uploaded branding asset." });
     }
 }

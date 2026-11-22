@@ -21,9 +21,9 @@ internal static class QuasarAccessSetupOperations
                 var auth = caller.Services.GetRequiredService<IAuthorizationService>();
                 if (!(await auth.AuthorizeAsync(caller.User, QuasarPolicyNames.CanManageSecurity)).Succeeded) return false;
                 return !HasAdmin(caller) || !caller.Services.GetRequiredService<HostedPanelService>().State.IsSetupComplete;
-            }, read);
+            }, read with { Description = "Returns the initial access setup prompt for the current user." });
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, SetupStatus>(plugin, "setup.status", manage,
-            (caller, _, _) => Task.FromResult(Snapshot(caller)), read);
+            (caller, _, _) => Task.FromResult(Snapshot(caller)), read with { Description = "Returns the current access setup and enrollment state." });
         services.AddQuasarOperation<SetupInput, SetupStatus>(plugin, "setup.administrator", manage,
             async (caller, input, token) =>
             {
@@ -31,20 +31,20 @@ internal static class QuasarAccessSetupOperations
                 await caller.EnsureAuthorizedAsync(token);
                 await caller.Services.GetRequiredService<RbacConfigCatalog>().AddFirstSteamAdminAsync(steam);
                 return Snapshot(caller);
-            }, write);
+            }, write with { Description = "Configures the initial administrator during access setup." });
         services.AddQuasarOperation<SetupInput, SetupStatus>(plugin, "setup.choose", manage,
             async (caller, input, _) =>
             {
                 if (input.Value == "self" && !HasAdmin(caller)) throw new QuasarOperationException(409, "Configure a Quasar administrator before choosing public access.");
                 await caller.Services.GetRequiredService<HostedPanelService>().ChooseAsync(input.Value);
                 return Snapshot(caller);
-            }, write);
+            }, write with { Description = "Records the user's access setup choice." });
         services.AddQuasarOperation<SetupInput, string>(plugin, "setup.enroll", manage, async (caller, input, token) =>
         {
             var status = Snapshot(caller);
             if (!status.HasAdmin || !status.SteamEnabled) throw new QuasarOperationException(409, "Configure a Quasar administrator and enable Steam authentication before enrolling.");
             return await caller.Services.GetRequiredService<HostedPanelService>().EnrollAsync(input.Value, token);
-        }, write);
+        }, write with { Description = "Starts the hosted panel enrollment workflow." });
     }
 
     private static bool HasAdmin(QuasarOperationContext caller) =>

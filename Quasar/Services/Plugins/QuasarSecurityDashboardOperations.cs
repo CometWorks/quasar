@@ -18,7 +18,7 @@ internal static class QuasarSecurityDashboardOperations
         string[] manage = [QuasarPolicyNames.CanManageSecurity];
         var write = new QuasarOperationMetadata { RequireDefaultPolicies = true, AgentAccess = QuasarAgentAccess.Denied };
         services.AddQuasarOperation<QuasarCoreOperations.EmptyRequest, SecurityDashboard>(plugin, "security.dashboard", manage,
-            (caller, _, _) => Task.FromResult(Snapshot(caller)), write with { Effect = QuasarOperationEffect.Read });
+            (caller, _, _) => Task.FromResult(Snapshot(caller)), write with { Description = "Returns security configuration, providers and role mappings.", Effect = QuasarOperationEffect.Read });
         services.AddQuasarOperation<NetworkInput, bool>(plugin, "security.network.save", manage,
             async (caller, input, token) =>
             {
@@ -26,20 +26,20 @@ internal static class QuasarSecurityDashboardOperations
                 input.Network.TrustedProxies = QuasarAuthSettingsService.ParseTrustedProxiesText(input.Proxies);
                 await caller.Services.GetRequiredService<QuasarAuthSettingsService>().SaveTrustedNetworkSettingsAsync(input.Network, token);
                 return true;
-            }, write);
+            }, write with { Description = "Saves trusted network settings." });
         services.AddQuasarOperation<ConsentInput, bool>(plugin, "security.consent.save", manage,
             async (caller, input, token) =>
             {
                 await caller.Services.GetRequiredService<DataHandlingConsentCatalog>().SaveAsync(input.Consent, input.Consent, false, token);
                 return true;
-            }, write);
+            }, write with { Description = "Saves the panel's consent settings." });
         services.AddQuasarOperation<DiagnosticsInput, bool>(plugin, "security.diagnostics.save", manage,
             async (caller, input, token) =>
             {
                 var catalog = caller.Services.GetRequiredService<DataHandlingConsentCatalog>();
                 await catalog.SaveAsync(catalog.GetSettings().ConsentGranted, input.Diagnostics, input.Dumps, token);
                 return true;
-            }, write);
+            }, write with { Description = "Saves diagnostic reporting preferences." });
         services.AddQuasarOperation<MappingChange, bool>(plugin, "security.mapping.add", manage,
             async (caller, input, token) =>
             {
@@ -50,10 +50,10 @@ internal static class QuasarSecurityDashboardOperations
                     ? await ResolveSteamAsync(caller, input.Subject, token) : input.Subject.Trim();
                 return await UpdateRbacAsync(caller, config => config.SubjectRoleMappings.Add(new()
                     { Provider = input.Provider, Subject = subject, Roles = [input.Role] }), token);
-            }, write);
+            }, write with { Description = "Adds a subject role mapping." });
         services.AddQuasarOperation<MappingChange, bool>(plugin, "security.mapping.remove", manage,
             (caller, input, token) => UpdateRbacAsync(caller, config => config.SubjectRoleMappings.RemoveAll(item =>
-                item.Provider.Equals(input.Provider, StringComparison.OrdinalIgnoreCase) && item.Subject.Equals(input.Subject, StringComparison.OrdinalIgnoreCase)), token), write);
+                item.Provider.Equals(input.Provider, StringComparison.OrdinalIgnoreCase) && item.Subject.Equals(input.Subject, StringComparison.OrdinalIgnoreCase)), token), write with { Description = "Removes a subject role mapping." });
         services.AddQuasarOperation<DiscordChange, bool>(plugin, "security.discord.add", manage, async (caller, input, token) =>
         {
             var id = input.DiscordUserId?.Trim();
@@ -64,9 +64,9 @@ internal static class QuasarSecurityDashboardOperations
                 config.DiscordSubjects.RemoveAll(item => item.DiscordUserId == id);
                 config.DiscordSubjects.Add(new() { DiscordUserId = id!, Subject = steam });
             }, token);
-        }, write);
+        }, write with { Description = "Adds a Discord role mapping." });
         services.AddQuasarOperation<DiscordChange, bool>(plugin, "security.discord.remove", manage,
-            (caller, input, token) => UpdateRbacAsync(caller, config => config.DiscordSubjects.RemoveAll(item => item.DiscordUserId == input.DiscordUserId), token), write);
+            (caller, input, token) => UpdateRbacAsync(caller, config => config.DiscordSubjects.RemoveAll(item => item.DiscordUserId == input.DiscordUserId), token), write with { Description = "Removes a Discord role mapping." });
     }
 
     private static async Task<string> ResolveSteamAsync(QuasarOperationContext caller, string? input, CancellationToken token)
