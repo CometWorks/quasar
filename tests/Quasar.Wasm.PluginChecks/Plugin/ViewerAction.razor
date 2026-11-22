@@ -2,13 +2,13 @@
 @using Microsoft.AspNetCore.Components.Web
 
 <button @onclick="Open">View @EntityName</button>
-@if (_open)
+@if (_viewed is not null)
 {
-    <p role="status">Viewing @EntityName</p>
+    <p role="status">Viewing @_viewed</p>
 }
 
 @code {
     [Parameter, EditorRequired] public string EntityName { get; set; } = "";
-    private bool _open;
-    private void Open() => _open = true;
+    private string? _viewed;
+    private void Open() => _viewed = FixtureJson.RoundTrip(EntityName);
 }

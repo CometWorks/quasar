@@ -1,14 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly">
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly" TreatAsLocalProperty="PublishTrimmed">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../../Quasar.Client/Quasar.Client.csproj" />
     <Content Include="../../../Quasar/wwwroot/quasar-configs.js" Link="wwwroot/quasar-configs.js" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.13" />
   </ItemGroup>
-  <Import Project="../../../Quasar.Client/PluginTrimming.props" />
+  <Import Project="../../../Quasar.WebAssembly/BrowserRuntime.props" />
 </Project>

@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly" TreatAsLocalProperty="PublishSingleFile">
+<Project Sdk="Microsoft.NET.Sdk.BlazorWebAssembly" TreatAsLocalProperty="PublishSingleFile;PublishTrimmed">
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -11,8 +11,6 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.14" />
     <ProjectReference Include="../Quasar.Client/Quasar.Client.csproj" />
-    <TrimmerRootAssembly Include="Quasar.Client" />
-    <TrimmerRootAssembly Include="ClusterGateway.AdminContract" />
   </ItemGroup>
-  <Import Project="../Quasar.Client/PluginTrimming.props" />
+  <Import Project="BrowserRuntime.props" />
 </Project>

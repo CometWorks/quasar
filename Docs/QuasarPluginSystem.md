@@ -340,33 +340,31 @@ Plugin compilation and private SDK installation run on the worker. The UI
 Plugins page polls their status, and reopening it shows the most recent
 installation. Leaving the page during a build allows the worker to finish.
 
-## WASM migration evidence
+## Browser runtime and plugin verification
 
-The worker discovers Razor contributions and authorizes access. The browser
-loads an enabled plugin’s declared UI assembly on demand. The
-[WASM browser check](../tests/Quasar.Wasm.PluginChecks/browser.test.mjs)
-exercises independent plugin installation.
-It publishes a trimmed .NET 10 Blazor client, then builds a separate Razor
-assembly. The client downloads that assembly from its panel path, supplies an
-entity name to a dynamic component, and handles a click inside the component.
-Chromium and Firefox exercise both the local root and a hosted panel prefix.
-The same browser run renders the Display settings form from `Quasar.Client`,
-saves a time zone through Quasar's panel-scoped storage, reloads the preference,
-rejects an invalid zone, and restores the browser default. The production
-Display route uses the same form in the WASM dashboard.
+Quasar publishes the .NET 10 browser runtime with assembly trimming disabled.
+An independently installed Razor component can call framework members absent
+from the dashboard's own code, including the source-generated
+`JsonSerializerContext` overloads, timestamp formatting and cancellable tasks.
+Browser platform restrictions still apply. Keep plugin-specific browser code in
+the declared UI DLL and use the SDK for worker services.
 
-The [plugin trimming rules](../Quasar.Client/PluginTrimming.props) preserve the
-Blazor component, web event and JS interop assemblies. The accompanying linker
-descriptor preserves timestamp formatting and cancellable delays used by Entity
-Viewer. These rules cover the exercised components. Independently installed
-plugins that bring other dependencies require their own compatibility checks.
+In a matched Linux Release publish, the untrimmed browser boot manifest and
+bootstrap scripts contained **210 framework resources totaling 10.00 MB Brotli**.
+The former trimmed build used **62 resources totaling 4.14 MB**. A cold
+Chromium navigation to Display settings fetched an additional generated
+framework asset map. Including that gzip response, the browser received
+**10.04 MB across 211 distinct framework URLs**, up from **4.15 MB across 63**.
+The extra 5.89 MB costs about 2.36 seconds of transfer time at 20 Mbit/s,
+before latency and runtime startup. These sizes exclude page HTML, CSS, fonts
+and plugin assets. Fingerprinted release assets can be reused across
+visits. The worker's own publish settings are independent of this choice.
 
-The optional Viewer check publishes the Viewer's browser fixture with Quasar's
-rules in a temporary directory. It uses the built adapter's actual UI DLL,
-column header and cell, renderer, consent dialog and installer polling. The
-fixture supplies its SDK responses. The enabled catalog, safe mode, delivery of
-verified panel-scoped plugin artifacts and integration with real sessions
-remain production work.
+The standalone browser check publishes the host before building the independent
+test plugin. The published dashboard check additionally exercises authorized
+plugin artifact delivery, route loading and local and hosted prefixes in
+Chromium and Firefox. The optional Viewer check uses its real UI assembly,
+named table contributions, consent dialog and installer polling.
 
 Run the check from the repository root with the .NET 10 SDK, Node.js, and
 Playwright's Chromium and Firefox installed. The runner accepts

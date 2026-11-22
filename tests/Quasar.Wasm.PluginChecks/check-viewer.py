@@ -1,31 +1,23 @@
-"""Run the Viewer's post-install browser scenarios with Quasar's WASM trimming rules."""
+"""Run the Viewer's post-install browser scenarios with Quasar's untrimmed browser framework."""
 import argparse
 import shutil
 import subprocess
 import tempfile
 from pathlib import Path
-from xml.etree import ElementTree as ET
 
 
 def check(viewer: Path) -> None:
     viewer = viewer.resolve()
-    quasar = Path(__file__).resolve().parents[2]
     source = viewer / "tests" / "WasmChecks"
     with tempfile.TemporaryDirectory(prefix="quasar-viewer-wasm-") as temp:
         scratch = Path(temp)
         fixture = scratch / "tests" / "WasmChecks"
         shutil.copytree(source, fixture, ignore=shutil.ignore_patterns("obj", "bin"))
         # The Viewer driver uses its own published adapter DLL, assets and SDK fixture.
+        shutil.copy2(viewer / "quasar-plugin.json", scratch / "quasar-plugin.json")
         (scratch / "src").symlink_to(viewer / "src", target_is_directory=True)
         project = fixture / "WasmChecks.csproj"
-        xml = ET.parse(project)
-        for group in xml.getroot().findall("ItemGroup"):
-            for setting in list(group):
-                if setting.tag in ("TrimmerRootAssembly", "TrimmerRootDescriptor"):
-                    group.remove(setting)
-        ET.SubElement(xml.getroot(), "Import", Project=str(quasar / "Quasar.Client" / "PluginTrimming.props"))
-        xml.write(project, encoding="utf-8")
-        subprocess.run(["dotnet", "publish", str(project), "-c", "Release", "-p:PublishTrimmed=true"], check=True)
+        subprocess.run(["dotnet", "publish", str(project), "-c", "Release", "-p:PublishTrimmed=false"], check=True)
         subprocess.run(["node", "--test", str(fixture / "browser.test.mjs")], check=True)
 
 

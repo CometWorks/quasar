@@ -3,7 +3,8 @@
 @using Microsoft.AspNetCore.Components.Web
 
 <h1>Fixture tool @Id</h1>
-<button @onclick="() => _clicks++">Count @_clicks</button>
+<button @onclick="() => _clicks = FixtureJson.RoundTrip(_clicks + 1)">Count @_clicks</button>
+<a href="@($"fixture/tool/{Id}?tab=details")">Details tab</a>
 <a href="fixture/worker-tool">Worker plugin tool</a>
 <a href="fixture/restricted-tool">Restricted plugin tool</a>
 @code {

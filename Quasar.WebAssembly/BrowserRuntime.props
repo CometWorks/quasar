@@ -1,0 +1,8 @@
+<Project>
+  <PropertyGroup>
+    <!-- Installed plugins can call browser framework members unused by the published host. -->
+    <PublishTrimmed>false</PublishTrimmed>
+    <!-- Separate WebCIL intermediates: the SDK can reuse assemblies from a previous trimmed publish. -->
+    <IntermediateOutputPath>$(BaseIntermediateOutputPath)browser-untrimmed/$(Platform)/$(Configuration)/</IntermediateOutputPath>
+  </PropertyGroup>
+</Project>
