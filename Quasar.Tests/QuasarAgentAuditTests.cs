@@ -543,6 +543,52 @@ public sealed class QuasarAgentAuditTests : IDisposable
     }
 
     [Fact]
+    public async Task HeaderValuesAreRedactedOnWriteAndInHistoricalQueries()
+    {
+        var arguments = new
+        {
+            value = 4,
+            aUtHoRiZaTiOn = "bearer-credential",
+            backend = new { name = "chat", customHeaders = new Dictionary<string, string[]> { ["X-Region"] = ["custom-credential"] } },
+            replaceBackendHeaders = true,
+            edits = new[] { new { headers = "X-Private: text-credential" } },
+        };
+        Assert.Equal(200, (await CallAsync(Person(QuasarRoles.Editor), "servers.set", arguments)).StatusCode);
+        var path = Assert.Single(Directory.GetFiles(Path.Combine(_root, "audit"), "*.jsonl"));
+        var stored = await File.ReadAllTextAsync(path);
+        foreach (var secret in new[] { "bearer-credential", "custom-credential", "text-credential" })
+            Assert.DoesNotContain(secret, stored);
+
+        // Simulate an append-only file written by a version that logged arbitrary header values.
+        var legacy = System.Text.Json.Nodes.JsonNode.Parse(stored)!.AsObject();
+        legacy["arguments"] = JsonSerializer.SerializeToNode(arguments);
+        legacy["undoData"] = JsonSerializer.SerializeToNode(arguments);
+        await File.WriteAllTextAsync(path, legacy.ToJsonString());
+        var entry = Assert.Single(await QueryAsync());
+        foreach (var data in new[] { entry.Arguments!.Value, entry.UndoData!.Value })
+        {
+            Assert.Equal("<redacted>", data.GetProperty("aUtHoRiZaTiOn").GetString());
+            var backend = data.GetProperty("backend");
+            Assert.Equal("<redacted>", backend.GetProperty("customHeaders").GetProperty("X-Region").GetString());
+            Assert.Equal("<redacted>", data.GetProperty("edits")[0].GetProperty("headers").GetString());
+            Assert.Equal("chat", backend.GetProperty("name").GetString());
+            Assert.True(data.GetProperty("replaceBackendHeaders").GetBoolean());
+        }
+    }
+
+    [Fact]
+    public async Task ProposalsWithRedactedHeadersCannotReplayTheMarker()
+    {
+        var audit = _services.GetRequiredService<QuasarAuditLog>();
+        var proposal = await audit.RecordProposalAsync(await AssistantAsync(Person(QuasarRoles.Editor)), Plugin, "servers.set",
+            JsonSerializer.SerializeToElement(new { value = 7, headers = new { custom = "sensitive" } }), null, default);
+        var result = await audit.ApproveAsync(Person(QuasarRoles.Admin), proposal.Id, default);
+        Assert.Equal(409, result.StatusCode);
+        Assert.Contains("redacted", result.Error);
+        Assert.Equal(0, _value);
+    }
+
+    [Fact]
     public async Task ApprovalsAndProposalsAreRecordedAndTheApproverIsChecked()
     {
         var asker = Person(QuasarRoles.Editor, "asker");
@@ -878,7 +924,9 @@ public sealed class QuasarAgentAuditTests : IDisposable
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(audit);
         context.Services.AddSingleton<AuthenticationStateProvider>(new SignedIn(admin));
-        var page = context.Render<Audit>();
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
+        var page = context.Render<Quasar.Client.Administration.AuditLogPage>();
         // The page loads the entries asynchronously. Newest first: the later change, the reversal,
         // the undone change.
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("tbody > tr").Count));

@@ -1,0 +1,5 @@
+@page "/players"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<PageTitle>Players</PageTitle>
+<Quasar.Client.Components.PlayersView />

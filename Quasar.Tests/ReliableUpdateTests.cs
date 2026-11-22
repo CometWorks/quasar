@@ -9,6 +9,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Quasar.Client.Administration;
 using Bunit;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
@@ -85,11 +86,11 @@ public sealed class ReliableUpdateTests : IDisposable
         await updater.CheckNowAsync();
         var snapshot = updater.GetSnapshot();
         Assert.Equal(version, snapshot.SelectedWebVersion);
-        var page = new Quasar.Components.Pages.Updates();
+        var page = new UpdatesPage();
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        typeof(Quasar.Components.Pages.Updates).GetField("_snapshot", flags)!.SetValue(page, snapshot);
-        typeof(Quasar.Components.Pages.Updates).GetField("_selectedWebVersion", flags)!.SetValue(page, version);
-        Assert.Equal(expected, typeof(Quasar.Components.Pages.Updates).GetProperty("CanUpdateQuasar", flags)!.GetValue(page));
+        typeof(UpdatesPage).GetField("_snapshot", flags)!.SetValue(page, UpdatePageSnapshot(snapshot));
+        typeof(UpdatesPage).GetField("_selectedWebVersion", flags)!.SetValue(page, version);
+        Assert.Equal(expected, typeof(UpdatesPage).GetProperty("CanUpdateQuasar", flags)!.GetValue(page));
     }
 
     [Theory]
@@ -155,18 +156,21 @@ public sealed class ReliableUpdateTests : IDisposable
         await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.AddAuthorization().SetAuthorized("admin");
+        context.Services.AddSingleton(updater).AddDirectCoreOperations();
         var provider = context.Render<MudDialogProvider>();
-        var page = new Quasar.Components.Pages.Updates();
+        var page = new UpdatesPage();
         const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
-        typeof(Quasar.Components.Pages.Updates).GetProperty("UpdateService", flags)!.SetValue(page, updater);
-        typeof(Quasar.Components.Pages.Updates).GetProperty("DialogService", flags)!.SetValue(page, context.Services.GetRequiredService<IDialogService>());
-        typeof(Quasar.Components.Pages.Updates).GetProperty("Snackbar", flags)!.SetValue(page, context.Services.GetRequiredService<ISnackbar>());
-        typeof(Quasar.Components.Pages.Updates).GetField("_snapshot", flags)!.SetValue(page, updater.GetSnapshot());
-        typeof(Quasar.Components.Pages.Updates).GetField("_selectedWebVersion", flags)!.SetValue(page, "1.4.1");
+        typeof(UpdatesPage).GetProperty("Sdk", flags)!.SetValue(page, new Quasar.Client.DashboardSdk(
+            new DashboardTestTransport(context.Services, operation => operation == "updates.dashboard" ? UpdatePageSnapshot(updater.GetSnapshot()) : null)));
+        typeof(UpdatesPage).GetProperty("DialogService", flags)!.SetValue(page, context.Services.GetRequiredService<IDialogService>());
+        typeof(UpdatesPage).GetProperty("Snackbar", flags)!.SetValue(page, context.Services.GetRequiredService<ISnackbar>());
+        typeof(UpdatesPage).GetField("_snapshot", flags)!.SetValue(page, UpdatePageSnapshot(updater.GetSnapshot()));
+        typeof(UpdatesPage).GetField("_selectedWebVersion", flags)!.SetValue(page, "1.4.1");
         Task submission = null!;
         await provider.InvokeAsync(() =>
         {
-            submission = (Task)typeof(Quasar.Components.Pages.Updates).GetMethod("SubmitQuasarUpdateAsync", flags)!.Invoke(page, [retry])!;
+            submission = (Task)typeof(UpdatesPage).GetMethod("SubmitQuasarUpdateAsync", flags)!.Invoke(page, [retry])!;
         });
         provider.WaitForAssertion(() => Assert.Contains("Install Quasar 1.4.2 instead?", provider.Markup));
         Assert.Equal(failed, QuasarUpdateJournal.Read());
@@ -184,6 +188,13 @@ public sealed class ReliableUpdateTests : IDisposable
         }
         else Assert.Equal(failed, QuasarUpdateJournal.Read());
         Assert.Equal(0, catalog.Downloads);
+    }
+
+    private static UpdatesDashboard UpdatePageSnapshot(QuasarUpdateSnapshot snapshot)
+    {
+        var json = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        json.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+        return JsonSerializer.SerializeToElement(snapshot, json).Deserialize<UpdatesDashboard>(json)!;
     }
 
     [Fact]

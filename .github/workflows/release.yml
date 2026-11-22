@@ -21,6 +21,9 @@ on:
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
+      - "Quasar.Client/**"
+      - "Quasar.WebAssembly/**"
+      - "Quasar.Plugin.Abstractions/**"
       - "Quasar.Peer/**"
       - "scripts/build-peer.py"
       - "Quasar.Agent/**"
@@ -67,6 +70,9 @@ on:
       - "NuGet.Config"
       - "Magnetar.Protocol/**"
       - "Quasar/**"
+      - "Quasar.Client/**"
+      - "Quasar.WebAssembly/**"
+      - "Quasar.Plugin.Abstractions/**"
       - "Quasar.Peer/**"
       - "scripts/build-peer.py"
       - "Quasar.Agent/**"
@@ -421,7 +427,9 @@ jobs:
             > "$RUNNER_TEMP/playwright-install.log" 2>&1 < /dev/null &
           browsers=$!
           dotnet build Quasar.Tests/Quasar.Tests.csproj -c Release
-          dotnet build tests/Quasar.Rtc.CircuitChecks -c Release
+          dotnet build tests/Quasar.Wasm.DashboardChecks -c Release
+          dotnet publish Quasar/Quasar.csproj -c Release -r linux-x64 --self-contained -o "$RUNNER_TEMP/quasar-wasm" -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          echo "QUASAR_DASHBOARD_PUBLISH=$RUNNER_TEMP/quasar-wasm" >> "$GITHUB_ENV"
           status=0
           wait "$browsers" || status=$?
           cat "$RUNNER_TEMP/playwright-install.log"
@@ -435,10 +443,12 @@ jobs:
 
       - name: Verify browser SDK
         if: matrix.part == 'verify'
+        env:
+          QUASAR_FLEET_CHECKS: '1'
         run: |
           dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
-          node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/Browser/*.test.mjs
-          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release --no-build
+          node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/server-import-file.test.mjs Quasar.Tests/Browser/*.test.mjs
+          dotnet run --project tests/Quasar.Wasm.DashboardChecks -c Release --no-build
 
       - name: Retain SDK test evidence
         if: always() && matrix.part == 'verify'
@@ -671,8 +681,12 @@ jobs:
             -RedirectStandardOutput $log -RedirectStandardError "$log.err"
           dotnet build Quasar.Tests/Quasar.Tests.csproj -c Release
           if ($LASTEXITCODE -ne 0) { throw 'SDK check build failed.' }
-          dotnet build tests/Quasar.Rtc.CircuitChecks -c Release
-          if ($LASTEXITCODE -ne 0) { throw 'Real Blazor peer check build failed.' }
+          dotnet build tests/Quasar.Wasm.DashboardChecks -c Release
+          if ($LASTEXITCODE -ne 0) { throw 'Dashboard check build failed.' }
+          $dashboard = Join-Path $env:RUNNER_TEMP 'quasar-wasm'
+          dotnet publish Quasar/Quasar.csproj -c Release -r win-x64 --self-contained -o $dashboard -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true
+          if ($LASTEXITCODE -ne 0) { throw 'Dashboard publish failed.' }
+          "QUASAR_DASHBOARD_PUBLISH=$dashboard" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           $browsers.WaitForExit()
           Get-Content $log, "$log.err"
           if ($browsers.ExitCode -ne 0) { throw "Test-only browsers failed with exit code $($browsers.ExitCode)." }
@@ -682,15 +696,17 @@ jobs:
 
       - name: Verify browser SDK
         if: matrix.part == 'verify'
+        env:
+          QUASAR_FLEET_CHECKS: '1'
         shell: pwsh
         run: |
           dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
           if ($LASTEXITCODE -ne 0) { throw 'SDK server checks failed.' }
-          $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
+          $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs', 'Quasar.Tests/server-import-file.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
           node --test @browserChecks
           if ($LASTEXITCODE -ne 0) { throw 'SDK browser checks failed.' }
-          dotnet run --project tests/Quasar.Rtc.CircuitChecks -c Release --no-build
-          if ($LASTEXITCODE -ne 0) { throw 'Real Blazor peer checks failed.' }
+          dotnet run --project tests/Quasar.Wasm.DashboardChecks -c Release --no-build
+          if ($LASTEXITCODE -ne 0) { throw 'Published browser dashboard checks failed.' }
 
       - name: Retain SDK test evidence
         if: always() && matrix.part == 'verify'

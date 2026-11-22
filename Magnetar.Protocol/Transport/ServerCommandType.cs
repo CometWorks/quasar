@@ -33,7 +33,7 @@ public enum ServerCommandType
     /// </summary>
     ResolvePositionOwner = 19,
     UpdatePlayerAccess = 20,
-    OpenPlayerAuthentication = 21,
+    // 21 was the retired panel-hosted player authentication command.
 
     /// <summary>
     /// Runs an Entity List row action other than delete on one entity

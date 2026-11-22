@@ -1,0 +1,955 @@
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@using Quasar.Models
+@using Quasar.Services
+@using MudBlazor
+@inject IJSRuntime JS
+@inject DashboardSdk Sdk
+<MudDialog>
+    <TitleContent>
+        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" OnClick="Cancel" title="Discard changes" />
+            <h2 class="quasar-text quasar-type-h6">@DialogTitle</h2>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (_setup is null)
+        {
+            @if (_error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading server editor" /> }
+            else { <MudButton OnClick="LoadAsync">Retry</MudButton> }
+        }
+        else
+        {
+        <div class="server-editor-dialog-content">
+        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">@DialogDescription</p>
+
+            <section>
+                <h3 class="quasar-text quasar-type-subtitle2 mb-2">Identity</h3>
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudTextField
+                            T="string"
+                            Value="_editor.DisplayName"
+                            ValueChanged="HandleDisplayNameChanged"
+                            Label="Server name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            AutoFocus="@(!_isEditing)"
+                            OnBlur="HandleDisplayNameBlur"
+                            Required="true"
+                            RequiredError="Server name required."
+                            HelperText="Server name shown in lists and dashboards. A blank name receives an editable generated suggestion." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField
+                            T="string"
+                            Value="_editor.UniqueName"
+                            ValueChanged="HandleIdentifierChanged"
+                            Label="Server ID"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            Disabled="@_isEditing"
+                            Class="mono"
+                            Required="true"
+                            RequiredError="Server ID required."
+                            Validation="@(new Func<string, string?>(ValidateUniqueNameField))"
+                            HelperText="@GetUniqueNameHelperText()" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField
+                            @bind-Value="_editor.InGameServerName"
+                            Label="In-game server name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            HelperText="Advertised in the Space Engineers multiplayer list. Leave blank to use Server name." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField
+                            @bind-Value="_editor.InGameWorldName"
+                            Label="In-game world name"
+                            Variant="Variant.Outlined"
+                            Immediate="true"
+                            HelperText="Advertised as the world name in the Space Engineers server browser. Leave blank to use Server ID." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudNumericField T="int"
+                                         Value="_editor.ServerPort"
+                                         ValueChanged="HandlePortChanged"
+                                         Label="Public server port"
+                                         Variant="Variant.Outlined"
+                                         Min="1"
+                                         Max="65535"
+                                         Required="true"
+                                         RequiredError="Public server port required."
+                                         Validation="@(new Func<int, string?>(ValidatePortField))"
+                                         HelperText="UDP port for clients. Default 27016. Must be unique across local servers." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_editor.ServerIP"
+                                      Label="Listen IP"
+                                      Variant="Variant.Outlined"
+                                      HelperText="0.0.0.0 listens on all interfaces. Set a specific IP to bind to one NIC." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-1">
+                            <MudSelect T="string"
+                                       @bind-Value="_editor.ConfigProfileId" @bind-Value:after="RefreshPathsAsync"
+                                       Label="Configuration profile"
+                                       Variant="Variant.Outlined"
+                                       Required="true"
+                                       RequiredError="Configuration profile required."
+                                       Validation="@(new Func<string, string?>(ValidateConfigProfileField))"
+                                       HelperText="Reusable world, plugin, and mod preset from Configs page. Profile session settings and mods are written into the world's Sandbox_config.sbc on every start.">
+                                @foreach (var template in _setup.Profiles)
+                                {
+                                    <MudSelectItem T="string" Value="@template.Id">@template.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                            @if (string.IsNullOrWhiteSpace(_editor.ConfigProfileId))
+                            {
+                                <MudTooltip Text="Create a configuration profile without leaving this dialog">
+                                    <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" Disabled="@(!_setup.EditProfiles || _busy)" OnClick="OpenCreateConfigProfileDialogAsync">
+                                        New configuration profile
+                                    </MudButton>
+                                </MudTooltip>
+                            }
+                        </div>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <div class="quasar-layout quasar-gap-1">
+                            <MudSelect T="string"
+                                       Value="_editor.WorldSaveName"
+                                       ValueChanged="HandleWorldSaveChanged"
+                                       Label="World save"
+                                       Variant="Variant.Outlined"
+                                       Required="true"
+                                       RequiredError="World save required."
+                                       Validation="@(new Func<string, string?>(ValidateWorldSaveField))"
+                                       HelperText="Save folder loaded by Magnetar. Create one from a template or copy a Space Engineers save into the saves path.">
+                                @foreach (var save in AvailableWorldSaves)
+                                {
+                                    <MudSelectItem T="string" Value="@save.Name">@save.DisplayName</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <div>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Primary"
+                                           StartIcon="@Icons.Material.Filled.Add"
+                                           OnClick="OpenCreateWorldSaveFromTemplateDialogAsync">
+                                    Create From Template
+                                </MudButton>
+                            </div>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="ManagedServerRuntime"
+                                   @bind-Value="_editor.ManagedRuntime"
+                                   Label=".NET runtime"
+                                   Variant="Variant.Outlined"
+                                   Disabled="@(!IsWindowsHost)"
+                                   HelperText="@RuntimeHelperText">
+                            <MudSelectItem T="ManagedServerRuntime" Value="ManagedServerRuntime.DotNet10">@FormatRuntime(ManagedServerRuntime.DotNet10)</MudSelectItem>
+                            @if (IsWindowsHost)
+                            {
+                                <MudSelectItem T="ManagedServerRuntime" Value="ManagedServerRuntime.NetFramework48">@FormatRuntime(ManagedServerRuntime.NetFramework48)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                </MudGrid>
+
+                @if (SelectedWorldModsMissingFromProfile.Count > 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+                        <h3 class="quasar-text quasar-type-subtitle2">Selected world has @SelectedWorldModsMissingFromProfile.Count mod(s) not in the selected configuration profile.</h3>
+                        <p class="quasar-text quasar-type-body2 mt-1">
+                            Quasar writes the profile's mods into the world's <code>Sandbox_config.sbc</code> on every start, which will drop these mods from the world.
+                        </p>
+                        <span class="quasar-text quasar-type-caption mt-1">
+                            Missing: @string.Join(", ", SelectedWorldModsMissingFromProfile.Take(8))@(SelectedWorldModsMissingFromProfile.Count > 8 ? $", +{SelectedWorldModsMissingFromProfile.Count - 8} more" : string.Empty)
+                        </span>
+                        <div class="mt-2">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Warning"
+                                       Size="Size.Small"
+                                       StartIcon="@Icons.Material.Filled.PlaylistAdd"
+                                       Disabled="@(!_setup.EditProfiles || _busy)" OnClick="MergeSelectedWorldSaveModsIntoProfileAsync">
+                                Merge Into @SelectedProfileName
+                            </MudButton>
+                        </div>
+                    </MudAlert>
+                }
+            </section>
+
+            <hr class="quasar-divider" />
+
+            <section>
+                <MudExpansionPanels MultiExpansion="true" Elevation="0" Outlined="true" Dense="true">
+                    <MudExpansionPanel Expanded="@_restartPolicyExpanded" ExpandedChanged="HandleRestartPolicyExpandedChanged">
+                        <TitleContent>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Restart Policy</h3>
+                                    <span class="quasar-text quasar-type-caption">Crash recovery and retry behavior for managed server.</span>
+                                </div>
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            <MudGrid>
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.RestartDelaySeconds" Label="Restart delay (seconds)" Variant="Variant.Outlined" Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.MaxRestartAttempts" Label="Max consecutive restart attempts" Variant="Variant.Outlined" Min="1" />
+                                </MudItem>
+                                <MudItem xs="12" md="4" Class="d-flex align-center">
+                                    <MudCheckBox @bind-Value="_editor.RestartOnCrash" Label="Restart when process crashes" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="_editor.DailyRestartTimeLocal"
+                                                  Label="Restart schedule (HH:mm, server local time)"
+                                                  Variant="Variant.Outlined"
+                                                  Placeholder="e.g. 04:00 08:00 12:00"
+                                                  Validation="@(new Func<string, string?>(ValidateRestartSchedule))"
+                                                  HelperText="Leave blank to disable. Accepts multiple times separated by spaces, commas, or new lines." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField @bind-Value="_editor.MaximumUptime"
+                                                  Label="Maximum uptime (HH:mm)"
+                                                  Variant="Variant.Outlined"
+                                                  Placeholder="e.g. 06:00"
+                                                  Validation="@(new Func<string, string?>(ValidateMaximumUptime))"
+                                                  HelperText="Leave blank to disable. Restarts once process uptime reaches this duration." />
+                                </MudItem>
+                            </MudGrid>
+                        </ChildContent>
+                    </MudExpansionPanel>
+
+                    <MudExpansionPanel Expanded="@_healthPolicyExpanded" ExpandedChanged="HandleHealthPolicyExpandedChanged">
+                        <TitleContent>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Health Policy</h3>
+                                    <span class="quasar-text quasar-type-caption">Agent heartbeat, simulation progress, uptime, and recovery thresholds.</span>
+                                </div>
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            <MudGrid>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudCheckBox @bind-Value="_editor.EnableHealthMonitoring" Label="Enable health monitoring" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudCheckBox @bind-Value="_editor.AutoRestartOnUnhealthy" Label="Auto-restart when unhealthy" Disabled="@(!_editor.EnableHealthMonitoring)" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.AgentStartupGraceSeconds"
+                                                     Label="Agent startup log inactivity timeout (seconds)"
+                                                     HelperText="Restart if neither Magnetar nor Dedicated Server logs change for this long before the first agent snapshot."
+                                                     Variant="Variant.Outlined"
+                                                     Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.AgentStartupHardLimitSeconds"
+                                                     Label="Agent startup hard limit (seconds)"
+                                                     HelperText="Absolute wait limit even while startup logs remain active."
+                                                     Variant="Variant.Outlined"
+                                                     Min="1" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.AgentAttachRetryAttempts" Label="Agent attach retry attempts" Variant="Variant.Outlined" Min="1" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.AgentAttachRetryDelaySeconds" Label="Agent attach retry delay (seconds)" Variant="Variant.Outlined" Min="0" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.AgentHeartbeatTimeoutSeconds" Label="Agent heartbeat timeout (seconds)" Variant="Variant.Outlined" Min="1" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="int" @bind-Value="_editor.SimulationProgressWindowSeconds" Label="Simulation frame window (seconds)" Variant="Variant.Outlined" Min="1" />
+                                </MudItem>
+                                <MudItem xs="12" md="6" lg="4">
+                                    <MudNumericField T="decimal"
+                                                     Value="MinimumSimulationRateEditorValue"
+                                                     ValueChanged="HandleMinimumSimulationRateChanged"
+                                                     Label="Minimum average simulation rate"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0m"
+                                                     Max="1.1m"
+                                                     Step="0.1m"
+                                                     Format="0.###"
+                                                     HelperText="Rate = frames advanced / (seconds * 60). 1.00 = full sim speed." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.WarnAfterUptimeHours"
+                                                     Label="Warn after uptime (hours)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0"
+                                                     HelperText="Shows a dashboard health warning after process uptime exceeds this value. 0 disables it." />
+                                </MudItem>
+                            </MudGrid>
+                        </ChildContent>
+                    </MudExpansionPanel>
+
+                    <MudExpansionPanel Expanded="@_runtimeExpanded" ExpandedChanged="HandleRuntimeExpandedChanged">
+                        <TitleContent>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Runtime</h3>
+                                    <span class="quasar-text quasar-type-caption">Process priority, CPU affinity, log retention, and launch arguments.</span>
+                                </div>
+                                <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">Advanced</MudChip>
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            <MudGrid>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect T="DedicatedServerProcessPriority"
+                                               @bind-Value="_editor.StartupProcessPriority"
+                                               Label="Startup process priority"
+                                               Variant="Variant.Outlined"
+                                               HelperText="Applied after process start. Linux uses nice level.">
+                                        @foreach (var priority in ProcessPriorities)
+                                        {
+                                            <MudSelectItem T="DedicatedServerProcessPriority" Value="@priority">@FormatPriority(priority)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudSelect T="DedicatedServerProcessPriority"
+                                               @bind-Value="_editor.ReadyProcessPriority"
+                                               Label="Ready process priority"
+                                               Variant="Variant.Outlined"
+                                               HelperText="Applied when agent snapshot confirms the server is open.">
+                                        @foreach (var priority in ProcessPriorities)
+                                        {
+                                            <MudSelectItem T="DedicatedServerProcessPriority" Value="@priority">@FormatPriority(priority)</MudSelectItem>
+                                        }
+                                    </MudSelect>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        @bind-Value="_editor.CpuAffinity"
+                                        Label="@($"CPU affinity (this host machine has {(_setup?.Cores ?? 1)} logical cores: 0-{(_setup?.Cores ?? 1) - 1})")"
+                                        Placeholder="e.g. 0-7 or 0-7,16-23"
+                                        Variant="Variant.Outlined"
+                                        Validation="@(new Func<string, string?>(ValidateCpuAffinityField))"
+                                        HelperTextOnFocus="false"
+                                        HelperText="@($"Comma-separated core numbers and ranges. Empty = all cores. Minimum {CpuAffinitySpec.MinimumCores} cores.")" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.DsLogFilesToKeep"
+                                                     Label="Space Engineers DS logs to keep"
+                                                     Variant="Variant.Outlined"
+                                                     Min="EditableServerDefinition.MinimumDsLogFilesToKeep"
+                                                     Max="EditableServerDefinition.MaximumDsLogFilesToKeep"
+                                                     HelperText="Keeps the newest SpaceEngineersDedicated*.log files in the DS app-data folder; older files are deleted on start and stop." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.LogMaxAgeDays"
+                                                     Label="Delete DS logs older than (days)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0"
+                                                     HelperText="Magnetar deletes older SpaceEngineersDedicated*.log files at start. 0 = no age limit. Needs Magnetar 2.4.3.11 or newer." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudNumericField T="int"
+                                                     @bind-Value="_editor.LogMaxSizeMB"
+                                                     Label="DS logs total size limit (MB)"
+                                                     Variant="Variant.Outlined"
+                                                     Min="0"
+                                                     HelperText="Magnetar deletes the oldest DS logs at start until the rest fit. 0 = no size limit. Needs Magnetar 2.4.3.11 or newer." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudCheckBox @bind-Value="_editor.LogLaunchEnvironment"
+                                                 Label="Log launch environment"
+                                                 Color="Color.Warning" />
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">
+                                        Writes Magnetar launch command, working directory, and environment variables to Quasar logs on next start. May expose secrets.
+                                    </span>
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <div class="server-editor-controlled-checkbox" style="@DisableImplicitMagnetarModLoadColorStyle">
+                                        <MudTooltip Text="@DisableImplicitMagnetarModLoadWarning">
+                                            <MudCheckBox T="bool"
+                                                         Value="_editor.DisableImplicitMagnetarModLoad"
+                                                         ReadOnly="true"
+                                                         StopClickPropagation="true"
+                                                         @onclick="ToggleDisableImplicitMagnetarModLoadAsync"
+                                                         Label="Disable implicit Magnetar mod load"
+                                                         Color="@DisableImplicitMagnetarModLoadColor" />
+                                        </MudTooltip>
+                                    </div>
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">
+                                        @DisableImplicitMagnetarModLoadHint
+                                    </span>
+                                </MudItem>
+                                <MudItem xs="12">
+                                    <MudTextField
+                                        @bind-Value="_editor.LaunchArguments"
+                                        Label="Launch arguments"
+                                        Variant="Variant.Outlined"
+                                        Lines="3"
+                                        Sizing="InputSizing.Auto"
+                                        MaxLines="10000"
+                                        HelperText="Tokens: {uniqueName} {configPath} {quasarBaseUrl} {hostId} {dsAppDataPath} {magnetarAppDataPath} {ds64Path} {worldPath}. Quasar owns -noconsole, -daemon, -noimplicitmod, -logMaxAgeDays, -logMaxSizeMB, -path, -config, and -ds64 for managed servers." />
+                                </MudItem>
+                            </MudGrid>
+                        </ChildContent>
+                    </MudExpansionPanel>
+
+                    <MudExpansionPanel Expanded="@_pathsExpanded" ExpandedChanged="HandlePathsExpandedChanged">
+                        <TitleContent>
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <h3 class="quasar-text quasar-type-subtitle2">Paths</h3>
+                                    <span class="quasar-text quasar-type-caption">Advanced overrides for Quasar-managed executable and data paths.</span>
+                                </div>
+                                <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined" Size="Size.Small">Advanced</MudChip>
+                            </div>
+                        </TitleContent>
+                        <ChildContent>
+                            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+                                Advanced. Leave these blank for relocatable managed defaults. Relative paths resolve from the Quasar root; absolute paths stay external.
+                            </MudAlert>
+                            @if (HasExternalPathOverrides)
+                            {
+                                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true" Class="mb-3">
+                                    One or more absolute path overrides point outside the current Quasar root. They will not move when the Quasar folder moves. Reset them only after the authoritative server data has been copied into this Quasar root.
+                                </MudAlert>
+                            }
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       Size="Size.Small"
+                                       Class="mb-3"
+                                       StartIcon="@Icons.Material.Filled.Restore"
+                                       OnClick="ResetManagedPaths">
+                                Use Managed Defaults
+                            </MudButton>
+                            <MudGrid>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        @bind-Value="_editor.ExecutablePath" @bind-Value:after="RefreshPathsAsync"
+                                        Label="Launcher executable path"
+                                        Variant="Variant.Outlined"
+                                        HelperText="Leave blank and Quasar will auto-download and manage the Magnetar install." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        @bind-Value="_editor.WorkingDirectory" @bind-Value:after="RefreshPathsAsync"
+                                        Label="Working directory"
+                                        Variant="Variant.Outlined"
+                                        HelperText="Leave blank to use the Magnetar install directory automatically." />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        T="string"
+                                        Value="_editor.DedicatedServerAppDataPath"
+                                        ValueChanged="HandleDedicatedServerAppDataPathChanged"
+                                        Label="DS app-data path"
+                                        Variant="Variant.Outlined"
+                                        Immediate="true"
+                                        HelperText="@($"Space Engineers Dedicated Server data (-path). Default: {GetDefaultDedicatedServerAppDataPath()}")" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        @bind-Value="_editor.MagnetarAppDataPath" @bind-Value:after="RefreshPathsAsync"
+                                        Label="Magnetar app-data path"
+                                        Variant="Variant.Outlined"
+                                        HelperText="@($"Magnetar templates and sources (-config). Default: {GetDefaultMagnetarAppDataPath()}")" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        T="string"
+                                        Value="_editor.WorldPath"
+                                        ValueChanged="HandleSavesPathChanged"
+                                        Label="Saves path"
+                                        Variant="Variant.Outlined"
+                                        Immediate="true"
+                                        HelperText="@($"Folder containing SE save folders. Default: {GetDefaultSavesPath()}")" />
+                                </MudItem>
+                                <MudItem xs="12" md="6">
+                                    <MudTextField
+                                        @bind-Value="_editor.ConfigFilePath" @bind-Value:after="RefreshPathsAsync"
+                                        Label="Rendered DS config path"
+                                        Variant="Variant.Outlined"
+                                        HelperText="@($"Quasar writes the rendered SpaceEngineers-Dedicated.cfg here. Default: {GetDefaultConfigFilePath()}")" />
+                                </MudItem>
+                            </MudGrid>
+                        </ChildContent>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </section>
+        </div>
+        </MudForm>
+        </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(_busy || _setup is null || _creatingWorldSave)" OnClick="SaveAsync">@PrimaryActionText</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [Parameter] public string UniqueName { get; set; } = "";
+    [Parameter] public bool Clone { get; set; }
+    [Parameter] public string InitialProfile { get; set; } = "";
+    [Parameter] public string InitialTemplate { get; set; } = "";
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Inject]
+    private IDialogService DialogService { get; set; } = default!;
+
+    [Inject]
+    private ISnackbar Snackbar { get; set; } = default!;
+
+    private MudForm? _form;
+    private bool _formIsValid;
+    private bool _identifierManuallyEdited;
+
+    private ServerEditorSetup? _setup;
+    private ServerEditorPaths? _paths;
+    private bool _busy;
+    private string? _error;
+    private int _generation;
+    private bool UniqueNameLocked => _isEditing && _setup?.Active == true;
+    private EditorSelection Selection => new(UniqueName,Clone,InitialProfile,InitialTemplate);
+    private const string DisableImplicitMagnetarModLoadWarning = "Turning this on passes -noimplicitmod at startup, disables MagnetarMod, and breaks the mission screen popup used by server-side plugins. This is already done automatically by Magnetar when cross-play is enabled.";
+    private const string DisableImplicitMagnetarModLoadHint = "This mod load disabling is already done automatically by Magnetar when cross-play is enabled.";
+    private const string ImplicitMagnetarModName = "MagnetarMod";
+    private const Color DisableImplicitMagnetarModLoadColor = Color.Warning;
+    private static string DisableImplicitMagnetarModLoadColorStyle => BuildControlledCheckboxColorStyle(DisableImplicitMagnetarModLoadColor);
+
+    private static readonly System.Text.RegularExpressions.Regex UniqueNameRegex = new("^[a-zA-Z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    private EditableServerDefinition _editor = new();
+    private bool _isEditing;
+    private bool _isClone;
+    private bool _restartPolicyExpanded;
+    private bool _healthPolicyExpanded;
+    private bool _runtimeExpanded;
+    private bool _pathsExpanded;
+    private bool _disableImplicitMagnetarModLoadDialogOpen;
+    private bool _creatingWorldSave;
+
+    private static readonly DedicatedServerProcessPriority[] ProcessPriorities =
+    [
+        DedicatedServerProcessPriority.Low,
+        DedicatedServerProcessPriority.BelowNormal,
+        DedicatedServerProcessPriority.Normal,
+        DedicatedServerProcessPriority.AboveNormal,
+        DedicatedServerProcessPriority.High,
+    ];
+
+    private bool IsWindowsHost => _setup?.Windows == true;
+
+    private static string BuildControlledCheckboxColorStyle(Color color)
+    {
+        var token = color switch
+        {
+            Color.Primary => "primary",
+            Color.Secondary => "secondary",
+            Color.Tertiary => "tertiary",
+            Color.Info => "info",
+            Color.Success => "success",
+            Color.Warning => "warning",
+            Color.Error => "error",
+            Color.Dark => "dark",
+            Color.Surface => "surface",
+            _ => "warning",
+        };
+
+        return $"--server-editor-controlled-checkbox-color: var(--mud-palette-{token});";
+    }
+
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        try
+        {
+            _error = null;
+            _setup = await LoadOptionsAsync();
+            _editor = _setup.Definition;
+            _isEditing = UniqueName.Length > 0 && !Clone;
+            _isClone = Clone;
+            _identifierManuallyEdited = _isEditing || _isClone;
+            _editor.OriginalUniqueName = _isEditing ? UniqueName : "";
+            await RefreshPathsAsync();
+        }
+        catch (JSException e) { _error = e.Message; }
+    }
+    private ValueTask<ServerEditorSetup> LoadOptionsAsync() => JS.InvokeAsync<ServerEditorSetup>("quasarSdk.readJson","quasar.core","fleet.editor",Selection);
+    private async Task RefreshPathsAsync()
+    {
+        int generation = ++_generation;
+        _paths = null;
+        if (string.IsNullOrWhiteSpace(_editor.UniqueName) || !UniqueNameRegex.IsMatch(_editor.UniqueName)) return;
+        try
+        {
+            var paths = await JS.InvokeAsync<ServerEditorPaths>("quasarSdk.readJson","quasar.core","fleet.editor.paths",ServerPathInput.From(_editor));
+            if (generation == _generation) { _paths = paths; _error = null; }
+        }
+        catch (JSException e) { if (generation == _generation) _error = e.Message; }
+    }
+    private string DialogTitle => _isEditing
+        ? "Edit Server"
+        : _isClone
+            ? "Clone Server"
+            : "Create Server";
+
+    private string DialogDescription => _isEditing
+        ? "Update this Quasar-managed server definition. Stop the server before changing identity or deleting world state."
+        : _isClone
+            ? "Review the cloned server definition. Pick or create the target save now; after this dialog you can copy the source world state into it."
+            : "Define a new Quasar-managed server. Paths, launch settings, health policy, configuration profile, and selected world save stay in one definition.";
+
+    private string PrimaryActionText => _isEditing
+        ? "Save Changes"
+        : _isClone
+            ? "Clone Server"
+            : "Create Server";
+
+    private async Task HandleDisplayNameChanged(string value)
+    {
+        _editor.DisplayName = value ?? string.Empty;
+
+        if (_isEditing || _identifierManuallyEdited)
+            return;
+
+        _editor.UniqueName = IdentifierSlug.CreateUnique(_editor.DisplayName,"server", name => _setup!.Servers.Any(s => s.UniqueName.Equals(name,StringComparison.OrdinalIgnoreCase)));
+        await RefreshPathsAsync();
+    }
+
+    private async Task HandleDisplayNameBlur(FocusEventArgs _)
+    {
+        var displayName = NormalizeWhitespace(_editor.DisplayName);
+        if (string.IsNullOrEmpty(displayName))
+        {
+            displayName = IdentifierSlug.SuggestName("server");
+            await HandleDisplayNameChanged(displayName);
+        }
+
+        if (string.IsNullOrWhiteSpace(_editor.InGameServerName))
+            _editor.InGameServerName = displayName;
+
+        if (string.IsNullOrWhiteSpace(_editor.InGameWorldName))
+            _editor.InGameWorldName = displayName;
+    }
+
+    private async Task HandleIdentifierChanged(string value)
+    {
+        _editor.UniqueName = value ?? string.Empty;
+        _identifierManuallyEdited = true;
+        await RefreshPathsAsync();
+    }
+
+    private void HandlePortChanged(int value)
+    {
+        _editor.ServerPort = value;
+    }
+
+    private IReadOnlyList<EditorSave> AvailableWorldSaves => _paths?.Available ?? [];
+    private bool HasExternalPathOverrides => _paths?.External == true;
+    private async Task HandleWorldSaveChanged(string value)
+    {
+        _editor.WorldSaveName = value ?? string.Empty;
+        await RefreshPathsAsync();
+    }
+
+    private async Task HandleSavesPathChanged(string value)
+    {
+        _editor.WorldPath = value ?? string.Empty;
+        await RefreshPathsAsync();
+    }
+
+    private async Task HandleDedicatedServerAppDataPathChanged(string value)
+    {
+        _editor.DedicatedServerAppDataPath = value ?? string.Empty;
+        await RefreshPathsAsync();
+    }
+
+    private async Task ResetManagedPaths()
+    {
+        _editor.DedicatedServerAppDataPath = string.Empty;
+        _editor.MagnetarAppDataPath = string.Empty;
+        _editor.WorldPath = string.Empty;
+        _editor.ConfigFilePath = string.Empty;
+        await RefreshPathsAsync();
+    }
+
+    private decimal MinimumSimulationRateEditorValue =>
+        Math.Round((decimal)_editor.MinimumSimulationProgressScore, 3);
+
+    private void HandleMinimumSimulationRateChanged(decimal value)
+    {
+        _editor.MinimumSimulationProgressScore = (float)Math.Clamp(value, 0m, 1.1m);
+    }
+
+    private static string? ValidateRestartSchedule(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var tokens = value
+            .Split([' ', ',', ';', '\n', '\r', '\t'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        if (tokens.Length == 0)
+            return null;
+
+        foreach (var token in tokens)
+        {
+            var parts = token.Split(':');
+            if (parts.Length != 2 ||
+                !int.TryParse(parts[0], out var hour) || hour is < 0 or > 23 ||
+                !int.TryParse(parts[1], out var minute) || minute is < 0 or > 59)
+            {
+                return "Use HH:mm values from 00:00 to 23:59.";
+            }
+        }
+
+        return null;
+    }
+
+    private static string? ValidateMaximumUptime(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+
+        var parts = value.Trim().Split(':');
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out var hours) || hours < 0 ||
+            !int.TryParse(parts[1], out var minutes) || minutes is < 0 or > 59 ||
+            (hours == 0 && minutes == 0))
+        {
+            return "Use HH:mm duration, for example 06:00.";
+        }
+
+        return null;
+    }
+
+    private string? ValidatePortField(int value)
+    {
+        if (value < 1 || value > 65535)
+            return "Port must be between 1 and 65535.";
+
+        var originalUniqueName = _editor.OriginalUniqueName?.Trim() ?? string.Empty;
+        var conflict = _setup!.Servers.FirstOrDefault(server =>
+            server.ServerPort == value &&
+            !string.Equals(server.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
+
+        return conflict is null ? null : $"Port already used by server '{conflict.UniqueName}'.";
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task ToggleDisableImplicitMagnetarModLoadAsync()
+    {
+        if (_disableImplicitMagnetarModLoadDialogOpen)
+            return;
+
+        if (_editor.DisableImplicitMagnetarModLoad)
+        {
+            _editor.DisableImplicitMagnetarModLoad = false;
+            await RefreshPathsAsync();
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        _disableImplicitMagnetarModLoadDialogOpen = true;
+        try
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync(
+                "Disable implicit Magnetar mod load",
+                DisableImplicitMagnetarModLoadWarning,
+                yesText: "Disable",
+                cancelText: "Keep Loading");
+
+            if (confirmed == true)
+                _editor.DisableImplicitMagnetarModLoad = true;
+        }
+        finally
+        {
+            _disableImplicitMagnetarModLoadDialogOpen = false;
+            await RefreshPathsAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy || _setup is null || _form is null) return;
+        _busy = true;
+        try
+        {
+            await HandleDisplayNameBlur(new());
+            await RefreshPathsAsync();
+            await _form.ValidateAsync();
+            if (!_formIsValid) return;
+            bool copy = false;
+            string? replacement = null;
+            if (_isClone)
+            {
+                var choice = await DialogService.ShowMessageBoxAsync("Clone world state?",
+                    _setup.Active ? "Copy from the source server’s latest Space Engineers Backup snapshot, or keep the selected target save?" :
+                        "Copy the stopped source server’s world, or keep the selected target save?", yesText:"Copy World",noText:"Keep Save",cancelText:"Cancel");
+                if (choice is null) return;
+                copy = choice.Value;
+                if (copy && _paths?.Available.Any(s => s.Valid && s.Name == _editor.WorldSaveName) == true)
+                {
+                    replacement = _paths.Selected;
+                    if (await DialogService.ShowMessageBoxAsync("Replace existing clone world?", $"Replace the world save at {replacement} with the source world?",
+                        yesText:"Replace World",cancelText:"Cancel") != true) return;
+                }
+            }
+            _editor.DisplayName = NormalizeWhitespace(_editor.DisplayName);
+            _editor.InGameServerName = NormalizeWhitespace(_editor.InGameServerName);
+            _editor.InGameWorldName = NormalizeWhitespace(_editor.InGameWorldName);
+            var commit = new ServerEditorCommit(Selection,_setup.Revision,_editor,copy,replacement);
+            string result = await JS.InvokeAsync<string>("quasarSdk.uploadJson","quasar.core",
+                _isEditing && UniqueName == _editor.UniqueName ? "fleet.editor.update" : "fleet.editor.save", new { },JsonSerializer.Serialize(commit));
+            Snackbar.Add(result,Severity.Success);
+            MudDialog.Close(DialogResult.Ok(true));
+        }
+        catch (JSException e) { _error = e.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task OpenCreateConfigProfileDialogAsync()
+    {
+        var dialog = await DialogService.ShowAsync<FleetQuickProfile>("New configuration profile");
+        if ((await dialog.Result)?.Data is not string profile) return;
+        _setup = await LoadOptionsAsync();
+        _editor.ConfigProfileId = profile;
+        await RefreshPathsAsync();
+    }
+
+    private async Task OpenCreateWorldSaveFromTemplateDialogAsync()
+    {
+        if (_setup is null) return;
+        var dialog = await DialogService.ShowAsync<FleetChooseTemplate>("Create World Save",
+            new DialogParameters<FleetChooseTemplate> { { p => p.InitialTemplate, _editor.WorldTemplateId },
+                { p => p.InitialProfile,_editor.ConfigProfileId }, { p => p.Options,_setup } },
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true,MaxWidth = MaxWidth.Medium });
+        if ((await dialog.Result)?.Data is not FleetChooseTemplate.Selection selected) return;
+        _creatingWorldSave = true;
+        try
+        {
+            _editor.WorldSaveName = await Sdk.RequestAsync<string>("fleet.editor.world.new",new SaveFromTemplate(ServerPathInput.From(_editor),selected.Template));
+            _editor.WorldTemplateId = selected.Template;
+            if (!string.IsNullOrEmpty(selected.Profile)) _editor.ConfigProfileId = selected.Profile;
+            _setup = await LoadOptionsAsync();
+            await RefreshPathsAsync();
+            Snackbar.Add($"World save '{_editor.WorldSaveName}' created.",Severity.Success);
+        }
+        catch (JSException e) { _error = e.Message; }
+        finally { _creatingWorldSave = false; }
+    }
+
+    private Task HandleRestartPolicyExpandedChanged(bool expanded)
+    {
+        _restartPolicyExpanded = expanded;
+        return Task.CompletedTask;
+    }
+
+    private Task HandleHealthPolicyExpandedChanged(bool expanded)
+    {
+        _healthPolicyExpanded = expanded;
+        return Task.CompletedTask;
+    }
+
+    private Task HandleRuntimeExpandedChanged(bool expanded)
+    {
+        _runtimeExpanded = expanded;
+        return Task.CompletedTask;
+    }
+
+    private Task HandlePathsExpandedChanged(bool expanded)
+    {
+        _pathsExpanded = expanded;
+        return Task.CompletedTask;
+    }
+
+    private string GetDefaultSavesPath() => _paths?.DefaultSaves ?? "";
+    private string GetDefaultConfigFilePath() => _paths?.DefaultConfig ?? "";
+    private string GetDefaultDedicatedServerAppDataPath() => _paths?.DefaultDs ?? "";
+    private string GetDefaultMagnetarAppDataPath() => _paths?.DefaultMagnetar ?? "";
+    private string GetUniqueNameHelperText() =>
+        UniqueNameLocked
+            ? "Stop server before renaming. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name."
+            : "Required. Allowed: letters, numbers, underscore, hyphen. Used as canonical identity and Magnetars subdirectory name.";
+
+    private static string FormatPriority(DedicatedServerProcessPriority priority) => priority switch
+    {
+        DedicatedServerProcessPriority.Low => "Low",
+        DedicatedServerProcessPriority.BelowNormal => "Below normal",
+        DedicatedServerProcessPriority.AboveNormal => "Above normal",
+        DedicatedServerProcessPriority.High => "High",
+        _ => "Normal",
+    };
+
+    private static string FormatRuntime(ManagedServerRuntime runtime) => runtime switch
+    {
+        ManagedServerRuntime.NetFramework48 => ".NET Framework 4.8",
+        _ => ".NET 10",
+    };
+
+    private string RuntimeHelperText =>
+        IsWindowsHost
+            ? "Magnetar build used to launch this server. Defaults to .NET 10; switch to .NET Framework 4.8 only if a plugin requires it."
+            : ".NET 10 is the only runtime available on this host machine.";
+
+    private string? ValidateUniqueNameField(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return null;
+
+        var trimmed = value.Trim();
+        if (!UniqueNameRegex.IsMatch(trimmed))
+            return "Only letters, numbers, underscore, and hyphen are allowed.";
+
+        var originalUniqueName = _editor.OriginalUniqueName?.Trim() ?? string.Empty;
+        var duplicateExists = _setup!.Servers.Any(server =>
+            string.Equals(server.UniqueName, trimmed, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(server.UniqueName, originalUniqueName, StringComparison.OrdinalIgnoreCase));
+
+        return duplicateExists ? $"A server named '{trimmed}' already exists." : null;
+    }
+
+    private string? ValidateCpuAffinityField(string? value) =>
+        CpuAffinitySpec.TryParse(value, (_setup?.Cores ?? 1), out _, out var error) ? null : error;
+
+    private string? ValidateWorldSaveField(string? value) => _paths?.Available.Any(s => s.Valid && s.Name.Equals(value,StringComparison.OrdinalIgnoreCase)) == true
+        ? null : "Choose an available world save or create one from a template.";
+    private static string? ValidateConfigProfileField(string? value) => string.IsNullOrWhiteSpace(value) ? "Configuration profile required." : null;
+    private string SelectedProfileName => _setup?.Profiles.FirstOrDefault(p => p.Id == _editor.ConfigProfileId)?.Name ?? "";
+    private IReadOnlyList<string> SelectedWorldModsMissingFromProfile => _paths?.MissingMods ?? [];
+    private async Task MergeSelectedWorldSaveModsIntoProfileAsync()
+    {
+        try
+        {
+            string result = await Sdk.RequestAsync<string>("fleet.editor.profile.merge",ServerPathInput.From(_editor));
+            Snackbar.Add(result,Severity.Success);
+            await RefreshPathsAsync();
+        }
+        catch (JSException e) { _error = e.Message; }
+    }
+    private static string NormalizeWhitespace(string? value) =>
+        System.Text.RegularExpressions.Regex.Replace(value?.Trim() ?? string.Empty, @"\s+", " ");
+
+
+}

@@ -1,12 +1,5 @@
 namespace Quasar.Models;
 
-public enum QuasarBackupKind
-{
-    Configuration,
-    Server,
-    World,
-}
-
 /// <summary>
 /// Metadata written to <c>quasar-backup.json</c> at the root of every backup ZIP.
 /// <see cref="FormatVersion"/> versions the archive layout itself; <see cref="QuasarVersion"/>

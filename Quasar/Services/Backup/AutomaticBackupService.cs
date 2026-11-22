@@ -60,6 +60,23 @@ public sealed class AutomaticBackupService : BackgroundService
 
     public event Action<QueuedBackupJobResult>? QueuedBackupCompleted;
 
+    private readonly Queue<Quasar.Client.Administration.BackupJobNotice> _recentJobs = new();
+
+    internal Quasar.Client.Administration.BackupJobNotice[] GetRecentJobs()
+    {
+        lock (_recentJobs) return _recentJobs.ToArray();
+    }
+
+    private void ReportJob(QueuedBackupJobResult result)
+    {
+        lock (_recentJobs)
+        {
+            _recentJobs.Enqueue(new(result.Id, result.Success, result.Message));
+            if (_recentJobs.Count > 32) _recentJobs.Dequeue();
+        }
+        QueuedBackupCompleted?.Invoke(result);
+    }
+
     /// <summary>Queues all enabled automatic-backup rules to run in the background.</summary>
     public Guid QueueEnabledBackupsNow() =>
         QueueBackup(QueuedBackupJobKind.EnabledRules);
@@ -153,7 +170,7 @@ public sealed class AutomaticBackupService : BackgroundService
                 _ => await RunEnabledBackupsNowAsync(cancellationToken),
             };
 
-            QueuedBackupCompleted?.Invoke(new QueuedBackupJobResult(
+            ReportJob(new QueuedBackupJobResult(
                 job.Id,
                 job.Kind,
                 job.ServerUniqueName,
@@ -167,7 +184,7 @@ public sealed class AutomaticBackupService : BackgroundService
         catch (Exception exception)
         {
             _logger.LogWarning(exception, "Queued {Kind} backup failed.", job.Kind);
-            QueuedBackupCompleted?.Invoke(new QueuedBackupJobResult(
+            ReportJob(new QueuedBackupJobResult(
                 job.Id,
                 job.Kind,
                 job.ServerUniqueName,

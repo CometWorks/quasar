@@ -29,7 +29,7 @@ A first interactive administrator session shows **Set up administrator access**.
 
 Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back** returns from the hosted settings and keeps the name you entered. **Cancel** closes setup without configuring public access; setup comes back on the next page load while no admin is configured. Headless startup is not blocked. Reopen setup at **Security → Manage access setup**. See [Hosted access](HostedPanel.md) for automatic enrollment and its current availability.
 
-Before you save the administrator, setup explains that the panel refreshes to apply permissions. A brief reconnect message after saving is expected, including with WebRTC. Your mapping is saved before the refresh.
+Before you save the administrator, setup explains that the panel refreshes to apply permissions. Your mapping is saved before the refresh.
 
 Starting hosted enrollment switches the dialog to a progress screen with live updates and **Cancel** as its only button while connecting. **Open Quasar dashboard** appears once the hosted panel is active and its connection checks pass, and opens the dashboard in the current tab. **Self-deploy** appears only on the access-method screen, never on later hosted steps or when reopening a completed enrollment. Canceling setup does not cancel a paid subscription.
 
@@ -99,6 +99,8 @@ The **Dashboard** (`/`) shows two things before the first server exists:
 
 - **Data Handling Consent** with **YES** and **NO** buttons. The choice controls Magnetar statistics, diagnostic reports to CometWorks and server listings. Until you choose, sharing stays off. You can change it later on the **Security** page. See [Diagnostics](Diagnostics.md).
 - Preparation feedback for **SteamCMD**, **Dedicated Server** and **Magnetar**. In the first-world step this appears beside **Choose DS World** and explains the automatic checks, downloads and validation. Other Dashboard views use the **Managed Runtime** panel. Downloads and validation show SteamCMD percentages when available, plus elapsed time. The first run can take several minutes. Server starts remain blocked until the required runtime is ready. Failed steps show the error, troubleshooting guidance and **Retry preparation** (or **Retry** in Managed Runtime). Retrying requires server-edit permission and keeps your setup choices.
+
+The guide runs in the browser. The **Refresh** button updates fleet status immediately, and Quasar also refreshes it in the background. The available setup choices follow the operating system of the Quasar machine.
 
 ## The first-server dialog
 
@@ -213,14 +215,14 @@ With **Network** selected, the world's online mode is copied as is, including Of
 
 ## Sources
 
-- `Quasar/Components/Pages/PostInstallSetup.razor`
-- `Quasar/Components/Shared/AccessSetupPrompt.razor`
-- `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
-- `Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor`
+- `Quasar.Client/Administration/SetupPage.razor`
+- `Quasar.Client/Administration/DashboardSetupPrompt.razor`
+- `Quasar.Client/Components/FleetPreparation.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
-- `Quasar/Components/Pages/NewServerDialog.razor`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar.Client/Pages/NewServerDialog.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Docs/QuickStart.md`
 - `Docs/Docker.md`
 - `Docs/Configuration.md`
@@ -230,13 +232,12 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `scripts/install.ps1`
 - `Quasar/Program.cs`
 - `Quasar/appsettings.json`
-- `Quasar/Components/Pages/Home.razor`
-- `Quasar/Components/Pages/ExistingServerImportDialog.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
-- `Quasar/Components/Pages/WorldTemplateConfigProfileDialog.razor`
-- `Quasar/Components/Pages/Security.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar.Client/Pages/Home.razor`
+- `Quasar.Client/Components/ImportExistingServerDialog.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar.Client/Administration/DashboardSetupDialog.razor`
 - `Quasar/Services/ExistingServerImportService.cs`
 - `Quasar/Services/WorldSaveFiles.cs`
 - `Quasar/Services/BrowserZipFileStream.cs`
@@ -250,10 +251,10 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
-- `Quasar/Models/QuasarConfigProfile.cs`
+- `Quasar.Client/Configs/QuasarConfigProfile.cs`
 - `Quasar/Services/BrowserLauncher.cs`
 - `Quasar/Services/WebServiceManifestHostedService.cs`
 - `scripts/install-gui.ps1`
 - `scripts/install-gui.sh`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
-- `Quasar/Components/Pages/WorldTemplates.razor`
+- `Quasar.Client/Pages/WorldTemplates.razor`

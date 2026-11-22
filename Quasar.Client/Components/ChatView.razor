@@ -1,0 +1,322 @@
+@using MudBlazor
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using Quasar.Client.Operations
+@using Quasar.Services
+@implements IDisposable
+@inject IJSRuntime JS
+@inject DashboardSdk Sdk
+@inject ISnackbar Snackbar
+@inject ViewerTimeZone ViewerTime
+
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-2">
+    <div>
+        <DashboardPageHeading Section="Operations">
+    <Title>Chat</Title>
+    <Description>Select a server or cluster node, watch its recent chat, and send messages through the agent. Cluster saves and restarts are managed from <a href="servers">cluster details</a>.</Description>
+</DashboardPageHeading>
+    </div>
+    <MudChip T="string" Variant="Variant.Outlined">@($"{_table?.ConnectedCount ?? 0} connected")</MudChip>
+</div>
+
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+<section class="quasar-panel pa-4 server-card chat-console-card">
+    <div class="quasar-layout quasar-gap-3">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-2">
+            <MudSelect T="string"
+                       Label="Server"
+                       Value="_selectedUniqueName"
+                       ValueChanged="HandleServerChanged"
+                       Variant="Variant.Outlined"
+                       Class="chat-server-select">
+                @foreach (var server in ServerOptions)
+                {
+                    <MudSelectItem T="string" Value="@server.UniqueName">@server.DisplayName</MudSelectItem>
+                }
+            </MudSelect>
+
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1 mt-3">
+                <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshNodeAsync" Disabled="@(_table?.Connected != true)">
+                    Refresh
+                </MudButton>
+                @if (_table?.CanControl == true)
+        {
+                <MudButton Variant="Variant.Outlined" Color="Color.Info" StartIcon="@Icons.Material.Filled.Save" OnClick="SaveSelectedAsync" Disabled="@(!CanSaveSelected)">
+                    Save
+                </MudButton>
+                <MudButton Variant="Variant.Outlined" Color="Color.Warning" StartIcon="@Icons.Material.Filled.RestartAlt" OnClick="RestartSelectedServerAsync" Disabled="@(!CanRestartSelected)">
+                    Restart
+                </MudButton>
+                }
+            </div>
+        </div>
+
+        @if (ServerOptions.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No servers defined yet.
+            </MudAlert>
+        }
+        else if (_table?.HasSnapshot != true)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Selected server has no connected agent snapshot yet.
+            </MudAlert>
+        }
+        else
+        {
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
+                <MudChip T="string" Variant="Variant.Outlined">Players @_table.PlayersOnline/@_table.MaxPlayers</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">World @_table.World</MudChip>
+                <MudChip T="string" Variant="Variant.Outlined">Agent connected</MudChip>
+            </div>
+        }
+
+        <div id="@_chatScrollContainerId" class="admin-chat-list">
+            @if (SelectedMessages.Count == 0)
+            {
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No recent chat for this server.</p>
+            }
+            else
+            {
+                @foreach (var message in SelectedMessages)
+                {
+                    <div class="admin-chat-row">
+                        <span class="quasar-text quasar-type-caption quasar-timestamp mono">@ViewerTime.Format(message.Time, "unknown")</span>
+                        <p class="quasar-text quasar-type-body2">
+                            <span class="mono">[@message.Channel]</span>
+                            <strong>@message.Author</strong>: <span class="chat-text">@message.Text</span>
+                        </p>
+                    </div>
+                }
+            }
+        </div>
+
+        @if (_table?.CanControl == true)
+        {
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-start quasar-gap-2">
+            <MudAutocomplete T="string"
+                             @ref="_input"
+                             @bind-Value="_inputText"
+                             SearchFunc="SearchCommandSuggestionsAsync"
+                             Label="@InputLabel"
+                             Variant="Variant.Outlined"
+                             FullWidth="true"
+                             Immediate="true"
+                             Lines="2"
+                             CoerceText="false"
+                             CoerceValue="true"
+                             ResetValueOnEmptyText="false"
+                             MinCharacters="1"
+                             MaxItems="@MaximumCommandSuggestionItems"
+                             ItemDisabledFunc="@IsCommandOverflowSuggestion"
+                             HelperText="@InputHelperText"
+                             OnKeyDown="HandleInputKeyDownAsync"
+                             Disabled="@(!CanSendAgentCommand)" />
+            <MudButton Variant="Variant.Filled"
+                       Color="@(IsCommandInput ? Color.Warning : Color.Success)"
+                       StartIcon="@(IsCommandInput ? Icons.Material.Filled.Terminal : Icons.Material.Filled.Send)"
+                       Class="mt-3"
+                       Style="height: 40px;"
+                       OnClick="SendInputAsync"
+                       Disabled="@(!CanSendAgentCommand || string.IsNullOrWhiteSpace(_inputText))">
+                @(IsCommandInput ? "Run" : "Send")
+            </MudButton>
+        </div>
+        }
+
+        @if (_table?.Results.Length > 0)
+        {
+            <hr class="quasar-divider" />
+            <h3 class="quasar-text quasar-type-subtitle2">Recent Command Results</h3>
+            @foreach (var result in _table.Results)
+            {
+                <MudAlert Dense="true" Severity="@(result.Success ? Severity.Success : Severity.Error)" Variant="Variant.Outlined">
+                    @result.Message
+                </MudAlert>
+            }
+        }
+    </div>
+</section>
+
+@code
+{
+    private const int MaximumCommandSuggestionItems = 30;
+    private const string CommandSuggestionOverflowText = "...";
+
+    private readonly string _chatScrollContainerId = $"admin-chat-{Guid.NewGuid():N}";
+    private string _selectedUniqueName = string.Empty;
+    private string _inputText = string.Empty;
+    private MudAutocomplete<string>? _input;
+    private long _lastRenderedLatestMessageTicks;
+    private bool _scrollPending;
+
+    private DashboardChat? _table;
+    private readonly CancellationTokenSource _lifetime = new();
+    private long _requestVersion;
+    private IReadOnlyList<ChatTarget> ServerOptions => _table?.Targets ?? [];
+    private IReadOnlyList<ChatLine> SelectedMessages => _table?.Messages ?? [];
+    private IReadOnlyList<ChatSuggestion> SelectedCommandSuggestions => _table?.Suggestions ?? [];
+    private bool CanSendAgentCommand => _table?.CanSend == true;
+    private bool CanSaveSelected => _table?.CanSave == true;
+    private bool CanRestartSelected => _table?.CanRestart == true;
+    private bool IsCommandInput => IsCommandText(_inputText);
+
+    private string InputLabel => IsCommandInput ? "Command text" : "Chat message";
+
+    private string InputHelperText => IsCommandInput
+        ? "Select a suggestion or type the full command."
+        : "Broadcasts to selected server chat. Start with ! to run a server command.";
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        if (!_lifetime.IsCancellationRequested) _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try { while (await timer.WaitForNextTickAsync(_lifetime.Token)) await LoadAsync(); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+    }
+
+    private string? _error;
+    internal async Task LoadAsync()
+    {
+        var version = ++_requestVersion;
+        try
+        {
+            var table = await JS.InvokeAsync<DashboardChat>("quasarSdk.readJson", _lifetime.Token, "quasar.core", "chat.table", new { UniqueName = _selectedUniqueName });
+            if (version != _requestVersion) return;
+            _table = table;
+            _selectedUniqueName = table.Selected;
+            _error = null;
+        }
+        catch (JSException ex) { if (version == _requestVersion) _error = ex.Message; }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { return; }
+        if (!_lifetime.IsCancellationRequested) StateHasChanged();
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        var latestTicks = SelectedMessages.LastOrDefault()?.Time?.UtcTicks ?? 0;
+        if (firstRender || _scrollPending || latestTicks != _lastRenderedLatestMessageTicks)
+        {
+            _scrollPending = false;
+            _lastRenderedLatestMessageTicks = latestTicks;
+            await ScrollToBottomAsync();
+        }
+    }
+
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+
+    private async Task ScrollToBottomAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.scrollToBottom", _chatScrollContainerId);
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private Task HandleServerChanged(string uniqueName)
+    {
+        _selectedUniqueName = uniqueName ?? string.Empty;
+        _scrollPending = true;
+        _table = null;
+        return LoadAsync();
+    }
+
+    private async Task HandleInputKeyDownAsync(KeyboardEventArgs args)
+    {
+        if (args.Key != "Enter" || args.ShiftKey)
+            return;
+
+        // The autocomplete takes the highlighted suggestion on key-up, after this send,
+        // and would leave a command in the box that the user never typed.
+        if (_input is not null)
+            await _input.CloseMenuAsync();
+        await SendInputAsync();
+    }
+
+    private Task<IEnumerable<string>> SearchCommandSuggestionsAsync(string? value, CancellationToken cancellationToken)
+    {
+        if (!IsCommandText(value))
+            return Task.FromResult(Enumerable.Empty<string>());
+
+        var query = NormalizeCommandQuery(value);
+        var suggestions = SelectedCommandSuggestions
+            .Where(command => MatchesCommandSuggestion(command, query))
+            .OrderBy(command => command.Text, StringComparer.OrdinalIgnoreCase)
+            .Select(command => command.Text)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .Take(MaximumCommandSuggestionItems + 1)
+            .ToList();
+
+        if (suggestions.Count > MaximumCommandSuggestionItems)
+        {
+            suggestions.RemoveRange(MaximumCommandSuggestionItems - 1, suggestions.Count - (MaximumCommandSuggestionItems - 1));
+            suggestions.Add(CommandSuggestionOverflowText);
+        }
+
+        return Task.FromResult<IEnumerable<string>>(suggestions);
+    }
+
+    private async Task SendInputAsync()
+    {
+        var text = _inputText.Trim();
+        if (string.IsNullOrWhiteSpace(text))
+            return;
+
+        // "!" lines run as server commands; the agent sends their replies back as Console lines.
+        var sent = await SendAsync(IsCommandText(text) ? "chat.node.command" : "chat.node.send", text,
+            IsCommandText(text) ? "Command sent." : "Chat message sent.");
+        if (sent && _inputText.Trim() == text) _inputText = "";
+    }
+
+    private Task RefreshNodeAsync() => SendAsync("chat.node.refresh", "", "Refresh requested.");
+    private Task SaveSelectedAsync() => SendAsync("servers.save", "", "World saved.");
+    private Task RestartSelectedServerAsync() => SendAsync("servers.restart", "", $"Restart requested for {_selectedUniqueName}.");
+
+    private async Task<bool> SendAsync(string operation, string text, string notification)
+    {
+        try
+        {
+            await Sdk.RequestAsync<System.Text.Json.JsonElement>(operation, new { UniqueName = _selectedUniqueName, Text = text }, _lifetime.Token);
+            Snackbar.Add(notification, Severity.Info);
+            await LoadAsync();
+            return true;
+        }
+        catch (JSException ex) { Snackbar.Add(ex.Message, Severity.Error); return false; }
+    }
+
+    private static string NormalizeCommandQuery(string? value)
+    {
+        var query = value?.Trim() ?? string.Empty;
+        return query.StartsWith('!') ? query[1..] : query;
+    }
+
+    private static bool IsCommandText(string? value)
+    {
+        return value?.TrimStart().StartsWith('!') == true;
+    }
+
+    private static bool IsCommandOverflowSuggestion(string suggestion)
+    {
+        return string.Equals(suggestion, CommandSuggestionOverflowText, StringComparison.Ordinal);
+    }
+
+    private static bool MatchesCommandSuggestion(ChatSuggestion command, string query)
+    {
+        if (string.IsNullOrWhiteSpace(query))
+            return true;
+
+        return command.Text.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               command.Syntax.Contains(query, StringComparison.OrdinalIgnoreCase) ||
+               command.Description.Contains(query, StringComparison.OrdinalIgnoreCase);
+    }
+
+}

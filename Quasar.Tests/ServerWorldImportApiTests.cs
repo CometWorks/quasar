@@ -1,4 +1,9 @@
 using System.IO.Compression;
+using System.Text.Json;
+using Microsoft.AspNetCore.Authorization;
+using Quasar.Client.Fleet;
+using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Services.Plugins;
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
@@ -50,6 +55,7 @@ public sealed class ServerWorldImportApiTests : IAsyncLifetime
             new AgentRegistry(null!, null!, null!, null!), null!, null!, null!, new WebServiceOptions(),
             service.GetRequiredService<ServerRestoreCoordinator>(), NullLogger<DedicatedServerSupervisor>.Instance));
         builder.Services.AddSingleton<ServerWorldImportService>();
+        builder.Services.AddQuasarWorldDashboardOperations();
         _app = builder.Build();
         _app.UseAuthentication(); _app.UseAuthorization();
         _app.MapServerWorldImportApi(new QuasarAuthOptions { Enabled = true });
@@ -58,6 +64,55 @@ public sealed class ServerWorldImportApiTests : IAsyncLifetime
         await _app.StartAsync();
         _client = _app.GetTestClient();
         _client.DefaultRequestHeaders.Add("Role", QuasarRoles.Editor);
+    }
+
+    [Fact]
+    public async Task DashboardZipIsBoundToItsOwnerAndReviewedServerAndPublishesOnlyOnce()
+    {
+        var target = new WorldTarget(Guid.NewGuid(), "target", Servers.GetServer("target")!.UpdatedAtUtc);
+        using var zip = new MemoryStream();
+        using (var archive = new ZipArchive(zip, ZipArchiveMode.Create, true))
+        {
+            using var writer = new StreamWriter(archive.CreateEntry("Single/Sandbox.sbc").Open());
+            writer.Write("<MyObjectBuilder_Checkpoint />");
+        }
+        var content = zip.ToArray();
+        var denied = await Assert.ThrowsAsync<QuasarOperationException>(() => Call<ReadWorld>("server-only", QuasarRoles.Viewer, "zip", target, content));
+        Assert.Equal(403, denied.StatusCode);
+        var world = await Call<ReadWorld>("user", "server-only", "zip", target, content);
+        Assert.False(string.IsNullOrWhiteSpace(world.Name));
+        Assert.Equal("Old", Servers.GetServer("target")!.WorldSaveName);
+        var commit = JsonSerializer.SerializeToUtf8Bytes(new WorldCommit("Imported", "", "keep"));
+        var wrongOwner = await Assert.ThrowsAsync<QuasarOperationException>(() => Call<WorldSaved>("other", "server-only", "commit", target, commit));
+        Assert.Equal(404, wrongOwner.StatusCode);
+        var otherTarget = await Assert.ThrowsAsync<QuasarOperationException>(() => Call<WorldSaved>("user", "server-only", "commit", target with { Server = "other" }, commit));
+        Assert.Equal(404, otherTarget.StatusCode);
+        var wrongRole = await Assert.ThrowsAsync<QuasarOperationException>(() => Call<WorldSaved>("user", "server-only", "commit", target,
+            JsonSerializer.SerializeToUtf8Bytes(new WorldCommit("Imported", "", "new"))));
+        Assert.Equal(403, wrongRole.StatusCode);
+        var result = await Call<WorldSaved>("user", "server-only", "commit", target, commit);
+        Assert.Equal(target.Server, result.Server);
+        Assert.Equal("Imported", Servers.GetServer("target")!.WorldSaveName);
+        var replay = await Assert.ThrowsAsync<QuasarOperationException>(() => Call<WorldSaved>("user", "server-only", "commit", target, commit));
+        Assert.Equal(404, replay.StatusCode);
+    }
+
+    private async Task<T> Call<T>(string user, string role, string suffix, WorldTarget target, byte[] bytes)
+    {
+        var operation = _app.Services.GetServices<QuasarOperation>().Single(op => op.OperationId == "worlds.server." + suffix);
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new(ClaimTypes.NameIdentifier, user), new(ClaimTypes.Role, role)], "test"));
+        async Task Verify(CancellationToken token)
+        {
+            token.ThrowIfCancellationRequested();
+            foreach (var policy in operation.DefaultPolicies)
+                if (!(await _app.Services.GetRequiredService<IAuthorizationService>().AuthorizeAsync(principal, policy)).Succeeded)
+                    throw new QuasarOperationException(403, "Permission denied.");
+        }
+        await Verify(default);
+        using var body = new MemoryStream(bytes);
+        var caller = new QuasarOperationContext(principal, _app.Services) { Kind = QuasarOperationKind.Upload, Upload = body, VerifyAccess = Verify };
+        var prepared = await operation.InvokeAsync(caller, JsonSerializer.SerializeToElement(target), default);
+        return Assert.IsType<T>(prepared);
     }
 
     private string ImportUrl(string name = "New") => "/api/servers/target/world/import?saveName=" + name

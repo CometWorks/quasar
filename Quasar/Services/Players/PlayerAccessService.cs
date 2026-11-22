@@ -82,11 +82,10 @@ public sealed class PlayerAccessService(PlayerAccessCatalog catalog, QuasarPlaye
 
 /// <summary>Pushes expiring decisions even when no administrator has a browser open.</summary>
 public sealed class PlayerAccessWorker(PlayerAccessService access, PlayerAccessCatalog catalog, AgentRegistry agents,
-    ClusterCatalog clusters, ClusterGatewayClient gateway, ClusterHostClient hosts, PlayerAuthBrowser browser, ILogger<PlayerAccessWorker> logger) : BackgroundService
+    ClusterCatalog clusters, ClusterGatewayClient gateway, ClusterHostClient hosts, ILogger<PlayerAccessWorker> logger) : BackgroundService
 {
     private readonly Dictionary<string, string> status = new(StringComparer.Ordinal);
     private readonly object sync = new();
-    private DateTimeOffset nextVerification;
     private readonly Dictionary<string, Delivery> delivered = new(StringComparer.Ordinal);
     public string Status(string target) { lock (sync) return status.GetValueOrDefault(target, "Waiting for the enforcement connection."); }
 
@@ -97,16 +96,6 @@ public sealed class PlayerAccessWorker(PlayerAccessService access, PlayerAccessC
         {
             do
             {
-                var settings = catalog.GetSettings();
-                if (settings.Policies.Any(p => p.Enabled) && settings.PublicUrl.Length != 0
-                    && settings.VerifiedUrl == settings.PublicUrl && settings.VerifiedUntil < DateTimeOffset.UtcNow.AddDays(1)
-                    && nextVerification <= DateTimeOffset.UtcNow)
-                {
-                    nextVerification = DateTimeOffset.UtcNow.AddHours(1);
-                    try { await browser.VerifyAsync(token); }
-                    catch (Exception error) when (!token.IsCancellationRequested)
-                    { logger.LogWarning("Player authentication website revalidation failed: {Reason}", error.Message); }
-                }
                 foreach (var target in access.Targets())
                 {
                     try

@@ -1,0 +1,1150 @@
+@implements IDisposable
+@using Quasar.Components.Pages
+@using Quasar.Client.Plugins
+@using Quasar.Client.Components
+@inject NavigationManager Navigation
+@inject DashboardSdk Sdk
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+
+@if (State is null)
+{
+    @if (_error is not null) { <p role="alert">@_error</p><button type="button" @onclick="ReloadAsync">Retry</button> }
+    else { <p role="status">Loading UI plugins…</p> }
+}
+else
+{
+
+<div class="quasar-layout quasar-gap-3">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+        <div class="quasar-layout quasar-gap-1">
+            <DashboardPageHeading Section="Tools & settings">
+    <Title>UI Plugins</Title>
+    <Description>Loaded Quasar UI plugins, extension points, nav contributions, and safe boot state.</Description>
+</DashboardPageHeading>
+        </div>
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1 ui-plugin-header-actions">
+            <MudChip T="string"
+                     Color="@(State.SafeMode ? Color.Warning : Color.Success)"
+                     Variant="Variant.Outlined">
+                @(State.SafeMode ? "Safe boot active" : "Dynamic plugins enabled")
+            </MudChip>
+            <MudChip T="string"
+                     Color="@GetDotNetSdkChipColor()"
+                     Variant="Variant.Outlined">
+                @GetDotNetSdkChipText()
+            </MudChip>
+        </div>
+    </div>
+
+    @if (!CanBuildUiPlugins)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2">
+                    <span><strong>.NET SDK not currently available.</strong> Starting a UI plugin install will offer a pinned private download, manual package-manager instructions, or cancellation without changes.</span>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               Size="Size.Small"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Disabled="@DotNetSdkInstallerBusy"
+                               OnClick="RefreshDotNetSdkStatus">
+                        Refresh SDK check
+                    </MudButton>
+                </div>
+                @if (DotNetSdkInstallerBusy)
+                {
+                    <QuasarOperationLoader Title="Installing private .NET SDK" Message="Downloading and verifying the private .NET SDK." />
+                }
+                @if (_lastDotNetSdkInstallResult is not null)
+                {
+                    <MudAlert Severity="@(_lastDotNetSdkInstallResult.Succeeded ? Severity.Success : Severity.Error)" Variant="Variant.Outlined" Dense="true">
+                        <div class="quasar-layout quasar-gap-1">
+                            <p class="quasar-text quasar-type-body2">@_lastDotNetSdkInstallResult.Message</p>
+                            @if (!string.IsNullOrWhiteSpace(_lastDotNetSdkInstallResult.Output))
+                            {
+                                <MudExpansionPanels MultiExpansion="false" Elevation="0" Dense="true">
+                                    <MudExpansionPanel Text="Installer output">
+                                        <span class="quasar-text quasar-type-caption mono" style="white-space: pre-wrap; max-height: 18rem; overflow: auto; display: block;">@TrimInstallerOutput(_lastDotNetSdkInstallResult.Output)</span>
+                                    </MudExpansionPanel>
+                                </MudExpansionPanels>
+                            }
+                        </div>
+                    </MudAlert>
+                }
+            </div>
+        </MudAlert>
+    }
+
+    <MudGrid>
+        <MudItem xs="12" md="3">
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Loaded</h3>
+                    <h2 class="quasar-text quasar-type-h4">@State.LoadedPlugins.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">UI plugin packages</span>
+                </div>
+            </section>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Load Errors</h3>
+                    <h2 class="quasar-text quasar-type-h4">@State.LoadErrors.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">Startup failures</span>
+                </div>
+            </section>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Extensions</h3>
+                    <h2 class="quasar-text quasar-type-h4">@State.Extensions.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">Patch contributions</span>
+                </div>
+            </section>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <section class="quasar-panel pa-4" style="height:100%">
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Nav Items</h3>
+                    <h2 class="quasar-text quasar-type-h4">@State.NavItems.Count</h2>
+                    <span class="quasar-text quasar-type-caption mud-text-secondary">Plugin links</span>
+                </div>
+            </section>
+        </MudItem>
+    </MudGrid>
+
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <h2 class="quasar-text quasar-type-h6">Safe Boot</h2>
+                <div class="quasar-layout quasar-layout-row quasar-gap-1">
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.Shield"
+                               Disabled="@SafeModeMarkerExists"
+                               OnClick="EnableSafeModeMarkerAsync">
+                        Enable marker
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               StartIcon="@Icons.Material.Filled.DeleteOutline"
+                               Disabled="@(!SafeModeMarkerExists)"
+                               OnClick="ClearSafeModeMarker">
+                        Clear marker
+                    </MudButton>
+                </div>
+            </div>
+
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                Safe boot disables dynamic UI plugin assembly loading on the next Quasar worker start. Configuration and environment safe-mode flags must be changed outside this page.
+            </MudAlert>
+
+            <span class="quasar-text quasar-type-caption">
+                Marker file: <CopyablePath Value="@SafeModeMarkerPath" Inline="true" TextClass="" />
+            </span>
+
+            @if (State.SafeModeReasons.Count > 0)
+            {
+                <div class="quasar-layout quasar-gap-1">
+                    <h3 class="quasar-text quasar-type-subtitle2">Active reasons</h3>
+                    @foreach (var reason in State.SafeModeReasons)
+                    {
+                        <MudChip T="string" Variant="Variant.Outlined" Color="Color.Warning">@reason</MudChip>
+                    }
+                </div>
+            }
+        </div>
+    </section>
+
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-3">
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <div class="quasar-layout quasar-gap-1">
+                    <h2 class="quasar-text quasar-type-h6">QuasarHub Catalog</h2>
+                    <p class="quasar-text quasar-type-body2 mud-text-secondary">
+                        Discover, install, update, and remove reviewed Quasar UI plugins from CometWorks/quasar-hub.
+                    </p>
+                </div>
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                    <MudChip T="string" Variant="Variant.Outlined">@HubEntries.Count entries</MudChip>
+                    <MudChip T="string" Variant="Variant.Outlined">Updated @FormatRefreshTime(State.LastRefreshUtc)</MudChip>
+                    @if (!string.IsNullOrWhiteSpace(State.LastError))
+                    {
+                        <MudChip T="string" Color="Color.Warning" Variant="Variant.Outlined">Refresh failed</MudChip>
+                    }
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               StartIcon="@Icons.Material.Filled.Refresh"
+                               Disabled="@(_hubRefreshing || HubOperationInProgress)"
+                               OnClick="RefreshHubCatalogAsync">
+                        @(_hubRefreshing ? "Refreshing..." : "Refresh Hub")
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Warning"
+                               StartIcon="@Icons.Material.Filled.RestartAlt"
+                               Class="@(CanRestart ? "ui-plugin-restart-pending" : null)"
+                               aria-label="@(CanRestart ? "Restart Quasar to apply UI plugin changes" : "Restart Quasar")"
+                               Disabled="@(!CanRestart)"
+                               OnClick="RestartQuasarAsync">
+                        Restart Quasar
+                    </MudButton>
+                </div>
+            </div>
+
+            @if (!IsRestartAvailable)
+            {
+                <p class="quasar-muted quasar-caption">@State.RestartReason</p>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(State.LastError))
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                    @State.LastError
+                </MudAlert>
+            }
+
+            @if (State.LastInstall is { Result: { Succeeded: false } failed } last)
+            {
+                <MudAlert Severity="Severity.Error">@last.Target: @failed.Message</MudAlert>
+            }
+            @if (HubOperationInProgress)
+            {
+                <QuasarOperationLoader Title="Applying UI plugin change" Message="Applying the selected plugin change. Installation can include downloading and building source files." />
+            }
+            <div class="ui-plugin-hub-filter-row">
+                <label class="quasar-field ui-plugin-search-field"><span>Search hub</span>
+                    <input type="search" @bind="_hubSearch" @bind:event="oninput" />
+                </label>
+                <a class="quasar-button ui-plugin-hub-open-button" href="https://github.com/CometWorks/quasar-hub" target="_blank" rel="noopener noreferrer"><QuasarIcon Icon="@QuasarIcons.OpenInNew" />Open Hub</a>
+            </div>
+            <label class="quasar-check"><input type="checkbox" checked="@State.AutoUpdateUiPlugins" disabled="@_savingUpdatePolicy" @onchange="SetAutomaticPluginUpdatesAsync" />Automatically update installed UI plugins and restart Quasar</label>
+            <p class="quasar-muted quasar-caption">Applies to enabled catalog plugins after scheduled checks. Requires verified native services or legacy Bootstrap; safe boot pauses automatic plugin updates. Running game servers stay online. Configure update notices on the <a href="notifications">Notifications page</a>.</p>
+
+            @if (HubEntries.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    QuasarHub catalog empty. Refresh to download QuasarHub.
+                </MudAlert>
+            }
+            else
+            {
+                <MudTable T="QuasarUiPluginHubEntry" Items="@FilteredHubEntries" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="ui-plugin-hub-table">
+                    <HeaderContent>
+                        <MudTh Class="ui-plugin-catalog-status">Status</MudTh>
+                        <MudTh Class="ui-plugin-catalog-compact">Author</MudTh>
+                        <MudTh Class="ui-plugin-catalog-name">Name</MudTh>
+                        <MudTh>Description</MudTh>
+                        <MudTh Class="ui-plugin-catalog-compact">Version</MudTh>
+                        <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        @{
+                            var installState = State.InstallStates[context.CatalogId];
+                            var installDisabledReason = GetHubInstallDisabledReason(context);
+                        }
+                        <MudTd DataLabel="Status" Class="ui-plugin-catalog-status">
+                            <div class="quasar-layout quasar-gap-0">
+                                <MudChip T="string" Color="@GetHubStatusColor(context, installState)" Variant="Variant.Outlined" Size="Size.Small">
+                                    @GetHubStatusText(context, installState)
+                                </MudChip>
+                                @if (!string.IsNullOrWhiteSpace(installState.Error))
+                                {
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Error).ToString().ToLowerInvariant())">@installState.Error</span>
+                                }
+                            </div>
+                        </MudTd>
+                        <MudTd DataLabel="Author" Class="ui-plugin-catalog-compact">@FormatOptional(context.Author)</MudTd>
+                        <MudTd DataLabel="Name" Class="ui-plugin-catalog-name">
+                            <div class="quasar-layout quasar-gap-0">
+                                <h3 class="quasar-text quasar-type-subtitle2">@GetHubDisplayName(context)</h3>
+                                @if (context.Hidden)
+                                {
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary">Hidden in hub</span>
+                                }
+                                @if (context.Recommended)
+                                {
+                                    <MudChip T="string" Color="Color.Info" Variant="Variant.Outlined" Size="Size.Small">
+                                        Recommended
+                                    </MudChip>
+                                }
+                                @if (context.ImplicitLoading)
+                                {
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary">
+                                        @(installState.ImplicitInstallSuppressed ? "Implicit loading suppressed" : "Implicit loading")
+                                    </span>
+                                }
+                            </div>
+                        </MudTd>
+                        <MudTd DataLabel="Description">
+                            <p class="quasar-text quasar-type-body2 ui-plugin-description-line">@GetHubTooltipText(context)</p>
+                        </MudTd>
+                        <MudTd DataLabel="Version" Class="ui-plugin-catalog-compact">
+                            <p class="quasar-text quasar-type-body2">@FormatOptional(context.QuasarVersion)</p>
+                        </MudTd>
+                        <MudTd DataLabel="" Class="quasar-actions-column">
+                            <div class="ui-plugin-actions">
+                                <MudTooltip Text="@installDisabledReason" Disabled="@string.IsNullOrWhiteSpace(installDisabledReason)">
+                                    <span>
+                                        <MudButton Variant="Variant.Outlined"
+                                                   Color="Color.Primary"
+                                                   Size="Size.Small"
+                                                   StartIcon="@GetHubInstallButtonIcon(context, installState)"
+                                                   Disabled="@IsHubInstallDisabled(context)"
+                                                   OnClick="@(() => InstallOrUpdateHubPluginAsync(context))">
+                                            @GetHubInstallButtonText(context, installState)
+                                        </MudButton>
+                                    </span>
+                                </MudTooltip>
+                                @if (installState.Installed)
+                                {
+                                    <MudButton Variant="Variant.Outlined"
+                                               Color="@GetHubEnableButtonColor(installState)"
+                                               Size="Size.Small"
+                                               StartIcon="@GetHubEnableButtonIcon(installState)"
+                                               Disabled="@(HubOperationInProgress || string.IsNullOrWhiteSpace(installState.RuntimePluginId))"
+                                               OnClick="@(() => ToggleHubPluginEnabledAsync(context, installState))">
+                                        @(installState.Enabled ? "Disable" : "Enable")
+                                    </MudButton>
+                                    <MudTooltip Text="Remove local package">
+                                        <MudIconButton Icon="@Icons.Material.Filled.DeleteOutline"
+                                                       Color="Color.Default"
+                                                       Size="Size.Small"
+                                                       Disabled="@HubOperationInProgress"
+                                                       OnClick="@(() => RemoveHubPluginAsync(context))" />
+                                    </MudTooltip>
+                                }
+                                <MudTooltip Text="Show full description">
+                                    <MudIconButton Icon="@Icons.Material.Filled.MoreHoriz"
+                                                   Color="Color.Default"
+                                                   Size="Size.Small"
+                                                   OnClick="@(() => ShowHubPluginDescriptionAsync(context))" />
+                                </MudTooltip>
+                            </div>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                            No QuasarHub entries match current search.
+                        </MudAlert>
+                    </NoRecordsContent>
+                </MudTable>
+            }
+        </div>
+    </section>
+
+    @if (State.LoadErrors.Count > 0)
+    {
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Load Errors</h2>
+                @foreach (var error in State.LoadErrors)
+                {
+                    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">
+                        @error
+                    </MudAlert>
+                }
+            </div>
+        </section>
+    }
+
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Loaded Plugins</h2>
+            @if (State.LoadedPlugins.Count == 0)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    No Quasar UI plugins are loaded.
+                </MudAlert>
+            }
+            else
+            {
+                <MudTable T="PluginDetails" Items="@State.LoadedPlugins" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Class="ui-plugin-loaded-table">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>ID</MudTh>
+                        <MudTh>Version</MudTh>
+                        <MudTh>Entry</MudTh>
+                        <MudTh>Static Assets</MudTh>
+                        <MudTh>Stylesheets</MudTh>
+                        <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        @{
+                            var buildOutputDirectory = context.BuildOutput;
+                        }
+                        <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                        <MudTd DataLabel="ID"><p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.Id</p></MudTd>
+                        <MudTd DataLabel="Version">@context.Version</MudTd>
+                        <MudTd DataLabel="Entry">
+                            <div class="quasar-layout quasar-gap-1 ui-plugin-cell-stack">
+                                <div class="quasar-layout quasar-gap-0">
+                                    <p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.EntryAssembly</p>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono ui-plugin-truncate-line">@context.EntryType</span>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary mono">@FormatCacheHash(context.ShadowCopyHash)</span>
+                                </div>
+                            </div>
+                            @if (context.BuildChanged)
+                            {
+                                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Source build output changed after this plugin was loaded. Restart Quasar to apply it.</span>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Static Assets">
+                            @if (!string.IsNullOrWhiteSpace(context.StaticAssetsDirectory))
+                            {
+                                <div class="quasar-layout quasar-gap-1 ui-plugin-cell-stack">
+                                    <p class="quasar-text quasar-type-body2 mono ui-plugin-truncate-line">@context.RequestPath</p>
+                                    <span class="quasar-text quasar-type-caption mud-text-secondary">@FormatDirectoryInfo(context.Paths[context.StaticAssetsDirectory])</span>
+                                </div>
+                                @if (context.AssetsChanged)
+                                {
+                                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Source static assets changed after this plugin was loaded. Restart Quasar to serve them.</span>
+                                }
+                            }
+                            else
+                            {
+                                <p class="quasar-text quasar-type-body2 mud-text-secondary">None</p>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Stylesheets">
+                            @if (context.Stylesheets.Count > 0)
+                            {
+                                <div class="quasar-layout quasar-gap-0">
+                                    @foreach (var stylesheet in context.Stylesheets)
+                                    {
+                                        <span class="quasar-text quasar-type-caption mud-text-secondary mono ui-plugin-truncate-line">@stylesheet</span>
+                                    }
+                                </div>
+                            }
+                            else
+                            {
+                                <p class="quasar-text quasar-type-body2 mud-text-secondary">None</p>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="" Class="quasar-actions-column ui-plugin-loaded-actions-column">
+                            <div class="ui-plugin-actions ui-plugin-loaded-actions">
+                                <MudMenu Icon="@Icons.Material.Filled.FolderOpen"
+                                         Dense="true"
+                                         Size="Size.Small"
+                                         Color="Color.Default"
+                                         AnchorOrigin="Origin.BottomRight"
+                                         TransformOrigin="Origin.TopRight">
+                                    <div class="ui-plugin-path-menu">
+                                        <h3 class="quasar-text quasar-type-subtitle2">Plugin paths</h3>
+                                        <div class="ui-plugin-path-menu-section">
+                                            <span class="quasar-text quasar-type-caption mud-text-secondary">Entry</span>
+                                            @RenderPathMenuRow("Source assembly", context.EntryAssemblyPath, FormatFileInfo(context.Paths[context.EntryAssemblyPath]), "Copy source assembly path")
+                                            @RenderPathMenuRow("Build output", buildOutputDirectory, FormatDirectoryInfo(context.Paths[buildOutputDirectory]), "Copy source build output path")
+                                            @RenderPathMenuRow("Loaded assembly", context.LoadedAssemblyPath, FormatFileInfo(context.Paths[context.LoadedAssemblyPath]), "Copy loaded assembly path")
+                                        </div>
+                                        @if (!string.IsNullOrWhiteSpace(context.StaticAssetsDirectory))
+                                        {
+                                            <div class="ui-plugin-path-menu-section">
+                                                <span class="quasar-text quasar-type-caption mud-text-secondary">Static assets</span>
+                                                @RenderPathMenuRow("Request path", context.RequestPath, string.Empty, "Copy static asset URL path", "Static asset URL path copied to clipboard.")
+                                                @RenderPathMenuRow("Served snapshot", context.StaticAssetsDirectory, FormatDirectoryInfo(context.Paths[context.StaticAssetsDirectory]), "Copy served static asset path")
+                                                @if (!string.IsNullOrWhiteSpace(context.SourceStaticAssetsDirectory))
+                                                {
+                                                    @RenderPathMenuRow("Source assets", context.SourceStaticAssetsDirectory, FormatDirectoryInfo(context.Paths[context.SourceStaticAssetsDirectory]), "Copy source static asset path")
+                                                }
+                                            </div>
+                                        }
+                                        <div class="ui-plugin-path-menu-section">
+                                            <span class="quasar-text quasar-type-caption mud-text-secondary">Directories</span>
+                                            @RenderPathMenuRow("Package", context.PluginDirectory, FormatDirectoryInfo(context.Paths[context.PluginDirectory]), "Copy plugin package path")
+                                            @RenderPathMenuRow("Shadow cache", context.ShadowCopyDirectory, FormatDirectoryInfo(context.Paths[context.ShadowCopyDirectory]), "Copy shadow cache path")
+                                        </div>
+                                    </div>
+                                </MudMenu>
+                                <MudButton Variant="Variant.Outlined"
+                                           Color="Color.Warning"
+                                           Size="Size.Small"
+                                           StartIcon="@Icons.Material.Filled.VisibilityOff"
+                                           OnClick="@(() => SetLoadedPluginEnabledAsync(context, enabled: false))">
+                                    Disable
+                                </MudButton>
+                            </div>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </div>
+    </section>
+
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Plugin Nav Items</h2>
+            @if (State.NavItems.Count == 0)
+            {
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No plugin nav items.</p>
+            }
+            else
+            {
+                <MudTable T="NavDetails" Items="@State.NavItems" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Text</MudTh>
+                        <MudTh>Href</MudTh>
+                        <MudTh>Zone</MudTh>
+                        <MudTh>Order</MudTh>
+                        <MudTh>Policy</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Text">@context.Text</MudTd>
+                        <MudTd DataLabel="Href"><p class="quasar-text quasar-type-body2 mono">@context.Href</p></MudTd>
+                        <MudTd DataLabel="Zone">@context.Zone</MudTd>
+                        <MudTd DataLabel="Order">@context.Order</MudTd>
+                        <MudTd DataLabel="Policy">@FormatOptional(context.Policy)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </div>
+    </section>
+
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Extension Contributions</h2>
+            @if (State.Extensions.Count == 0)
+            {
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No extension contributions.</p>
+            }
+            else
+            {
+                <MudTable T="ExtensionDetails" Items="@State.Extensions" Dense="true" Hover="true" Breakpoint="Breakpoint.Md">
+                    <HeaderContent>
+                        <MudTh>Target</MudTh>
+                        <MudTh>Mode</MudTh>
+                        <MudTh>Component</MudTh>
+                        <MudTh>Priority</MudTh>
+                        <MudTh>Plugin</MudTh>
+                        <MudTh>Policy</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Target"><p class="quasar-text quasar-type-body2 mono">@context.TargetKey</p></MudTd>
+                        <MudTd DataLabel="Mode">@context.Mode</MudTd>
+                        <MudTd DataLabel="Component"><p class="quasar-text quasar-type-body2 mono">@context.Component</p></MudTd>
+                        <MudTd DataLabel="Priority">@context.Priority</MudTd>
+                        <MudTd DataLabel="Plugin"><p class="quasar-text quasar-type-body2 mono">@context.PluginId</p></MudTd>
+                        <MudTd DataLabel="Policy">@FormatOptional(context.Policy)</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </div>
+    </section>
+
+    <section class="quasar-panel pa-4">
+        <div class="quasar-layout quasar-gap-2">
+            <h2 class="quasar-text quasar-type-h6">Razor Assemblies</h2>
+            @if (State.RazorAssemblies.Count == 0)
+            {
+                <p class="quasar-text quasar-type-body2 mud-text-secondary">No plugin Razor assemblies.</p>
+            }
+            else
+            {
+                <MudTable T="AssemblyDetails" Items="@State.RazorAssemblies" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Location</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Location">
+                            <CopyablePath Value="@context.Location" Inline="true" TextClass="mud-text-secondary mono" />
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </div>
+    </section>
+
+    <BrowserSdkAuthorization />
+    <CascadingValue TValue="IReadOnlyList<LoadedExtension>" Value="_extensions">
+        <BrowserExtensionOutlet TargetKey="quasar.page.plugins" />
+    </CascadingValue>
+
+</div>
+
+}
+
+@code
+{
+    private string _hubSearch = string.Empty;
+    private bool _hubRefreshing;
+    private bool _restartRequested;
+    private bool _savingUpdatePolicy;
+    private UiPluginDashboard State { get; set; } = null!;
+    private string? _error;
+    private readonly CancellationTokenSource _lifetime = new();
+
+    private IReadOnlyList<LoadedExtension> _extensions = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        try { _extensions = await BrowserExtensions.LoadAsync(Sdk, Navigation, ["quasar.page.plugins"], _lifetime.Token); }
+        catch (Exception error) when (!_lifetime.IsCancellationRequested) { Snackbar.Add(error.Message, Severity.Error); }
+        if (State?.LastInstall is { Result: null } active)
+        {
+            try { await WaitForInstallAsync(active); await ReloadAsync(); }
+            catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+            catch (JSException error) { _error = error.Message; }
+        }
+    }
+
+    private async Task<QuasarDotNetSdkInstallResult> WaitForInstallAsync(UiPluginInstallJob job)
+    {
+        var token = _lifetime.Token;
+        while (job.Result is null)
+        {
+            await Task.Delay(TimeSpan.FromSeconds(1), token);
+            job = await Sdk.RequestAsync<UiPluginInstallJob>("ui-plugins.install.status", job.Id, token);
+        }
+        return job.Result;
+    }
+
+    public void Dispose()
+    {
+        _lifetime.Cancel();
+        _lifetime.Dispose();
+    }
+    private async Task ReloadAsync()
+    {
+        try
+        {
+            State = await JS.InvokeAsync<UiPluginDashboard>("quasarSdk.readJson", "quasar.core", "ui-plugins.dashboard", new { });
+            _dotNetSdkStatus = State.Sdk;
+            _error = null;
+        }
+        catch (JSException error) { _error = error.Message; Snackbar.Add(error.Message, Severity.Error); }
+    }
+    private async Task ChangeAsync(string operation, object? input = null)
+    {
+        await Sdk.RequestAsync<bool>("ui-plugins." + operation, input);
+        await ReloadAsync();
+    }
+
+    private async Task SetAutomaticPluginUpdatesAsync(ChangeEventArgs args)
+    {
+        _savingUpdatePolicy = true;
+        try { await ChangeAsync("automatic-updates", new { enabled = args.Value is true }); }
+        catch (Exception error) { Snackbar.Add($"Could not save automatic updates: {error.Message}", Severity.Error); }
+        finally { _savingUpdatePolicy = false; }
+    }
+
+    private bool _dotNetSdkInstallerBusy;
+    private string _hubBusyCatalogId = string.Empty;
+    private QuasarDotNetSdkInstallResult? _lastDotNetSdkInstallResult;
+    private QuasarDotNetSdkStatus _dotNetSdkStatus = null!;
+    private string SafeModeMarkerPath => State.MarkerPath;
+    private bool SafeModeMarkerExists => State.MarkerExists;
+    private bool IsRestartAvailable => State.CanRestart;
+    private bool CanRestart => IsRestartAvailable && State.RestartRequired && !_restartRequested
+        && !HubOperationInProgress && !DotNetSdkInstallerBusy;
+
+    private readonly StableRows<QuasarUiPluginHubEntry> _hubEntryRows = new(entry => entry.CatalogId);
+    private IReadOnlyList<QuasarUiPluginHubEntry> HubEntries => _hubEntryRows.Reuse(State.Entries);
+
+    private List<QuasarUiPluginHubEntry> FilteredHubEntries => HubEntries.Where(MatchesHubEntry).ToList();
+
+    private bool HubOperationInProgress => !string.IsNullOrWhiteSpace(_hubBusyCatalogId) || State?.LastInstall is { Result: null };
+
+    private bool CanBuildUiPlugins => _dotNetSdkStatus.CanBuildUiPlugins;
+
+    private bool DotNetSdkInstallerBusy => _dotNetSdkInstallerBusy || State.SdkInstalling;
+
+    private RenderFragment RenderPathMenuRow(
+        string label,
+        string? value,
+        string detail,
+        string copyTooltip,
+        string successMessage = "Path copied to clipboard.") => builder =>
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return;
+
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "class", "ui-plugin-path-menu-row");
+        builder.OpenElement(2, "span");
+        builder.AddAttribute(3, "class", "ui-plugin-path-menu-label");
+        builder.AddContent(4, label);
+        builder.CloseElement();
+        builder.OpenComponent<CopyablePath>(5);
+        builder.AddAttribute(6, nameof(CopyablePath.Value), value);
+        builder.AddAttribute(7, nameof(CopyablePath.DisplayValue), FormatPathSummary(value));
+        builder.AddAttribute(8, nameof(CopyablePath.ValueTooltip), FormatPathTooltip(label, value, detail));
+        builder.AddAttribute(9, nameof(CopyablePath.Tooltip), copyTooltip);
+        builder.AddAttribute(10, nameof(CopyablePath.SuccessMessage), successMessage);
+        builder.AddAttribute(11, nameof(CopyablePath.Inline), true);
+        builder.AddAttribute(12, nameof(CopyablePath.ShowValueTooltip), true);
+        builder.AddAttribute(13, nameof(CopyablePath.Class), "ui-plugin-menu-copy-path");
+        builder.AddAttribute(14, nameof(CopyablePath.TextClass), "mud-text-secondary mono");
+        builder.CloseComponent();
+        builder.CloseElement();
+    };
+
+    private Task EnableSafeModeMarkerAsync() => SetMarkerAsync(true);
+    private Task ClearSafeModeMarker() => SetMarkerAsync(false);
+    private async Task SetMarkerAsync(bool enabled)
+    {
+        try { await ChangeAsync("safe-mode", new { enabled }); Snackbar.Add("Safe boot marker updated. Restart Quasar to apply it.", Severity.Info); }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
+    }
+
+    private async Task RestartQuasarAsync()
+    {
+        if (!IsRestartAvailable)
+        {
+            Snackbar.Add(State.RestartReason, Severity.Warning);
+            return;
+        }
+        if (!CanRestart) return;
+
+        var pendingUpdate = State.UpdateId;
+        if (pendingUpdate is not null)
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync("Update and restart Quasar?",
+                $"Quasar {State.UpdateVersion} will also be installed during this restart. Running game servers continue to run.",
+                yesText: "Update and Restart Quasar", cancelText: "Cancel");
+            if (confirmed != true) return;
+        }
+
+        _restartRequested = true;
+        await InvokeAsync(StateHasChanged);
+
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/ui-plugins", new
+            {
+                requireUnhealthy = true,
+                showFeedback = true,
+                title = "Restarting Quasar",
+                message = "Reloading the web worker so UI plugin changes can load.",
+                initialStatus = "Submitting restart request.",
+                waitingForStopMessage = "Waiting for the current worker to stop.",
+                pollingMessage = "Waiting for the restarted worker to pass /api/health.",
+                successMessage = "Quasar is healthy. Reloading UI Plugins.",
+                timeoutMessage = "Still waiting for Quasar. Reloading UI Plugins now.",
+            });
+            Snackbar.Add("Restarting Quasar. The page will reconnect when it is back.", Severity.Info);
+            await Sdk.RequestAsync<bool>("ui-plugins.restart", new { updateId = pendingUpdate });
+        }
+        catch (Exception exception)
+        {
+            _restartRequested = false;
+            try { await JS.InvokeVoidAsync("quasarConfigs.clearRestartFeedback"); }
+            catch (JSException) { }
+            Snackbar.Add($"Failed restarting Quasar: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task RefreshHubCatalogAsync()
+    {
+        if (_hubRefreshing)
+            return;
+
+        _hubRefreshing = true;
+        try
+        {
+            await ChangeAsync("refresh");
+            Snackbar.Add("QuasarHub catalog refreshed.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _hubRefreshing = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task InstallOrUpdateHubPluginAsync(QuasarUiPluginHubEntry entry)
+    {
+        if (HubOperationInProgress)
+            return;
+
+        if (!await EnsureDotNetSdkForPluginBuildAsync())
+            return;
+
+        _hubBusyCatalogId = entry.CatalogId;
+        try
+        {
+            var job = await Sdk.RequestAsync<UiPluginInstallJob>("ui-plugins.install", new { id = entry.CatalogId, entry.Commit });
+            var result = await WaitForInstallAsync(job);
+            await ReloadAsync();
+            if (!result.Succeeded) { Snackbar.Add(result.Message, Severity.Error); return; }
+            Snackbar.Add($"{GetHubDisplayName(entry)} installed. Restart Quasar to load it.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _hubBusyCatalogId = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task<bool> EnsureDotNetSdkForPluginBuildAsync()
+    {
+        _dotNetSdkStatus = await Sdk.RequestAsync<QuasarDotNetSdkStatus>("ui-plugins.sdk.check");
+        if (CanBuildUiPlugins)
+            return true;
+
+        var availability = State.Availability;
+        if (!availability.CanInstall)
+        {
+            Snackbar.Add(availability.Message, Severity.Warning);
+            return false;
+        }
+
+        var choice = await DialogService.ShowMessageBoxAsync(
+            ".NET SDK required",
+            $"This UI plugin must be compiled with .NET {_dotNetSdkStatus.RequiredMajorVersion}. " +
+            $"Quasar can download verified SDK {_dotNetSdkStatus.PinnedManagedSdkVersion} into {availability.InstallDirectory} without changing system packages or PATH. " +
+            "Choose Install manually to cancel this plugin install and use your operating system's package manager instead.",
+            yesText: "Download private SDK",
+            noText: "Install manually",
+            cancelText: "Cancel");
+        if (choice != true)
+        {
+            if (choice == false)
+                Snackbar.Add(GetManualSdkInstallMessage(), Severity.Info);
+            return false;
+        }
+
+        _dotNetSdkInstallerBusy = true;
+        _lastDotNetSdkInstallResult = null;
+        try
+        {
+            var job = await Sdk.RequestAsync<UiPluginInstallJob>("ui-plugins.sdk.install");
+            var result = await WaitForInstallAsync(job);
+            _lastDotNetSdkInstallResult = result;
+            await ReloadAsync();
+            Snackbar.Add(result.Message, result.Succeeded ? Severity.Success : Severity.Error);
+            return result.Succeeded;
+        }
+        catch (Exception exception)
+        {
+            _lastDotNetSdkInstallResult = new QuasarDotNetSdkInstallResult(
+                Succeeded: false,
+                exception.Message,
+                string.Empty);
+            Snackbar.Add(exception.Message, Severity.Error);
+            return false;
+        }
+        finally
+        {
+            _dotNetSdkInstallerBusy = false;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task RemoveHubPluginAsync(QuasarUiPluginHubEntry entry)
+    {
+        if (HubOperationInProgress)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Remove UI plugin?",
+            $"Remove {GetHubDisplayName(entry)} from the local Quasar UI plugin directory? " +
+            $"Restart Quasar to unload active assemblies.{(entry.ImplicitLoading ? " It will stay removed until manually installed." : string.Empty)}",
+            yesText: "Remove",
+            cancelText: "Cancel");
+        if (confirmed != true)
+            return;
+
+        _hubBusyCatalogId = entry.CatalogId;
+        try
+        {
+            await ChangeAsync("remove", new { id = entry.CatalogId, entry.Commit });
+            Snackbar.Add($"{GetHubDisplayName(entry)} removed. Restart Quasar to unload it.", Severity.Info);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _hubBusyCatalogId = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ToggleHubPluginEnabledAsync(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installState)
+    {
+        if (HubOperationInProgress || string.IsNullOrWhiteSpace(installState.RuntimePluginId))
+            return;
+
+        var enabled = !installState.Enabled;
+        _hubBusyCatalogId = entry.CatalogId;
+        try
+        {
+            await ChangeAsync("enable", new { id = installState.RuntimePluginId, enabled });
+            Snackbar.Add(
+                $"{GetHubDisplayName(entry)} {(enabled ? "enabled" : "disabled")}. Restart Quasar to apply it.",
+                enabled ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _hubBusyCatalogId = string.Empty;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task SetLoadedPluginEnabledAsync(PluginDetails plugin, bool enabled)
+    {
+        try
+        {
+            await ChangeAsync("enable", new { plugin.Id, enabled });
+            Snackbar.Add(
+                $"{plugin.DisplayName} {(enabled ? "enabled" : "disabled")}. Restart Quasar to apply it.",
+                enabled ? Severity.Success : Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task ShowHubPluginDescriptionAsync(QuasarUiPluginHubEntry entry)
+    {
+        var parameters = new DialogParameters
+        {
+            [nameof(PluginCatalogDescriptionDialog.DisplayName)] = GetHubDisplayName(entry),
+            [nameof(PluginCatalogDescriptionDialog.PluginId)] = entry.CatalogId,
+            [nameof(PluginCatalogDescriptionDialog.RepoId)] = entry.RepoId,
+            [nameof(PluginCatalogDescriptionDialog.SourceUrl)] = GetHubSourceUrl(entry),
+            [nameof(PluginCatalogDescriptionDialog.Commit)] = entry.Commit,
+            [nameof(PluginCatalogDescriptionDialog.Description)] = string.IsNullOrWhiteSpace(entry.Description) ? GetHubTooltipText(entry) : entry.Description,
+        };
+
+        await DialogService.ShowAsync<PluginCatalogDescriptionDialog>(
+            "Plugin description",
+            parameters,
+            new DialogOptions { CloseOnEscapeKey = true, MaxWidth = MaxWidth.Small, FullWidth = true });
+    }
+
+    private static string FormatCacheHash(string? hash) =>
+        string.IsNullOrWhiteSpace(hash)
+            ? "cache -"
+            : hash.Length <= 12
+                ? $"cache {hash}"
+                : $"cache {hash[..12]}";
+
+    private static string FormatPathSummary(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return "-";
+
+        var trimmed = path.Trim().TrimEnd('/', '\\');
+        if (trimmed.Length == 0)
+            return path.Trim();
+
+        var separator = trimmed.Contains('\\') && !trimmed.Contains('/') ? "\\" : "/";
+        var segments = trimmed
+            .Split(['/', '\\'], StringSplitOptions.RemoveEmptyEntries);
+
+        if (segments.Length <= 3)
+            return trimmed;
+
+        return $"...{separator}{string.Join(separator, segments.Skip(segments.Length - 3))}";
+    }
+
+    private static string FormatPathTooltip(string label, string? path, string detail)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return $"{label}: -";
+
+        return string.IsNullOrWhiteSpace(detail) || detail == "-"
+            ? $"{label}: {path}"
+            : $"{label}: {path} ({detail})";
+    }
+
+    private string FormatFileInfo(FileDetails info) => info.Status ?? $"{info.Count:n0} bytes, {ViewerTime.Format(info.Modified!.Value)}";
+    private string FormatDirectoryInfo(FileDetails info) => info.Status ?? (info.Count == 0 ? "0 files" : $"{info.Count:n0} files, latest {ViewerTime.Format(info.Modified!.Value)}");
+
+    private static string FormatOptional(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "-" : value;
+
+    private bool MatchesHubEntry(QuasarUiPluginHubEntry entry) =>
+        MatchesSearchTerms(_hubSearch, entry.FriendlyName, entry.CatalogId, entry.RepoId, entry.Author, entry.Description, entry.Tooltip);
+
+    private bool IsHubBusy(QuasarUiPluginHubEntry entry) =>
+        !string.IsNullOrWhiteSpace(_hubBusyCatalogId) &&
+        string.Equals(_hubBusyCatalogId, entry.CatalogId, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsHubInstallDisabled(QuasarUiPluginHubEntry entry) =>
+        HubOperationInProgress ||
+        DotNetSdkInstallerBusy ||
+        _hubRefreshing ||
+        string.IsNullOrWhiteSpace(entry.RepoId) ||
+        string.IsNullOrWhiteSpace(entry.Commit);
+
+    private string GetHubInstallDisabledReason(QuasarUiPluginHubEntry entry)
+    {
+        if (HubOperationInProgress)
+            return "Another QuasarHub operation is running.";
+
+        if (DotNetSdkInstallerBusy)
+            return "The managed .NET SDK is being installed.";
+
+        if (_hubRefreshing)
+            return "QuasarHub catalog refresh is running.";
+
+        if (string.IsNullOrWhiteSpace(entry.RepoId))
+            return "QuasarHub entry has no repository.";
+
+        if (string.IsNullOrWhiteSpace(entry.Commit))
+            return "QuasarHub entry has no pinned commit.";
+
+        return string.Empty;
+    }
+
+    private string GetHubInstallButtonText(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installState)
+    {
+        if (IsHubBusy(entry))
+            return "Working...";
+
+        if (!installState.Installed)
+            return "Install";
+
+        return string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase)
+            ? "Reinstall"
+            : "Update";
+    }
+
+    private static string GetHubInstallButtonIcon(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installState)
+    {
+        if (!installState.Installed)
+            return Icons.Material.Filled.Download;
+
+        return string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase)
+            ? Icons.Material.Filled.RestartAlt
+            : Icons.Material.Filled.Update;
+    }
+
+    private static Color GetHubStatusColor(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installState)
+    {
+        if (!string.IsNullOrWhiteSpace(installState.Error))
+            return Color.Error;
+
+        if (!installState.Installed)
+        {
+            if (installState.ImplicitInstallSuppressed)
+                return Color.Default;
+
+            if (entry.ImplicitLoading)
+                return Color.Info;
+
+            if (entry.Recommended)
+                return Color.Info;
+
+            return entry.Hidden ? Color.Secondary : Color.Default;
+        }
+
+        if (!installState.Enabled)
+            return Color.Warning;
+
+        return string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase)
+            ? Color.Success
+            : Color.Warning;
+    }
+
+    private static string GetHubStatusText(QuasarUiPluginHubEntry entry, QuasarUiPluginInstallState installState)
+    {
+        if (!string.IsNullOrWhiteSpace(installState.Error))
+            return "Invalid";
+
+        if (!installState.Installed)
+        {
+            if (installState.ImplicitInstallSuppressed)
+                return "Removed";
+
+            if (entry.ImplicitLoading)
+                return "Implicit";
+
+            if (entry.Recommended)
+                return "Recommended";
+
+            return entry.Hidden ? "Hidden" : "Not installed";
+        }
+
+        if (!installState.Enabled)
+            return "Disabled";
+
+        return string.Equals(installState.InstalledCommit, entry.Commit, StringComparison.OrdinalIgnoreCase)
+            ? "Installed"
+            : "Update available";
+    }
+
+    private static Color GetHubEnableButtonColor(QuasarUiPluginInstallState installState) =>
+        installState.Enabled ? Color.Warning : Color.Success;
+
+    private static string GetHubEnableButtonIcon(QuasarUiPluginInstallState installState) =>
+        installState.Enabled ? Icons.Material.Filled.VisibilityOff : Icons.Material.Filled.Visibility;
+
+    private Color GetDotNetSdkChipColor() =>
+        CanBuildUiPlugins ? Color.Success : Color.Warning;
+
+    private string GetDotNetSdkChipText() =>
+        _dotNetSdkStatus.Source switch
+        {
+            QuasarDotNetSdkSource.Global => $".NET {_dotNetSdkStatus.RequiredMajorVersion} SDK global",
+            QuasarDotNetSdkSource.Managed => $".NET {_dotNetSdkStatus.RequiredMajorVersion} SDK managed",
+            _ => ".NET SDK on demand",
+        };
+
+    private async Task RefreshDotNetSdkStatus()
+    {
+        _dotNetSdkStatus = await Sdk.RequestAsync<QuasarDotNetSdkStatus>("ui-plugins.sdk.check");
+        Snackbar.Add(_dotNetSdkStatus.Message, CanBuildUiPlugins ? Severity.Success : Severity.Warning);
+    }
+
+    private string GetManualSdkInstallMessage() => State.Windows
+        ? "Plugin installation cancelled. Install the .NET 10 SDK with winget or another Windows package manager, then use Refresh SDK check."
+        : "Plugin installation cancelled. Install the .NET 10 SDK with your distribution package manager, then use Refresh SDK check.";
+
+    private static string TrimInstallerOutput(string output)
+    {
+        const int maxCharacters = 8000;
+        return output.Length <= maxCharacters
+            ? output
+            : output[^maxCharacters..];
+    }
+
+    private static string GetHubDisplayName(QuasarUiPluginHubEntry entry) =>
+        string.IsNullOrWhiteSpace(entry.FriendlyName) ? entry.CatalogId : entry.FriendlyName;
+
+    private static string GetHubTooltipText(QuasarUiPluginHubEntry entry)
+    {
+        var text = string.IsNullOrWhiteSpace(entry.Tooltip) ? entry.Description : entry.Tooltip;
+        return string.IsNullOrWhiteSpace(text) ? "-" : text.Trim();
+    }
+
+    private static string GetHubSourceUrl(QuasarUiPluginHubEntry entry) =>
+        entry.RepositoryUrl;
+
+    private string FormatRefreshTime(DateTimeOffset? refreshUtc) =>
+        ViewerTime.Format(refreshUtc, "never");
+
+    private static bool MatchesSearchTerms(string searchText, params string?[] values)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            return true;
+
+        var blob = string.Join(' ', values.Where(value => !string.IsNullOrWhiteSpace(value)));
+        return searchText
+            .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .All(term => blob.Contains(term, StringComparison.OrdinalIgnoreCase));
+    }
+
+}

@@ -1,0 +1,7 @@
+@page "/settings/display"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<PageTitle>Display</PageTitle>
+<DashboardPageHeading Section="Settings"><Title>Display</Title></DashboardPageHeading>
+
+<TimeZoneSettings />

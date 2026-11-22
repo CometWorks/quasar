@@ -26,6 +26,8 @@ public sealed class BrandingService : IDisposable
     private readonly string _brandingAssetsDirectory;
     private BrandingSettings _settings;
     private string _snapshot;
+    private string _revision = Guid.NewGuid().ToString("N");
+    public string Revision { get { lock (_sync) return _revision; } }
     private DebouncedFileWatcher? _watcher;
 
     public BrandingService(ILogger<BrandingService> logger)
@@ -84,6 +86,7 @@ public sealed class BrandingService : IDisposable
         {
             _settings = normalized;
             _snapshot = json;
+            _revision = Guid.NewGuid().ToString("N");
         }
 
         _logger.LogInformation("Saved branding settings to {Path}", path);
@@ -230,6 +233,7 @@ public sealed class BrandingService : IDisposable
             {
                 _settings = reloaded;
                 _snapshot = snapshot;
+                _revision = Guid.NewGuid().ToString("N");
                 changed = true;
             }
         }

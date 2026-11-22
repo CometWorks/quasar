@@ -7,10 +7,7 @@ using CometWorks.ClusterGateway.AdminContract.V1;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Components.Authorization;
-using System.Security.Claims;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Clusters;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -25,13 +22,15 @@ public sealed class ClusterOfflineTests
     [InlineData(QuasarRoles.Viewer)]
     public async Task AdvancedCommandUiCannotBypassOfflineAdministratorGuard(string role)
     {
-        using var services = new ServiceCollection().AddLogging().AddAuthorization(Program.ConfigureAuthorizationPolicies).BuildServiceProvider();
-        var permissions = new QuasarPermissionService(new RoleState(role), services.GetRequiredService<IAuthorizationService>(), new QuasarRoleMapper(new(), null!));
-        var panel = new ClusterAdminPanel();
-        typeof(ClusterAdminPanel).GetProperty("Permissions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.SetValue(panel, permissions);
-        // Every mutable collaborator is absent: denied events must return before reaching any.
-        await panel.SubmitAsync(ClusterAdminCommand.Create("trigger", new ClusterMaintenanceScope("node-1", 7), "profile"));
-        await panel.SubmitAsync(ClusterAdminCommand.Create("offline-cache-clear", new OfflineCacheClearRequest("key", 0)));
+        using var fixture = new OfflineGatewayFixture();
+        await using var context = Context(fixture, role);
+        var sdk = context.Services.GetRequiredService<Microsoft.JSInterop.IJSRuntime>();
+        foreach (var command in new[] {
+            PanelCommand.Create("trigger", new ClusterMaintenanceScope("node-1", 7), "profile"),
+            PanelCommand.Create("offline-cache-clear", new OfflineCacheClearRequest("key", 0)) })
+            await Assert.ThrowsAsync<Microsoft.JSInterop.JSException>(async () => await sdk.InvokeAsync<PanelOperation>("quasarSdk.uploadJson",
+                ["quasar.core", "cluster.panel.command", new ClusterPanelRequest("demo"), JsonSerializer.Serialize(command)]));
+        Assert.Empty(fixture.Requests);
     }
 
     [Fact]
@@ -39,7 +38,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture { LobbySupported = true };
         await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
         var lobby = panel.Find("section[aria-label='Lobby anchor']");
         Assert.Contains("Hall", lobby.TextContent);
         lobby.QuerySelectorAll("select")[1].Change("7");
@@ -57,7 +56,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture { LobbySupported = true, LobbyState = state };
         await using var context = Context(fixture, QuasarRoles.Viewer);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Viewer);
         var lobby = panel.Find("section[aria-label='Lobby anchor']");
         Assert.Contains("Hall", lobby.TextContent);
         Assert.Contains(label, lobby.TextContent);
@@ -67,11 +66,16 @@ public sealed class ClusterOfflineTests
     [Fact]
     public async Task LobbyFilePickerSubmitsBlueprintAndCoordinates()
     {
-        using var fixture = new OfflineGatewayFixture { LobbySupported = true };
-        await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
-        panel.Find("section[aria-label='Lobby anchor'] select").Change("file");
         const string blueprint = "<Definitions><ShipBlueprints/></Definitions>";
+        using var fixture = new OfflineGatewayFixture { LobbySupported = true };
+        await using var context = Context(fixture, QuasarRoles.Admin, name =>
+        {
+            Assert.Equal("bp.sbc", name);
+            return new MemoryStream(System.Text.Encoding.UTF8.GetBytes(blueprint));
+        });
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
+        panel.Find("section[aria-label='Lobby anchor'] select").Change("file");
+
         panel.FindComponent<Microsoft.AspNetCore.Components.Forms.InputFile>().UploadFiles(
             InputFileContent.CreateFromBinary(System.Text.Encoding.UTF8.GetBytes(blueprint), "bp.sbc"));
         const string coords = "section[aria-label='Lobby anchor'] input[type=number]";
@@ -82,12 +86,6 @@ public sealed class ClusterOfflineTests
         var request = Assert.Single(fixture.Requests, r => r.Method == "PUT");
         Assert.Equal(new LobbyUpdate(1, BlueprintXml: blueprint, Position: new(20000000, 0, 100)),
             JsonSerializer.Deserialize<LobbyUpdate>(request.Body, OfflineGatewayFixture.Json));
-    }
-
-    private sealed class RoleState(string role) : AuthenticationStateProvider
-    {
-        public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(new AuthenticationState(
-            new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, role)], "fixture"))));
     }
 
     [Theory]
@@ -182,7 +180,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture();
         await using var context = Context(fixture, role);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, role);
         Assert.Contains("profiling", panel.Markup);
         Assert.Contains("Approximate", panel.Markup);
         Assert.Contains("unknown mod logic", panel.Markup);
@@ -214,7 +212,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture { QueryError = "offline_unsupported" };
         await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
         await panel.Find("button[aria-label='Inspect partition 7']").ClickAsync(new());
         Assert.Contains("offline_unsupported", panel.Markup);
         Assert.All(fixture.Requests, r => Assert.Equal("GET", r.Method));
@@ -230,7 +228,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture { Supported = false };
         await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
         Assert.Contains("unsupported by this cluster package", panel.Markup);
         Assert.Contains("node-1", panel.Markup);
         Assert.DoesNotContain(fixture.Requests, r => r.Uri.AbsolutePath.Contains("/offline/"));
@@ -244,7 +242,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture();
         await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
         var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         fixture.Delay = async request =>
@@ -282,7 +280,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture();
         await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
         await panel.Find("button[aria-label='Inspect partition 17']").ClickAsync(new());
         fixture.QueryError = "node_unavailable";
         await panel.FindAll("button").Single(b => b.TextContent.Contains("Dry run")).ClickAsync(new());
@@ -300,7 +298,7 @@ public sealed class ClusterOfflineTests
     {
         using var fixture = new OfflineGatewayFixture { MutationError = "epoch_mismatch" };
         await using var context = Context(fixture, QuasarRoles.Admin);
-        var panel = context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var panel = Partitions(context, fixture, QuasarRoles.Admin);
         fixture.CacheEpoch = 5;
         await panel.FindAll("button").Single(b => b.TextContent.Contains("Clear this key")).ClickAsync(new());
         Assert.Contains("epoch_mismatch", panel.Markup);
@@ -309,16 +307,19 @@ public sealed class ClusterOfflineTests
         Assert.Contains("\"expectedEpoch\":4", sent.Body);
     }
 
-    private static BunitContext Context(OfflineGatewayFixture fixture, string role)
+    private static IRenderedComponent<ClusterPartitionsPanel> Partitions(BunitContext context, OfflineGatewayFixture fixture, string role) =>
+        context.Render<ClusterPartitionsPanel>(p => p.Add(c => c.UniqueName, fixture.Cluster.UniqueName)
+            .Add(c => c.CanManage, role == QuasarRoles.Admin).Add(c => c.CanMaintain, role == QuasarRoles.Admin));
+
+    private static BunitContext Context(OfflineGatewayFixture fixture, string role, Func<string, Stream>? openFile = null)
     {
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext(openFile: openFile);
         var auth = context.AddAuthorization(); auth.SetAuthorized("operator"); auth.SetRoles(role);
-        auth.SetPolicies(role == QuasarRoles.Admin ? [QuasarPolicyNames.ClusterMaintenance, QuasarPolicyNames.ClusterManage] : []);
+        auth.SetPolicies(role == QuasarRoles.Admin ? [QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterMaintenance, QuasarPolicyNames.ClusterManage] : [QuasarPolicyNames.ClusterQuery]);
+        context.Services.AddSingleton(fixture.Catalog);
         context.Services.AddSingleton(fixture.Gateway);
         context.Services.AddSingleton(fixture.Commands);
         context.Services.AddSingleton(fixture.Store);
-        context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-        context.Services.AddSingleton<QuasarPermissionService>();
         return context;
     }
 }

@@ -1,6 +1,6 @@
 using System.Text.Json;
 using Bunit;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Clusters;
 using CometWorks.ClusterGateway.AdminContract.V1;
 using Xunit;
 

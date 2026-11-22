@@ -1,0 +1,41 @@
+@using Quasar.Services
+@using Quasar.Components.Shared
+<section class="quasar-stack" aria-label="Dedicated Server setup">
+    <h4>Preparing your server files</h4>
+    <p>Quasar checks for an existing installation, then downloads anything missing. The first download and validation can take several minutes. Progress updates here automatically; you can leave this page and return.</p>
+    <ol>
+        <li>Prepare SteamCMD, the tool that downloads Space Engineers.</li>
+        <li>Install and validate Dedicated Server files, including the starting worlds.</li>
+        <li>Prepare Magnetar, which loads your server plugins.</li>
+    </ol>
+    @foreach (var component in Snapshot.Components.OrderBy(c => c.Component))
+    {
+        @if (component.State is ManagedRuntimeComponentState.Checking or ManagedRuntimeComponentState.Downloading or ManagedRuntimeComponentState.Installing)
+        {
+            <QuasarOperationLoader @key="component.Component" Title="@component.DisplayName" Message="@component.Message" Percent="@((double?)component.Percent)" />
+        }
+        else
+        {
+            <p><strong>@component.DisplayName: @component.State.</strong> @component.Message</p>
+        }
+    }
+    @if (Snapshot.Components.Any(c => c.Component == ManagedRuntimeInstallComponent.DedicatedServer && c.State == ManagedRuntimeComponentState.Ready))
+    {
+        <p class="quasar-notice quasar-notice-success" role="status">Server files are ready. Choose a starting world now; Magnetar only needs to be ready when you start the server.</p>
+    }
+    @if (Snapshot.State == ManagedRuntimeWarmupState.Failed || Snapshot.Components.Any(c => c.State == ManagedRuntimeComponentState.Failed))
+    {
+        <div class="quasar-notice quasar-notice-warning" role="alert">
+            <p>Preparation needs attention. Check the failed step above, internet access, available disk space and write access to Quasar's data folder. Fix the reported problem, then retry. Your setup choices are kept.</p>
+            @if (CanRetry) {
+                <button type="button" class="quasar-button quasar-tone-primary" disabled="@(Snapshot.State == ManagedRuntimeWarmupState.Running)" @onclick="Retry">Retry preparation</button>
+            }
+        </div>
+    }
+</section>
+
+@code {
+    [Parameter,EditorRequired] public ManagedRuntimeWarmupSnapshot Snapshot { get; set; }=default!;
+    [Parameter] public bool CanRetry { get; set; }
+    [Parameter] public EventCallback Retry { get; set; }
+}

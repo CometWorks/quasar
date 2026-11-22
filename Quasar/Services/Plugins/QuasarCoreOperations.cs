@@ -15,6 +15,7 @@ public static class QuasarCoreOperations
     public sealed record BackupRequest(string? Name = null);
     public sealed record LogRequest(string UniqueName = "", string? Name = null);
     public sealed record EmptyRequest;
+    public sealed record DashboardPermissionRequest(string Policy);
     public sealed record ServerRequest(string UniqueName = "");
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read };
@@ -23,13 +24,46 @@ public static class QuasarCoreOperations
 
     public static void AddQuasarCoreOperations(this IServiceCollection services)
     {
+        services.AddQuasarOperation<DashboardPermissionRequest, bool>(PluginId, "dashboard.permission", [QuasarPolicyNames.CanView],
+            async (caller, input, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(input.Policy) || input.Policy.Length > 128) return false;
+                var policies = caller.Services.GetRequiredService<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider>();
+                var policy = await policies.GetPolicyAsync(input.Policy);
+                if (policy is null) return false;
+                var authorization = caller.Services.GetRequiredService<Microsoft.AspNetCore.Authorization.IAuthorizationService>();
+                return (await authorization.AuthorizeAsync(caller.User, null, policy.Requirements)).Succeeded;
+            }, ReadDeniedToAgents with { RequireDefaultPolicies = true, Description = "Checks the calling dashboard user's current permission." });
+        services.AddQuasarPowerOperations();
+        services.AddQuasarUiPluginDashboardOperations();
+        services.AddQuasarLivePluginDashboardOperations();
+        services.AddQuasarWorldDashboardOperations();
+        services.AddQuasarFleetConsoleOperations();
+        services.AddQuasarFleetDashboardOperations();
+        services.AddQuasarServerImportOperations();
         services.AddQuasarServerOperations();
+        services.AddQuasarHostDashboardOperations();
+        services.AddQuasarConversionDashboardOperations();
+        services.AddQuasarClusterSetupDashboardOperations();
         services.AddQuasarConfigOperations();
         services.AddQuasarPlayerOperations();
         services.AddQuasarBackupOperations();
+        services.AddQuasarAuditDashboard();
+        services.AddQuasarNotificationDashboard();
+        services.AddQuasarSetupDashboard();
+        services.AddQuasarListingDashboard();
+        services.AddQuasarAppearance();
+        services.AddQuasarSecurityDashboard();
+        services.AddQuasarUpdatesDashboard();
+        services.AddQuasarClusterDetail();
+        services.AddQuasarClusterMaintenance();
         services.AddQuasarClusterOperations();
         services.AddQuasarEntityOperations();
         services.AddQuasarChatOperations();
+        services.AddDiscordDashboardOperations();
+        services.AddAccessDashboardOperations();
+        services.AddPlayerDashboardOperations();
+        services.AddAnalyticsDashboardOperations();
         services.AddQuasarActivityOperations();
         services.AddQuasarClusterControlOperations();
         services.AddQuasarRead<BackupRequest>(PluginId, "backup.read", [QuasarPolicyNames.CanManageSecurity],
@@ -49,13 +83,14 @@ public static class QuasarCoreOperations
                     try { return Task.FromResult<Stream>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, QuasarSdkLimits.TransferBufferBytes, FileOptions.Asynchronous)); }
                     catch (IOException) { throw new QuasarOperationException(404, "Backup not found."); }
                 }, "application/zip", Path.GetFileName(path), EnableRanges: true));
-            }, ReadDeniedToAgents with { Description = "Downloads a Quasar backup archive by name, or a fresh configuration backup when no name is given." });
+            }, ReadDeniedToAgents with { RequireDefaultPolicies = true, Description = "Downloads a Quasar backup archive by name, or a fresh configuration backup when no name is given." });
         services.AddQuasarOperation<AnalyticsRequest, AnalyticsSeriesResponse>(PluginId, "analytics.series.read", [QuasarPolicyNames.CanView],
-            (caller, input, token) =>
+            async (caller, input, token) =>
             {
                 token.ThrowIfCancellationRequested();
-                return Task.FromResult(caller.Services.GetRequiredService<AnalyticsSeriesService>().Build(
-                    input.From, input.To, input.Servers ?? [], input.Metrics ?? [], input.MaxPoints));
+                string[] sources = await QuasarFleetDashboardOperations.VisibleChartSources(caller, input.Servers);
+                return caller.Services.GetRequiredService<AnalyticsSeriesService>().Build(
+                    input.From, input.To, sources, input.Metrics ?? [], input.MaxPoints);
             }, Read with { Description = "Returns analytics time series of the given servers and metrics between two Unix times in milliseconds, at most maxPoints per series." });
         services.AddQuasarRead<LogRequest>(PluginId, "logs.server.read", [QuasarPolicyNames.CanView],
             (caller, input, token) => Task.FromResult(ReadLog(ResolveDedicatedServerLogPath(input.UniqueName,

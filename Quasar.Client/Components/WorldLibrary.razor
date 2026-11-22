@@ -1,0 +1,164 @@
+@using MudBlazor
+@using Quasar.Client.Fleet
+@using Microsoft.JSInterop
+@using Quasar.Services
+@inject DashboardSdk Sdk
+@inject ViewerTimeZone ViewerTime
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject NavigationManager Navigation
+
+<DashboardPageHeading Section="Configuration">
+    <Title>Worlds</Title>
+    <Description>Import a save into an existing server or manage reusable starting worlds.</Description>
+    <Actions>
+        @if (_data?.EditServers == true)
+        { <MudButton OnClick="ChooseServer" Color="Color.Primary" Variant="Variant.Filled">Import World to Server...</MudButton> }
+        <MudButton OnClick="RefreshAsync" Disabled="_loading">Refresh</MudButton>
+    </Actions>
+</DashboardPageHeading>
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+@if (_loading) { <MudProgressLinear Indeterminate="true" aria-label="Loading worlds" /> }
+@if (_data is { } data)
+{
+    @if (_chooseServer && data.EditServers)
+    {
+        <MudSelect Label="Target server" T="string" ValueChanged="SelectServer">
+            @foreach (var s in data.Servers)
+            { <MudSelectItem Value="@s.Id" Disabled="@(!s.Importable)">@s.Name (@s.State)</MudSelectItem> }
+        </MudSelect>
+    }
+    @if (_form)
+    {
+        <WorldImportForm @key="_formKey" Inventory="data" Server="_server" Existing="_template" ProfileOnly="_profileOnly"
+                         TemplateOnly="@(_template is not null && !_profileOnly)" Saved="OnSavedAsync" Closed="Close" />
+    }
+    <MudTabs @bind-ActivePanelIndex="_tab" Elevation="0" Outlined="true" ApplyEffectsToContainer="true" TabPanelsClass="worlds-tab-content">
+        <MudTabPanel Text="Server worlds" Icon="@Icons.Material.Filled.Dns">
+            <section class="quasar-panel pa-4">
+                <h2 class="quasar-text quasar-type-h6">Server worlds</h2>
+                <p>Each standalone server selects its own save. Importing selects a new save and keeps the previous save on disk. Cluster worlds use the cluster deployment flow.</p>
+                <MudTable T="WorldServer" Items="data.Servers" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                    <HeaderContent><MudTh>Server</MudTh><MudTh>Selected save</MudTh><MudTh>Configuration profile</MudTh><MudTh>Status / goal</MudTh><MudTh>Actions</MudTh></HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Server">@context.Name<br /><small class="mono">@context.Id</small></MudTd>
+                        <MudTd DataLabel="Selected save">@context.Save</MudTd>
+                        <MudTd DataLabel="Configuration profile">@context.Profile</MudTd>
+                        <MudTd DataLabel="Status / goal">@context.State / @context.Goal</MudTd>
+                        <MudTd DataLabel="Actions">
+                            @if (data.EditServers)
+                            {
+                                <span title="@(context.Importable ? "Import a save folder or ZIP" : "Stop the server and set its goal Off; wait for any backup, restore or import")">
+                                    <MudButton Disabled="@(!context.Importable)" OnClick="@(() => Open(context, null, false))">Import World...</MudButton>
+                                </span>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><p class="pa-4">Create a standalone server from Dashboard before importing a world into it.</p></NoRecordsContent>
+                </MudTable>
+            </section>
+        </MudTabPanel>
+        <MudTabPanel Text="Templates" Icon="@Icons.Material.Filled.Public">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-panel-heading">
+                    <h2 class="quasar-text quasar-type-h6">Reusable templates</h2>
+                    @if (data.EditConfigs) { <MudButton OnClick="@(() => Open(null, null, false))">Add Template...</MudButton> }
+                </div>
+                <p>Use a predefined world, a completed save folder or a ZIP to create a reusable starting world.</p>
+                <MudTable T="WorldTemplate" Items="data.Templates" Dense="true" Hover="true">
+                    <HeaderContent>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.SizeMb)">Size</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.Updated)">Updated</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.Name)">Name</MudTableSortLabel></MudTh>
+                        <MudTh><MudTableSortLabel SortBy="new Func<WorldTemplate, object>(x => x.Description)">Description</MudTableSortLabel></MudTh>
+                        <MudTh>Actions</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Size">@(context.Exists ? context.SizeMb + " MiB" : "Missing")</MudTd>
+                        <MudTd DataLabel="Updated">@ViewerTime.Format(context.Updated)</MudTd>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Description">@context.Description</MudTd>
+                        <MudTd DataLabel="Actions">
+                            @if (data.EditConfigs)
+                            {
+                                <MudIconButton Icon="@Icons.Material.Filled.SettingsApplications" title="Create config profile from world settings" Disabled="@(!context.Exists)" OnClick="@(() => Open(null, context, true))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.ContentCopy" title="Clone template" Disabled="@(!context.Exists)" OnClick="@(() => Open(null, context, false))" />
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete" title="Delete template" Color="Color.Error" OnClick="@(() => DeleteAsync(context))" />
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent><p class="pa-4">No world templates yet.</p></NoRecordsContent>
+                </MudTable>
+            </section>
+        </MudTabPanel>
+    </MudTabs>
+}
+
+@code {
+    [Parameter] public string? ImportServer { get; set; }
+    [Parameter] public bool AddTemplate { get; set; }
+    private WorldInventory? _data;
+    private WorldServer? _server;
+    private WorldTemplate? _template;
+    private bool _form, _profileOnly, _chooseServer, _loading, _deleting;
+    private int _tab, _formKey;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        if (AddTemplate && _data?.EditConfigs == true) { _tab = 1; Open(null, null, false); }
+        else if (ImportServer is not null && _data?.EditServers == true) SelectServer(ImportServer);
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            _data = await Sdk.RequestAsync<WorldInventory>("worlds.inventory");
+            if (_form && (_server is null ? !_data.EditConfigs : !_data.EditServers)) Close();
+            _error = null;
+        }
+        catch (JSException error) { Close(); _data = null; _error = error.Message; }
+        finally { _loading = false; }
+    }
+
+    private void Open(WorldServer? server, WorldTemplate? template, bool profile)
+    { _chooseServer = false; _server = server; _template = template; _profileOnly = profile; _form = true; ++_formKey; }
+    private void Close() { _form = false; _chooseServer = false; }
+    private void ChooseServer() { Close(); _chooseServer = true; }
+
+    private void SelectServer(string id)
+    {
+        var server = _data?.Servers.FirstOrDefault(s => s.Id == id && s.Importable);
+        if (server is not null) Open(server, null, false);
+        else _error = "Stop the selected server and set its goal Off before importing.";
+    }
+
+    private async Task OnSavedAsync(WorldSaved saved)
+    {
+        Close();
+        foreach (var message in saved.Messages) Snackbar.Add(message, Severity.Info);
+        if (saved.Profile is not null && saved.Server is null)
+            Navigation.NavigateTo("configs?profileId=" + Uri.EscapeDataString(saved.Profile));
+        else await RefreshAsync();
+    }
+
+    private async Task DeleteAsync(WorldTemplate template)
+    {
+        if (_deleting) return;
+        _deleting = true;
+        try
+        {
+            if (await Dialogs.ShowMessageBoxAsync("Delete world template?", $"'{template.Name}' and its imported world files will be permanently removed.",
+                yesText: "Delete", cancelText: "Cancel") != true) return;
+            await Sdk.RequestAsync<bool>("worlds.delete", new { template.Id, revision = template.Updated });
+            if (_template?.Id == template.Id) Close();
+            await RefreshAsync();
+        }
+        catch (JSException error) { _error = error.Message; }
+        finally { _deleting = false; }
+    }
+}

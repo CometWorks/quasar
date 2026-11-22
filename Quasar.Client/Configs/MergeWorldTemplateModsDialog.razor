@@ -1,0 +1,128 @@
+@namespace Quasar.Components.Pages
+@using Quasar.Client.Configs
+@using Quasar.Models
+@using Quasar.Services
+@inject IJSRuntime JS
+
+<MudDialog>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">
+                Pick a world template to merge its mods into this config profile. Only mods that aren't already in the profile will be added.
+            </p>
+
+            <MudSelect T="string"
+                       Value="@_selectedTemplateId"
+                       ValueChanged="OnTemplateChanged"
+                       Label="World template"
+                       Variant="Variant.Outlined"
+                       Required="true"
+                       RequiredError="World template required.">
+                @foreach (var template in _templates)
+                {
+                    <MudSelectItem T="string" Value="@template.WorldTemplateId">@template.Name</MudSelectItem>
+                }
+            </MudSelect>
+
+            @if (!string.IsNullOrWhiteSpace(_loadError))
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_loadError</MudAlert>
+            }
+            else if (!string.IsNullOrWhiteSpace(_selectedTemplateId))
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    @_newMods.Count new mod(s) will be added. @_duplicateCount already in profile.
+                </MudAlert>
+
+                @if (_newMods.Count > 0)
+                {
+                    <MudTable T="QuasarModSelection" Items="_newMods" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm">
+                        <HeaderContent>
+                            <MudTh>Name</MudTh>
+                            <MudTh>Workshop ID</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Name">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Workshop ID" Class="mono">@context.WorkshopId</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   OnClick="Confirm"
+                   Disabled="@(_newMods.Count == 0 || !string.IsNullOrWhiteSpace(_loadError))">
+            Merge @_newMods.Count mod(s)
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public IReadOnlyCollection<long> ExistingWorkshopIds { get; set; } = Array.Empty<long>();
+
+    private string _selectedTemplateId = string.Empty;
+    private List<QuasarModSelection> _newMods = [];
+    private int _duplicateCount;
+    private string? _loadError;
+    private IReadOnlyList<ConfigTemplate> _templates = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        try { _templates = await new ConfigDashboard(JS).ReadAsync<ConfigTemplate[]>("templates"); }
+        catch (JSException error) { _loadError = error.Message; }
+    }
+
+    private async Task OnTemplateChanged(string value)
+    {
+        _selectedTemplateId = value ?? string.Empty;
+        await LoadDiff();
+    }
+
+    private async Task LoadDiff()
+    {
+        _newMods = [];
+        _duplicateCount = 0;
+        _loadError = null;
+
+        if (string.IsNullOrWhiteSpace(_selectedTemplateId))
+            return;
+
+        var selected = _selectedTemplateId;
+        IReadOnlyList<QuasarModSelection> templateMods;
+        try
+        {
+            templateMods = await new ConfigDashboard(JS).ReadAsync<QuasarModSelection[]>("templates.mods", new { value = selected });
+            if (selected != _selectedTemplateId) return;
+        }
+        catch (Exception exception)
+        {
+            if (selected == _selectedTemplateId) _loadError = exception.Message;
+            return;
+        }
+
+        var existing = new HashSet<long>(ExistingWorkshopIds);
+        foreach (var mod in templateMods)
+        {
+            if (existing.Contains(mod.WorkshopId))
+                _duplicateCount++;
+            else
+                _newMods.Add(mod);
+        }
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Confirm()
+    {
+        MudDialog.Close(DialogResult.Ok(_newMods));
+    }
+}

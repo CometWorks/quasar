@@ -1,13 +1,11 @@
 stateDiagram-v2
-    [*] --> Uninitialized
-    Uninitialized --> System: InitializeAsync (no stored preference)
-    Uninitialized --> Light: stored "light"
-    Uninitialized --> Dark: stored "dark"
-    Uninitialized --> System: stored "system"
-    System --> Light: SetModeAsync(Light)
-    System --> Dark: SetModeAsync(Dark)
-    Light --> Dark: SetModeAsync(Dark)
-    Light --> System: SetModeAsync(System)
-    Dark --> Light: SetModeAsync(Light)
-    Dark --> System: SetModeAsync(System)
-    System --> System: SyncSystemDarkMode (OS dark/light toggles)
+    [*] --> System: Missing or unrecognized preference
+    [*] --> Light: Stored light
+    [*] --> Dark: Stored dark
+    System --> Light: Choose Light
+    System --> Dark: Choose Dark
+    Light --> Dark: Choose Dark
+    Dark --> Light: Choose Light
+    Light --> System: Choose System
+    Dark --> System: Choose System
+    System --> System: OS color scheme changes

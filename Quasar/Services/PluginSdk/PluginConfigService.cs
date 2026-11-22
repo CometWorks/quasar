@@ -204,7 +204,13 @@ public sealed class PluginConfigService : IHostedService
         finally { if (File.Exists(temporary)) File.Delete(temporary); }
     }
 
-    private void NotifyChanged() => Changed?.Invoke();
+    private long _revision;
+    public long Revision => Interlocked.Read(ref _revision);
+    private void NotifyChanged()
+    {
+        Interlocked.Increment(ref _revision);
+        Changed?.Invoke();
+    }
 
     private static PluginConfigData Clone(PluginConfigData data) => new()
     {

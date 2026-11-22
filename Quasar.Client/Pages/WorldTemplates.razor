@@ -1,0 +1,11 @@
+@page "/world-templates"
+@page "/worlds"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<PageTitle>Worlds</PageTitle>
+<WorldLibrary ImportServer="@Server" AddTemplate="Add" @key="(Server, Add)" />
+
+@code {
+    [SupplyParameterFromQuery] public string? Server { get; set; }
+    [SupplyParameterFromQuery] public bool Add { get; set; }
+}

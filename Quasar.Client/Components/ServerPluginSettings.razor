@@ -1,0 +1,143 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@implements IDisposable
+@inject DashboardSdk Sdk
+
+<DashboardPageHeading Section="Operations">
+    <Title>Plugin configuration</Title>
+    <Description>Live configuration for plugins that expose a Quasar config provider.</Description>
+</DashboardPageHeading>
+
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+@if (_state is null)
+{
+    @if (_error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading plugins" /> }
+}
+else if (_state.Agents.Length == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No connected server is exposing editable plugin configuration.
+    </MudAlert>
+}
+else
+{
+    var selectedAgent = SelectedAgent;
+
+    <MudSelect T="string"
+               Label="Server"
+               Value="@selectedAgent?.Id"
+               ValueChanged="HandleConfigAgentChanged"
+               Variant="Variant.Outlined"
+               Dense="true"
+               Class="mb-4"
+               Style="max-width: 24rem;">
+        @foreach (var agent in _state!.Agents)
+        {
+            <MudSelectItem T="string" Value="@agent.Id">@agent.Name</MudSelectItem>
+        }
+    </MudSelect>
+
+    @if (selectedAgent is not null)
+    {
+        <section class="quasar-panel server-card mb-4 pa-4">
+            <h2 class="quasar-text quasar-type-h6">@selectedAgent.Name</h2>
+            <span class="quasar-text quasar-type-caption mud-text-secondary d-block mb-3">@selectedAgent.HostName</span>
+            <MudExpansionPanels Class="mb-2" MultiExpansion="true">
+                @foreach (var plugin in selectedAgent.Plugins)
+                {
+                    var pluginId = plugin.Id;
+                    <MudExpansionPanel Text="@plugin.Name"
+                                       Expanded="@(_expandedConfigPluginId == pluginId)"
+                                       ExpandedChanged="expanded => HandleConfigPanelToggled(pluginId, expanded)">
+                        @if (_expandedConfigPluginId == pluginId)
+                        {
+                            // Construct the editor only while its panel is open. Keeping every
+                            // plugin's editor mounted at once is too many DOM nodes.
+                            @if (_state.CanEdit)
+                            {
+                            @if (selectedAgent.ClusterId is not null)
+                            {
+                                <MudAlert Severity="Severity.Info">
+                                    Plugin configuration is managed for the whole cluster.
+                                    Open the cluster's plugin settings to use the configuration editor and stage changes for all nodes.
+                                </MudAlert>
+                                <MudButton Href="@($"clusters/{Uri.EscapeDataString(selectedAgent.ClusterId)}#cluster-settings")"
+                                           Variant="Variant.Outlined" Color="Color.Primary" Class="mt-3">
+                                    Open cluster plugin settings
+                                </MudButton>
+                            }
+                            else
+                            {
+                                <LivePluginEditor @key="(selectedAgent.Id, selectedAgent.ConnectionId, plugin.Id)"
+                                    Selection="@(new(selectedAgent.Id, selectedAgent.ConnectionId, plugin.Id))" DisplayName="@plugin.Name" Revision="_state.ConfigRevision" />
+                            }
+                            }
+                            else
+                            {
+                                <p class="quasar-muted">Configuration values require editor access because they may contain credentials.</p>
+                            }
+                        }
+                    </MudExpansionPanel>
+                }
+            </MudExpansionPanels>
+        </section>
+    }
+}
+
+<h2 class="quasar-text quasar-type-h5 mt-8 mb-2">Plugin logs</h2>
+<p class="quasar-text quasar-type-body2 mb-4 mud-text-secondary">
+    Structured logs emitted by plugins through the PluginSdk, captured from managed dedicated servers.
+</p>
+
+@if (_state is not null) { <LivePluginLogs Revision="_state.LogRevision" /> }
+
+
+@code {
+    private readonly CancellationTokenSource _stop = new();
+    private LivePlugins? _state;
+    private string? _selected, _expandedConfigPluginId, _error;
+    private ConfigAgent? SelectedAgent => _state?.Agents.FirstOrDefault(a => a.Id == _selected) ?? _state?.Agents.FirstOrDefault();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        if (!_stop.IsCancellationRequested) _ = PollAsync(_stop.Token);
+    }
+
+    private async Task PollAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try
+        {
+            var previous = SelectedAgent;
+            _state = await Sdk.RequestAsync<LivePlugins>("liveplugins.list", token: _stop.Token);
+            if (previous?.ConnectionId != SelectedAgent?.ConnectionId) _expandedConfigPluginId = null;
+            _error = null;
+        }
+        catch (JSException error) { _state = null; _error = error.Message; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private void HandleConfigAgentChanged(string id) { _selected = id; _expandedConfigPluginId = null; }
+    private void HandleConfigPanelToggled(string id, bool expanded)
+    {
+        if (expanded) _expandedConfigPluginId = id;
+        else if (_expandedConfigPluginId == id) _expandedConfigPluginId = null;
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

@@ -1,0 +1,43 @@
+@inject IJSRuntime JS
+<details class="quasar-details"><summary>Plugin configuration</summary>
+    <div class="quasar-stack">
+        <p>Save plugin settings to stage a pending update for all nodes. Apply it from Maintenance when you are ready for downtime.</p>
+        @if (_error is not null) { <p role="alert">@_error</p><button type="button" class="quasar-button" @onclick="LoadAsync">Retry</button> }
+        @if (_plugins is { Length: 0 }) { <p>No editable plugin configurations are available in the saved preparation. Complete guided setup or prepare an imported deployment first.</p> }
+        @foreach (var plugin in _plugins ?? [])
+        {
+            <details class="quasar-details" @key="(plugin.PluginId, plugin.ConfigType)"><summary>@plugin.DisplayName</summary>
+                <SchemaConfigEditor PluginId="@plugin.PluginId" ConfigJson="@plugin.ConfigJson" DisplayName="@plugin.DisplayName"
+                    SaveValues="@(values => SaveAsync(plugin, values))" ApplyLabel="Save and stage update"
+                    SuccessMessage="Configuration saved and staged. Apply the pending update from Maintenance when ready." />
+            </details>
+        }
+    </div>
+</details>
+
+@code {
+    [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
+    private ClusterPluginConfig[]? _plugins;
+    private bool _loading;
+    private string? _error;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        if (_loading || _plugins is not null) return;
+        _loading = true;
+        try
+        {
+            _plugins = await JS.InvokeAsync<ClusterPluginConfig[]>("quasarSdk.readJson", "quasar.core", "cluster.settings.plugins", new ClusterPanelRequest(UniqueName));
+            _error = null;
+        }
+        catch (JSException error) { _error = error.Message; }
+        finally { _loading = false; }
+    }
+    private async Task SaveAsync(ClusterPluginConfig plugin, string values)
+    {
+        await JS.InvokeAsync<bool>("quasarSdk.uploadJson", "quasar.core", "cluster.settings.plugin.stage",
+            ClusterPanelRequest.For(UniqueName, new ClusterPluginTarget(plugin.PluginId, plugin.ConfigType)), values);
+        _plugins = null;
+        await LoadAsync();
+    }
+}

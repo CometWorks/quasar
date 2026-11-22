@@ -146,6 +146,7 @@ public static class QuasarConfigOperations
 
     public static void AddQuasarConfigOperations(this IServiceCollection services)
     {
+        services.AddConfigDashboardOperations();
         const string plugin = QuasarCoreOperations.PluginId;
         services.AddQuasarOperation<ServerRequest, Dictionary<string, object?>>(
             plugin,
@@ -281,6 +282,7 @@ public static class QuasarConfigOperations
             {
                 Reversal = QuasarReversal.Undo,
                 Undo = new ProfileUndo(),
+                RequireDefaultPolicies = true,
                 AgentAccess = QuasarAgentAccess.Denied,
                 Description = "Saves a whole config profile from the Configs page.",
             }
@@ -467,17 +469,17 @@ public static class QuasarConfigOperations
         var catalog = caller.Services.GetRequiredService<DedicatedServerCatalog>();
         var current = QuasarCoreOperations.RequireServer(caller.Services, definition.UniqueName);
         definition.OriginalUniqueName = current.UniqueName;
-        caller.Undo!.Server = current.UniqueName;
         await catalog.UpsertAsync(definition, token);
-        await AddBlobAsync(caller.Undo, "previous.json", current, token);
-        await AddBlobAsync(
-            caller.Undo,
-            "after.json",
-            catalog.GetServer(current.UniqueName)!,
-            token
-        );
-        caller.Undo.SetData(new { uniqueName = current.UniqueName });
+        await RecordDefinitionUndoAsync(caller, current, catalog.GetServer(current.UniqueName)!, token);
         return new(current.ConfigProfileId, "Server saved.", [current.UniqueName]);
+    }
+
+    internal static async Task RecordDefinitionUndoAsync(QuasarOperationContext caller, DedicatedServerDefinition before, DedicatedServerDefinition after, CancellationToken token)
+    {
+        caller.Undo!.Server = before.UniqueName;
+        await AddBlobAsync(caller.Undo, "previous.json", before, token);
+        await AddBlobAsync(caller.Undo, "after.json", after, token);
+        caller.Undo.SetData(new { uniqueName = before.UniqueName });
     }
 
     private static async Task<FieldChangeResult> SetSettingAsync(
@@ -1021,7 +1023,7 @@ public static class QuasarConfigOperations
     }
 
     // Whole-object saves compare and restore the stored JSON, apart from the save time and the goal.
-    private sealed class DefinitionUndo : IQuasarUndoHandler
+    internal sealed class DefinitionUndo : IQuasarUndoHandler
     {
         public Task<string?> CheckAsync(QuasarUndoContext context, CancellationToken token)
         {

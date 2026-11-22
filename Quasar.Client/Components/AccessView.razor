@@ -1,0 +1,46 @@
+@using MudBlazor
+@implements IDisposable
+@inject DashboardSdk Sdk
+<DashboardPageHeading Section="Control plane">
+    <Title>Access</Title>
+    <Description>Manage player Steam and Discord linking, whitelist access, promotions and priority joining.</Description>
+</DashboardPageHeading>
+
+<MudTabs KeepPanelsAlive="true" Elevation="0" TabPanelsClass="pt-4">
+    <MudTabPanel Text="Server access">
+        @if (_canManage)
+        {
+                <PlayerAccessView />
+            }
+        else
+        {
+                <MudAlert Severity="Severity.Info">An administrator manages player authentication and server access policies here. You can view linked accounts on the Linked accounts tab.</MudAlert>
+            }
+    </MudTabPanel>
+    <MudTabPanel Text="Linked accounts">
+        <PlayerLinksView />
+    </MudTabPanel>
+</MudTabs>
+
+@code {
+    private bool _canManage;
+    private readonly CancellationTokenSource _lifetime = new();
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshPermissionsAsync();
+        if (!_lifetime.IsCancellationRequested) _ = PollAsync();
+    }
+    internal async Task RefreshPermissionsAsync()
+    {
+        try { _canManage = await Sdk.AllowedAsync("CanManageSecurity", _lifetime.Token); }
+        catch (Microsoft.JSInterop.JSException) { _canManage = false; }
+        if (!_lifetime.IsCancellationRequested) StateHasChanged();
+    }
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try { while (await timer.WaitForNextTickAsync(_lifetime.Token)) await RefreshPermissionsAsync(); }
+        catch (OperationCanceledException) when (_lifetime.IsCancellationRequested) { }
+    }
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

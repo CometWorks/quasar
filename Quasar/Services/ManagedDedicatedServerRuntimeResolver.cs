@@ -2459,13 +2459,6 @@ public sealed record ManagedRuntimeInstallProgress(
     string Path = "",
     string Version = "");
 
-public enum ManagedRuntimeInstallComponent
-{
-    SteamCmd = 0,
-    DedicatedServer = 1,
-    Magnetar = 2,
-}
-
 public enum ManagedRuntimeInstallPhase
 {
     Pending = 0,

@@ -1,0 +1,48 @@
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.AspNetCore.Components.Web
+
+@using System.Reflection
+@using Quasar.Client.Plugins
+@inject NavigationManager Navigation
+
+@if (_error is not null)
+{
+    <p role="alert">@_error</p><button type="button" @onclick="LoadAsync">Retry loading plugin pages</button>
+}
+@if (_ready)
+{
+<Router AdditionalAssemblies="_assemblies" AppAssembly="typeof(DashboardRouter).Assembly" NotFoundPage="typeof(DashboardExternalRoute)">
+    <Found Context="route">
+        <DashboardRouteContent Route="route" />
+        <FocusOnNavigate RouteData="route" Selector="h1, h2" />
+    </Found>
+</Router>
+}
+
+@code {
+    [Parameter] public string? InitialAssemblyName { get; set; }
+    [Parameter] public BrowserPluginAssembly[] PluginPages { get; set; } = [];
+    private Assembly[] _assemblies = [];
+    private bool _ready;
+    private string? _error;
+    protected override Task OnInitializedAsync() => LoadAsync();
+    private async Task LoadAsync()
+    {
+        _error = null;
+        var assemblies = new List<Assembly>();
+        var failures = new List<string>();
+        bool ready = true;
+        foreach (var plugin in PluginPages)
+        {
+            try { assemblies.Add(await BrowserExtensions.LoadAssemblyAsync(plugin, Navigation.BaseUri, default)); }
+            catch (Exception error)
+            {
+                failures.Add($"{plugin.PluginId}: {error.Message}");
+                if (plugin.AssemblyName == InitialAssemblyName) ready = false;
+            }
+        }
+        _assemblies = assemblies.ToArray();
+        _ready = ready;
+        _error = failures.Count == 0 ? null : string.Join(" ", failures);
+    }
+}

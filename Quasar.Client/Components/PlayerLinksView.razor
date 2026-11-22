@@ -1,0 +1,84 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Services.Players
+@using Quasar.Services
+@implements IDisposable
+@inject ISnackbar Snackbar
+@inject DashboardSdk Sdk
+@inject ViewerTimeZone ViewerTime
+@if (_links.Length > 0)
+{
+    <section class="quasar-panel pa-4 mt-4">
+        <div class="quasar-layout quasar-gap-3">
+            <h2 class="quasar-text quasar-type-h6">Authenticated player accounts</h2>
+            <p>Players authenticate Steam and Discord through the private link from <code>/authorize</code> in Discord. Old code-based links require browser authentication before they can identify a player or grant access.</p>
+            <MudTable T="LinkedPlayer" Items="_links" Dense="true" Hover="true">
+                <HeaderContent>
+                    <MudTh>Player</MudTh>
+                    <MudTh>Steam ID</MudTh>
+                    <MudTh>Discord user ID</MudTh>
+                    <MudTh>Authentication</MudTh>
+                    <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Player">@context.Name</MudTd>
+                    <MudTd DataLabel="Steam ID" Class="mono">@context.SteamId</MudTd>
+                    <MudTd DataLabel="Discord user ID" Class="mono">@context.DiscordUserId</MudTd>
+                    <MudTd DataLabel="Authentication">@(context.Authenticated ? ViewerTime.Format(context.LinkedAtUtc) : "Browser authentication required")</MudTd>
+                    <MudTd DataLabel="" Class="quasar-actions-column">
+                        @if (_canControl)
+                        {
+                            <MudIconButton Icon="@Icons.Material.Filled.LinkOff" Color="Color.Error" aria-label="Remove Discord link"
+                                           OnClick="@(() => RemoveAsync(context))" />
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        </div>
+    </section>
+}
+else
+{
+    <MudAlert Severity="Severity.Info">No player accounts are linked yet. Players link Steam and Discord by running <code>/authorize</code> in Discord.</MudAlert>
+}
+
+
+@code {
+    private bool _canControl;
+    private LinkedPlayer[] _links = [];
+    private readonly CancellationTokenSource _stop = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        if (!_stop.IsCancellationRequested) _ = PollAsync();
+    }
+
+    private async Task PollAsync()
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try { while (await timer.WaitForNextTickAsync(_stop.Token)) { await RefreshAsync(); StateHasChanged(); } }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        try {
+            _canControl = await Sdk.AllowedAsync("CanControlServers", _stop.Token);
+            _links = await Sdk.RequestAsync<LinkedPlayer[]>("access.links", token: _stop.Token);
+        }
+        catch (JSException ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+
+    private async Task RemoveAsync(LinkedPlayer link)
+    {
+        try
+        {
+            await Sdk.RequestAsync<bool>("access.links.remove", new { link.SteamId }, _stop.Token);
+            await RefreshAsync();
+            Snackbar.Add("Removed the Discord link.", Severity.Success);
+        }
+        catch (JSException ex) { Snackbar.Add(ex.Message, Severity.Error); }
+    }
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

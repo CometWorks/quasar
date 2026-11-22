@@ -106,8 +106,7 @@ public sealed class ClusterHostClientTests
         Environment.SetEnvironmentVariable(variable, "test-host-token");
         try
         {
-            var catalog = new Quasar.Services.Players.PlayerAccessCatalog(Path.Combine(directory, "access.json"),
-                new Microsoft.AspNetCore.DataProtection.EphemeralDataProtectionProvider());
+            var catalog = new Quasar.Services.Players.PlayerAccessCatalog(Path.Combine(directory, "access.json"));
             await catalog.SaveSettingsAsync(new() { Policies = [new() { Target = "cluster:demo", GuildId = 42, Enabled = true, Whitelist = true }] });
             var gateway = new GatewaySpec("demo", GatewayGoal.On, "/bundles/gateway.json",
                 new string('a', 64), "config-7", [28016], "/runs/gateway", PlayerAccess: new(0, false, false));

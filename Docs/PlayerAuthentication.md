@@ -26,7 +26,8 @@ permissions. It contains no tokens, credits, purchases, other rewards or join qu
    Discord bot connection. The Discord flow works with a private Quasar panel,
    without Nebula hosting, a public URL or per-panel OAuth credentials.
 4. Select a server or cluster. Configure whitelist, required roles, priority roles
-   and promotion mappings using the role names loaded from Quasar's existing bot.
+   and promotion mappings using the roles loaded by Quasar's existing bot. Search
+   the required and priority lists by role name or ID and select all that apply.
    The policy uses the bot's configured guild automatically. Saved roles remain
    visible by ID when the bot is offline or a role is unavailable. Put a recovery
    administrator's SteamID64 in the explicit Steam allowlist.
@@ -41,27 +42,19 @@ permissions. It contains no tokens, credits, purchases, other rewards or join qu
 promotion, priority and validity against the saved policy.
 
 
-## Optional public player website
+## Link an administrator’s Discord account
 
-To offer a browser entry point on Quasar as well, keep Quasar authentication and
-Steam sign-in enabled with Steam as the default provider. Activate Nebula hosting
-or enter and verify a self-hosted public website. The **Open player authentication**
-link appears when that address is ready.
+On **Discord**, choose **Link Discord account**. A Steam-signed-in administrator
+uses their current Steam account. With trusted LAN access, the dialog uses the
+only unlinked mapped Steam account, or lets you select yours if there are several.
+You can also start from a Steam row under **Security → Runtime Subject Role
+Mappings**. Keep the panel open and choose **Verify with Steam and Discord**.
+The shared login obtains both account IDs from the providers. Quasar updates the
+link automatically when verification finishes.
 
-The self-hosted URL must use a public HTTPS DNS hostname on port 443, without a
-path, query, fragment or credentials. Equivalent root URLs are normalized.
-It is separate from the local Agent/control address; do not expose machine endpoints to make it work.
-
-Quasar serves a short-lived installation-specific proof at
-`/.well-known/quasar-player-auth`. The verifier at `auth.se-servers.net`
-checks public DNS, connects to an inspected public address, validates TLS,
-refuses redirects and checks the proof. Verification lasts seven
-days. Enabled policies trigger renewal during the final day, retrying at most
-hourly. Failure never extends the proof.
-
-Confirmed active Nebula enrollment supplies its canonical panel address. Pending
-enrollment or a saved credential file alone is insufficient. All auth callbacks,
-forms and cookies retain the panel prefix.
+Account linking works without a running game, an enabled game-access policy or
+a connected Discord bot. Admin commands still check the linked Steam account’s
+current Quasar role. Use the player flow below for access to a game server.
 
 ## Player flow and migration
 
@@ -72,20 +65,9 @@ uses the `identify` scope. Return to Discord for the result. The link expires af
 five minutes. When the bot reports that access is authorized, allow a moment for
 the game server to receive the policy before joining.
 
-If using a public Quasar player page, choose the server, sign in with Steam, then authenticate Discord
-and consent to linking. The shared authentication website displays the requesting
-panel before opening Discord consent. It requests only Discord's `identify`
-OAuth scope, then returns to the original panel. Quasar's own bot checks guild
-membership and roles; it does not need to be the shared OAuth application's bot.
-Review the instructions and choose
-**Authorize this server**. The page shows effective promotion and priority access.
-Account linking and authorization for a particular server are separate actions.
-
-On an open server, `!authorize` directs players to Discord if a public player page
-is unavailable. With a ready public page, it supplies a 20-minute browser URL
-bound to the requesting Steam account and logical server. Standalone servers open
-the Steam overlay; cluster players receive the URL privately. Whitelist players
-can start in Discord or on a public player page before joining.
+In-game `!authorize` directs players to the server's Discord. Whitelist players
+can run `/authorize` there before joining. Quasar's bot checks guild membership
+and roles before granting access to the selected server.
 
 The old `!link` and Discord `/link CODE` exchange is removed. Existing code-based
 links remain visible on **Access → Linked accounts** as requiring browser authentication. They do
@@ -93,10 +75,11 @@ not identify a player for Discord assistance or grant access until both accounts
 are authenticated. Each Steam and Discord account has one authenticated link;
 conflicts are rejected instead of silently replacing accounts.
 
-Players can run `/unlink-accounts` in the server's Discord or unlink on the public player page. Users with `CanControlServers`
+Players can run `/unlink-accounts` in the server's Discord. Users with `CanControlServers`
 can remove a link on **Access → Linked accounts**. Relinking creates a new authentication identity
-and requires fresh server authorization. Discord administrator-to-Steam mappings
-for dashboard commands remain separate.
+and requires fresh server authorization. Discord plugin commands marked Admin require both this verified
+link and the linked Steam account’s current Quasar `admin` role. **Security → Runtime Subject Role Mappings**
+shows the verified Discord ID alongside the Steam and Discord names.
 
 ## Policy rules
 
@@ -164,13 +147,12 @@ revision before applying changes.
 Changing a standalone server's canonical identity requires disabling its active
 policy first. Display name changes do not affect authorization.
 
-Private `player-access.json` stores settings and server authorizations. Legacy
-per-panel OAuth fields are preserved for compatibility but are unused. Their
-stored secrets remain encrypted with Quasar's Data Protection keys; back up those
-keys and private state.
-`player-links.json` stores proved identity pairs and authentication IDs. OAuth
-access tokens are not retained. Configure through the UI before switching to
-headless mode; player auth and Steam login continue without the administrator UI.
+Private `player-access.json` stores policies and server authorizations. Quasar
+ignores settings from the retired panel-hosted linking flow and drops those
+fields the next time it writes the file. Existing policies and authorizations
+carry over. `player-links.json` stores proved identity pairs and authentication
+IDs. Configure policies through **Access** before switching to headless mode.
+The bot can handle linking while the administrator UI is disabled.
 
 ## Shared authentication boundary
 
@@ -179,33 +161,21 @@ configures one Discord application with callback
 `https://auth.se-servers.net/discord/callback`. See
 [auth service deployment](https://github.com/CometWorks/nebula/blob/main/docs/player-authentication.md).
 
-For Discord-initiated requests, Steam and Discord return to the auth service.
+Steam and Discord return to the auth service. A dashboard request is bound to the
+selected Steam account. A bot request is bound to the Discord command author.
 Quasar retrieves the verified identity pair over outbound HTTPS using a one-time
 request and a verifier kept on Quasar. The service receives the player-facing
 destination and instructions. Quasar stores links, checks current guild roles,
 and authorizes access for the selected server.
 
-For the optional public player page, both OAuth legs use PKCE. The broker accepts only exact HTTPS Quasar callback
-paths on port 443, including the assigned panel prefix on `dash.se-servers.net`.
-It binds a one-minute, single-use authorization code to the exact callback and
-the requesting panel's PKCE challenge. Quasar exchanges it over HTTPS and obtains
-a short-lived identity token; Discord tokens never reach the panel. Quasar also
-checks its OAuth correlation cookie, current Steam session and canonical public
-address before linking. The broker never creates a Nebula login or grants panel
-permissions. Only Steam identifies human Nebula accounts.
+New links require outbound HTTPS to the shared service. The Discord command also
+requires a connected bot. If the service restarts or the request expires, start
+a new request from the panel or run `/authorize` again.
+Existing identity links and server authorizations survive a service outage.
+Guild membership and role checks retain their normal freshness limits.
 
-New links depend on the shared service. Existing links, server authorizations
-and bot role checks remain usable if the relay is unavailable or the optional
-public website's verification expires. A broker restart invalidates pending
-requests. Players can start again from Discord or the public page.
+## Deployment check
 
-## Validation and deployment
-
-Automated checks cover OAuth session/origin binding, link conflicts and migration,
-private persistence, role rules and expiry, current-server admission IL matching,
-Gateway admission/authentication, promotion lease recovery, CLI contract parity
-and verifier SSRF restrictions. Broker checks cover consent antiforgery, Steam
-and Discord session binding, exact callbacks, PKCE, single-use and concurrent
-redemption, and expiry. Before relying on a whitelist in production, verify
-that a new player can authorize and join with Quasar reachable only on the LAN
-and Nebula hosting disabled. Test public callbacks separately if you offer them.
+With the panel reachable only on the LAN, run `/authorize` from the game's Discord,
+follow the bot's private link, and confirm the player can join the selected
+server. Use a Steam account outside the explicit allowlist to exercise the policy.

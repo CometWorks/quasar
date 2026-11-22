@@ -1,6 +1,5 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
-using System.Text.RegularExpressions;
 using Quasar.ClusterDeployment;
 using Quasar.Models;
 
@@ -12,30 +11,12 @@ internal static class QuasarCommandAliases
     internal const string ConfigType = "Quasar.Agent.CommandAliasConfiguration";
     internal const string FileName = "CommandAliases.json";
 
-    internal static void Validate(IReadOnlyList<QuasarCommandAlias>? aliases)
-    {
-        if (aliases is null) return;
-        if (aliases.Count > 64) throw new ArgumentException("A profile supports at most 64 command aliases.");
-        var sources = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var alias in aliases)
-        {
-            if (alias is null || !ValidPath(alias.Source) || !ValidPath(alias.Target))
-                throw new ArgumentException("Alias paths must start with ! and contain command words made of letters, digits, underscores or hyphens (maximum 512 characters).");
-            string source = Normalize(alias.Source), target = Normalize(alias.Target);
-            if (!sources.Add(source) || source.Split(' ')[0].Equals("!help", StringComparison.OrdinalIgnoreCase)
-                || source.Equals(target, StringComparison.OrdinalIgnoreCase))
-                throw new ArgumentException("Aliases must be unique, cannot alias themselves or replace !help.");
-        }
-    }
-
-    private static bool ValidPath(string? path) => path is { Length: <= 512 }
-        && Regex.IsMatch(path, @"\A![a-zA-Z0-9_-]+(?:[ \t]+[a-zA-Z0-9_-]+)*\z");
-    private static string Normalize(string path) => string.Join(' ', path.Split([' ', '\t'], StringSplitOptions.RemoveEmptyEntries));
+    internal static void Validate(IReadOnlyList<QuasarCommandAlias>? aliases) => ConfigAliasValidation.Validate(aliases);
 
     internal static Dictionary<string, string> Values(QuasarConfigProfile profile)
     {
         Validate(profile.CommandAliases);
-        return (profile.CommandAliases ?? []).ToDictionary(a => Normalize(a.Source), a => Normalize(a.Target), StringComparer.OrdinalIgnoreCase);
+        return (profile.CommandAliases ?? []).ToDictionary(a => ConfigAliasValidation.Normalize(a.Source), a => ConfigAliasValidation.Normalize(a.Target), StringComparer.OrdinalIgnoreCase);
     }
 
     internal static string Serialize(QuasarConfigProfile profile) => JsonSerializer.Serialize(new { aliases = Values(profile) });

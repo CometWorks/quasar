@@ -6,7 +6,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
 using MudBlazor.Services;
-using Quasar.Components.Pages;
+using Quasar.Client;
+using Quasar.Client.Components;
+using Quasar.Client.Fleet;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -29,31 +31,30 @@ public sealed class WorldImportUiTests : IDisposable
         await using var context = await ContextAsync();
         var servers = context.Services.GetRequiredService<DedicatedServerCatalog>();
         context.Render<MudPopoverProvider>();
-        var dialogs = context.Render<MudDialogProvider>();
-        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ServerWorldImportDialog>("Import World",
-            new DialogParameters { [nameof(ServerWorldImportDialog.Target)] = servers.GetServer("target")! }));
+        var inventory = await context.Services.GetRequiredService<DashboardSdk>().RequestAsync<WorldInventory>("worlds.inventory");
+        var form = context.Render<WorldImportForm>(p => p.Add(c => c.Inventory, inventory).Add(c => c.Server, inventory.Servers.Single()));
         string source = Path.Combine(_root, "source"); Directory.CreateDirectory(source);
-        File.WriteAllText(Path.Combine(source, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
-        await dialogs.Find(".world-path-controls input").InputAsync(new() { Value = source });
-        await dialogs.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
-        await dialogs.FindAll("button").Single(button => button.TextContent == "Read World").ClickAsync(new());
-        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Ready to import", dialogs.Markup));
-        Assert.True(dialogs.FindAll("button").Single(button => button.TextContent == "Import and Select").HasAttribute("disabled"));
-        Assert.Contains("World settings could not be read", dialogs.Markup);
-        await dialogs.Find("#world-save-name").InputAsync(new() { Value = "New" });
-        await dialogs.Find("input[type=radio]").ChangeAsync(new() { Value = true });
-        await dialogs.FindAll("button").Single(button => button.TextContent == "Import and Select").ClickAsync(new());
+        await File.WriteAllTextAsync(Path.Combine(source, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        await form.Find("input[type=text]").ChangeAsync(new() { Value = source });
+        await form.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
+        await form.FindAll("button").Single(button => button.TextContent.Trim() == "Read World").ClickAsync();
+        var commit = () => form.FindAll("button").Single(button => button.TextContent.Trim() == "Import and select save");
+        Assert.True(commit().HasAttribute("disabled"));
+        Assert.Contains("World settings could not be read", form.Markup);
+        await form.FindComponent<MudTextField<string>>().InvokeAsync(() => form.FindComponent<MudTextField<string>>().Instance.ValueChanged.InvokeAsync("New"));
+        await form.InvokeAsync(() => form.FindComponent<MudSelect<string>>().Instance.ValueChanged.InvokeAsync("keep"));
+        await commit().ClickAsync();
         Assert.Equal("New", servers.GetServer("target")!.WorldSaveName);
-        await dialogs.WaitForAssertionAsync(() => Assert.Empty(Directory.GetDirectories(DedicatedServerPathResolver.Resolve(servers.GetServer("target")!).SavesPath, ".world-import-*")));
+        await form.WaitForAssertionAsync(() => Assert.Empty(Directory.GetDirectories(DedicatedServerPathResolver.Resolve(servers.GetServer("target")!).SavesPath, ".world-import-*")));
     }
 
     private async Task<BunitContext> ContextAsync()
     {
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
-        var auth = context.AddAuthorization(); auth.SetAuthorized("editor"); auth.SetPolicies(QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs);
+        var auth = context.AddAuthorization(); auth.SetAuthorized("editor");
+        auth.SetClaims(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, "editor")); auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         var maintenance = new ServerRestoreCoordinator();
         var servers = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance, maintenance);
         var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
@@ -62,7 +63,7 @@ public sealed class WorldImportUiTests : IDisposable
         var supervisor = new DedicatedServerSupervisor(servers, new AgentRegistry(null!, null!, null!, null!), null!, null!, null!, new(), maintenance, NullLogger<DedicatedServerSupervisor>.Instance);
         context.Services.AddSingleton(servers); context.Services.AddSingleton(profiles); context.Services.AddSingleton(supervisor);
         context.Services.AddSingleton(maintenance); context.Services.AddSingleton<ServerWorldImportService>();
-        context.Services.AddSingleton(new WorldTemplateImportLocationService(new(), new BrowserStorageService(context.JSInterop.JSRuntime)));
+        context.Services.AddSingleton(new WorldTemplateImportLocationService(new()));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         var options = new ManagedRuntimeOptions();
@@ -76,18 +77,17 @@ public sealed class WorldImportUiTests : IDisposable
     {
         await using var context = await ContextAsync();
         context.Render<MudPopoverProvider>();
-        var dialogs = context.Render<MudDialogProvider>();
-        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<WorldTemplateQuickImportDialog>("Add Template"));
-        await dialogs.InvokeAsync(() => dialogs.FindComponent<MudTabs>().Instance.ActivatePanelAsync(1));
+        var inventory = await context.Services.GetRequiredService<DashboardSdk>().RequestAsync<WorldInventory>("worlds.inventory");
+        var form = context.Render<WorldImportForm>(p => p.Add(c => c.Inventory, inventory));
+        await form.FindAll("button").Single(button => button.TextContent.Trim() == "Server folder").ClickAsync();
         string source = Path.Combine(_root, "source"); Directory.CreateDirectory(source);
-        File.WriteAllText(Path.Combine(source, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
-        await dialogs.Find(".world-path-controls input").InputAsync(new() { Value = source });
-        await dialogs.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
-        await dialogs.FindAll("button").Single(button => button.TextContent == "Read World").ClickAsync(new());
-        await dialogs.Find("#world-template-name").InputAsync(new() { Value = "Reusable world" });
-        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Continue").ClickAsync(new());
-        Assert.Contains("Template config profile", dialogs.Markup);
-        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import World Template").ClickAsync(new());
+        await File.WriteAllTextAsync(Path.Combine(source, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        await form.Find("input[type=text]").ChangeAsync(new() { Value = source });
+        await form.Find("input[type=checkbox]").ChangeAsync(new() { Value = true });
+        await form.FindAll("button").Single(button => button.TextContent.Trim() == "Read World").ClickAsync();
+        await form.InvokeAsync(() => form.FindComponents<MudTextField<string>>().Single(f => f.Instance.Label == "Template name").Instance.ValueChanged.InvokeAsync("Reusable world"));
+        Assert.Contains("Configuration", form.Markup);
+        await form.FindAll("button").Single(button => button.TextContent.Trim() == "Create world template").ClickAsync();
         var templates = context.Services.GetRequiredService<QuasarWorldTemplateCatalog>();
         Assert.Equal("Reusable world", Assert.Single(templates.GetTemplates()).Name);
     }

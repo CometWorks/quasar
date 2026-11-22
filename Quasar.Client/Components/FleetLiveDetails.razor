@@ -1,0 +1,88 @@
+@using Quasar.Client.Fleet
+@using Quasar.Services
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Microsoft.AspNetCore.Components.Web
+@using System.Text.Json
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@implements IDisposable
+
+@if (_error is not null){<p class="quasar-notice quasar-notice-error" role="alert">@_error</p>}
+@if(CanControl)
+{
+    <div class="quasar-row">
+        <button class="quasar-button" disabled="@(_busy||!Connected)" @onclick="@(()=>Send("chat.node.refresh",new {UniqueName}))">Refresh</button>
+        <button class="quasar-button" disabled="@(_busy||!Connected||!Running||_live?.Saving==true)" @onclick="@(()=>Send("servers.save",new {UniqueName}))">Save</button>
+    </div>
+    <form class="quasar-chat-form" @onsubmit="Broadcast" @onsubmit:preventDefault>
+        <label class="quasar-field"><span>Broadcast message</span><input @bind="_message" @bind:event="oninput" disabled="@(!Connected)" /></label>
+        <button class="quasar-button" disabled="@(_busy||!Connected||string.IsNullOrWhiteSpace(_message))">Send</button>
+    </form>
+}
+@if(_live is {} data)
+{
+    @if (data.Saving) { <p class="quasar-status">Save in progress</p> }
+    else if (data.LastSave is {} saved) { <p class="quasar-status">Saved @ViewerTime.Format(saved) @if(data.UnsavedSeconds is >0){<span> · Unsaved @TimeSpan.FromSeconds(data.UnsavedSeconds.Value).ToString("g")</span>}</p> }
+    <h3>Players</h3><div class="quasar-table-scroll"><table class="quasar-server-table quasar-players-table"><thead><tr><th>Steam ID</th><th>Service</th><th>Faction</th><th>Role</th><th>Ping</th><th>Name</th>@if(CanControl){<th>Actions</th>}</tr></thead><tbody>
+    @foreach(var p in data.Players)
+    {
+        <tr @key="p.SteamId"><td>@p.SteamId</td><td>@p.Service</td><td>@p.Faction</td><td>@p.Role</td><td>@p.Ping</td><td>@p.Name @if(p.Platform.Length>0 && p.Platform!=p.Name){<small>@p.Platform</small>}</td>
+        @if(CanControl){<td><details><summary>Player actions</summary><div class="quasar-stack">
+            @foreach(var level in Levels){<button class="quasar-button" disabled="@(_busy||!Connected||p.Role==level)" @onclick="@(()=>Moderate(p,"players.promotion.set",level))">@level</button>}
+            <button class="quasar-button" disabled="@(_busy||!Connected)" @onclick="@(()=>Moderate(p,"players.kick"))">Kick</button>
+            <button class="quasar-button" disabled="@(_busy||!Connected)" @onclick="@(()=>Moderate(p,"players.ban"))">Ban</button>
+        </div></details></td>}</tr>
+    }
+    </tbody></table></div>
+    <h3>Recent Chat</h3>@foreach(var m in data.Chat){<p>@(m.At is {} at ? ViewerTime.Format(at) : "") [@m.Channel] <strong>@m.Author</strong> @m.Content</p>}
+    @if(data.Results.Length>0){<h3>Recent Command Results</h3>@foreach(var result in data.Results){<p>@result</p>}}
+}
+@code {
+    [Parameter, EditorRequired] public string UniqueName {get;set;}="";
+    [Parameter] public string? AgentId { get; set; }
+    [Parameter] public bool Connected {get;set;}
+    [Parameter] public bool Running {get;set;}
+    [Parameter] public bool CanControl {get;set;}
+    private static readonly string[] Levels=["None","Scripter","Moderator","SpaceMaster","Admin"];
+    private readonly CancellationTokenSource _lifetime=new();
+    private FleetLive? _live;
+    private string? _error;
+    private string _message="";
+    private bool _busy,_loading;
+    private DateTimeOffset _refreshAfter;
+    protected override async Task OnParametersSetAsync()
+    {
+        if(!_loading && DateTimeOffset.UtcNow >= _refreshAfter) await Refresh();
+    }
+    private async Task Refresh()
+    {
+        _loading=true;
+        try { _live=await JS.InvokeAsync<FleetLive>("quasarSdk.readJson",_lifetime.Token,"quasar.core","fleet.live",new FleetLiveRequest(UniqueName,AgentId));_error=null; }
+        catch(OperationCanceledException) when (_lifetime.IsCancellationRequested) {}
+        catch(Exception e){_live=null;_error=e.Message;}
+        finally{_loading=false;_refreshAfter=DateTimeOffset.UtcNow.AddSeconds(4);}
+    }
+    private async Task<bool> Send(string operation,object target)
+    {
+        if(_busy)return false;
+        _busy=true;
+        try{await Sdk.RequestAsync<JsonElement>(operation,target);await Refresh();return true;}
+        catch(Exception e){Snackbar.Add(e.Message,Severity.Error);return false;}
+        finally{_busy=false;}
+    }
+    private async Task Broadcast()
+    {
+        var text=_message.Trim();
+        if(text.Length>0 && await Send("chat.send",new{UniqueName,text}))_message="";
+    }
+    private async Task Moderate(FleetPlayer player,string operation,string? level=null)
+    {
+        if(await Dialogs.ShowMessageBoxAsync("Player action",$"{(operation=="players.promotion.set" ? "Set role to "+level : operation=="players.ban" ? "Ban" : "Kick")} — {player.Name}?",yesText:"Confirm",cancelText:"Cancel")==true)
+            await Send(operation,new{UniqueName,player.SteamId,level});
+    }
+    public void Dispose(){_lifetime.Cancel();_lifetime.Dispose();}
+}

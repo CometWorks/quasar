@@ -12,7 +12,7 @@ Each server definition points to one profile (**Configuration profile**) and one
 
 ## Config profiles
 
-Open **Configs** in the navigation menu (page title "Configuration profiles"). Clicking a server's profile name on the Dashboard opens the same editor as a full-screen **Config Profiles** dialog.
+Open **Configs** in the navigation menu (page title "Configuration profiles"). The dashboard links to the selected profile. Both `configs?profileId=<id>` and `configs?profile=<id>` open the same browser editor. A viewer can browse the profile, including the password-configured indicator. Quasar checks edit permissions on the worker before applying changes. Workshop Web API keys and Steam passwords stay on the worker.
 
 The left column lists profiles. Type a name in **New profile name** and click **Create profile** to add an empty profile. Each profile has **Clone <name>** and **Delete <name>** buttons.
 
@@ -285,41 +285,39 @@ Step 5 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - **"Selected world save is missing Sandbox.sbc."**: the folder is not a valid save. Create a save from a template or copy a complete save folder.
 
 ## Sources
-- `Quasar/Components/Shared/DedicatedServerSetupStatus.razor`
-- `Quasar/Services/QuasarDefaultPlugins.cs`
+- `Quasar.Client/Components/FleetPreparation.razor`
+- `Quasar.Client/Configs/QuasarDefaultPlugins.cs`
 - `Docs/StateMachines/ConfigProfileChanges.md`
 - `Docs/Configuration.md`
 - `Docs/QuasarArchitecture.md`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
-- `Quasar/Models/QuasarConfigProfile.cs`
+- `Quasar.Client/Configs/QuasarConfigProfile.cs`
 - `Quasar/Models/QuasarWorldTemplate.cs`
 - `Quasar/Models/DedicatedServerPathResolver.cs`
 - `Quasar/Services/QuasarConfigProfileCatalog.cs`
 - `Quasar/Services/ChildFileWatcher.cs`
-- `Quasar/Services/QuasarConfigMetadata.cs`
+- `Quasar.Client/Configs/QuasarConfigMetadata.cs`
 - `Quasar/Services/QuasarWorldTemplateCatalog.cs`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`
 - `Quasar/Services/WorldSandboxConfigEditor.cs`
 - `Quasar/Services/WorldStartupCompatibilityGuard.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Quasar/Components/Layout/NavMenu.razor`
-- `Quasar/Components/Pages/Configs.razor`
-- `Quasar/Components/Pages/Configs.razor.css`
-- `Quasar/Components/Pages/ConfigsPageDialog.razor`
-- `Quasar/Components/Pages/ConfigProfilePendingChangesDialog.razor`
-- `Quasar/Components/Pages/ConfigProfileQuickCreateDialog.razor`
-- `Quasar/Components/Pages/WorldTemplates.razor`
-- `Quasar/Components/Pages/WorldTemplateConfigProfileDialog.razor`
-- `Quasar/Components/Pages/WorldTemplateFromServerDialog.razor`
-- `Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor`
-- `Quasar/Components/Pages/MergeWorldTemplateModsDialog.razor`
-- `Quasar/Components/Pages/CreateWorldSaveFromTemplateDialog.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
+- `Quasar.Client/Configs/ConfigEditor.razor`
+- `Quasar.Client/Configs/ConfigEditor.razor.css`
+- `Quasar.Client/Configs/ConfigProfilePendingChangesDialog.razor`
+- `Quasar.Client/Components/FleetQuickProfile.razor`
+- `Quasar.Client/Components/WorldLibrary.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
+- `Quasar.Client/Pages/WorldTemplateFromServerDialog.razor`
+- `Quasar.Client/Configs/MergeWorldTemplateModsDialog.razor`
+- `Quasar.Client/Components/FleetChooseTemplate.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
 - `Quasar.Agent/OfflineModeNetworkGuard.cs`
 - `Quasar/Services/QuasarCommandAliases.cs`
-- `Quasar/Components/CommandAliasesEditor.razor`
-- `Quasar/Components/ConfigProfileReadOnly.razor`
+- `Quasar.Client/Configs/CommandAliasesEditor.razor`
+- `Quasar.Client/Configs/ConfigProfileReadOnly.razor`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
 - `Quasar.Agent/AdminPlugin.cs`
 - `Quasar/Services/ClusterSetupService.cs`
@@ -330,6 +328,3 @@ Step 5 runs before the oxygen check, so the profile's **Enable Oxygen** decides 
 - `Quasar/Services/ServerWorldImportService.cs`
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar/Services/Backup/ServerRestoreCoordinator.cs`
-- `Quasar/Components/Shared/WorldImportSourcePicker.razor`
-- `Quasar/Components/Pages/ServerWorldImportDialog.razor`
-- `Quasar/Components/Pages/ServerWorldImportTargetDialog.razor`

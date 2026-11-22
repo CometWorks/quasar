@@ -1,5 +1,4 @@
 using CometWorks.ClusterGateway.AdminContract.V1;
-using Quasar.Components.Dashboard;
 using Quasar.Services;
 using Xunit;
 

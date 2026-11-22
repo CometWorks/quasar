@@ -1,0 +1,1036 @@
+@using Quasar.Components.Shared
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+
+<PageTitle>Updates</PageTitle>
+
+@if (_loadError is not null) { <MudAlert Severity="Severity.Error">@_loadError</MudAlert> }
+@if (_snapshot is null) { <MudProgressCircular Indeterminate="true" /> } else {
+<div class="quasar-layout quasar-gap-3">
+    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-2">
+        <div class="quasar-page-heading"><div><div class="quasar-eyebrow">Tools &amp; settings</div><h1>Updates</h1>
+            <p>Manage Quasar, cluster packages, and dedicated server runtimes.</p></div></div>
+        <MudSpacer />
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Upgrade"
+                   Disabled="_busy"
+                   OnClick="CheckNowAsync">
+            Check Quasar
+        </MudButton>
+    </div>
+
+    <MudAlert Severity="@GetStatusSeverity()" Variant="Variant.Outlined">
+        @_snapshot.Message
+    </MudAlert>
+
+    <MudAlert Severity="@(_snapshot.RestartCapability.CanRestart ? Severity.Success : Severity.Info)" Variant="Variant.Outlined">
+        <strong>@_snapshot.RestartCapability.Supervisor</strong>: @_snapshot.RestartCapability.Detail
+        @if (!_snapshot.RestartCapability.CanRestart)
+        {
+            <p>@_snapshot.RestartCapability.Repair See advanced recovery for status and migration instructions.</p>
+        }
+    </MudAlert>
+    @if (_snapshot.Operation is { } operation)
+    {
+        <MudAlert Severity="@(operation.Stage == "Failed" ? Severity.Error : Severity.Info)" Variant="Variant.Outlined">
+            <strong>Quasar @operation.Version · @operation.Stage</strong>: @operation.Message
+            <p class="quasar-type-caption">Operation @operation.Id · @FormatTimestamp(operation.UpdatedAtUtc)</p>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_snapshot.Options.BootstrapVersion))
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            This legacy worker needs the complete Quasar package to install native Quasar and updater services. Install the current release directly; no intermediate release is required.
+            <p><a href="https://github.com/CometWorks/quasar/blob/main/Docs/QuasarUpdates.md#migrating-existing-installations" target="_blank" rel="noopener noreferrer">Read the migration instructions</a>. Save worlds and stop the old installation before running the new installer.</p>
+            @if (_snapshot.Operation is { PackageDirectory.Length: > 0 } migration)
+            {
+                <p>Prepared package:</p>
+                <CopyablePath Value="@migration.PackageDirectory" />
+            }
+        </MudAlert>
+    }
+
+    @if (_snapshot.AppSettingsConflict)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+            appsettings.json could not be merged automatically. Compare the current and incoming files, choose a starting point, edit the final file if needed, then save it.
+        </MudAlert>
+
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">appsettings.json conflict</h2>
+                @if (!string.IsNullOrWhiteSpace(_snapshot.AppSettingsConflictPath))
+                {
+                    <CopyablePath Value="@_snapshot.AppSettingsConflictPath" />
+                }
+
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <div class="quasar-layout quasar-gap-1">
+                            <MudTextField T="string"
+                                          Value="_currentAppSettingsText"
+                                          Label="Current appsettings.json"
+                                          Variant="Variant.Outlined"
+                                          Lines="14"
+                                          Sizing="InputSizing.Auto"
+                                          MaxLines="10000"
+                                          FullWidth="true"
+                                          ReadOnly="true"
+                                          Class="appsettings-json-editor" />
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ArrowDownward"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_currentAppSettingsText)"
+                                       OnClick="TakeCurrentAppSettings">
+                                Take current
+                            </MudButton>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <div class="quasar-layout quasar-gap-1">
+                            <MudTextField T="string"
+                                          Value="_incomingAppSettingsText"
+                                          Label="Incoming appsettings.json"
+                                          Variant="Variant.Outlined"
+                                          Lines="14"
+                                          Sizing="InputSizing.Auto"
+                                          MaxLines="10000"
+                                          FullWidth="true"
+                                          ReadOnly="true"
+                                          Class="appsettings-json-editor" />
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.ArrowDownward"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_incomingAppSettingsText)"
+                                       OnClick="TakeIncomingAppSettings">
+                                Take incoming
+                            </MudButton>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField T="string"
+                                      @bind-Value="_resolvedAppSettingsText"
+                                      Label="Final appsettings.json"
+                                      Variant="Variant.Outlined"
+                                      Lines="18"
+                                      Sizing="InputSizing.Auto"
+                                      MaxLines="10000"
+                                      FullWidth="true"
+                                      Disabled="_busy"
+                                      Immediate="true"
+                                      Class="appsettings-json-editor" />
+                    </MudItem>
+                </MudGrid>
+
+                <div class="quasar-layout quasar-layout-row quasar-gap-2">
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.Save"
+                               Disabled="_busy || string.IsNullOrWhiteSpace(_resolvedAppSettingsText)"
+                               OnClick="SaveAppSettingsResolutionAsync">
+                        Save resolution
+                    </MudButton>
+                </div>
+            </div>
+        </section>
+    }
+
+    @if (_includePrerelease)
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Filled">
+            Prerelease updates are enabled. This should not be used by regular users. Builds from this stream may be unstable, may require manual recovery, and replace the complete Quasar application.
+        </MudAlert>
+    }
+
+    <MudGrid>
+        <MudItem xs="12">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Update Quasar</h2>
+                    <p>Running Quasar @_snapshot.CurrentVersion. The complete application package is verified before the updater stops and replaces Quasar. Running game servers stay alive.</p>
+                        <MudSelect T="string"
+                                   Value="_selectedWebVersion"
+                                   ValueChanged="HandleSelectedWebVersionChanged"
+                                   Label="Version to install"
+                                   Variant="Variant.Outlined"
+                                   Disabled="_busy">
+                            @foreach (var release in _snapshot.WebReleases)
+                            {
+                                <MudSelectItem T="string" Value="@release.Version">@FormatWebReleaseOption(release)</MudSelectItem>
+                            }
+                        </MudSelect>
+
+
+                    <div class="quasar-layout quasar-layout-row quasar-gap-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanUpdateQuasar)" OnClick="UpdateQuasarAsync">Update Quasar</MudButton>
+                        @if (_snapshot.Operation?.Stage is "Failed" or "Ready")
+                        {
+                            <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="RetryQuasarAsync">Retry update</MudButton>
+                        }
+                    </div>
+                    <p class="quasar-type-caption">Progress and failures survive reconnects and restarts. Without verified native main and updater services, updates are staged for manual restart.</p>
+                </div>
+            </section>
+        </MudItem>
+        <MudItem xs="12">
+            <details class="quasar-panel pa-4">
+                <summary>Advanced recovery</summary>
+                <p>Use <code>Quasar update --status</code> to inspect the durable operation and <code>Quasar update --retry</code> after correcting a failure. The updater retains the complete previous application until the requested release passes health checks. Application data and running game servers are preserved.</p>
+                <p>Older Bootstrap installations must migrate using the complete platform package and its installer. A running application never rewrites its updater service.</p>
+                @if (!string.IsNullOrWhiteSpace(_snapshot.Options.BootstrapVersion) && _snapshot.Web?.AssetName == _snapshot.Options.WebAssetName)
+                {
+                    <p>Legacy worker-only recovery keeps the existing Bootstrap and supervision. It does not migrate the installation to the unified application.</p>
+                    <MudButton Variant="Variant.Outlined" Disabled="_busy" OnClick="StageAsync">Stage legacy worker recovery</MudButton>
+                    <MudButton Variant="Variant.Outlined" Disabled="@(!CanActivateWebUpdate)" OnClick="ActivateAsync">Activate legacy worker recovery</MudButton>
+                }
+            </details>
+        </MudItem>
+
+        @if (_snapshot.Clusters.Rows.Length > 0)
+        {
+        <MudItem xs="12">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-2">
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                        <div>
+                            <h2 class="quasar-text quasar-type-h6">Cluster packages</h2>
+                            <p class="quasar-text quasar-type-body2">Latest release: @(_snapshot.Clusters.Version ?? "Unknown") · Last check: @FormatTimestamp(_snapshot.Clusters.LastCheckedUtc)</p>
+                        </div>
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Refresh" Disabled="_clusterBusy" OnClick="CheckClusterNowAsync">Check cluster release</MudButton>
+                    </div>
+                    @if (_snapshot.Clusters.Error is { } error)
+                    {
+                        <MudAlert Severity="Severity.Warning">@error</MudAlert>
+                    }
+                    <MudTable Items="@_snapshot.Clusters.Rows" Dense="true" Hover="true">
+                        <HeaderContent><MudTh>Cluster</MudTh><MudTh>Selected package</MudTh><MudTh>Status</MudTh><MudTh>Action</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Cluster">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Selected package">@context.Version</MudTd>
+                            <MudTd DataLabel="Status">@(_snapshot.Clusters.Version is null ? "Release check pending or unavailable" : context.UpdateAvailable ? "Latest release differs" : "Latest release selected")</MudTd>
+                            <MudTd><MudButton Href="@($"clusters/{Uri.EscapeDataString(context.UniqueName)}")" Variant="Variant.Text">Open cluster</MudButton></MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <span class="quasar-text quasar-type-caption">Release checks only notify. Open a cluster to stage and select the release, prepare it on the Hosts, and start its update.</span>
+                </div>
+            </section>
+        </MudItem>
+        }
+
+        <MudItem xs="12">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-3">
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2">
+                        <div>
+                            <h2 class="quasar-text quasar-type-h6">Managed Runtime</h2>
+                            <p class="quasar-text quasar-type-body2">
+                                Magnetar checks run every @_snapshot.Options.MagnetarCheckMinutes.ToString("0") min. Dedicated Server checks run at startup and when requested here.
+                            </p>
+                        </div>
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Disabled="_runtimeBusy"
+                                       OnClick="CheckMagnetarNowAsync">
+                                Check Magnetar
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Refresh"
+                                       Disabled="_runtimeBusy"
+                                       OnClick="CheckDedicatedServerNowAsync">
+                                Check Dedicated Server
+                            </MudButton>
+                        </div>
+                    </div>
+
+                    @foreach (var component in ManagedRuntimeRows.Where(c => c.State is ManagedRuntimeComponentState.Checking or ManagedRuntimeComponentState.Downloading or ManagedRuntimeComponentState.Installing))
+                    {
+                        <QuasarOperationLoader @key="component.Component" Title="@component.DisplayName" Message="@component.Message" Percent="@((double?)component.Percent)" />
+                    }
+                    <MudTable Items="@ManagedRuntimeRows" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Component</MudTh>
+                            <MudTh>Installed version</MudTh>
+                            <MudTh>Status</MudTh>
+                            <MudTh>Path</MudTh>
+                            <MudTh>Last check</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Component">@context.DisplayName</MudTd>
+                            <MudTd DataLabel="Installed version">@FormatRuntimeVersion(context)</MudTd>
+                            <MudTd DataLabel="Status">@context.Message</MudTd>
+                            <MudTd DataLabel="Path">
+                                @if (!string.IsNullOrWhiteSpace(context.Path))
+                                {
+                                    <CopyablePath Value="@context.Path" Inline="true" TextClass="" />
+                                }
+                                else
+                                {
+                                    <p class="quasar-text quasar-type-body2">-</p>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Last check">@if (context.LastCheckedUtc is { } time) { <time class="quasar-stacked-timestamp" datetime="@time.ToString("O")">@ViewerTime.FormatStacked(time)</time> } else { <text>never</text> }</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+
+                    <hr class="quasar-divider" />
+                    <MudSelect T="DedicatedServerLaunchUpdateMode"
+                               Value="_launchUpdateMode"
+                               ValueChanged="HandleLaunchUpdateModeChanged"
+                               Disabled="_runtimeBusy"
+                               Label="Dedicated Server update on launch"
+                               Dense="true"
+                               Style="max-width: 420px;">
+                        <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Skip">Skip - use installed as-is (fastest)</MudSelectItem>
+                        <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Update">Update - check for a newer build (default)</MudSelectItem>
+                        <MudSelectItem T="DedicatedServerLaunchUpdateMode" Value="DedicatedServerLaunchUpdateMode.Validate">Validate - full re-check of every file (slowest)</MudSelectItem>
+                    </MudSelect>
+                    <p class="quasar-text quasar-type-body2">
+                        Controls what happens to an already-installed Dedicated Server when a server starts. Validate re-hashes the whole multi-GB install and adds minutes to every launch; Update only downloads when Steam reports a newer build.
+                    </p>
+                </div>
+            </section>
+        </MudItem>
+
+        <MudItem xs="12">
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-2">
+                    <h2 class="quasar-text quasar-type-h6">Source</h2>
+                    <p class="quasar-text quasar-type-body2">
+                        GitHub: @_snapshot.Options.Owner/@_snapshot.Options.Repository
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
+                        Check interval: @_snapshot.Options.CheckInterval.TotalMinutes.ToString("0") min
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
+                        Release stream: @(_includePrerelease ? "stable and prerelease" : "stable only")
+                    </p>
+                    <hr class="quasar-divider" />
+                    <div class="quasar-layout quasar-gap-2">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                            <h3 class="quasar-text quasar-type-subtitle1">GitHub token</h3>
+                            <MudChip T="string"
+                                     Size="Size.Small"
+                                     Variant="Variant.Outlined"
+                                     Color="@GetGitHubTokenChipColor()"
+                                     Icon="@GetGitHubTokenChipIcon()">
+                                @FormatGitHubTokenStatus()
+                            </MudChip>
+                        </div>
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.GitHubTokenWarning))
+                        {
+                            <MudAlert Severity="@(_snapshot.GitHubTokenExpired ? Severity.Error : Severity.Warning)" Variant="Variant.Outlined" Dense="true">
+                                @_snapshot.GitHubTokenWarning
+                            </MudAlert>
+                        }
+                        @if (!string.IsNullOrWhiteSpace(_snapshot.GitHubTokenVariableName))
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                                @FormatGitHubTokenVariableNotice()
+                            </MudAlert>
+                        }
+                        <p class="quasar-text quasar-type-body2">
+                            Add a GitHub personal access token so Quasar update checks use your account rate limit instead of the shared public IP limit.
+                        </p>
+                        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                            <div class="quasar-layout quasar-gap-1">
+                                <p class="quasar-text quasar-type-body2">
+                                    Create a classic personal access token without any permissions:
+                                </p>
+                                <ol class="mud-typography mud-typography-body2 ma-0 pl-4">
+                                    <li>Open GitHub's classic token creation page.</li>
+                                    <li>Set Note to Quasar update checks and set an expiration you can renew before it ends.</li>
+                                    <li>Do not select any scopes or permissions. Public release checks only need authentication for rate limiting.</li>
+                                    <li>Generate the token, copy it once, paste it here, save it, then press Check Quasar.</li>
+                                </ol>
+                                <MudLink Href="https://github.com/settings/tokens/new"
+                                         Target="_blank"
+                                         Underline="Underline.Always"
+                                         Color="Color.Primary"
+                                         Typo="Typo.subtitle2">
+                                    Open GitHub classic token page
+                                </MudLink>
+                            </div>
+                        </MudAlert>
+                        <span class="quasar-text quasar-type-caption">
+                            Stored encrypted in @_snapshot.Options.CredentialsFile with the same local Data Protection keyring used for the Steam Workshop API key.
+                        </span>
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2">
+                            <MudTextField
+                                @bind-Value="_githubToken"
+                                Label="GitHub token"
+                                Variant="Variant.Outlined"
+                                InputType="InputType.Password"
+                                Immediate="true"
+                                Adornment="Adornment.Start"
+                                AdornmentIcon="@Icons.Material.Filled.Key"
+                                Disabled="_busy"
+                                Class="configs-search-field" />
+                            <MudButton Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@Icons.Material.Filled.Save"
+                                       Disabled="_busy || string.IsNullOrWhiteSpace(_githubToken)"
+                                       OnClick="SaveGitHubTokenAsync">
+                                Save token
+                            </MudButton>
+                            <MudButton Variant="Variant.Outlined"
+                                       Color="Color.Default"
+                                       StartIcon="@Icons.Material.Filled.DeleteOutline"
+                                       Disabled="_busy || !_snapshot.GitHubTokenSaved"
+                                       OnClick="ClearGitHubTokenAsync">
+                                Clear
+                            </MudButton>
+                        </div>
+                    </div>
+                    <hr class="quasar-divider" />
+                    <MudSwitch T="bool"
+                               Value="_includePrerelease"
+                               ValueChanged="HandleIncludePrereleaseChanged"
+                               Disabled="_busy"
+                               Color="Color.Error"
+                               Label="Include prerelease versions" />
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                        Prerelease versions are for testing only and should not be used by regular users.
+                    </MudAlert>
+                    <label class="quasar-check"><input type="checkbox" checked="@_snapshot.Options.AutoApplyUpdates" disabled="@_busy" @onchange="HandleAutoApplyUpdatesChanged" />Automatically update Quasar</label>
+                    <p class="quasar-muted quasar-caption">Applies matching releases after checks and restarts Quasar while keeping game servers online. Appsettings conflicts require manual resolution.</p>
+                    <MudCheckBox T="bool"
+                                 Value="_autoStageWebUpdates"
+                                 ValueChanged="HandleAutoStageWebUpdatesChanged"
+                                 Disabled="_busy"
+                                 Label="Automatically stage Quasar updates after checks" />
+                    <span class="quasar-text quasar-type-caption">
+                        Turn this off to leave detected releases unstaged until you select Update Quasar.
+                    </span>
+                    <p class="quasar-text quasar-type-body2">
+                        Last check: @(FormatTimestamp(_snapshot.LastCheckedUtc))
+                    </p>
+                    <p class="quasar-text quasar-type-body2">
+                        Application package: @_snapshot.Options.PackageAssetName
+                    </p>
+                </div>
+            </section>
+        </MudItem>
+    </MudGrid>
+</div>
+
+}
+
+@code {
+    private UpdatesDashboard _snapshot = null!;
+    private string? _loadError;
+    private readonly CancellationTokenSource _stop = new();
+    private int _generation;
+    private bool _clusterBusy;
+    private ManagedRuntimeWarmupSnapshot _runtimeSnapshot = ManagedRuntimeWarmupSnapshot.CreateInitial();
+    private bool _busy;
+    private bool _runtimeBusy;
+    private bool _includePrerelease;
+    private bool _autoStageWebUpdates = true;
+    private DedicatedServerLaunchUpdateMode _launchUpdateMode = DedicatedServerLaunchUpdateMode.Update;
+    private bool _bootstrapActivationRequested;
+    private string _selectedWebVersion = string.Empty;
+    private string _currentAppSettingsText = string.Empty;
+    private string _incomingAppSettingsText = string.Empty;
+    private string _resolvedAppSettingsText = string.Empty;
+    private string _githubToken = string.Empty;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _ = MonitorAsync(_stop.Token);
+    }
+    private async Task MonitorAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+                if (!_busy && !_runtimeBusy && !_clusterBusy) await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+    private async Task RefreshAsync()
+    {
+        var generation = ++_generation;
+        try
+        {
+            var next = await Sdk.RequestAsync<UpdatesDashboard>("updates.dashboard", token: _stop.Token);
+            if (generation != _generation || _stop.IsCancellationRequested) return;
+            var loadConflict = next.AppSettingsConflict && (_snapshot is null || !_snapshot.AppSettingsConflict ||
+                _snapshot.AppSettingsConflictPath != next.AppSettingsConflictPath || _snapshot.Web?.Version != next.Web?.Version);
+            _snapshot = next; _runtimeSnapshot = next.Runtime;
+            _includePrerelease = next.IncludePrerelease; _autoStageWebUpdates = next.AutoStageWebUpdates;
+            _launchUpdateMode = next.LaunchUpdateMode; _selectedWebVersion = next.SelectedWebVersion;
+            if (!next.AppSettingsConflict || loadConflict) _currentAppSettingsText = _incomingAppSettingsText = _resolvedAppSettingsText = "";
+            if (next.Bootstrap is null) _bootstrapActivationRequested = false;
+            _loadError = null;
+            if (loadConflict || next.AppSettingsConflict && string.IsNullOrEmpty(_incomingAppSettingsText)) await LoadAppSettingsConflictAsync();
+        }
+        catch (JSException error) { _loadError = error.Message; }
+    }
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+
+    private async Task CheckClusterNowAsync()
+    {
+        _clusterBusy = true;
+        try { await Sdk.RequestAsync<bool>("updates.clusters.check"); await RefreshAsync(); }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
+        finally { _clusterBusy = false; }
+    }
+    private IReadOnlyList<ManagedRuntimeComponentSnapshot> ManagedRuntimeRows => _runtimeSnapshot.Components
+        .Where(component => component.Component is ManagedRuntimeInstallComponent.Magnetar
+            or ManagedRuntimeInstallComponent.DedicatedServer)
+        .ToList();
+
+    private async Task CheckNowAsync()
+    {
+        await RunBusyAsync(
+            () => Sdk.RequestAsync<bool>("updates.check"),
+            "Update check complete.",
+            "Update check failed");
+    }
+
+    private async Task StageAsync()
+    {
+        _busy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.stage");
+            await RefreshAsync();
+            if (_snapshot.AppSettingsConflict)
+            {
+                Snackbar.Add("appsettings.json needs manual conflict resolution before activation.", Severity.Warning);
+            }
+            else
+            {
+                Snackbar.Add("Quasar UI update staged.", Severity.Success);
+            }
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed staging update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private bool CanUpdateQuasar => !_busy && !string.IsNullOrWhiteSpace(_selectedWebVersion) &&
+        _snapshot.Web is { IsCurrent: false } &&
+        _snapshot.Operation?.Stage is not ("Queued" or "Downloading" or "Verified" or "Restarting");
+
+    private Task UpdateQuasarAsync() => SubmitQuasarUpdateAsync(false);
+    private Task RetryQuasarAsync() => SubmitQuasarUpdateAsync(true);
+    private async Task SubmitQuasarUpdateAsync(bool retry)
+    {
+        _busy = true;
+        try
+        {
+            var requestedVersion = retry ? _snapshot.Operation?.Version ?? _selectedWebVersion : _selectedWebVersion;
+            var resolvedVersion = await Sdk.RequestAsync<string>("updates.resolve", new { version = requestedVersion });
+            var changed = !string.Equals(resolvedVersion, requestedVersion, StringComparison.OrdinalIgnoreCase);
+            if (changed)
+            {
+                var accepted = await DialogService.ShowMessageBoxAsync("Selected release is no longer available",
+                    $"Quasar {requestedVersion} is no longer available with a complete package and checksums on GitHub. Install Quasar {resolvedVersion} instead? Running game servers continue to run.",
+                    yesText: "OK", cancelText: "Cancel");
+                if (accepted != true) return;
+            }
+            await Sdk.RequestAsync<bool>("updates.install", new { version = resolvedVersion, retry = retry && !changed });
+            _selectedWebVersion = resolvedVersion;
+            await RefreshAsync();
+            Snackbar.Add("Update queued. Progress and any recovery instructions will appear here.", Severity.Info);
+        }
+        catch (Exception exception) { Snackbar.Add(exception.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task ActivateAsync()
+    {
+        if (!CanActivateWebUpdate)
+        {
+            if (!IsUnderBootstrap)
+                Snackbar.Add("Quasar is not running under Bootstrap, so this update cannot be activated from the UI.", Severity.Warning);
+
+            return;
+        }
+
+        var targetVersion = _snapshot.Web?.Version ?? string.Empty;
+        var rollback = _snapshot.Web is { IsNewer: false, IsCurrent: false };
+        _busy = true;
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
+            {
+                expectedVersion = targetVersion,
+                initialDelayMs = 500,
+                showFeedback = true,
+                title = rollback ? "Rolling back Quasar" : "Activating Quasar UI",
+                message = rollback
+                    ? $"Restoring Quasar UI and Bootstrap to {targetVersion}. The page will reload when Quasar is healthy."
+                    : $"Switching to Quasar UI {targetVersion}. The page will reload when the new worker is healthy.",
+                initialStatus = rollback ? "Preparing the matching UI and Bootstrap release." : "Preparing worker activation.",
+                pollingMessage = $"Waiting for Quasar UI {targetVersion} to pass /api/health.",
+                successMessage = "New Quasar UI worker is healthy. Reloading Updates.",
+                timeoutMessage = "Still waiting for the new Quasar UI worker. Reloading Updates now.",
+            });
+            await Sdk.RequestAsync<bool>("updates.activate");
+            await RefreshAsync();
+            Snackbar.Add(rollback ? "Quasar UI and Bootstrap rollback requested. The page will reconnect shortly."
+                : "Quasar UI update activation requested. The page will reconnect shortly.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            await TryClearRestartFeedbackAsync();
+            Snackbar.Add($"Failed activating update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ForceActivateBootstrapAsync()
+    {
+        var bootstrap = _snapshot.Bootstrap;
+        if (bootstrap is null)
+            return;
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Force Bootstrap update?",
+            $"Bootstrap {bootstrap.Version} will be downloaded, verified, installed, and the Quasar launcher will restart. Running Space Engineers servers stay running.",
+            yesText: "Force activate",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        _bootstrapActivationRequested = true;
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "/settings/updates", new
+            {
+                requireUnhealthy = true,
+                showFeedback = true,
+                title = "Activating Bootstrap",
+                message = $"Requesting Bootstrap {bootstrap.Version}. Quasar will reload after the launcher restarts the web worker.",
+                initialStatus = "Writing Bootstrap activation request.",
+                waitingForStopMessage = "Waiting for Bootstrap to restart the current worker.",
+                pollingMessage = "Waiting for Quasar to pass /api/health.",
+                successMessage = "Quasar is healthy. Reloading Updates.",
+                timeoutMessage = "Still waiting for Quasar after Bootstrap activation. Reloading Updates now.",
+            });
+            await Sdk.RequestAsync<bool>("updates.bootstrap.activate");
+            await RefreshAsync();
+            Snackbar.Add("Bootstrap update activation requested. Quasar will restart shortly.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            await TryClearRestartFeedbackAsync();
+            _bootstrapActivationRequested = false;
+            Snackbar.Add($"Failed requesting Bootstrap update: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task CheckMagnetarNowAsync()
+    {
+        await RunRuntimeBusyAsync(
+            () => Sdk.RequestAsync<bool>("updates.magnetar.check"),
+            "Magnetar update check complete.",
+            "Magnetar update check failed");
+    }
+
+    private async Task CheckDedicatedServerNowAsync()
+    {
+        await RunRuntimeBusyAsync(
+            () => Sdk.RequestAsync<bool>("updates.dedicated.check"),
+            "Dedicated Server update check complete.",
+            "Dedicated Server update check failed");
+    }
+
+    private async Task HandleLaunchUpdateModeChanged(DedicatedServerLaunchUpdateMode mode)
+    {
+        if (mode == _launchUpdateMode)
+            return;
+
+        var previous = _launchUpdateMode;
+        _launchUpdateMode = mode;
+        _runtimeBusy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.runtime.mode", new { mode });
+            Snackbar.Add($"Dedicated Server launch update mode set to {mode}.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _launchUpdateMode = previous;
+            Snackbar.Add($"Failed updating launch update mode: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _runtimeBusy = false;
+        }
+    }
+
+    private async Task HandleSelectedWebVersionChanged(string? version)
+    {
+        version ??= string.Empty;
+        if (string.Equals(version, _selectedWebVersion, StringComparison.OrdinalIgnoreCase))
+            return;
+
+        _selectedWebVersion = version;
+        _busy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.select", new { version });
+            await RefreshAsync();
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed selecting version: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task HandleIncludePrereleaseChanged(bool value)
+    {
+        if (value == _includePrerelease)
+            return;
+
+        var previous = _includePrerelease;
+        if (value)
+        {
+            var confirmed = await DialogService.ShowMessageBoxAsync(
+                "Enable prerelease updates?",
+                "Prerelease updates are for testing only and should not be used by regular users. They may be unstable, may require manual recovery, and replace the complete Quasar application.",
+                yesText: "Enable prereleases",
+                cancelText: "Cancel");
+
+            if (confirmed != true)
+            {
+                _includePrerelease = previous;
+                return;
+            }
+        }
+
+        _includePrerelease = value;
+        _busy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.prerelease", new { enabled = value });
+            await RefreshAsync();
+            Snackbar.Add(value ? "Prerelease updates enabled." : "Prerelease updates disabled.", value ? Severity.Warning : Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _includePrerelease = previous;
+            Snackbar.Add($"Failed updating release stream: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task HandleAutoApplyUpdatesChanged(ChangeEventArgs args)
+    {
+        await RunBusyAsync(() => Sdk.RequestAsync<bool>("updates.auto.apply", new { enabled = args.Value is true }),
+            "Automatic Quasar update policy saved.", "Could not save automatic update policy");
+    }
+
+    private async Task HandleAutoStageWebUpdatesChanged(bool value)
+    {
+        if (value == _autoStageWebUpdates)
+            return;
+
+        var previous = _autoStageWebUpdates;
+        _autoStageWebUpdates = value;
+        _busy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.auto.stage", new { enabled = value });
+            await RefreshAsync();
+            Snackbar.Add(value ? "Automatic UI staging enabled." : "Manual UI staging enabled.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            _autoStageWebUpdates = previous;
+            Snackbar.Add($"Failed updating staging mode: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task LoadAppSettingsConflictAsync()
+    {
+        try
+        {
+            var documents = await JS.InvokeAsync<ConflictDocuments>("quasarSdk.readJson", _stop.Token, "quasar.core", "updates.conflict.documents", new { });
+            _currentAppSettingsText = documents.Current;
+            _incomingAppSettingsText = documents.Incoming;
+            if (string.IsNullOrWhiteSpace(_resolvedAppSettingsText))
+            {
+                _resolvedAppSettingsText = string.IsNullOrWhiteSpace(documents.Current)
+                    ? documents.Incoming
+                    : documents.Current;
+            }
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed loading appsettings.json conflict: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private void TakeCurrentAppSettings() => _resolvedAppSettingsText = _currentAppSettingsText;
+
+    private void TakeIncomingAppSettings() => _resolvedAppSettingsText = _incomingAppSettingsText;
+
+    private async Task SaveAppSettingsResolutionAsync()
+    {
+        await RunBusyAsync(
+            () => JS.InvokeVoidAsync("quasarSdk.uploadText", CancellationToken.None, "quasar.core", "updates.conflict.resolve", _resolvedAppSettingsText).AsTask(),
+            "appsettings.json conflict resolved.",
+            "Failed saving appsettings.json");
+    }
+
+    private async Task SaveGitHubTokenAsync()
+    {
+        var token = _githubToken.Trim();
+        if (string.IsNullOrWhiteSpace(token))
+            return;
+
+        _busy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.token.save", new { token });
+
+            _githubToken = string.Empty;
+            await RefreshAsync();
+            Snackbar.Add("GitHub update token saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving GitHub token: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task ClearGitHubTokenAsync()
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Clear GitHub token?",
+            "Remove the token saved on this page? Tokens set through environment variables are unaffected.",
+            yesText: "Clear token",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        _busy = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("updates.token.clear");
+            _githubToken = string.Empty;
+            await RefreshAsync();
+            Snackbar.Add("GitHub update token cleared.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed clearing GitHub token: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RunBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
+    {
+        _busy = true;
+        try
+        {
+            await action();
+            await RefreshAsync();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"{failurePrefix}: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private async Task RunRuntimeBusyAsync(Func<Task> action, string successMessage, string failurePrefix)
+    {
+        _runtimeBusy = true;
+        try
+        {
+            await action();
+            await RefreshAsync();
+            Snackbar.Add(successMessage, Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"{failurePrefix}: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _runtimeBusy = false;
+        }
+    }
+
+    private async Task TryClearRestartFeedbackAsync()
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.clearRestartFeedback");
+        }
+        catch
+        {
+        }
+    }
+
+    private Severity GetStatusSeverity() => _snapshot.Status switch
+    {
+        _ when _snapshot.AppSettingsConflict => Severity.Warning,
+        "Failed" => Severity.Error,
+        "Staged" => Severity.Success,
+        "UpdateQueued" or "Staging" or "Activating" => Severity.Info,
+        _ => _snapshot.Enabled ? Severity.Normal : Severity.Warning,
+    };
+
+    private string FormatTimestamp(DateTimeOffset? timestamp) => ViewerTime.Format(timestamp, "never");
+
+    private static string FormatRuntimeVersion(ManagedRuntimeComponentSnapshot component)
+    {
+        if (!string.IsNullOrWhiteSpace(component.Version))
+            return component.Version;
+
+        return string.IsNullOrWhiteSpace(component.Path) ? "not installed" : "installed (version unknown)";
+    }
+
+    private string FormatBootstrapVersion() =>
+        string.IsNullOrWhiteSpace(_snapshot.CurrentBootstrapVersion)
+            ? "not managed by Bootstrap"
+            : _snapshot.CurrentBootstrapVersion;
+
+    private string FormatGitHubTokenStatus()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return "not set";
+
+        if (_snapshot.GitHubTokenExpired && _snapshot.GitHubTokenExpiresAtUtc is null)
+            return "rejected";
+
+        if (_snapshot.GitHubTokenExpired)
+            return "expired";
+
+        if (_snapshot.GitHubTokenExpiringSoon)
+            return "expires soon";
+
+        if (_snapshot.GitHubTokenExpiresAtUtc is { } expiresAtUtc)
+            return $"expires {ViewerTime.Format(expiresAtUtc)}";
+
+        return "set";
+    }
+
+    private string FormatGitHubTokenVariableNotice() =>
+        _snapshot.GitHubTokenVariableName == "QUASAR_GITHUB_TOKEN"
+            ? $"Quasar uses the GitHub token from the {_snapshot.GitHubTokenVariableName} environment variable. " +
+              "It wins over a token saved here."
+            : $"Quasar uses the GitHub token from the {_snapshot.GitHubTokenVariableName} environment variable " +
+              "until a token is saved here.";
+
+    private Color GetGitHubTokenChipColor()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return Color.Warning;
+
+        if (_snapshot.GitHubTokenExpired)
+            return Color.Error;
+
+        return _snapshot.GitHubTokenExpiringSoon ? Color.Warning : Color.Success;
+    }
+
+    private string GetGitHubTokenChipIcon()
+    {
+        if (!_snapshot.GitHubTokenConfigured)
+            return Icons.Material.Filled.KeyOff;
+
+        return _snapshot.GitHubTokenExpired || _snapshot.GitHubTokenExpiringSoon
+            ? Icons.Material.Filled.Warning
+            : Icons.Material.Filled.Key;
+    }
+
+    private bool IsUnderBootstrap => _snapshot.Options.IsUnderBootstrap;
+
+    private bool CanForceActivateBootstrap =>
+        !_busy &&
+        !_bootstrapActivationRequested &&
+        IsUnderBootstrap &&
+        _snapshot.Options.BootstrapUpdateUnavailableReason is null &&
+        _snapshot.Bootstrap is { IsNewer: true };
+
+    private bool CanActivateWebUpdate =>
+        !_busy &&
+        IsUnderBootstrap &&
+        (_snapshot.Web?.IsNewer == true || _snapshot.Options.BootstrapUpdateUnavailableReason is null) &&
+        _snapshot.Web is { IsStaged: true, IsCurrent: false };
+
+    private static string FormatWebReleaseOption(UpdateRelease release)
+    {
+        var badges = new List<string>();
+        if (release.IsCurrent)
+            badges.Add("current");
+        else if (release.IsNewer)
+            badges.Add("newer");
+        else
+            badges.Add("rollback");
+
+        if (release.IsPrerelease)
+            badges.Add("prerelease");
+
+        if (release.IsStaged)
+            badges.Add("staged");
+
+        return $"{release.Version} ({string.Join(", ", badges)})";
+    }
+
+    private static string FormatWebReleaseStatus(UpdateRelease release)
+    {
+        if (release.IsCurrent)
+            return "Current";
+
+        if (release.IsStaged)
+            return release.IsNewer ? "Staged update" : "Staged rollback";
+
+        return release.IsNewer ? "Ready to download" : "Rollback available";
+    }
+}

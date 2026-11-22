@@ -121,7 +121,7 @@ public sealed class ClusterEntityTests
         using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = root }).Build());
         await clusters.CreateAsync(new("cluster", "Unified cluster", "http://gateway.test", ""), default);
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -135,11 +135,10 @@ public sealed class ClusterEntityTests
         using var servers = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
         context.Services.AddSingleton(servers);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
             new HostingEnvironment { ContentRootPath = root }, loadPluginAssemblies: false));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Entities>();
+        var page = context.Render<Quasar.Client.Components.EntitiesView>();
         if (excluded)
         {
             Assert.DoesNotContain("Unified cluster", page.Markup);
@@ -152,8 +151,9 @@ public sealed class ClusterEntityTests
         Assert.Contains("Unified cluster", page.Markup);
         Assert.DoesNotContain("epoch", page.Markup);
         Assert.DoesNotContain("Delete entity", page.Markup);
-        var parameters = (IReadOnlyDictionary<string, object?>)typeof(Entities)
-            .GetMethod("CreateEntityExtensionParameters", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page.Instance, [fixture.Data["b"][0]])!;
+        var parameters = (IReadOnlyDictionary<string, object?>)typeof(Quasar.Client.Components.EntitiesView)
+            .GetMethod("CreateEntityExtensionParameters", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page.Instance, [((IReadOnlyList<Quasar.Client.Operations.EntitySummary>)typeof(Quasar.Client.Components.EntitiesView)
+                .GetField("_entities", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page.Instance)!).First(e => e.EntityId == fixture.Data["b"][0].EntityId)])!;
         Assert.Equal("b", parameters["AgentId"]);
         Assert.Equal("Unified cluster", parameters["ServerName"]);
         Assert.Equal(true, parameters["CanViewEntity"]);
@@ -201,7 +201,7 @@ public sealed class ClusterEntityTests
         auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterManage);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Entities>();
+        var page = context.Render<Quasar.Client.Components.EntitiesView>();
         await page.WaitForAssertionAsync(() => Assert.Equal(2, page.FindAll("tbody tr").Count));
         IReadOnlyList<ServerCommandEnvelope> Actions() => fixture.Commands.Where(command => command.CommandType == ServerCommandType.EntityAction).ToArray();
         AngleSharp.Dom.IElement Item(string label) => popovers.FindAll(".mud-popover-open .mud-menu-item").Single(item => item.TextContent.Trim() == label);
@@ -245,7 +245,7 @@ public sealed class ClusterEntityTests
         var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = root }).Build());
         await clusters.CreateAsync(new("cluster", "Unified cluster", "http://gateway.test", ""), default);
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(clusters);
@@ -253,7 +253,6 @@ public sealed class ClusterEntityTests
         context.Services.AddSingleton(fixture.Service);
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(QuasarUiPluginCatalog.Create(new ConfigurationBuilder().Build(),
             new HostingEnvironment { ContentRootPath = root }, loadPluginAssemblies: false));
         return context;

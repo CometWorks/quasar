@@ -1,0 +1,22 @@
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+
+<MudButton Color="Color.Primary" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Link"
+           OnClick="LinkAsync">Link Discord account</MudButton>
+
+@code {
+    [Parameter] public string? SteamId { get; set; }
+    [Parameter] public EventCallback OnLinked { get; set; }
+
+    private async Task LinkAsync()
+    {
+        var dialog = await Dialogs.ShowAsync<DiscordLinkDialog>("Link Discord account",
+            new DialogParameters<DiscordLinkDialog> { { d => d.SteamId, SteamId } },
+            new DialogOptions { FullWidth = true, MaxWidth = MaxWidth.Small });
+        if (await dialog.Result is { Canceled: false })
+        {
+            Snackbar.Add("Discord account linked.", Severity.Success);
+            await OnLinked.InvokeAsync();
+        }
+    }
+}

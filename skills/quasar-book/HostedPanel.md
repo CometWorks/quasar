@@ -13,6 +13,12 @@ attempts remain resumable and may prompt again; completion stops automatic promp
 Cancellation preserves private identity and does not cancel a paid subscription.
 Existing saved choices remain compatible. Explicit reopening is always available.
 
+Hosted SDK operations such as Viewer asset reads and backup downloads can start
+through the tunnel while Quasar establishes a direct browser connection.
+Subsequent operations use the direct peer when available. A running transfer
+stays on its original connection. If a write loses its connection, check its
+outcome before retrying. Local and self-hosted access use the same browser dashboard over HTTP(S).
+
 ## Availability and price
 
 The hosted service is still being integrated. Stripe billing is implemented in Nebula, but checkout stays disabled until the operator's onboarding and acceptance are done. Until then only Nebula's configured platform super admins can enroll, for free. Other accounts stay pending until a verified payment activates them. Free hosting does not grant any role in Quasar.
@@ -59,6 +65,12 @@ Status texts in the dialog:
 | "Hosted access inactive; local Quasar remains available. Manage hosting on the Nebula account page." | Nebula denied hosting access. Local Quasar remains available; the enrollment can reactivate after later verified payment. |
 | "Installation disconnected. Restart hosted setup to relink your panel." | Nebula no longer knows this installation, for example after a disconnect or a recovery on another machine. Quasar has cleared its connector credential. |
 
+## Dashboard startup and transfers
+
+The browser downloads the dashboard runtime once per installed version. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
+
+Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
+
 ## Security of hosted requests
 
 - The connector forwards requests for `/<panel-name>/` to Quasar on loopback and adds a private header with a secret only it and Quasar know. Quasar treats a request as hosted only with that exact secret, from a loopback socket, for the enrolled prefix, and while authentication and Steam sign-in are on. Any other request with that header gets 403.
@@ -100,9 +112,8 @@ The detailed operator guide, including the acceptance checks for push delivery, 
 
 ## Sources
 
-- `Quasar/Components/Pages/PostInstallSetup.razor`
-- `Quasar/Components/Shared/AccessSetupPrompt.razor`
-
+- `Quasar.Client/Administration/SetupPage.razor`
+- `Quasar.Client/Administration/DashboardSetupPrompt.razor`
 - `Docs/HostedPanel.md`
 - `Shared/Hosting/HostedPanelState.cs`
 - `Quasar/Services/HostedPanelService.cs`
@@ -116,9 +127,9 @@ The detailed operator guide, including the acceptance checks for push delivery, 
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/SteamProfileClient.cs`
-- `Quasar/Components/Shared/AccessSetupDialog.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Pages/Security.razor`
+- `Quasar.Client/Administration/DashboardSetupDialog.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
 - `Shared/Networking/QuasarControlAddress.cs`
 - `Quasar.Host/HostConnection.cs`
 - `Quasar.Agent/WebServiceLocator.cs`

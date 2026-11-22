@@ -89,6 +89,13 @@ public sealed class QuasarTransferRegistry(QuasarBrowserSessions sessions) : IDi
         public QuasarOperationKind Kind { get; }
         public JsonElement Request { get; }
         public bool Claimed { get; set; }
+        // Keep bounded leases for idle transfers while a slow, authorized backup can make forward progress.
+        internal void RecordProgress()
+        {
+            if (Token.IsCancellationRequested) return;
+            try { Stop.CancelAfter(ActiveLifetime); }
+            catch (ObjectDisposedException) when (Token.IsCancellationRequested) { }
+        }
         internal CancellationTokenSource Stop { get; }
         public CancellationToken Token { get; }
     }

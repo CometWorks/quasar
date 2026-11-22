@@ -20,7 +20,7 @@ public enum QuasarChatCommandScope
     /// <summary>Every player, in game and on Discord. Answers on Discord are private to the caller.</summary>
     Player,
 
-    /// <summary>Discord users mapped to a Quasar subject on the Security page. Answers are posted in the channel.</summary>
+    /// <summary>Discord users with a verified link to a Steam account holding the current Quasar admin role. Answers are posted in the channel.</summary>
     Admin,
 }
 
@@ -43,7 +43,7 @@ public sealed record QuasarChatCommandInfo(
 
 /// <param name="Caller">For a player command, the player-agent principal core built from the authenticated game
 /// session or the stored Discord link; null for a Discord user without a link. For an admin command, the
-/// mapped subject's principal with its current roles: a person, never an agent.</param>
+/// linked Steam administrator's principal with its current roles.</param>
 /// <param name="ConversationKey"><c>steam:&lt;id&gt;</c> for a player, which follows them across cluster nodes and
 /// Discord once linked; <c>discord:&lt;id&gt;</c> for an unlinked Discord user or an admin.</param>
 /// <param name="Text">The caller's text, trimmed and at most 2000 characters; never empty.</param>

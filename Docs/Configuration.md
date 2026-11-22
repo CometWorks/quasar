@@ -18,9 +18,7 @@ should also see [Docker Deployment](Docker.md).
 Configure **Access** for player linking, whitelist, promotions and priority joining.
 Players run `/authorize` in Discord and authenticate through the shared
 `auth.se-servers.net` service. Quasar's bot checks membership and roles. The panel
-can stay private. Verified public website access or active Nebula hosting enables
-an optional web entry point. Private `player-access.json` stores
-settings, authorizations and preserved legacy OAuth credentials. See [Player authentication](PlayerAuthentication.md), including
+can stay private. Private `player-access.json` stores policies and server authorizations. See [Player authentication](PlayerAuthentication.md), including
 migration from the removed code-based linking flow.
 
 ## Command aliases per configuration profile
@@ -927,7 +925,10 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
   proxy, trusted-network bypass is refused and the user must sign in
 
 `Quasar:Auth:RequireHttpsForPublicAccess` defaults to `false` for private LAN
-operation. Enable it before exposing Quasar through a public reverse proxy. After
+operation. Public clients require HTTPS for dashboard sign-in, the Steam callback,
+the browser SDK and requests carrying the dashboard sign-in cookie. Private LAN
+and loopback access follow the configured trust policy. Enable the setting to
+require HTTPS on the other public web routes as well. After
 applying forwarded headers from a trusted proxy, Quasar then rejects plain HTTP
 requests from non-LAN clients with HTTP 400 and marks authentication and
 Steam correlation cookies Secure. This includes the UI, login, and public
@@ -1037,9 +1038,8 @@ them. OIDC subjects are unchanged. Hand-edited `rbac.json` and
 `QUASAR_ADMIN_STEAM_ID` still require
 numeric IDs.
 
-The role-mapping editor and first-administrator setup explain before saving that
-permission changes refresh the panel. A brief reconnect message after saving is
-expected, including with WebRTC. The mapping is saved before the refresh.
+The WASM panel reloads the saved mappings. Quasar evaluates subsequent dashboard
+operations with the current roles on both HTTPS and WebRTC.
 
 Steam users receive roles from the runtime `rbac.json` catalog. Quasar supports
 three roles: `viewer`, `editor`, and `admin`. Viewers can open every built-in page

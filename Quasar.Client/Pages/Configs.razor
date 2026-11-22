@@ -1,0 +1,13 @@
+@page "/configs"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+@using Quasar.Client.Configs
+<PageTitle>Config Profiles</PageTitle>
+<ConfigEditor @ref="_editor" InitialProfileId="@InitialProfileId" RequestedProfileId="@RequestedProfileId" ProfileAlias="@ProfileAlias" />
+
+@code {
+    [Parameter] public string? InitialProfileId { get; set; }
+    [SupplyParameterFromQuery(Name = "profileId")] public string? RequestedProfileId { get; set; }
+    [SupplyParameterFromQuery(Name = "profile")] public string? ProfileAlias { get; set; }
+    private ConfigEditor? _editor;
+    public Task<bool> ConfirmPendingChangesBeforeLeavingAsync() => _editor?.ConfirmPendingChangesBeforeLeavingAsync() ?? Task.FromResult(true);
+}

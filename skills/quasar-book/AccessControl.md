@@ -14,13 +14,13 @@ Quasar has three ways to authenticate a request:
 
 Steam is the dashboard sign-in provider. Player authentication also uses Discord OAuth without granting dashboard roles. `appsettings.json` contains an `ExternalProviders:Oidc` section and the **Security** page offers "Oidc" as a mapping provider, but Quasar does not register an OIDC sign-in, so these settings have no effect.
 
-Headless mode (`--headless`) keeps Steam `/login` and the public player authentication website. Configure player authentication through the UI before switching to headless mode.
+Headless mode (`--headless`) keeps Steam `/login` and Discord player linking. Configure player authentication through the UI before switching to headless mode.
 
 ## Player authentication
 
 **Access** in the main Control plane section configures Steam/Discord browser linking,
 role-based game promotions, whitelist and priority joining. **Server access** contains
-connection setup and policies; **Linked accounts** lists account links. Only Quasar admins
+server and cluster policies; **Linked accounts** lists account links. Only Quasar admins
 can change this policy. Player authentication never grants dashboard roles.
 
 Configure the existing bot and guild on **Discord**. Enable its **Server Members**
@@ -33,13 +33,7 @@ Players can link through the existing Quasar bot. Quasar needs outbound HTTPS to
 private. No hosting enrollment, per-panel OAuth secret or public callback is
 required. Quasar's bot checks guild membership and roles locally.
 
-For an optional public player page, enable Quasar's Steam authentication as the
-default provider and use active Nebula hosting or verify a public HTTPS root URL
-on port 443. The verification service at `auth.se-servers.net` refuses redirects
-and private addresses. Proof lasts seven days. Enabled policies attempt renewal
-during the last day and retry hourly.
-
-Choose a server or cluster, named access and priority roles, and promotion mappings.
+Choose a server or cluster. Search the required and priority role lists by name or ID, select the roles that apply, and configure promotion mappings.
 Quasar uses its bot's configured guild automatically. Saved roles remain visible
 by ID if the bot is offline or a role is unavailable; refreshing bot and roles
 loads current names without discarding edits. Include a recovery SteamID64 in the explicit allowlist.
@@ -53,9 +47,7 @@ saved policy.
 Players run `/authorize` in the server's Discord, enter the game server or cluster
 name, then follow the bot's private link and authenticate both accounts. The bot
 reports whether access was authorized. Whitelist players can do this before
-joining. In-game `!authorize` directs players to Discord or opens the configured
-public player page. The public page accepts a game-bound request only from the
-same Steam account and has a separate **Authorize this server** action.
+joining. In-game `!authorize` directs players to that Discord command.
 
 Whitelist requires the account pair, guild membership, any one required role when
 listed, and server authorization. An empty role list still needs membership.
@@ -75,12 +67,11 @@ disconnect existing players.
 The `!link` and Discord `/link CODE` exchange is removed. Legacy links stay visible
 on **Access → Linked accounts**, but must authenticate both accounts before identifying a player
 or granting access. Conflicting authenticated links are rejected. Players can
-unlink with `/unlink-accounts` in Discord or through the public player page.
+unlink with `/unlink-accounts` in Discord.
 Unlinking revokes linked eligibility. Relinking requires fresh authorization.
 
-Private `player-access.json` stores settings and authorizations. Legacy per-panel
-OAuth credentials are preserved encrypted for compatibility but are unused.
-Preserve Data Protection keys with backups. New linking depends on the shared
+Private `player-access.json` stores settings and authorizations. Retired website settings
+and per-panel credentials are ignored and dropped on the next write. New linking depends on the shared
 authentication service. Existing links, server authorizations and bot role
 checks remain usable during relay outages. Discord-initiated linking uses a
 short-lived, single-use proof that Quasar retrieves over outbound HTTPS.
@@ -111,6 +102,8 @@ recovery and the live OAuth/join acceptance checks still required before product
 - The top bar shows your Steam profile name beside the sign-out button and in its tooltip. Quasar looks it up from your public Steam Community profile at sign-in without an API key and keeps it in the session cookie. If the lookup fails or takes more than five seconds, it shows `Steam <SteamID64>`. Sign out and back in to refresh the name, including after upgrading. Permissions and audit records still use SteamID64.
 - An account with no mapping gets a 403 page: "You are signed in, but this account has no Quasar role." Its buttons are **Sign out** (an antiforgery-protected `POST /logout`) and **Retry Steam sign-in** (`/login?forceSteam=true`).
 - The sign-in cookie is `Quasar.Auth`, HTTP-only, `SameSite=Lax`, valid for 12 hours with sliding renewal. With `RequireHttpsForPublicAccess` enabled it is also always Secure. Through a [hosted panel](HostedPanel.md) its name gets the panel name as a suffix, its path is the panel prefix, and it is always Secure. The cookie is encrypted with keys in `DataProtection-Keys` in the Quasar data directory. Deleting that folder signs everyone out (and makes other secrets encrypted with those keys unreadable).
+- Public browser sign-in, the Steam callback, SDK requests and requests carrying a sign-in cookie require HTTPS. Trusted LAN clients keep the configured bypass.
+- Each Steam sign-in belongs to one panel. Signing out in any tab or switching accounts ends the old login across its tabs, peers and transfers. Other devices signed in separately keep their sessions. Quasar tracks active logins with empty files in `BrowserLogins/` under its data directory. Keep that directory across worker restarts. Clearing it signs out all Steam browsers. On upgrade from tickets without a login ID, Steam users sign in once again.
 - Quasar re-reads the roles from `rbac.json` on every request and reloads open UI sessions when `rbac.json` changes. Granting or removing a role takes effect without signing out. Write actions check the role again when you click, including after a confirmation dialog.
 - If `Quasar:Auth:Steam:Enabled` is `false`, or `Quasar:Auth:DefaultProvider` is not `Steam`, `/login` shows "Login unavailable. Steam is not enabled as the active Quasar auth provider."
 
@@ -217,10 +210,7 @@ more, like the assistant plugin's Grid Backups operations.
   ],
   "claimRoleMappings": [],
   "policyOverrides": {},
-  "agentRoles": { "assistant": ["editor"], "player": [], "monitor": ["editor"] },
-  "discordSubjects": [
-    { "discordUserId": "123456789012345678", "provider": "Steam", "subject": "76561198000000000" }
-  ]
+  "agentRoles": { "assistant": ["editor"], "player": [], "monitor": ["editor"] }
 }
 ```
 
@@ -231,7 +221,7 @@ Rules Quasar applies when it reads the file:
 - A subject can have several roles; the highest one decides in practice, since each role grants a superset of the one below.
 - `claimRoleMappings` and `policyOverrides` are read and saved but do not change who can do what. The permission table above is fixed.
 - `agentRoles` keeps only `assistant`, `player` and `monitor`. A missing entry gets its default, and `admin` is dropped.
-- `discordSubjects` entries need a numeric Discord user ID and a subject; others are dropped, and a Discord user keeps its first entry. A non-Steam provider grants nothing.
+- Older files may contain `discordSubjects`. Quasar ignores these manual entries and omits them on the next RBAC save. Administrators who used them can select **Link Discord account** on the Discord dashboard page or beside their Steam account in Security.
 
 Quasar watches the file. Saving it while Quasar runs applies the change within moments, and the log shows "Reloaded RBAC config from disk after external edit." If the file is not valid JSON, Quasar logs "Failed loading RBAC config from <path>" and treats it as having no mappings, so no Steam user has a role until the file is fixed.
 
@@ -239,20 +229,23 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 ## The Security page
 
-**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has six panels.
+**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) contains the following controls.
 
 - **Public panel access**: **Manage access setup** opens the access setup dialog, where you choose self-deployment behind your own reverse proxy or a hosted Nebula panel. Once the installation is enrolled with Nebula, **Manage Nebula hosting and billing** opens the Nebula account page. See [Hosted access](HostedPanel.md).
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and a link to per-server listing controls. See [Diagnostics](Diagnostics.md).
-- **Discord Admin Mappings**: maps a Discord user ID to a Steam account, so that Discord user can use the admin commands of UI plugins, such as the assistant's `/assistant`, with that account's Quasar roles. Discord's own Administrator permission doesn't count. Only Steam accounts can be mapped.
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
+
+**Link Discord account** opens a verification dialog for the selected Steam account. Choose **Verify with Steam and Discord** and keep Quasar open. The shared login obtains both IDs and the panel updates automatically. Steam-signed-in administrators can link their own account. On a trusted LAN, the dialog selects the only unlinked mapped Steam account automatically or asks which account to use when there are several. This does not require a game-access policy.
+
+For each Steam subject, the table shows its Steam profile name and whether it has a verified Discord link. Linked accounts show the Discord user ID and the username retrieved by the bot. IDs stay visible when a name lookup is unavailable. Only a verified link to a Steam subject with the current Quasar `admin` role allows Discord plugin commands marked Admin, such as `/assistant`. Removing the link or the role takes effect on the next command.
 
 For Steam mappings, enter a 17-digit ID or a Steam Community `/id/<vanity-name>` or `/profiles/<SteamID64>` URL. Quasar resolves vanity URLs automatically through Steam Community without an API key; numeric IDs and numeric profile URLs need no network lookup. It saves only the SteamID64. Invalid input disables the plus button. If a lookup fails, an error appears, the input stays in place and no mapping is saved. Retry or enter the numeric ID if Steam is unavailable.
 
 Runtime RBAC saves reject new Steam subjects that are not 17-digit IDs. To fix an invalid mapping saved by an older build, add the corrected ID with the same role first, then remove the old mapping. Hand-edited `rbac.json` and `QUASAR_ADMIN_STEAM_ID` still need numeric IDs.
 
-The role-mapping editor and first-administrator setup tell you before saving that the panel refreshes to apply permissions. You may briefly see a reconnect message after adding or removing a mapping, including with WebRTC. The change is saved before the refresh.
+The role editor reloads the saved mappings. Quasar checks subsequent dashboard operations with the current roles on both HTTPS and WebRTC.
 
 The **Provider** list also offers "Oidc", but such mappings have no effect, see [How Quasar identifies a caller](#how-quasar-identifies-a-caller).
 
@@ -401,7 +394,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Enabled` | `true` | See [Turning authentication off](#turning-authentication-off) |
-| `RequireHttpsForPublicAccess` | `false` | Private LAN HTTP by default; enable for a public reverse proxy to reject non-LAN HTTP and secure auth cookies |
+| `RequireHttpsForPublicAccess` | `false` | Trusted LAN HTTP is allowed. Dashboard authentication requires HTTPS for public clients. Enable the setting to extend enforcement to other public web routes. |
 | `DefaultProvider` | `Steam` | Only `Steam` has a sign-in |
 | `Steam:Enabled` | `true` | `false` disables `/login` |
 | `TrustedNetworkBypass:*` | see above | Also editable on the **Security** page |
@@ -420,7 +413,7 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | Steam sign-in works locally but remote users land on the wrong URL | The reverse proxy does not send `X-Forwarded-Host`/`X-Forwarded-Proto`, or its address is not in `TrustedProxies` (restart after adding). |
 | Everyone on the LAN can change settings without signing in | `AllowSameSubnet` is on. Turn it off on **Security**. |
 | Local browser is asked to sign in | The request went through a proxy with a non-LAN forwarded address, used a host name that is not an accepted destination, came from another site's page, or the matching LAN trust option is off. |
-| Plain text "HTTPS is required for non-LAN Quasar access." (HTTP 400) | `RequireHttpsForPublicAccess` is on and the request came over HTTP from a non-LAN address. Use the HTTPS proxy URL. |
+| Plain text "HTTPS is required for non-LAN Quasar access." (HTTP 400) | A public client used HTTP for dashboard authentication or another route covered by HTTPS enforcement. Use the HTTPS proxy URL. |
 | Agent, Host enrollment or Host connection gets 403 | The machine endpoint policy refused it: the source address or the `Host` header is not listed under `Quasar:MachineEndpoints`, or the client sent an `Origin` header. See [Machine endpoints](#machine-endpoints). |
 | Quasar doesn't start after editing `MachineEndpoints` | An entry is public, broader than `/16` (IPv4) or `/48` (IPv6), malformed, or a wildcard. |
 | All Steam users lost access after an edit | `rbac.json` is not valid JSON. Check the Quasar log for "Failed loading RBAC config". |
@@ -429,42 +422,25 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 
 ## Hosted public access
 
-The WebRTC development adapter uses the existing authenticated browser
-session and current `CanView` policy. It does not give a native peer a Steam role
-or machine API access. Hosted peers additionally need a renewable Nebula lease;
-logout, permission loss or lease expiry closes access. Nebula-hosted SDK sessions select it automatically, with no separate user toggle.
-Initial direct failure can use Nebula's bounded TURN fallback before any
-application work runs. Established writes are never replayed, and there is no
-automatic bulk HTTP fallback. Relay credentials are temporary and carry no user
-or machine role; relay exhaustion remains visible. Default NAT discovery uses
-`stun:rtc.se-servers.net:3478`, a DNS-only hostname separate from the proxied
-dashboard. DDNS may update its public IPv4; the Nebula relay refreshes it every
-minute and closes old relay allocations after a verified change. The RTC branch
-also carries Blazor circuits using the same stored session and renews current
-roles on reconnect after RBAC changes. Installed and native Windows acceptance
-remain pending. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
+Hosted dashboards start on the HTTPS tunnel while the worker and browser exchange
+STUN candidates. New SDK work uses a confirmed direct connection. The worker
+checks the signed-in browser, current `CanView` permission and renewable Nebula
+lease. Logout, revoked access or lease expiry closes that peer. An in-flight
+transfer stays on its original transport and an interrupted write may require
+checking the result before retrying.
 
-Connection setup exchanges discovered network candidates as they arrive, so a
-slow STUN lookup does not hold up an already usable path. These setup requests
-require the same signed-in browser session and permissions. Update the browser
-assets, Quasar worker and peer component together.
-
-If a hosted page displays its initial HTML but buttons remain inactive, check
-the browser's failed RTC setup requests. A rejected peer negotiation also stops
-Blazor hydration, including when opening the hosted URL on the Quasar host itself.
-Keep the complete Quasar package and peer component together when updating.
+The shared gateway caps tunneled traffic at 20 Mbit/s. NAT discovery uses
+`stun:rtc.se-servers.net:3478`. If direct UDP is unavailable, the dashboard and
+asset transfers continue through the tunnel. Each SDK operation checks current permissions. See [direct transport](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarWebRtc.md).
 
 **Security → Manage access setup** lets an admin enroll the installation with Nebula, which publishes it at `https://dash.se-servers.net/<panel-name>/`. Requests through that address always need a Steam sign-in with a role from `rbac.json`. They never get the trusted network bypass, and Quasar refuses them with 403 while authentication or Steam sign-in is off. Nebula platform rights, including free hosting, do not create a Quasar role. All Steam IDs mapped to `admin` can manage the panel in Nebula. See [Hosted access](HostedPanel.md).
 
 ## Sources
 
 - `Docs/QuasarWebRtc.md`
-- `Docs/QuasarWebRtcFramework.md`
-- `Quasar/Services/Plugins/QuasarRtcCircuits.cs`
 - `Quasar/Services/Plugins/QuasarRtcEndpoints.cs`
 - `Quasar/Services/Plugins/QuasarRtcSessions.cs`
 - `Quasar/Services/Plugins/QuasarPeerProcess.cs`
-
 - `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Docs/Configuration.md`
 - `Docs/QuickStart.md`
@@ -475,14 +451,16 @@ Keep the complete Quasar package and peer component together when updating.
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
 - `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
-- `Quasar/Services/Auth/QuasarPermissionService.cs`
+- `Quasar.Client/Components/DashboardRouteContent.razor`
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
+- `Quasar/Services/Auth/DashboardLogin.cs`
+- `Quasar/Services/Plugins/QuasarBrowserSessions.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/QuasarAuthorizationPolicyProvider.cs`
 - `Quasar/Services/Plugins/QuasarOperationService.cs`
 - `Quasar/Services/Plugins/QuasarSdkEndpoints.cs`
-- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
+- `Quasar.Client/UiPlugins/BrowserSdkAuthorization.razor`
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
@@ -491,55 +469,52 @@ Keep the complete Quasar package and peer component together when updating.
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/ClusterApi.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
-- `Quasar/Services/ServerManagementActions.cs`
-- `Quasar/Components/Routes.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
+- `Quasar.Client/Components/DashboardRouter.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Pages/Security.razor`
-- `Quasar/Components/Pages/Configs.razor`
-- `Quasar/Components/Pages/Plugins.razor`
-- `Quasar/Components/Pages/Players.razor`
-- `Quasar/Components/Pages/Chat.razor`
-- `Quasar/Components/Pages/Entities.razor`
-- `Quasar/Components/Pages/Analytics.razor`
-- `Quasar/Components/Pages/Discord.razor`
-- `Quasar/Components/Pages/ServerListing.razor`
-- `Quasar/Components/Pages/Hosts.razor`
-- `Quasar/Components/Pages/Notifications.razor`
-- `Quasar/Components/Pages/UiPlugins.razor`
-- `Quasar/Components/Pages/Backup.razor`
-- `Quasar/Components/Pages/Updates.razor`
-- `Quasar/Components/Pages/Appearance.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar.Client/Administration/DiscordLinkDialog.razor`
+- `Quasar/Services/Players/SharedAccountVerification.cs`
+- `Quasar.Client/Configs/ConfigEditor.razor`
+- `Quasar.Client/Components/ServerPluginSettings.razor`
+- `Quasar.Client/Components/PlayersView.razor`
+- `Quasar.Client/Components/ChatView.razor`
+- `Quasar.Client/Components/EntitiesView.razor`
+- `Quasar.Client/Components/AnalyticsView.razor`
+- `Quasar.Client/Components/DiscordView.razor`
+- `Quasar.Client/Administration/ListingPage.razor`
+- `Quasar.Client/Components/HostMachines.razor`
+- `Quasar.Client/Administration/NotificationPage.razor`
+- `Quasar.Client/UiPlugins/UiPluginsView.razor`
+- `Quasar.Client/Administration/Backups.razor`
+- `Quasar.Client/Administration/UpdatesPage.razor`
+- `Quasar.Client/Administration/AppearancePage.razor`
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Shared/Networking/MachineEndpointPolicy.cs`
 - `Quasar/Services/HostedPanelRequest.cs`
-- `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar.Client/Administration/DashboardSetupDialog.razor`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
 - `Quasar/Services/Plugins/QuasarServerOperations.cs`
 - `Quasar/Services/Plugins/QuasarConfigOperations.cs`
 - `Quasar/Services/Plugins/QuasarPlayerOperations.cs`
 - `Quasar/Services/Plugins/QuasarBackupOperations.cs`
-- `Quasar/Services/Plugins/QuasarOperationService.cs`
 - `Quasar/Services/Auth/QuasarAgentPrincipals.cs`
-- `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Audit/QuasarAuditLog.cs`
-- `Quasar/Components/Pages/Audit.razor`
-- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
-
+- `Quasar.Client/Administration/AuditLogPage.razor`
 - `Quasar/Services/ServerWorldImportApi.cs`
-- `Quasar/Components/Pages/ServerWorldImportDialog.razor`
-- `Quasar/Components/Shared/DiscordSubjectMappings.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
+- `Quasar.Client/Administration/RoleMappingAccounts.razor`
 - `Quasar/Services/Plugins/QuasarMyOperations.cs`
-
 - `Docs/PlayerAuthentication.md`
 - `Quasar/Services/Players/PlayerAccessCatalog.cs`
-- `Quasar/Services/Players/PlayerAuthBrowser.cs`
-- `Quasar/Services/Players/PlayerAuthEndpoints.cs`
+- `Quasar/Services/Players/PrivatePlayerAuthorization.cs`
 - `Quasar/Services/Players/PlayerAccessService.cs`
 - `Quasar/Services/Players/DiscordPlayerRoles.cs`
-- `Quasar/Components/Shared/PlayerAuthenticationSettings.razor`
-- `Quasar/Components/Pages/Access.razor`
+- `Quasar.Client/Components/PlayerAccessView.razor`
+- `Quasar.Client/Components/DiscordRolePicker.razor`
+- `Quasar.Client/Components/AccessView.razor`
 - `Quasar.Tests/PlayerAccessPageTests.cs`
 - `Quasar.Agent/PlayerAccessEnforcement.cs`
 - `Quasar.Host.Contract/HostContract.cs`

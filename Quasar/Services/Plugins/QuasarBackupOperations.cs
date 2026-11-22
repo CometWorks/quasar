@@ -58,6 +58,7 @@ public static class QuasarBackupOperations
 
     public static void AddQuasarBackupOperations(this IServiceCollection services)
     {
+        services.AddQuasarBackupDashboard();
         const string plugin = QuasarCoreOperations.PluginId;
         services.AddQuasarOperation<BackupListRequest, IReadOnlyList<BackupItem>>(
             plugin,
@@ -197,6 +198,12 @@ public static class QuasarBackupOperations
                 Description =
                     "Returns the automatic backup rules for Quasar config, server and world backups (enabled, frequency, time, retention, last run), the backup folder and the cluster backup limits.",
             }
+        );
+        services.AddQuasarUpload<QuasarCoreOperations.EmptyRequest, QuasarRestoreReport>(
+            plugin, "backup.restore.upload", [QuasarPolicyNames.CanManageSecurity], 10L * 1024 * 1024 * 1024,
+            (caller, _, staged, _) => Task.FromResult(new QuasarUpload<QuasarRestoreReport>(
+                token => caller.Services.GetRequiredService<QuasarBackupService>().RestoreStagedAsync(staged, token))),
+            new() { RequireDefaultPolicies = true, AgentAccess = QuasarAgentAccess.Denied, Description = "Restores an uploaded backup archive after operator confirmation." }
         );
         services.AddQuasarOperation<BackupRestoreRequest, BackupRestored>(
             plugin,

@@ -8,7 +8,7 @@ using static Quasar.Services.Plugins.QuasarCoreOperations;
 namespace Quasar.Services.Plugins;
 
 /// <summary>The Entities page's live entity list, deletion and row actions, for standalone servers and clusters.</summary>
-public static class QuasarEntityOperations
+public static partial class QuasarEntityOperations
 {
     /// <param name="Type">All, Grid, Character, Float (dropped items), Voxel (asteroids and planets) or Other.</param>
     /// <param name="Search">Part of the entity's name, its owner's name or its entity ID.</param>
@@ -25,7 +25,7 @@ public static class QuasarEntityOperations
     );
 
     /// <param name="EntityId">The entity ID, as a string.</param>
-    public sealed record EntityRequest(string UniqueName = "", string EntityId = "");
+    public sealed record EntityRequest(string UniqueName = "", string EntityId = "", string? ExpectedAgentId = null, string? ExpectedTelemetryKey = null);
 
     /// <param name="Details">Kind such as Large-grid ship, Player or Asteroid, when known.</param>
     /// <param name="Nodes">Cluster nodes the entity was seen on.</param>
@@ -65,7 +65,9 @@ public static class QuasarEntityOperations
     public sealed record EntityActionInput(
         string UniqueName = "",
         string EntityId = "",
-        string Action = ""
+        string Action = "",
+        string? ExpectedAgentId = null,
+        string? ExpectedTelemetryKey = null
     );
 
     public sealed record EntityActionResult(
@@ -96,6 +98,7 @@ public static class QuasarEntityOperations
 
     public static void AddQuasarEntityOperations(this IServiceCollection services)
     {
+        AddDashboardOperations(services);
         services.AddQuasarOperation<EntityListRequest, EntityList>(
             QuasarCoreOperations.PluginId,
             "entities.list",
@@ -222,6 +225,7 @@ public static class QuasarEntityOperations
     )
     {
         var (name, row) = await FindAsync(caller, input.UniqueName, input.EntityId, token);
+        await CheckObservedOwner(caller, row, input.ExpectedAgentId, input.ExpectedTelemetryKey);
         return await RemoveAsync(
             caller.Services.GetRequiredService<EntityService>(),
             name,
@@ -237,6 +241,7 @@ public static class QuasarEntityOperations
     )
     {
         var (name, row) = await FindClusterAsync(caller, input.UniqueName, input.EntityId, token);
+        await CheckObservedOwner(caller, row, input.ExpectedAgentId, input.ExpectedTelemetryKey);
         return await RemoveAsync(
             caller.Services.GetRequiredService<EntityService>(),
             name,
@@ -253,6 +258,7 @@ public static class QuasarEntityOperations
     {
         var action = ParseAction(input.Action);
         var (name, row) = await FindAsync(caller, input.UniqueName, input.EntityId, token);
+        await CheckObservedOwner(caller, row, input.ExpectedAgentId, input.ExpectedTelemetryKey);
         return await RunAsync(
             caller.Services.GetRequiredService<EntityService>(),
             name,
@@ -270,6 +276,7 @@ public static class QuasarEntityOperations
     {
         var action = ParseAction(input.Action);
         var (name, row) = await FindClusterAsync(caller, input.UniqueName, input.EntityId, token);
+        await CheckObservedOwner(caller, row, input.ExpectedAgentId, input.ExpectedTelemetryKey);
         return await RunAsync(
             caller.Services.GetRequiredService<EntityService>(),
             name,

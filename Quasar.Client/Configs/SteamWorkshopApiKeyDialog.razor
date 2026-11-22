@@ -1,0 +1,63 @@
+@namespace Quasar.Components.Pages
+@using Quasar.Client.Configs
+@using MudBlazor
+
+<MudDialog>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-2">
+            <p class="quasar-text quasar-type-body2">
+                Store the Steam Web API key used by Quasar server-side for Workshop search.
+            </p>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                <div class="quasar-layout quasar-gap-1">
+                    <p class="quasar-text quasar-type-body2">Generate or find the key on Steam's developer page.</p>
+                    <MudLink Href="https://steamcommunity.com/dev/apikey"
+                             Target="_blank"
+                             Underline="Underline.Always"
+                             Color="Color.Primary"
+                             Typo="Typo.subtitle1"
+                             Style="font-weight: 700;">
+                        Open Steam Web API key page
+                    </MudLink>
+                </div>
+            </MudAlert>
+            <p class="quasar-text quasar-type-body2 quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                Quasar encrypts the key using the worker installation’s Data Protection keyring. Enter a replacement key to update it.
+            </p>
+            <MudTextField
+                @bind-Value="_webApiKey"
+                Label="Steam Web API key"
+                Variant="Variant.Outlined"
+                InputType="InputType.Password"
+                Immediate="true"
+                Adornment="Adornment.Start"
+                AdornmentIcon="@Icons.Material.Filled.Key" />
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="Save" Disabled="@string.IsNullOrWhiteSpace(_webApiKey)">Save</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private string _webApiKey = string.Empty;
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private void Save()
+    {
+        var key = _webApiKey.Trim();
+        if (string.IsNullOrWhiteSpace(key))
+            return;
+
+        MudDialog.Close(DialogResult.Ok(key));
+    }
+}

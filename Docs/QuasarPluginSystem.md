@@ -15,8 +15,8 @@ limits and cancellation belong to Quasar; feature validation remains in the
 plugin. Administrators edit effective endpoint rules in the collapsed **Plugin
 endpoint authorization** section on **UI Plugins**; missing or
 invalid policies deny by default. Declare `browserSdkVersion: 1` and a matching
-minimum Quasar release before publication. Legacy plugins remain supported.
-WebRTC and SignalR transport migration are separate steps. The service-side
+minimum Quasar release before publication. Starting with Quasar 1.7.0, Razor
+pages and outlets require a declared browser assembly. The service-side
 companion channel continues independently of browser views.
 
 For clustered servers, owned companion plugins of UI plugins installed from QuasarHub
@@ -125,15 +125,17 @@ Example:
 {
   "id": "cometworks.entityviewer",
   "displayName": "Entity Viewer",
-  "version": "0.1.0",
+  "version": "0.1.14",
   "entryAssembly": "CometWorks.EntityViewer.Quasar.dll",
   "entryType": "CometWorks.EntityViewer.Quasar.EntityViewerQuasarPlugin",
+  "browserAssembly": "CometWorks.EntityViewer.dll",
   "projectPath": "src/CometWorks.EntityViewer.Quasar/CometWorks.EntityViewer.Quasar.csproj",
   "staticAssets": "src/CometWorks.EntityViewer/wwwroot",
   "stylesheets": [
     "quasar-plugin.css"
   ],
-  "quasarVersion": ">=1.1.0",
+  "browserSdkVersion": 1,
+  "quasarVersion": ">=1.7.0",
   "companionPlugins": [
     {
       "id": "cometworks.entityviewer",
@@ -144,6 +146,30 @@ Example:
   ]
 }
 ```
+
+The 1.7.0 release line introduces the browser plugin contract. A plugin that
+requires this contract sets its QuasarHub minimum to `>=1.7.0`.
+
+An enabled plugin that contributes Razor UI must set `browserAssembly` to a separate Razor component DLL in
+its build output. Its worker adapter continues to declare named contributions
+through `GetExtensions()` and registers the component assembly through
+`GetRazorAssemblies()`. The entity table loads authorized named columns and
+actions on demand. The worker authenticates artifact requests under the current
+panel, and the browser verifies the SHA-256 digest before loading the DLL.
+Bundle requests for Quasar's shared framework and delivery of these per-panel
+plugin assemblies use separate caches. Safe mode suppresses both the adapter
+and the artifact. Quasar lists missing or invalid browser assemblies on the UI
+Plugins page. Worker services, authenticated SDK operations and game companions
+have their own lifecycle and can function without a browser assembly.
+
+A component in that same DLL can also declare a Razor `@page` route. Quasar
+includes the signed-in panel's declared page assemblies in its browser router,
+resolves route parameters and checks the component's authorization attributes
+on the worker when the operator navigates. Direct links and reloads enter the
+same shell. The route catalog reserves stock routes. If a
+plugin assembly duplicates an existing template, Quasar reports the conflict
+and excludes that assembly's pages. Plugins can still contribute links to
+their own static HTML and authenticated worker endpoints.
 
 `companionPlugins` accepts either a string id or an object. A string names an
 external Magnetar plugin that the UI plugin can call through the companion
@@ -311,6 +337,60 @@ near the top of `/settings/ui-plugins` and display a recommendation badge. The
 Entity Viewer uses this state and is no longer implicitly installed for every
 Quasar instance.
 
+Plugin compilation and private SDK installation run on the worker. The UI
+Plugins page polls their status, and reopening it shows the most recent
+installation. Leaving the page during a build allows the worker to finish.
+
+## Browser runtime and plugin verification
+
+Quasar publishes the .NET 10 browser runtime with assembly trimming disabled.
+An independently installed Razor component can call framework members absent
+from the dashboard's own code, including the source-generated
+`JsonSerializerContext` overloads, timestamp formatting and cancellable tasks.
+Browser platform restrictions still apply. Keep plugin-specific browser code in
+the declared UI DLL and use the SDK for worker services.
+
+In a matched Linux Release publish, the untrimmed browser boot manifest and
+bootstrap scripts contained **210 framework resources totaling 10.00 MB Brotli**.
+The former trimmed build used **62 resources totaling 4.14 MB**. A cold
+Chromium navigation to Display settings fetched an additional generated
+framework asset map. Including that gzip response, the browser received
+**10.04 MB across 211 distinct framework URLs**, up from **4.15 MB across 63**.
+The extra 5.89 MB costs about 2.36 seconds of transfer time at 20 Mbit/s,
+before latency and runtime startup. These sizes exclude page HTML, CSS, fonts
+and plugin assets. Fingerprinted release assets can be reused across
+visits. The worker's own publish settings are independent of this choice.
+
+The standalone browser check publishes the host before building the independent
+test plugin. The published dashboard check additionally exercises authorized
+plugin artifact delivery, route loading and local and hosted prefixes in
+Chromium and Firefox. The optional Viewer check uses its real UI assembly,
+named table contributions, consent dialog and installer polling.
+
+Run the check from the repository root with the .NET 10 SDK, Node.js, and
+Playwright's Chromium and Firefox installed. The runner accepts
+`PLAYWRIGHT_MODULE` for an external Playwright entry point and `CHROME_PATH`
+for a system Chromium executable.
+
+```sh
+node tests/Quasar.Wasm.PluginChecks/browser.test.mjs
+# With the Viewer Release adapter built and PLAYWRIGHT_MODULE set:
+python3 tests/Quasar.Wasm.PluginChecks/check-viewer.py /path/to/viewer
+```
+
+To test your plugin against the packaged dashboard, build its Release package
+and set the following paths. The fixture signs in a test administrator and calls
+your JavaScript module's exported `async function checkPlugin(page, base)` in
+Chromium and Firefox at the local root and the hosted panel prefix. Resolve
+panel URLs relative to `base`.
+
+```sh
+QUASAR_DASHBOARD_PUBLISH=/path/to/published-worker \
+QUASAR_TEST_PLUGIN_PACKAGE=/path/to/directory-with-quasar-plugin-json \
+QUASAR_TEST_PLUGIN_DRIVER=/path/to/tests/dashboard.mjs \
+dotnet run -c Release --project tests/Quasar.Wasm.DashboardChecks
+```
+
 ## Plugin Abstractions
 
 The third-party interfaces are `IQuasarPlugin` and the
@@ -465,9 +545,9 @@ This lets viewer plugins render a button and open their own dialog/static asset
 route without taking a dependency on Quasar page internals. Quasar core does not
 ship a fallback browser viewer route.
 
-`PluginsPage` renders at the bottom of `/settings/ui-plugins`. It receives
-parameters named `UiPlugins`, `LoadedPlugins`, and `LoadErrors` so plugins can
-append diagnostics or management panels without replacing the core status page.
+`PluginsPage` renders at the bottom of `/settings/ui-plugins`. A browser contribution can
+append diagnostics or management controls there. It takes no required component
+parameters and uses authenticated SDK operations to load and change worker state.
 
 ## Dependency Injection and Plugin State
 

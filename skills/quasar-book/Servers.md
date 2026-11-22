@@ -4,6 +4,8 @@ This page covers standalone managed servers in Quasar: what a server is made of,
 
 The **Dedicated servers** panel lists standalone servers and clusters. Its toolbar shows how many servers match the filters out of the total. The **Game port** column shows the port players connect to. For a cluster it is the port of the deployed Steam listener, not the Gateway administration URL, and **Unknown** when Quasar can't tell. Search and sorting use the game port.
 
+The browser streams world ZIP uploads through the dashboard SDK. A hosted panel uses its direct connection when available and the Nebula tunnel otherwise. **Read World** validates the save and shows its settings and mods. Selecting **Import and select save** publishes the reviewed files to the stopped server. Closing the form discards unused staging. If you leave a reviewed import idle for 15 minutes, read the world again.
+
 ## What a managed server is
 
 A managed server is one Space Engineers 1 Dedicated Server (DS) process that Quasar launches and supervises. It has three parts:
@@ -40,6 +42,10 @@ The server editor's **Paths** section can override the DS app-data path, Magneta
 
 On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. On Windows the **Cluster** button is disabled: "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows." Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install from a folder on the Quasar machine or a ZIP on your PC (only its required config and world files transfer) (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
 
+The editor uses the Quasar host's OS, logical processor count and filesystem for runtime choices, CPU affinity and save folders. If someone changes the server while its editor is open, reopen it before saving. An ordinary edit records the prior definition for undo.
+
+When cloning, **Keep Save** uses the target save selected in the editor. **Copy World** stages an independent copy from the stopped source or its latest Space Engineers backup while running. Replacing an existing target save requires confirmation. Quasar checks the requested server ID, port and selected world again before publishing the clone.
+
 Required fields:
 
 - **Server ID**: letters, numbers, underscore and hyphen only. Must be unique. Error: "Only letters, numbers, underscore, and hyphen are allowed." or "A server named '...' already exists."
@@ -71,6 +77,8 @@ New servers start with the goal **Off**. Nothing launches until you click **Star
 Editing `server.json` by hand works too: Quasar checks every `Magnetars/<Server ID>/server.json` every 2 seconds and reloads changed definitions.
 
 ## Dashboard and server controls
+
+Fleet status refreshes every five seconds. Use **Refresh** for an immediate update. Expand **Show live data** in the list or **Live details** in a card to load players, chat and recent command results for that server.
 
 The **Dashboard** shows every server as a card (**Cards** view) or as a row in a table (**List** view). Both show the state, health message, last restart record, port, config profile and the newest error line from the logs (click it to open the console at the error).
 
@@ -125,7 +133,7 @@ On standalone servers and cluster nodes it also registers commands every player 
 
 | Command | Effect |
 | --- | --- |
-| `!authorize` | Supplies a browser URL to authenticate Steam and Discord and authorize this server. Standalone servers open the Steam overlay. Whitelist users authenticate on the public website before joining, see [Player authentication](AccessControl.md#player-authentication). |
+| `!authorize` | Directs players to run `/authorize` in the game server’s Discord. Whitelist users can do this before joining, see [Player authentication](AccessControl.md#player-authentication). |
 | UI plugins' player commands, such as `!ask <question>` of the assistant plugin | Quasar sends them to the agent when it connects, and the agent registers them a game tick later, so they appear in `!help`. The player sees the plugin's acknowledgement, such as "Asking the assistant...", and gets the answer as private messages. A command whose plugin was removed since the server started answers "This command is not available on this server." When Quasar is not connected: "Quasar is not reachable right now. Try again later." |
 
 On a cluster the node the player is on runs these commands, and the answer reaches the player on whatever node they are on by then.
@@ -392,7 +400,7 @@ See [Command aliases](ConfigProfiles.md#command-aliases) for matching rules,
 collisions, limits and the required Magnetar version.
 
 ## Sources
-- `Quasar/Components/Pages/NewServerDialog.razor`
+- `Quasar.Client/Pages/NewServerDialog.razor`
 - `Docs/StateMachines/DedicatedServerLifecycle.md`
 - `Docs/StateMachines/ManagedRuntimeProvisioning.md`
 - `Docs/StateMachines/AgentConnection.md`
@@ -403,10 +411,10 @@ collisions, limits and the required Magnetar version.
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar/Models/DedicatedServerDefinition.cs`
 - `Quasar/Models/DedicatedServerPathResolver.cs`
-- `Quasar/Models/DedicatedServerProcessPriority.cs`
+- `Quasar.Client/Fleet/DedicatedServerProcessPriority.cs`
 - `Quasar/Models/DedicatedServerRestartInfo.cs`
-- `Quasar/Models/ManagedServerRuntime.cs`
-- `Quasar/Models/CpuAffinitySpec.cs`
+- `Quasar.Client/Fleet/ManagedServerRuntime.cs`
+- `Quasar.Client/Fleet/CpuAffinitySpec.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/DedicatedServerCatalog.cs`
@@ -415,7 +423,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ManagedRuntimeOptions.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/MagnetarLegacyLaunchCompatibility.cs`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Quasar/Services/SteamWorkshopCacheRepairer.cs`
 - `Quasar/Services/SteamWorkshopCredentialsCatalog.cs`
 - `Quasar/Services/ClusterWorkshopModStager.cs`
@@ -424,18 +432,18 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/QuasarShutdownService.cs`
 - `Quasar/Program.cs`
-- `Quasar/Components/Pages/Home.razor`
-- `Quasar/Components/Pages/Servers.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
-- `Quasar/Components/Pages/ServerDeleteDialog.razor`
-- `Quasar/Components/Pages/ServerConsoleDialog.razor`
-- `Quasar/Components/Pages/Configs.razor`
-- `Quasar/Components/Pages/Updates.razor`
-- `Quasar/Components/Pages/Analytics.razor`
-- `Quasar/Components/Pages/SteamWorkshopAccountDialog.razor`
-- `Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor`
-- `Quasar/Components/Dashboard/ServerCard.razor`
-- `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar.Client/Pages/Home.razor`
+- `Quasar.Client/Components/FleetWorkspace.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
+- `Quasar.Client/Pages/ServerDeleteDialog.razor`
+- `Quasar.Client/Pages/ServerConsoleDialog.razor`
+- `Quasar.Client/Configs/ConfigEditor.razor`
+- `Quasar.Client/Administration/UpdatesPage.razor`
+- `Quasar.Client/Components/AnalyticsView.razor`
+- `Quasar.Client/Configs/SteamWorkshopAccountDialog.razor`
+- `Quasar.Client/Configs/SteamWorkshopApiKeyDialog.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
+- `Quasar.Client/Components/FleetLiveDetails.razor`
 - `Quasar.Agent/StopCommand.cs`
 - `Quasar.Agent/AgentConnection.cs`
 - `Quasar.Agent/AgentOptions.cs`
@@ -448,8 +456,8 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterOverview.cs`
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
-- `Quasar/Components/Shared/QuasarOperationLoader.razor`
-- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
+- `Quasar.Client/Layout/QuasarControlDialog.razor`
 - `Quasar.Agent/SupervisedLifecycle.cs`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Docs/QuasarUpdates.md`
@@ -460,8 +468,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ServerWorldImportService.cs`
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar/Services/WorldSaveFiles.cs`
-- `Quasar/Components/Pages/ServerWorldImportDialog.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
 - `Quasar.Agent/PlayerCommands.cs`
 - `Quasar.Agent/AdminPlugin.cs`
-
 - `Docs/PlayerAuthentication.md`

@@ -22,7 +22,7 @@ It captures the current supervisor flow:
 
 - `Quasar`
   - Supervisor
-  - Blazor Server host
+  - ASP.NET Core host for the browser dashboard
   - DS process manager
   - config editor
   - WebSocket server for DS agents
@@ -264,9 +264,10 @@ This distinction matters because the current runtime needs reliable lifecycle/co
 
 ### Browser to Quasar
 
-Use Blazor Server’s required SignalR/circuit transport.
-
-This is framework plumbing, not the domain transport decision.
+The stock dashboard renders with Blazor WebAssembly. Browser components call the
+authenticated Quasar SDK over HTTP(S). For a Nebula session, a direct WebRTC
+connection is negotiated in the background. Each operation uses the transport
+available when it starts. Plugin Razor UI runs in its declared browser assembly.
 
 ### Quasar.Agent to Quasar
 
@@ -406,9 +407,8 @@ requirements.
 
 ## UI Theme
 
-The Blazor Server UI is migrating from MudBlazor to compact native HTML/CSS
-controls while retaining Blazor Server, supervisor services, and existing
-permissions. Migrated surfaces include the shell/navigation, appearance editor,
+The WebAssembly dashboard uses compact native HTML/CSS controls alongside
+MudBlazor components. The worker owns supervision and enforces permissions. Migrated surfaces include the shell/navigation, appearance editor,
 dashboard/setup/runtime preparation, server list/cards/details, cluster overview
 and administration, notifications, and server listing settings. Shared native page headings/panels/layout now cover operational routes,
 configuration editors, and dialogs. Remaining behavioral controls and host
@@ -831,8 +831,7 @@ But once a server is under Quasar management, the primary model is no longer "ro
 
 Browser access uses cookie authentication with Steam identities or a synthetic
 trusted-network principal. Role claims are refreshed from the live RBAC catalog
-on requests; RBAC changes force active Blazor circuits through a full reload so a
-demoted user cannot retain a privileged circuit. Control Plane write handlers and
+on requests. Control Plane write handlers and
 sensitive dashboard/security mutations also re-check current roles at execution time.
 
 UI routes and HTTP endpoints use named authorization policies. Viewer access is
@@ -873,7 +872,7 @@ Required for the first meaningful delivery:
 - JSON file-backed authoritative config store
 - atomic config writes
 - per-server config history
-- Blazor Server UI for management
+- Blazor WebAssembly dashboard for management
 - NLog-based file logging with minimal console output
 - bootstrap/setup path owned outside the agent via `Quasar.Bootstrap`
 - neutral light/dark UI theme with persisted preference
@@ -983,7 +982,7 @@ The protocol and IDs should remain compatible with those later additions.
 As of this document:
 
 - shared protocol exists
-- a first Blazor Server host exists
+- the worker serves the authenticated dashboard shell and authorized SDK operations. The dashboard runs in Blazor WebAssembly in all hosting modes.
 - a first raw WebSocket `Quasar.Agent` path exists
 - `Quasar.Bootstrap` exists as an ensure-running helper
 - Quasar logging is now separated from console noise

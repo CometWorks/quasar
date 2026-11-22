@@ -4,43 +4,46 @@ import test from 'node:test';
 import vm from 'node:vm';
 
 const source = readFileSync(new URL('../../Quasar/wwwroot/_quasar/sdk/v1/boot.js', import.meta.url), 'utf8');
-// Keep module loading controllable so failed and stalled imports are covered too.
-const script = '(async () => {' + source.replace('import("./circuit.js")', 'loadCircuit()') + '})()';
+const script = '(async () => {' + source.replace('import("./dashboard.js")', 'loadDashboard()') + '})()';
 
-function harness(loadCircuit, settings = '{"hosted":true}') {
-    const events = [], window = { dispatchEvent(event) { events.push(event.detail.state); } };
+function harness(settings, loadDashboard, hasShell = true) {
+    const nodes = new Map();
+    function node(selector) {
+        if (!nodes.has(selector)) nodes.set(selector, { hidden: false, querySelector: node });
+        return nodes.get(selector);
+    }
+    let reloads = 0;
     const done = vm.runInNewContext(script, {
-        window, loadCircuit,
-        document: { getElementById: () => ({ textContent: settings }) },
-        CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } }
+        document: { getElementById: id => id === "quasar-connection" ? { textContent: settings } : hasShell && node(id) },
+        loadDashboard, location: { reload() { reloads++; } },
     });
-    return { window, events, done };
+    return { done, node, get reloads() { return reloads; } };
 }
 
-for (const hosted of [true, false]) {
-    test(`startup reports connected only after hydration completes (hosted=${hosted})`, async () => {
-        let complete;
-        const h = harness(async () => ({ startBlazor(settings) {
-            assert.equal(settings.hosted, hosted);
-            return new Promise(resolve => { complete = resolve; });
-        } }), JSON.stringify({ hosted }));
-        await new Promise(resolve => setImmediate(resolve));
-        assert.deepEqual(h.events, ['connecting']);
-        complete();
-        await h.done;
-        assert.deepEqual(h.events, ['connecting', 'connected']);
-        assert.equal(h.window.quasarConnectionState, 'connected');
-    });
-}
+test("starts the WASM dashboard using the panel settings", async () => {
+    let hosted;
+    const h = harness('{"hosted":true}', async () => ({ startDashboard(settings) { hosted = settings.hosted; } }));
+    await h.done;
+    assert.equal(hosted, true);
+});
 
-for (const failure of ['module', 'session', 'settings']) {
-    test(`startup reports ${failure} failure to the client-side warning`, async () => {
-        const h = harness(async () => {
-            if (failure === 'module') throw new TypeError('Module unavailable');
-            return { async startBlazor() { throw new Error('Connection unavailable'); } };
-        }, failure === 'settings' ? '{broken' : '{"hosted":true}');
+test("static pages do not start a dashboard runtime", async () => {
+    let loads = 0;
+    const h = harness("{}", async () => { loads++; }, false);
+    await h.done;
+    assert.equal(loads, 0);
+});
+
+for (const failure of ["module", "runtime", "settings"]) {
+    test("offers a working reload after " + failure + " failure", async () => {
+        const h = harness(failure === "settings" ? "{" : "{}", async () => {
+            if (failure === "module") throw Error();
+            return { startDashboard() { throw Error(); } };
+        });
         await h.done;
-        assert.deepEqual(h.events, ['connecting', 'failed']);
-        assert.equal(h.window.quasarConnectionState, 'failed');
+        assert.equal(h.node("#quasar-wasm-loading-label").textContent, "The dashboard could not start.");
+        assert.equal(h.node("progress").hidden, true);
+        h.node("button").onclick();
+        assert.equal(h.reloads, 1);
     });
 }

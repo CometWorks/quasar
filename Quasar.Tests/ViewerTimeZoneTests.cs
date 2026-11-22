@@ -13,6 +13,10 @@ public sealed class ViewerTimeZoneTests
     private static readonly DateTimeOffset Sample = new(2026, 11, 8, 13, 55, 7, TimeSpan.Zero);
 
     [Fact]
+    public void PluginsCanResolveTheOriginalWorkerTypeName() =>
+        Assert.Equal(typeof(ViewerTimeZone), Type.GetType("Quasar.Services.ViewerTimeZone, Quasar", throwOnError: true));
+
+    [Fact]
     public void UnknownZoneShowsUtcWithSuffix() =>
         Assert.Equal(
             "2026\u201111\u201108\u00A013:55:07\u00A0UTC",

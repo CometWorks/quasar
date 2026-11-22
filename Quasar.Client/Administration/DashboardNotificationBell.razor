@@ -1,0 +1,63 @@
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@inject DashboardPushState Push
+@inject NavigationManager PanelNavigation
+<a class="quasar-icon-button quasar-update-bell @Tone" href="@PanelNavigation.PanelUrl(Notice is { IsAnnouncement: false } notice ? notice.Url : "/notifications")"
+   title="@Tooltip" aria-label="Open current notification">
+    <MudIcon Icon="@(Push.Enabled ? Icons.Material.Filled.Notifications : Icons.Material.Outlined.Notifications)" />
+    @if (Notice is not null) { <span class="quasar-notification-dot" aria-hidden="true"></span> }
+</a>
+
+@code {
+    private UpdateNotice? Notice;
+    private bool TokenExpired;
+    private string? _brandingRevision;
+    private readonly CancellationTokenSource _stop = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        Push.Changed += Changed;
+        await RefreshAsync(_stop.Token);
+        _ = PollAsync(_stop.Token);
+    }
+
+    protected override Task OnAfterRenderAsync(bool firstRender) =>
+        firstRender && !Push.Checked ? Push.RefreshAsync() : Task.CompletedTask;
+
+    private async Task PollAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(20));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+                await InvokeAsync(async () => { await RefreshAsync(token); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync(CancellationToken token)
+    {
+        try
+        {
+            var current = await Sdk.RequestAsync<DashboardNotices>("notifications.current", token: token);
+            Notice = current.Notices.FirstOrDefault(); TokenExpired = current.TokenExpired;
+            if (current.BrandingRevision is { } revision && revision != _brandingRevision)
+            {
+                var settings = await Sdk.RequestAsync<BrandingSettings>("appearance.read", token: token);
+                await settings.ApplyAsync(JS, PanelNavigation);
+                _brandingRevision = revision;
+            }
+        }
+        catch (JSException) { Notice = null; }
+    }
+
+    private void Changed() => _ = InvokeAsync(StateHasChanged);
+    public void Dispose() { Push.Changed -= Changed; _stop.Cancel(); _stop.Dispose(); }
+
+    private string Tone => Notice?.Severity == "critical"
+        || TokenExpired && Notice?.Key.StartsWith("token:", StringComparison.Ordinal) == true
+        ? "quasar-text-error" : Notice is not null ? "quasar-text-warning" : string.Empty;
+    private string Tooltip => Notice is { } notice
+        ? $"{notice.Severity.ToUpperInvariant()}: {notice.Title}: {notice.Body}" : "Notifications";
+}

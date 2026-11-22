@@ -11,7 +11,7 @@ using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 namespace Quasar.Services.Plugins;
 
 /// <summary>What the Chat page shows and sends: recent chat, chat commands, global chat and console commands.</summary>
-public static class QuasarChatOperations
+public static partial class QuasarChatOperations
 {
     public sealed record ChatRequest(string UniqueName = "", int Limit = 50);
 
@@ -51,6 +51,7 @@ public static class QuasarChatOperations
 
     public static void AddQuasarChatOperations(this IServiceCollection services)
     {
+        AddDashboardChat(services);
         services.AddQuasarOperation<ChatRequest, ChatResult>(
             QuasarCoreOperations.PluginId,
             "chat.messages",

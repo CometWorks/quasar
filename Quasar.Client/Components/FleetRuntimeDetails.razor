@@ -1,0 +1,19 @@
+@using Quasar.Client.Fleet
+
+@if (PriorityWarning is { Length: > 0 })
+{
+    <p class="quasar-notice quasar-notice-warning" role="status">@PriorityWarning</p>
+}
+@if (Plugins is { } load)
+{
+    <div class="quasar-detail-metrics"><div title="@load.Warning">
+        <span class="quasar-eyebrow">Plugins</span>
+        <strong class="@(load.Warning is null ? null : "quasar-tone-warning")">@(load.Configured is int total ? $"{load.Loaded}/{total}" : load.Loaded.ToString())</strong>
+        <span class="quasar-visually-hidden">@load.Warning</span>
+    </div></div>
+}
+
+@code {
+    [Parameter] public string? PriorityWarning { get; set; }
+    [Parameter] public FleetPluginLoad? Plugins { get; set; }
+}

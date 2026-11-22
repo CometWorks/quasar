@@ -1,11 +1,14 @@
 using System.Reflection;
+using System.Security.Claims;
 using Bunit;
 using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
 using MudBlazor.Services;
-using Quasar.Components.Pages;
+using Quasar.Client.Components;
+using Quasar.Client.Fleet;
+using Quasar.Services.Auth;
 using Quasar.Models;
 using Quasar.Services;
 using Xunit;
@@ -34,8 +37,8 @@ public sealed class SingleServerDefaultPluginsTests : IDisposable
         await using var context = CreateContext();
         var provider = context.Render<MudDialogProvider>();
         var dialogs = context.Services.GetRequiredService<IDialogService>();
-        await provider.InvokeAsync(() => dialogs.ShowAsync<ConfigProfileQuickCreateDialog>("Create Config Profile"));
-        var dialog = provider.FindComponent<ConfigProfileQuickCreateDialog>();
+        await provider.InvokeAsync(() => dialogs.ShowAsync<FleetQuickProfile>("Create Config Profile"));
+        var dialog = provider.FindComponent<FleetQuickProfile>();
         var name = dialog.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Profile name");
         await dialog.InvokeAsync(() => name.Instance.ValueChanged.InvokeAsync("Survival"));
         await dialog.FindComponents<MudButton>().Single(c => c.Markup.Contains("Create Profile")).Find("button").ClickAsync();
@@ -51,22 +54,13 @@ public sealed class SingleServerDefaultPluginsTests : IDisposable
         File.WriteAllText(Path.Combine(world, WorldSandboxConfigEditor.SandboxConfigFileName),
             "<MyObjectBuilder_WorldConfiguration><Settings><MaxPlayers>8</MaxPlayers></Settings></MyObjectBuilder_WorldConfiguration>");
         await using var context = CreateContext();
-        var provider = context.Render<MudDialogProvider>();
-        var dialogs = context.Services.GetRequiredService<IDialogService>();
-        IDialogReference? reference = null;
-        await provider.InvokeAsync(async () => reference = await dialogs.ShowAsync<WorldTemplateConfigProfileDialog>("Create Matching Config Profile",
-            new DialogParameters
-            {
-                [nameof(WorldTemplateConfigProfileDialog.WorldName)] = "World",
-                [nameof(WorldTemplateConfigProfileDialog.WorldPath)] = world,
-                [nameof(WorldTemplateConfigProfileDialog.WorldTemplateId)] = "world",
-                [nameof(WorldTemplateConfigProfileDialog.AllowSkip)] = false,
-            }));
-        var dialog = provider.FindComponent<WorldTemplateConfigProfileDialog>();
-        await dialog.FindComponents<MudButton>().Single(c => c.Markup.Contains("Create Profile")).Find("button").ClickAsync();
-
-        var result = await reference!.Result;
-        var profile = Assert.IsType<WorldTemplateConfigProfileDialog.WorldTemplateConfigProfileDialogResult>(result!.Data).Profile!;
+        File.WriteAllText(Path.Combine(world, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
+        var template = await context.Services.GetRequiredService<QuasarWorldTemplateCatalog>().ImportAsync("World", "", world);
+        var form = context.Render<WorldImportForm>(p => p.Add(c => c.Inventory, new WorldInventory([], [], [], true, true))
+            .Add(c => c.Existing, new WorldTemplate(template.WorldTemplateId, template.Name, "", template.UpdatedAtUtc, true, 0))
+            .Add(c => c.ProfileOnly, true));
+        await form.FindAll("button").Single(c => c.TextContent.Trim() == "Create profile").ClickAsync();
+        var profile = Assert.Single(context.Services.GetRequiredService<QuasarConfigProfileCatalog>().GetProfiles());
         AssertDefaults(profile);
         Assert.Equal(8, profile.SessionSettings.MaxPlayers);
     }
@@ -145,10 +139,15 @@ public sealed class SingleServerDefaultPluginsTests : IDisposable
 
     private static BunitContext CreateContext()
     {
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
+        var auth = context.AddAuthorization(); auth.SetAuthorized("operator");
+        auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, "editor"));
+        auth.SetPolicies(QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanView);
+        context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
+        context.Services.AddSingleton(new ServerWorldImportService(null!, null!, null!, null!, NullLogger<ServerWorldImportService>.Instance));
         context.Render<MudPopoverProvider>();
         return context;
     }

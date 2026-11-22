@@ -16,7 +16,7 @@ using Quasar.Plugin.Abstractions.Navigation;
 
 namespace Quasar.Services.Plugins;
 
-public sealed class QuasarUiPluginCatalog
+public sealed partial class QuasarUiPluginCatalog
 {
     public const string StaticAssetRequestPathPrefix = "/_quasar/plugins";
 
@@ -40,43 +40,51 @@ public sealed class QuasarUiPluginCatalog
         _loadErrors = loadErrors?.ToList() ?? [];
         SafeMode = safeMode;
         SafeModeReasons = safeModeReasons;
-        RazorAssemblies = CollectPluginValues(plugins, plugin => plugin.Plugin.GetRazorAssemblies(), "Razor assemblies")
-            .Distinct()
-            .ToArray();
-        NavItems = CollectPluginValues(plugins, plugin => plugin.Plugin.GetNavItems(), "nav items")
-            .OrderBy(item => item.Zone, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Order)
-            .ThenBy(item => item.Text, StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-        Extensions = CollectPluginValues(plugins, plugin => plugin.Plugin.GetExtensions(), "extensions")
-            .OrderBy(item => item.TargetKey, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(item => item.Priority)
-            .ToArray();
-        StylesheetHrefs = plugins
-            .SelectMany(GetStylesheetHrefs)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
-    private IReadOnlyList<T> CollectPluginValues<T>(
-        IReadOnlyList<QuasarLoadedUiPlugin> plugins,
-        Func<QuasarLoadedUiPlugin, IEnumerable<T>> selector,
-        string label)
-    {
-        var values = new List<T>();
+        var assemblies = new List<Assembly>();
+        var extensions = new List<QuasarExtensionContribution>();
+        var nav = new List<QuasarNavItem>();
+        var styles = new List<string>();
         foreach (var plugin in plugins)
         {
-            try
+            var declared = CollectPluginValues(plugin, p => p.Plugin.GetRazorAssemblies(), "Razor assemblies");
+            var outlets = CollectPluginValues(plugin, p => p.Plugin.GetExtensions(), "extensions");
+            var browser = CollectBrowserArtifact(plugin, declared);
+            if (browser is null && (declared.Count != 0 || outlets.Count != 0 || plugin.Context.Manifest.BrowserAssembly is not null))
             {
-                values.AddRange(selector(plugin));
+                if (plugin.Context.Manifest.BrowserAssembly is null)
+                    _loadErrors.Add($"{plugin.Id}: Razor UI requires a browserAssembly. Install a browser-compatible plugin to enable its pages and outlets.");
+                continue;
             }
-            catch (Exception exception)
+            if (browser is not null)
             {
-                _loadErrors.Add($"{plugin.Context.PluginDirectory}: failed to get {label}: {exception.Message}");
+                assemblies.Add(browser);
+                foreach (var outlet in outlets)
+                {
+                    if (outlet.ComponentType.Assembly == browser && string.Equals(outlet.PluginId, plugin.Id, StringComparison.OrdinalIgnoreCase))
+                        extensions.Add(outlet);
+                    else _loadErrors.Add($"{plugin.Id}: outlet {outlet.TargetKey} must use a component from its declared browserAssembly.");
+                }
             }
+            nav.AddRange(CollectPluginValues(plugin, p => p.Plugin.GetNavItems(), "nav items"));
+            styles.AddRange(GetStylesheetHrefs(plugin));
         }
+        RazorAssemblies = assemblies.ToArray();
+        NavItems = nav.OrderBy(item => item.Zone, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.Order).ThenBy(item => item.Text, StringComparer.OrdinalIgnoreCase).ToArray();
+        Extensions = extensions.OrderBy(item => item.TargetKey, StringComparer.OrdinalIgnoreCase).ThenBy(item => item.Priority).ToArray();
+        StylesheetHrefs = styles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        CollectPluginRoutes();
+    }
 
-        return values;
+    private IReadOnlyList<T> CollectPluginValues<T>(QuasarLoadedUiPlugin plugin,
+        Func<QuasarLoadedUiPlugin, IEnumerable<T>> selector, string label)
+    {
+        try { return selector(plugin).ToArray(); }
+        catch (Exception error)
+        {
+            _loadErrors.Add($"{plugin.Context.PluginDirectory}: failed to get {label}: {error.Message}");
+            return [];
+        }
     }
 
     public bool SafeMode { get; }
@@ -140,6 +148,7 @@ public sealed class QuasarUiPluginCatalog
 
     public void ConfigurePluginEndpoints(IEndpointRouteBuilder endpoints)
     {
+        MapBrowserArtifactEndpoint(endpoints);
         foreach (var loadedPlugin in _plugins)
             loadedPlugin.Plugin.ConfigureEndpoints(endpoints, loadedPlugin.Context);
     }

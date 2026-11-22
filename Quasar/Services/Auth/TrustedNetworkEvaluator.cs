@@ -42,7 +42,7 @@ public sealed class TrustedNetworkEvaluator
         var peer = context.Connection.RemoteIpAddress;
         var knownProxy = peer is not null && IsKnownProxy(peer, forwarding);
         var hasForwarding = HasForwardingHeader(request);
-        var permittedForwarding = !hasForwarding || knownProxy &&
+        var permittedForwarding = !hasForwarding || _options.Enabled && knownProxy &&
             request.Headers["X-Forwarded-For"].Count == 1 &&
             IPEndPoint.TryParse(request.Headers["X-Forwarded-For"].ToString(), out _) &&
             !request.Headers.ContainsKey("Forwarded") && !request.Headers.ContainsKey("X-Real-IP");
@@ -63,7 +63,14 @@ public sealed class TrustedNetworkEvaluator
             !IsAllowedDestination(context) || !HasSameOriginContext(context.Request))
             return false;
 
-        return IsTrustedAddress(context.Connection.RemoteIpAddress, _options.TrustedNetworkBypass);
+        var peer = context.Connection.RemoteIpAddress;
+        if (_options.Enabled)
+            return IsTrustedAddress(peer, _options.TrustedNetworkBypass);
+
+        // An authentication-disabled listener accepts only a direct loopback browser session.
+        // Check the requested authority as well, even if a public BaseUrl was configured.
+        return peer is not null && IPAddress.IsLoopback(peer.IsIPv4MappedToIPv6 ? peer.MapToIPv4() : peer)
+            && PublicAccessSecurity.IsLoopbackHost(context.Request.Host.Host);
     }
 
     private bool IsAllowedDestination(HttpContext context)

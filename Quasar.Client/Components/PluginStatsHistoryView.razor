@@ -1,0 +1,209 @@
+@implements IAsyncDisposable
+@using Microsoft.JSInterop
+@using MudBlazor
+@using Quasar.Services
+@using Quasar.Services.Analytics
+@inject DashboardSdk Sdk
+@inject ViewerTimeZone ViewerTime
+@inject IJSRuntime JS
+
+<DashboardPageHeading Section="Operations">
+    <Title>Plugin statistics history</Title>
+    <Description>Stored plugin statistics of one row label, for example one player's Steam ID. A cluster has one history for all of its nodes.</Description>
+</DashboardPageHeading>
+
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
+    <div style="flex: 1 1 200px; min-width: 200px;">
+        <MudSelect T="string" Label="Server or cluster" Value="_source" ValueChanged="SourceChanged" Variant="Variant.Outlined">
+            @foreach (var source in _sources)
+            {
+                <MudSelectItem T="string" Value="@source.Key">@source.Value</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <div style="flex: 2 1 280px; min-width: 240px;">
+        <MudSelect T="string" Label="Statistic" Value="_fieldKey" ValueChanged="FieldChanged" Variant="Variant.Outlined">
+            @foreach (var field in _fields)
+            {
+                <MudSelectItem T="string" Value="@FieldKey(field)">@field.Provider: @field.Description (@field.Group)</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <div style="flex: 1 1 240px; min-width: 200px;">
+        <MudSelect T="string" Label="@(SelectedField?.LabelDescription is { Length: > 0 } text ? text : "Label")" Value="_label" ValueChanged="LabelChanged" Variant="Variant.Outlined">
+            @foreach (var label in _labels)
+            {
+                <MudSelectItem T="string" Value="@label.Label">@(label.Label.Length == 0 ? "(no label)" : label.Label) · last seen @ViewerTime.Format(DateTimeOffset.FromUnixTimeSeconds(label.LastSeenUnix))</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <div style="flex: 0 1 140px; min-width: 120px;">
+        <MudSelect T="int" Label="Time range" Value="_rangeHours" ValueChanged="RangeChanged" Variant="Variant.Outlined">
+            @foreach (var (hours, text) in RangeOptions)
+            {
+                <MudSelectItem T="int" Value="@hours">@text</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <div style="flex: 0 1 140px; min-width: 120px;">
+        @* Display only: values above it run off the top of the chart; the stored history is unchanged *@
+        <MudNumericField T="double?" Label="Y axis max" Placeholder="Auto" Value="_yMax" ValueChanged="YMaxChanged" Min="0" Variant="Variant.Outlined" Class="plugin-history-ymax" />
+    </div>
+    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">Refresh</MudButton>
+</div>
+
+@if (_sources.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">@(_status ?? "No plugin has published statistics yet.")</MudAlert>
+}
+else
+{
+    <section class="quasar-panel pa-4 analytics-chart-paper">
+        <div class="analytics-uplot" id="@_containerId" style="height: 360px;"></div>
+        @if (_status is not null)
+        {
+            <p class="quasar-text quasar-type-body2">@_status</p>
+        }
+    </section>
+}
+
+@code {
+    private static readonly (int Hours, string Text)[] RangeOptions = [(1, "1h"), (6, "6h"), (24, "24h"), (48, "48h"), (168, "7d"), (720, "30d")];
+
+    private readonly string _containerId = "plugin-history-" + Guid.NewGuid().ToString("N");
+    private Dictionary<string, string> _sources = new(StringComparer.OrdinalIgnoreCase);
+    private IReadOnlyList<PluginStatHistoryMetric> _fields = [];
+    private IReadOnlyList<PluginStatHistoryLabel> _labels = [];
+    private string? _source;
+    private string? _fieldKey;
+    private string? _label;
+    private int _rangeHours = 24;
+    private double? _yMax;
+    private string? _status;
+    private bool _rendered;
+
+    private PluginStatHistoryMetric? SelectedField => _fields.FirstOrDefault(metric => FieldKey(metric) == _fieldKey);
+
+    private static string FieldKey(PluginStatHistoryMetric field) => $"{field.Provider}\u001f{field.Group}\u001f{field.Field}";
+
+    private long _selectionVersion;
+    private readonly CancellationTokenSource _lifetime = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var options = await Sdk.RequestAsync<HistoryOptions>("analytics.history.options", token: _lifetime.Token);
+            _sources = options.Sources;
+            await SourceChanged(_sources.Keys.FirstOrDefault());
+        }
+        catch (JSException ex) { _status = ex.Message; }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        _rendered = true;
+        await RefreshAsync();
+    }
+
+    private async Task SourceChanged(string? source)
+    {
+        var version = ++_selectionVersion;
+        _source = source; _fieldKey = null; _fields = []; _labels = []; _label = null;
+        if (source is null) return;
+        try
+        {
+            var options = await Sdk.RequestAsync<HistoryOptions>("analytics.history.options", new HistorySelection(source), _lifetime.Token);
+            if (version != _selectionVersion) return;
+            _fields = options.Fields;
+            await FieldChanged(_fields.Select(FieldKey).FirstOrDefault());
+        }
+        catch (JSException ex) { if (version == _selectionVersion) _status = ex.Message; }
+    }
+
+    private async Task FieldChanged(string? key)
+    {
+        var version = ++_selectionVersion;
+        _fieldKey = key; _labels = []; _label = null;
+        if (SelectedField is { } field)
+        {
+            try
+            {
+                var options = await Sdk.RequestAsync<HistoryOptions>("analytics.history.options", new HistorySelection(_source, field.Provider, field.Group), _lifetime.Token);
+                if (version != _selectionVersion) return;
+                _labels = options.Labels;
+                _label = _labels.FirstOrDefault()?.Label;
+            }
+            catch (JSException ex) { if (version == _selectionVersion) _status = ex.Message; return; }
+        }
+        await RefreshAsync();
+    }
+
+    private Task LabelChanged(string label)
+    {
+        _label = label;
+        return RefreshAsync();
+    }
+
+    private Task RangeChanged(int hours)
+    {
+        _rangeHours = hours;
+        return RefreshAsync();
+    }
+
+    private Task YMaxChanged(double? max)
+    {
+        _yMax = max is > 0 ? max : null;
+        return RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (!_rendered)
+            return;
+
+        if (_source is null || SelectedField is not { } field || _label is null)
+        {
+            _status = _sources.Count == 0 ? null : "Pick a statistic and a label.";
+            await DisposeChartAsync();
+            return;
+        }
+
+        var to = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        try
+        {
+            var result = await JS.InvokeAsync<ChartResult?>("quasarCharts.sync", new
+            {
+                from = to - _rangeHours * 3600L, to, maxPoints = 500,
+                servers = new[] { _source },
+                names = _sources,
+                metrics = new[] { new { key = "plugin-history:" + string.Join(':', new[] { field.Provider, field.Group, field.Field, _label }.Select(Uri.EscapeDataString)), containerId = _containerId, height = 360 } },
+                dark = await JS.InvokeAsync<bool>("quasarSdk.darkMode"), lines = true, selectable = false, yMax = _yMax,
+                timeZone = ViewerTime.PreferredId,
+            });
+            _status = result is { Ok: false } ? "The history could not be loaded."
+                : result is { HasData: true } ? null : "No stored values in this time range.";
+        }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        catch (TaskCanceledException) { }
+        StateHasChanged();
+    }
+
+    private async Task DisposeChartAsync()
+    {
+        try { await JS.InvokeVoidAsync("quasarCharts.dispose", _containerId); }
+        catch (JSDisconnectedException) { }
+        catch (InvalidOperationException) { }
+        catch (TaskCanceledException) { }
+    }
+
+    public async ValueTask DisposeAsync() { _lifetime.Cancel(); _lifetime.Dispose(); await DisposeChartAsync(); }
+
+    private sealed class ChartResult
+    {
+        public bool Ok { get; set; }
+        public bool HasData { get; set; }
+    }
+}

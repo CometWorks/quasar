@@ -1,0 +1,12 @@
+@page "/_quasar/external-route"
+@inject NavigationManager Navigation
+
+<p role="status">Page not found.</p>
+@code {
+    protected override void OnInitialized()
+    {
+        var path = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0];
+        if (path != "_quasar/external-route")
+            Navigation.NavigateTo(Navigation.Uri, forceLoad: true, replace: true);
+    }
+}

@@ -1,13 +1,16 @@
 using System.Net;
 using System.Security.Claims;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Caching.Memory;
 using Quasar.Services.Auth;
 using Xunit;
 
 namespace Quasar.Tests;
 
-public sealed class SteamProfileClientTests
+public sealed class SteamProfileClientTests : IDisposable
 {
+    private readonly MemoryCache _cache = new(new MemoryCacheOptions());
+    public void Dispose() => _cache.Dispose();
     private const string SteamId = "76561198000000000";
 
     [Fact]
@@ -17,7 +20,7 @@ public sealed class SteamProfileClientTests
         {
             Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64><steamID><![CDATA[ Space & Engineer 🚀 ]]></steamID></profile>"),
         }));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
         var name = await client.GetDisplayNameAsync(SteamId, CancellationToken.None);
         Assert.Equal("Space & Engineer 🚀", name);
 
@@ -37,6 +40,20 @@ public sealed class SteamProfileClientTests
         Assert.True(refreshed.IsInRole(QuasarRoles.Viewer));
     }
 
+    [Fact]
+    public async Task ProfileNameFromSignInIsReusableByAnotherClientOnTheSamePanel()
+    {
+        using var loginHttp = new HttpClient(new ProfileHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64><steamID>Pilot</steamID></profile>"),
+        }));
+        var login = new SteamProfileClient(loginHttp, NullLogger<SteamProfileClient>.Instance, _cache);
+        Assert.Equal("Pilot", await login.GetDisplayNameAsync(SteamId, default));
+        using var offline = new HttpClient(new ProfileHandler(_ => throw new InvalidOperationException("Unexpected request")));
+        var dashboard = new SteamProfileClient(offline, NullLogger<SteamProfileClient>.Instance, _cache);
+        Assert.Equal("Pilot", await dashboard.GetDisplayNameAsync(SteamId, default));
+    }
+
     [Theory]
     [InlineData("<profile><steamID64>76561198000000001</steamID64><steamID>Wrong user</steamID></profile>")]
     [InlineData("<profile><steamID64>76561198000000000</steamID64><steamID> </steamID></profile>")]
@@ -50,7 +67,7 @@ public sealed class SteamProfileClientTests
         {
             Content = new StringContent(xml),
         }));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.Null(await client.GetDisplayNameAsync(SteamId, CancellationToken.None));
         var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(QuasarClaimTypes.SteamId, SteamId)]));
@@ -61,7 +78,7 @@ public sealed class SteamProfileClientTests
     public async Task HttpFailureDoesNotBlockSignIn()
     {
         using var http = new HttpClient(new ProfileHandler(_ => new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.Null(await client.GetDisplayNameAsync(SteamId, CancellationToken.None));
     }
@@ -70,7 +87,7 @@ public sealed class SteamProfileClientTests
     public async Task LookupTimeoutDoesNotBlockSignIn()
     {
         using var http = new HttpClient(new ProfileHandler(_ => throw new TaskCanceledException("Timed out")));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.Null(await client.GetDisplayNameAsync(SteamId, CancellationToken.None));
     }
@@ -81,7 +98,7 @@ public sealed class SteamProfileClientTests
     public async Task InvalidSteamIdsNeverSendRequests(string steamId)
     {
         using var http = new HttpClient(new ProfileHandler(_ => throw new InvalidOperationException("Unexpected request")));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.Null(await client.GetDisplayNameAsync(steamId, CancellationToken.None));
     }
@@ -93,7 +110,7 @@ public sealed class SteamProfileClientTests
     public async Task NumericIdsAndProfileUrlsResolveWithoutNetwork(string input)
     {
         using var http = new HttpClient(new ProfileHandler(_ => throw new InvalidOperationException("Unexpected request")));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.True(SteamProfileClient.IsSupportedInput(input));
         Assert.Equal(SteamId, await client.ResolveSteamIdAsync(input));
@@ -108,7 +125,7 @@ public sealed class SteamProfileClientTests
         {
             Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64></profile>"),
         }, "id/rex00991"));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.True(SteamProfileClient.IsSupportedInput(input));
         Assert.Equal(SteamId, await client.ResolveSteamIdAsync(input));
@@ -133,7 +150,7 @@ public sealed class SteamProfileClientTests
     public async Task InvalidProfileInputsNeverSendRequests(string? input)
     {
         using var http = new HttpClient(new ProfileHandler(_ => throw new InvalidOperationException("Unexpected request")));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         Assert.False(SteamProfileClient.IsSupportedInput(input));
         await Assert.ThrowsAsync<ArgumentException>(() => client.ResolveSteamIdAsync(input));
@@ -152,7 +169,7 @@ public sealed class SteamProfileClientTests
         {
             Content = new StringContent(xml),
         }, "id/rex00991"));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         await Assert.ThrowsAsync<InvalidOperationException>(() => client.ResolveSteamIdAsync("https://steamcommunity.com/id/rex00991/"));
     }
@@ -161,7 +178,7 @@ public sealed class SteamProfileClientTests
     public async Task LookupTimeoutShowsResolutionError()
     {
         using var http = new HttpClient(new ProfileHandler(_ => throw new TaskCanceledException("Timed out"), "id/rex00991"));
-        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance);
+        var client = new SteamProfileClient(http, NullLogger<SteamProfileClient>.Instance, _cache);
 
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => client.ResolveSteamIdAsync("https://steamcommunity.com/id/rex00991/"));
         Assert.Contains("17-digit SteamID64", error.Message);

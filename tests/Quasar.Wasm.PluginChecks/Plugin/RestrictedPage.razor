@@ -1,0 +1,5 @@
+@page "/fixture/restricted-tool"
+@using Microsoft.AspNetCore.Authorization
+@attribute [Authorize(Roles = "admin")]
+
+<h1>Restricted fixture tool</h1>

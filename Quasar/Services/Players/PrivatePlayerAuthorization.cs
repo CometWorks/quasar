@@ -1,19 +1,14 @@
 using System.Collections.Concurrent;
 using System.Globalization;
 using System.Net;
-using System.Security.Cryptography;
-using System.Text;
-using Microsoft.AspNetCore.WebUtilities;
 using Quasar.Services.Auth;
 using Quasar.Services.Discord;
 
 namespace Quasar.Services.Players;
 
-public sealed class PrivatePlayerAuthorization(IHttpClientFactory clients, PlayerAccessCatalog catalog,
+internal sealed class PrivatePlayerAuthorization(SharedAccountVerification verification, PlayerAccessCatalog catalog,
     PlayerAccessService access, QuasarPlayerLinks links, DiscordOptionsCatalog discord)
 {
-    internal const string ClientName = "PrivatePlayerAuthorization";
-    private static readonly Uri LinkPage = new(PlayerAuthEndpoints.AuthenticationOrigin + "/link");
     private readonly ConcurrentDictionary<ulong, byte> pendingPlayers = new();
     private readonly SemaphoreSlim pendingLimit = new(32);
 
@@ -41,24 +36,18 @@ public sealed class PrivatePlayerAuthorization(IHttpClientFactory clients, Playe
 
         try
         {
-            using var client = clients.CreateClient(ClientName);
             var discordId = player.ToString(CultureInfo.InvariantCulture);
-            var codeVerifier = WebEncoders.Base64UrlEncode(RandomNumberGenerator.GetBytes(32));
-            var codeChallenge = WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(codeVerifier)));
             var destination = new string((guildName + " · " + target.Name).Where(c => !char.IsControl(c)).Take(200).ToArray());
-            using var response = await client.PostAsJsonAsync("link/requests",
-                new { discordId, destination, policies[target.Key].Instructions, codeChallenge }, token);
-            if (!response.IsSuccessStatusCode)
-                return "The shared authentication service is unavailable. Try /authorize again shortly.";
-            var registration = await response.Content.ReadFromJsonAsync<Registration>(token);
-            if (registration?.RequestId is not { Length: 43 } id || !id.All(c => char.IsAsciiLetterOrDigit(c) || c is '-' or '_'))
-                return "The shared authentication service returned an invalid request. Try /authorize again.";
-
+            var request = await verification.StartAsync(steamId: null, discordId, destination, policies[target.Key].Instructions, token);
             using var lifetime = CancellationTokenSource.CreateLinkedTokenSource(token);
             lifetime.CancelAfter(TimeSpan.FromMinutes(5));
-            await sendLink(new Uri(QueryHelpers.AddQueryString(LinkPage.AbsoluteUri, "request", id)));
-            var proof = await WaitForProofAsync(client, id, codeVerifier, lifetime.Token);
-            if (proof is null) return "This authorization request has expired. Run /authorize again.";
+            await sendLink(request.Link);
+            SharedAccountVerification.Proof? proof = null;
+            while (proof is null)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5), lifetime.Token);
+                proof = await verification.RedeemAsync(request, lifetime.Token);
+            }
             if (proof.DiscordId != discordId || !RbacConfigCatalog.IsSteamId64(proof.SteamId ?? ""))
                 return "The verified accounts did not match the request. Run /authorize again.";
             var policy = catalog.GetSettings().Policies.FirstOrDefault(p => p.Enabled && p.Target == target.Key && p.GuildId == guild);
@@ -67,6 +56,14 @@ public sealed class PrivatePlayerAuthorization(IHttpClientFactory clients, Playe
             var link = await links.AuthenticateAsync(proof.SteamId!, discordId, token);
             await access.AuthorizeAsync(policy, link, token);
             return "Server access authorized. Allow a moment for the policy to apply before joining.";
+        }
+        catch (HttpRequestException error) when (error.StatusCode == HttpStatusCode.NotFound)
+        {
+            return "The authorization request was unavailable or expired. Run /authorize again.";
+        }
+        catch (Exception error) when (error is HttpRequestException or InvalidDataException)
+        {
+            return "The shared authentication service is unavailable. Try /authorize again shortly.";
         }
         catch (OperationCanceledException) when (!token.IsCancellationRequested)
         {
@@ -95,22 +92,4 @@ public sealed class PrivatePlayerAuthorization(IHttpClientFactory clients, Playe
 
     private bool IsConfiguredGuild(ulong guild) => discord.GetOptions() is { Enabled: true } options
         && options.GuildId == guild && guild != 0;
-
-    private static async Task<Proof?> WaitForProofAsync(HttpClient client, string requestId, string codeVerifier, CancellationToken token)
-    {
-        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
-        while (await timer.WaitForNextTickAsync(token))
-        {
-            using var response = await client.PostAsJsonAsync("link/redeem", new { requestId, codeVerifier }, token);
-            if (response.StatusCode is HttpStatusCode.Accepted or HttpStatusCode.TooManyRequests) continue;
-            if (response.StatusCode == HttpStatusCode.NotFound) return null;
-            response.EnsureSuccessStatusCode();
-            return await response.Content.ReadFromJsonAsync<Proof>(token)
-                ?? throw new InvalidDataException("The shared authentication service did not return account proof.");
-        }
-        return null;
-    }
-
-    private sealed record Registration(string RequestId);
-    private sealed record Proof(string SteamId, string DiscordId);
 }

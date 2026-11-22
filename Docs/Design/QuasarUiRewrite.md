@@ -1,5 +1,7 @@
 # Quasar UI rewrite assessment
 
+This assessment describes the 1.3.0 UI. In 1.7.0 the dashboard moved to Blazor WebAssembly in all hosting modes.
+
 Removing MudBlazor is feasible without replacing Blazor Server or the supervisor
 backend. Budget approximately **30–45 engineering days** for one developer to
 migrate the core UI, preserve behavior, and complete regression checks. This is a

@@ -1,6 +1,12 @@
 using System.Reflection;
+using System.Security.Claims;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.JSInterop;
 using Bunit;
 using Bunit.TestDoubles;
 using Magnetar.Protocol.Runtime;
@@ -12,6 +18,8 @@ using Quasar.Components.Shared;
 using Quasar.Hosting;
 using Quasar.Services;
 using Quasar.Services.Auth;
+using Quasar.Services.Players;
+using Quasar.Client.Administration;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -42,11 +50,14 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddSingleton(new QuasarAuthOptions());
         context.Services.AddSingleton(new RbacConfigCatalog(NullLogger<RbacConfigCatalog>.Instance));
         context.Services.AddSingleton<QuasarRoleMapper>();
-        context.Services.AddSingleton<QuasarPermissionService>();
+        context.Services.AddSingleton<QuasarPlayerLinks>();
+        context.Services.AddMemoryCache();
         context.Services.AddHttpClient();
         context.Services.AddHttpClient<SteamProfileClient>()
             .ConfigurePrimaryHttpMessageHandler(() => profiles ?? new ProfileLookupHandler());
         context.Services.AddSingleton<HostedPanelService>();
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         return context;
     }
 
@@ -54,7 +65,7 @@ public sealed class AccessSetupDialogTests : IDisposable
     {
         var provider = context.Render<MudDialogProvider>();
         await provider.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>()
-            .ShowAsync<AccessSetupDialog>("Set up administrator access"));
+            .ShowAsync<Quasar.Client.Administration.DashboardSetupDialog>("Set up administrator access"));
         return provider;
     }
 
@@ -121,7 +132,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         provider.Find("input").Input(SteamId);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Save administrator")).ClickAsync();
-        Assert.Contains("Administrator permission is required", provider.Markup);
+        Assert.Contains("administrator permission is required", provider.Markup, StringComparison.OrdinalIgnoreCase);
         Assert.False(RbacConfigCatalog.HasAdminMapping(context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig()));
     }
 
@@ -154,7 +165,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         if (revokePermission)
         {
             Assert.Empty(mappings);
-            Assert.Contains("Administrator permission is required", provider.Markup);
+            Assert.Contains("administrator permission is required", provider.Markup, StringComparison.OrdinalIgnoreCase);
         }
         else
             Assert.Equal(SteamId, Assert.Single(mappings).Subject);
@@ -172,9 +183,9 @@ public sealed class AccessSetupDialogTests : IDisposable
             profiles.OnRequest = () => context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
         context.Services.AddSingleton<QuasarAuthSettingsService>();
         context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
-        context.ComponentFactories.AddStub<QuasarSdkAuthorization>();
+        context.ComponentFactories.AddStub<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Quasar.Components.Pages.Security>();
+        var page = context.Render<Quasar.Client.Administration.SecurityPage>();
         var input = page.FindComponents<MudTextField<string>>()
             .Single(field => field.Instance.Label == "SteamID64 or profile URL").Find("input");
         input.Input("arbitrary data");
@@ -194,7 +205,194 @@ public sealed class AccessSetupDialogTests : IDisposable
         {
             Assert.Equal(SteamId, Assert.Single(mappings).Subject);
             Assert.Equal(string.Empty, input.GetAttribute("value"));
+            page.WaitForAssertion(() => Assert.Contains("Steam profile name", page.Markup));
+            Assert.Contains("Not linked", page.Markup);
         }
+    }
+
+    private async Task<(BunitContext Context, PanelLoginService Login)> PanelLinkContextAsync()
+    {
+        var context = Context();
+        var login = new PanelLoginService();
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
+        context.Services.AddSingleton<BrandingService>();
+        context.Services.AddSingleton<SharedAccountVerification>();
+        context.Services.AddHttpClient(nameof(SharedAccountVerification), client => client.BaseAddress = SharedAccountVerification.Origin)
+            .ConfigurePrimaryHttpMessageHandler(() => login);
+        context.Services.GetRequiredService<BunitAuthorizationContext>().SetClaims(
+            new Claim(ClaimTypes.NameIdentifier, "local-operator"), new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.TrustedNetwork));
+        await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        return (context, login);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(SteamId)]
+    public async Task LinkButtonDiscoversDiscordAutomaticallyWithoutAnyGamePolicy(string? selectedSteamId)
+    {
+        var (fixture, login) = await PanelLinkContextAsync();
+        await using var context = fixture;
+        var provider = context.Render<MudDialogProvider>();
+        var refreshed = false;
+        var button = context.Render<DiscordLinkButton>(p => p.Add(c => c.SteamId, selectedSteamId).Add(c => c.OnLinked, () => refreshed = true));
+        // The click handler waits for the dialog result.
+        var click = button.Find("button").ClickAsync();
+        await provider.WaitForAssertionAsync(() => Assert.Equal("https://auth.se-servers.net/link?request=" + PanelLoginService.Id,
+            provider.Find("a").GetAttribute("href")));
+        Assert.Empty(provider.FindAll("input"));
+        var links = context.Services.GetRequiredService<QuasarPlayerLinks>();
+        Assert.Empty(links.GetLinks());
+        login.Ready = true;
+        await click.WaitAsync(TimeSpan.FromSeconds(12));
+        Assert.True(refreshed);
+        Assert.Equal(PanelLoginService.DiscordId, links.FindBySteamId(SteamId)?.DiscordUserId);
+    }
+
+    [Theory]
+    [InlineData("wrong-steam")]
+    [InlineData("invalid-discord")]
+    [InlineData("another-operator")]
+    [InlineData("replaced-request")]
+    [InlineData("role-removed")]
+    [InlineData("permission-revoked")]
+    [InlineData("conflict")]
+    public async Task PanelVerificationRequiresCurrentAuthorityAndMatchingProof(string scenario)
+    {
+        var (fixture, login) = await PanelLinkContextAsync();
+        await using var context = fixture;
+        var sdk = context.Services.GetRequiredService<Quasar.Client.DashboardSdk>();
+        var request = await sdk.RequestAsync<DiscordLinkStart>("security.mapping.link.start", new { SteamId });
+        var finish = new { SteamId, request.FinishToken };
+        Assert.False(await sdk.RequestAsync<bool>("security.mapping.link.finish", finish));
+        var links = context.Services.GetRequiredService<QuasarPlayerLinks>();
+        var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
+        switch (scenario)
+        {
+            case "wrong-steam": login.Steam = "76561198000000999"; break;
+            case "invalid-discord": login.Discord = "0"; break;
+            case "another-operator": auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, "another")); break;
+            case "replaced-request": await sdk.RequestAsync<DiscordLinkStart>("security.mapping.link.start", new { SteamId }); break;
+            case "role-removed": await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig("76561198000000999")!); break;
+            case "permission-revoked": login.OnProof = () => auth.SetPolicies(); break;
+            case "conflict": await links.AuthenticateAsync("76561198000000999", PanelLoginService.DiscordId); break;
+        }
+        login.Ready = true;
+        await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<bool>("security.mapping.link.finish", finish));
+        Assert.Null(links.FindBySteamId(SteamId));
+    }
+
+    private sealed class PanelLoginService : HttpMessageHandler
+    {
+        internal static readonly string Id = new('b', 43);
+        internal const string DiscordId = "9007199254740993";
+        internal string Steam = SteamId, Discord = DiscordId;
+        internal volatile bool Ready;
+        internal Action? OnProof;
+        private string? _challenge;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>(token);
+            if (request.RequestUri!.AbsolutePath == "/link/requests")
+            {
+                Assert.Equal(SteamId, body.GetProperty("steamId").GetString());
+                Assert.False(body.TryGetProperty("discordId", out _));
+                _challenge = body.GetProperty("codeChallenge").GetString();
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestId = Id }) };
+            }
+            Assert.Equal("/link/redeem", request.RequestUri.AbsolutePath);
+            Assert.Equal(Id, body.GetProperty("requestId").GetString());
+            Assert.Equal(_challenge, WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(body.GetProperty("codeVerifier").GetString()!))));
+            if (!Ready) return new(HttpStatusCode.Accepted);
+            OnProof?.Invoke();
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { steamId = Steam, discordId = Discord }) };
+        }
+    }
+
+    [Theory]
+    [InlineData("9007199254740993", true)]
+    [InlineData("9007199254740994", false)]
+    public async Task LinkedRowDisplaysBotUsernameOnlyForTheMatchingDiscordId(string lookupId, bool matches)
+    {
+        const string linkedId = "9007199254740993";
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.Services.AddScoped<Quasar.Client.DashboardSdk>();
+        context.JSInterop.Setup<MappingNames>("quasarSdk.request", _ => true)
+            .SetResult(new MappingNames("Steam pilot", lookupId, "pilot.discord"));
+        var cells = context.Render<RoleMappingAccounts>(p =>
+            p.Add(c => c.Mapping, new RoleMapping("Steam", SteamId, [QuasarRoles.Admin], linkedId)));
+        Assert.Contains("Steam pilot", cells.Markup);
+        Assert.Contains(linkedId, cells.Markup);
+        Assert.Equal(matches, cells.Markup.Contains("@pilot.discord"));
+    }
+
+    [Fact]
+    public async Task StatisticsOnlyIsASavedConsentChoiceAndDumpsRequireReports()
+    {
+        await using var context = Context();
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        using var consent = new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance);
+        context.Services.AddSingleton(consent);
+        context.ComponentFactories.AddStub<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
+        await consent.SaveAsync(true, false, false);
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<SecurityPage>();
+        var section = page.FindAll("section").Single(s => s.QuerySelector("h2")?.TextContent == "Data Handling Consent");
+        Assert.Contains("Statistics only", section.TextContent);
+        Assert.DoesNotContain("listing", section.TextContent, StringComparison.OrdinalIgnoreCase);
+        var switches = page.FindComponents<MudSwitch<bool>>();
+        var reports = switches.Single(s => s.Instance.Label == "Send diagnostic reports");
+        var dumps = switches.Single(s => s.Instance.Label == "Include crash dumps");
+        Assert.True(dumps.Instance.Disabled);
+        await reports.Find("input").ChangeAsync(new() { Value = true });
+        Assert.True(consent.GetSettings().DiagnosticsGranted);
+        Assert.False(dumps.Instance.Disabled);
+        await dumps.Find("input").ChangeAsync(new() { Value = true });
+        Assert.True(consent.GetSettings().DumpsGranted);
+        await reports.Find("input").ChangeAsync(new() { Value = false });
+        Assert.True(dumps.Instance.Disabled);
+        Assert.False(consent.GetSettings().DumpsGranted);
+        Assert.Contains("Statistics only", page.Markup);
+    }
+
+    [Fact]
+    public async Task RuntimeMappingsShowVerifiedDiscordIdsAndUseTheSteamSignInName()
+    {
+        var profiles = new ProfileLookupHandler();
+        await using var context = Context(profiles);
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
+        context.ComponentFactories.AddStub<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
+        var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
+        auth.SetClaims(new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.Steam),
+            new Claim(QuasarClaimTypes.SteamId, SteamId), new Claim(QuasarClaimTypes.SteamDisplayName, "Signed-in engineer"));
+        const string discordId = "9007199254740993";
+        var links = context.Services.GetRequiredService<QuasarPlayerLinks>();
+        await links.AuthenticateAsync(SteamId, discordId);
+        await context.Services.GetRequiredService<RbacConfigCatalog>().UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Add(new() { Subject = SteamId, Roles = [QuasarRoles.Admin] });
+            config.SubjectRoleMappings.Add(new() { Provider = "Oidc", Subject = SteamId, Roles = [QuasarRoles.Viewer] });
+            return Task.CompletedTask;
+        });
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<SecurityPage>();
+        var row = page.FindAll("tr").Single(r => r.TextContent.Contains("Signed-in engineer"));
+        Assert.Contains(discordId, row.TextContent);
+        Assert.Contains("Name unavailable", row.TextContent);
+        Assert.DoesNotContain(discordId, page.FindAll("tr").Single(r => r.TextContent.Contains("Oidc")).TextContent);
+        Assert.Equal(0, profiles.RequestCount);
+
+        await links.RemoveByDiscordAsync(discordId, default);
+        var sdk = context.Services.GetRequiredService<Quasar.Client.DashboardSdk>();
+        var next = await sdk.RequestAsync<SecurityDashboard>("security.dashboard");
+        Assert.All(next.SubjectRoleMappings, m => Assert.Null(m.DiscordUserId));
+        var names = await sdk.RequestAsync<MappingNames>("security.mapping.names", new { SteamId });
+        Assert.Equal(new MappingNames("Signed-in engineer", null, null), names);
+        Assert.Equal(0, profiles.RequestCount);
     }
 
     [Fact]
@@ -247,16 +445,18 @@ public sealed class AccessSetupDialogTests : IDisposable
 
     private sealed class ProfileLookupHandler : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
         public bool Fail { get; init; }
         public Action? OnRequest { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Assert.Equal("https://steamcommunity.com/id/rex00991?xml=1", request.RequestUri?.AbsoluteUri);
+            RequestCount++;
+            Assert.Contains(request.RequestUri?.AbsoluteUri, new[] { "https://steamcommunity.com/id/rex00991?xml=1", $"https://steamcommunity.com/profiles/{SteamId}?xml=1" });
             OnRequest?.Invoke();
             return Task.FromResult(new HttpResponseMessage(Fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
             {
-                Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64></profile>"),
+                Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64><steamID>Steam profile name</steamID></profile>"),
             });
         }
     }
@@ -327,6 +527,22 @@ public sealed class AccessSetupDialogTests : IDisposable
     }
 
     [Fact]
+    public async Task DismissingEnrollmentCancelsCreationEvenAfterTheBrowserStoppedWaiting()
+    {
+        await using var context = Context();
+        var handler = new EnrollmentHandler { HoldCreation = true };
+        context.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => handler);
+        var service = context.Services.GetRequiredService<HostedPanelService>();
+        var creation = service.EnrollAsync("test-panel");
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.ChooseAsync("dismissed").WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => creation);
+        Assert.True(handler.CreationCanceled);
+        Assert.Equal("dismissed", service.State.Choice);
+        Assert.Null(service.State.EnrollmentId);
+    }
+
+    [Fact]
     public async Task LiveUpdatesWaitForMatchingTunnelAndWorkerBeforeShowingDashboardButton()
     {
         await using var context = Context();
@@ -343,13 +559,13 @@ public sealed class AccessSetupDialogTests : IDisposable
         var service = context.Services.GetRequiredService<HostedPanelService>();
         await new HostedConnectorHealth("other-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Bootstrap is connecting", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Bootstrap is connecting", provider.Markup), TimeSpan.FromSeconds(6));
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
         Assert.DoesNotContain("Continue enrollment with Steam", provider.Markup);
 
         await new HostedConnectorHealth("test-panel", true, false, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("local Quasar is restarting", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("local Quasar is restarting", provider.Markup), TimeSpan.FromSeconds(6));
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
 
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()).SaveAsync(default);
@@ -358,7 +574,7 @@ public sealed class AccessSetupDialogTests : IDisposable
 
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup), TimeSpan.FromSeconds(6));
         var dashboard = provider.FindAll("a").Single(a => a.TextContent.Contains("Open Quasar dashboard"));
         Assert.Equal("https://dash.se-servers.net/test-panel/", dashboard.GetAttribute("href"));
         Assert.Null(dashboard.GetAttribute("target"));
@@ -380,7 +596,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         var linked = HostedPanelState.Read()!;
         handler.Active = false;
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.DoesNotContain("Open Quasar dashboard", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.DoesNotContain("Open Quasar dashboard", provider.Markup), TimeSpan.FromSeconds(6));
         Assert.False(service.IsReady);
         Assert.True(HostedPanelState.Read()!.IsSetupComplete);
         Assert.Null(HostedPanelState.Read()!.Credential);
@@ -395,7 +611,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Open Quasar dashboard", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Open Quasar dashboard", provider.Markup), TimeSpan.FromSeconds(6));
     }
 
     [Fact]
@@ -449,10 +665,10 @@ public sealed class AccessSetupDialogTests : IDisposable
         await using var context = Context();
         await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
         var provider = context.Render<MudDialogProvider>();
-        context.Render<AccessSetupPrompt>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
         await provider.InvokeAsync(() => Task.CompletedTask);
         Assert.DoesNotContain("access-setup-header", provider.Markup);
-        var page = context.Render<Quasar.Components.Pages.PostInstallSetup>();
+        var page = context.Render<Quasar.Client.Administration.SetupPage>();
         Assert.Contains("Access setup is saved", page.Markup);
         await page.FindAll("button").Single(b => b.TextContent.Contains("Manage access setup")).ClickAsync();
         Assert.Contains("access-setup-header", provider.Markup);
@@ -467,7 +683,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         await using var context = Context();
         await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
         var provider = context.Render<MudDialogProvider>();
-        context.Render<AccessSetupPrompt>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
         await provider.WaitForAssertionAsync(() => Assert.Contains("access-setup-header", provider.Markup));
         Assert.False(HostedPanelState.Read()!.IsSetupComplete);
     }
@@ -481,7 +697,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.False(HostedPanelState.Read()!.IsSetupComplete);
         Assert.False(RbacConfigCatalog.HasAdminMapping(context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig()));
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
-        context.Render<AccessSetupPrompt>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
         await provider.InvokeAsync(() => Task.CompletedTask);
         Assert.DoesNotContain("access-setup-header", provider.Markup);
     }
@@ -518,6 +734,7 @@ public sealed class AccessSetupDialogTests : IDisposable
 
     private sealed class EnrollmentHandler : HttpMessageHandler
     {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool HoldCreation, FailCreation, Active, CreationCanceled;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -527,6 +744,7 @@ public sealed class AccessSetupDialogTests : IDisposable
             {
                 if (HoldCreation)
                 {
+                    Entered.TrySetResult();
                     try { await Task.Delay(Timeout.Infinite, cancellationToken); }
                     catch (OperationCanceledException) { CreationCanceled = true; throw; }
                 }

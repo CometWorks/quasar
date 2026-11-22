@@ -1,0 +1,189 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+
+<BrowserClusterNotice />
+@if (!_ready && _error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading conversion" /> }
+<section class="quasar-panel pa-4">
+    <h1 class="quasar-text quasar-type-h4">@Title</h1>
+    <p class="quasar-text quasar-type-body1 my-2">Conversion creates a separate destination. The source and backup remain intact. The destination stays stopped until you review it and start it.</p>
+    @if (ToCluster)
+    {
+        <p class="quasar-text quasar-type-body1">Choose a new cluster or an empty existing cluster, then convert. Quasar saves and stops the source, selects a host and free ports, prepares the release and plugins, generates credentials, and backs up and converts the world.</p>
+        <MudSelect T="string" Label="Destination cluster" @bind-Value="_targetCluster" Disabled="@Locked">
+            <MudSelectItem T="string" Value="@(string.Empty)">Create a new cluster</MudSelectItem>
+            @foreach (var cluster in _availableClusters)
+            { <MudSelectItem Value="@cluster.Id">@cluster.Name (@cluster.Id)</MudSelectItem> }
+        </MudSelect>
+        <p class="quasar-text quasar-type-caption">Clusters with a deployment cannot be overwritten. The converted cluster has two regular nodes and one hot spare on one host. You can adjust capacity later.</p>
+        @if (_warnings.Length > 0)
+        {
+            @foreach (string warning in _warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
+        }
+    }
+    else
+    {
+        <h2 class="quasar-text quasar-type-h6">1. Review the source cluster: @ClusterName</h2>
+        <p class="quasar-text quasar-type-body1">Shut down the cluster cleanly first. Quasar verifies every Host executor has stopped its cluster processes, captures a native backup, and converts those copies. Shared filesystem access is not required.</p>
+        <MudButton Href="@("clusters/" + Uri.EscapeDataString(ClusterName ?? ""))">Open source cluster</MudButton>
+        <h2 class="quasar-text quasar-type-h6 mt-4">2. Configure the standalone destination</h2>
+        <MudTextField Label="Server ID" @bind-Value="_serverId" Disabled="@Locked" />
+        <MudTextField Label="Server name" @bind-Value="_displayName" OnBlur="@(_ => EnsureDestinationName())" Disabled="@Locked" HelperText="A blank name receives an editable generated suggestion." />
+        <MudNumericField T="int" Label="Public server port" @bind-Value="_serverPort" Min="1" Max="65535" Disabled="@Locked" />
+        <MudSelect T="string" Label="Base configuration profile for server settings and plugin selections" @bind-Value="_profileId" Disabled="@Locked">
+            @foreach (var profile in _profiles) { <MudSelectItem Value="@profile.Id">@profile.Name</MudSelectItem> }
+        </MudSelect>
+        <p class="quasar-text quasar-type-body1">Session settings and mods come from the converted world. Server settings and ordinary plugin selections are copied into a new profile. Cluster role and transport plugins are removed.</p>
+        <MudAlert Severity="Severity.Info">Cluster shared plugin records and per-node private files remain in the backup. Canonical plugin settings are exported beside the new server as cluster-plugin-configurations.json for review and reapplication; they are not automatically installed into arbitrary plugin-owned files. Review configuration before starting the new server.</MudAlert>
+    }
+    @if (!ToCluster)
+    {
+        <MudCheckBox T="bool" @bind-Value="_confirmed" Disabled="@Locked" Label="I reviewed the source, destination, frozen plugin versions and plugin settings." />
+    }
+    @if (_busy)
+    {
+        <section aria-label="Backing up and converting" aria-busy="true">
+            <strong>Backing up and converting</strong>
+            <p role="status" aria-live="polite">@(_status?.Phase ?? "Validating the source and destination before backup.")</p>
+            <MudProgressLinear Indeterminate="true" />
+        </section>
+    }
+    else if (_ready && !IsComplete)
+    {
+        <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="RunAsync" Disabled="@((!ToCluster && !_confirmed) || (ToCluster && _warnings.Length > 0))">@(_id is null ? (ToCluster ? "Convert to cluster" : "Back up and convert") : "Resume conversion")</MudButton>
+    }
+    @if (_error is not null)
+    {
+        <MudAlert Severity="Severity.Warning" Class="mt-3" role="alert">@_error</MudAlert>
+    }
+    @if (_id is not null && !_busy)
+    { <MudButton OnClick="NewConversion">Edit as a new conversion</MudButton> }
+    @if (_status is not null)
+    {
+        <p class="quasar-text quasar-type-body1 mt-3">@_status.Phase</p>
+        <span class="quasar-text quasar-type-caption">Conversion ID: @_id</span>
+        @if (_status.Error is not null) { <MudAlert Severity="Severity.Warning">@_status.Error</MudAlert> }
+        @if (_status.Destination is not null) { <MudButton Href="@(_status.Destination?.TrimStart('/') is { Length: > 0 } destination ? destination : "./")">Review destination</MudButton> }
+    }
+</section>
+
+
+@code {
+    [Parameter] public string? ServerName { get; set; }
+    [Parameter] public string? ClusterName { get; set; }
+    [Parameter] public Guid? ConversionId { get; set; }
+
+    private bool ToCluster => !string.IsNullOrWhiteSpace(ServerName);
+    private string Title => ToCluster ? "Convert server to cluster" : "Convert cluster to standalone server";
+    private bool IsComplete => _status?.Destination is not null;
+    private bool Locked => _busy || _id is not null || !_ready;
+    private readonly CancellationTokenSource _stop = new();
+    private ConversionDestination[] _availableClusters = [], _profiles = [];
+    private string[] _warnings = [];
+    private ConversionProgress? _status;
+    private string _targetCluster = "", _serverId = "", _displayName = "", _profileId = "";
+    private int _serverPort = 27017;
+    private bool _busy, _confirmed, _ready;
+    private Guid? _id;
+    private string? _error;
+    private ConversionSource Source => new(ServerName, ClusterName, _id);
+
+    private void EnsureDestinationName()
+    {
+        if (ToCluster || Locked) return;
+        if (string.IsNullOrWhiteSpace(_displayName)) _displayName = "server-" + Guid.NewGuid().ToString("N")[..12];
+        if (string.IsNullOrWhiteSpace(_serverId)) _serverId = "server-" + Guid.NewGuid().ToString("N")[..12];
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        _id = ConversionId;
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _ready = false;
+        _error = null;
+        try
+        {
+            var state = await Sdk.RequestAsync<ConversionPageState>("conversion.page", Source, _stop.Token);
+            _availableClusters = state.Clusters;
+            _profiles = state.Profiles;
+            _warnings = state.Warnings;
+            _error = state.ReviewError;
+            _status = state.Progress;
+            _targetCluster = state.Draft.CreateCluster ? "" : state.Draft.Cluster;
+            _serverId = state.Draft.ServerId;
+            _displayName = state.Draft.Name;
+            _serverPort = state.Draft.Port;
+            _profileId = state.Draft.Profile;
+            _confirmed = _id is not null;
+            _ready = true;
+            EnsureDestinationName();
+            if (_status?.Running == true) { _busy = true; _ = FollowAsync(_stop.Token); }
+        }
+        catch (JSException error) { _error = error.Message; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private async Task NewConversion()
+    {
+        if (_busy) return;
+        _id = null;
+        _status = null;
+        await SetUrlAsync();
+        await LoadAsync();
+    }
+
+    // Changing the resume URL must keep the active WASM component mounted.
+    private async Task SetUrlAsync() =>
+        await JS.InvokeVoidAsync("history.replaceState", _stop.Token, null, "", Navigation.GetUriWithQueryParameter("conversion", _id?.ToString()));
+
+    private async Task RunAsync()
+    {
+        if (!_ready || _busy || (!ToCluster && !_confirmed) || (ToCluster && _warnings.Length > 0) || IsComplete) return;
+        EnsureDestinationName();
+        _busy = true;
+        _error = null;
+        _status = null;
+        try
+        {
+            var id = _id ?? Guid.NewGuid();
+            var submission = new ConversionSubmission(Source with { Id = id }, new(_targetCluster, string.IsNullOrWhiteSpace(_targetCluster),
+                _serverId, _displayName, _serverPort, _profileId), Guid.NewGuid());
+            // Preserve the identity even when the network loses the acknowledgement.
+            _id = id;
+            await SetUrlAsync();
+            _status = await Sdk.RequestAsync<ConversionProgress>("conversion.start", submission, _stop.Token);
+            if (_status?.Running == true) await FollowAsync(_stop.Token);
+            else _error = _status?.Error;
+        }
+        catch (JSException error) { _error = error.Message; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    private async Task FollowAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (_status?.Running == true && await timer.WaitForNextTickAsync(token))
+            {
+                _status = await Sdk.RequestAsync<ConversionProgress>("conversion.progress", Source, token);
+                await InvokeAsync(StateHasChanged);
+            }
+            _error = _status?.Error;
+        }
+        catch (JSException error) { _error = error.Message; }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        finally { _busy = false; if (!token.IsCancellationRequested) await InvokeAsync(StateHasChanged); }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

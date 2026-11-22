@@ -104,12 +104,13 @@ public static class QuasarActivityOperations
     internal static IReadOnlyList<ActivityItem> Recent(
         IServiceProvider services,
         ClaimsPrincipal user,
-        int limit
+        int limit,
+        bool includeClusters = true
     )
     {
         var events = new List<ActivityItem>();
         var clusters = (services.GetService<ClusterCatalog>()?.GetClusters() ?? [])
-            .Where(cluster => user.CanQueryCluster(cluster.UniqueName))
+            .Where(cluster => includeClusters && user.CanQueryCluster(cluster.UniqueName))
             .ToDictionary(cluster => cluster.UniqueName, StringComparer.OrdinalIgnoreCase);
         foreach (
             var runtime in services.GetRequiredService<DedicatedServerSupervisor>().GetSnapshots()
@@ -299,7 +300,7 @@ public static class QuasarActivityOperations
     private static AuditItem Item(QuasarAuditEntry entry)
     {
         var arguments = entry.Arguments is { } json
-            ? JsonSerializer.Serialize(QuasarAuditLog.Redact(json))
+            ? JsonSerializer.Serialize(json)
             : null;
         if (arguments?.Length > ArgumentsLength)
             arguments = arguments[..ArgumentsLength] + "…";

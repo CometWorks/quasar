@@ -1,0 +1,67 @@
+@using Quasar.Components.Shared
+<MudDialog>
+    <TitleContent>
+        <h2 class="quasar-text quasar-type-h6">Create World Template</h2>
+    </TitleContent>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-2">
+            <MudTextField @bind-Value="_name"
+                          Label="Template name"
+                          Variant="Variant.Outlined"
+                          Required="true"
+                          RequiredError="Template name required." />
+            <MudTextField @bind-Value="_description"
+                          Label="Description"
+                          Variant="Variant.Outlined"
+                          Lines="3"
+                          Sizing="InputSizing.Auto"
+                          MaxLines="10000" />
+            <div>
+                <span class="quasar-text quasar-type-caption">Source world path</span>
+                <CopyablePath Value="@WorldPath" TextClass="" />
+            </div>
+        </div>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Disabled="@(!CanCreate)" OnClick="Create">Create</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public string DefaultName { get; set; } = string.Empty;
+
+    [Parameter]
+    public string DefaultDescription { get; set; } = string.Empty;
+
+    [Parameter]
+    public string WorldPath { get; set; } = string.Empty;
+
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+
+    private bool CanCreate => !string.IsNullOrWhiteSpace(_name);
+
+    public sealed record TemplateRequest(string Name, string Description);
+
+    protected override void OnInitialized()
+    {
+        _name = DefaultName;
+        _description = DefaultDescription;
+    }
+
+    private void Cancel() => MudDialog.Cancel();
+
+    private void Create()
+    {
+        if (string.IsNullOrWhiteSpace(_name))
+            return;
+
+        MudDialog.Close(DialogResult.Ok(new TemplateRequest(_name.Trim(), _description.Trim())));
+    }
+}

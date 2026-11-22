@@ -1,5 +1,4 @@
 using Magnetar.Protocol.Runtime;
-using Microsoft.JSInterop;
 using System.Xml.Linq;
 
 namespace Quasar.Services;
@@ -16,8 +15,6 @@ public sealed record InstalledWorldTemplateDiscovery(IReadOnlyList<InstalledWorl
 
 public sealed class WorldTemplateImportLocationService
 {
-    private const string StorageKey = "quasar.worldTemplates.lastSourceFolder";
-
     private static readonly (string Label, string RelativePath)[] DedicatedServerContentShortcuts =
     [
         ("DS Custom Worlds", Path.Combine("Content", "CustomWorlds")),
@@ -26,14 +23,12 @@ public sealed class WorldTemplateImportLocationService
     ];
 
     private readonly ManagedRuntimeOptions _options;
-    private readonly BrowserStorageService _storage;
     private readonly ManagedDedicatedServerRuntimeResolver? _runtime;
 
-    public WorldTemplateImportLocationService(ManagedRuntimeOptions options, BrowserStorageService storage,
+    public WorldTemplateImportLocationService(ManagedRuntimeOptions options,
         ManagedDedicatedServerRuntimeResolver? runtime = null)
     {
         _options = options;
-        _storage = storage;
         _runtime = runtime;
     }
 
@@ -113,53 +108,6 @@ public sealed class WorldTemplateImportLocationService
             .ThenBy(template => template.DisplayName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(template => template.SourcePath, StringComparer.OrdinalIgnoreCase)
             .ToList(), locations, warnings);
-    }
-
-    public async Task<string> GetInitialPathAsync(string? currentPath)
-    {
-        if (!string.IsNullOrWhiteSpace(currentPath))
-            return currentPath.Trim();
-
-        var stored = await TryGetStoredPathAsync();
-        if (!string.IsNullOrWhiteSpace(stored) && Directory.Exists(stored))
-            return stored;
-
-        return GetContentShortcuts().FirstOrDefault()?.FullPath ?? string.Empty;
-    }
-
-    public async Task RememberAsync(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-
-        try
-        {
-            var resolved = FileBrowserService.ResolvePath(path);
-            if (Directory.Exists(resolved))
-                await _storage.SetStringAsync(StorageKey, resolved);
-        }
-        catch (InvalidOperationException)
-        {
-        }
-        catch (JSDisconnectedException)
-        {
-        }
-    }
-
-    private async Task<string> TryGetStoredPathAsync()
-    {
-        try
-        {
-            return await _storage.GetStringAsync(StorageKey) ?? string.Empty;
-        }
-        catch (InvalidOperationException)
-        {
-            return string.Empty;
-        }
-        catch (JSDisconnectedException)
-        {
-            return string.Empty;
-        }
     }
 
     private IEnumerable<string> GetDedicatedServerInstallRoots()

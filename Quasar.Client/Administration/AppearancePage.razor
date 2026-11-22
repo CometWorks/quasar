@@ -1,0 +1,271 @@
+@using Quasar.Components.Shared
+@inject DashboardSdk Sdk
+@inject NavigationManager PanelNavigation
+@inject IJSRuntime JS
+
+<PageTitle>Appearance</PageTitle>
+
+<div class="quasar-page-heading">
+    <div>
+        <div class="quasar-eyebrow">Settings / identity and theme</div>
+        <h1>Appearance</h1>
+        <p>Customize branding and palettes. Saved changes apply live across all open sessions.</p>
+    </div>
+</div>
+
+@if (_notice is not null)
+{
+    <div class="quasar-notice @(_noticeError ? "quasar-notice-error" : "quasar-notice-success")" role="@(_noticeError ? "alert" : "status")">@_notice</div>
+}
+
+<form @onsubmit="SaveAsync" @onsubmit:preventDefault>
+    <fieldset class="quasar-fieldset" disabled="@(_busy || !_loaded)">
+        <div class="quasar-appearance-grid">
+            <div class="quasar-panel">
+                <section class="quasar-form-section">
+                    <h2>Brand identity</h2>
+                    <p>Your instance name, subtitle, and visual identity.</p>
+                    <div class="quasar-fields">
+                        <label>App name<input type="text" @bind="_draft.AppName" @bind:event="oninput" /></label>
+                        <label>Subtitle<input type="text" @bind="_draft.AppSubtitle" @bind:event="oninput" /></label>
+                    </div>
+                </section>
+                <section class="quasar-form-section">
+                    <h2>Theme palette</h2>
+                    <p>Light and dark colors are editable independently. Color edits create a custom palette.</p>
+                    <div class="quasar-fields">
+                        <label>Preset
+                            <select value="@(_draft.PresetId ?? CustomPresetValue)" @onchange="@(args => ApplyPreset(args.Value?.ToString() ?? string.Empty))">
+                                @foreach (var preset in BrandingPresets.All)
+                                {
+                                    <option value="@preset.Id">@preset.DisplayName</option>
+                                }
+                                <option value="@CustomPresetValue" disabled>Custom (edited)</option>
+                            </select>
+                        </label>
+                    </div>
+                    <div class="quasar-segmented" role="group" aria-label="Palette to edit">
+                        <button type="button" aria-pressed="@(!_editDark ? "true" : "false")" @onclick="@(() => _editDark = false)"><MudIcon Icon="@Icons.Material.Filled.LightMode" />Light palette</button>
+                        <button type="button" aria-pressed="@(_editDark ? "true" : "false")" @onclick="@(() => _editDark = true)"><MudIcon Icon="@Icons.Material.Filled.DarkMode" />Dark palette</button>
+                    </div>
+                    <div hidden="@_editDark">@RenderPaletteEditor(_draft.LightPalette, false)</div>
+                    <div hidden="@(!_editDark)">@RenderPaletteEditor(_draft.DarkPalette, true)</div>
+                </section>
+                <div class="quasar-form-actions">
+                    <button type="submit" class="quasar-button quasar-button-primary" disabled="@(_busy || _invalidColors.Count > 0)"><MudIcon Icon="@Icons.Material.Filled.Save" />@(_busy ? "Saving…" : "Save changes")</button>
+                    <button type="button" class="quasar-button" @onclick="ResetAsync"><MudIcon Icon="@Icons.Material.Filled.RestartAlt" />Reset to Quasar default</button>
+                    @if (_invalidColors.Count > 0)
+                    {
+                        <span class="quasar-field-error" role="status">Correct invalid colors before saving.</span>
+                    }
+                </div>
+            </div>
+            <div class="quasar-appearance-preview">
+                <section class="quasar-panel">
+                    <div class="quasar-panel-heading"><h2>Live preview</h2><span>@(_editDark ? "Dark palette" : "Light palette")</span></div>
+                    <div class="quasar-preview" style="@PreviewStyle" data-theme="@(_editDark ? "dark" : "light")">
+                        <div class="quasar-preview-surface">
+                            <div class="quasar-preview-bar"><img src="@PanelNavigation.PanelUrl(_editDark ? (_draft.LogoDarkPath ?? "Quasar.png") : (_draft.LogoLightPath ?? "Quasar-inverted-transparent.png"))" alt="" /><strong>@_draft.AppName</strong></div>
+                            <p>@_draft.AppSubtitle</p>
+                            <div class="quasar-preview-status"><span>Server status</span><span class="quasar-text-success">Running</span></div>
+                            <div class="quasar-form-actions">
+                                <span class="quasar-button quasar-button-primary"><MudIcon Icon="@Icons.Material.Filled.Save" />Save world</span>
+                                <span class="quasar-button"><MudIcon Icon="@Icons.Material.Filled.Tune" />Configure</span>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+                <section class="quasar-panel">
+                    <div class="quasar-panel-heading"><h2>Logos and favicon</h2></div>
+                    <div class="quasar-form-section">
+                        <label class="quasar-upload">Light-mode logo
+                            <div class="quasar-asset-preview quasar-asset-light"><img src="@PanelNavigation.PanelUrl(_draft.LogoLightPath ?? "Quasar-inverted-transparent.png")" alt="Light-mode logo preview" /></div>
+                            <InputFile @ref="_light" OnChange="@(args => UploadAsync(args.File, _light, "light"))" accept=".png,.jpg,.jpeg,.webp,.svg" aria-label="Upload light-mode logo" />
+                        </label>
+                        <label class="quasar-upload">Dark-mode logo
+                            <div class="quasar-asset-preview quasar-asset-dark"><img src="@PanelNavigation.PanelUrl(_draft.LogoDarkPath ?? "Quasar.png")" alt="Dark-mode logo preview" /></div>
+                            <InputFile @ref="_dark" OnChange="@(args => UploadAsync(args.File, _dark, "dark"))" accept=".png,.jpg,.jpeg,.webp,.svg" aria-label="Upload dark-mode logo" />
+                        </label>
+                        <label class="quasar-upload">Favicon
+                            <div class="quasar-asset-preview quasar-favicon-preview"><img src="@PanelNavigation.PanelUrl(_draft.FaviconPath ?? "Quasar.ico")" alt="Favicon preview" /></div>
+                            <InputFile @ref="_favicon" OnChange="@(args => UploadAsync(args.File, _favicon, "favicon"))" accept=".ico,.png" aria-label="Upload favicon" />
+                        </label>
+                        <p class="quasar-upload-hint">Uploads persist immediately. Maximum file size: 10 MiB. A cached favicon may need a browser refresh.</p>
+                    </div>
+                </section>
+            </div>
+        </div>
+    </fieldset>
+</form>
+
+@code {
+    private const string CustomPresetValue = "__custom";
+    private const long MaxUploadBytes = 10 * 1024 * 1024;
+    private BrandingSettings _draft = BrandingSettings.Normalize(null);
+    private readonly HashSet<string> _invalidColors = new(StringComparer.Ordinal);
+    private bool _editDark = true;
+    private bool _busy;
+    private string? _notice;
+    private bool _noticeError;
+    private string PreviewStyle => QuasarTheme.BuildCss(_editDark ? _draft.DarkPalette : _draft.LightPalette, _editDark);
+
+    private static readonly IReadOnlyList<ColorGroup> ColorGroups =
+    [
+        new("Identity",
+        [
+            new("Primary", p => p.Primary, (p, v) => p.Primary = v),
+            new("Primary text", p => p.PrimaryContrastText, (p, v) => p.PrimaryContrastText = v),
+            new("Secondary", p => p.Secondary, (p, v) => p.Secondary = v),
+            new("Secondary text", p => p.SecondaryContrastText, (p, v) => p.SecondaryContrastText = v),
+        ]),
+        new("Surfaces",
+        [
+            new("Background", p => p.Background, (p, v) => p.Background = v),
+            new("Background gray", p => p.BackgroundGray, (p, v) => p.BackgroundGray = v),
+            new("Surface", p => p.Surface, (p, v) => p.Surface = v),
+        ]),
+        new("Hover",
+        [
+            new("Hover background", p => p.HoverBackground, (p, v) => p.HoverBackground = v),
+            new("Hover text", p => p.HoverContrastText, (p, v) => p.HoverContrastText = v),
+        ]),
+        new("Navigation",
+        [
+            new("Drawer background", p => p.DrawerBackground, (p, v) => p.DrawerBackground = v),
+            new("Drawer text", p => p.DrawerText, (p, v) => p.DrawerText = v),
+            new("Drawer icon", p => p.DrawerIcon, (p, v) => p.DrawerIcon = v),
+            new("Appbar background", p => p.AppbarBackground, (p, v) => p.AppbarBackground = v),
+            new("Appbar text", p => p.AppbarText, (p, v) => p.AppbarText = v),
+        ]),
+        new("Text",
+        [
+            new("Text primary", p => p.TextPrimary, (p, v) => p.TextPrimary = v),
+            new("Text secondary", p => p.TextSecondary, (p, v) => p.TextSecondary = v),
+        ]),
+        new("Lines",
+        [
+            new("Lines default", p => p.LinesDefault, (p, v) => p.LinesDefault = v),
+            new("Lines inputs", p => p.LinesInputs, (p, v) => p.LinesInputs = v),
+            new("Table lines", p => p.TableLines, (p, v) => p.TableLines = v),
+            new("Divider", p => p.Divider, (p, v) => p.Divider = v),
+            new("Divider light", p => p.DividerLight, (p, v) => p.DividerLight = v),
+        ]),
+        new("Status",
+        [
+            new("Info", p => p.Info, (p, v) => p.Info = v),
+            new("Info text", p => p.InfoContrastText, (p, v) => p.InfoContrastText = v),
+            new("Success", p => p.Success, (p, v) => p.Success = v),
+            new("Success text", p => p.SuccessContrastText, (p, v) => p.SuccessContrastText = v),
+            new("Warning", p => p.Warning, (p, v) => p.Warning = v),
+            new("Warning text", p => p.WarningContrastText, (p, v) => p.WarningContrastText = v),
+            new("Error", p => p.Error, (p, v) => p.Error = v),
+            new("Error text", p => p.ErrorContrastText, (p, v) => p.ErrorContrastText = v),
+        ]),
+    ];
+
+    private InputFile? _light, _dark, _favicon;
+    private bool _loaded;
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _draft = await Sdk.RequestAsync<BrandingSettings>("appearance.read");
+            _editDark = await JS.InvokeAsync<bool>("quasarSdk.darkMode");
+            _loaded = true;
+        }
+        catch (JSException error) { Notice(error.Message, true); }
+    }
+
+    private RenderFragment RenderPaletteEditor(ThemePalette palette, bool isDark) => __builder =>
+    {
+        foreach (var group in ColorGroups)
+        {
+            <details class="quasar-palette-group" open="@(group.Title is "Identity" or "Surfaces")">
+                <summary>@group.Title <span>@group.Fields.Count colors</span></summary>
+                <div class="quasar-color-grid">
+                    @foreach (var field in group.Fields)
+                    {
+                        var key = $"{isDark}-{field.Label}";
+                        <QuasarColorField @key="(palette, field.Label)" Label="@field.Label" Value="@field.Get(palette)"
+                                          ValueChanged="@(value => HandleColorChanged(palette, field, value))"
+                                          ValidityChanged="@(valid => HandleValidityChanged(key, valid))" />
+                    }
+                </div>
+            </details>
+        }
+    };
+
+    private void HandleValidityChanged(string key, bool valid)
+    {
+        if (valid) _invalidColors.Remove(key);
+        else _invalidColors.Add(key);
+    }
+
+    private void ApplyPreset(string presetId)
+    {
+        if (!BrandingPresets.IsKnownPreset(presetId)) return;
+        _draft.PresetId = presetId;
+        _draft.LightPalette = BrandingPresets.GetLightPalette(presetId);
+        _draft.DarkPalette = BrandingPresets.GetDarkPalette(presetId);
+        _invalidColors.Clear();
+    }
+
+    private void HandleColorChanged(ThemePalette palette, ColorField field, string value)
+    {
+        field.Set(palette, value);
+        _draft.PresetId = null;
+    }
+
+    private async Task UploadAsync(IBrowserFile file, InputFile? control, string kind)
+    {
+        if (_busy || control?.Element is not { } input) return;
+        if (file.Size > MaxUploadBytes) { Notice("The upload exceeds 10 MiB.", true); return; }
+        _busy = true;
+        try
+        {
+            var assets = await JS.InvokeAsync<BrandingSettings>("quasarSdk.uploadFile", CancellationToken.None,
+                "quasar.core", "appearance.upload", input, file.Name, file.Size, new { kind, extension = Path.GetExtension(file.Name) });
+            _draft.LogoDarkPath = assets.LogoDarkPath;
+            _draft.LogoLightPath = assets.LogoLightPath;
+            _draft.FaviconPath = assets.FaviconPath;
+            await assets.ApplyAsync(JS, PanelNavigation);
+            Notice(kind == "favicon" ? "Favicon updated." : $"{(kind == "dark" ? "Dark" : "Light")}-mode logo updated.");
+        }
+        catch (Exception error) { Notice($"Upload failed: {error.Message}", true); }
+        finally { _busy = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (_busy || _invalidColors.Count > 0) return;
+        _busy = true;
+        try
+        {
+            _draft = await Sdk.RequestAsync<BrandingSettings>("appearance.save", _draft);
+            await _draft.ApplyAsync(JS, PanelNavigation);
+            Notice("Appearance saved.");
+        }
+        catch (Exception exception) { Notice($"Save failed: {exception.Message}", true); }
+        finally { _busy = false; }
+    }
+
+    private async Task ResetAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        try
+        {
+            _draft = await Sdk.RequestAsync<BrandingSettings>("appearance.reset");
+            await _draft.ApplyAsync(JS, PanelNavigation);
+            _invalidColors.Clear();
+            Notice("Appearance reset to Quasar default.");
+        }
+        catch (Exception exception) { Notice($"Reset failed: {exception.Message}", true); }
+        finally { _busy = false; }
+    }
+
+    private void Notice(string message, bool error = false) { _notice = message; _noticeError = error; }
+
+    private sealed record ColorField(string Label, Func<ThemePalette, string> Get, Action<ThemePalette, string> Set);
+    private sealed record ColorGroup(string Title, IReadOnlyList<ColorField> Fields);
+}

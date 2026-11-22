@@ -1,6 +1,8 @@
 ﻿@inject QuasarUiPluginCatalog UiPlugins
 @inject NavigationManager Navigation
 @inject WebServiceOptions ServiceOptions
+@inject IConfiguration Configuration
+@inject DashboardReleaseManifest Manifest
 
 <!DOCTYPE html>
 <html lang="en">
@@ -20,25 +22,25 @@
     <link rel="stylesheet" href="@Assets["lib/uplot/uPlot.min.css"]" />
     <link rel="stylesheet" href="@Assets["app.css"]" />
     <link rel="stylesheet" href="@Assets["quasar-ui.css"]" />
+    <link rel="stylesheet" href="@Assets["ui-plugins.css"]" />
     <link rel="stylesheet" href="@Assets["Quasar.styles.css"]" />
     @foreach (var stylesheetHref in UiPlugins.StylesheetHrefs)
     {
         <link rel="stylesheet" href="@Navigation.PanelUrl(stylesheetHref)" />
     }
     <ImportMap />
-    <HeadOutlet @rendermode="InteractiveServer" />
+    <HeadOutlet @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
 </head>
 
 <body>
-    <Routes @rendermode="InteractiveServer" />
-    <ReconnectModal />
+    <Quasar.Components.Layout.BrowserDashboard />
     <script src="@Assets["quasar-sdk.js"]"></script>
     <script src="@Assets["quasar-configs.js"]"></script>
     <script src="@Assets["quasar-push.js"]"></script>
     <script src="@Assets["lib/uplot/uPlot.iife.min.js"]"></script>
     <script src="@Assets["quasar-charts.js"]"></script>
     <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
-    <script id="quasar-connection" type="application/json">@((MarkupString)System.Text.Json.JsonSerializer.Serialize(new { hosted = RequestContext is not null && HostedPanelRequest.IsHosted(RequestContext), workerId = ServiceOptions.WorkerId }))</script>
+    <script id="quasar-connection" type="application/json">@((MarkupString)System.Text.Json.JsonSerializer.Serialize(new { hosted = Hosted, release = ReleaseDigest, frameworkIntegrity = ReleaseDigest is not null ? Manifest.Hashes : null, workerId = ServiceOptions.WorkerId }))</script>
     <script type="module" src="@Assets["_quasar/sdk/v1/boot.js"]"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
@@ -46,5 +48,9 @@
 </html>
 
 @code {
+    private string? ReleaseDigest => Hosted && Configuration["QUASAR_NEBULA_RELEASE_SHA256"] is { Length: 64 } digest
+        && digest.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ? digest : null;
+
+    private bool Hosted => RequestContext is not null && HostedPanelRequest.IsHosted(RequestContext);
     [CascadingParameter] private Microsoft.AspNetCore.Http.HttpContext? RequestContext { get; set; }
 }

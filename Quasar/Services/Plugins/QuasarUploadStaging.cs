@@ -5,13 +5,13 @@ namespace Quasar.Services.Plugins;
 
 public static class QuasarUploadStaging
 {
-    public static async Task<FileStream> StageAsync(Stream source, long maximumBytes, CancellationToken token)
+    public static async Task<FileStream> StageAsync(Stream source, long maximumBytes, CancellationToken token, Action? progress = null)
     {
         if (maximumBytes <= 0) throw new ArgumentOutOfRangeException(nameof(maximumBytes));
         var staged = CreateUpload();
         try
         {
-            await CopyUploadAsync(source, staged, maximumBytes, token);
+            await CopyUploadAsync(source, staged, maximumBytes, token, progress);
             staged.Position = 0;
             return staged;
         }
@@ -33,7 +33,7 @@ public static class QuasarUploadStaging
         return new FileStream(path, options);
     }
 
-    private static async Task CopyUploadAsync(Stream source, Stream destination, long maximum, CancellationToken token)
+    private static async Task CopyUploadAsync(Stream source, Stream destination, long maximum, CancellationToken token, Action? progress)
     {
         var buffer = new byte[QuasarSdkLimits.TransferBufferBytes];
         long total = 0;
@@ -43,6 +43,7 @@ public static class QuasarUploadStaging
             total += count;
             if (total > maximum) throw new QuasarOperationException(413, "The upload exceeds the registered operation limit.");
             await destination.WriteAsync(buffer.AsMemory(0, count), token);
+            progress?.Invoke();
         }
         await destination.FlushAsync(token);
     }

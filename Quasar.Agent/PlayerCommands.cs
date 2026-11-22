@@ -181,8 +181,8 @@ namespace Quasar.Agent
     {
         [Command(
             "",
-            "Open browser authentication",
-            "Usage: !authorize. Authenticate Steam and Discord on the website and authorize this server."
+            "Show how to authorize in Discord",
+            "Usage: !authorize. Run /authorize in the game's Discord to link Steam and Discord for this server."
         )]
         [Permission(MyPromoteLevel.None)]
         public CommandReply Authorize() =>
@@ -190,7 +190,7 @@ namespace Quasar.Agent
                 Context,
                 PlayerRequest.AuthorizeKind,
                 string.Empty,
-                "Opening player authentication..."
+                "Checking player access instructions..."
             );
     }
 }

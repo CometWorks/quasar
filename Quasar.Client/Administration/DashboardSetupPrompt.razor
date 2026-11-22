@@ -1,0 +1,16 @@
+@inject DashboardSdk Sdk
+@inject IDialogService DialogService
+
+@code {
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            if (await Sdk.RequestAsync<bool>("setup.prompt"))
+                await DialogService.ShowAsync<DashboardSetupDialog>("Set up administrator access", new DialogOptions
+                    { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
+        }
+        catch (JSException) { /* The authorized /setup page also exposes the wizard. */ }
+    }
+}

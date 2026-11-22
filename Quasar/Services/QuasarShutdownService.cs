@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Collections.Concurrent;
 using Magnetar.Protocol.Runtime;
 using Quasar.Models;
+using Quasar.Client.Layout;
 
 namespace Quasar.Services;
 
@@ -37,6 +38,45 @@ public sealed class QuasarShutdownService
         _clusters = clusters;
         _clusterCommands = clusterCommands;
         _clusterReconciler = clusterReconciler;
+    }
+
+    private readonly object _dashboardStopLock = new();
+    private DashboardServerStop? _dashboardStop;
+
+    internal DashboardServerStop? DashboardStop { get { lock (_dashboardStopLock) return _dashboardStop; } }
+
+    internal DashboardServerStop BeginDashboardStop()
+    {
+        lock (_dashboardStopLock)
+        {
+            if (_dashboardStop is { Complete: false }) return _dashboardStop;
+            var started = new DashboardServerStop(Guid.NewGuid(), false, "Preparing servers and clusters for shutdown…");
+            _dashboardStop = started;
+            _ = RunDashboardStopAsync(started);
+            return started;
+        }
+    }
+
+    // A dashboard can disconnect while game servers save. The worker owns the job.
+    private async Task RunDashboardStopAsync(DashboardServerStop started)
+    {
+        var progress = new Progress<string>(message =>
+        {
+            lock (_dashboardStopLock)
+                if (_dashboardStop is { Complete: false } current && current.Id == started.Id)
+                    _dashboardStop = current with { Message = message };
+        });
+        try
+        {
+            await StopAllServersAsync(progress, setGoalStateOff: true, cancellationToken: _lifetime.ApplicationStopping);
+            lock (_dashboardStopLock)
+                _dashboardStop = started with { Complete = true, Message = "All managed servers and clusters have stopped." };
+        }
+        catch (Exception error)
+        {
+            lock (_dashboardStopLock)
+                _dashboardStop = started with { Complete = true, Failed = true, Message = error.Message };
+        }
     }
 
     /// <summary>

@@ -1,11 +1,9 @@
 # Quasar direct transport
 
-**Development status: the real SDK adapter, streams and browser downloads pass
-isolated Linux Chromium/Firefox checks. The Blazor bridge and Linux release
-archive are also verified; installed whole-panel and native Windows execution
-remain pending.** Ordinary HTTP/WebSocket operation,
-Blazor, local supervision and the hosted connector remain available as before.
-Do not enable this development component as a production bandwidth solution.
+The WebAssembly dashboard starts over HTTP(S). Hosted sessions also try a direct
+WebRTC data channel in the background. A confirmed direct peer carries new SDK
+requests and transfers. Nebula limits tunneled traffic to 20 Mbit/s in aggregate.
+Local and self-hosted sessions use the same dashboard and SDK over HTTP(S).
 
 ## Ownership and security boundary
 
@@ -84,8 +82,14 @@ still use Nebula's authoritative UTC clock and retain its existing clock/trust
 assumptions. No hard real-time scheduling guarantee or instantaneous rollback of
 an already committed action is implied.
 
-Core session expiry/logout and a shorter verified ticket rebinding revoke the
-stored session token. Closing a view cancels its peer, leaving other views'
+Each Steam sign-in has a server-issued login ID and a panel scope inside the
+protected HTTP-only cookie. All tabs using that login share its SDK identity.
+The worker keeps an empty file in its private `BrowserLogins/`
+directory for each active sign-in. Sign-out or switching accounts removes the
+marker and cancels that login's peer sessions and transfers. A second browser
+signed in separately stays connected. Updated workers share the markers across
+restarts. Older tickets require a fresh Steam sign-in on upgrade. Ticket expiry
+and a shorter verified ticket also limit the SDK binding. Closing a view cancels its peer, leaving other views'
 binding intact. Current panel permission and local installation state are checked
 at one-second intervals, including while idle. Each SDK operation/resource must
 also enforce its own current policies. A transient ICE disconnected state has a five-second grace period on the
@@ -100,10 +104,16 @@ shortcut. No Origin header is stripped, and DIS-0042 remains in force.
 
 ## Development configuration
 
-Choosing Nebula automatically selects WebRTC for SDK traffic; there is no separate
-user toggle. Local sessions continue using HTTP independently. Initial direct failure makes one bounded TURN-only setup attempt before
-application work. Unavailable connectivity fails without replay or bulk HTTP fallback.
-This branch is separate from the shipped SDK-first HTTP release.
+Hosted SDK operations begin over the existing authenticated HTTPS tunnel. The
+first operation starts a STUN-only peer attempt in the background. Once a peer
+is confirmed, new operations use it, including resource reservation, transfer,
+and cleanup. Established peer operations use their bound browser session and
+server-side authorization. If setup fails, the SDK keeps using HTTPS and the
+next operation after 30 seconds can try again. An interrupted operation reports
+its own outcome. Local SDK calls continue over ordinary HTTP(S).
+
+The WASM dashboard and browser UI plugins use the SDK for worker operations.
+Existing hosting installations can issue direct leases to this SDK.
 
 A developer can build the pinned peer with Go 1.27.3 and place it in `Peer/quasar-peer` (`Peer/quasar-peer.exe` on Windows)
 beside the worker, or set `Quasar:WebRtc:PeerExecutable` to its explicit path.
@@ -122,39 +132,19 @@ actual hosting API and retained frp/Caddy transport.
 
 The browser fixtures normally omit STUN to run on isolated loopback networks.
 Set `QUASAR_RTC_TEST_STUN=stun:rtc.se-servers.net:3478` (or a test STUN endpoint)
-for `Quasar.Tests.QuasarRtcTests` and `tests/Quasar.Rtc.CircuitChecks` to also
+for `Quasar.Tests.QuasarRtcTests` to also
 exercise configured discovery through the real worker/native peer boundary.
 This mode requires that endpoint to be reachable. The SDK data/browser check
-instead supplies an intentionally unresponsive loopback STUN socket and requires
-its first application response within four seconds in both browsers, proving that
-startup no longer waits for discovery to finish. ICE JSON omits absent STUN
-credentials: Pion rejects a present null username before SDP negotiation, which
-otherwise prevents hosted Blazor hydration even when both peers can connect
-locally. The HTTP JSON contract check also verifies TURN credentials remain intact.
+uses an intentionally unresponsive loopback STUN socket. Both browsers complete
+an ordinary operation and reserve an upload while signaling is held, then send
+that upload via its HTTPS reservation after the direct peer opens. Subsequent
+operations and a 32 MiB download use the peer. Browser and native ICE accept
+credential-free STUN URLs. Both sides must select a direct ICE pair before activation.
 
-Linux Chromium checks pass authentication/CSRF, exact-session ownership, nonce
-and grant replay, pending expiry, permission disablement, view closure, logout,
-manager outage and installation replacement, including a native Go race build.
-Windows cross-compilation works; native Windows/browser acceptance, real Steam,
-installed packages and actual Viewer/core acceptance remain release gates.
-
-Nebula self-hosts STUN discovery and a Pion TURN fallback. The worker may reserve
-one-use, exact-session relay setup through `/_quasar/sdk/v1/rtc/relay`, receiving
-independent short-lived transport credentials and a 60-second ticket. Only those
-credentials reach native/browser ICE. Ticket consumption uses the worker-owned
-peer ID, exact stored browser binding and current installation. Prepared tickets
-share peer admission, expire, and retire on logout/replacement/worker stop.
-
-A connected peer activates a 120-second relay lease after hosting activation;
-renewal succeeds before extending the independent hosted deadline. Native relay
-sockets enforce expiry and shared panel/aggregate budgets, including allocations
-already open. Actual selected ICE candidates determine `direct`, `relayed` or
-`unavailable`; a relay path without its authorized grant is refused. No established
-stream or mutation is replayed. There is no automatic bulk HTTP fallback.
-The operator relay requires an explicit reviewed budget. See
-[Nebula's relay contract](https://github.com/CometWorks/nebula/blob/main/docs/webrtc-relay.md). Existing
-compatibility HTTP traffic still crosses Nebula; it is not accounted away by
-successful peer setup.
+The authenticated lease fixture covers CSRF, session ownership, nonce and grant
+replay, pending expiry, permission changes, logout, manager outage and installation
+replacement. The published dashboard fixture verifies Viewer reads over both direct
+WebRTC and HTTPS, while Nebula's gateway suite verifies aggregate tunnel shaping.
 
 ## SDK protocol 1
 
@@ -183,8 +173,7 @@ most 16 KiB of bytes. Initial pull credit is required. Absolute consumed-byte
 acknowledgments bound outstanding read bytes to 256 KiB per call; native send
 queues also stay at or below 256 KiB per channel. Private IPC receive queues hold
 at most 128 control messages within the previous 528 KiB byte cap, or 16 bulk
-messages. Cumulative read credits replenish half a window at a time so paced
-TURN delivery does not flood control IPC. Overflow closes the peer. A stalled consumer
+messages. Cumulative read credits replenish half a window at a time to limit control IPC traffic. Overflow closes the peer. A stalled consumer
 cannot grow a whole-file buffer. Reads retain metadata, exact bytes and single
 seekable ranges. Subscriptions use bounded NDJSON items. Control and binary
 channels are reliable and ordered independently, so EOF carries an exact byte
@@ -221,7 +210,7 @@ took about 2–3 ms while that read remained open. Browser request observation
 recorded zero feature-payload HTTP requests. These are loopback fixture results,
 not Internet NAT or capacity measurements. `go vet` and the vulnerability scan
 pass, with zero reachable/imported-package vulnerabilities and 11 advisories in
-unused module code. The next task is real Viewer acceptance (RTC4).
+unused module code.
 
 RTC4's actual Viewer browser/handler fixture additionally measures a 16 MiB
 archive through a real isolated Caddy boundary: 290 bytes of SDK session metadata
@@ -231,11 +220,6 @@ The SDK's read-only `transport` snapshot exposes path/byte/maximum-queue counter
 authenticated peer status exposes native byte/buffer totals without addresses.
 This is feature/transport evidence; live Steam, actual game rendering, retained
 history RTC replay and the complete Nebula gateway chain remain acceptance gates.
-
-The [Blazor adapter](QuasarWebRtcFramework.md) uses the public server WebSocket
-feature and SignalR client transport interfaces. Real framework render/interop,
-upload and reconnect checks pass; installed whole-panel acceptance remains.
-
 
 ## Peer release payload
 
@@ -249,11 +233,7 @@ rollback targets. Linux packaging and Windows cross-build pass locally. Native
 Windows execution and installed upgrade/rollback remain acceptance gates.
 
 NAT discovery defaults to the self-hosted `stun:rtc.se-servers.net:3478` for
-both peers, without a browser setting. This hostname must be DNS only: Cloudflare's
-ordinary HTTP proxy does not carry STUN/TURN UDP or raw TCP. The dashboard may
-retain its HTTPS proxy. The endpoint must be deployed and UDP 3478 routed to
-Nebula separately from HTTPS. Nebula's relay resolves the DDNS hostname at startup
-and every minute; a verified public IPv4 change retires old relay allocations
-without replaying application work. Automatic bounded TURN fallback is implemented
-as described above; public deployment and Internet traversal acceptance remain
-operator gates.
+both peers. This hostname needs a DNS record and a reachable UDP 3478 listener
+separate from the HTTPS dashboard proxy. UDP-blocked networks continue using the
+HTTPS tunnel. Deploy the upgraded dashboard to the three existing installations
+before retiring the old relay infrastructure.

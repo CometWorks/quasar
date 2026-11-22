@@ -2,6 +2,8 @@
 
 The Host executor (`Quasar.Host`) is the service that runs on every cluster host machine. It starts and supervises the Cluster Gateway and the cluster nodes, keeps them running while Quasar is down, and takes orders from Quasar over an outbound connection. This page covers its packages, files, configuration, credentials, connection to Quasar, command line, updates, shutdown behavior and connection troubleshooting. Enrollment steps are in [Guided cluster setup](ClusterSetup.md#enroll-host-machines).
 
+The **Hosts** page refreshes executor and agent status every five seconds. **Add host machine** checks the selected registration every two seconds and offers a manual refresh. The browser obtains a manual ZIP through the authenticated dashboard transport. The package contains the Host's credentials.
+
 ## Packages and binary
 
 - Each Quasar release package (`quasar-linux-x64.tar.gz`, `quasar-win-x64.zip`) ships the Host executor as a self-contained single-file executable at `Host/Quasar.Host` (`Host/Quasar.Host.exe` on Windows), next to the Quasar application and its updater. Quasar's local Host, the enrollment command, SSH installation, the manual package and the automatic updater all use the file of the running Quasar release, so the Host version follows the Quasar release, not the cluster package. Enrollment does not download another release archive.
@@ -294,9 +296,9 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `Quasar.Host/Quasar.Host.csproj`
 - `Quasar.Host.Contract/HostContract.cs`
 - `Quasar/Assets/host-update.py`
-- `Quasar/Components/Pages/Hosts.razor`
-- `Quasar/Components/Shared/HostEnrollment.razor`
-- `Quasar/Components/Shared/HostEnrollmentRemoval.razor`
+- `Quasar.Client/Components/HostMachines.razor`
+- `Quasar.Client/Components/HostEnrollmentForm.razor`
+- `Quasar.Client/Components/RemoveHostEnrollment.razor`
 - `Quasar/Services/ClusterCatalog.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
 - `Quasar/Services/ClusterHostTunnels.cs`

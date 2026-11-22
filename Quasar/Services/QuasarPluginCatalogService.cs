@@ -13,18 +13,18 @@ public sealed class QuasarPluginCatalogService
     // Core compatibility plugins Magnetar force-loads by id on start (see GetCorePlugins in
     // Magnetar's Pulsar/Legacy/Program.cs) from whatever source lists them; they never need
     // to appear in the profile. Magnetar 2.3.3.0 and later finds them in the hub source.
-    public const string DotNetCompatPluginId = "dotnet-compat";
-    public const string LinuxCompatPluginId = "linux-compat";
-    public const string ErrorReportingPluginId = "error-reporting";
-    public static readonly string[] CorePluginIds = [DotNetCompatPluginId, LinuxCompatPluginId, ErrorReportingPluginId];
+    public const string DotNetCompatPluginId = ConfigCatalogRules.DotNetCompatPluginId;
+    public const string LinuxCompatPluginId = ConfigCatalogRules.LinuxCompatPluginId;
+    public const string ErrorReportingPluginId = ConfigCatalogRules.ErrorReportingPluginId;
+    public static readonly string[] CorePluginIds = ConfigCatalogRules.CorePluginIds;
     // LEGACY-MAGNETAR-COMPAT: Magnetar before 2.3.3.0 force-loads the se- prefixed ids,
     // which the hub keeps in the *LegacyId.xml manifests. Remove with the Legacy style in
     // the first 2027 Quasar release.
-    public const string LegacyDotNetCompatPluginId = "se-dotnet-compat";
-    public const string LegacyLinuxCompatPluginId = "se-linux-compat";
-    public const string DefaultHubName = "MagnetarHub";
-    public const string DefaultHubRepo = "CometWorks/magnetar-hub";
-    public const string DefaultHubBranch = "main";
+    public const string LegacyDotNetCompatPluginId = ConfigCatalogRules.LegacyDotNetCompatPluginId;
+    public const string LegacyLinuxCompatPluginId = ConfigCatalogRules.LegacyLinuxCompatPluginId;
+    public const string DefaultHubName = ConfigCatalogRules.DefaultHubName;
+    public const string DefaultHubRepo = ConfigCatalogRules.DefaultHubRepo;
+    public const string DefaultHubBranch = ConfigCatalogRules.DefaultHubBranch;
     // LEGACY-MAGNETAR-COMPAT: remove with the legacy ids above.
     public const string LegacyDotNetCompatManifestFile = "Plugins/DotNetCompatLegacyId.xml";
     public const string LegacyLinuxCompatManifestFile = "Plugins/LinuxCompatLegacyId.xml";
@@ -136,13 +136,7 @@ public sealed class QuasarPluginCatalogService
         }
     }
 
-    public static bool IsManualSelectionAllowed(string pluginId)
-    {
-        var id = pluginId?.Trim();
-        return !string.Equals(id, DotNetCompatPluginId, StringComparison.OrdinalIgnoreCase) &&
-               !string.Equals(id, ErrorReportingPluginId, StringComparison.OrdinalIgnoreCase) &&
-               !string.Equals(id, LegacyDotNetCompatPluginId, StringComparison.OrdinalIgnoreCase);
-    }
+    public static bool IsManualSelectionAllowed(string pluginId) => ConfigCatalogRules.IsManualSelectionAllowed(pluginId);
 
     // LEGACY-MAGNETAR-COMPAT: pre-2.3.3.0 Magnetar builds get the se- prefixed core plugins
     // as per-file RemotePlugin sources, the way Quasar always configured them. Remove with
@@ -160,23 +154,7 @@ public sealed class QuasarPluginCatalogService
 
     public sealed record CorePluginManifest(string PluginId, string ManifestFile);
 
-    public static string GetRepositoryUrl(string sourceRepo)
-    {
-        var repo = sourceRepo?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(repo))
-            return string.Empty;
-
-        if (Uri.TryCreate(repo, UriKind.Absolute, out var uri) &&
-            (string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)))
-        {
-            return uri.ToString();
-        }
-
-        return repo.Contains('/', StringComparison.Ordinal)
-            ? $"https://github.com/{repo.Trim('/')}"
-            : string.Empty;
-    }
+    public static string GetRepositoryUrl(string sourceRepo) => ConfigCatalogRules.GetRepositoryUrl(sourceRepo);
 
     public async Task RefreshAsync(CancellationToken cancellationToken = default)
     {
@@ -357,9 +335,7 @@ public sealed class QuasarPluginCatalogService
 
     private static readonly QuasarPluginHub DefaultHub = new() { Name = DefaultHubName, Repo = DefaultHubRepo, Branch = DefaultHubBranch };
 
-    public static bool IsDefaultHubEntry(QuasarPluginCatalogEntry entry) =>
-        !entry.IsLocalDevFolder &&
-        (string.IsNullOrEmpty(entry.HubName) || string.Equals(entry.HubName, DefaultHubName, StringComparison.Ordinal));
+    public static bool IsDefaultHubEntry(QuasarPluginCatalogEntry entry) => ConfigCatalogRules.IsDefaultHubEntry(entry);
 
     public static bool IsDefaultHub(QuasarPluginHub hub) =>
         !hub.IsLocal && string.Equals(hub.Repo, DefaultHubRepo, StringComparison.OrdinalIgnoreCase);
@@ -469,13 +445,7 @@ public sealed class QuasarPluginCatalogService
         }
     }
 
-    public static string GetDevFolderPluginId(QuasarDevFolderSelection devFolder)
-    {
-        var pluginId = devFolder.PluginId?.Trim() ?? string.Empty;
-        return string.IsNullOrWhiteSpace(pluginId)
-            ? devFolder.SourceFolderName
-            : pluginId;
-    }
+    public static string GetDevFolderPluginId(QuasarDevFolderSelection devFolder) => ConfigCatalogRules.GetDevFolderPluginId(devFolder);
 
     private static string FirstNonEmpty(params string[] values) =>
         values.FirstOrDefault(value => !string.IsNullOrWhiteSpace(value))?.Trim() ?? string.Empty;
@@ -507,10 +477,3 @@ public sealed class QuasarPluginCatalogService
         public List<QuasarPluginCatalogEntry> Entries { get; init; } = [];
     }
 }
-
-public sealed record QuasarPluginHubStatus(
-    QuasarPluginHub Hub,
-    bool IsDefault,
-    int PluginCount,
-    DateTimeOffset? LastRefreshUtc,
-    string Error);

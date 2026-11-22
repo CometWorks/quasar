@@ -17,7 +17,7 @@ public sealed class WorldTemplateImportLocationTests : IDisposable
         {
             DedicatedServerInstallDirectory = managed,
             DedicatedServer64OverridePath = Path.Combine(configured, "DedicatedServer64"),
-        }, null!);
+        });
 
         // The machine's own managed install is a third root; only the fixture roots are asserted.
         var templates = service.GetInstalledWorldTemplates().Where(t => t.SourcePath.StartsWith(root, StringComparison.Ordinal)).ToArray();

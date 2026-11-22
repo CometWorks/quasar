@@ -1,0 +1,52 @@
+@using Quasar.Client.Components
+@using Quasar.Client.Plugins
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+
+@if (_error is not null)
+{
+    <p role="alert">Dashboard extension could not load. @_error</p>
+}
+else if (_extensions is not null)
+{
+    <CascadingValue TValue="IReadOnlyList<LoadedExtension>" Value="_extensions">
+        <BrowserExtensionOutlet TargetKey="@Target" Parameters="Parameters" />
+    </CascadingValue>
+}
+
+@code {
+    private const string Target = "quasar.layout.drawer";
+    private readonly CancellationTokenSource _stop = new();
+    private IReadOnlyList<LoadedExtension>? _extensions;
+    private string? _error;
+    private IReadOnlyDictionary<string, object?> Parameters
+    {
+        get
+        {
+            var parts = Navigation.ToBaseRelativePath(Navigation.Uri).Split('?', '#')[0].Split('/');
+            return new Dictionary<string, object?>
+            {
+                ["PageUri"] = Navigation.Uri,
+                ["ServerName"] = parts.Length > 1 && parts[0] is "servers" or "clusters" && parts[1] != "new"
+                    ? Uri.UnescapeDataString(parts[1]) : null
+            };
+        }
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        Navigation.LocationChanged += LocationChanged;
+        try { _extensions = await BrowserExtensions.LoadAsync(Sdk, Navigation, [Target], _stop.Token); }
+        catch (Exception error) when (!_stop.IsCancellationRequested) { _error = error.Message; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+    private void LocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= LocationChanged;
+        _stop.Cancel();
+        _stop.Dispose();
+    }
+}

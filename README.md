@@ -10,7 +10,7 @@ available case by case. The earlier MIT version remains at
 [`archive/mit`](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 
 Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)
-dedicated servers, with an optional Blazor Server UI. It supervises multiple DS
+dedicated servers, with an optional Blazor WebAssembly dashboard. It supervises multiple DS
 processes on a single host — starting, stopping, health-checking, configuring, and
 auto-updating them through goal-state reconciliation — while an in-process plugin
 (`Quasar.Agent`) attaches to each server to report telemetry and execute commands.
@@ -25,6 +25,8 @@ Quasar downloads Magnetar and the Dedicated Server builds automatically and cach
 
 You can register new plugins by making PRs to the [MagnetarHub](https://github.com/CometWorks/magnetar-hub).
 Plugins that are not in MagnetarHub can come from your own [plugin hubs](Docs/Configuration.md#plugin-hubs).
+Starting in the 1.7.0 release line, plugins that add Razor pages or panels must supply a browser assembly. An older worker-only UI needs a plugin update before its pages appear.
+
 Quasar UI plugins are discovered and managed through [QuasarHub](https://github.com/CometWorks/quasar-hub).
 
 <!-- BEGIN packaged install instructions -->
@@ -61,7 +63,7 @@ to choose self-hosted access or Nebula hosting. Completed setup is remembered.
 | [World import](Docs/WorldImport.md) | Direct folder/ZIP import to existing servers, Worlds page, configuration choices and safety limits. |
 | [Architecture](Docs/QuasarArchitecture.md) | Supervisor design, runtime ownership, process supervision, configuration model, and self-update. |
 | [Hosted panel](Docs/HostedPanel.md) | Optional Nebula enrollment, public path URLs, connector lifecycle and current launch gates. |
-| [Player authentication](Docs/PlayerAuthentication.md) | Access page, shared Discord authentication, role-based whitelist, promotions, priority access and public website requirements. |
+| [Player authentication](Docs/PlayerAuthentication.md) | Access page, shared Discord authentication, role-based whitelist, promotions and priority access. |
 | [Configuration](Docs/Configuration.md) | API/UI host and port, headless mode, browser behavior, and optional instance health notifications. |
 | [Server directory uplink](Docs/ServerList.md) | Consent, diagnostics availability, public statistics, admin authority and directory rollout requirements. |
 | [Analytics CPU Usage](Docs/AnalyticsCpuLoad.md) | Why CPU usage can exceed 100% and how it differs from Shift+F11 simulation CPU load. |

@@ -274,20 +274,15 @@ public sealed class WorldBackupTests : IDisposable
         SetProcessState(state);
         await using var context = new QuasarBunitContext();
         context.Services.AddMudServices();
+        context.AddAuthorization().SetAuthorized("admin");
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddSingleton(servers).AddSingleton(supervisor).AddSingleton(queue)
+            .AddSingleton(backups).AddSingleton(settings).AddSingleton(options).AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         var provider = context.Render<MudDialogProvider>();
-        // Exercise the real page handler without rendering unrelated backup schedule controls.
-        var page = new Backup();
-        var operations = new ServiceCollection().AddSingleton(servers).AddSingleton(supervisor).AddSingleton(queue)
-            .AddDirectCoreOperations().BuildServiceProvider();
-        foreach (var service in new object[] { supervisor, queue, context.Services.GetRequiredService<IDialogService>(), context.Services.GetRequiredService<ISnackbar>(), operations })
-        {
-            var property = typeof(Backup).GetProperties(BindingFlags.NonPublic | BindingFlags.Instance)
-                .Single(p => p.PropertyType.IsInstanceOfType(service));
-            property.SetValue(page, service);
-        }
-        var action = provider.InvokeAsync(() => (Task)typeof(Backup).GetMethod("MakeWorldBackupNowAsync", BindingFlags.NonPublic | BindingFlags.Instance)!
-            .Invoke(page, ["test"])!);
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<Quasar.Client.Administration.Backups>();
+        var action = page.Find("button[aria-label='Back up world']").ClickAsync();
         if (state == DedicatedServerProcessState.Running)
         {
             await provider.WaitForAssertionAsync(() => Assert.Contains("Back up world now?", provider.Markup));

@@ -1,0 +1,189 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@using Quasar.Services
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+@inject ViewerTimeZone ViewerTime
+@inject IJSRuntime JS
+
+<div class="quasar-layout quasar-gap-3">
+    <p class="quasar-text quasar-type-body1">Add another Linux x64 machine to run your cluster. It connects securely to Quasar and keeps your cluster running during Quasar restarts.</p>
+    <MudSelect T="string" Label="Registration" Value="@_existing" ValueChanged="SelectExistingAsync" Disabled="_busy">
+        <MudSelectItem Value="@(string.Empty)">New host machine</MudSelectItem>
+        @foreach (var host in _hosts) { <MudSelectItem Value="@host.Id">@host.Name — resume or update Host executor</MudSelectItem> }
+    </MudSelect>
+    <MudTextField T="string" Label="Host machine ID" @bind-Value="_id" Disabled="@(_host is not null)" HelperText="A unique lowercase ID, such as game-host-1. Letters, numbers and hyphens only." />
+    <MudTextField T="string" Label="Host machine name" @bind-Value="_name" OnBlur="@(_ => EnsureName())" Disabled="@(_host is not null)" HelperText="The name shown in placement and monitoring. A blank name receives an editable generated suggestion." />
+    <MudTextField T="string" Label="Cluster network IP address" @bind-Value="_address" Disabled="@(_host is not null)" HelperText="The private LAN or VPN address reachable by the other host machines in the cluster and Quasar. Use 127.0.0.1 only for a cluster entirely on this PC." />
+    <MudTextField T="string" Label="Quasar address reachable by this host machine" @bind-Value="_origin" HelperText="Your Quasar HTTPS URL, for example https://quasar.example.com. Remote machines cannot use localhost." />
+    <MudSelect T="string" Label="Installation method" Value="@_method" ValueChanged="SetMethod" Disabled="_busy">
+        <MudSelectItem Value="@("command")">Run an enrollment command on the host machine</MudSelectItem>
+        <MudSelectItem Value="@("ssh")">Install over SSH</MudSelectItem>
+        <MudSelectItem Value="@("manual")">Download package for manual installation</MudSelectItem>
+    </MudSelect>
+    @if (_method == "ssh")
+    {
+        <MudTextField T="string" Label="SSH address" @bind-Value="_sshAddress" HelperText="DNS name or IP used to log in to the remote host machine." />
+        <MudTextField T="string" Label="SSH username" @bind-Value="_sshUser" HelperText="The account that will own the cluster processes and data." />
+        <MudNumericField T="int" Label="SSH port" @bind-Value="_sshPort" Min="1" Max="65535" />
+        <MudTextField T="string" Label="SSH private key file (optional)" @bind-Value="_sshKey" HelperText="An existing key path on the Quasar host machine. Leave empty to use its SSH agent/default keys. The remote host key must already be trusted in known_hosts; Quasar never disables host-key checking." />
+    }
+    <p class="quasar-text quasar-type-body2">Automatic installation uses your account and generates credentials. Missing Python 3 and util-linux are installed when root or passwordless sudo is available. Automatic service installation needs a working systemd user session; choose manual installation to use another service manager. Remote host machines need .NET 10. Enrolled Host executors check for binary updates every 15 minutes and preserve configuration, credentials and cluster processes. Installation enables user lingering when the account or passwordless sudo allows it, so the Host keeps running after logout. At logout or machine shutdown the Host shuts its clusters down with a save.</p>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="InstallAsync" Disabled="_busy">@(_method == "command" ? "Generate enrollment command" : _method == "manual" ? "Prepare manual enrollment" : "Install Host executor")</MudButton>
+    @if (_host is not null && _method == "manual")
+    {
+        <p class="quasar-text quasar-type-body2">Download and extract this package on the host machine, then follow its README to start Quasar.Host with your preferred service manager. The package contains this host machine's credentials; keep it private.</p>
+        <MudButton OnClick="DownloadAsync" Disabled="_busy" Variant="Variant.Outlined">Download manual host package</MudButton>
+    }
+    @if (_busy)
+    {
+        <MudProgressLinear Indeterminate="true" aria-label="Preparing Host executor" />
+    }
+    @if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+    @if (_ticket is not null)
+    {
+        <p class="quasar-text quasar-type-body1">Run this command as the account that will own the cluster processes. It expires at @ViewerTime.Format(_ticket.ExpiresAt) and can be downloaded once. Treat it as a password.</p>
+        <MudTextField T="string" Label="Enrollment command" Value="_ticket.Command" ReadOnly="true" Lines="5" />
+    }
+    @if (_host is not null)
+    {
+        <MudButton OnClick="RefreshAsync" Disabled="_busy">Check connection</MudButton>
+        <RemoveHostEnrollment @key="_host.Id" Host="_host" Disabled="_busy" OnRemoved="OnRemovedAsync" />
+        @if (_connected) { <MudAlert Severity="Severity.Success">Host executor connected. It is ready for cluster placement.</MudAlert> }
+        else { <p class="quasar-text quasar-type-body1">Waiting for this Host executor to connect. Check its service log if installation has finished.</p> }
+        @foreach (var warning in _warnings) { <MudAlert Severity="Severity.Warning">@warning</MudAlert> }
+    }
+</div>
+
+
+@code {
+    private readonly CancellationTokenSource _stop = new();
+    private HostRegistration[] _hosts = [];
+    private string _existing = "", _id = "", _name = "", _address = "127.0.0.1", _origin = "", _method = "command";
+    private string _sshAddress = "", _sshUser = "", _sshKey = "";
+    private int _sshPort = 22;
+    private long _revision;
+    private bool _busy, _connected;
+    private string? _error;
+    private string[] _warnings = [];
+    private HostRegistration? _host;
+    private EnrollmentTicket? _ticket;
+    protected override async Task OnInitializedAsync()
+    {
+        EnsureName();
+        _origin = Navigation.BaseUri;
+        if (!ViewerTime.Resolved) await ViewerTime.InitializeAsync(JS);
+        await RefreshAsync();
+        if (!_stop.IsCancellationRequested) _ = PollAsync(_stop.Token);
+    }
+
+    private void EnsureName()
+    {
+        if (_host is not null) return;
+        if (string.IsNullOrWhiteSpace(_name)) _name = $"host-machine-{Guid.NewGuid().ToString("N")[..12]}";
+        if (string.IsNullOrWhiteSpace(_id)) _id = _name;
+    }
+
+    private void SetMethod(string method) { _method = method; _ticket = null; _error = null; }
+
+    private async Task PollAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                if (_busy) continue;
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        var revision = ++_revision;
+        try
+        {
+            var state = await Sdk.RequestAsync<EnrollmentSnapshot>("hosts.enrollments", new { id = _existing }, _stop.Token);
+            if (revision != _revision || _stop.IsCancellationRequested) return;
+            _hosts = state.Hosts;
+            _connected = state.Connected;
+            _warnings = state.Warnings;
+            if (_host is not null && !_hosts.Any(h => h.Id == _existing)) Select(null);
+        }
+        catch (JSException error)
+        {
+            if (revision != _revision) return;
+            _hosts = [];
+            Select(null);
+            _error = error.Message;
+        }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    private void Select(HostRegistration? host)
+    {
+        _revision++;
+        _host = host;
+        _existing = host?.Id ?? "";
+        _ticket = null;
+        _error = null;
+        _warnings = [];
+        _connected = false;
+        _id = host?.Id ?? "";
+        _name = host?.Name ?? "";
+        _address = host?.Address ?? "127.0.0.1";
+        EnsureName();
+    }
+
+    private async Task SelectExistingAsync(string id)
+    {
+        Select(_hosts.FirstOrDefault(h => h.Id == id));
+        await RefreshAsync();
+    }
+
+    private async Task OnRemovedAsync() { Select(null); await RefreshAsync(); }
+
+    private async Task InstallAsync()
+    {
+        if (_busy) return;
+        EnsureName();
+        _busy = true;
+        _ticket = null;
+        _error = null;
+        ++_revision;
+        try
+        {
+            if (_host is null)
+            {
+                var host = await Sdk.RequestAsync<HostRegistration>("hosts.register", new { id = _id, name = _name, address = _address, origin = _origin }, _stop.Token);
+                Select(host);
+                _hosts = [.. _hosts.Where(h => h.Id != host.Id), host];
+            }
+            var input = new HostInstallInput(_host!.Id, _origin, _sshAddress, _sshUser, _sshPort, _sshKey);
+            if (_method == "command") _ticket = await Sdk.RequestAsync<EnrollmentTicket>("hosts.ticket", input, _stop.Token);
+            if (_method == "ssh") await Sdk.RequestAsync<bool>("hosts.install", input, _stop.Token);
+            await RefreshAsync();
+        }
+        catch (JSException error) { _error = error.Message; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    private async Task DownloadAsync()
+    {
+        if (_busy || _host is null) return;
+        _busy = true;
+        _error = null;
+        try { await Sdk.DownloadAsync("hosts.package", new HostInstallInput(_host.Id, _origin), _stop.Token); }
+        catch (JSException error) { _error = error.Message; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        finally { _busy = false; }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

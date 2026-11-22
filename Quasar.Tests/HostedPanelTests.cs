@@ -7,6 +7,7 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Net.Http.Json;
 using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
@@ -21,6 +22,7 @@ using Quasar.Hosting;
 using Quasar.Networking;
 using Quasar.Services;
 using Quasar.Services.Auth;
+using Quasar.Services.Plugins;
 using Xunit;
 using QuasarControlAddress = Core::Quasar.Networking.QuasarControlAddress;
 using Connector = Bootstrap::Quasar.Bootstrap.HostedPanelConnector;
@@ -128,6 +130,16 @@ public sealed partial class HostedPanelTests : IDisposable
     public void PluginAndApplicationLinksUseTheirPanelBase(string input, string expected) =>
         Assert.Equal(expected, new Navigation().PanelUrl(input));
 
+    [Theory]
+    [InlineData("https://steamcommunity.com/openid/id/76561198000000001", "76561198000000001")]
+    [InlineData("http://steamcommunity.com/openid/id/76561198000000001", "76561198000000001")]
+    [InlineData("76561198000000001", null)]
+    [InlineData("https://example.test/openid/id/76561198000000001", null)]
+    [InlineData("https://steamcommunity.com/openid/id/76561198000000001/", null)]
+    [InlineData(null, null)]
+    public void SteamIdentityComesFromTheProviderClaimedIdentifier(string? identifier, string? expected) =>
+        Assert.Equal(expected, SteamAuthConstants.GetClaimedSteamId(identifier));
+
     [Fact]
     public async Task RealMiddlewareRoutesWithPathBaseChallengesSteamAndPreservesAuthenticatedApis()
     {
@@ -135,8 +147,13 @@ public sealed partial class HostedPanelTests : IDisposable
         await HostedPanelState.SaveAsync(state);
         var builder = WebApplication.CreateBuilder();
         builder.WebHost.UseTestServer();
+        builder.Services.AddSingleton(new QuasarAuthOptions());
+        builder.Services.AddSingleton<RbacConfigCatalog>();
+        builder.Services.AddSingleton<QuasarRoleMapper>();
+        builder.Services.AddSingleton<QuasarBrowserSessions>();
         builder.Services.AddAuthentication(QuasarAuthSchemes.Cookie).AddCookie(QuasarAuthSchemes.Cookie, options =>
         {
+            Quasar.Program.ConfigureDashboardLogin(options);
             options.Cookie.Name = "Quasar.Auth";
             options.CookieManager = new HostedPanelCookieManager();
             options.LoginPath = "/login";
@@ -157,6 +174,12 @@ public sealed partial class HostedPanelTests : IDisposable
         Quasar.Program.MapAuthenticationEndpoints(app, new());
         app.MapGet("/fixture-signin", async context =>
             await context.SignInAsync(QuasarAuthSchemes.Cookie, new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "verified-steam-fixture")], "Steam"))));
+        var bindings = new List<QuasarBrowserSession>();
+        app.MapGet("/fixture-bind", async (HttpContext http, QuasarBrowserSessions sessions) =>
+        {
+            bindings.Add(await sessions.BindHttpSessionAsync(http));
+            return Results.NoContent();
+        }).RequireAuthorization();
         await app.StartAsync();
         using var client = app.GetTestClient();
         client.BaseAddress = new Uri("https://dash.se-servers.net");
@@ -171,6 +194,16 @@ public sealed partial class HostedPanelTests : IDisposable
         client.DefaultRequestHeaders.Add("Cookie", signin.Headers.GetValues("Set-Cookie").First(x => x.StartsWith("Quasar.Auth.")).Split(';')[0]);
         var data = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/my-server-panel/api/plugin/download");
         Assert.Equal("/my-server-panel", data.GetProperty("pathBase").GetString());
+        using var otherLogin = app.GetTestClient();
+        otherLogin.BaseAddress = client.BaseAddress;
+        otherLogin.DefaultRequestHeaders.Add(HostedPanelRequest.Header, state.LocalProxySecret);
+        using var independent = await otherLogin.GetAsync("/my-server-panel/fixture-signin");
+        otherLogin.DefaultRequestHeaders.Add("Cookie", independent.Headers.GetValues("Set-Cookie").First(x => x.StartsWith("Quasar.Auth.")).Split(';')[0]);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.GetAsync("/my-server-panel/fixture-bind")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await client.GetAsync("/my-server-panel/fixture-bind")).StatusCode);
+        Assert.Equal(HttpStatusCode.NoContent, (await otherLogin.GetAsync("/my-server-panel/fixture-bind")).StatusCode);
+        Assert.Same(bindings[0], bindings[1]);
+        Assert.NotSame(bindings[0], bindings[2]);
         using var logoutGet = await client.GetAsync("/my-server-panel/logout");
         Assert.Equal(HttpStatusCode.MethodNotAllowed, logoutGet.StatusCode);
         using var missingToken = await client.PostAsync("/my-server-panel/logout", new FormUrlEncodedContent([]));
@@ -189,7 +222,63 @@ public sealed partial class HostedPanelTests : IDisposable
             new(token.Groups["name"].Value, WebUtility.HtmlDecode(token.Groups["token"].Value))]));
         Assert.Equal(HttpStatusCode.Redirect, logout.StatusCode);
         Assert.Equal("/my-server-panel/", new Uri(client.BaseAddress, logout.Headers.Location!).AbsolutePath);
+        Assert.True(bindings[0].Revoked.IsCancellationRequested);
+        Assert.False(bindings[2].Revoked.IsCancellationRequested);
+        // TestServer's client deliberately retains the original HTTP cookie on this request.
+        Assert.Equal(HttpStatusCode.Redirect, (await client.GetAsync("/my-server-panel/api/plugin/download")).StatusCode);
+        Assert.Equal(HttpStatusCode.OK, (await otherLogin.GetAsync("/my-server-panel/api/plugin/download")).StatusCode);
 
+
+    }
+
+    [Fact]
+    public async Task LoginAndLogoutSurviveWorkerReplacementAndStayWithinThePanel()
+    {
+        async Task<WebApplication> StartWorkerAsync()
+        {
+            var builder = WebApplication.CreateBuilder();
+            builder.WebHost.UseTestServer();
+            builder.Services.AddSingleton(new QuasarAuthOptions());
+            builder.Services.AddSingleton<RbacConfigCatalog>();
+            builder.Services.AddSingleton<QuasarRoleMapper>();
+            builder.Services.AddSingleton<QuasarBrowserSessions>();
+            builder.Services.AddDataProtection().SetApplicationName("QuasarLoginTest")
+                .PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(root, "keys")));
+            builder.Services.AddAuthentication(QuasarAuthSchemes.Cookie)
+                .AddCookie(QuasarAuthSchemes.Cookie, Quasar.Program.ConfigureDashboardLogin);
+            builder.Services.AddAuthorization();
+            var app = builder.Build();
+            app.UsePathBase("/panel");
+            app.UseRouting();
+            app.UseAuthentication();
+            app.UseAuthorization();
+            app.MapPost("/fixture/login", (HttpContext http, QuasarRoleMapper roles) =>
+                http.SignInAsync(QuasarAuthSchemes.Cookie, roles.CreateSteamPrincipal("76561198000000001")));
+            app.MapPost("/fixture/logout", (HttpContext http) => http.SignOutAsync(QuasarAuthSchemes.Cookie)).RequireAuthorization();
+            app.MapGet("/account", () => Results.Ok()).RequireAuthorization();
+            await app.StartAsync();
+            return app;
+        }
+
+        string cookie;
+        await using (var first = await StartWorkerAsync())
+        {
+            using var browser = first.GetTestClient();
+            using var login = await browser.PostAsync("/panel/fixture/login", null);
+            cookie = Assert.Single(login.Headers.GetValues("Set-Cookie")).Split(';')[0];
+        }
+        await using (var second = await StartWorkerAsync())
+        {
+            using var browser = second.GetTestClient();
+            browser.DefaultRequestHeaders.Add("Cookie", cookie);
+            Assert.Equal(HttpStatusCode.OK, (await browser.GetAsync("/panel/account")).StatusCode);
+            Assert.Equal(HttpStatusCode.Redirect, (await browser.GetAsync("/account")).StatusCode);
+            (await browser.PostAsync("/panel/fixture/logout", null)).EnsureSuccessStatusCode();
+        }
+        await using var third = await StartWorkerAsync();
+        using var signedOut = third.GetTestClient();
+        signedOut.DefaultRequestHeaders.Add("Cookie", cookie);
+        Assert.Equal(HttpStatusCode.Redirect, (await signedOut.GetAsync("/panel/account")).StatusCode);
     }
 
     [Fact]

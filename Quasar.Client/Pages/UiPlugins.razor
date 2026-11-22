@@ -1,0 +1,5 @@
+@page "/settings/ui-plugins"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+
+<PageTitle>UI Plugins</PageTitle>
+<Quasar.Client.UiPlugins.UiPluginsView />

@@ -1,0 +1,75 @@
+@inherits LayoutComponentBase
+@inject QuasarUiPluginCatalog Plugins
+@inject BrandingService Branding
+@inject NavigationManager Navigation
+
+<BrandingHeadContent />
+<a class="quasar-skip-link" href="#quasar-main">Skip to content</a>
+<div id="quasar-wasm-shell" class="quasar-shell" data-theme="dark" data-enhance-nav="false"
+     style="@DarkPalette" data-dark-palette="@DarkPalette" data-light-palette="@LightPalette">
+    <aside class="quasar-sidebar" id="quasar-navigation" aria-label="Main navigation">
+        <a class="quasar-brand" href="./">
+            <img class="quasar-brand-mark" alt="" src="@DarkLogo" data-dark-logo="@DarkLogo" data-light-logo="@LightLogo" />
+            <div><strong>@Branding.Settings.AppName</strong><span>@Branding.Settings.AppSubtitle</span></div>
+        </a>
+        <NavMenu />
+        <div class="quasar-sidebar-footer">
+            <strong>@Branding.Settings.AppName <span class="mono">@WorkerVersion</span></strong>
+            <span>Space Engineers control plane</span>
+            <a href="https://github.com/CometWorks/quasar" target="_blank" rel="noopener noreferrer">Source (AGPL-3.0)</a>
+        </div>
+    </aside>
+    <div class="quasar-shell-body">
+        <header class="quasar-topbar">
+            <button id="quasar-wasm-menu" type="button" class="quasar-icon-button" aria-controls="quasar-navigation" aria-label="Toggle navigation">
+                <QuasarIcon Icon="@QuasarIcons.Menu" />
+            </button>
+            <div class="quasar-topbar-actions">
+                <span id="quasar-sdk-route" role="status"></span>
+                <Quasar.Client.Administration.DashboardNotificationBell @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+                <label class="quasar-theme-select">
+                    <select id="quasar-wasm-theme" aria-label="Color theme">
+                        <option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option>
+                    </select>
+                </label>
+                <AuthorizeView>
+                    <Authorized Context="auth">
+                        <span class="quasar-user-name">@auth.User.GetQuasarDisplayName()</span>
+                        <form method="post" action="logout" class="quasar-inline-form">
+                            <AntiforgeryToken />
+                            <button class="quasar-icon-button" type="submit" aria-label="Sign out"><QuasarIcon Icon="@QuasarIcons.Logout" /></button>
+                        </form>
+                    </Authorized>
+                    <NotAuthorized><a href="login">Sign in</a></NotAuthorized>
+                </AuthorizeView>
+                <AuthorizeView Policy="@QuasarPolicyNames.CanShutdownQuasar">
+                    <Quasar.Client.Layout.DashboardPower @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+                </AuthorizeView>
+            </div>
+        </header>
+        <main id="quasar-main" tabindex="-1" class="quasar-main">
+            <div id="quasar-wasm-loading" role="status" aria-live="polite">
+                <span class="quasar-wasm-spinner" aria-hidden="true"></span>
+                <span id="quasar-wasm-loading-label">Downloading dashboard…</span>
+                <progress aria-label="Dashboard download"></progress>
+                <button class="quasar-button" type="button" hidden>Reload dashboard</button>
+            </div>
+            @Body
+        </main>
+        @if (HasDrawer)
+        {
+            <Quasar.Client.Layout.DashboardDrawer @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+        }
+        <Quasar.Client.Administration.DashboardSetupPrompt @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+        <Quasar.Client.Components.DashboardProviders @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+    </div>
+</div>
+
+@code {
+    private bool HasDrawer => Plugins.Extensions.Any(extension => extension.TargetKey.Equals(QuasarExtensionTargets.LayoutDrawer, StringComparison.OrdinalIgnoreCase));
+    private string DarkPalette => QuasarTheme.BuildCss(Branding.Settings.DarkPalette, true);
+    private string LightPalette => QuasarTheme.BuildCss(Branding.Settings.LightPalette, false);
+    private string DarkLogo => Navigation.PanelUrl(Branding.Settings.LogoDarkPath ?? "Quasar.png");
+    private string LightLogo => Navigation.PanelUrl(Branding.Settings.LogoLightPath ?? "Quasar-inverted-transparent.png");
+    private static string? WorkerVersion => typeof(WasmPageLayout).Assembly.GetName().Version?.ToString(3);
+}

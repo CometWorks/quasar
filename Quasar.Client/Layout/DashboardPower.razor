@@ -1,0 +1,91 @@
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using MudBlazor
+@using Quasar.Components.Layout
+@inject DashboardSdk Sdk
+@inject IDialogService Dialogs
+@inject ISnackbar Snackbar
+@inject IJSRuntime JS
+@implements IDisposable
+
+<button type="button" class="quasar-icon-button quasar-text-error" aria-label="Quasar power actions"
+        title="Quasar power actions" disabled="@_busy" @onclick="OpenAsync">
+    <MudIcon Icon="@Icons.Material.Filled.PowerSettingsNew" />
+</button>
+@if (_message is not null)
+{
+    <div class="quasar-shutdown-overlay" role="status">
+        <section class="quasar-panel pa-4">
+            <h2>@_title</h2>
+            <p>@_message</p>
+            @if (!_busy) { <button type="button" class="quasar-button" @onclick="Dismiss">Close</button> }
+        </section>
+    </div>
+}
+
+@code {
+    private readonly CancellationTokenSource _lifetime = new();
+    private string? _message, _title;
+    private bool _busy;
+
+    private async Task OpenAsync()
+    {
+        if (_busy) return;
+        _busy = true;
+        var token = _lifetime.Token;
+        try
+        {
+            var state = await Sdk.RequestAsync<DashboardPowerState>("power.status", token: token);
+            if (state.Stop is { Complete: false } active) { await ObserveStopAsync(active, token); return; }
+            var dialog = await Dialogs.ShowAsync<QuasarControlDialog>("Quasar power", new DialogParameters
+            {
+                [nameof(QuasarControlDialog.IsRestartAvailable)] = state.CanRestart,
+                [nameof(QuasarControlDialog.RestartUnavailableReason)] = state.RestartDetail,
+                [nameof(QuasarControlDialog.PendingUpdateVersion)] = state.UpdateVersion,
+                [nameof(QuasarControlDialog.AgentOfflineShutdownSeconds)] = state.AgentGraceSeconds
+            }, new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Small });
+            var result = await dialog.Result;
+            if (result is not { Canceled: false, Data: QuasarControlAction action }) return;
+            switch (action)
+            {
+                case QuasarControlAction.RestartQuasar:
+                    await JS.InvokeVoidAsync("quasarConfigs.reloadWhenHealthy", "./", new { requireUnhealthy = true, showFeedback = true,
+                        title = "Restarting Quasar", message = "Waiting for Quasar to restart." });
+                    try { await Sdk.RequestAsync<bool>("power.restart", new { state.UpdateId }, token); }
+                    catch { await JS.InvokeVoidAsync("quasarConfigs.clearRestartFeedback"); throw; }
+                    break;
+                case QuasarControlAction.ShutdownQuasar:
+                    _title = "Shutting down Quasar";
+                    _message = "Start Quasar again to bring the dashboard back.";
+                    StateHasChanged();
+                    await Sdk.RequestAsync<bool>("power.shutdown", token: token);
+                    break;
+                case QuasarControlAction.ShutdownAllServers:
+                    await ObserveStopAsync(await Sdk.RequestAsync<DashboardServerStop>("power.stop-servers", token: token), token);
+                    break;
+            }
+        }
+        catch (Exception) when (token.IsCancellationRequested) { }
+        catch (Exception error) { _message = null; Snackbar.Add(error.Message, Severity.Error); }
+        finally { _busy = false; }
+    }
+
+    private async Task ObserveStopAsync(DashboardServerStop job, CancellationToken token)
+    {
+        _title = "Saving and stopping all servers";
+        while (!job.Complete)
+        {
+            _message = job.Message;
+            StateHasChanged();
+            await Task.Delay(TimeSpan.FromSeconds(2), token);
+            var state = await Sdk.RequestAsync<DashboardPowerState>("power.status", token: token);
+            if (state.Stop?.Id != job.Id) throw new InvalidOperationException("Shutdown status changed. Check the current fleet state.");
+            job = state.Stop;
+        }
+        _message = null;
+        Snackbar.Add(job.Message, job.Failed ? Severity.Error : Severity.Success);
+    }
+
+    private void Dismiss() => _message = null;
+    public void Dispose() { _lifetime.Cancel(); _lifetime.Dispose(); }
+}

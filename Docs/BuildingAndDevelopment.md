@@ -31,8 +31,11 @@ file-manager launch. These fixtures never open a real installer or install servi
 ## Projects
 
 - `Quasar`
-  Blazor Server supervisor host, DS process manager, config/runtime preparation,
+  ASP.NET Core supervisor host, DS process manager, config/runtime preparation,
   and WebSocket endpoint for agents.
+- `Quasar.WebAssembly` and `Quasar.Client`
+  Browser entry point, dashboard pages, and browser-compatible Razor plugin outlets.
+  Publishing the worker includes the matching browser runtime and static assets.
 - `Quasar.Agent`
   Dedicated Server plugin that attaches to Quasar and exposes telemetry,
   commands, and generic companion-plugin request dispatch.
@@ -543,18 +546,23 @@ assigning fresh chat timestamps to recipient delivery callbacks. Actual Windows
 server/Discord acceptance still requires a live check after updating and restarting
 the affected server.
 
-### ZIP import browser interop regression tests
+### ZIP import range checks
 
-Run `node --test Quasar.Tests/server-import-file.test.mjs` to check the ZIP file
-snapshot, exact range reads and invalid-range rejection. The harness models
-Blazor's automatic wrapping of typed `IJSObjectReference` and
-`IJSStreamReference` results: JavaScript returns the raw file API object and
-range `Blob`, so Blazor creates each reference once. Identity reference mocks
-hide double-wrapping failures such as "getLength is not a function".
+The server import dialog keeps the selected ZIP on the operator’s device. Quasar reads the archive
+directory, validates the configuration and checkpoints, and asks the browser for numbered byte ranges.
+The SDK pins those range uploads to the HTTPS or WebRTC connection selected at the start. A broken
+transfer requires another explicit import attempt. The worker discards abandoned staging.
 
-Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~BrowserZipFileStreamTests|FullyQualifiedName~ExistingServerZipImportTests|FullyQualifiedName~ExistingServerImportAnalyzerTests'`
-to check range-stream behavior, selective archive transfer, validation and
-staging cleanup. These checks do not start Quasar or a game server.
+Run `node --test Quasar.Tests/server-import-file.test.mjs` to check file selection, range bounds and
+central-directory hints. Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~BrowserZipFileStreamTests|FullyQualifiedName~DashboardZipRangesTests|FullyQualifiedName~ExistingServerZipImportTests|FullyQualifiedName~ExistingServerImportAnalyzerTests|FullyQualifiedName~FirstSetupTests'`
+to check worker validation, source selection, cancellation and import through the browser components.
+
+For packaged browser acceptance, set `QUASAR_DASHBOARD_PUBLISH` to a published worker directory
+and `QUASAR_FLEET_CHECKS=1`. Run `dotnet run -c Release --project tests/Quasar.Wasm.DashboardChecks`.
+The fixture opens the file picker in Chromium and Firefox, selects a server ZIP containing terrain,
+a backup and a server binary, and counts the bytes read from the selected file. Set
+`QUASAR_RTC_TEST_PEER` to the matching peer executable to check direct uploads at the hosted panel
+prefix. With the variable unset, the fixture exercises the HTTPS fallback.
 
 ### Table row identity regression tests
 
@@ -577,15 +585,10 @@ are simulated; no push subscription or running Quasar service is required.
 
 ### Worker restart and update regression tests
 
-Run `node --test Quasar.Tests/Browser/connection-boot.test.mjs Quasar.Tests/Browser/restart-reload.test.mjs Quasar.Tests/Browser/reconnect-modal.test.mjs` to check connection startup and update
-polling against status-only health responses, protected version checks, older
-release rollback, hosted panel paths and ordinary worker restarts. These tests
-also cover automatic recovery when a replacement worker becomes ready, transient
-disconnects, framework retry-countdown events, stalled health/version requests,
-gateway errors, expired sign-in and cancellation of stale probes. Startup checks
-cover slow hydration, failed module/session setup and client-side reload actions.
-The isolated real circuit fixture in [Blazor over the peer transport](QuasarWebRtcFramework.md)
-also verifies the production warnings and reload behavior in a browser. Run
+Run `node --test Quasar.Tests/Browser/connection-boot.test.mjs Quasar.Tests/Browser/restart-reload.test.mjs`
+for loading errors, update polling, worker changes and manual reload. Release CI
+runs `tests/Quasar.Wasm.DashboardChecks` in Chromium and Firefox against a
+published dashboard, including panel-prefixed routes. Run
 `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter FullyQualifiedName~PublicEndpointSecurityTests`
 to check status-only public probes and the version endpoint's read permission.
 These checks do not start the Quasar web service.
@@ -745,7 +748,7 @@ Steam/billing/tunnel acceptance remain platform deployment checks.
 ## Player authentication checks
 
 Player authentication is built into Quasar and Quasar.Agent. See
-[the operator guide](PlayerAuthentication.md) for Access, shared authentication, verified origins,
+[the operator guide](PlayerAuthentication.md) for Access, Discord-initiated linking,
 policy semantics and deployment gates. No standalone GameServerAuth plugin is
 needed. Keep its control messages outside the browser's generic command surface.
 
@@ -753,7 +756,7 @@ With a current Magnetar PluginSdk reference (including the existing clustering,
 view, broadcast and alias contracts), run:
 
 ```sh
-MagnetarBin=/path/to/current-sdk dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~PlayerAccessTests|FullyQualifiedName~PlayerOAuthTests|FullyQualifiedName~QuasarPlayerLinksTests|FullyQualifiedName~PlayerCommandTests|FullyQualifiedName~QuasarPlayerServicesTests|FullyQualifiedName~PlayerRequestSocketTests|FullyQualifiedName~HostGateway|FullyQualifiedName~ClusterHostClient'
+MagnetarBin=/path/to/current-sdk dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~PlayerAccessTests|FullyQualifiedName~PlayerAccessPageTests|FullyQualifiedName~QuasarPlayerLinksTests|FullyQualifiedName~PlayerCommandTests|FullyQualifiedName~QuasarPlayerServicesTests|FullyQualifiedName~PlayerRequestSocketTests|FullyQualifiedName~HostGateway|FullyQualifiedName~ClusterHostClient'
 ```
 
 These checks do not start Quasar or a game server. The admission IL check reads
@@ -764,8 +767,7 @@ lag those assemblies; verify runtime-facing assumptions against current code.
 Matching upstream checks are `ClusterRegistry --self-test player-access`,
 `ClusterRegistry --self-test player-moderation`, the Cluster CLI `--self-test`,
 and `dotnet run --project Test/PlayerModeration/PlayerModeration.csproj` in the
-Cluster source. Nebula has
-`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --public-domain-only`
-and `dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --player-discord-only`.
+Cluster source. For the shared auth service, run
+`dotnet run --project tests/Nebula.Checks/Nebula.Checks.csproj -- --player-discord-only`.
 Live OAuth callbacks and player joins remain operator acceptance work; source
 checks do not publish or deploy matching Nebula/Cluster builds.

@@ -1,0 +1,107 @@
+@implements IAsyncDisposable
+@inject DashboardSdk Sdk
+@inject ViewerTimeZone ViewerTime
+
+<MudDialog>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">Recent Cluster Registry events and node plugin logs. Full process logs remain on each host machine.</p>
+            @if (_error is not null) { <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">@_error</MudAlert> }
+            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <span class="quasar-text quasar-type-caption">@(_observed is { } at ? $"Updated {ViewerTime.Format(at)} · refreshes every 5 seconds" : "Waiting for observations")</span>
+                <MudButton StartIcon="@Icons.Material.Filled.Refresh" Disabled="_loading" OnClick="RefreshAsync">Refresh</MudButton>
+            </div>
+            <MudTabs TabPanelsClass="pt-3">
+                <MudTabPanel Text="Cluster Registry events" Icon="@Icons.Material.Filled.Terminal">
+                    @if (_gap) { <span class="quasar-text quasar-type-caption">Earlier events were truncated or the Cluster Registry event stream restarted.</span> }
+                    <div class="cluster-console-output" role="region" aria-label="Cluster Registry events" tabindex="0">
+                        @if (_events.Length == 0) { <p class="quasar-text quasar-type-body1">No Cluster Registry events available.</p> }
+                        @foreach (var entry in _events.OrderByDescending(e => e.Seq))
+                        {
+                            <div class="cluster-console-line cluster-console-event">
+                                <div>@string.Join(" · ", new[] { ViewerTime.Format(entry.At), entry.Type, entry.Actor, entry.Target }.Where(value => !string.IsNullOrWhiteSpace(value)))</div>
+                                @if (entry.Data is not null) { <div>@entry.Data</div> }
+                            </div>
+                        }
+                    </div>
+                </MudTabPanel>
+                <MudTabPanel Text="Node plugin logs" Icon="@Icons.Material.Filled.Description">
+                    <div class="cluster-console-output" role="region" aria-label="Node plugin logs" tabindex="0">
+                        @if (_logs.Length == 0) { <p class="quasar-text quasar-type-body1">No node plugin logs received.</p> }
+                        @foreach (var item in _logs)
+                        {
+                            <div class="cluster-console-line">
+                                <div>@ViewerTime.Format(item.TimestampUtc) · @item.Node · @item.Plugin · @item.Level · @item.Message</div>
+                                @if (!string.IsNullOrWhiteSpace(item.Exception)) { <div>@item.Exception</div> }
+                            </div>
+                        }
+                    </div>
+                </MudTabPanel>
+            </MudTabs>
+        </div>
+    </DialogContent>
+    <DialogActions><MudButton OnClick="Close">Close</MudButton></DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
+    private readonly CancellationTokenSource _shutdown = new();
+    private ClusterEvent[] _events = [];
+    private ClusterLog[] _logs = [];
+    private long _cursor;
+    private bool _gap, _loading;
+    private string? _error;
+    private DateTimeOffset? _observed;
+    private Task? _loop;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        _loop = PollAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        if (_loading) return;
+        _loading = true;
+        try
+        {
+            var page = await Sdk.ReadClusterAsync<ClusterConsoleSnapshot>("cluster.console", UniqueName, _shutdown.Token, _cursor);
+            if (page.GatewayError is { } unavailable)
+            {
+                _error = $"{unavailable} Retained entries may be stale.";
+                return;
+            }
+            if (page.NextCursor < _cursor) { _events = []; _gap = true; }
+            if (_cursor > 0 && page.EarliestRetained > _cursor + 1) _gap = true;
+            _events = _events.Concat(page.Events).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).TakeLast(500).ToArray();
+            _cursor = page.NextCursor; _logs = page.Logs; _observed = page.Observed;
+            _error = null;
+        }
+        catch (JSException error)
+        {
+            _events = []; _logs = []; _cursor = 0; _gap = false;
+            _observed = null; _error = error.Message;
+        }
+        finally { _loading = false; }
+    }
+
+    private async Task PollAsync()
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(_shutdown.Token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) { }
+    }
+    private void Close() => Dialog.Close();
+    public async ValueTask DisposeAsync()
+    {
+        await _shutdown.CancelAsync();
+        if (_loop is not null) await _loop;
+        _shutdown.Dispose();
+    }
+}

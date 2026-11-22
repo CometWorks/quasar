@@ -30,8 +30,10 @@ internal static class PublicAccessSecurity
     // Runs after ForwardedHeadersMiddleware so only a trusted proxy can establish HTTPS.
     internal static Task InvokeAsync(HttpContext context, RequestDelegate next, QuasarAuthOptions auth)
     {
-        if (!auth.RequireHttpsForPublicAccess || context.Request.IsHttps ||
-            MachineEndpointSecurity.IsMachinePath(context.Request.Path) ||
+        var request = context.Request;
+        if (request.IsHttps ||
+            MachineEndpointSecurity.IsMachinePath(request.Path) ||
+            (!auth.RequireHttpsForPublicAccess && !CarriesDashboardAuthentication(request)) ||
             TrustedNetworkEvaluator.IsTrustedAddress(
                 context.Connection.RemoteIpAddress,
                 auth.TrustedNetworkBypass))
@@ -43,6 +45,11 @@ internal static class PublicAccessSecurity
         context.Response.ContentType = "text/plain; charset=utf-8";
         return context.Response.WriteAsync(HttpsRequiredMessage);
     }
+
+    private static bool CarriesDashboardAuthentication(HttpRequest request) =>
+        request.Path.StartsWithSegments("/login") || request.Path.StartsWithSegments("/signin-steam") ||
+        request.Path.StartsWithSegments("/logout") || request.Path.StartsWithSegments("/_quasar/sdk") ||
+        request.Cookies.ContainsKey(QuasarAuthSchemes.CookieName);
 
     private static bool IsLoopbackUrl(string value)
     {
@@ -58,7 +65,7 @@ internal static class PublicAccessSecurity
         return IsLoopbackHost(uri.Host);
     }
 
-    private static bool IsLoopbackHost(string host)
+    internal static bool IsLoopbackHost(string host)
     {
         host = host.Trim().Trim('[', ']');
         if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))

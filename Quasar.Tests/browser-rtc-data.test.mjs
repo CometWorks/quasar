@@ -15,6 +15,12 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
         page.on("pageerror", error => errors.push(error.message));
         page.on("request", request => { if (/\/(operations|resources)\//.test(request.url())) payloadHttp.push(request.url()); });
         await page.goto(process.env.QUASAR_RTC_TEST_URL);
+        let releaseSetup;
+        const setupGate = new Promise(resolve => { releaseSetup = resolve; });
+        await page.route("**/rtc/attempts", async route => { await setupGate; await route.continue(); });
+        await page.exposeFunction("allowDirectSetup", releaseSetup);
+        const relayRequests = [];
+        page.on("request", request => { if (request.url().endsWith("/rtc/relay")) relayRequests.push(request.url()); });
         const result = await page.evaluate(async () => {
             await fetch(new URL("fixture/login", location.href), { method: "POST" });
             const { createClient } = await import(new URL("_quasar/sdk/v1/client.js", location.href));
@@ -22,7 +28,16 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
             const request = (op, payload = {}) => client.request("rtc.fixture", op, payload);
             const read = options => client.openRead("rtc.fixture", "file", {}, options);
             const until = async check => { for (let i = 0; i < 100; i++) { if (await check()) return; await new Promise(resolve => setTimeout(resolve, 50)); } throw new Error("Cleanup deadline"); };
+            // Hold the signaling POST until an HTTP operation and resource reservation finish.
+            if (!(await request("echo", { tunnel: true })).tunnel || client.transport.path !== "http")
+                throw new Error("Tunnel operation waited for ICE");
+            const pendingUpload = await client.openWrite("rtc.fixture", "upload");
             const setupStarted = performance.now();
+            await globalThis.allowDirectSetup();
+            await until(() => client.transport.path === "direct");
+            const earlyUpload = await pendingUpload.write(new Uint8Array([1, 2, 3]));
+            if (earlyUpload.length !== 3) throw new Error("Reserved HTTP upload changed transport");
+            await pendingUpload.dispose();
             const large = await request("large");
             const setupMilliseconds = performance.now() - setupStarted;
             if (setupMilliseconds > 4000) throw new Error(`Peer startup waited for STUN gathering: ${setupMilliseconds} ms`);
@@ -97,18 +112,39 @@ for (const name of ["chromium", "firefox"]) test(`RTC3 real SDK data and native 
         const expected = createHash("sha256"); for (let i = 0; i < 512; i++) expected.update(pattern);
         assert.equal(createHash("sha256").update(bytes).digest("hex"), expected.digest("hex"));
         await page.evaluate(() => globalThis.sdk.dispose());
-        assert.deepEqual(payloadHttp, [], "Feature payload must not use HTTP compatibility routes");
+        const paths = payloadHttp.map(url => new URL(url).pathname);
+        assert.equal(paths.length, 4, "Only the initial echo and the reserved upload may use HTTP");
+        assert.ok(paths[0].endsWith("/operations/rtc.fixture/echo"));
+        assert.ok(paths[1].endsWith("/resources/rtc.fixture/upload"));
+        assert.match(paths[2], /\/resources\/[0-9a-f]{32}$/);
+        assert.equal(paths[3], paths[2], "HTTP upload cleanup uses the reserved HTTP route");
+        assert.deepEqual(relayRequests, [], "The hosted SDK must never request TURN");
         assert.deepEqual(errors, []);
+        let blockedAttempts = 0;
+        await page.route("**/rtc/attempts", async route => {
+            blockedAttempts++;
+            await route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+        });
+        const setupRefused = page.waitForResponse(response => response.url().endsWith("/rtc/attempts") && response.status() === 503);
         await page.evaluate(async () => {
             await fetch(new URL("fixture/login?user=bob", location.href), { method: "POST" });
             const { createClient } = await import(new URL("_quasar/sdk/v1/client.js", location.href));
-            const viewer = createClient({ baseUrl: location.href });
+            globalThis.restrictedSdk = createClient({ baseUrl: location.href });
+            await globalThis.restrictedSdk.request("rtc.fixture", "echo");
+        });
+        await setupRefused;
+        await page.evaluate(async () => {
+            const viewer = globalThis.restrictedSdk;
             try {
+                const reply = await viewer.request("rtc.fixture", "echo", { available: true });
+                if (!reply.available || viewer.transport.path !== "http") throw new Error("Tunnel lost after ICE setup refusal");
                 let refused = false;
                 try { await viewer.openWrite("rtc.fixture", "upload"); } catch (error) { refused = error.status === 403; }
                 if (!refused) throw new Error("Viewer gained upload permission");
             } finally { viewer.dispose(); }
         });
+        assert.equal(blockedAttempts, 1);
+        assert.deepEqual(relayRequests, []);
         console.log(JSON.stringify({ browser: name, ...result, downloadBytes: bytes.length, httpPayloadRequests: payloadHttp.length }));
     } finally { await browser.close(); }
 });

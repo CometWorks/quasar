@@ -69,6 +69,8 @@ public sealed partial class QuasarRtcTests : IDisposable
         client.DefaultRequestHeaders.Add(proof.GetProperty("headerName").GetString()!, proof.GetProperty("requestToken").GetString());
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(endpoint, new { version = 2, nonce = new string('A', 64), description = new { type = "offer", sdp = "invalid" } })).StatusCode);
         Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(endpoint, new { version = 1, nonce = new string('A', 64), description = new { type = "offer", sdp = "invalid" } })).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await client.PostAsJsonAsync(Prefix + QuasarSdkEndpoints.Prefix + "/rtc/relay", new { })).StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, (await client.PostAsJsonAsync(endpoint, new { version = 1, nonce = new string('A', 64), relayTicket = new string('a', 32), description = new { type = "offer", sdp = "" } })).StatusCode);
         Assert.Equal(0, app.Services.GetRequiredService<QuasarRtcSessions>().PeerCount);
         var invalid = new QuasarRtcDescription("offer", "m=application 9 UDP/DTLS/SCTP webrtc-datachannel\r\na=fingerprint:sha-256 " + string.Join(':', Enumerable.Repeat("AA", 32))
             + "\r\na=fingerprint:sha-256 " + string.Join(':', Enumerable.Repeat("BB", 32)));
@@ -76,21 +78,20 @@ public sealed partial class QuasarRtcTests : IDisposable
     }
 
     [Fact]
-    public async Task IceConfigurationOmitsAbsentStunCredentialsAndRetainsTurnCredentials()
+    public async Task IceConfigurationOnlyAcceptsCredentialFreeStun()
     {
         // Exercise the worker's actual HTTP JSON writer: Pion rejects a present
         // null username before SDP negotiation, even for a STUN-only server.
         using var content = JsonContent.Create(new { iceServers = new[] {
             new QuasarRtcIce(["stun:rtc.example:3478"]),
-            new QuasarRtcIce(["turn:rtc.example:3478?transport=tcp"], new string('a', 32), new string('b', 64)),
         } });
         using var document = JsonDocument.Parse(await content.ReadAsStringAsync());
         var servers = document.RootElement.GetProperty("iceServers");
         Assert.Equal("stun:rtc.example:3478", servers[0].GetProperty("urls")[0].GetString());
         Assert.False(servers[0].TryGetProperty("username", out _));
         Assert.False(servers[0].TryGetProperty("credential", out _));
-        Assert.Equal(new string('a', 32), servers[1].GetProperty("username").GetString());
-        Assert.Equal(new string('b', 64), servers[1].GetProperty("credential").GetString());
+        Assert.Throws<Quasar.Plugin.Abstractions.Operations.QuasarOperationException>(
+            () => new QuasarRtcOptions { StunUrls = ["turn:rtc.example:3478"] }.ValidatedStunUrls());
     }
 
     [Fact]
@@ -170,6 +171,7 @@ public sealed partial class QuasarRtcTests : IDisposable
         builder.Services.AddAntiforgery();
         builder.Services.AddAuthentication("test").AddCookie("test", options =>
         {
+            Program.ConfigureDashboardLogin(options);
             options.Events.OnRedirectToLogin = context => QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 401);
             options.Events.OnRedirectToAccessDenied = context => QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 403);
         });
@@ -208,8 +210,8 @@ public sealed partial class QuasarRtcTests : IDisposable
             await http.SignInAsync("test", roles.CreateSteamPrincipal(user), new AuthenticationProperties { ExpiresUtc = DateTimeOffset.UtcNow.AddMinutes(10) });
             return Results.NoContent();
         });
-        fixture.MapPost("/logout", async (HttpContext http, IAntiforgery csrf, QuasarBrowserSessions sessions) =>
-        { await csrf.ValidateRequestAsync(http); await sessions.RevokeAsync(http); await http.SignOutAsync("test"); return Results.NoContent(); });
+        fixture.MapPost("/logout", async (HttpContext http, IAntiforgery csrf) =>
+        { await csrf.ValidateRequestAsync(http); await http.SignOutAsync("test"); return Results.NoContent(); });
         fixture.MapGet("/count", (QuasarRtcSessions peers) => Results.Json(new { count = peers.PeerCount }));
         fixture.MapPost("/deny", async () => { await rbac.UpdateAsync(config => { config.PolicyOverrides[QuasarPolicyNames.CanView] = []; return Task.CompletedTask; }); return Results.NoContent(); });
         fixture.MapPost("/allow", async () => { await rbac.UpdateAsync(config => { config.PolicyOverrides.Remove(QuasarPolicyNames.CanView); return Task.CompletedTask; }); return Results.NoContent(); });

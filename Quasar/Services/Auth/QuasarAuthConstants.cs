@@ -5,6 +5,7 @@ namespace Quasar.Services.Auth;
 public static class QuasarAuthSchemes
 {
     public const string Cookie = "QuasarCookie";
+    internal const string CookieName = "Quasar.Auth";
     public const string TrustedNetwork = "QuasarTrustedNetwork";
     public const string ServicePrincipal = "QuasarServicePrincipal";
     public const string Steam = "Steam";
@@ -34,24 +35,6 @@ public static class QuasarRoles
     };
 }
 
-public static class QuasarPolicyNames
-{
-    public const string ClusterQuery = "ClusterQuery";
-    public const string ClusterManage = "ClusterManage";
-    public const string ClusterMaintenance = "ClusterMaintenance";
-    public const string CanView = "CanView";
-    public const string CanEditConfigs = "CanEditConfigs";
-    public const string CanEditServers = "CanEditServers";
-    public const string CanControlServers = "CanControlServers";
-    public const string CanManageDiscord = "CanManageDiscord";
-    public const string CanManageAppearance = "CanManageAppearance";
-    public const string CanManageSecurity = "CanManageSecurity";
-    public const string CanShutdownQuasar = "CanShutdownQuasar";
-    public const string CanUseAssistant = "CanUseAssistant";
-    /// <summary>Satisfied only by the player-agent principal; no role grants it.</summary>
-    public const string CanActAsPlayer = "CanActAsPlayer";
-}
-
 public static class QuasarScopes
 {
     public const string ClusterQuery = "cluster.query";
@@ -64,6 +47,19 @@ public static class SteamAuthConstants
     public const int SpaceEngineersAppId = 244850;
     public const string ClaimedIdPrefix = "https://steamcommunity.com/openid/id/";
     public const string ClaimedIdPrefixHttp = "http://steamcommunity.com/openid/id/";
+
+    internal static string? GetClaimedSteamId(string? identifier)
+    {
+        if (identifier is null) return null;
+        string id;
+        if (identifier.StartsWith(ClaimedIdPrefix, StringComparison.Ordinal))
+            id = identifier[ClaimedIdPrefix.Length..];
+        else if (identifier.StartsWith(ClaimedIdPrefixHttp, StringComparison.Ordinal))
+            id = identifier[ClaimedIdPrefixHttp.Length..];
+        else
+            return null;
+        return id.Length == 17 && id.All(char.IsAsciiDigit) ? id : null;
+    }
 }
 
 public static class ClaimsPrincipalExtensions

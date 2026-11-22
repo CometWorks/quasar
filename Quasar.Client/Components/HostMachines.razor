@@ -1,0 +1,138 @@
+@using MudBlazor
+@using Quasar.Client.Fleet
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject DashboardSdk Sdk
+
+@if (_snapshot?.CanManage == true) {
+    <MudButton Href="hosts/enroll" Variant="Variant.Filled" Color="Color.Primary" Class="mb-3">Add host machine</MudButton>
+}
+
+<h1 class="quasar-text quasar-type-h4">Host machines</h1>
+<p class="quasar-text quasar-type-body1 mb-3">View machine connections and the clusters they run. Add a host machine to expand your cluster.</p>
+@if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+@if (_snapshot is null)
+{
+    @if (_error is null) { <MudProgressLinear Indeterminate="true" aria-label="Loading host machines" /> }
+}
+else
+{
+@foreach (var warning in _snapshot.Warnings) { <MudAlert Severity="Severity.Warning" Class="mb-3">@warning</MudAlert> }
+
+<section class="quasar-panel server-card mb-4">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 pa-4 pb-2">
+        <div>
+            <h2 class="quasar-text quasar-type-h6">Host machines</h2>
+            <p class="quasar-text quasar-type-body2">Connection status and configured clusters across your host machines.</p>
+        </div>
+        <MudChip T="string" Variant="Variant.Outlined">@($"{_snapshot.Executors.Length} executor(s)")</MudChip>
+    </div>
+    <MudTable T="HostExecutor" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_snapshot.Executors">
+        <HeaderContent>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostExecutor, object>(x => x.HostName)">Host machine</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostExecutor, object>(x => x.ExecutorId)">Host executor</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostExecutor, object>(x => x.Reachable)">Reachability</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="@(new Func<HostExecutor, object>(x => string.Join(", ", x.Clusters)))">Clusters</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="@(new Func<HostExecutor, object>(x => string.Join(", ", x.Gateways)))">Cluster services</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<HostExecutor, object>(x => x.Configured)">Configured clusters</MudTableSortLabel></MudTh>
+            @if (_snapshot?.CanManage == true) {<MudTh>Actions</MudTh>}
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Host machine">@context.HostName</MudTd>
+            <MudTd DataLabel="Host executor" Class="mono">@context.ExecutorId</MudTd>
+            <MudTd DataLabel="Reachability">
+                <MudTooltip Text="@context.Error">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined"
+                             Color="@(context.Reachable ? Color.Success : Color.Error)">
+                        @(context.Reachable ? "reachable" : "unreachable")
+                    </MudChip>
+                </MudTooltip>
+            </MudTd>
+            <MudTd DataLabel="Clusters">@string.Join(", ", context.Clusters)</MudTd>
+            <MudTd DataLabel="Cluster services">@(context.Gateways.Length == 0 ? "-" : string.Join(", ", context.Gateways))</MudTd>
+            <MudTd DataLabel="Configured clusters">@($"{context.Configured}/{context.Attachments}")</MudTd>
+            @if (_snapshot.CanManage) {
+                <MudTd DataLabel="Actions">
+                    @foreach (var host in context.Registrations)
+                    {
+                        <RemoveHostEnrollment @key="host.Id" Host="host" OnRemoved="RefreshAsync" />
+                    }
+                </MudTd>
+            }
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                No Host executor command endpoints are configured.
+            </MudAlert>
+        </NoRecordsContent>
+    </MudTable>
+</section>
+
+<section class="quasar-panel server-card">
+    <h2 class="quasar-text quasar-type-h6 pa-4 pb-2">In-process agents</h2>
+    <MudTable T="InProcessHost" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" Items="_snapshot.Agents">
+        <HeaderContent>
+            <MudTh><MudTableSortLabel SortBy="new Func<InProcessHost, object>(x => x.HostName)">Host machine</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<InProcessHost, object>(x => x.ServerCount)">Servers</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<InProcessHost, object>(x => x.ConnectedAgents)">Connected agents</MudTableSortLabel></MudTh>
+            <MudTh><MudTableSortLabel SortBy="new Func<InProcessHost, object>(x => x.PlayersOnline)">Players</MudTableSortLabel></MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Host machine">@context.HostName</MudTd>
+            <MudTd DataLabel="Servers">@context.ServerCount</MudTd>
+            <MudTd DataLabel="Connected agents">@context.ConnectedAgents</MudTd>
+            <MudTd DataLabel="Players">@context.PlayersOnline</MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="ma-4">
+                No host machine data yet.
+            </MudAlert>
+        </NoRecordsContent>
+    </MudTable>
+</section>
+
+}
+
+@code {
+    private readonly CancellationTokenSource _stop = new();
+    private HostSnapshot? _snapshot;
+    private long _revision;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await RefreshAsync();
+        if (!_stop.IsCancellationRequested) _ = PollAsync(_stop.Token);
+    }
+
+    private async Task PollAsync(CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                await RefreshAsync();
+                await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task RefreshAsync()
+    {
+        var revision = ++_revision;
+        try
+        {
+            var snapshot = await Sdk.RequestAsync<HostSnapshot>("hosts.status", token: _stop.Token);
+            if (revision != _revision || _stop.IsCancellationRequested) return;
+            _snapshot = snapshot;
+            _error = null;
+        }
+        catch (JSException error) when (revision == _revision) { _snapshot = null; _error = error.Message; }
+        catch (JSException) { }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

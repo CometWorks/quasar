@@ -1,0 +1,297 @@
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+@inject IJSRuntime JS
+@implements IDisposable
+
+<MudDialog>
+    <DialogContent>
+        @if (_state is null)
+        {
+            @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+            else { <MudProgressCircular Indeterminate="true" /> }
+        }
+        else
+        {
+        <div class="access-setup">
+            <div class="access-setup-section">
+                <MudProgressLinear Value="@WizardProgress" Color="Color.Primary" aria-label="Setup steps" />
+                <span class="quasar-text quasar-type-caption">Step @CurrentStep of @TotalSteps · @StepTitle</span>
+            </div>
+            @if (NeedsAdministrator)
+            {
+                <header class="access-setup-header">
+                    <h2>Set the first Quasar administrator</h2>
+                    <p>Add your SteamID64 or Steam Community profile URL so you can sign in after enabling public access.</p>
+                </header>
+                <MudTextField T="string" @bind-Value="_adminSteamId" Label="Administrator SteamID64 or profile URL" HelperText="Your 17-digit Steam account ID or Steam Community profile URL. URLs resolve automatically when saved." Variant="Variant.Outlined" Immediate="true" Disabled="@_busy" Error="@(!string.IsNullOrWhiteSpace(_adminSteamId) && !SteamProfileInput.IsSupported(_adminSteamId))" ErrorText="Enter a 17-digit SteamID64 or a Steam Community profile URL." />
+                <p class="access-setup-note">This grants administrator access to this Quasar installation; Nebula hosting entitlement is separate. Use an existing trusted-network administrator session for initial setup. Signing in with Steam alone does not claim an unconfigured panel.</p>
+            }
+            else if (_connecting)
+            {
+                <header class="access-setup-header">
+                    <h2>@(_state!.Ready ? "Your hosted panel is ready" : "Connecting your hosted panel")</h2>
+                    <p class="access-setup-address">@_state.DashboardUrl</p>
+                </header>
+                <section class="access-setup-card" aria-label="Connection progress">
+                    <progress class="access-setup-progress" max="1" value="@(_state!.Ready ? "1" : null)" aria-label="Hosted panel connection"></progress>
+                    <p role="status" aria-live="polite">@ConnectionStatus</p>
+                    <ol class="access-setup-steps">
+                        <li data-complete="@Completed(_state.Enrolled)">Create enrollment</li>
+                        <li data-complete="@Completed(_state.Active)">Confirm Steam account and hosting activation</li>
+                        <li data-complete="@Completed(_state.TunnelRegistered)">Connect secure tunnel</li>
+                        <li data-complete="@Completed(_state!.Ready)">Verify Quasar dashboard</li>
+                    </ol>
+                </section>
+                @if (!_state!.Ready)
+                {
+                    @if (!_state.Active && _state.BrowserUrl is { } browserUrl)
+                    {
+                        <section class="access-setup-section">
+                            <p>Continue on Nebula to confirm this installation with Steam and activate hosting. This window updates automatically.</p>
+                            <div><MudButton Href="@browserUrl" Target="_blank" rel="noopener noreferrer" Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.OpenInNew">Continue enrollment with Steam</MudButton></div>
+                        </section>
+                    }
+                    <p class="access-setup-note">Keep Quasar Bootstrap running while the tunnel connects. Cancel stops hosted setup and its connection; it does not cancel an existing subscription.</p>
+                }
+                else
+                {
+                    <p>Open your dashboard and sign in with your configured Steam account. Your existing Quasar permissions apply.</p>
+                }
+            }
+            else if (_hosted)
+            {
+                <header class="access-setup-header">
+                    <h2>Host your Quasar panel with Nebula</h2>
+                    <p>Get a public dashboard address without configuring router ports, DNS or certificates. Local access and your game servers keep working independently.</p>
+                </header>
+                <p class="access-setup-note">Moving or recovering an existing panel? Enter its current public name and confirm replacement on Nebula as its billing owner. Your subscription and remaining paid access stay with it; the old registration is removed automatically.</p>
+                <MudTextField T="string" @bind-Value="_panelId" Label="Public panel name" HelperText="3–63 lowercase letters and digits, separated by single dashes." Variant="Variant.Outlined" Immediate="true" />
+                <section class="access-setup-card" aria-label="Public dashboard address">
+                    <h3>Your public dashboard</h3>
+                    <p class="access-setup-address">https://dash.se-servers.net/@(_panelId)/</p>
+                </section>
+                <section class="access-setup-section">
+                    <p>All configured Steam administrators can enroll and manage this panel in Nebula. One payer holds the subscription; another administrator can request a transfer with that payer’s approval and use their own payment details.</p>
+                    <h3>€2.99 / month or €29.99 / year</h3>
+                    <p>One panel and secure tunnel, in EUR including applicable taxes. Choose your plan on Nebula. Your dashboard connects automatically after activation; configured Nebula super admins can enroll free.</p>
+                    <p class="access-setup-note">Your subscription provides hosted access to your Quasar panel and also supports ongoing development and future CometWorks projects.</p>
+                </section>
+                @if (!_state.SteamEnabled)
+                {
+                    <MudAlert Severity="Severity.Warning">Enable Steam authentication in Quasar before enrolling a public panel.</MudAlert>
+                }
+            }
+            else
+            {
+                <header class="access-setup-header">
+                    <h2>Choose how you reach Quasar</h2>
+                    <p>Local access and your game servers keep working independently of public hosting.</p>
+                </header>
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <div class="access-setup-section">
+                            <MudButton Variant="@ChoiceVariant("self")" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Dns"
+                                       Style="width: 100%; min-height: 72px;" aria-pressed="@Completed(_selectedChoice == "self")"
+                                       OnClick="@(() => _selectedChoice = "self")">Self-deploy</MudButton>
+                            <p class="access-setup-note">Manage your own reverse proxy, domain and certificate using Quasar's security settings.</p>
+                        </div>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <div class="access-setup-section">
+                            <MudButton Variant="@ChoiceVariant("hosted")" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Cloud"
+                                       Style="width: 100%; min-height: 72px;" aria-pressed="@Completed(_selectedChoice == "hosted")"
+                                       OnClick="@(() => _selectedChoice = "hosted")">Use hosted panel</MudButton>
+                            <p class="access-setup-note">Let Nebula connect your panel automatically and provide a public dashboard URL. Sign in using your existing Steam permissions.</p>
+                        </div>
+                    </MudItem>
+                </MudGrid>
+            }
+            @if (_error is not null)
+            {
+                <MudAlert Severity="Severity.Error" role="alert">@_error</MudAlert>
+            }
+        </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_state is null) { <MudButton OnClick="Close">Close</MudButton> } else {
+        <div class="access-setup-actions">
+            @if (_connecting && !NeedsAdministrator)
+            {
+                @if (_state!.Ready)
+                {
+                    <MudButton Href="https://dash.se-servers.net/account" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Manage Nebula hosting and billing</MudButton>
+                    <MudButton OnClick="Close" Disabled="@_busy">Done</MudButton>
+                    <MudButton Href="@_state.DashboardUrl" Variant="Variant.Filled" Color="Color.Primary">Open Quasar dashboard</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="CancelEnrollmentAsync" Disabled="@_canceling" Variant="Variant.Outlined">Cancel</MudButton>
+                }
+            }
+            else
+            {
+                @if (NeedsAdministrator)
+                {
+                    <MudButton OnClick="SaveAdministratorAsync" Disabled="@(_busy || !SteamProfileInput.IsSupported(_adminSteamId))" Variant="Variant.Filled" Color="Color.Primary">Save administrator and continue</MudButton>
+                    <MudButton OnClick="DismissAsync" Disabled="@_busy">Cancel</MudButton>
+                }
+                else if (_hosted)
+                {
+                    <MudButton OnClick="Back" Disabled="@_busy" StartIcon="@Icons.Material.Filled.ArrowBack">Back</MudButton>
+                    <MudButton OnClick="DismissAsync" Disabled="@_busy">Cancel</MudButton>
+                    <MudButton OnClick="HostedAsync" Disabled="@(_busy || !_state.SteamEnabled || !IsPanelName(_panelId))" Variant="Variant.Filled" Color="Color.Primary">Start hosted enrollment</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="DismissAsync" Disabled="@_busy">Cancel</MudButton>
+                    <MudButton OnClick="ContinueChoiceAsync" Disabled="@(_busy || _selectedChoice is null)" Variant="Variant.Filled" Color="Color.Primary" EndIcon="@Icons.Material.Filled.ArrowForward">Next</MudButton>
+                }
+            }
+        </div>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    private bool _hosted, _busy, _connecting, _starting, _canceling, _administratorStepIncluded;
+    private string _panelId = "";
+    private string _adminSteamId = "";
+    private string? _error;
+    private string? _selectedChoice;
+    private CancellationTokenSource? _enrollmentCancellation;
+    private bool NeedsAdministrator => _state?.HasAdmin == false;
+    private string ConnectionStatus => _starting ? "Creating your enrollment…"
+        : _state!.Ready ? "Hosted dashboard ready"
+        : _state!.Status == "Not enrolled" ? "Waiting for hosting activation and the secure tunnel…" : _state!.Status;
+    private static string Completed(bool value) => value ? "true" : "false";
+    private int CurrentStep => NeedsAdministrator ? 1 : (_administratorStepIncluded ? 1 : 0) + (_connecting ? 3 : _hosted ? 2 : 1);
+    private int TotalSteps => (_administratorStepIncluded ? 1 : 0) + (_selectedChoice == "self" ? 1 : 3);
+    private double WizardProgress => 100d * CurrentStep / TotalSteps;
+    private string StepTitle => NeedsAdministrator ? "Administrator" : _connecting ? "Connection" : _hosted ? "Hosted panel" : "Access method";
+    private Variant ChoiceVariant(string choice) => _selectedChoice == choice ? Variant.Filled : Variant.Outlined;
+
+    private SetupStatus? _state;
+    private readonly CancellationTokenSource _stop = new();
+    private static bool IsPanelName(string name) => name.Length is >= 3 and <= 63
+        && System.Text.RegularExpressions.Regex.IsMatch(name, @"\A[a-z0-9]+(?:-[a-z0-9]+)*\z");
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _state = await Sdk.RequestAsync<SetupStatus>("setup.status", token: _stop.Token);
+            _panelId = _state.PanelId;
+            _hosted = _state.Choice == "hosted";
+            _selectedChoice = _state.Choice is "self" or "hosted" ? _state.Choice : null;
+            _administratorStepIncluded = NeedsAdministrator;
+            _connecting = _hosted && _state.Enrolled;
+            _ = MonitorAsync(_stop.Token);
+        }
+        catch (JSException error) { _error = error.Message; }
+    }
+
+    private async Task MonitorAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                if (_busy) continue;
+                try
+                {
+                    var state = await Sdk.RequestAsync<SetupStatus>("setup.status", token: token);
+                    if (_busy) continue;
+                    _state = state;
+                    if (_connecting && !_state.Enrolled) { _connecting = false; _error = state.Status; }
+                    await InvokeAsync(StateHasChanged);
+                }
+                catch (JSException error) { _error = error.Message; await InvokeAsync(StateHasChanged); }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private Task SaveAdministratorAsync() => RunAsync(async () =>
+        _state = await Sdk.RequestAsync<SetupStatus>("setup.administrator", new { value = _adminSteamId }));
+
+    private async Task SelfDeployAsync() => await RunAsync(async () =>
+    {
+        EnsureAdministrator();
+        await Sdk.RequestAsync<SetupStatus>("setup.choose", new { value = "self" });
+        Dialog.Close();
+        Navigation.NavigateTo("settings/security");
+    });
+    private void Close() => Dialog.Close();
+    private void Back() { _hosted = false; _error = null; }
+    private Task ContinueChoiceAsync() => _selectedChoice == "self" ? SelfDeployAsync() : RunAsync(() =>
+    {
+        EnsureAdministrator();
+        if (_selectedChoice != "hosted") throw new InvalidOperationException("Choose how you want to access Quasar.");
+        _hosted = true;
+        return Task.CompletedTask;
+    });
+    private async Task DismissAsync() => await RunAsync(async () =>
+    {
+        if (_state?.Choice == "") await Sdk.RequestAsync<SetupStatus>("setup.choose", new { value = "dismissed" });
+        Dialog.Close();
+    });
+    private Task HostedAsync() => RunAsync(async () =>
+    {
+        EnsureAdministrator();
+        _connecting = true;
+        _starting = true;
+        using var cancellation = new CancellationTokenSource();
+        _enrollmentCancellation = cancellation;
+        try
+        {
+            var url = await Sdk.RequestAsync<string>("setup.enroll", new { value = _panelId }, cancellation.Token);
+            _state = await Sdk.RequestAsync<SetupStatus>("setup.status", token: cancellation.Token);
+            cancellation.Token.ThrowIfCancellationRequested();
+            // Keep the enrollment link visible when opening a new tab is blocked.
+            try { await JS.InvokeVoidAsync("open", url, "_blank", "noopener,noreferrer"); }
+            catch (JSException) { _error = "Use the Steam enrollment button above to continue in Nebula."; }
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+        finally
+        {
+            _enrollmentCancellation = null;
+            _starting = false;
+            if (_state?.Enrolled != true) _connecting = false;
+        }
+    });
+    private async Task CancelEnrollmentAsync()
+    {
+        _canceling = true;
+        try
+        {
+            await RunAsync(async () =>
+            {
+                _enrollmentCancellation?.Cancel();
+                await Sdk.RequestAsync<SetupStatus>("setup.choose", new { value = "dismissed" });
+                Dialog.Cancel();
+            });
+        }
+        finally { _canceling = false; }
+    }
+    private void EnsureAdministrator()
+    {
+        if (NeedsAdministrator) throw new InvalidOperationException("Configure a Quasar administrator before choosing public access.");
+    }
+    private async Task RunAsync(Func<Task> action)
+    {
+        _busy = true; _error = null;
+        try { await action(); }
+        catch (Exception e) when (e is JSException or ArgumentException or InvalidOperationException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException or System.Text.Json.JsonException)
+        { _error = e.Message; }
+        finally { _busy = false; }
+    }
+    public void Dispose()
+    {
+        _enrollmentCancellation?.Cancel();
+        _stop.Cancel();
+        _stop.Dispose();
+    }
+}

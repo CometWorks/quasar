@@ -62,8 +62,8 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 Analytics and fleet charts read data through Quasar browser SDK v1. Their
 `quasar.core/analytics.series.read` operation requires `CanView` by default and
 can be disabled or rebound on Security. The existing analytics URL uses that
-same rule. Local charts work without Nebula; SignalR and background collection
-keep their existing lifecycle.
+same rule. The worker collects metrics in the background. Browser charts can
+read them locally over HTTP(S) or through the active hosted SDK connection.
 
 **Analytics** (`/analytics`) charts the metrics history of the servers you select.
 
@@ -193,7 +193,7 @@ Changing the mode needs `CanControlServers`. Quasar saves it in the server's `se
 - The standalone row menu needs `CanControlServers`: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online players only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Actions need a connected Agent. Kick and ban ask for confirmation. Quasar waits up to 15 seconds for the Agent's reply and shows success, the game error, a disconnect or a timeout. A timeout does not prove the action failed; check the player's status before retrying.
 - The cluster row menu needs `ClusterManage`, access to that cluster, fresh Gateway status with management scope and support for the action: **Set role** (None, Scripter, Moderator, SpaceMaster, Admin), **Kick** (online only), **Clear kick cooldown** (active cooldown only), **Ban** or **Unban**. Saved offline players can have their role, ban or cooldown changed. Role changes, kick and ban ask for confirmation. Quasar checks permissions, cluster access and capabilities again after confirmation, then reports the Gateway operation status or error. A stale role revision fails and needs a refresh. Unconfirmed role changes remain in progress while Quasar reconciles the same request, including after a restart.
 - Cluster roles come from the World Authority and survive node movement, player reconnect and cluster restart through its saves and journal. Cooldowns come from Gateway admission, last five minutes and reset on Gateway restart. Clearing one does not unban the player or clear another player's deadline. Older Gateways keep unsupported actions disabled with an update explanation; an unavailable or older World Authority disables role changes while supported admission actions remain usable. Cluster rows show admission state and current node/partition routing when online. The Registry does not supply every standalone metadata field.
-- **Access → Linked accounts** lists Steam/Discord identity links, separately from the Players table. Old code-based links require browser authentication and do not identify players or grant access. With `CanControlServers` you can remove a link. Players can also unlink on their public authentication page; relinking requires fresh server authorization. See [Player authentication](AccessControl.md#player-authentication).
+- **Access → Linked accounts** lists Steam/Discord identity links, separately from the Players table. Old code-based links require browser authentication and do not identify players or grant access. With `CanControlServers` you can remove a link. Players can also unlink with `/unlink-accounts` in Discord; relinking requires fresh server authorization. See [Player authentication](AccessControl.md#player-authentication).
 - **Clean Server** and **Clean All** delete saved known players from accessible servers, including cluster history when cluster management is allowed. Players still online are recorded again on the next observation.
 - **Auto clear after** removes players not seen for that many days (default 30, range 1 to 3650). Click **Save** next to it (needs `CanControlServers`).
 
@@ -233,7 +233,7 @@ Plugins and their AI agents use the `chat.messages`, `chat.commands`, `chat.send
 - Cluster discovery also needs cluster query permission and access to that cluster. Cluster deletion and the entity actions need cluster management permission and one verified owning node, and run on that node. They are disabled for shared, frozen, ambiguous or unknown ownership. Updated agents report ownership and check it again on the game thread before acting. Older agents can still be browsed; update them before cluster deletion. If an entity moves or a node is replaced, refresh rather than picking a node manually.
 - Plugins and their AI agents list entities with the `entities.list` and `cluster.entities.list` operations, delete one by entity ID with `entities.delete` and `cluster.entities.delete`, and run Stop, Depower, PowerOn or RemoveOwner on one with `entities.action` and `cluster.entities.action`, under the same permissions. The Assistant proposes these changes for an admin to approve unless its settings let it apply them at once, and none of them has an undo.
 
-The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It needs a local Space Engineers `Content` folder in the browser and ships its own Magnetar companion plugin. See [UI plugins](UiPlugins.md#companion-plugins).
+The Entity Viewer is a separate UI plugin from QuasarHub. It adds a viewer button on the Entities page for grids and asteroid voxels and opens a fullscreen metadata-only viewer. It can use a local Space Engineers `Content` folder or assets that a server administrator explicitly enables for streaming. Its browser components load on the Entities page, and its Magnetar companion supplies the scene. A hosted dashboard starts over the tunnel and switches new SDK asset reads to a confirmed direct peer when available. See [UI plugins](UiPlugins.md#companion-plugins).
 
 Unavailable entities show a disabled, crossed-out viewer eye with a fixed muted color, including when the row is hovered or selected. Its tooltip explains the reason; planets are not supported. Supported grids and asteroids keep the normal eye button. This behavior requires the updated Entity Viewer UI plugin.
 
@@ -386,8 +386,8 @@ Quasar registers these guild slash commands when the bot connects:
 
 - `/whisper server:<unique name> user:<online player name or Steam ID> message:<text>` sends a private message to an online player. Anyone can run it, but only in a command, chat relay, admin whisper or faction channel bound to that server ("Use /whisper in a channel configured for that server's Discord bridge."). Ambiguous names fail with "Player name '<name>' is ambiguous; use the Steam ID."
 - `/faction-channel server:<unique name> faction:<tag>` (Discord Administrator only) creates an admin-only text channel for that faction in the current category, or re-secures the existing one, and saves the binding.
-- The old `/link` code exchange is removed. Players authenticate Steam and Discord on the public website, reached through `!authorize` or the public player authentication link. See [Player authentication](AccessControl.md#player-authentication).
-- UI plugins add their own commands, which exist only while the plugin is installed. A player command, such as the assistant plugin's `/ask question:<text>`, replies privately; a linked user runs it as their player, an unlinked one without a player. An admin command, such as `/assistant question:<text>`, is only for Discord users mapped to a Quasar administrator on the Security page ("Your Discord account is not mapped to a Quasar administrator."), and replies in the channel.
+- For dashboard administrator accounts, choose **Link Discord account** on the Discord page and sign in with Steam and Discord. Players authorizing game access use the private link sent by `/authorize` in Discord. See [Player authentication](AccessControl.md#player-authentication).
+- UI plugins add their own commands, which exist only while the plugin is installed. A player command, such as the assistant plugin's `/ask question:<text>`, replies privately; a linked user runs it as their player, an unlinked one without a player. An admin command, such as `/assistant question:<text>`, is available to Discord users whose verified Steam account currently has the Quasar `admin` role, and replies in the channel.
 
 Use the server's unique name, not its display name. Clusters are `cluster:<name>`.
 
@@ -463,50 +463,47 @@ collisions, limits and the required Magnetar version.
 - `README.md`
 - `Docs/QuasarArchitecture.md`
 - `Quasar/appsettings.json`
-- `Quasar/Components/Pages/Home.razor`
-- `Quasar/Components/Dashboard/ServerCard.razor`
-- `Quasar/Components/Dashboard/ServerDetailPanel.razor`
+- `Quasar.Client/Pages/Home.razor`
+- `Quasar.Client/Components/FleetWorkspace.razor`
+- `Quasar.Client/Components/FleetLiveDetails.razor`
 - `Quasar.Tests/PluginLoadTooltipTests.cs`
-- `Quasar/Components/Dashboard/FleetTelemetryChart.razor`
-- `Quasar/Components/Pages/Analytics.razor`
-- `Quasar/Components/Pages/Analytics.razor.css`
+- `Quasar.Client/Components/BrowserFleetChart.razor`
+- `Quasar.Client/Components/AnalyticsView.razor`
+- `Quasar.Client/Components/AnalyticsView.razor.css`
 - `Quasar/wwwroot/quasar-charts.js`
-- `Quasar/Components/Pages/Players.razor`
-- `Quasar/Components/Pages/Chat.razor`
+- `Quasar.Client/Components/PlayersView.razor`
+- `Quasar.Client/Components/ChatView.razor`
 - `Quasar/Services/TextSanitizer.cs`
-- `Quasar/Components/Pages/Entities.razor`
+- `Quasar.Client/Components/EntitiesView.razor`
 - `Quasar/Services/EntityPresentation.cs`
 - `Quasar/Services/EntityService.cs`
 - `Quasar.Agent/EntityInspector.cs`
 - `Magnetar.Protocol/Model/EntitySummary.cs`
-- `Quasar/Components/Pages/Notifications.razor`
-- `Quasar/Components/Pages/Discord.razor`
-- `Quasar/Components/Pages/DiscordConsoleDialog.razor`
-- `Quasar/Components/Pages/Appearance.razor`
+- `Quasar.Client/Administration/NotificationPage.razor`
+- `Quasar.Client/Components/DiscordView.razor`
+- `Quasar.Client/Components/DiscordConsoleDialog.razor`
+- `Quasar.Client/Administration/AppearancePage.razor`
 - `Quasar/Services/Analytics/AnalyticsMetrics.cs`
 - `Quasar/Services/Analytics/AnalyticsStoreOptions.cs`
 - `Quasar/Services/Analytics/AnalyticsSeriesService.cs`
-- `Quasar/Services/Analytics/AnalyticsViewConfig.cs`
+- `Quasar.Client/Operations/AnalyticsViewConfig.cs`
 - `Quasar/Services/Analytics/MetricsStoreService.cs`
 - `Quasar/Services/Analytics/ServerMetricsStore.cs`
 - `Quasar/Services/Analytics/ProfilerStoreService.cs`
 - `Quasar/Services/Analytics/PluginStatsStoreService.cs`
 - `Quasar/Services/Analytics/PluginStatsHistoryService.cs`
-- `Quasar/Components/Pages/PluginStatsHistory.razor`
+- `Quasar.Client/Components/PluginStatsHistoryView.razor`
 - `Quasar/Services/AgentRegistry.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
-- `Quasar/Services/KnownPlayerCatalog.cs`
-- `Quasar/Services/ClusterPlayerService.cs`
 - `Quasar/Services/ClusterCatalog.cs`
-- `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Models/KnownPlayerRecord.cs`
-- `Quasar/Services/BrandingPresets.cs`
-- `Quasar/Services/Updates/NotificationPreferences.cs`
+- `Quasar.Client/Administration/BrandingPresets.cs`
+- `Quasar.Client/Administration/NotificationPreferences.cs`
 - `Quasar/Services/Updates/PushNotificationService.cs`
 - `Quasar/Services/HostedPanelService.cs`
 - `Quasar/Services/Updates/InstanceNotificationMonitor.cs`
 - `Quasar/Services/Discord/DiscordBotService.cs`
-- `Quasar/Services/Discord/DiscordOptions.cs`
+- `Quasar.Client/Operations/Discord/DiscordOptions.cs`
 - `Quasar/Services/Discord/DiscordOptionsCatalog.cs`
 - `Quasar/Services/Discord/DiscordCommandRouter.cs`
 - `Quasar/Services/Discord/DiscordCommandDispatcher.cs`
@@ -524,15 +521,15 @@ collisions, limits and the required Magnetar version.
 - `Docs/Announcements.md`
 - `Quasar/Services/Updates/AnnouncementService.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
-- `Quasar/Components/Shared/NotificationCard.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar.Client/Administration/DashboardNotificationCard.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
 - `Quasar.Tests/AnnouncementTests.cs`
-- `Quasar/Components/Shared/NotificationBell.razor`
+- `Quasar.Client/Administration/DashboardNotificationBell.razor`
 - `Quasar.Tests/AnnouncementBrowserReceiptTests.cs`
 - `Quasar/Services/QuasarCommandAliases.cs`
 - `Quasar.Agent/CommandAliasConfiguration.cs`
-- `Quasar/Components/Dashboard/ClusterHealthOverview.razor`
-- `Quasar/Components/Dashboard/ClusterResourceUsage.razor`
+- `Quasar.Client/Clusters/ClusterHealthOverview.razor`
+- `Quasar.Client/Clusters/ClusterResourceUsage.razor`
 - `Quasar/Services/ClusterFleetService.cs`
 - `Quasar/Services/ClusterOverview.cs`
 - `Docs/QuasarBrowserSdk.md`
@@ -540,8 +537,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/Plugins/QuasarClusterControlOperations.cs`
 - `Quasar/Services/Players/QuasarPlayerLinks.cs`
 - `Quasar/Services/Players/QuasarChatCommands.cs`
-- `Quasar/Components/Shared/PlayerDiscordLinks.razor`
-- `Quasar/Components/Pages/Access.razor`
-
+- `Quasar.Client/Components/PlayerLinksView.razor`
+- `Quasar.Client/Components/AccessView.razor`
 - `Docs/PlayerAuthentication.md`
-- `Quasar/Services/Players/PlayerAuthEndpoints.cs`
+- `Quasar/Services/Players/PrivatePlayerAuthorization.cs`

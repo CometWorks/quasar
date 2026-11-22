@@ -1,0 +1,11 @@
+@page "/clusters/new"
+@attribute [Authorize(Policy = QuasarPolicyNames.ClusterManage)]
+
+<PageTitle>Set up cluster</PageTitle>
+<SetupCluster Resume="@Resume" Register="Register" Attempt="Attempt" />
+
+@code {
+    [SupplyParameterFromQuery] public string? Resume { get; set; }
+    [SupplyParameterFromQuery] public bool Register { get; set; }
+    [SupplyParameterFromQuery] public Guid? Attempt { get; set; }
+}

@@ -1,3 +1,6 @@
+using Quasar.Client;
+using Quasar.Services.Auth;
+using System.Text.Json;
 using System.Net;
 using System.Net.Http.Json;
 using Bunit;
@@ -6,7 +9,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor.Services;
 using Quasar.Host.Contract.V1;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Clusters;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.PluginSdk;
@@ -25,7 +28,7 @@ public sealed class ClusterDetailPanelTests
         Environment.SetEnvironmentVariable(credential, "fixture-credential");
         try
         {
-            await using var context = new QuasarBunitContext();
+            await using var context = new OperationsBrowserContext();
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var fixture = ClusterHealthOverviewTests.Sample();
@@ -45,12 +48,15 @@ public sealed class ClusterDetailPanelTests
             context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
             fixture.Cluster.HostCommandUrl = "http://host.test";
             fixture.Cluster.HostCommandTokenEnvironmentVariable = credential;
-            var availability = new List<bool>();
+            using var cluster = new BrowserClusterFixture(fixture.Cluster);
+            context.Services.AddSingleton(cluster.Catalog);
+            var auth = context.AddAuthorization();
+            auth.SetAuthorized("observer"); auth.SetPolicies(QuasarPolicyNames.ClusterQuery);
             context.Render<MudBlazor.MudPopoverProvider>();
-            var panel = context.Render<ClusterDetailPanel>(p => p.Add(c => c.Cluster, fixture.Cluster)
-                .Add(c => c.ShowTopology, true).Add(c => c.ShowConfigurationLinks, false)
-                .Add(c => c.GatewayAvailabilityChanged, available => availability.Add(available)));
-            Assert.Equal([true], availability);
+            var runtime = await RuntimeAsync(context, fixture.Cluster.UniqueName);
+            var panel = context.Render<ClusterDetailPanel>(p => p.Add(c => c.Cluster, BrowserClusterFixture.Dashboard(fixture.Cluster))
+                .Add(c => c.ShowTopology, true).Add(c => c.Runtime, runtime));
+            Assert.NotNull(runtime.Capabilities);
             Assert.Contains("18 routed players", panel.Markup);
             Assert.Contains("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
@@ -65,11 +71,13 @@ public sealed class ClusterDetailPanelTests
                 LatestPoint = new("save-1", RecoveryConsistency.CutConsistent, 42) };
             handler.FailEdges = true;
             handler.FailCapabilities = true;
-            await panel.WaitForAssertionAsync(() => Assert.DoesNotContain("18 routed players", panel.Markup), TimeSpan.FromSeconds(10));
+            runtime = await RuntimeAsync(context, fixture.Cluster.UniqueName);
+            panel.Render(p => p.Add(c => c.Runtime, runtime));
+            Assert.DoesNotContain("18 routed players", panel.Markup);
             Assert.Contains("— routed players", panel.Markup);
             Assert.DoesNotContain("34 partitions", panel.Markup);
             Assert.Contains("38% CPU", panel.Find(".cluster-gateway").TextContent);
-            Assert.Equal([true, false], availability);
+            Assert.Null(runtime.Capabilities);
             if (goal == DedicatedServerGoalState.On)
             {
                 Assert.Contains("Ready to recover", panel.Markup);
@@ -120,7 +128,7 @@ public sealed class ClusterDetailPanelTests
     [InlineData(DedicatedServerGoalState.On, true, true, true)]
     public async Task GatewayConnectionWarningDependsOnGoalState(DedicatedServerGoalState goal, bool managed, bool shouldWarn, bool collapseDetails)
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         using var http = new HttpClient(new OfflineGateway());
@@ -133,15 +141,18 @@ public sealed class ClusterDetailPanelTests
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
 
-        var availability = new List<bool>();
+        var definition = new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test", GoalState = goal,
+            Gateway = managed ? new GatewaySpec("test", GatewayGoal.Off, "/bundle", new string('a', 64), "rev", [27032], "/run") : null };
+        using var cluster = new BrowserClusterFixture(definition);
+        context.Services.AddSingleton(cluster.Catalog);
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("observer"); auth.SetPolicies(QuasarPolicyNames.ClusterQuery);
         context.Render<MudBlazor.MudPopoverProvider>();
+        var runtime = await RuntimeAsync(context, "test");
         var panel = context.Render<ClusterDetailPanel>(parameters => parameters
-            .Add(p => p.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test", GoalState = goal,
-                Gateway = managed ? new GatewaySpec("test", GatewayGoal.Off, "/bundle", "hash", "rev", [], "/run") : null })
-            .Add(p => p.ShowConfigurationLinks, false).Add(p => p.CollapseDetails, collapseDetails)
-            .Add(p => p.GatewayAvailabilityChanged, available => availability.Add(available)));
-
-        Assert.Equal([false], availability);
+            .Add(p => p.Cluster, BrowserClusterFixture.Dashboard(definition)).Add(p => p.Runtime, runtime)
+            .Add(p => p.CollapseDetails, collapseDetails));
+        Assert.Null(runtime.Capabilities);
         Assert.Equal(shouldWarn, panel.Markup.Contains("Cannot reach the Cluster Registry", StringComparison.Ordinal));
         var labels = panel.FindAll("th").Select(cell => cell.TextContent).ToArray();
         Assert.Contains("Automatic cluster control", labels);
@@ -158,45 +169,10 @@ public sealed class ClusterDetailPanelTests
 
     }
 
-    [Fact]
-    public async Task PollUpdatesVisibleStatusWithoutParentRender()
+    private static async Task<ClusterRuntime> RuntimeAsync(BunitContext context, string name)
     {
-        await using var context = new QuasarBunitContext();
-        context.Services.AddMudServices();
-        context.JSInterop.Mode = JSRuntimeMode.Loose;
-        using var handler = new ChangingGateway();
-        using var http = new HttpClient(handler);
-        var gateway = new ClusterGatewayClient(http);
-        var host = new ClusterHostClient(http);
-        context.Services.AddSingleton(gateway);
-        context.Services.AddSingleton(new ClusterFleetService(gateway, null!, null!));
-        context.Services.AddSingleton(new ClusterHostCatalog(null!, Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))));
-        context.Services.AddSingleton(host);
-        context.Services.AddSingleton(new ClusterReconciler(null!, gateway, host, null!, NullLogger<ClusterReconciler>.Instance));
-        context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
-        context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
-        context.Render<MudBlazor.MudPopoverProvider>();
-        var panel = context.Render<ClusterDetailPanel>(parameters => parameters
-            .Add(p => p.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test" })
-            .Add(p => p.ShowConfigurationLinks, false));
-        Assert.Contains("First observation", panel.Markup);
-        handler.Message = "Later observation";
-        await panel.WaitForAssertionAsync(() => Assert.Contains("Later observation", panel.Markup), TimeSpan.FromSeconds(10));
-        Assert.DoesNotContain("First observation", panel.Markup);
-    }
-
-    private sealed class ChangingGateway : HttpMessageHandler
-    {
-        internal volatile string Message = "First observation";
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
-        {
-            var response = new HttpResponseMessage(HttpStatusCode.ServiceUnavailable)
-            {
-                Content = JsonContent.Create(new AdminErrorEnvelope(1, DateTimeOffset.UtcNow, new AdminError("not_ready", Message))),
-            };
-            response.Headers.Add("X-Cluster-Gateway-Protocol", "1");
-            return Task.FromResult(response);
-        }
+        var json = await context.Services.GetRequiredService<DashboardSdk>().ReadTextAsync("cluster.runtime", new ClusterPanelRequest(name));
+        return JsonSerializer.Deserialize<ClusterRuntime>(json)!;
     }
 
     private sealed class OfflineGateway : HttpMessageHandler

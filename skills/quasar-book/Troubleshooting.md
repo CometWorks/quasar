@@ -217,36 +217,14 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 - Quasar defaults to private LAN HTTP mode. If `Quasar:Auth:RequireHttpsForPublicAccess=true`, remote plain-HTTP requests return HTTP 400. Use that setting with an HTTPS reverse proxy that sends trusted `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` headers; loopback HTTP remains available for local checks. See [Access control](AccessControl.md#behind-a-reverse-proxy).
 - `Quasar authentication can be disabled only on loopback listeners.` means `Auth:Enabled=false` was combined with a public `Quasar:Host`, `QUASAR_WEB_HOST`, or `ASPNETCORE_URLS` binding. Restore authentication or bind every listener to localhost/`127.0.0.1`/`::1`.
 
-### "Rejoining the server..."
+### Dashboard startup and transport
 
-**Quasar connection unavailable** means the browser could not finish connecting.
-The same warning appears after ten seconds if startup is still pending. Until
-the connection succeeds, live updates and controls are unavailable, even if the
-page already displays server data. Quasar retries automatically once the panel
-is ready and your login is valid. Failed startup waits five seconds before
-reloading; repeated failures back off to a maximum of one minute. Pending startup
-gets a full minute to allow peer setup to finish. Successful startup clears the
-warning and backoff. **Reload page** remains available even when the page never
-becomes interactive. If your login expired, reload to sign in again.
-
-Quasar uses fingerprinted script URLs for connection startup. On older releases,
-try **Ctrl+F5** if a normal reload keeps using stale connection scripts after an
-update. A hard refresh fixing the problem points to cached assets; it does not
-prove the server or network was unavailable.
-
-If an established connection drops, **Quasar connection interrupted** warns that
-displayed data may be out of date. The dialog shows reconnect progress and always
-offers **Reload page**. Hosted WebRTC and ordinary socket connections use the
-same warnings. A silent connection stall is reported after the framework detects
-it, so the warning may not appear immediately when traffic stops.
-
-After the framework runs out of reconnect attempts, Quasar keeps retrying the
-existing circuit every five seconds while the panel is ready and your login is
-valid. Manual and automatic attempts do not overlap. If the server can no longer
-restore the circuit, the page reloads automatically. Paused sessions still wait
-for **Resume**, and an active restart uses its own progress panel.
-
-The UI keeps a live connection to Quasar. When it drops, a dialog shows "Rejoining the server...", then "Rejoin failed... trying again in N seconds.", then "Still trying to rejoin. Quasar will retry automatically when the server is ready." with **Retry**. During the disconnect, the page checks readiness and worker identity through the same address, including a Nebula panel prefix. When a replacement Quasar process is ready, the page reloads automatically instead of waiting for all circuit retries to fail. A temporary network interruption to the same process keeps normal reconnection behavior. A restart started from this browser shows its own progress panel (request, stop, health check, reload) instead of the dialog. If it never reconnects, reload the page and check that Quasar is still up.
+The initial loading bar tracks the browser runtime download. If startup fails,
+use **Reload dashboard** and sign in again if prompted. On hosted dashboards the connection
+indicator can show **Using tunnel** while the panel is fully interactive.
+A successful direct peer changes the indicator to **Connected directly**.
+If a connection drops during an upload or another write, check its result
+before starting it again.
 
 ## Sign-in problems
 
@@ -309,7 +287,6 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 ## Sources
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Docs/StateMachines/AgentConnection.md`
-- `Docs/StateMachines/BlazorReconnect.md`
 - `Docs/StateMachines/DedicatedServerLifecycle.md`
 - `Docs/Configuration.md`
 - `Docs/Docker.md`
@@ -323,19 +300,16 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/QuasarLoggingConfigurator.cs`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
 - `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Models/DedicatedServerDefinition.cs`
-- `Quasar/Components/Pages/ServerConsoleDialog.razor`
-- `Quasar/Components/Pages/ServerEditorDialog.razor`
-- `Quasar/Components/Dashboard/ServerCard.razor`
+- `Quasar.Client/Pages/ServerConsoleDialog.razor`
+- `Quasar.Client/Components/FleetServerEditor.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
 - `Quasar/Components/App.razor`
-- `Quasar/Components/Layout/ReconnectModal.razor`
-- `Quasar/Components/Layout/ReconnectModal.razor.js`
-- `Quasar/Components/Layout/ReconnectModal.razor.css`
 - `Quasar/wwwroot/_quasar/sdk/v1/boot.js`
 - `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar.Agent/AgentConnection.cs`
@@ -348,7 +322,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/QuasarShutdownService.cs`
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
-- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
 - `Docs/QuasarUpdates.md`
 - `Quasar.Updater/QuasarUpdater.cs`
 - `Shared/Updates/GitHubUpdateTokenReader.cs`
@@ -365,7 +339,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Shared/Diagnostics/LinuxLimits.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
 - `Quasar/Services/QuasarApplicationEntry.cs`
-- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar.Client/Layout/QuasarControlDialog.razor`
 - `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/Services/Plugins/QuasarUiPluginCatalog.cs`
 - `Tests/Updates/service_unit_config.py`

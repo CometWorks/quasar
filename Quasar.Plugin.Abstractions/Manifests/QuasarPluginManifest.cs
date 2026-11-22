@@ -16,6 +16,9 @@ public sealed class QuasarPluginManifest
 
     public required string ProjectPath { get; init; }
 
+    /// <summary>Optional standalone Razor assembly published to authenticated panel browsers.</summary>
+    public string? BrowserAssembly { get; init; }
+
     public string? StaticAssets { get; init; }
 
     public IReadOnlyList<string> Stylesheets { get; init; } = [];

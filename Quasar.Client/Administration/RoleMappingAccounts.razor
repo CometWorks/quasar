@@ -1,0 +1,55 @@
+@implements IDisposable
+@inject DashboardSdk Sdk
+
+<MudTd DataLabel="Steam name">
+    @(IsSteam ? _names?.SteamName ?? Status : "—")
+</MudTd>
+<MudTd DataLabel="Discord account">
+    @if (!IsSteam) { <span>—</span> }
+    else if (Mapping.DiscordUserId is null)
+    {
+        <span>Not linked</span>
+        @if (CanLink)
+        {
+            <DiscordLinkButton SteamId="@Mapping.Subject" OnLinked="OnLinked" />
+        }
+    }
+    else
+    {
+        <div>@(_names?.DiscordUserId == Mapping.DiscordUserId && _names.DiscordUsername is { } name ? "@" + name : Status)</div>
+        <span class="mono">@Mapping.DiscordUserId</span>
+    }
+</MudTd>
+
+@code {
+    [Parameter, EditorRequired] public RoleMapping Mapping { get; set; } = null!;
+
+    [Parameter] public bool CanLink { get; set; }
+    [Parameter] public EventCallback OnLinked { get; set; }
+
+    private readonly CancellationTokenSource _stop = new();
+    private MappingNames? _names;
+    private DateTimeOffset _nextLookup;
+    private bool _loading;
+    private bool IsSteam => string.Equals(Mapping.Provider, "Steam", StringComparison.OrdinalIgnoreCase);
+    private string Status => _loading ? "Looking up name…" : "Name unavailable";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!IsSteam || _loading || DateTimeOffset.UtcNow < _nextLookup) return;
+        _loading = true;
+        try
+        {
+            _names = await Sdk.RequestAsync<MappingNames>("security.mapping.names", new { SteamId = Mapping.Subject }, _stop.Token);
+        }
+        catch (JSException) { _names = null; }
+        catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+        finally
+        {
+            _loading = false;
+            _nextLookup = DateTimeOffset.UtcNow.AddMinutes(5);
+        }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

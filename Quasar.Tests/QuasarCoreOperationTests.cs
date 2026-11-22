@@ -1,3 +1,4 @@
+using Quasar.Client.Fleet;
 using System.Reflection;
 using System.Security.Claims;
 using System.Text.Json;
@@ -106,19 +107,19 @@ public sealed class QuasarCoreOperationTests : IDisposable
         services.AddSingleton<QuasarAgentPrincipals>();
         services.AddSingleton(_servers);
         services.AddSingleton(_profiles);
+        services.AddSingleton<QuasarWorldTemplateCatalog>();
+        services.AddSingleton<ExistingServerImportService>();
         services.AddSingleton(_known);
         services.AddSingleton(_registry);
         services.AddSingleton(_supervisor);
         services.AddSingleton(backups);
-        var backupSettings = new QuasarBackupSettingsService(
-            NullLogger<QuasarBackupSettingsService>.Instance,
-            options
-        );
-        services.AddSingleton(backupSettings);
-        services.AddSingleton(
+        services.AddSingleton(_ => new QuasarBackupSettingsService(
+            NullLogger<QuasarBackupSettingsService>.Instance, options
+        ));
+        services.AddSingleton(provider =>
             new AutomaticBackupService(
                 backups,
-                backupSettings,
+                provider.GetRequiredService<QuasarBackupSettingsService>(),
                 _servers,
                 NullLogger<AutomaticBackupService>.Instance
             )
@@ -534,9 +535,13 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 (clusterDelete.Metadata.Effect, clusterDelete.Metadata.Reversal)
             );
         }
-        // Destructive operations are a deliberate choice, each one listed here.
+        // Keep the review step visible alongside the destructive operations it prepares.
         Assert.Equal(
-            ["backups.restore", "cluster.entities.delete", "entities.delete"],
+            [
+                "backup.restore.upload", "backup.stored.delete", "backup.stored.restore", "backups.restore", "cluster.entities.delete",
+                "cluster.maintenance.prepare-restore", "cluster.maintenance.restore", "configs.delete",
+                "entities.delete", "fleet.delete", "fleet.delete.review", "fleet.kill", "worlds.delete",
+            ],
             operations
                 .Keys.Where(id =>
                     id.Contains("delete")
@@ -1349,6 +1354,51 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 );
         foreach (var read in new[] { "cluster.players", "cluster.entities.list", "chat.messages" })
             Assert.Equal(403, (await CallAsync(viewer, read, new { })).StatusCode);
+    }
+
+    [Fact]
+    public async Task OversizedDashboardProfilesUseTheAuditedSaveAndPreserveSteamIds()
+    {
+        await CreateProfileAsync();
+        var profile = _profiles.GetProfile("shared")!;
+        profile.Description = new string('x', QuasarSdkLimits.MaximumJsonBytes + 100);
+        profile.RootSettings.Reserved = [76561198000000001];
+        await using var scope = _services.CreateAsyncScope();
+        await using var input = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { profile }, JsonSerializerOptions.Web));
+        var result = await scope.ServiceProvider.GetRequiredService<QuasarOperationService>().DispatchAsync(
+            new(Editor(), scope.ServiceProvider) { Kind = QuasarOperationKind.Upload, Upload = input, VerifyAccess = _ => Task.CompletedTask },
+            Core, "configs.profile.upload", JsonSerializer.SerializeToElement(new { create = false }), default);
+        Assert.Null(result.Error);
+        Assert.Equal("shared", result.Value);
+        var saved = _profiles.GetProfile("shared")!;
+        Assert.Equal(profile.Description, saved.Description);
+        Assert.Equal(76561198000000001UL, Assert.Single(saved.RootSettings.Reserved));
+        var audit = await LatestAsync("config.profile.save");
+        Assert.Equal("<redacted>", audit.Arguments!.Value.GetProperty("profile").GetProperty("rootSettings").GetProperty("serverPassword").GetString());
+        Assert.Equal(QuasarUndoStatus.Done, (await UndoAsync(audit.Id)).Status);
+        Assert.NotEqual(profile.Description, _profiles.GetProfile("shared")!.Description);
+    }
+
+    [Fact]
+    public async Task ViewerCannotUseDashboardChangesOrPrivateReadsAfterAnOperationOverride()
+    {
+        await using var scope = _services.CreateAsyncScope();
+        var dispatcher = scope.ServiceProvider.GetRequiredService<QuasarOperationService>();
+        var viewer = Person(QuasarRoles.Viewer);
+        var operations = _services.GetServices<QuasarOperation>().Where(o =>
+            o.Metadata.RequireDefaultPolicies && o.DefaultPolicies.Any(policy =>
+                policy is QuasarPolicyNames.CanEditConfigs or QuasarPolicyNames.CanControlServers or
+                    QuasarPolicyNames.CanManageDiscord or QuasarPolicyNames.CanManageSecurity or QuasarPolicyNames.ClusterManage)).ToArray();
+        Assert.Contains(operations, op => op.OperationId == "config.profile.save");
+        Assert.Contains(operations, op => op.OperationId == "configs.directory");
+        Assert.Contains(operations, op => op.OperationId == "players.history.clean");
+        foreach (var operation in operations)
+        {
+            Assert.Equal(403, (await dispatcher.CheckAccessAsync(viewer, Core, operation.OperationId, operation.Kind))?.StatusCode);
+            await dispatcher.SaveRuleAsync(Person(QuasarRoles.Admin), Core, operation.OperationId,
+                new() { RequiredPolicies = [QuasarPolicyNames.CanView] });
+            Assert.Equal(403, (await dispatcher.CheckAccessAsync(viewer, Core, operation.OperationId, operation.Kind))?.StatusCode);
+        }
     }
 
     [Fact]
@@ -2614,6 +2664,56 @@ public sealed class QuasarCoreOperationTests : IDisposable
             )
             .Skip(skip)
             .First();
+
+    [Fact]
+    public async Task BrowserServerImportIsOwnedAndCommitsOnlyTheReviewedWorldOnce()
+    {
+        var target = new ServerImportTarget(Guid.NewGuid(), ExistingServerKind.Vanilla);
+        var argument = JsonSerializer.SerializeToElement(target, QuasarCoreOperations.Json);
+        await using var scope = _services.CreateAsyncScope();
+        var provider = scope.ServiceProvider;
+        var caller = new QuasarOperationContext(Editor(), provider) { VerifyAccess = _ => Task.CompletedTask };
+        Task<object?> Invoke(string id, QuasarOperationContext context, object? input = null) =>
+            provider.GetServices<QuasarOperation>().Single(o => o.OperationId == "server-import." + id)
+                .InvokeAsync(context, input is null ? argument : JsonSerializer.SerializeToElement(input, QuasarCoreOperations.Json), default);
+
+        using var zip = ExistingServerZipImportTests.CreateServerZip(target.Kind);
+        var bytes = zip.ToArray();
+        var range = Assert.IsType<ZipSlice>(await Invoke("zip.start", caller, new { target, size = bytes.Length, directoryOffset = bytes.Length }));
+        long sequence = 0;
+        while (range.Sequence != 0)
+        {
+            Assert.Equal(++sequence, range.Sequence);
+            using var selected = new MemoryStream(bytes, checked((int)range.Offset), checked((int)range.Length), writable: false);
+            var input = new { target, range.Sequence };
+            var wrongOwner = caller with { Upload = selected, User = Person(QuasarRoles.Admin) };
+            var denied = await Assert.ThrowsAsync<QuasarOperationException>(() => Invoke("zip.range", wrongOwner, input));
+            Assert.Equal(404, denied.StatusCode);
+            range = Assert.IsType<ZipSlice>(await Invoke("zip.range", caller with { Upload = selected }, input));
+        }
+        Assert.True(sequence > 0);
+        var forbidden = await Assert.ThrowsAsync<QuasarOperationException>(() =>
+            Invoke("review", caller with { User = Person(QuasarRoles.Admin) }));
+        Assert.Equal(404, forbidden.StatusCode);
+        var read = Assert.IsType<QuasarRead>(await Invoke("review", caller));
+        await using var body = await read.OpenAsync(default);
+        var review = await JsonSerializer.DeserializeAsync<ServerImportReview>(body, QuasarCoreOperations.Json);
+        var primary = Assert.Single(review!.Worlds, w => w.IsConfiguredWorld);
+        var selection = new ImportServerSelection(ExistingServerTransferMode.Copy, "Reviewed server", "reviewed-server",
+            [primary.Path], primary.Path, ExistingServerImportSections.Identity, true);
+        using var commit = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(selection, QuasarCoreOperations.Json));
+        var request = caller with { Upload = commit };
+        var revoked = await Assert.ThrowsAsync<QuasarOperationException>(() => Invoke("commit", request with
+            { VerifyAccess = _ => throw new QuasarOperationException(403, "Access revoked") }));
+        Assert.Equal(403, revoked.StatusCode);
+        var result = Assert.IsType<ImportedServer>(await Invoke("commit", request));
+        Assert.Equal(1, result.TemplateCount);
+        Assert.Equal("reviewed-server", result.UniqueName);
+        commit.Position = 0;
+        var replay = await Assert.ThrowsAsync<QuasarOperationException>(() => Invoke("commit", request));
+        Assert.Equal(404, replay.StatusCode);
+        Assert.False(Directory.Exists(primary.Path));
+    }
 
     private Task<QuasarUndoOutcome> UndoAsync(string entryId) =>
         _services

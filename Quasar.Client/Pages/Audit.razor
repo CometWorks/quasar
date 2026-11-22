@@ -1,0 +1,4 @@
+@page "/audit"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+
+<Quasar.Client.Administration.AuditLogPage />

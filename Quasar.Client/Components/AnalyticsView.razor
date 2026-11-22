@@ -1,0 +1,1231 @@
+@using Microsoft.JSInterop
+@using MudBlazor
+@using Quasar.Services
+@using Quasar.Services.Analytics
+@using Quasar.Client.Operations.Analytics
+@using System.Text.Json
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+<DashboardPageHeading Section="Operations">
+    <Title>Analytics</Title>
+    <Description>Select servers or whole clusters. Each metric has one chart, with a separate colored series for each cluster node.</Description>
+</DashboardPageHeading>
+
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
+    <div style="flex: 1 1 200px; min-width: 200px;">
+        <MudSelect T="string" Label="Time range" Value="_config.SelectedRangeKey" ValueChanged="HandleRangeChanged" Variant="Variant.Outlined">
+            @foreach (var option in RangeOptions)
+            {
+                <MudSelectItem T="string" Value="@option.Key">@option.Label</MudSelectItem>
+            }
+        </MudSelect>
+    </div>
+    <div style="flex: 1 1 180px; min-width: 180px;">
+        <MudSelect T="int" Label="Auto refresh" Value="_config.AutoRefreshSeconds" ValueChanged="HandleAutoRefreshChanged" Variant="Variant.Outlined">
+            <MudSelectItem T="int" Value="0">Off</MudSelectItem>
+            <MudSelectItem T="int" Value="5">5s</MudSelectItem>
+            <MudSelectItem T="int" Value="15">15s</MudSelectItem>
+            <MudSelectItem T="int" Value="30">30s</MudSelectItem>
+            <MudSelectItem T="int" Value="60">60s</MudSelectItem>
+        </MudSelect>
+    </div>
+    <MudSpacer />
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-flexend quasar-gap-1">
+        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-flexend quasar-gap-1">
+            <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="@(() => RefreshAsync())">
+                Refresh
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.Download" OnClick="ExportAsync">
+                Export
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="MudBlazor.Color.Primary" StartIcon="@Icons.Material.Filled.SettingsBackupRestore" OnClick="ResetLayoutAsync">
+                Reset layout
+            </MudButton>
+            <MudMenu StartIcon="@Icons.Material.Filled.Visibility"
+                     Label="Add panel"
+                     Variant="Variant.Outlined"
+                     Color="MudBlazor.Color.Default"
+                     Dense="true"
+                     Disabled="@(HiddenPanels.Count == 0)">
+                @foreach (var panel in HiddenPanels)
+                {
+                    <MudMenuItem OnClick="@(() => RestorePanelAsync(panel))">@ResolveMetricTitle(panel.Key)</MudMenuItem>
+                }
+            </MudMenu>
+        </div>
+    </div>
+</div>
+
+@if (IsCustomRange)
+{
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" sm="6" lg="3">
+            <MudDatePicker Label="From date" Date="CustomFromDisplay.Date" DateChanged="HandleCustomFromDateChanged" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTimePicker Label="From time" Time="CustomFromDisplay.TimeOfDay" TimeChanged="HandleCustomFromTimeChanged" Variant="Variant.Outlined" Editable="true" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudDatePicker Label="To date" Date="CustomToDisplay.Date" DateChanged="HandleCustomToDateChanged" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="3">
+            <MudTimePicker Label="To time" Time="CustomToDisplay.TimeOfDay" TimeChanged="HandleCustomToTimeChanged" Variant="Variant.Outlined" Editable="true" />
+        </MudItem>
+    </MudGrid>
+}
+
+<section class="quasar-panel pa-4 mb-4">
+    <MudGrid>
+        <MudItem xs="12" xl="8">
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Servers and clusters</h2>
+                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                        <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectAllServersAsync">Select all</MudButton>
+                        <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="SelectNoneServersAsync">Select none</MudButton>
+                    </div>
+                </div>
+                @if (_serverOptions.Count == 0 && _clusterOptions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">No servers known yet.</MudAlert>
+                }
+                else
+                {
+                    <MudGrid>
+                        @foreach (var option in _serverOptions.Where(option => option.ClusterId is null))
+                        {
+                            <MudItem xs="12" sm="6">
+                                <MudCheckBox T="bool"
+                                             Value="@IsServerSelected(option.UniqueName)"
+                                             ValueChanged="@(value => HandleServerToggled(option.UniqueName, value))"
+                                             Label="@option.DisplayName" />
+                            </MudItem>
+                        }
+                    </MudGrid>
+                    @foreach (var cluster in _clusterOptions)
+                    {
+                        <section class="analytics-cluster-selection" @key="cluster.Id">
+                            <MudCheckBox T="bool" Value="@IsClusterSelected(cluster.Id)"
+                                         ValueChanged="@(value => HandleClusterToggled(cluster.Id, value))"
+                                         Label="@cluster.DisplayName" />
+                            <p class="quasar-text quasar-type-caption">Cluster · @cluster.Nodes.Count node series · all nodes are included</p>
+                            @if (cluster.Nodes.Count == 0)
+                            {
+                                <p class="quasar-text quasar-type-caption">No node telemetry available yet.</p>
+                            }
+                            else
+                            {
+                                <div class="analytics-node-legend" aria-label="Node series">
+                                    @foreach (var node in cluster.Nodes)
+                                    {
+                                        <span><span class="analytics-series-swatch" style="background-color: @GetSeriesColor(node.UniqueName)" aria-hidden="true"></span>@node.NodeLabel</span>
+                                    }
+                                </div>
+                            }
+                        </section>
+                    }
+                    @if (_config.SelectedClusterIds.Count > 0)
+                    {
+                        <p class="quasar-text quasar-type-caption">Each chart compares all nodes. Player and world counts can be shared between nodes, so they are shown separately rather than added together.</p>
+                    }
+                }
+            </div>
+        </MudItem>
+        <MudItem xs="12" xl="4">
+            <div class="quasar-layout quasar-gap-2">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Grid</h2>
+                    <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" OnClick="ResetPanelsAsync">Reset panels</MudButton>
+                </div>
+                <MudNumericField T="int" Label="Columns" Value="_config.GridColumns" ValueChanged="HandleGridColumnsChanged" Variant="Variant.Outlined" Min="1" Max="6" />
+                <MudNumericField T="int" Label="Rows" Value="_config.GridRows" ValueChanged="HandleGridRowsChanged" Variant="Variant.Outlined" Min="1" Max="12" />
+                <MudNumericField T="int" Label="Row height (px)" Value="_config.RowHeightPx" ValueChanged="HandleRowHeightChanged" Variant="Variant.Outlined" Min="180" Max="960" />
+            </div>
+        </MudItem>
+    </MudGrid>
+</section>
+
+<MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true" Class="mb-4">
+    <MudExpansionPanel Expanded="@_analyticsProfilesExpanded" ExpandedChanged="SetAnalyticsProfilesExpanded" KeepContentAlive="false">
+        <TitleContent>
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 w-100">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                    <h2 class="quasar-text quasar-type-h6">Analytics Profiles</h2>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@GetAnalyticsProfilesChipColor()">
+                        @GetAnalyticsProfilesChipText()
+                    </MudChip>
+                </div>
+                <span class="quasar-text quasar-type-caption">@GetAnalyticsProfilesSummaryText()</span>
+            </div>
+        </TitleContent>
+        <ChildContent>
+            <div class="quasar-layout quasar-gap-2 mt-2">
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Profiler samples render in the chart panels below. Simple mode fills Profiler: Frame, Update, Physics, Scripts, Network, and Other. Extensive mode also fills Profiler: Top Grids and Profiler: Entity Types.
+                </MudAlert>
+
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-1">
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="@(() => ShowProfilerPanelsAsync(includeExtensive: false))">
+                        Show simple profiler charts
+                    </MudButton>
+                    <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="@(() => ShowProfilerPanelsAsync(includeExtensive: true))">
+                        Show extensive charts
+                    </MudButton>
+                </div>
+
+                @if (SelectedServerOptions.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">
+                        Select at least one server above to configure analytics profiles.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudTable T="ServerOption" Items="SelectedServerOptions" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Server / node</MudTh>
+                            <MudTh>Mode</MudTh>
+                            <MudTh>Live state</MudTh>
+                            <MudTh>Data appears in</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            @{
+                                var profiler = GetProfilerView(context.UniqueName);
+                            }
+                            <MudTd DataLabel="Server / node">
+                                <h3 class="quasar-text quasar-type-subtitle2">@context.DisplayName</h3>
+                                <span class="quasar-text quasar-type-caption">@context.UniqueName</span>
+                            </MudTd>
+                            <MudTd DataLabel="Mode">
+                                @if (_state?.CanControl == true)
+                                {
+                                <MudSelect T="string"
+                                           Label="Startup and live mode"
+                                           HelperText="@GetProfilerModeHelperText(profiler)"
+                                           Value="@profiler.ConfiguredMode"
+                                           ValueChanged="@(value => HandleProfilerModeChanged(context.UniqueName, value))"
+                                           Variant="Variant.Outlined"
+                                           Dense="true"
+                                           Disabled="@(!profiler.CanConfigure)">
+                                    @foreach (var mode in ProfilerModeOptions)
+                                    {
+                                        <MudSelectItem T="string" Value="@mode.Value">@mode.Label</MudSelectItem>
+                                    }
+                                </MudSelect>
+                                }
+                                else
+                                {@profiler.ConfiguredMode}
+
+                            </MudTd>
+                            <MudTd DataLabel="Live state">
+                                <div class="quasar-layout quasar-gap-1">
+                                    <MudChip T="string" Size="Size.Small" Color="@GetProfilerChipColor(profiler)" Variant="Variant.Outlined">
+                                        @GetLiveProfilerChipText(profiler)
+                                    </MudChip>
+                                    <span class="quasar-text quasar-type-caption">@GetLiveProfilerStatusText(profiler)</span>
+                                </div>
+                            </MudTd>
+                            <MudTd DataLabel="Data appears in">
+                                <p class="quasar-text quasar-type-body2">@GetProfilerChartTargetText(profiler)</p>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </div>
+        </ChildContent>
+    </MudExpansionPanel>
+</MudExpansionPanels>
+
+@if (_pluginPanels.Count > 0 || _state?.HasHistory == true)
+{
+    <section class="quasar-panel pa-4 mb-4">
+        <div class="quasar-layout quasar-gap-2">
+            <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                <h2 class="quasar-text quasar-type-h6">Plugin statistics</h2>
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.History" Href="analytics/plugin-history">
+                        History per label
+                    </MudButton>
+                    @if (_pluginPanels.Count > 0)
+                    {
+                    <MudButton Variant="Variant.Outlined" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Visibility" OnClick="ShowPluginStatsPanelsAsync">
+                        Show plugin statistics charts
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" Size="MudBlazor.Size.Small" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.VisibilityOff" OnClick="HidePluginStatsPanelsAsync">
+                        Hide all
+                    </MudButton>
+                    }
+                </div>
+            </div>
+            <p class="quasar-text quasar-type-body2">
+                @_pluginPanels.Count live metric@(_pluginPanels.Count == 1 ? "" : "s") published by plugins on the selected server@(_effectiveServers.Count == 1 ? "" : "s"), discovered from the schema each plugin ships. Show them all here, or add individual metrics from "Add panel". Each chart draws one line per instance (e.g. per cache).
+                "History per label" charts the stored history of one row, for example one player, over up to @(_state?.Retention ?? 0) days.
+            </p>
+        </div>
+    </section>
+}
+
+<div class="quasar-layout quasar-layout-row quasar-gap-1 mb-4 analytics-chip-row">
+    @foreach (var chip in _summaryChips)
+    {
+        <MudChip T="string" Color="MudBlazor.Color.Primary" Variant="Variant.Outlined">@chip.Label: @chip.Value</MudChip>
+    }
+</div>
+
+<p class="quasar-text quasar-type-body2 mb-4">
+    Process CPU adds usage across all server threads: 150% means about 1.5 logical CPUs in use.
+    Server Simulation CPU measures the update frame budget: 25% means about 4.2 ms of the 16.67 ms available.
+    These readings can coexist with smooth gameplay. Neither CPU percentage triggers automatic alerts or restarts.
+</p>
+
+@if (_chartCards.Count == 0)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+        No analytics samples match current filters yet.
+    </MudAlert>
+}
+else
+{
+    <div class="analytics-chart-grid" style="@ChartGridStyle">
+        @foreach (var chart in _chartCards)
+        {
+            <div class="analytics-chart-card" style="@chart.LayoutStyle" @key="chart.Key">
+                <section class="quasar-panel pa-4 analytics-chart-paper">
+                    <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3 mb-2">
+                        <div class="quasar-layout quasar-gap-0">
+                            <h2 class="quasar-text quasar-type-h6">@chart.Title</h2>
+                            <span class="quasar-text quasar-type-caption">@chart.Subtitle</span>
+                        </div>
+                        <MudTooltip Text="Panel settings">
+                            <MudIconButton Icon="@Icons.Material.Filled.Tune"
+                                           Size="MudBlazor.Size.Small"
+                                           Color="MudBlazor.Color.Default"
+                                           OnClick="@(() => OpenPanelDialogAsync(chart.Panel))" />
+                        </MudTooltip>
+                    </div>
+                    <div class="analytics-uplot" id="@chart.ContainerId" style="height: @(chart.Height)px;"></div>
+                </section>
+            </div>
+        }
+    </div>
+}
+
+@code
+{
+    private const string StorageKey = "quasar.analytics.view.v2";
+    private const int MaxPointsPerSeries = 1000;
+
+    private static readonly string[] SeriesColors =
+    [
+        "#3b82f6",
+        "#7dd3fc",
+        "#a7f3d0",
+        "#fde68a",
+        "#f0abfc",
+        "#c4b5fd",
+    ];
+
+    private static readonly (string Key, string Label)[] RangeOptions =
+    [
+        ("30s", "30s"),
+        ("1m", "1m"),
+        ("2m", "2m"),
+        ("5m", "5m"),
+        ("15m", "15m"),
+        ("30m", "30m"),
+        ("1h", "1h"),
+        ("6h", "6h"),
+        ("24h", "24h"),
+        ("7d", "7d"),
+        ("30d", "30d"),
+        ("custom", "Custom"),
+    ];
+
+    private static readonly ProfilerModeOption[] ProfilerModeOptions =
+    [
+        new("SafeContinuous", "Simple, low overhead"),
+        new("DeepContinuous", "Extensive, deep detail"),
+        new("Off", "Off"),
+    ];
+
+    private readonly List<ChartCard> _chartCards = [];
+    private readonly List<SummaryChipModel> _summaryChips = [];
+    private AnalyticsViewConfig _config = new();
+    private AnalyticsPageState? _state;
+    private long _generation;
+    private string? _error;
+    private IReadOnlyList<ServerOption> _serverOptions = [];
+    private IReadOnlyList<ClusterOption> _clusterOptions = [];
+    private readonly Dictionary<string, string> _seriesColors = new(StringComparer.OrdinalIgnoreCase);
+
+
+    private CancellationTokenSource _refreshCts = new();
+    private bool _disposed;
+    private bool _configLoaded;
+    private bool _selectionInitialized;
+    private bool _pendingChartSync;
+
+
+    private bool _isDarkTheme = true;
+    private bool _analyticsProfilesExpanded;
+    private bool _analyticsProfilesExpansionTouched;
+
+    private long _fromUnix;
+    private long _toUnix;
+    private List<string> _effectiveServers = [];
+
+    private IReadOnlyList<MetricPanel> _pluginPanels = [];
+    private Dictionary<string, MetricPanel> _pluginPanelsByKey = new(StringComparer.OrdinalIgnoreCase);
+    private Dictionary<string, string> _serverNameMap = new(StringComparer.OrdinalIgnoreCase);
+    private DotNetObjectReference<AnalyticsView>? _selfRef;
+
+    private bool IsCustomRange => string.Equals(_config.SelectedRangeKey, "custom", StringComparison.OrdinalIgnoreCase);
+
+    private IReadOnlyList<AnalyticsPanelConfig> HiddenPanels => _config.Panels
+        .Where(panel => !panel.Visible)
+        .OrderBy(panel => panel.Order)
+        .ToList();
+
+    // The telemetry stores behind the selected servers; a cluster slot has one per node instance and epoch.
+
+
+    private IReadOnlyList<ServerOption> SelectedServerOptions => _serverOptions
+        .Where(option => option.ClusterId is { } clusterId ? IsClusterSelected(clusterId) : IsServerSelected(option.UniqueName))
+        .ToList();
+
+    private string ChartGridStyle =>
+        $"--analytics-grid-columns: {Math.Max(1, _config.GridColumns)}; --analytics-grid-rows: {Math.Max(1, _config.GridRows)}; --analytics-row-height: {Math.Max(180, _config.RowHeightPx)}px;";
+
+    private static string ContainerId(string key) => $"analytics-chart-{key}";
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isDarkTheme = await JS.InvokeAsync<bool>("quasarSdk.darkMode");
+            await RefreshViewAsync();
+            if (_state is null) { StateHasChanged(); return; }
+            await LoadConfigAsync();
+            await RefreshViewAsync();
+            UpdateRefreshTimer();
+
+            _selfRef ??= DotNetObjectReference.Create(this);
+            try
+            {
+                await JS.InvokeVoidAsync("quasarCharts.init", _selfRef);
+            }
+            catch (InvalidOperationException)
+            {
+            }
+            catch (JSDisconnectedException)
+            {
+            }
+
+            _pendingChartSync = true;
+            await InvokeAsync(StateHasChanged);
+            return;
+        }
+
+        if (_pendingChartSync)
+        {
+            _pendingChartSync = false;
+            await SyncChartsAsync();
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
+
+        try
+        {
+            _ = JS.InvokeVoidAsync("quasarCharts.disposeAll");
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+
+        _selfRef?.Dispose();
+    }
+
+    private async Task LoadConfigAsync()
+    {
+        try
+        {
+            var raw = await JS.InvokeAsync<string?>("quasarConfigs.getLocalStorage", StorageKey);
+            var stored = string.IsNullOrWhiteSpace(raw) ? null : JsonSerializer.Deserialize<AnalyticsViewConfig>(raw, JsonSerializerOptions.Web);
+            _config = NormalizeConfig(stored);
+            var migrated = _config.MigrateCustomRange(ViewerTime, ViewerTime.ToBrowser(DateTimeOffset.UtcNow).Date);
+            _selectionInitialized = stored is not null;
+            _configLoaded = true;
+            if (migrated)
+                await PersistConfigAsync();
+        }
+        catch (InvalidOperationException)
+        {
+            _config = NormalizeConfig(null);
+        }
+        catch (JSDisconnectedException)
+        {
+            _config = NormalizeConfig(null);
+        }
+    }
+
+    private async Task PersistConfigAsync()
+    {
+        if (!_configLoaded)
+            return;
+
+        try
+        {
+            await JS.InvokeVoidAsync("quasarConfigs.setLocalStorage", StorageKey, JsonSerializer.Serialize(_config, JsonSerializerOptions.Web));
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+    }
+
+    private async Task RefreshAsync()
+    {
+        await RefreshViewAsync();
+        _pendingChartSync = true;
+        await PersistConfigAsync();
+        StateHasChanged();
+    }
+
+    private async Task ExportAsync()
+    {
+        try
+        {
+            await Sdk.RequestAsync<bool>("analytics.persist");
+            Snackbar.Add("Analytics persisted to disk.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+    }
+
+    private async Task ResetLayoutAsync()
+    {
+        _config.GridColumns = 2;
+        _config.GridRows = 4;
+        _config.RowHeightPx = 320;
+        await RefreshAsync();
+    }
+
+    private async Task ResetPanelsAsync()
+    {
+        _config.Panels = CreateDefaultPanels();
+        await RefreshAsync();
+    }
+
+    private async Task SelectAllServersAsync()
+    {
+        _config.SelectedUniqueNames = _serverOptions.Where(option => option.ClusterId is null).Select(option => option.UniqueName).ToList();
+        _config.SelectedClusterIds = _clusterOptions.Select(option => option.Id).ToList();
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private async Task SelectNoneServersAsync()
+    {
+        _config.SelectedUniqueNames = [];
+        _config.SelectedClusterIds = [];
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private async Task HandleServerToggled(string uniqueName, bool value)
+    {
+        if (value)
+        {
+            if (!_config.SelectedUniqueNames.Any(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase)))
+                _config.SelectedUniqueNames.Add(uniqueName);
+        }
+        else
+        {
+            _config.SelectedUniqueNames.RemoveAll(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private async Task HandleClusterToggled(string clusterId, bool value)
+    {
+        _config.SelectedClusterIds.RemoveAll(id => string.Equals(id, clusterId, StringComparison.OrdinalIgnoreCase));
+        if (value)
+            _config.SelectedClusterIds.Add(clusterId);
+        _selectionInitialized = true;
+        await RefreshAsync();
+    }
+
+    private sealed record ProfilerChangeResult(bool Persisted, bool Applied);
+
+    private async Task HandleProfilerModeChanged(string uniqueName, string? value)
+    {
+        if (_state?.CanControl != true)
+        {
+            Snackbar.Add("Access denied: your current role cannot change profiler mode.", Severity.Error);
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(uniqueName))
+            return;
+
+        var mode = value ?? "SafeContinuous";
+        var persisted = false;
+        var applied = false;
+
+        try
+        {
+            var result = await Sdk.RequestAsync<ProfilerChangeResult>("analytics.profiler.mode", new { UniqueName = uniqueName, Mode = mode });
+            persisted = result.Persisted;
+            applied = result.Applied;
+            var label = GetProfilerModeLabel(mode);
+            if (persisted && applied)
+                Snackbar.Add($"Profiler mode saved for future starts and applied to the running agent now: {label}.", Severity.Success);
+            else if (persisted)
+                Snackbar.Add($"Profiler mode saved for future starts: {label}. It will apply when the server starts or reconnects.", Severity.Success);
+            else if (applied)
+                Snackbar.Add($"Profiler mode applied to the running agent now: {label}. No server config was updated.", Severity.Success);
+            else
+                Snackbar.Add("No configured server or connected agent matched that profiler target.", Severity.Warning);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            await RefreshViewAsync();
+            _pendingChartSync = true;
+            StateHasChanged();
+        }
+    }
+
+    private Task HandleRangeChanged(string value)
+    {
+        _config.SelectedRangeKey = string.IsNullOrWhiteSpace(value) ? "1h" : value;
+        UpdateRefreshTimer();
+        return RefreshAsync();
+    }
+
+    private Task HandleAutoRefreshChanged(int value)
+    {
+        _config.AutoRefreshSeconds = Math.Max(0, value);
+        UpdateRefreshTimer();
+        return PersistConfigAsync();
+    }
+
+    private DateTime Today => ViewerTime.ToViewer(DateTimeOffset.UtcNow).Date;
+    private static readonly TimeSpan EndOfDay = new(23, 59, 0);
+    private DateTime CustomFromDisplay => _config.CustomFromUtc is { } from ? ViewerTime.ToViewer(from) : Today.AddDays(-1);
+    private DateTime CustomToDisplay => _config.CustomToUtc is { } to ? ViewerTime.ToViewer(to) : Today.Add(EndOfDay);
+
+    private Task HandleCustomFromDateChanged(DateTime? value)
+    {
+        _config.CustomFromUtc = ViewerTime.FromViewer((value ?? Today.AddDays(-1)).Date + CustomFromDisplay.TimeOfDay);
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomFromTimeChanged(TimeSpan? value)
+    {
+        _config.CustomFromUtc = ViewerTime.FromViewer(CustomFromDisplay.Date + (value ?? TimeSpan.Zero));
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomToDateChanged(DateTime? value)
+    {
+        _config.CustomToUtc = ViewerTime.FromViewer((value ?? Today).Date + CustomToDisplay.TimeOfDay);
+        return RefreshAsync();
+    }
+
+    private Task HandleCustomToTimeChanged(TimeSpan? value)
+    {
+        _config.CustomToUtc = ViewerTime.FromViewer(CustomToDisplay.Date + (value ?? EndOfDay));
+        return RefreshAsync();
+    }
+
+    private Task HandleGridColumnsChanged(int value)
+    {
+        _config.GridColumns = Math.Clamp(value, 1, 6);
+        foreach (var panel in _config.Panels)
+            panel.ColumnSpan = Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns);
+
+        return RefreshAsync();
+    }
+
+    private Task HandleGridRowsChanged(int value)
+    {
+        _config.GridRows = Math.Clamp(value, 1, 12);
+        foreach (var panel in _config.Panels)
+            panel.RowSpan = Math.Clamp(panel.RowSpan, 1, _config.GridRows);
+
+        return RefreshAsync();
+    }
+
+    private Task HandleRowHeightChanged(int value)
+    {
+        _config.RowHeightPx = Math.Clamp(value, 180, 960);
+        return RefreshAsync();
+    }
+
+    private async Task RestorePanelAsync(AnalyticsPanelConfig panel)
+    {
+        panel.Visible = true;
+        await RefreshAsync();
+    }
+
+    private async Task ShowProfilerPanelsAsync(bool includeExtensive)
+    {
+        var keys = (_state?.Metrics ?? []).Where(m => m.Profiler).Select(m => m.Key);
+        if (includeExtensive)
+            keys = keys.Concat((_state?.Metrics ?? []).Where(m => m.Extensive).Select(m => m.Key));
+
+        var keySet = keys.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var panel in _config.Panels)
+        {
+            if (keySet.Contains(panel.Key))
+                panel.Visible = true;
+        }
+
+        await RefreshAsync();
+    }
+
+    private async Task ShowPluginStatsPanelsAsync()
+    {
+        foreach (var panel in _config.Panels)
+        {
+            if (IsMetricPanel(panel.Key))
+                panel.Visible = true;
+        }
+
+        await RefreshAsync();
+    }
+
+    private async Task HidePluginStatsPanelsAsync()
+    {
+        foreach (var panel in _config.Panels)
+        {
+            if (IsMetricPanel(panel.Key))
+                panel.Visible = false;
+        }
+
+        await RefreshAsync();
+    }
+
+    private Task SetAnalyticsProfilesExpanded(bool expanded)
+    {
+        _analyticsProfilesExpanded = expanded;
+        _analyticsProfilesExpansionTouched = true;
+        return Task.CompletedTask;
+    }
+
+    private void UpdateRefreshTimer()
+    {
+        _refreshCts.Cancel();
+        _refreshCts.Dispose();
+        _refreshCts = new CancellationTokenSource();
+
+        if (_config.AutoRefreshSeconds <= 0 || _disposed)
+            return;
+
+        var interval = TimeSpan.FromSeconds(_config.AutoRefreshSeconds);
+        var token = _refreshCts.Token;
+        _ = RunAutoRefreshLoopAsync(interval, token);
+    }
+
+    private async Task RunAutoRefreshLoopAsync(TimeSpan interval, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(interval);
+            while (await timer.WaitForNextTickAsync(cancellationToken))
+            {
+                if (_disposed || cancellationToken.IsCancellationRequested)
+                    return;
+
+                await InvokeAsync(() =>
+                    _disposed || cancellationToken.IsCancellationRequested
+                        ? Task.CompletedTask
+                        : RefreshAsync());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+    }
+
+    private async Task SyncChartsAsync()
+    {
+        if (_disposed)
+            return;
+
+        _isDarkTheme = await JS.InvokeAsync<bool>("quasarSdk.darkMode");
+        var request = new
+        {
+            from = _fromUnix,
+            to = _toUnix,
+            maxPoints = MaxPointsPerSeries,
+            servers = _effectiveServers,
+            metrics = _chartCards.Select(card => new
+            {
+                key = card.Key,
+                containerId = card.ContainerId,
+                height = card.Height,
+            }),
+            names = _serverNameMap,
+            colors = SeriesColors,
+            seriesColors = _seriesColors,
+            lines = _config.SelectedClusterIds.Count > 0,
+            dark = _isDarkTheme,
+            timeZone = ViewerTime.PreferredId,
+        };
+
+        try
+        {
+            var result = await JS.InvokeAsync<ChartSyncResult>("quasarCharts.sync", request);
+            if (result is { Ok: false })
+                Snackbar.Add($"Failed to load analytics data (status {result.Status}).", Severity.Warning);
+        }
+        catch (InvalidOperationException)
+        {
+        }
+        catch (JSDisconnectedException)
+        {
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    // Invoked from quasar-charts.js when the user drags a time range on a chart. Pins the page to that
+    // absolute window (as a custom range) so it stays put even as new real-time data arrives, until the
+    // user picks a relative range again from the dropdown.
+    [JSInvokable]
+    public Task OnChartRangeSelected(double fromSec, double toSec)
+    {
+        return InvokeAsync(async () =>
+        {
+            if (_disposed)
+                return;
+
+            var fromUnix = (long)Math.Round(Math.Min(fromSec, toSec));
+            var toUnix = (long)Math.Round(Math.Max(fromSec, toSec));
+            if (toUnix - fromUnix < 1)
+                return;
+
+            _config.SelectedRangeKey = "custom";
+            _config.CustomFromUtc = DateTimeOffset.FromUnixTimeSeconds(fromUnix);
+            _config.CustomToUtc = DateTimeOffset.FromUnixTimeSeconds(toUnix);
+
+            UpdateRefreshTimer();
+            await RefreshAsync();
+        });
+    }
+
+    private async Task RefreshViewAsync()
+    {
+        var generation = ++_generation;
+        (_fromUnix, _toUnix) = ResolveRange();
+        try
+        {
+            var state = await Sdk.RequestAsync<AnalyticsPageState>("analytics.dashboard", new AnalyticsSelection(_fromUnix, _toUnix,
+                _config.SelectedUniqueNames, _config.SelectedClusterIds, _selectionInitialized));
+            if (_disposed || generation != _generation) return;
+            _state = state; _selectionInitialized = state.Initialized;
+            _config.SelectedUniqueNames = state.SelectedServers; _config.SelectedClusterIds = state.SelectedClusters;
+            _serverOptions = state.Servers; _clusterOptions = state.Clusters;
+            _effectiveServers = state.Series;
+            _serverNameMap = _serverOptions.ToDictionary(o => o.UniqueName,o => o.DisplayName,StringComparer.OrdinalIgnoreCase);
+            foreach (var option in _serverOptions) GetSeriesColor(option.UniqueName);
+            _summaryChips.Clear(); _summaryChips.AddRange(state.Summary);
+            _pluginPanels = state.PluginPanels;
+            _pluginPanelsByKey = _pluginPanels.ToDictionary(p => p.Key,StringComparer.OrdinalIgnoreCase);
+            SyncAnalyticsProfilesExpansion();
+            RefreshPluginPanels();
+            BuildChartCards(state.HasData, state.Series.Count > 0);
+            _error = null;
+        }
+        catch (JSException ex) { if (generation == _generation) _error = ex.Message; }
+    }
+
+    private void RefreshPluginPanels()
+    {
+        var known = _config.Panels.Select(panel => panel.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var nextOrder = _config.Panels.Count == 0 ? 0 : _config.Panels.Max(panel => panel.Order) + 1;
+        foreach (var panel in _pluginPanels)
+        {
+            if (known.Add(panel.Key))
+                _config.Panels.Add(new AnalyticsPanelConfig { Key = panel.Key, Visible = false, Order = nextOrder++, ColumnSpan = 1, RowSpan = 1 });
+        }
+    }
+
+    private void BuildChartCards(bool hasData, bool keepEmptyProfilerPanels)
+    {
+        _chartCards.Clear();
+        if (!hasData && !keepEmptyProfilerPanels)
+            return;
+
+        foreach (var panel in _config.Panels
+                     .Where(panel => panel.Visible)
+                     .OrderBy(panel => panel.Order)
+                     .ThenBy(panel => ResolveMetricTitle(panel.Key), StringComparer.OrdinalIgnoreCase))
+        {
+            var info = ResolvePanelInfo(panel.Key);
+            if (info is null)
+                continue;
+
+            if (!hasData && !IsProfilerPanel(panel.Key) && !IsMetricPanel(panel.Key))
+                continue;
+
+            var layoutStyle = $"grid-column: span {Math.Clamp(panel.ColumnSpan, 1, _config.GridColumns)}; grid-row: span {Math.Clamp(panel.RowSpan, 1, Math.Max(1, _config.GridRows))};";
+            _chartCards.Add(new ChartCard(
+                Key: panel.Key,
+                Title: info.Value.Title,
+                Subtitle: info.Value.Subtitle,
+                ContainerId: ContainerId(panel.Key),
+                LayoutStyle: layoutStyle,
+                Height: ResolveChartHeight(panel),
+                Panel: panel));
+        }
+    }
+
+    private string GetSeriesColor(string key)
+    {
+        if (_seriesColors.TryGetValue(key, out var color))
+            return color;
+        var index = _seriesColors.Count;
+        color = index < SeriesColors.Length ? SeriesColors[index]
+            : FormattableString.Invariant($"hsl({index * 137.508 % 360:0.###}, 70%, 60%)");
+        _seriesColors[key] = color;
+        return color;
+    }
+
+    private ProfilerView GetProfilerView(string key) => _state?.Profiles.GetValueOrDefault(key) ?? new("Off", "", false, false, false);
+
+    private void SyncAnalyticsProfilesExpansion()
+    {
+        if (_analyticsProfilesExpansionTouched)
+            return;
+
+        _analyticsProfilesExpanded = SelectedServerOptions
+            .Select(option => GetProfilerView(option.UniqueName))
+            .Any(IsExtensiveProfilerEnabled);
+    }
+
+    private static Color GetProfilerChipColor(ProfilerView profiler)
+    {
+        if (string.IsNullOrWhiteSpace(profiler.LiveMode))
+            return Color.Default;
+
+        if (!string.Equals(profiler.LiveMode, profiler.ConfiguredMode, StringComparison.OrdinalIgnoreCase))
+            return Color.Warning;
+
+        return profiler.LiveMode switch
+        {
+            "Off" => Color.Default,
+            "DeepContinuous" => Color.Info,
+            _ => Color.Success,
+        };
+    }
+
+    private static string GetProfilerModeLabel(string mode) =>
+        ProfilerModeOptions.FirstOrDefault(option => string.Equals(option.Value, mode, StringComparison.OrdinalIgnoreCase))?.Label
+        ?? mode;
+
+    private static bool IsExtensiveProfilerEnabled(ProfilerView profiler) =>
+        string.Equals(profiler.ConfiguredMode, "DeepContinuous", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(profiler.LiveMode, "DeepContinuous", StringComparison.OrdinalIgnoreCase);
+
+    private Color GetAnalyticsProfilesChipColor() =>
+        SelectedServerOptions
+            .Select(option => GetProfilerView(option.UniqueName))
+            .Any(IsExtensiveProfilerEnabled)
+            ? Color.Info
+            : Color.Default;
+
+    private string GetAnalyticsProfilesChipText() =>
+        SelectedServerOptions
+            .Select(option => GetProfilerView(option.UniqueName))
+            .Any(IsExtensiveProfilerEnabled)
+            ? "Extensive on"
+            : "Simple/off";
+
+    private string GetAnalyticsProfilesSummaryText()
+    {
+        if (SelectedServerOptions.Count == 0)
+            return "No selected servers";
+
+        return $"{SelectedServerOptions.Count} selected process(es)";
+    }
+
+    private static string GetProfilerModeHelperText(ProfilerView profiler)
+    {
+        if (profiler.HasDefinition && profiler.IsConnected)
+            return "Saved for future starts and sent to the running agent immediately.";
+
+        if (profiler.HasDefinition)
+            return "Saved for future starts; applies when the server starts or reconnects.";
+
+        if (profiler.IsConnected)
+            return "Sent to the running agent immediately; no saved server config exists.";
+
+        return "No configured server or connected agent is available.";
+    }
+
+    private static string GetLiveProfilerChipText(ProfilerView profiler) =>
+        string.IsNullOrWhiteSpace(profiler.LiveMode)
+            ? "Offline"
+            : GetProfilerModeLabel(profiler.LiveMode);
+
+    private static string GetLiveProfilerStatusText(ProfilerView profiler)
+    {
+        if (string.IsNullOrWhiteSpace(profiler.LiveMode))
+            return "Not applied to a running server.";
+
+        if (!string.Equals(profiler.LiveMode, profiler.ConfiguredMode, StringComparison.OrdinalIgnoreCase))
+            return $"Running {GetProfilerModeLabel(profiler.LiveMode)} now; future starts use {GetProfilerModeLabel(profiler.ConfiguredMode)}.";
+
+        return "Running with the saved mode now.";
+    }
+
+    private static string GetProfilerChartTargetText(ProfilerView profiler)
+    {
+        if (string.Equals(profiler.ConfiguredMode, "Off", StringComparison.OrdinalIgnoreCase) &&
+            !IsExtensiveProfilerEnabled(profiler))
+        {
+            return "Profiler charts stop receiving new data.";
+        }
+
+        if (IsExtensiveProfilerEnabled(profiler))
+            return "Profiler panels below, plus Top Grids and Entity Types.";
+
+        return "Profiler Frame, Update, Physics, Scripts, Network, and Other panels below.";
+    }
+
+    private bool IsServerSelected(string uniqueName)
+    {
+        return _config.SelectedUniqueNames.Any(id => string.Equals(id, uniqueName, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private IReadOnlyList<string> GetSelectedUniqueNames()
+    {
+        return SelectedServerOptions.Select(option => option.UniqueName).ToList();
+    }
+
+    private bool IsClusterSelected(string id) => _config.SelectedClusterIds.Contains(id, StringComparer.OrdinalIgnoreCase);
+
+    private (long FromUnix, long ToUnix) ResolveRange()
+    {
+        var nowUtc = DateTimeOffset.UtcNow;
+        switch (_config.SelectedRangeKey?.ToLowerInvariant())
+        {
+            case "30s":
+                return (nowUtc.AddSeconds(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "1m":
+                return (nowUtc.AddMinutes(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "2m":
+                return (nowUtc.AddMinutes(-2).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "5m":
+                return (nowUtc.AddMinutes(-5).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "15m":
+                return (nowUtc.AddMinutes(-15).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "30m":
+                return (nowUtc.AddMinutes(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "1h":
+                return (nowUtc.AddHours(-1).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "6h":
+                return (nowUtc.AddHours(-6).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "24h":
+                return (nowUtc.AddHours(-24).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "7d":
+                return (nowUtc.AddDays(-7).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+            case "30d":
+                return (nowUtc.AddDays(-30).ToUnixTimeSeconds(), nowUtc.ToUnixTimeSeconds());
+        }
+
+        var today = ViewerTime.ToViewer(nowUtc).Date;
+        var from = _config.CustomFromUtc ?? ViewerTime.FromViewer(today.AddDays(-1));
+        var to = _config.CustomToUtc ?? ViewerTime.FromViewer(today.Add(EndOfDay));
+        if (to < from)
+            to = from.AddHours(1);
+
+        return (from.ToUnixTimeSeconds(), to.ToUnixTimeSeconds());
+    }
+
+    private async Task OpenPanelDialogAsync(AnalyticsPanelConfig panel)
+    {
+        var parameters = new DialogParameters
+        {
+            ["Title"] = ResolveMetricTitle(panel.Key),
+            ["Subtitle"] = "Panel display and layout",
+            ["Visible"] = panel.Visible,
+            ["Order"] = panel.Order,
+            ["ColumnSpan"] = panel.ColumnSpan,
+            ["RowSpan"] = panel.RowSpan,
+            ["GridColumns"] = _config.GridColumns,
+            ["GridRows"] = _config.GridRows,
+        };
+
+        var options = new DialogOptions
+        {
+            CloseOnEscapeKey = true,
+            MaxWidth = MaxWidth.ExtraSmall,
+            FullWidth = true,
+        };
+
+        var dialog = await DialogService.ShowAsync<AnalyticsPanelDialog>(ResolveMetricTitle(panel.Key), parameters, options);
+        var result = await dialog.Result;
+        if (result is null || result.Canceled || result.Data is not AnalyticsPanelDialogResult updated)
+            return;
+
+        panel.Visible = updated.Visible;
+        panel.Order = Math.Clamp(updated.Order, 0, 99);
+        panel.ColumnSpan = Math.Clamp(updated.ColumnSpan, 1, _config.GridColumns);
+        panel.RowSpan = Math.Clamp(updated.RowSpan, 1, Math.Max(1, _config.GridRows));
+        await RefreshAsync();
+    }
+
+    private int ResolveChartHeight(AnalyticsPanelConfig panel)
+    {
+        var rowHeight = Math.Max(180, _config.RowHeightPx);
+        var rowSpan = Math.Max(1, panel.RowSpan);
+        return Math.Max(280, (rowHeight * rowSpan) - 88);
+    }
+
+    private string ResolveMetricTitle(string key) => ResolvePanelInfo(key)?.Title ?? key;
+
+    // Resolves a panel's display title/subtitle from the static metric catalog first, then from the
+    // runtime-discovered plugin-statistics catalog.
+    private (string Title, string Subtitle)? ResolvePanelInfo(string key)
+    {
+        var metric = _state?.Metrics.FirstOrDefault(m => m.Key == key);
+        if (metric is not null)
+            return (metric.Title, metric.Subtitle);
+
+        if (_pluginPanelsByKey.TryGetValue(key, out var plugin))
+            return (plugin.Title, plugin.Subtitle);
+
+        return null;
+    }
+
+    private bool IsProfilerPanel(string key) =>
+        _state?.Metrics.Any(m => m.Key == key && (m.Profiler || m.Extensive)) == true;
+
+    private static bool IsMetricPanel(string key) =>
+        key.StartsWith("plugin:", StringComparison.Ordinal);
+
+    private AnalyticsViewConfig NormalizeConfig(AnalyticsViewConfig? config)
+    {
+        var normalized = config ?? CreateDefaultConfig();
+        normalized.SelectedRangeKey = RangeOptions.Any(option => string.Equals(option.Key, normalized.SelectedRangeKey, StringComparison.OrdinalIgnoreCase))
+            ? normalized.SelectedRangeKey
+            : "1h";
+        normalized.GridColumns = Math.Clamp(normalized.GridColumns <= 0 ? 2 : normalized.GridColumns, 1, 6);
+        normalized.GridRows = Math.Clamp(normalized.GridRows <= 0 ? 4 : normalized.GridRows, 1, 12);
+        normalized.RowHeightPx = Math.Clamp(normalized.RowHeightPx <= 0 ? 320 : normalized.RowHeightPx, 180, 960);
+        normalized.AutoRefreshSeconds = normalized.AutoRefreshSeconds switch
+        {
+            0 or 5 or 15 or 30 or 60 => normalized.AutoRefreshSeconds,
+            _ => 0,
+        };
+
+        var panels = (normalized.Panels ?? [])
+            .ToDictionary(panel => panel.Key, StringComparer.OrdinalIgnoreCase);
+        var rebuilt = CreateDefaultPanels()
+            .Select(panel =>
+            {
+                if (!panels.TryGetValue(panel.Key, out var existing))
+                    return panel;
+
+                return new AnalyticsPanelConfig
+                {
+                    Key = panel.Key,
+                    Visible = existing.Visible,
+                    Order = Math.Clamp(existing.Order, 0, 99),
+                    ColumnSpan = Math.Clamp(existing.ColumnSpan, 1, normalized.GridColumns),
+                    RowSpan = Math.Clamp(existing.RowSpan, 1, Math.Max(1, normalized.GridRows)),
+                };
+            })
+            .ToList();
+
+        // Preserve runtime-discovered plugin-statistics panels: their keys are not part of the
+        // static defaults, so they would otherwise be dropped on every config load.
+        var knownKeys = rebuilt.Select(panel => panel.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var existing in panels.Values)
+        {
+            if (!IsMetricPanel(existing.Key) || !knownKeys.Add(existing.Key))
+                continue;
+
+            rebuilt.Add(new AnalyticsPanelConfig
+            {
+                Key = existing.Key,
+                Visible = existing.Visible,
+                Order = Math.Clamp(existing.Order, 0, 999),
+                ColumnSpan = Math.Clamp(existing.ColumnSpan <= 0 ? 1 : existing.ColumnSpan, 1, normalized.GridColumns),
+                RowSpan = Math.Clamp(existing.RowSpan <= 0 ? 1 : existing.RowSpan, 1, Math.Max(1, normalized.GridRows)),
+            });
+        }
+
+        normalized.Panels = rebuilt
+            .OrderBy(panel => panel.Order)
+            .ToList();
+
+        normalized.SelectedUniqueNames ??= [];
+        normalized.SelectedClusterIds ??= [];
+        return normalized;
+    }
+
+    private AnalyticsViewConfig CreateDefaultConfig()
+    {
+        return new AnalyticsViewConfig
+        {
+            Panels = CreateDefaultPanels(),
+        };
+    }
+
+    private List<AnalyticsPanelConfig> CreateDefaultPanels()
+    {
+        return (_state?.Metrics ?? [])
+            .Select((metric, index) => new AnalyticsPanelConfig
+            {
+                Key = metric.Key,
+                Visible = true,
+                Order = index,
+                ColumnSpan = 1,
+                RowSpan = 1,
+            })
+            .ToList();
+    }
+
+    private sealed record ChartCard(
+        string Key,
+        string Title,
+        string Subtitle,
+        string ContainerId,
+        string LayoutStyle,
+        int Height,
+        AnalyticsPanelConfig Panel);
+
+    private sealed record ChartSyncResult(bool Ok, int Charts, int Bytes, int? Status);
+}

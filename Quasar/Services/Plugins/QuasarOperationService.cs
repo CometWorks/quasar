@@ -289,9 +289,15 @@ public sealed class QuasarOperationService : IQuasarOperationDispatcher, IQuasar
         return true;
     }
 
-    internal static QuasarOperationRule? Rule(QuasarOperation operation, RbacConfig config) =>
-        config.OperationOverrides.TryGetValue(operation.Key, out var rule)
-            ? rule?.Clone() : new() { RequiredPolicies = operation.DefaultPolicies.ToList() };
+    internal static QuasarOperationRule? Rule(QuasarOperation operation, RbacConfig config)
+    {
+        if (!config.OperationOverrides.TryGetValue(operation.Key, out var saved))
+            return new() { RequiredPolicies = operation.DefaultPolicies.ToList() };
+        var rule = saved?.Clone();
+        if (operation.Metadata.RequireDefaultPolicies && rule?.RequiredPolicies is { Count: > 0 } policies)
+            rule.RequiredPolicies = policies.Union(operation.DefaultPolicies, StringComparer.OrdinalIgnoreCase).ToList();
+        return rule;
+    }
 
     private static string Actor(ClaimsPrincipal caller) => caller.FindFirstValue(ClaimTypes.NameIdentifier) ?? "unknown";
 }

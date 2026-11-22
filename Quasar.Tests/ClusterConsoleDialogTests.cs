@@ -9,8 +9,7 @@ using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
 using MudBlazor.Services;
-using Quasar.Components.Pages;
-using Quasar.Models;
+using Quasar.Client.Clusters;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Quasar.Services.PluginSdk;
@@ -25,17 +24,17 @@ public sealed class ClusterConsoleDialogTests
     [InlineData(true)]
     public async Task ConsoleEnforcesClusterScopeAndKeepsEventsDuringOutage(bool excluded)
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = new PrincipalState(excluded);
-        var mapper = new QuasarRoleMapper(new QuasarAuthOptions(), null!);
         context.Services.AddSingleton<AuthenticationStateProvider>(auth);
-        context.Services.AddSingleton(mapper);
-        context.Services.AddSingleton(new QuasarPermissionService(auth, new QueryPermission(), mapper));
         using var handler = new GatewayHandler();
         using var http = new HttpClient(handler);
         var gateway = new ClusterGatewayClient(http);
+        using var cluster = new BrowserClusterFixture(new() { UniqueName = "test", GatewayUrl = "http://gateway.test" });
+        context.Services.AddSingleton(cluster.Catalog);
+        context.Services.AddSingleton<IAuthorizationService>(new QueryPermission());
         var logs = new PluginLogStream();
         context.Services.AddSingleton(gateway);
         context.Services.AddSingleton(logs);
@@ -43,11 +42,11 @@ public sealed class ClusterConsoleDialogTests
         var dialog = context.Render<MudDialogProvider>();
         await dialog.InvokeAsync(async () => await context.Services.GetRequiredService<IDialogService>()
             .ShowAsync<ClusterConsoleDialog>("Console", new DialogParameters<ClusterConsoleDialog>
-            { { c => c.Cluster, new ClusterDefinition { UniqueName = "test", GatewayUrl = "http://gateway.test" } } }));
+            { { c => c.UniqueName, "test" } }));
         if (excluded)
         {
             Assert.Equal(0, handler.Calls);
-            Assert.Contains("Cluster access denied", dialog.Markup);
+            Assert.Contains("Cluster not found", dialog.Markup);
             return;
         }
         Assert.Contains("world-saved", dialog.Markup);
@@ -56,14 +55,19 @@ public sealed class ClusterConsoleDialogTests
         handler.Unavailable = true;
         await dialog.WaitForAssertionAsync(() => Assert.Contains("Retained entries may be stale", dialog.Markup), TimeSpan.FromSeconds(10));
         Assert.Contains("world-saved", dialog.Markup);
+        auth.Excluded = true;
+        await dialog.FindAll("button").Single(button => button.TextContent.Trim() == "Refresh").ClickAsync();
+        Assert.Contains("Cluster not found", dialog.Markup);
+        Assert.DoesNotContain("world-saved", dialog.Markup);
     }
 
     private sealed class PrincipalState(bool excluded) : AuthenticationStateProvider
     {
+        internal bool Excluded { get; set; } = excluded;
         public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(new AuthenticationState(
             new ClaimsPrincipal(new ClaimsIdentity([
                 new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.ServicePrincipal),
-                new Claim(QuasarClaimTypes.Cluster, excluded ? "another-cluster" : "test"),
+                new Claim(QuasarClaimTypes.Cluster, Excluded ? "another-cluster" : "test"),
             ], "test"))));
     }
     private sealed class QueryPermission : IAuthorizationService

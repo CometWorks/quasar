@@ -1,0 +1,181 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@using Quasar.Services
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+
+<section class="quasar-panel server-card pa-4">
+    <div class="d-flex align-center justify-space-between mb-2">
+        <h2 class="quasar-text quasar-type-h6">Recent plugin logs</h2>
+        <span class="quasar-text quasar-type-caption mud-text-secondary">@_count shown</span>
+    </div>
+
+    <MudGrid Class="mb-3">
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Server" Value="_uniqueNameFilter" ValueChanged="HandleUniqueNameChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+                @foreach (var uniqueName in _servers)
+                {
+                    <MudSelectItem T="string" Value="@uniqueName.Id">@uniqueName.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Plugin" Value="_pluginFilter" ValueChanged="HandlePluginChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+                @foreach (var plugin in _plugins)
+                {
+                    <MudSelectItem T="string" Value="@plugin">@plugin</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Level" Value="_levelFilter" ValueChanged="HandleLevelChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@string.Empty">All</MudSelectItem>
+                @foreach (var level in Levels)
+                {
+                    <MudSelectItem T="string" Value="@level">@level</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudSelect T="string" Label="Range" Value="_rangeKey" ValueChanged="HandleRangeChanged" Variant="Variant.Outlined">
+                <MudSelectItem T="string" Value="@("1h")">Last 1h</MudSelectItem>
+                <MudSelectItem T="string" Value="@("24h")">Last 24h</MudSelectItem>
+                <MudSelectItem T="string" Value="@("7d")">Last 7d</MudSelectItem>
+                <MudSelectItem T="string" Value="@("all")">All</MudSelectItem>
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudNumericField T="int" Label="Limit" Value="_limit" ValueChanged="HandleLimitChanged" Variant="Variant.Outlined" Min="1" Max="10000" />
+        </MudItem>
+        <MudItem xs="12" sm="6" lg="2">
+            <MudTextField T="string" Value="_textFilter" ValueChanged="HandleTextChanged" Label="Filter text" Variant="Variant.Outlined" Immediate="true" />
+        </MudItem>
+    </MudGrid>
+
+        <MudTable T="PluginLogLine" Dense="true" Hover="true" FixedHeader="true" Height="420px"
+                  @ref="_table" ServerData="LoadPageAsync" Breakpoint="Breakpoint.Sm" RowsPerPage="100">
+            <HeaderContent>
+                <MudTh><MudTableSortLabel InitialDirection="SortDirection.Descending" T="PluginLogLine" SortLabel="time">Time</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="PluginLogLine" SortLabel="level">Level</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="PluginLogLine" SortLabel="server">Server</MudTableSortLabel></MudTh>
+                <MudTh><MudTableSortLabel T="PluginLogLine" SortLabel="plugin">Plugin</MudTableSortLabel></MudTh>
+                <MudTh>Message</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Time"><span style="white-space:pre-line">@ViewerTime.FormatStacked(context.TimestampUtc)</span></MudTd>
+                <MudTd DataLabel="Level">
+                    <p class="quasar-text quasar-type-body2 quasar-tone-@((LevelColor(context.Level)).ToString().ToLowerInvariant())">@context.Level</p>
+                </MudTd>
+                <MudTd DataLabel="Server">@context.Server</MudTd>
+                <MudTd DataLabel="Plugin">@context.Plugin</MudTd>
+                <MudTd DataLabel="Message">
+                    <div>@context.Message</div>
+                    @if (!string.IsNullOrEmpty(context.Exception))
+                    {
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Error).ToString().ToLowerInvariant()) d-block" style="white-space: pre-wrap;">@context.Exception</span>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <PagerContent>
+                <MudTablePager PageSizeOptions="new[] { 25, 50, 100 }" />
+            </PagerContent>
+            <NoRecordsContent><p class="pa-4">No plugin logs match these filters.</p></NoRecordsContent>
+        </MudTable>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+</section>
+
+
+@code {
+    [Parameter] public long Revision { get; set; }
+    private long _previous = -1;
+    private MudTable<PluginLogLine>? _table;
+    private ConversionDestination[] _servers = [];
+    private string[] _plugins = [];
+    private static readonly string[] Levels = ["Debug", "Info", "Warning", "Error", "Critical"];
+    private int _count, _limit = 10_000;
+    private string _uniqueNameFilter = "", _pluginFilter = "", _levelFilter = "", _textFilter = "", _rangeKey = "24h";
+    private string? _error;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_previous == Revision) return;
+        _previous = Revision;
+        if (_table is not null) await _table.ReloadServerData();
+    }
+
+    private async Task<TableData<PluginLogLine>> LoadPageAsync(TableState state, CancellationToken token)
+    {
+        try
+        {
+            var query = new PluginLogRequest(_uniqueNameFilter, _pluginFilter, _levelFilter, _textFilter, _rangeKey, _limit,
+                state.Page, state.PageSize, state.SortLabel, state.SortDirection != SortDirection.Ascending);
+            var result = await JS.InvokeAsync<PluginLogResult>("quasarSdk.readJson", token, "quasar.core", "liveplugins.logs", query);
+            token.ThrowIfCancellationRequested();
+            _count = result.Total; _servers = result.Servers; _plugins = result.Plugins; _error = null;
+            await InvokeAsync(StateHasChanged);
+            return new() { TotalItems = _count, Items = result.Lines };
+        }
+        catch (JSException error)
+        {
+            _error = error.Message; _count = 0; _servers = []; _plugins = [];
+            await InvokeAsync(StateHasChanged);
+            return new() { TotalItems = 0, Items = [] };
+        }
+    }
+
+    private Task RefreshAsync()
+    {
+        if (_table is null) return Task.CompletedTask;
+        if (_table.CurrentPage == 0) return _table.ReloadServerData();
+        _table.NavigateTo(0);
+        return Task.CompletedTask;
+    }
+
+    private Task HandleUniqueNameChanged(string value)
+    {
+        _uniqueNameFilter = value;
+        return RefreshAsync();
+    }
+
+    private Task HandlePluginChanged(string value)
+    {
+        _pluginFilter = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleLevelChanged(string value)
+    {
+        _levelFilter = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleRangeChanged(string value)
+    {
+        _rangeKey = value;
+        return RefreshAsync();
+    }
+
+    private Task HandleLimitChanged(int value)
+    {
+        _limit = Math.Clamp(value, 1, 10_000);
+        return RefreshAsync();
+    }
+
+    private Task HandleTextChanged(string value)
+    {
+        _textFilter = value ?? string.Empty;
+        return RefreshAsync();
+    }
+
+    private static Color LevelColor(string level) => level switch
+    {
+        "Critical" => Color.Error,
+        "Error" => Color.Error,
+        "Warning" => Color.Warning,
+        "Info" => Color.Info,
+        _ => Color.Default,
+    };
+}

@@ -197,6 +197,12 @@ func identifier(value string) bool {
 	return true
 }
 
+// The fixed candidate fields precede any ICE extensions (RFC 8445).
+func directCandidate(value string) bool {
+	fields := strings.Fields(value)
+	return len(fields) >= 8 && fields[6] == "typ" && (fields[7] == "host" || fields[7] == "srflx" || fields[7] == "prflx")
+}
+
 func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
@@ -216,6 +222,12 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid offer", 400)
 			return
 		}
+		for _, line := range strings.Split(offer.SDP, "\n") {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line), "a=candidate:"); ok && !directCandidate(value) {
+				http.Error(w, "invalid direct ICE candidate", 400)
+				return
+			}
+		}
 		e.mu.Lock()
 		if _, exists := e.peers[id]; exists {
 			e.mu.Unlock()
@@ -234,13 +246,13 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, server := range offer.ICEServers {
-			if len(server.URLs) < 1 || len(server.URLs) > 3 {
+			if server.Username != "" || server.Credential != nil || len(server.URLs) < 1 || len(server.URLs) > 3 {
 				e.mu.Unlock()
 				http.Error(w, "invalid ICE URLs", 400)
 				return
 			}
 			for _, url := range server.URLs {
-				if len(url) > 256 || !(strings.HasPrefix(url, "stun:") || strings.HasPrefix(url, "turn:") || strings.HasPrefix(url, "turns:")) {
+				if len(url) > 256 || !strings.HasPrefix(url, "stun:") {
 					e.mu.Unlock()
 					http.Error(w, "invalid ICE URL", 400)
 					return
@@ -248,7 +260,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		config.ICEServers = offer.ICEServers
-		pc, err := e.api.NewPeerConnection(config) // Worker supplies only verified, temporary relay grants when needed.
+		pc, err := e.api.NewPeerConnection(config)
 		if err != nil {
 			e.mu.Unlock()
 			http.Error(w, "cannot create peer", 503)
@@ -326,7 +338,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 				}
 
 				p.received.Add(uint64(len(message.Data)))
-				// Small cumulative credits can arrive together after TURN pacing.
+				// Small cumulative credits can arrive in bursts.
 				// Preserve the old byte cap while admitting a bounded credit burst.
 				if !b.enqueue(message) {
 					e.retire(id, p)
@@ -386,7 +398,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		for _, candidate := range update.Candidates {
-			if len(candidate.Candidate) == 0 || len(candidate.Candidate) > maximumCandidateLength ||
+			if len(candidate.Candidate) > maximumCandidateLength || !directCandidate(candidate.Candidate) ||
 				(candidate.SDPMid != nil && len(*candidate.SDPMid) > 64) {
 				http.Error(w, "invalid ICE candidate", 400)
 				return
@@ -446,9 +458,7 @@ func (e *endpoint) serve(w http.ResponseWriter, r *http.Request) {
 			if pair, err := transport.Transport().ICETransport().GetSelectedCandidatePair(); err == nil && pair != nil {
 				status["localCandidateType"] = pair.Local.Typ.String()
 				status["remoteCandidateType"] = pair.Remote.Typ.String()
-				if pair.Local.Typ == webrtc.ICECandidateTypeRelay || pair.Remote.Typ == webrtc.ICECandidateTypeRelay {
-					status["path"] = "relayed"
-				} else {
+				if pair.Local.Typ != webrtc.ICECandidateTypeRelay && pair.Remote.Typ != webrtc.ICECandidateTypeRelay {
 					status["path"] = "direct"
 				}
 			}

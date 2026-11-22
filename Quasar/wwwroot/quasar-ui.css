@@ -314,6 +314,8 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-runtime-table th { width: 180px; }
 .quasar-runtime-table pre { max-height: 240px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .quasar-check { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.quasar-role-options { display: grid; gap: 4px; max-height: 12rem; overflow-y: auto; }
+.quasar-role-options .quasar-check { min-height: 28px; overflow-wrap: anywhere; }
 .quasar-check input { accent-color: var(--quasar-palette-primary); }
 .quasar-fieldset:disabled { opacity: .7; }
 .quasar-details {
@@ -483,7 +485,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-button { min-height: 32px; padding: 6px 12px; box-shadow: none; }
 .quasar-shell .mud-button-filled { box-shadow: none; }
 .quasar-shell .mud-button-filled-primary { font-weight: 650; }
-.quasar-shell .mud-icon-button { padding: 7px; }
+.quasar-shell .mud-icon-button:where(:not(.mud-switch-base)) { padding: 7px; }
 .quasar-shell .mud-icon-size-medium { font-size: 19px; }
 .quasar-shell .mud-chip { border-radius: 4px; font-size: 11px; min-height: 24px; height: auto; margin: 2px; }
 .quasar-shell .mud-chip-content { padding-block: 2px; }
@@ -506,6 +508,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     background: var(--quasar-palette-background-gray);
 }
 .quasar-shell .mud-dialog { border: 1px solid var(--quasar-palette-lines-default); border-radius: 8px; box-shadow: 0 24px 80px #0005; }
+.quasar-shell .mud-dialog:not(.mud-dialog-fullscreen) { max-height: calc(100dvh - 2rem); }
 .quasar-shell .mud-dialog-title { border-bottom: 1px solid var(--quasar-palette-divider); padding: 18px 22px; }
 .quasar-shell .mud-dialog-title .mud-typography-h6 { font-size: 19px; letter-spacing: -.4px; }
 .quasar-shell .mud-dialog-content { padding: 20px 22px; }
@@ -516,7 +519,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
 .quasar-shell .mud-alert-outlined { background: var(--quasar-palette-surface); }
 .quasar-shell .mud-alert-message { padding-block: 3px; }
 .cluster-beta-notice .mud-alert-message { flex: 1; min-width: 0; }
-.quasar-shell .mud-switch { margin-left: -8px; }
+.quasar-shell label.mud-switch { margin-inline-start: -8px; }
 .quasar-shell .mud-treeview-item-content { min-height: 32px; font-size: 12px; }
 .quasar-shell .configs-sidebar { background: var(--quasar-palette-surface); }
 .quasar-shell .analytics-chart-card { border: 1px solid var(--quasar-palette-lines-default); box-shadow: none; }
@@ -719,3 +722,9 @@ textarea.world-text-input { min-height: 88px; resize: vertical; }
     .world-path-controls > .quasar-button { justify-self: start; }
     .world-import-form { max-width: 100%; }
 }
+
+#quasar-wasm-loading:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-block: 1rem; }
+#quasar-wasm-loading progress { max-width: 12rem; accent-color: var(--quasar-palette-primary); }
+.quasar-wasm-spinner { width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: quasar-wasm-spin .8s linear infinite; }
+@keyframes quasar-wasm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .quasar-wasm-spinner { animation: none; } }

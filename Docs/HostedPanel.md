@@ -1,12 +1,9 @@
 # Hosted public access with Nebula
 
-Active hosting can supply an optional public website for
-[player authentication](PlayerAuthentication.md). Configure player policies on
-**Access**. Discord consent uses the shared application at `auth.se-servers.net`;
-Quasar's existing bot checks membership and roles. No per-panel OAuth application
-or callback registration is needed. Player linking does not grant dashboard access.
-Pending enrollment does not supply a public website. Players can authorize from
-their server's Discord while Quasar runs on a private network.
+Player linking uses the same Discord `/authorize` command on hosted, self-hosted
+and private panels. The bot sends a private link to `auth.se-servers.net` and
+checks guild membership and roles. Configure player policies on **Access**.
+See [Player authentication](PlayerAuthentication.md).
 
 Nebula provides a public URL for the complete existing Quasar application:
 `https://dash.se-servers.net/my-server-panel/`. Servers, worlds, supervision
@@ -178,6 +175,14 @@ or other panels. The operator explicitly accepts this risk and chose open signup
 without customer preapproval, using retrospective suspension and credential
 revocation. These controls cannot undo previous script activity. See
 [Nebula's operating decision](https://github.com/CometWorks/nebula/blob/main/docs/architecture.md#shared-origin-operating-decision).
+
+## Browser dashboard and framework cache
+
+The first visit downloads the dashboard runtime. Later visits can reuse files retained in the browser cache. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
+
+Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
+
+For an approved Linux release, set the worker environment variable `QUASAR_NEBULA_RELEASE_SHA256` to the 64-character lowercase SHA-256 of the installed release archive. Nebula must have independently approved that archive. Quasar uses integrity metadata from the worker's own build to fetch matching binary runtime resources without cookies from `/_nebula/releases/<digest>/_framework/<filename>`. If the release is missing, retired, or fails integrity, it requests the panel copy with the same integrity. Without a pin, the browser requests its assets from the panel. Loader modules, plugins, and tenant data keep panel-scoped URLs. Changing releases or rolling back uses the complete worker package and its matching browser assets.
 
 ## Local files and recovery
 

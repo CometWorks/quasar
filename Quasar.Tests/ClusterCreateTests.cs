@@ -19,6 +19,13 @@ using MudBlazor.Services;
 using Quasar.Components.Pages;
 using Quasar.Components.Shared;
 using Quasar.Models;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.JSInterop;
+using Quasar.Client;
+using Quasar.Client.Components;
+using Quasar.Client.Fleet;
+using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Services.Plugins;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Quasar.Services.Backup;
@@ -45,11 +52,11 @@ public sealed class ClusterCreateTests : IDisposable
     public async Task InlineEnrollmentWaitsForConnectionAndPreservesClusterSettings()
     {
         await using var context = CreateContext();
-        var page = context.Render<ClusterCreate>();
+        var page = context.Render<SetupCluster>();
         Assert.Equal(0, page.FindComponent<MudStepper>().Instance.GetState(c => c.ActiveIndex));
         Assert.True(Button(page, "Continue to cluster configuration").Instance.Disabled);
         Assert.True(page.FindComponents<MudStep>()[1].Instance.GetState(c => c.Disabled));
-        var enrollment = page.FindComponent<HostEnrollment>();
+        var enrollment = page.FindComponent<HostEnrollmentForm>();
         var methods = enrollment.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Installation method");
         await page.InvokeAsync(() => methods.Instance.ValueChanged.InvokeAsync("command"));
         await Button(page, "Generate enrollment command").Find("button").ClickAsync();
@@ -81,7 +88,7 @@ public sealed class ClusterCreateTests : IDisposable
         var id = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Cluster ID" && c.Instance.HelperText?.Contains("Removed IDs") == true);
         await page.InvokeAsync(() => id.Instance.ValueChanged.InvokeAsync("my-cluster"));
         await Button(page, "Back to host enrollment").Find("button").ClickAsync();
-        Assert.Same(enrollment.Instance, page.FindComponent<HostEnrollment>().Instance);
+        Assert.Same(enrollment.Instance, page.FindComponent<HostEnrollmentForm>().Instance);
         Assert.Contains("Enrollment command", page.Markup);
         await Button(page, "Continue to cluster configuration").Find("button").ClickAsync();
         Assert.Equal("my-cluster", page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Cluster ID" && c.Instance.HelperText?.Contains("Removed IDs") == true).Instance.GetState(c => c.Value));
@@ -97,7 +104,7 @@ public sealed class ClusterCreateTests : IDisposable
         var dialogs = context.Render<MudDialogProvider>();
         await context.Services.GetRequiredService<QuasarConfigProfileCatalog>().UpsertAsync(new() { ConfigProfileId = "half", Name = "Half",
             Plugins = [new() { PluginId = QuasarDefaultPlugins.BugfixesPluginId, DisplayName = "Bugfixes" }] });
-        var page = context.Render<ClusterCreate>();
+        var page = context.Render<SetupCluster>();
         var option = page.FindComponents<MudCheckBox<bool>>().Single(c => c.Instance.Label?.Contains("Bugfixes and Performance") == true);
         Assert.True(option.Instance.GetState(c => c.Value));
         await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("half"));
@@ -132,7 +139,7 @@ public sealed class ClusterCreateTests : IDisposable
         var profile = new QuasarConfigProfile { ConfigProfileId = "full", Name = "Full" };
         QuasarDefaultPlugins.Apply(profile, true);
         await context.Services.GetRequiredService<QuasarConfigProfileCatalog>().UpsertAsync(profile);
-        var page = context.Render<ClusterCreate>();
+        var page = context.Render<SetupCluster>();
         await page.InvokeAsync(() => page.FindComponents<MudSelect<string>>().Single(c => c.Instance.Label == "Configuration profile").Instance.ValueChanged.InvokeAsync("full"));
         var option = page.FindComponents<MudCheckBox<bool>>().Single(c => c.Instance.Label?.Contains("Bugfixes and Performance") == true);
         await option.Find("input").ChangeAsync(new ChangeEventArgs { Value = false });
@@ -142,17 +149,18 @@ public sealed class ClusterCreateTests : IDisposable
     }
 
     [Fact]
-    public async Task EnrollmentRequiresSecurityPermissionAndStandalonePageUsesSameForm()
+    public async Task EnrollmentRequiresSecurityPermissionAndStandaloneFormIssuesCommand()
     {
         await using var context = CreateContext(securityAdmin: false);
-        var page = context.Render<ClusterCreate>();
-        Assert.Empty(page.FindComponents<HostEnrollment>());
+        var page = context.Render<SetupCluster>();
+        Assert.Empty(page.FindComponents<HostEnrollmentForm>());
         Assert.Contains("A security administrator must enroll host machines", page.Markup);
 
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanManageSecurity);
-        var standalone = context.Render<HostEnroll>();
-        Assert.Single(standalone.FindComponents<HostEnrollment>());
-        Assert.Contains("Add host machine", standalone.Markup);
+        var standalone = context.Render<HostEnrollmentForm>();
+        await standalone.FindComponents<MudButton>().Single(b => b.Markup.Contains("Generate enrollment command")).Find("button").ClickAsync();
+        Assert.Contains("Enrollment command", standalone.Markup);
+        Assert.Single(context.Services.GetRequiredService<ClusterHostCatalog>().GetAll());
     }
 
     [Fact]
@@ -168,7 +176,7 @@ public sealed class ClusterCreateTests : IDisposable
             "Changed: Package/cli/cluster.py\n  Expected: SHA-256 approved\n  Actual: SHA-256 changed", DateTimeOffset.UtcNow,
             "Verifying the pinned deployment installation"), new JsonSerializerOptions(JsonSerializerDefaults.Web)));
         context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("/clusters/new?resume=resume");
-        var page = context.Render<ClusterCreate>();
+        var page = context.Render<SetupCluster>(p => p.Add(c => c.Resume, "resume"));
         Assert.Equal(1, page.FindComponent<MudStepper>().Instance.GetState(c => c.ActiveIndex));
         Assert.True(Button(page, "Resume setup").Instance.Disabled);
         Assert.Contains("Setup interrupted during: Verifying the pinned deployment installation", page.Markup);
@@ -177,7 +185,7 @@ public sealed class ClusterCreateTests : IDisposable
         Assert.Contains("Keep this cluster", page.Markup);
         Assert.True(page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Cluster ID" && c.Instance.HelperText?.Contains("Removed IDs") == true).Instance.Disabled);
         await Button(page, "Back to host enrollment").Find("button").ClickAsync();
-        Assert.Single(page.FindComponents<HostEnrollment>());
+        Assert.Single(page.FindComponents<HostEnrollmentForm>());
     }
 
     [Fact]
@@ -185,7 +193,7 @@ public sealed class ClusterCreateTests : IDisposable
     {
         await using var context = CreateContext();
         context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("/clusters/new?register=true");
-        var page = context.Render<ClusterCreate>();
+        var page = context.Render<SetupCluster>(p => p.Add(c => c.Register, true));
         Assert.Equal(1, page.FindComponent<MudTabs>().Instance.GetState(c => c.ActivePanelIndex));
         var registration = page.FindComponents<MudTabPanel>().Single(c => c.Instance.Text == "Register existing cluster (advanced)");
         var name = registration.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name");
@@ -209,8 +217,8 @@ public sealed class ClusterCreateTests : IDisposable
     public async Task ClearingHostMachineNameSavesGeneratedSuggestionAndKeepsId()
     {
         await using var context = CreateContext();
-        var page = context.Render<ClusterCreate>();
-        var enrollment = page.FindComponent<HostEnrollment>();
+        var page = context.Render<SetupCluster>();
+        var enrollment = page.FindComponent<HostEnrollmentForm>();
         var fields = enrollment.FindComponents<MudTextField<string>>();
         var name = fields.Single(c => c.Instance.Label == "Host machine name");
         await page.InvokeAsync(() => fields.Single(c => c.Instance.Label == "Host machine ID").Instance.ValueChanged.InvokeAsync("chosen-host"));
@@ -224,33 +232,6 @@ public sealed class ClusterCreateTests : IDisposable
     }
 
     [Fact]
-    public async Task StandaloneServerNamesAreSuggestedAndExplicitIdsStayFixed()
-    {
-        await using var context = CreateContext();
-        var provider = context.Render<MudDialogProvider>();
-        var dialogs = context.Services.GetRequiredService<IDialogService>();
-        await provider.InvokeAsync(() => dialogs.ShowAsync<ServerEditorDialog>("Create Server"));
-        var page = provider.FindComponent<ServerEditorDialog>();
-        var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name");
-        var id = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID");
-        Assert.Matches("^server-[a-f0-9]{12}$", name.Instance.GetState(c => c.Value));
-        Assert.Equal(name.Instance.GetState(c => c.Value), id.Instance.GetState(c => c.Value));
-        await page.InvokeAsync(() => id.Instance.ValueChanged.InvokeAsync("chosen-server"));
-        await page.InvokeAsync(() => name.Instance.ValueChanged.InvokeAsync(""));
-        await page.InvokeAsync(() => name.Instance.OnBlur.InvokeAsync(new()));
-        Assert.Matches("^server-[a-f0-9]{12}$", name.Instance.GetState(c => c.Value));
-        Assert.Equal("chosen-server", id.Instance.GetState(c => c.Value));
-        await provider.InvokeAsync(() => dialogs.ShowAsync<ServerEditorDialog>("Edit Server", new DialogParameters
-        {
-            [nameof(ServerEditorDialog.IsEditing)] = true,
-            [nameof(ServerEditorDialog.Definition)] = new DedicatedServerDefinition { UniqueName = "existing", DisplayName = "Existing name" },
-        }));
-        var edit = provider.FindComponents<ServerEditorDialog>().Single(c => c.Instance.IsEditing);
-        Assert.Equal("Existing name", edit.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name").Instance.GetState(c => c.Value));
-        Assert.Equal("existing", edit.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID").Instance.GetState(c => c.Value));
-    }
-
-    [Fact]
     public async Task StandaloneConversionHasOnlyDestinationChoiceAndOneAction()
     {
         await using var context = CreateContext();
@@ -258,7 +239,7 @@ public sealed class ClusterCreateTests : IDisposable
         await clusters.CreateAsync(new("empty", "Empty", "http://10.1.0.1:28016", "ADMIN"), default);
         await clusters.CreateAsync(new("busy", "Busy", "http://10.1.0.2:28016", "ADMIN"), default);
         await clusters.SetGoalStateAsync("busy", DedicatedServerGoalState.On);
-        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ServerName, "source"));
+        var page = context.Render<ConvertCluster>(p => p.Add(c => c.ServerName, "source"));
         Assert.Equal("Destination cluster", Assert.Single(page.FindComponents<MudSelect<string>>()).Instance.Label);
         var destinations = page.FindComponents<MudSelectItem<string>>();
         Assert.Contains(destinations, d => d.Instance.Value == "");
@@ -275,7 +256,7 @@ public sealed class ClusterCreateTests : IDisposable
     {
         await using var context = CreateContext();
         await context.Services.GetRequiredService<ClusterCatalog>().CreateAsync(new("source", "Source server", "http://10.1.0.1:28016", "ADMIN"), default);
-        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ClusterName, "source"));
+        var page = context.Render<ConvertCluster>(p => p.Add(c => c.ClusterName, "source"));
         var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name");
         var id = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID");
         Assert.Equal("Source server", name.Instance.GetState(c => c.Value));
@@ -313,17 +294,26 @@ public sealed class ClusterCreateTests : IDisposable
                 destination, phase == "Failed" ? "Interrupted" : null, DateTimeOffset.UtcNow), json));
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(
             $"/{(toCluster ? "servers" : "clusters")}/source/{(toCluster ? "convert-to-cluster" : "convert-to-server")}?conversion={id}");
-        var page = context.Render<ClusterConversion>(p => p
+        var page = context.Render<ConvertCluster>(p => p
             .Add(c => c.ServerName, toCluster ? "source" : null)
-            .Add(c => c.ClusterName, toCluster ? null : "source"));
+            .Add(c => c.ClusterName, toCluster ? null : "source")
+            .Add(c => c.ConversionId, id));
 
         Assert.Contains(id.ToString(), page.Markup);
+        var sdk = context.Services.GetRequiredService<DashboardSdk>();
+        await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<ConversionProgress>("conversion.progress",
+            toCluster ? new ConversionSource("other", null, id) : new ConversionSource(null, "other", id)));
+        var projection = await sdk.RequestAsync<ConversionPageState>("conversion.page",
+            toCluster ? new ConversionSource("source", null, id) : new ConversionSource(null, "source", id));
+        var projected = JsonSerializer.Serialize(projection);
+        Assert.DoesNotContain("TOKENS", projected);
+        Assert.DoesNotContain("lifecycle", projected);
         Assert.Contains(phase, page.Markup);
         var buttons = page.FindComponents<MudButton>();
         Assert.Equal(destination is null, buttons.Any(b => b.Markup.Contains("Resume conversion")));
         Assert.DoesNotContain(buttons, b => b.Markup.Contains("Back up and convert"));
         Assert.Contains(buttons, b => b.Markup.Contains("Edit as a new conversion"));
-        Assert.Equal(destination is not null, buttons.Any(b => b.Instance.Href == destination && b.Markup.Contains("Review destination")));
+        Assert.Equal(destination is not null, buttons.Any(b => destination is not null && b.Instance.Href == (destination.TrimStart('/') is { Length: > 0 } relative ? relative : "./") && b.Markup.Contains("Review destination")));
     }
 
     [Theory]
@@ -333,13 +323,14 @@ public sealed class ClusterCreateTests : IDisposable
     {
         var authorization = new DelayedConversionAuthorization();
         await using var context = CreateContext(conversionAuthorization: authorization);
-        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ServerName, "source"));
+        var page = context.Render<ConvertCluster>(p => p.Add(c => c.ServerName, "source"));
         Assert.Empty(page.FindComponents<MudCheckBox<bool>>());
         var button = page.FindComponents<MudButton>().Single(c => c.Markup.Contains("Convert to cluster"));
+        authorization.Delay = true;
         var queuedClick = button.Instance.OnClick;
         var clicking = button.Find("button").ClickAsync();
 
-        await page.WaitForAssertionAsync(() => Assert.Single(page.FindComponents<QuasarOperationLoader>()));
+        await page.WaitForAssertionAsync(() => Assert.Single(page.FindAll("section[aria-busy]")));
         Assert.Contains("Validating the source and destination before backup.", page.Find("[role=status]").TextContent);
         Assert.Equal("true", page.Find("[aria-busy]").GetAttribute("aria-busy"));
         Assert.DoesNotContain(page.FindComponents<MudButton>(), b => b.Markup.Contains("Convert to cluster"));
@@ -352,10 +343,10 @@ public sealed class ClusterCreateTests : IDisposable
         authorization.Result.SetResult(permitted ? AuthorizationResult.Success() : AuthorizationResult.Failed());
         await clicking;
 
-        Assert.Empty(page.FindComponents<QuasarOperationLoader>());
+        Assert.Empty(page.FindAll("section[aria-busy]"));
         Assert.Contains(permitted ? "Source server was not found" : "You do not have permission",
             page.Find("[role=alert]").TextContent);
-        Assert.False(page.FindComponents<MudButton>().Single(b => b.Markup.Contains(permitted ? "Resume conversion" : "Convert to cluster")).Instance.Disabled);
+        Assert.False(page.FindComponents<MudButton>().Single(b => b.Markup.Contains("Resume conversion")).Instance.Disabled);
         string work = Path.Combine(_root, "backups", "Conversions");
         Assert.Equal(permitted, Directory.Exists(work));
         if (permitted)
@@ -370,12 +361,36 @@ public sealed class ClusterCreateTests : IDisposable
         }
     }
 
+    private sealed class Lifetime : Microsoft.Extensions.Hosting.IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => default;
+        public CancellationToken ApplicationStopping => default;
+        public CancellationToken ApplicationStopped => default;
+        public void StopApplication() { }
+    }
+
+    [Fact]
+    public async Task HostManagementOperationsDenyViewersAndReserveLocalRegistration()
+    {
+        await using var context = CreateContext(securityAdmin: false);
+        var sdk = context.Services.GetRequiredService<DashboardSdk>();
+        var request = new { id = "local", name = "Local", address = "127.0.0.1", origin = "http://localhost" };
+        foreach (var operation in new[] { "enrollments", "register", "ticket", "install", "remove" })
+            await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<object>("hosts." + operation, request));
+        context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanManageSecurity);
+        var error = await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<HostRegistration>("hosts.register", request));
+        Assert.Contains("local Host executor", error.Message);
+        Assert.Empty(context.Services.GetRequiredService<ClusterHostCatalog>().GetAll());
+    }
+
     private sealed class DelayedConversionAuthorization : IAuthorizationService
     {
         public TaskCompletionSource<AuthorizationResult> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Delay { get; set; }
         public int Checks { get; private set; }
         public Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, string policyName)
         {
+            if (!Delay) return Task.FromResult(AuthorizationResult.Success());
             Checks++;
             return Result.Task;
         }
@@ -391,9 +406,16 @@ public sealed class ClusterCreateTests : IDisposable
         var auth = context.AddAuthorization();
         auth.SetAuthorized("admin");
         auth.SetPolicies(securityAdmin
-            ? [QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
-            : [QuasarPolicyNames.ClusterManage]);
+            ? [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
+            : [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage]);
         context.Services.AddSingleton(auth);
+        context.ComponentFactories.AddStub<BrowserClusterNotice>();
+        context.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostApplicationLifetime, Lifetime>();
+        context.Services.AddQuasarHostDashboardOperations();
+        context.Services.AddQuasarConversionDashboardOperations();
+        context.Services.AddQuasarClusterSetupDashboardOperations();
+        context.Services.AddSingleton(new ClusterOperationStore(Path.Combine(_root, "operations")));
+        context.Services.AddSingleton(sp => new DashboardSdk(new FleetDashboardTestTransport(sp)));
         if (conversionAuthorization is not null)
             context.Services.AddSingleton(conversionAuthorization);
         var credentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(_root, "credentials.json"));
@@ -424,8 +446,7 @@ public sealed class ClusterCreateTests : IDisposable
             null!, null!, null!, null!, null!, new ClusterOperationStore(Path.Combine(_root, "operations")),
             new WebServiceOptions { BackupDirectory = Path.Combine(_root, "backups") }, null!));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddSingleton<QuasarPermissionService>();
-        context.ComponentFactories.AddStub<ClusterBetaNotice>();
+        context.ComponentFactories.AddStub<BrowserClusterNotice>();
         context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("/clusters/new");
         context.Render<MudPopoverProvider>();
         return context;
@@ -436,7 +457,7 @@ public sealed class ClusterCreateTests : IDisposable
     {
         await using var context = CreateContext();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<ClusterCreate>();
+        var page = context.Render<SetupCluster>();
         await Button(page, "Generate enrollment command").Find("button").ClickAsync();
         var hosts = context.Services.GetRequiredService<ClusterHostCatalog>();
         var host = Assert.Single(hosts.GetAll());
@@ -468,7 +489,7 @@ public sealed class ClusterCreateTests : IDisposable
         var remote = await hosts.RegisterAsync("remote", "Abandoned machine", "10.1.0.1", 18400, default);
         await hosts.RegisterAsync("local", "Local machine", "127.0.0.1", 18401, default);
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Hosts>();
+        var page = context.Render<HostMachines>();
         page.WaitForAssertion(() => Assert.Contains("Abandoned machine", page.Markup));
         var removals = page.FindComponents<MudButton>().Where(c => c.Markup.Contains("Remove enrollment")).ToArray();
         Assert.Equal(securityAdmin ? 1 : 0, removals.Length);
@@ -483,7 +504,7 @@ public sealed class ClusterCreateTests : IDisposable
         Assert.Equal("local", Assert.Single(hosts.GetAll()).Id);
     }
 
-    private static IRenderedComponent<MudButton> Button(IRenderedComponent<ClusterCreate> page, string text) =>
+    private static IRenderedComponent<MudButton> Button(IRenderedComponent<SetupCluster> page, string text) =>
         page.FindComponents<MudButton>().Single(c => c.Markup.Contains(text, StringComparison.Ordinal));
 
     public void Dispose()

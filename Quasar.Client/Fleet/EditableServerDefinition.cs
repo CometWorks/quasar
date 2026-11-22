@@ -1,0 +1,121 @@
+using System.Text.Json.Serialization;
+
+namespace Quasar.Models;
+
+public class EditableServerDefinition
+{
+    public const int DefaultDsLogFilesToKeep = 5;
+    public const int MinimumDsLogFilesToKeep = 1;
+    public const int MaximumDsLogFilesToKeep = 1000;
+    // Magnetar's own defaults for -logMaxAgeDays and -logMaxSizeMB; 0 turns a limit off.
+    public const int DefaultLogMaxAgeDays = 14;
+    public const int DefaultLogMaxSizeMB = 1024;
+    public const int DefaultMaxRestartAttempts = 3;
+    public const int LegacyAgentStartupGraceSeconds = 180;
+    public const int DefaultAgentStartupGraceSeconds = 60;
+    public const int DefaultAgentStartupHardLimitSeconds = 600;
+    public const int DefaultAgentAttachRetryAttempts = 3;
+    public const int DefaultAgentAttachRetryDelaySeconds = 5;
+
+    public string UniqueName { get; set; } = string.Empty;
+
+    public string DisplayName { get; set; } = string.Empty;
+
+    public string InGameServerName { get; set; } = string.Empty;
+
+    public string InGameWorldName { get; set; } = string.Empty;
+
+    [JsonIgnore]
+    public string OriginalUniqueName { get; set; } = string.Empty;
+
+    public string ExecutablePath { get; set; } = string.Empty;
+
+    public string WorkingDirectory { get; set; } = string.Empty;
+
+    // Which Magnetar build / .NET runtime launches this server. Honored only on Windows,
+    // where both the .NET 10 (Interim) and .NET Framework 4.8 (Legacy) builds ship. On
+    // non-Windows hosts the resolver forces DotNet10 regardless of this value.
+    public ManagedServerRuntime ManagedRuntime { get; set; } = ManagedServerRuntime.DotNet10;
+
+    public string DedicatedServerAppDataPath { get; set; } = string.Empty;
+
+    public string MagnetarAppDataPath { get; set; } = string.Empty;
+
+    public string WorldPath { get; set; } = string.Empty;
+
+    public string WorldSaveName { get; set; } = string.Empty;
+
+    public string ConfigFilePath { get; set; } = string.Empty;
+
+    public string ConfigProfileId { get; set; } = string.Empty;
+
+    public string WorldTemplateId { get; set; } = string.Empty;
+
+    public string LaunchArguments { get; set; } = string.Empty;
+
+    public bool DisableImplicitMagnetarModLoad { get; set; }
+
+    public bool LogLaunchEnvironment { get; set; }
+
+    public string AgentProfilerMode { get; set; } = "SafeContinuous";
+
+    public int DsLogFilesToKeep { get; set; } = DefaultDsLogFilesToKeep;
+
+    public int LogMaxAgeDays { get; set; } = DefaultLogMaxAgeDays;
+
+    public int LogMaxSizeMB { get; set; } = DefaultLogMaxSizeMB;
+
+    public int ServerPort { get; set; } = 27016;
+
+    public string ServerIP { get; set; } = "0.0.0.0";
+
+    public bool AutoStart { get; set; }
+
+    public bool EnableHealthMonitoring { get; set; } = true;
+
+    public bool AutoRestartOnUnhealthy { get; set; } = true;
+
+    public int AgentStartupGraceSeconds { get; set; } = DefaultAgentStartupGraceSeconds;
+
+    // Zero identifies definitions written before the activity-aware startup policy.
+    // DedicatedServerCatalog normalizes it to the default and migrates the old 180s grace.
+    public int AgentStartupHardLimitSeconds { get; set; }
+
+    public int AgentAttachRetryAttempts { get; set; } = DefaultAgentAttachRetryAttempts;
+
+    public int AgentAttachRetryDelaySeconds { get; set; } = DefaultAgentAttachRetryDelaySeconds;
+
+    public int AgentHeartbeatTimeoutSeconds { get; set; } = 20;
+
+    public int SimulationProgressWindowSeconds { get; set; } = 30;
+
+    public float MinimumSimulationProgressScore { get; set; } = 0.1f;
+
+    public int WarnAfterUptimeHours { get; set; } = 12;
+
+    public int RecycleAfterUptimeHours { get; set; }
+
+    public bool RestartOnCrash { get; set; } = true;
+
+    public int RestartDelaySeconds { get; set; } = 5;
+
+    public int MaxRestartAttempts { get; set; } = DefaultMaxRestartAttempts;
+
+    public string DailyRestartTimeLocal { get; set; } = string.Empty;
+
+    public string MaximumUptime { get; set; } = "08:00";
+
+    public bool AvoidSimultaneousScheduledRestarts { get; set; } = true;
+
+    public DedicatedServerProcessPriority StartupProcessPriority { get; set; } = DedicatedServerProcessPriority.Normal;
+
+    public DedicatedServerProcessPriority ReadyProcessPriority { get; set; } = DedicatedServerProcessPriority.Normal;
+
+    // Canonical cpuset string (e.g. "0-7" or "0-7,16-23") pinning the server process to a
+    // fixed set of logical cores. Empty = no affinity (all cores allowed). When set, must
+    // contain at least 2 cores. Applied locally by the supervisor every time the process
+    // starts; see CpuAffinitySpec.
+    public string CpuAffinity { get; set; } = string.Empty;
+
+    public DateTimeOffset UpdatedAtUtc { get; set; } = DateTimeOffset.UtcNow;
+}
