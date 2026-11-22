@@ -10,13 +10,28 @@ internal static class ViewerFixture
     {
         var path = Environment.GetEnvironmentVariable("QUASAR_VIEWER_PACKAGE");
         var fixture = Path.GetFullPath("../../../../Quasar.Wasm.PluginChecks/RouteAdapter", AppContext.BaseDirectory);
-        builder.Configuration["Quasar:Plugins:Directory"] = string.IsNullOrEmpty(path) ? fixture : string.Join(Path.PathSeparator, fixture, path);
+        var extra = Environment.GetEnvironmentVariable("QUASAR_TEST_PLUGIN_PACKAGE");
+        var driver = Environment.GetEnvironmentVariable("QUASAR_TEST_PLUGIN_DRIVER");
+        if (string.IsNullOrWhiteSpace(extra) != string.IsNullOrWhiteSpace(driver))
+            throw new ArgumentException("Set QUASAR_TEST_PLUGIN_PACKAGE and QUASAR_TEST_PLUGIN_DRIVER together.");
+        if (!string.IsNullOrWhiteSpace(extra) && !File.Exists(Path.Combine(extra, "quasar-plugin.json")))
+            throw new FileNotFoundException("Test plugin package manifest missing.", Path.Combine(extra, "quasar-plugin.json"));
+        if (!string.IsNullOrWhiteSpace(driver) && !File.Exists(driver))
+            throw new FileNotFoundException("Test plugin browser driver missing.", driver);
+        var roots = new[] { fixture, Path.Combine(fixture, "../WorkerAdapter"), Path.Combine(fixture, "../CollisionAdapter"), path, extra }.Where(p => !string.IsNullOrWhiteSpace(p)).Select(p => Path.GetFullPath(p!));
+        builder.Configuration["Quasar:Plugins:Directory"] = string.Join(Path.PathSeparator, roots);
         builder.Configuration["Quasar:Plugins:BuildConfiguration"] = "Release";
         var catalog = QuasarUiPluginCatalog.Create(builder.Configuration, builder.Environment);
-        if (catalog.BrowserPageAssemblies.Length != 1 || (!string.IsNullOrEmpty(path) && catalog.Extensions.Count == 0) ||
-            catalog.LoadErrors.Count != 1 || !catalog.LoadErrors[0].StartsWith("RouteAdapter: a plugin route conflicts", StringComparison.Ordinal) ||
-            catalog.RoutableAssemblies.Any(a => a.GetName().Name == "RouteAdapter"))
-            throw new InvalidDataException("Viewer fixture failed to load: " + string.Join(", ", catalog.LoadErrors));
+        if (!catalog.BrowserPageAssemblies.Any(a => a.PluginId == "quasar.fixture.routes") ||
+            (!string.IsNullOrEmpty(path) && !catalog.Extensions.Any(e => e.PluginId == "cometworks.entityviewer")) ||
+            (!string.IsNullOrWhiteSpace(extra) && !catalog.LoadedPlugins.Any(p => Path.GetFullPath(p.Context.PluginDirectory) == Path.TrimEndingDirectorySeparator(Path.GetFullPath(extra)))) ||
+            catalog.RoutableAssemblies.Any(a => a.GetName().Name is "RouteAdapter" or "Quasar.Wasm.DashboardChecks"))
+            throw new InvalidDataException("Unexpected dashboard fixture catalog. " + string.Join(", ", catalog.LoadErrors));
+        if (catalog.LoadErrors.Count != 2 ||
+            !catalog.LoadErrors.Any(e => e.StartsWith("quasar.fixture.worker: Razor UI requires a browserAssembly", StringComparison.Ordinal)) ||
+            !catalog.LoadErrors.Any(e => e.StartsWith("ConflictingBrowserPages: a plugin route conflicts", StringComparison.Ordinal)) ||
+            catalog.RoutableAssemblies.Any(a => a.GetName().Name == "ConflictingBrowserPages"))
+            throw new InvalidDataException("Unexpected dashboard fixture diagnostics. " + string.Join(", ", catalog.LoadErrors));
         var players = new KnownPlayerCatalog(Microsoft.Extensions.Logging.Abstractions.NullLogger<KnownPlayerCatalog>.Instance);
         builder.Services.AddSingleton(players);
         var registry = new AgentRegistry(players, null!, null!, null!);

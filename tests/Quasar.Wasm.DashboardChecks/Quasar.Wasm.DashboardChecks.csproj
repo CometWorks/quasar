@@ -6,6 +6,8 @@
     <StaticWebAssetsEnabled>false</StaticWebAssetsEnabled>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../Quasar.Wasm.PluginChecks/WorkerAdapter/WorkerAdapter.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="../Quasar.Wasm.PluginChecks/CollisionAdapter/CollisionAdapter.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../Quasar.Wasm.PluginChecks/RouteAdapter/RouteAdapter.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="../../Quasar/Quasar.csproj" />
   </ItemGroup>

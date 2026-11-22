@@ -1,0 +1,8 @@
+{
+  "id": "quasar.fixture.worker",
+  "displayName": "Worker-only fixture",
+  "version": "1.0.0",
+  "entryAssembly": "WorkerAdapter.dll",
+  "entryType": "WorkerAdapter",
+  "projectPath": "WorkerAdapter.csproj"
+}

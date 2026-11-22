@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Hosting.Server.Features;
 using Quasar.Components;
 using Quasar.Hosting;
 using Quasar.Plugin.Abstractions.Operations;
+using IQuasarAgentPrincipals = Quasar.Plugin.Abstractions.Security.IQuasarAgentPrincipals;
+using Quasar.Plugin.Abstractions.Discord;
 using Quasar.Services.Audit;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -20,15 +22,17 @@ try
     var builder = WebApplication.CreateBuilder(new WebApplicationOptions { ApplicationName = typeof(App).Assembly.GetName().Name,
         ContentRootPath = published, WebRootPath = published is null ? null : Path.GetFullPath(Path.Combine(published, "wwwroot")) });
     if (manifest is not null && !File.Exists(manifest)) throw new FileNotFoundException("Published worker manifest missing.", manifest);
-    var panel = new HostedPanelState { Choice = "hosted", PanelId = "fixture-panel", Credential = "fixture-panel." + new string('a', 64) };
+    var panel = new HostedPanelState { Choice = "hosted", SetupCompleted = true, PanelId = "fixture-panel", Credential = "fixture-panel." + new string('a', 64) };
     await HostedPanelState.SaveAsync(panel);
     var release = new string('a', 64);
     builder.Configuration["QUASAR_NEBULA_RELEASE_SHA256"] = release;
     builder.Configuration["EnableStaticAssetsDevelopmentIntegrity"] = "true";
     builder.WebHost.UseUrls("http://127.0.0.1:0");
     if (published is null) builder.WebHost.UseStaticWebAssets();
+    builder.Services.AddHttpClient();
+    builder.Services.AddSingleton<HostedPanelService>();
     builder.Services.AddSingleton<DashboardReleaseManifest>();
-    builder.Services.AddRazorComponents().AddInteractiveServerComponents().AddInteractiveWebAssemblyComponents();
+    builder.Services.AddRazorComponents().AddInteractiveWebAssemblyComponents();
     builder.Services.AddCascadingAuthenticationState();
     builder.Services.AddAuthentication("fixture").AddCookie("fixture", options =>
         options.Events.OnRedirectToLogin = c => { c.Response.StatusCode = 401; return Task.CompletedTask; });
@@ -41,8 +45,13 @@ try
     builder.Services.AddSingleton<QuasarTransferRegistry>();
     builder.Services.AddScoped<QuasarOperationService>();
     builder.Services.AddScoped<IQuasarOperationDispatcher>(sp => sp.GetRequiredService<QuasarOperationService>());
+    builder.Services.AddScoped<IQuasarAgentOperations>(sp => sp.GetRequiredService<QuasarOperationService>());
+    builder.Services.AddSingleton<QuasarAgentPrincipals>();
+    builder.Services.AddSingleton<IQuasarAgentPrincipals>(sp => sp.GetRequiredService<QuasarAgentPrincipals>());
+    builder.Services.AddSingleton<IQuasarDiscordChannels, OfflineDiscordChannels>();
     builder.Services.AddSingleton(new QuasarAuditOptions());
     builder.Services.AddSingleton<QuasarAuditLog>();
+    builder.Services.AddSingleton<IQuasarAuditLog>(sp => sp.GetRequiredService<QuasarAuditLog>());
     builder.Services.AddScoped<QuasarHttpOperations>();
     builder.Services.AddScoped<IQuasarHttpOperations>(sp => sp.GetRequiredService<QuasarHttpOperations>());
     var peer = Environment.GetEnvironmentVariable("QUASAR_RTC_TEST_PEER");
@@ -98,6 +107,7 @@ try
             context.Request.Headers[HostedPanelRequest.Header] = panel.LocalProxySecret;
         await HostedPanelRequest.InvokeAsync(context, next, new());
     });
+    app.UseStatusCodePagesWithReExecute("/not-found", createScopeForStatusCodePages: true);
     app.UseRouting();
     app.UseAuthentication();
     app.UseAuthorization();
@@ -106,11 +116,22 @@ try
     catalog.ConfigurePluginEndpoints(app);
     app.MapQuasarSdk();
     if (!string.IsNullOrEmpty(peer)) app.MapQuasarRtc();
-    else app.MapPost("/_quasar/sdk/v1/rtc/attempts", () => Results.StatusCode(503)).RequireAuthorization();
+    else app.MapPost("/_quasar/sdk/v1/rtc/attempts", () => Results.Problem(statusCode: 503, detail: "The fixture has no direct peer.")).RequireAuthorization();
     app.MapGet("/fixture/login", async (HttpContext c) =>
         await c.SignInAsync("fixture", new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "Fixture admin"), new Claim(ClaimTypes.NameIdentifier, "76561198000000001"), new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.Steam)], "fixture"))));
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("QUASAR_TEST_PLUGIN_DRIVER")))
+    {
+        const string testAdmin = "76561198000000013";
+        await app.Services.GetRequiredService<RbacConfigCatalog>().UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Add(new() { Provider = QuasarAuthSchemes.Steam, Subject = testAdmin, Roles = [QuasarRoles.Admin] });
+            return Task.CompletedTask;
+        });
+        app.MapGet("/fixture/plugin-login", (HttpContext c, QuasarRoleMapper roles) =>
+            c.SignInAsync("fixture", roles.CreateSteamPrincipal(testAdmin)));
+    }
     app.MapDashboardStaticAssets(requireAuthorization: true, manifest: manifest);
-    app.MapRazorComponents<App>().AddAdditionalAssemblies(catalog.RoutableAssemblies.Append(typeof(Quasar.Client.Components.DashboardRouter).Assembly).ToArray()).AddInteractiveServerRenderMode().AddInteractiveWebAssemblyRenderMode().WithStaticAssets(manifest).RequireAuthorization();
+    app.MapRazorComponents<App>().AddAdditionalAssemblies(catalog.RoutableAssemblies.Append(typeof(Quasar.Client.Components.DashboardRouter).Assembly).ToArray()).AddInteractiveWebAssemblyRenderMode().WithStaticAssets(manifest).RequireAuthorization();
     await app.StartAsync();
     var address = app.Services.GetRequiredService<IServer>().Features.Get<IServerAddressesFeature>()!.Addresses.Single();
     var runner = new ProcessStartInfo("node") { UseShellExecute = false };
@@ -139,4 +160,9 @@ sealed class FixtureLeases : HttpMessageHandler
             Content = JsonContent.Create(data)
         });
     }
+}
+
+sealed class OfflineDiscordChannels : IQuasarDiscordChannels
+{
+    public Task<bool> PostAsync(string channelId, string text, CancellationToken token) => Task.FromResult(false);
 }

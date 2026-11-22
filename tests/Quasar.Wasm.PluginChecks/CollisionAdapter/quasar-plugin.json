@@ -1,0 +1,9 @@
+{
+  "id": "quasar.fixture.collision",
+  "displayName": "Conflicting route fixture",
+  "version": "1.0.0",
+  "entryAssembly": "CollisionAdapter.dll",
+  "entryType": "CollisionAdapter",
+  "projectPath": "CollisionAdapter.csproj",
+  "browserAssembly": "ConflictingBrowserPages.dll"
+}

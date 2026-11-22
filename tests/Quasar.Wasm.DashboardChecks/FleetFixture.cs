@@ -25,8 +25,6 @@ internal static class FleetFixture
         services.AddSingleton(sp => new ClusterPlayerService(sp.GetRequiredService<ClusterCatalog>(), null!, sp.GetRequiredService<KnownPlayerCatalog>(), sp.GetRequiredService<ILogger<ClusterPlayerService>>()));
         services.AddSingleton<AnalyticsStoreOptions>();
         services.AddSingleton<MetricsStoreService>();
-        services.AddHttpClient();
-        services.AddSingleton<HostedPanelService>();
         services.AddSingleton<ProfilerStoreService>();
         services.AddSingleton<PluginStatsStoreService>();
         services.AddSingleton<AnalyticsSeriesService>();

@@ -5,19 +5,35 @@ import { pathToFileURL } from "node:url";
 const { chromium, firefox } = await import(process.env.PLAYWRIGHT_MODULE
     ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
 const address = process.argv[2];
+const pluginDriver = process.env.QUASAR_TEST_PLUGIN_DRIVER
+    ? (await import(pathToFileURL(process.env.QUASAR_TEST_PLUGIN_DRIVER).href)).checkPlugin : undefined;
+if (process.env.QUASAR_TEST_PLUGIN_DRIVER) assert.equal(typeof pluginDriver, "function", "Browser driver must export checkPlugin(page, base)");
+
+function observeDashboard(context, circuits, errors) {
+    context.on("response", response => {
+        if (response.status() >= 500 && !new URL(response.url()).pathname.endsWith("/rtc/attempts"))
+            errors.push(response.status() + " " + response.url());
+    });
+    const record = event => {
+        if (/(?:^|\/)_blazor(?:\/|$)/.test(new URL(event.url()).pathname)) circuits.push(event.url());
+    };
+    context.on("request", record);
+    context.on("page", page => page.on("websocket", record));
+}
+
 for (const browserType of [chromium, firefox]) {
     const browser = await browserType.launch(browserType === chromium ? { executablePath: process.env.CHROME_PATH } : {});
     try {
         const context = await browser.newContext();
-        const page = await context.newPage();
         const errors = [], circuits = [], shared = [], fallbacks = [];
+        observeDashboard(context, circuits, errors);
+        const page = await context.newPage();
         page.on("response", r => {
             if (r.url().includes("/_nebula/releases/")) shared.push([r.url(), r.status()]);
             if (/\/fixture-panel\/_framework\/Quasar\.Client\..+\.wasm$/.test(r.url())) fallbacks.push(r.status());
         });
         page.on("pageerror", error => { errors.push(error.message); console.error(error); });
         page.on("console", msg => { if (msg.type() === "error") console.error(msg.text()); });
-        page.on("request", r => { if (r.url().includes("/_blazor")) circuits.push(r.url()); });
         for (const prefix of ["/", "/fixture-panel/"]) {
             const base = address + prefix;
             if (process.env.QUASAR_FLEET_CHECKS === "1") await (await import("./fleet.test.mjs")).checkFleet(browser, base);
@@ -45,12 +61,37 @@ for (const browserType of [chromium, firefox]) {
             }
             await page.getByRole("button", {name: "Count 0"}).click();
             await page.getByRole("button", {name: "Count 1"}).waitFor();
+            await page.getByRole("link", {name: "Details tab"}).click();
+            await page.waitForURL("**/fixture/tool/42?tab=details");
+            await page.getByRole("button", {name: "Count 1"}).waitFor();
             await page.reload();
             await page.getByRole("button", {name: "Count 0"}).waitFor();
             await page.getByRole("link", {name: "Restricted plugin tool"}).click();
             await page.getByText("You do not have permission to view this page.").waitFor();
             await page.goBack();
             await heading.waitFor();
+            await page.getByRole("link", {name: "Worker plugin tool"}).click();
+            await page.waitForURL(base + "fixture/worker-tool");
+            await page.getByText(/page not found|^not found$/i).first().waitFor();
+            assert.equal(await page.getByRole("heading", {name: "Fixture worker plugin"}).count(), 0);
+            for (const route of ["fixture/unknown", "fixture/worker-tool"]) {
+                const missing = await page.goto(base + route);
+                assert.equal(missing.status(), 404, route);
+                await page.getByRole("heading", {name: "Not Found"}).waitFor();
+                assert.doesNotMatch(await missing.text(), /Fixture worker plugin|Worker count/);
+            }
+            console.log(browserType.name() + " rejected the unpublished worker page at " + prefix);
+            if (pluginDriver) {
+                const operator = await browser.newContext();
+                observeDashboard(operator, circuits, errors);
+                try {
+                    const login = await operator.request.get(base + "fixture/plugin-login");
+                    assert.equal(login.status(), 200);
+                    const pluginPage = await operator.newPage();
+                    pluginPage.on("pageerror", error => errors.push(error.message));
+                    await pluginDriver(pluginPage, base);
+                } finally { await operator.close(); }
+            }
             const profileQuery = prefix === "/" ? "profileId" : "profile";
             await page.goto(base + "configs?" + profileQuery + "=survival");
             await page.getByRole("heading", {name: "Survival test", exact: true}).waitFor();
@@ -66,6 +107,19 @@ for (const browserType of [chromium, firefox]) {
             await page.getByRole("button", { name: "Save", exact: true }).click();
             await page.getByText("Time zone saved.").waitFor();
             assert.equal(await page.evaluate(() => quasarConfigs.getLocalStorage("quasar.timeZone")), "Asia/Kolkata");
+            if (prefix === "/") {
+                await page.emulateMedia({ colorScheme: "light" });
+                await page.evaluate(() => quasarConfigs.setLocalStorage("quasar.theme.mode", '"dark"'));
+                await page.reload();
+                const shell = page.locator("#quasar-wasm-shell");
+                const theme = page.getByRole("combobox", {name: "Color theme"});
+                await page.waitForFunction(() => document.getElementById("quasar-wasm-theme").value === "dark");
+                assert.equal(await shell.getAttribute("data-theme"), "dark");
+                await theme.selectOption("system");
+                assert.equal(await shell.getAttribute("data-theme"), "light");
+                await page.emulateMedia({ colorScheme: "dark" });
+                await page.waitForFunction(() => document.getElementById("quasar-wasm-shell").dataset.theme === "dark");
+            }
             // A routed link must keep the runtime and the selected SDK transport alive.
             const generation = await page.evaluate(() => { window.fixtureGeneration = crypto.randomUUID(); return window.fixtureGeneration; });
             await page.evaluate(() => {
@@ -84,17 +138,6 @@ for (const browserType of [chromium, firefox]) {
         assert.ok(shared.some(([url, status]) => url.endsWith(".wasm") && status === 200), JSON.stringify(shared.slice(0, 4)));
         assert.ok(shared.some(([url, status]) => url.includes("/Quasar.Client.") && status === 404));
         assert.ok(fallbacks.some(status => status === 200 || status === 304));
-        const legacy = await context.newPage();
-        legacy.on("console", msg => { if (msg.type() === "error") console.error(msg.text()); });
-        legacy.on("pageerror", error => console.error(error));
-        try {
-            await legacy.goto(address + "/fixture/tool/7");
-            await legacy.getByRole("link", {name: "Worker plugin tool"}).click();
-            await legacy.getByRole("heading", {name: "Fixture worker plugin"}).waitFor();
-            await legacy.getByRole("button", {name: "Worker count 0"}).click();
-            await legacy.getByRole("button", {name: "Worker count 1"}).waitFor();
-            console.log(browserType.name() + " navigated to the interactive worker plugin");
-        } finally { await legacy.close(); }
         assert.deepEqual(circuits, []);
         assert.deepEqual(errors, []);
     } finally { await browser.close(); }
