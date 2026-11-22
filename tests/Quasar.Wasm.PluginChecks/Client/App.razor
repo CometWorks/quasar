@@ -1,0 +1,25 @@
+@using System.Reflection
+@using Microsoft.AspNetCore.Components
+@inject HttpClient Http
+
+@if (_component is null)
+{
+    <p>Loading plugin…</p>
+}
+else
+{
+    <DynamicComponent Type="_component" Parameters="_parameters" />
+}
+
+@code {
+    private Type? _component;
+    private readonly Dictionary<string, object> _parameters = new() { ["EntityName"] = "Test grid" };
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Fixed, test-owned artifact. Production must resolve enabled plugins through Quasar.
+        var bytes = await Http.GetByteArrayAsync("plugins/ViewerFixture.dll");
+        var assembly = Assembly.Load(bytes);
+        _component = assembly.GetType("ViewerFixture.ViewerAction", throwOnError: true);
+    }
+}

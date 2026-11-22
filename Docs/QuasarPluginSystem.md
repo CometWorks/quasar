@@ -311,6 +311,32 @@ near the top of `/settings/ui-plugins` and display a recommendation badge. The
 Entity Viewer uses this state and is no longer implicitly installed for every
 Quasar instance.
 
+## WASM migration evidence
+
+The production dashboard currently loads Razor contributions in the Quasar worker.
+The [WASM browser check](../tests/Quasar.Wasm.PluginChecks/browser.test.mjs)
+exercises independent plugin installation for the proposed browser client.
+It publishes a trimmed .NET 10 Blazor client, then builds a separate Razor
+assembly. The client downloads that assembly from its panel path, supplies an
+entity name to a dynamic component, and handles a click inside the component.
+Chromium and Firefox exercise both the local root and a hosted panel prefix.
+
+The first Chromium run failed to render the plugin with default trimming.
+Preserving `Microsoft.AspNetCore.Components` in the host's release publish
+allowed this component to render and handle events. The fixture uses a known
+test DLL. Production integration still needs to select assets from the enabled
+plugin catalog, enforce safe mode, and resolve the real plugin's dependencies.
+Entity Viewer's actual contributions and upgrades require separate coverage.
+
+Run the check from the repository root with the .NET 10 SDK, Node.js, and
+Playwright's Chromium and Firefox installed. The runner accepts
+`PLAYWRIGHT_MODULE` for an external Playwright entry point and `CHROME_PATH`
+for a system Chromium executable.
+
+```sh
+node tests/Quasar.Wasm.PluginChecks/browser.test.mjs
+```
+
 ## Plugin Abstractions
 
 Quasar exposes the initial contract project as `Quasar.Plugin.Abstractions`.
