@@ -3,7 +3,8 @@ using Magnetar.Protocol.Model;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor.Services;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Components;
+using Quasar.Services.Plugins;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -14,10 +15,8 @@ namespace Quasar.Tests;
 [Collection("Exact server creation")]
 public sealed class PluginLoadTooltipTests
 {
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public async Task PluginWarningNamesMissingPluginsAndUpdatesWithLiveTelemetry(bool collapseDetails)
+    [Fact]
+    public async Task PluginWarningNamesMissingPluginsAndUpdatesWithLiveTelemetry()
     {
         using var data = new TemporaryQuasarDirectory();
         await using var context = new QuasarBunitContext();
@@ -35,7 +34,6 @@ public sealed class PluginLoadTooltipTests
         context.Services.AddSingleton(profiles);
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         var snapshot = new AgentSnapshot
         {
             Metrics = new() { PluginsLoaded = 10 },
@@ -43,10 +41,8 @@ public sealed class PluginLoadTooltipTests
                 new() { PluginId = "broken", DisplayName = "Broken <plugin>", IsLoaded = false },
                 new() { PluginId = "extra", IsLoaded = true }],
         };
-        var panel = context.Render<ServerDetailPanel>(p => p
-            .Add(x => x.Server, new DedicatedServerDefinition { ConfigProfileId = "plugins" })
-            .Add(x => x.Agent, new AgentRuntimeState { IsConnected = true, Snapshot = snapshot })
-            .Add(x => x.CollapseDetails, collapseDetails));
+        var profile = profiles.GetProfile("plugins");
+        var panel = context.Render<FleetRuntimeDetails>(p => p.Add(x => x.Plugins, QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile)));
         AngleSharp.Dom.IElement PluginMetric() => panel.FindAll(".quasar-detail-metrics > div")
             .Single(e => e.QuerySelector(".quasar-eyebrow")?.TextContent == "Plugins");
 
@@ -60,14 +56,14 @@ public sealed class PluginLoadTooltipTests
         // Count-only telemetry cannot identify which selections failed to load.
         snapshot.Plugins.Clear();
         snapshot.Metrics.PluginsLoaded = 1;
-        panel.Render();
+        panel.Render(p => p.Add(x => x.Plugins, QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile)));
         Assert.Equal("1/3", PluginMetric().QuerySelector("strong")!.TextContent);
         Assert.Equal("Some configured plugins are not loaded. Plugin names are unavailable; check the server logs.",
             PluginMetric().GetAttribute("title"));
 
         snapshot.Plugins = [new() { PluginId = "loaded", IsLoaded = true },
             new() { PluginId = "broken", IsLoaded = true }, new() { PluginId = "no-name", IsLoaded = true }];
-        panel.Render();
+        panel.Render(p => p.Add(x => x.Plugins, QuasarFleetDashboardOperations.DescribePlugins(snapshot, profile)));
         Assert.Equal("3/3", PluginMetric().QuerySelector("strong")!.TextContent);
         Assert.DoesNotContain("quasar-tone-warning", PluginMetric().QuerySelector("strong")!.ClassList);
         Assert.False(PluginMetric().HasAttribute("title"));

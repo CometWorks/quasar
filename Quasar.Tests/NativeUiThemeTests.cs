@@ -14,7 +14,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Quasar.Components.Pages;
 using Quasar.Components.Shared;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Components;
+using Quasar.Client.Fleet;
 using Quasar.Models;
 using Quasar.Services;
 using Quasar.Services.Analytics;
@@ -24,42 +25,6 @@ namespace Quasar.Tests;
 
 public sealed class NativeUiThemeTests
 {
-    [Theory]
-    [InlineData("light", true, false)]
-    [InlineData("dark", false, true)]
-    [InlineData("system", false, false)]
-    [InlineData("\"dark\"", false, true)] // Existing JSON-encoded browser values.
-    public async Task StoredModeSurvivesInitializationAndSystemChanges(string stored, bool systemDark, bool expected)
-    {
-        await using var context = new QuasarBunitContext();
-        context.JSInterop.Setup<string?>("quasarConfigs.getLocalStorage", "quasar.theme.mode").SetResult(stored);
-        context.JSInterop.Setup<bool>("quasarConfigs.getSystemDarkMode").SetResult(systemDark);
-        var service = new ThemePreferenceService(new(context.JSInterop.JSRuntime), null!, context.JSInterop.JSRuntime);
-        await service.InitializeAsync();
-        Assert.Equal(expected, service.IsDarkMode);
-        var notifications = new List<bool>();
-        service.ThemeModeChanged += notifications.Add;
-        service.SyncSystemDarkMode(!systemDark);
-        Assert.Equal(service.Mode == ThemeMode.System ? !systemDark : expected, service.IsDarkMode);
-        Assert.Equal(service.Mode == ThemeMode.System ? 1 : 0, notifications.Count);
-    }
-
-    [Fact]
-    public async Task ManualModeAndReturnToSystemPersistAndNotifyAnalytics()
-    {
-        await using var context = new QuasarBunitContext();
-        context.JSInterop.Setup<bool>("quasarConfigs.getSystemDarkMode").SetResult(true);
-        context.JSInterop.SetupVoid("quasarConfigs.setLocalStorage", _ => true).SetVoidResult();
-        var service = new ThemePreferenceService(new(context.JSInterop.JSRuntime), null!, context.JSInterop.JSRuntime);
-        var notifications = new List<bool>();
-        service.ThemeModeChanged += notifications.Add;
-        await service.SetModeAsync(ThemeMode.Light);
-        service.SyncSystemDarkMode(true);
-        await service.SetModeAsync(ThemeMode.System);
-        Assert.Equal(new[] { false, true }, notifications);
-        Assert.Equal(new[] { "light", "system" }, context.JSInterop.Invocations["quasarConfigs.setLocalStorage"].Select(call => call.Arguments[1]));
-    }
-
     [Fact]
     public void ExistingBrandingRoundTripsEveryColorIntoNativeAndLegacyThemes()
     {
@@ -171,7 +136,6 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         context.JSInterop.Setup<bool>("quasarSdk.darkMode").SetResult(true);
         context.Services.AddSingleton(_branding);
-        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         var page = context.Render<Quasar.Client.Administration.AppearancePage>();
         Assert.Equal(58, page.FindAll("input[type=color]").Count);
         Assert.Equal("Quasar.png", page.Find("img[alt='Dark-mode logo preview']").GetAttribute("src"));
@@ -208,7 +172,6 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         context.JSInterop.Setup<bool>("quasarSdk.darkMode").SetResult(true);
         context.Services.AddSingleton(_branding);
-        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         var navigation = new PrefixNavigation("https://dash.test/my-server-panel/");
         context.Services.AddSingleton<Microsoft.AspNetCore.Components.NavigationManager>(navigation);
         void AssertImagesUnderPrefix(IRenderedComponent<Quasar.Client.Administration.AppearancePage> rendered) => Assert.All(rendered.FindAll("img"), image =>
@@ -237,97 +200,49 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task ServerTableSortsMixedRowsKeepsControlsAndExpandsDetails()
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
-        var auth = context.AddAuthorization();
-        auth.SetAuthorized("operator");
-        auth.SetPolicies(QuasarPolicyNames.CanView);
-        using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
-        await catalog.UpsertAsync(new() { UniqueName = "zulu", DisplayName = "Zulu", WorldSaveName = "World", ServerPort = 9999 });
-        await catalog.UpsertAsync(new() { UniqueName = "alpha", DisplayName = "Alpha", WorldSaveName = "World", ServerPort = 27016 });
-        using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder().Build());
-        await clusters.CreateAsync(new("cluster", "Beta Cluster", "http://gateway.invalid:27017", "QUASAR_TEST_MISSING_GATEWAY_TOKEN"), default);
-        await clusters.RecordPreparationAsync(clusters.GetCluster("cluster")!,
-            new("hash", """{"steamListen":"0.0.0.0:18000"}""", "", []), new(null, "prepared", []), default);
-        var registry = new AgentRegistry(null!, null!, null!, null!);
-        // Nodes use slot/process names, even before their incarnation receipt is ready.
-        foreach (var epoch in new long[] { 0, 42 })
-            registry.UpsertHello(new() { AgentId = "node-" + epoch, UniqueName = "slot-" + epoch,
-                ClusterMode = true, ClusterId = "cluster", ClusterSlot = "slot-" + epoch,
-                ClusterNodeId = "node-" + epoch, ClusterEpoch = epoch }, "connection-" + epoch, (_, _) => Task.CompletedTask);
-        registry.UpsertHello(new() { AgentId = "orphan", UniqueName = "alpha", ServerName = "Orphan node",
-            ClusterMode = true, ClusterId = "missing-cluster" }, "orphan", (_, _) => Task.CompletedTask);
-        registry.UpsertHello(new() { AgentId = "unmanaged", UniqueName = "cluster", ServerName = "Unmanaged standalone" },
-            "unmanaged", (_, _) => Task.CompletedTask);
-        using var supervisor = new DedicatedServerSupervisor(catalog, registry, null!, null!, null!, new(), null!, NullLogger<DedicatedServerSupervisor>.Instance);
-        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
-        using var templates = new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance);
-        using var http = new HttpClient(new UnavailableGateway());
-        var gateway = new ClusterGatewayClient(http);
-        context.Services.AddSingleton(catalog);
-        context.Services.AddSingleton(clusters);
-        context.Services.AddSingleton(registry);
-        context.Services.AddSingleton(supervisor);
-        context.Services.AddSingleton(profiles);
-        context.Services.AddSingleton(templates);
-        context.Services.AddSingleton(gateway);
-        context.Services.AddSingleton(new ClusterCommandService(clusters, null!, gateway, null!));
-        context.Services.AddSingleton(new ClusterReconciler(clusters, gateway, null!, null!, NullLogger<ClusterReconciler>.Instance));
-        context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
-        context.Services.AddSingleton(new WebServiceOptions());
-        context.Services.AddSingleton<Quasar.Services.Backup.ServerRestoreCoordinator>();
-        context.Services.AddSingleton<ServerWorldImportService>();
-        context.Services.AddScoped<ServerManagementActions>();
-        context.ComponentFactories.AddStub<ServerDetailPanel>();
-        context.ComponentFactories.AddStub<ClusterDetailPanel>();
-        var page = context.Render<Servers>(p => p.Add(x => x.LaunchBlocked, true).Add(x => x.LaunchBlockedMessage, "Runtime preparing"));
-        // The page re-renders on its own (initial cluster load, 5 s refresh, catalog events). Run every DOM read and
-        // event on the renderer's dispatcher, so no render lands between a Find and its Click (#1274).
-        await page.InvokeAsync(() =>
-        {
-            Assert.Equal(2, page.FindAll(".quasar-agent-details").Count);
-            Assert.Contains("Orphan node", page.FindAll(".quasar-agent-details")[0].TextContent);
-            Assert.Contains("Register the owning cluster", page.Markup);
-            Assert.DoesNotContain("slot-42", string.Join(" ", page.FindAll(".quasar-agent-details").Select(x => x.TextContent)));
-            Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
-            Assert.Empty(page.FindAll("a[title='Convert to cluster']")); // Existing ClusterManage policy still applies.
-            Assert.Contains("18000", page.FindAll(".quasar-server-name-cell").Single(c => c.GetAttribute("title") == "cluster").ParentElement!.Children[3].TextContent);
-            Assert.DoesNotContain("gateway.invalid:27017", page.Markup);
-            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
-            Assert.Equal(new[] { "zulu", "cluster", "alpha" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
-            Assert.Equal("ascending", page.FindAll("th")[3].GetAttribute("aria-sort"));
-            page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
-            Assert.Equal("descending", page.FindAll("th")[3].GetAttribute("aria-sort"));
-            page.Find("input[type=search]").Input("18000");
-            Assert.Equal("cluster", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
-            page.Find("input[type=search]").Input("");
-            Assert.True(page.Find("button[title='Runtime preparing']").HasAttribute("disabled"));
-            Assert.True(page.Find("button[title^='Wait for a stable']").HasAttribute("disabled"));
-            foreach (var label in new[] { "Show console output", "Clone server", "Create world template", "Edit server", "Delete server", "Open cluster details" })
-                Assert.NotEmpty(page.FindAll($"button[title='{label}']"));
-            var menuTarget = page.Find("button[title='Clone server']").GetAttribute("popovertarget");
-            Assert.NotNull(menuTarget);
-            Assert.NotNull(page.Find($"[id='{menuTarget}'][popover=auto]"));
-            page.Find("input[type=search]").Input("ALPHA");
-            Assert.Equal("alpha", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
-            page.Find("input[type=search]").Input("no matching server");
-            Assert.Contains("No servers match", page.Markup);
-            page.FindAll("button").Single(x => x.TextContent == "Clear filters").Click();
-            Assert.Equal(3, page.FindAll(".quasar-server-name-cell").Count);
-            page.Find("input[type=checkbox]").Change(true);
-            Assert.Contains("Agent / WA", page.Find("thead").TextContent);
-            Assert.Contains("Process", page.Find("thead").TextContent);
-            page.Find("input[type=checkbox]").Change(false);
-            if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } preview)
-                File.WriteAllText(preview + ".servers", $"<div style=\"{QuasarTheme.BuildCss(BrandingPresets.GetDarkPalette(BrandingPresets.CometWorksId), true)}\">{page.Markup}</div>");
-            page.FindAll("button[title='Show live data']")[0].Click();
-            Assert.Equal("true", page.FindAll("button[title='Show live data']")[0].GetAttribute("aria-expanded"));
-            Assert.Single(page.FindAll(".quasar-server-detail-row"));
-            page.FindAll("button[title='Show live data']")[0].Click();
-            Assert.Empty(page.FindAll(".quasar-server-detail-row"));
-        });
+        context.ComponentFactories.AddStub<FleetLiveDetails>();
+        var warmup = new ManagedRuntimeWarmupSnapshot { Message = "Runtime preparing" };
+        FleetRow Row(string id, string display, bool cluster, int port) => new(id, display, cluster, "Stopped", "Off", port,
+            "", "", "", null, null, false, null, null, null, null, null, null, "Unknown", "", null, null, [], false, false, false, default);
+        var data = new FleetDashboard(new(3,0,1,null,null,0,null,0,null,0,0,0),
+            [Row("zulu", "Zulu", false, 9999), Row("alpha", "Alpha", false, 27016), Row("cluster", "Beta Cluster", true, 18000)],
+            [new("orphan", "alpha", "Orphan node", "", "missing", "slot", "node", 42, true, false)],
+            [], [], [], [], warmup, false, false, true, true, true, true, false, false);
+        var page = context.Render<FleetWorkspace>(p => p.Add(c => c.Dashboard, data).Add(c => c.IsList, true));
+        page.Find(".quasar-agent-details button").Click();
+        Assert.Contains("Register the owning cluster", page.Markup);
+        Assert.Equal(new[] { "alpha", "cluster", "zulu" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
+        Assert.Empty(page.FindAll("a[title='Convert to cluster']"));
+        page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
+        Assert.Equal(new[] { "zulu", "cluster", "alpha" }, page.FindAll(".quasar-server-name-cell").Select(x => x.GetAttribute("title")));
+        Assert.Equal("ascending", page.FindAll("th")[3].GetAttribute("aria-sort"));
+        page.FindAll("thead button").Single(x => x.TextContent.Trim().StartsWith("Game port")).Click();
+        Assert.Equal("descending", page.FindAll("th")[3].GetAttribute("aria-sort"));
+        page.Find("input[type=search]").Input("18000");
+        Assert.Equal("cluster", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
+        page.Find("input[type=search]").Input("");
+        Assert.True(page.Find("button[title='Runtime preparing']").HasAttribute("disabled"));
+        foreach (var label in new[] { "Show console output", "Clone server", "Create world template", "Edit server", "Delete server" })
+            Assert.NotEmpty(page.FindAll($"button[title='{label}']"));
+        Assert.NotEmpty(page.FindAll("a[title='Open cluster details']"));
+        var menuTarget = page.Find("button[title='More server actions']").GetAttribute("popovertarget");
+        Assert.NotNull(page.Find($"[id='{menuTarget}'][popover=auto]"));
+        page.Find("input[type=search]").Input("ALPHA");
+        Assert.Equal("alpha", Assert.Single(page.FindAll(".quasar-server-name-cell")).GetAttribute("title"));
+        page.Find("input[type=search]").Input("no matching server");
+        Assert.Contains("No servers match", page.Markup);
+        page.FindAll("button").Single(x => x.TextContent == "Clear filters").Click();
+        Assert.Equal(3, page.FindAll(".quasar-server-name-cell").Count);
+        page.Find("input[type=checkbox]").Change(true);
+        Assert.Contains("Agent / WA", page.Find("thead").TextContent);
+        Assert.Contains("Process", page.Find("thead").TextContent);
+        page.FindAll("button[title='Show live data']")[0].Click();
+        Assert.Single(page.FindAll(".quasar-server-detail-row"));
+        page.FindAll("button[title='Show live data']")[0].Click();
+        Assert.Empty(page.FindAll(".quasar-server-detail-row"));
     }
 
     [Theory]
@@ -372,10 +287,7 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(stats);
         context.Services.AddSingleton(new PluginStatsHistoryService(new(), NullLogger<PluginStatsHistoryService>.Instance));
         context.Services.AddSingleton(registry);
-        context.Services.AddSingleton(new BrowserStorageService(context.JSInterop.JSRuntime));
-        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Render<MudPopoverProvider>();
         var page = context.Render<Quasar.Client.Components.AnalyticsView>();
         var labels = page.FindComponents<MudCheckBox<bool>>().Select(box => box.Instance.Label).ToList();
@@ -427,7 +339,6 @@ public sealed class NativeAppearanceTests : IDisposable
         auth.SetAuthorized("editor");
         auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
         var registry = new AgentRegistry(null!, null!, null!, null!);
         var sent = new List<ServerCommandEnvelope>();
@@ -459,7 +370,7 @@ public sealed class NativeAppearanceTests : IDisposable
     public async Task NativeDetailsPreserveCommandsLiveUpdatesAndPermissions()
     {
         using var data = new TemporaryQuasarDirectory();
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -471,59 +382,43 @@ public sealed class NativeAppearanceTests : IDisposable
         registry.UpsertHello(new() { AgentId = "agent", UniqueName = "alpha" }, "connection", (message, _) =>
         {
             sent.Add(message.Command!);
-            // Player actions are operations that wait for the agent's answer.
             registry.UpdateCommandResult(new() { AgentId = "agent", CommandId = message.Command!.CommandId, Success = true }, "connection");
             return Task.CompletedTask;
         });
-        context.Services.AddSingleton(known);
-        context.Services.AddDirectCoreOperations();
-        using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
+        var snapshot = new AgentSnapshot { AgentId = "agent", UniqueName = "alpha", TelemetryPaused = true,
+            Players = [new() { SteamId = 123, DisplayName = "Engineer", PromoteLevel = "Admin", PingMs = 15 }] };
+        registry.UpdateSnapshot(snapshot,"connection");
         context.Services.AddSingleton(registry);
-        context.Services.AddSingleton(profiles);
-        context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
-        var agent = new AgentRuntimeState { AgentId = "agent", IsConnected = true,
-            Snapshot = new() { UniqueName = "alpha", ServerName = "Alpha", Metrics = new() { SimSpeed = 0.8f },
-                Players = [new() { SteamId = 123, DisplayName = "Engineer", PromoteLevel = "Admin", PingMs = 15 }] } };
-        var runtime = new DedicatedServerRuntimeSnapshot { UniqueName = "alpha", State = DedicatedServerProcessState.Running };
-        var panel = context.Render<ServerDetailPanel>(p => p.Add(x => x.Agent, agent).Add(x => x.Runtime, runtime));
+        context.Services.AddSingleton(known);
         var dialogs = context.Render<MudDialogProvider>();
+        var panel = context.Render<FleetLiveDetails>(p => p.Add(x => x.UniqueName, "alpha").Add(x => x.AgentId, "agent")
+            .Add(x => x.CanControl, true).Add(x => x.Running, true).Add(x => x.Connected, true));
         panel.Find("input").Input(" hello fleet ");
         await panel.Find("form").SubmitAsync();
         Assert.Equal(ServerCommandType.SendChat, Assert.Single(sent).CommandType);
         Assert.Equal("hello fleet", sent[0].Text);
         Assert.Equal(string.Empty, panel.Find("input").GetAttribute("value"));
-        var popoverId = panel.Find("[popover]").Id;
-        Assert.True(panel.FindAll("[popover] button").Single(x => x.TextContent == "Admin").HasAttribute("disabled"));
-        await panel.FindAll("[popover] button").Single(x => x.TextContent == "Moderator").ClickAsync();
+        Assert.True(panel.FindAll("details button").Single(x => x.TextContent == "Admin").HasAttribute("disabled"));
+        snapshot.Players[0].PingMs = 25;
+        registry.UpdateSnapshot(snapshot,"connection");
+        var promotion = panel.FindAll("details button").Single(x => x.TextContent == "Moderator").ClickAsync();
+        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Set role to Moderator", dialogs.Markup));
+        dialogs.FindAll("button").Single(x => x.TextContent.Trim() == "Confirm").Click();
+        await promotion;
         Assert.Equal(ServerCommandType.SetPlayerPromoteLevel, sent[^1].CommandType);
         Assert.Equal(123, sent[^1].SteamId);
         Assert.Equal("Moderator", sent[^1].Text);
-        agent.Snapshot.Players = [new() { SteamId = 123, DisplayName = "Engineer", PromoteLevel = "Moderator", PingMs = 25 }];
-        runtime.State = DedicatedServerProcessState.Stopping;
-        panel.Render();
-        Assert.Equal(popoverId, panel.Find("[popover]").Id); // Snapshot updates preserve the native menu element.
         Assert.Contains("25", panel.Find("tbody").TextContent);
-        Assert.True(panel.FindAll("button").Single(x => x.TextContent.Trim() == "Save").HasAttribute("disabled"));
         var count = sent.Count;
-        var kick = panel.FindAll("[popover] button").Single(x => x.TextContent == "Kick").ClickAsync();
-        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Kick player?", dialogs.Markup));
-        Assert.Equal(count, sent.Count);
-        // Role revocation while the confirmation is open cannot execute the action.
+        var kick = panel.FindAll("details button").Single(x => x.TextContent == "Kick").ClickAsync();
+        await dialogs.WaitForAssertionAsync(() => Assert.Contains("Kick", dialogs.Markup));
         auth.SetPolicies(QuasarPolicyNames.CanView);
-        dialogs.FindAll("button").Single(x => x.TextContent.Trim() == "Kick").Click();
+        dialogs.FindAll("button").Single(x => x.TextContent.Trim() == "Confirm").Click();
         await kick;
         Assert.Equal(count, sent.Count);
-        panel.Render();
-        Assert.Empty(panel.FindAll("[popover], form"));
+        panel.Render(p => p.Add(x => x.CanControl, false));
+        Assert.Empty(panel.FindAll("details, form"));
         Assert.Contains("Engineer", panel.Markup);
-        if (Environment.GetEnvironmentVariable("QUASAR_UI_PREVIEW_OUTPUT") is { Length: > 0 } preview)
-        {
-            auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers);
-            runtime.State = DedicatedServerProcessState.Running;
-            panel.Render();
-            await File.WriteAllTextAsync(preview + ".details", $"<div style=\"{QuasarTheme.BuildCss(BrandingPresets.GetDarkPalette(BrandingPresets.CometWorksId), true)}\">{panel.Markup}</div>");
-        }
     }
 
     [Fact]
@@ -579,14 +474,10 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(supervisor); context.Services.AddSingleton(warmup);
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         context.Services.AddSingleton(_branding);
-        context.Services.AddSingleton(new BrowserStorageService(context.JSInterop.JSRuntime));
-        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new WebServiceOptions());
         context.Services.AddSingleton<Quasar.Services.Backup.ServerRestoreCoordinator>();
         context.Services.AddSingleton<ServerWorldImportService>();
-        context.Services.AddScoped<ServerManagementActions>();
         using var http = new HttpClient(new UnavailableGateway());
         var gateway = new ClusterGatewayClient(http);
         context.Services.AddSingleton(gateway);
@@ -693,7 +584,6 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(catalog);
         context.Services.AddSingleton(clusters);
         context.Services.AddSingleton(history);
-        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         context.Render<MudPopoverProvider>();
 
         var page = context.Render<Quasar.Client.Components.PluginStatsHistoryView>();

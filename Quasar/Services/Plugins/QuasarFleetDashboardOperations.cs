@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Magnetar.Protocol.Model;
 using Microsoft.AspNetCore.Authorization;
 using Quasar.Client.Fleet;
 using Quasar.Models;
@@ -66,11 +67,10 @@ internal static partial class QuasarFleetDashboardOperations
             var name = string.IsNullOrWhiteSpace(server.DisplayName) ? server.UniqueName : server.DisplayName;
             sources[server.UniqueName] = name;
             var details = new List<string>();
-            if (m is not null) details.AddRange([$"PCU {m.UsedPcu}/{m.TotalPcu}", $"Mods {m.ModsLoaded}", $"Plugins {m.PluginsLoaded}", $"Uptime {TimeSpan.FromSeconds(m.UptimeSeconds):g}"]);
+            if (m is not null) details.AddRange([$"PCU {m.UsedPcu}/{m.TotalPcu}", $"Mods {m.ModsLoaded}", $"Uptime {TimeSpan.FromSeconds(m.UptimeSeconds):g}"]);
             if (!string.IsNullOrEmpty(server.CpuAffinity)) details.Add($"CPU affinity {server.CpuAffinity}");
             if (runtime is not null)
             {
-                if (!string.IsNullOrEmpty(runtime.ProcessPriorityWarning)) details.Add(runtime.ProcessPriorityWarning);
                 if (runtime.LastRestart is { } restart) details.Add($"Last restart: {restart.Cause}, {restart.Outcome}");
                 details.AddRange(runtime.ModDownloadFailures.Take(20));
             }
@@ -81,7 +81,11 @@ internal static partial class QuasarFleetDashboardOperations
                 runtime?.HealthState.ToString() ?? "Unknown", runtime?.HealthSummary is { Length: > 0 } health ? health : runtime?.LastMessage ?? "",
                 runtime?.LatestErrorLogLine, runtime?.LatestErrorLogKind, details.ToArray(),
                 !string.IsNullOrWhiteSpace(server.WorldSaveName) && File.Exists(Path.Combine(server.GetWorldSavePath(), "Sandbox.sbc")),
-                (edit || config) && imports.CanImport(server), false, server.UpdatedAtUtc));
+                (edit || config) && imports.CanImport(server), false, server.UpdatedAtUtc)
+            {
+                PriorityWarning = runtime?.ProcessPriorityWarning,
+                Plugins = agent?.Snapshot is { } snapshot ? DescribePlugins(snapshot, profiles.FirstOrDefault(p => p.ConfigProfileId == server.ConfigProfileId)) : null
+            });
         }
         foreach (var cluster in clusters)
         {
@@ -109,4 +113,54 @@ internal static partial class QuasarFleetDashboardOperations
             warmup, supervisor.HealthMonitoringDisabled, await Allowed(QuasarPolicyNames.CanManageSecurity) && (consent.ConsentGranted is null || consent.ConsentGranted == true && !consent.DiagnosticsGranted),
             OperatingSystem.IsLinux(), edit, config, await Allowed(QuasarPolicyNames.CanControlServers), manage, query);
     }
+
+    internal static FleetPluginLoad DescribePlugins(AgentSnapshot snapshot, QuasarConfigProfile? profile)
+    {
+        if (profile is null) return new(snapshot.Metrics.PluginsLoaded, null, null);
+        var configured = profile.Plugins.Where(plugin => !string.IsNullOrWhiteSpace(plugin.PluginId)).ToArray();
+        if (snapshot.Plugins.Count == 0)
+        {
+            var loaded = Math.Min(snapshot.Metrics.PluginsLoaded, configured.Length);
+            return new(loaded, configured.Length, loaded == configured.Length ? null
+                : "Some configured plugins are not loaded. Plugin names are unavailable; check the server logs.");
+        }
+        var keys = snapshot.Plugins.Where(plugin => plugin.IsLoaded)
+            .SelectMany(plugin => GetPluginMatchKeys(plugin.PluginId).Concat(GetPluginMatchKeys(plugin.DisplayName)))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var missing = configured.Where(plugin =>
+            !GetPluginMatchKeys(plugin.PluginId).Concat(GetPluginMatchKeys(plugin.DisplayName)).Any(keys.Contains))
+            .Select(plugin => string.IsNullOrWhiteSpace(plugin.DisplayName) ? plugin.PluginId : plugin.DisplayName).ToArray();
+        return new(configured.Length - missing.Length, configured.Length, missing.Length == 0 ? null : "Not loaded: " + string.Join(", ", missing));
+    }
+
+    private static IEnumerable<string> GetPluginMatchKeys(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            yield break;
+
+        var trimmed = value.Trim();
+        yield return trimmed;
+
+        var normalized = trimmed.Replace('\\', '/').TrimEnd('/');
+        var slash = normalized.LastIndexOf('/');
+        var fileName = slash >= 0 ? normalized[(slash + 1)..] : normalized;
+        if (!string.IsNullOrWhiteSpace(fileName))
+        {
+            yield return fileName;
+
+            var extension = Path.GetExtension(fileName);
+            if (!string.IsNullOrEmpty(extension))
+                yield return fileName[..^extension.Length];
+        }
+
+        if (slash > 0)
+        {
+            var parent = normalized[..slash].TrimEnd('/');
+            var parentSlash = parent.LastIndexOf('/');
+            var parentName = parentSlash >= 0 ? parent[(parentSlash + 1)..] : parent;
+            if (!string.IsNullOrWhiteSpace(parentName))
+                yield return parentName;
+        }
+    }
+
 }

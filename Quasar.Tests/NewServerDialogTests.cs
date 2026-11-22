@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
 using MudBlazor.Services;
 using Quasar.Components.Pages;
+using Quasar.Client.Components;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Xunit;
@@ -35,18 +36,15 @@ public sealed class NewServerDialogTests : IDisposable
     public async Task NewServerRoutesToTheSelectedFlow(string choice)
     {
         await using var context = CreateContext();
-        context.ComponentFactories.AddStub<ServerEditorDialog>();
         using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
         var dialogs = context.Services.GetRequiredService<IDialogService>();
         var references = new List<IDialogReference>();
         dialogs.DialogInstanceAddedAsync += reference => { references.Add(reference); return Task.CompletedTask; };
-        var navigation = context.Services.GetRequiredService<NavigationManager>();
-        var actions = new ServerManagementActions(catalog, null!, new(), null!, null!, null!,
-            context.Services.GetRequiredService<QuasarPermissionService>(), dialogs,
-            context.Services.GetRequiredService<ISnackbar>(), navigation, context.Services);
         var provider = context.Render<MudDialogProvider>();
-        var action = provider.InvokeAsync(() => actions.OpenNewServerDialogAsync());
-        await provider.WaitForAssertionAsync(() => Assert.Single(provider.FindComponents<NewServerDialog>()));
+        await provider.InvokeAsync(() => dialogs.ShowAsync<NewServerDialog>("New server", new DialogParameters<NewServerDialog>
+        {
+            { p => p.CanCreate, true }, { p => p.CanManageCluster, true }, { p => p.WorkerLinux, OperatingSystem.IsLinux() }
+        }));
         bool unavailableCluster = choice == "Cluster" && !OperatingSystem.IsLinux();
         var selected = provider.FindAll("button").Single(b => b.TextContent.Trim() == choice);
         Assert.Equal(unavailableCluster, selected.HasAttribute("disabled"));
@@ -60,16 +58,11 @@ public sealed class NewServerDialogTests : IDisposable
         }
         else await selected.ClickAsync();
 
-        if (choice == "Single Magnetar")
-        {
-            await provider.WaitForAssertionAsync(() => Assert.Single(provider.FindComponents<Stub<ServerEditorDialog>>()));
-            Assert.Equal(2, references.Count);
-            await provider.InvokeAsync(() => dialogs.Close(references[^1], DialogResult.Cancel()));
-        }
-
-        await action;
-        Assert.Equal(choice == "Cluster" && !unavailableCluster ? "http://localhost/clusters/new" : "http://localhost/", navigation.Uri);
-        Assert.Equal(choice == "Single Magnetar" ? 2 : 1, references.Count);
+        var result = await Assert.Single(references).Result;
+        if (unavailableCluster || choice == "Cancel")
+            Assert.True(result!.Canceled);
+        else
+            Assert.Equal(choice == "Cluster" ? NewServerDialog.ServerKind.Cluster : NewServerDialog.ServerKind.SingleMagnetar, result!.Data);
         Assert.Empty(catalog.GetServers());
     }
 
@@ -101,7 +94,6 @@ public sealed class NewServerDialogTests : IDisposable
         auth.SetAuthorized("operator");
         auth.SetPolicies(policies.Length == 0 ? [QuasarPolicyNames.CanEditServers, QuasarPolicyNames.ClusterManage] : policies);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         return context;
     }
 

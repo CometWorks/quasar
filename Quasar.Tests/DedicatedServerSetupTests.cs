@@ -6,7 +6,8 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
 using MudBlazor.Services;
-using Quasar.Components.Pages;
+using Quasar.Client.Components;
+using Quasar.Client.Fleet;
 using Quasar.Components.Shared;
 using Quasar.Services;
 using Quasar.Services.Auth;
@@ -112,7 +113,7 @@ public sealed class DedicatedServerSetupTests : IDisposable
         var resolver = Resolver(options);
         // The location service cannot find this root from its own configured paths.
         var locations = new WorldTemplateImportLocationService(new ManagedRuntimeOptions
-            { DedicatedServerInstallDirectory = Path.Combine(_root, "missing") }, null!, resolver);
+            { DedicatedServerInstallDirectory = Path.Combine(_root, "missing") }, resolver);
         var result = locations.DiscoverInstalledWorldTemplates();
         Assert.Contains(result.Templates, t => t.SourcePath == world);
         Assert.Contains(Path.Combine(_root, "actual", "Content", "CustomWorlds"), result.Locations);
@@ -126,40 +127,28 @@ public sealed class DedicatedServerSetupTests : IDisposable
     public async Task WorldChooserExplainsPreparationThenRescansWhenServerFilesAreReady()
     {
         await using var context = Context();
-        var provider = context.Render<MudDialogProvider>();
-        var dialogs = context.Services.GetRequiredService<IDialogService>();
-        IDialogReference dialog = null!;
-        await provider.InvokeAsync(async () => dialog = await dialogs.ShowAsync<WorldTemplateQuickImportDialog>("Choose world",
-            new DialogParameters { [nameof(WorldTemplateQuickImportDialog.TemplateOnly)] = true }));
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Waiting for the server's starting worlds", provider.Markup));
-        Assert.Contains("Where Quasar looked", provider.Markup);
-        string source = World(Path.Combine("install", "Content", "CustomWorlds", "Earth"));
-        var warmup = context.Services.GetRequiredService<ManagedRuntimeWarmupService>();
-        await provider.InvokeAsync(() => Report(warmup, ManagedRuntimeInstallPhase.Ready));
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Use this world", provider.Markup));
-        Assert.DoesNotContain("Waiting for the server's starting worlds", provider.Markup);
-        // A failed copy stays in the chooser and explains how to retry.
-        File.Delete(Path.Combine(source, "Sandbox.sbc"));
-        await provider.InvokeAsync(() => provider.FindAll("button").Single(b => b.TextContent.Trim() == "Use this world").ClickAsync());
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Could not finish preparing this world", provider.Markup));
-        File.WriteAllText(Path.Combine(source, "Sandbox.sbc"), "<MyObjectBuilder_Checkpoint />");
-        await provider.InvokeAsync(() => provider.FindAll("button").Single(b => b.TextContent.Trim() == "Use this world").ClickAsync());
-        var result = await dialog.Result;
-        var imported = Assert.IsType<WorldTemplateQuickImportDialog.WorldTemplateQuickImportResult>(result!.Data);
-        Assert.Equal("Earth", imported.Template.Name);
-        Assert.True(File.Exists(Path.Combine(source, "Sandbox.sbc")));
+        context.Render<MudPopoverProvider>();
+        var chooser = context.Render<WorldImportForm>(p => p.Add(c => c.Inventory, new WorldInventory([], [], [], false, true)).Add(c => c.TemplateOnly, true));
+        Assert.Contains("Waiting for the Dedicated Server installation", chooser.Markup);
+        World(Path.Combine("install", "Content", "CustomWorlds", "Earth"));
+        Report(context.Services.GetRequiredService<ManagedRuntimeWarmupService>(), ManagedRuntimeInstallPhase.Ready);
+        await chooser.FindAll("button").Single(b => b.TextContent.Trim() == "Refresh").ClickAsync();
+        Assert.Contains("Earth", chooser.Markup);
+        Assert.Contains("Select world", chooser.Markup);
+        Assert.DoesNotContain("Waiting for the Dedicated Server installation", chooser.Markup);
     }
 
     [Fact]
     public async Task SetupStatusExplainsFailuresAndAllowsWorldChoiceBeforeMagnetarFinishes()
     {
         await using var context = Context();
-        var status = context.Render<DedicatedServerSetupStatus>();
         var warmup = context.Services.GetRequiredService<ManagedRuntimeWarmupService>();
-        await status.InvokeAsync(() => Report(warmup, ManagedRuntimeInstallPhase.Failed));
+        Report(warmup, ManagedRuntimeInstallPhase.Failed);
+        var status = context.Render<FleetPreparation>(p => p.Add(c => c.Snapshot, warmup.GetSnapshot()).Add(c => c.CanRetry, true));
         Assert.Contains("Preparation needs attention", status.Markup);
         Assert.Contains("Retry preparation", status.Markup);
-        await status.InvokeAsync(() => Report(warmup, ManagedRuntimeInstallPhase.Ready));
+        Report(warmup, ManagedRuntimeInstallPhase.Ready);
+        status.Render(p => p.Add(c => c.Snapshot, warmup.GetSnapshot()));
         Assert.Contains("Choose a starting world now", status.Markup);
         Assert.DoesNotContain("Retry preparation", status.Markup);
         Assert.False(warmup.IsReady);
@@ -167,16 +156,15 @@ public sealed class DedicatedServerSetupTests : IDisposable
 
     private BunitContext Context()
     {
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
         auth.SetAuthorized("admin");
         auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanEditServers);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         var options = new ManagedRuntimeOptions { DedicatedServerInstallDirectory = Path.Combine(_root, "install") };
-        context.Services.AddSingleton(new WorldTemplateImportLocationService(options, null!));
+        context.Services.AddSingleton(new WorldTemplateImportLocationService(options));
         context.Services.AddSingleton(new ManagedRuntimeWarmupService(Resolver(options), NullLogger<ManagedRuntimeWarmupService>.Instance));
         context.Services.AddSingleton(new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance));
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));

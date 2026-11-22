@@ -154,6 +154,7 @@
     private RenderFragment Profile(FleetRow r)=>@<text>@if(Dashboard.EditConfigs && r.Profile.Length>0){ <a class="quasar-table-link" href="@("configs?profileId="+Uri.EscapeDataString(r.Profile))">@r.ProfileName</a> }else{ @r.ProfileName }</text>;
     private RenderFragment Details(FleetRow r)=>@<div class="quasar-panel quasar-section">
         <strong>@r.Health</strong><p>@r.Message</p>
+        <FleetRuntimeDetails Plugins="@r.Plugins" PriorityWarning="@r.PriorityWarning" />
         @if(r.Details.Length>0){<ul>@foreach(var item in r.Details){<li>@item</li>}</ul>}
         @if(r.IsCluster){ <a href="@ClusterHref(r)">Open cluster details</a> }
         else { <FleetLiveDetails UniqueName="@r.UniqueName" Connected="r.Connected" Running="@(r.State=="Running")" CanControl="Dashboard.Control" /> }

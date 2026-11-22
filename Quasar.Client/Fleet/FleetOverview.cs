@@ -10,8 +10,11 @@ public sealed record FleetRow(string UniqueName, string DisplayName, bool IsClus
     int? Capacity, float? SimSpeed, float? Cpu, long? MemoryMb, int? ProcessId, string Health, string Message,
     string? Error, string? ErrorLogKind, string[] Details, bool LaunchReady, bool Importable, bool Deployed, DateTimeOffset Revision)
 {
+    public FleetPluginLoad? Plugins { get; init; }
+    public string? PriorityWarning { get; init; }
     public bool Active => State is "Running" or "Starting" or "Stopping" or "Restarting";
 }
+public sealed record FleetPluginLoad(int Loaded, int? Configured, string? Warning);
 public sealed record FleetProfile(string Id, string Name, string WorldTemplateId);
 public sealed record FleetActivity(DateTimeOffset At, string DisplayName, string Message, string Level, FleetOperation? ClusterDetails);
 public sealed record FleetOperation(string OperationId, string Kind, DateTimeOffset StartedAt, string? ErrorCode);

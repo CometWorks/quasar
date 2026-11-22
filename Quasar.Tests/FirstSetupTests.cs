@@ -10,7 +10,6 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
-using Quasar.Components.Dashboard;
 using Quasar.Components.Pages;
 using Quasar.Models;
 using Quasar.Services;
@@ -298,33 +297,37 @@ public sealed class FirstSetupTests : IDisposable
     [Fact]
     public async Task FleetChartRequestsClusterSlotHistoryAlongsideStandaloneServers()
     {
-        await using var context = new OperationsBrowserContext(new StorageRuntime(_storage));
-        context.JSInterop.Mode = JSRuntimeMode.Loose;
-        using var branding = new BrandingService(NullLogger<BrandingService>.Instance);
-        context.Services.AddSingleton(branding);
-        context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), branding, context.JSInterop.JSRuntime));
-        AgentRuntimeState Node(string id, string slot, long epoch, string cluster = "fleet") => new()
+        await using var context = Context();
+        await context.Services.GetRequiredService<ClusterCatalog>().CreateAsync(new("fleet", "My cluster", "http://gateway.test",""), default);
+        await context.Services.GetRequiredService<DedicatedServerCatalog>().UpsertAsync(new() { UniqueName="standalone", DisplayName="Standalone", WorldSaveName="World" });
+        var registry = context.Services.GetRequiredService<AgentRegistry>();
+        AgentRuntimeState Node(string id, string slot, long epoch, string cluster = "fleet")
         {
-            AgentId = id, IsConnected = true,
-            Hello = new() { ClusterMode = true, ClusterId = cluster, ClusterSlot = slot, ClusterNodeId = id, ClusterEpoch = epoch },
-        };
+            registry.UpsertHello(new() { AgentId = id, UniqueName = slot, ClusterMode = true, ClusterId = cluster, ClusterSlot = slot, ClusterNodeId = id, ClusterEpoch = epoch }, id, (_,_) => Task.CompletedTask);
+            return registry.GetAgents().Single(a => a.AgentId == id);
+        }
         var old = Node("old", "node-1", 1);
         var current = Node("new", "node-1", 2);
         var other = Node("other", "node-2", 1);
-        var panel = context.Render<FleetTelemetryChart>(p => p
-            .Add(c => c.Servers, [new() { UniqueName = "standalone", DisplayName = "Standalone" }])
-            .Add(c => c.Clusters, [new() { UniqueName = "fleet", DisplayName = "My cluster" }])
-            .Add(c => c.Agents, [old, current, other, Node("orphan", "node-1", 1, "missing"), Node("pending", "node-3", 0)]));
-        var options = System.Text.Json.JsonSerializer.SerializeToElement(Assert.Single(context.JSInterop.Invocations["quasarCharts.sync"]).Arguments[0]);
+        Node("orphan", "node-1", 1, "missing");
+        Node("pending", "node-3", 0);
+        var user = (await context.Services.GetRequiredService<Microsoft.AspNetCore.Components.Authorization.AuthenticationStateProvider>().GetAuthenticationStateAsync()).User;
+        async Task<Dictionary<string,string>> Sources() => (await Quasar.Services.Plugins.QuasarFleetDashboardOperations.Overview(new(user,context.Services), default)).Sources;
+        var sources = await Sources();
+        using var chart = new OperationsBrowserContext();
+        chart.JSInterop.Mode = JSRuntimeMode.Loose;
+        var panel = chart.Render<BrowserFleetChart>(p => p.Add(c => c.Sources, sources));
+        var options = System.Text.Json.JsonSerializer.SerializeToElement(Assert.Single(chart.JSInterop.Invocations["quasarCharts.sync"]).Arguments[0]);
         Assert.Equal(new[] { "standalone", current.AnalyticsKey, other.AnalyticsKey }, options.GetProperty("servers").EnumerateArray().Select(v => v.GetString()));
         Assert.Equal("My cluster / node-1", options.GetProperty("names").GetProperty(current.AnalyticsKey).GetString());
         Assert.DoesNotContain(old.TelemetryKey, options.GetRawText());
         Assert.Contains("Standalone servers and cluster nodes", panel.Markup);
 
         var added = Node("added", "node-3", 1);
-        panel.Render(p => p.Add(c => c.Agents, [current, other, added]));
-        await panel.WaitForAssertionAsync(() => Assert.Equal(2, context.JSInterop.Invocations["quasarCharts.sync"].Count));
-        var latest = System.Text.Json.JsonSerializer.SerializeToElement(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
+        sources = await Sources();
+        panel.Render(p => p.Add(c => c.Sources, sources));
+        await panel.WaitForAssertionAsync(() => Assert.Equal(2, chart.JSInterop.Invocations["quasarCharts.sync"].Count));
+        var latest = System.Text.Json.JsonSerializer.SerializeToElement(chart.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0]);
         Assert.Contains(added.AnalyticsKey, latest.GetProperty("servers").EnumerateArray().Select(v => v.GetString()));
     }
 
@@ -383,8 +386,8 @@ public sealed class FirstSetupTests : IDisposable
         await using var context = Context();
         context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ExistingServerImportDialog>("Import",
-            new DialogParameters { [nameof(ExistingServerImportDialog.OfferCreateNew)] = firstSetup }));
+        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ImportExistingServerDialog>("Import",
+            new DialogParameters { [nameof(ImportExistingServerDialog.OfferCreateNew)] = firstSetup }));
         if (firstSetup)
             await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Import Existing Server").ClickAsync(new());
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == (kind == ExistingServerKind.Torch ? "Torch" : "Vanilla Dedicated Server")).ClickAsync(new());
@@ -394,7 +397,7 @@ public sealed class FirstSetupTests : IDisposable
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Upload ZIP").ClickAsync(new());
         Assert.Empty(dialogs.FindAll("input[type=radio]"));
         using var zip = ExistingServerZipImportTests.CreateServerZip(kind, "Wrapper/");
-        BrowserZipTestFile.Setup(context, zip.ToArray());
+        context.SelectedZip = zip.ToArray();
         dialogs.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(zip.ToArray(), "server.zip"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
         Assert.Contains("Review detected data", dialogs.Markup);
@@ -424,7 +427,7 @@ public sealed class FirstSetupTests : IDisposable
         await using var context = Context();
         context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ExistingServerImportDialog>("Import"));
+        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ImportExistingServerDialog>("Import"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Vanilla Dedicated Server").ClickAsync(new());
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
         string source = Path.Combine(_root, "source-server");
@@ -453,12 +456,12 @@ public sealed class FirstSetupTests : IDisposable
     {
         await using var context = Context();
         var dialogs = context.Render<MudDialogProvider>();
-        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ExistingServerImportDialog>("Import"));
+        await dialogs.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>().ShowAsync<ImportExistingServerDialog>("Import"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Vanilla Dedicated Server").ClickAsync(new());
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Next").ClickAsync(new());
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Upload ZIP").ClickAsync(new());
         using var zip = ExistingServerZipImportTests.CreateServerZip(ExistingServerKind.Vanilla);
-        BrowserZipTestFile.Setup(context, zip.ToArray());
+        context.SelectedZip = zip.ToArray();
         dialogs.FindComponent<InputFile>().UploadFiles(InputFileContent.CreateFromBinary(zip.ToArray(), "server.zip"));
         await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Analyze").ClickAsync(new());
         string configPath = dialogs.FindAll("p").Single(element => element.TextContent.StartsWith("Config: ")).TextContent[8..].Trim();
@@ -525,7 +528,7 @@ public sealed class FirstSetupTests : IDisposable
         Assert.Equal(new[] {permitted.AnalyticsKey, permitted.TelemetryKey, Quasar.Services.Analytics.PluginStatsHistoryService.ClusterKey("allowed"), "ordinary"}.Order(), allowed.Order());
     }
 
-    private BunitContext Context(bool clusterPermission = true, ClusterGatewayClient? playerGateway = null)
+    private OperationsBrowserContext Context(bool clusterPermission = true, ClusterGatewayClient? playerGateway = null)
     {
         var context = new OperationsBrowserContext(new StorageRuntime(_storage));
         context.Services.AddMudServices();
@@ -533,6 +536,7 @@ public sealed class FirstSetupTests : IDisposable
         var auth = context.AddAuthorization();
         context.Services.AddSingleton(auth);
         auth.SetAuthorized("admin");
+        auth.SetClaims(new System.Security.Claims.Claim(System.Security.Claims.ClaimTypes.NameIdentifier, "admin"));
         auth.SetPolicies(clusterPermission
             ? [QuasarPolicyNames.CanView, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage]
             : [QuasarPolicyNames.CanView, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs]);
@@ -554,16 +558,11 @@ public sealed class FirstSetupTests : IDisposable
         context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
         context.Services.AddSingleton(new ExistingServerImportService(servers, worlds, profiles, NullLogger<ExistingServerImportService>.Instance));
-        context.Services.AddSingleton(new BrowserStorageService(new StorageRuntime(_storage)));
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new WebServiceOptions());
         context.Services.AddSingleton<Quasar.Services.Backup.ServerRestoreCoordinator>();
         context.Services.AddSingleton<ServerWorldImportService>();
-        context.Services.AddScoped<ServerManagementActions>();
         context.ComponentFactories.AddStub<FleetWorkspace>();
-        context.ComponentFactories.AddStub<ServerCard>();
-        context.ComponentFactories.AddStub<ClusterCard>();
         context.ComponentFactories.AddStub<BrowserFleetChart>();
         return context;
     }
