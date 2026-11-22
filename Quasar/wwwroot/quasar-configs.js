@@ -422,8 +422,8 @@ window.quasarConfigs = window.quasarConfigs || {
         });
         return true;
     },
-    // Used when the Quasar worker is being restarted: the Blazor circuit drops, so we
-    // poll the (anonymous) health endpoint from the browser and navigate to the target
+    // During a worker restart, poll the anonymous health endpoint from the browser
+    // and navigate to the target
     // page once the new worker answers. Updates also check the protected version
     // endpoint; public health responses contain only status. Falls back to a plain
     // reload after a timeout.

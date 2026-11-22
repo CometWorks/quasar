@@ -3,7 +3,8 @@
 The version 1 SDK provides typed operations, a shared authorized dispatcher,
 endpoint authorization settings, binary reads, staged uploads and subscriptions.
 All 15 Entity Viewer operations use it. Built-in analytics and log downloads use
-the same boundary. HTTP is the implemented adapter; WebRTC is separate work.
+the same API. Local sessions use HTTP(S). Hosted sessions use the HTTPS tunnel
+until a direct WebRTC peer is confirmed. New operations then use that peer.
 See the [transport contract](QuasarSdkTransport.md) for verified session binding,
 expiry/logout, resource limits and commit behavior.
 
@@ -565,11 +566,9 @@ SDK endpoints always require an accepted authenticated principal, including when
 other legacy routes have authentication explicitly disabled. Disabling hosting
 has no effect on the local SDK. No operation adds a Nebula endpoint allowlist.
 
-Other core HTTP APIs, config-backup downloads/uploads, appearance resources,
-the server lifecycle HTTP APIs and existing SignalR circuits retain their current paths.
-The Discord log button uses its legacy alias to the SDK handler. SignalR and
-remaining core transport migration belong to later RTC steps. Existing plugins
-can keep their old interface and endpoint registration; SDK adoption is opt-in.
+Machine clients and adopted HTTP aliases keep their existing endpoints. Dashboard
+and browser plugin operations use the browser SDK. The WASM dashboard renders
+locally and does not open a SignalR circuit.
 
 Validation uses isolated core HTTP fixtures, real viewer SDK integration and
 browser-module checks. Production Steam login, installed matching packages and

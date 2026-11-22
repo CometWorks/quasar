@@ -47,6 +47,22 @@ func TestCreditBurstsRetainControlByteAndCountBounds(t *testing.T) {
 	}
 }
 
+func TestPeerRejectsRelayAtSetup(t *testing.T) {
+	id := strings.Repeat("a", 32)
+	e := &endpoint{peers: map[string]*peer{}, api: webrtc.NewAPI()}
+	for _, offer := range []string{
+		`{"type":"offer","sdp":"v=0","iceServers":[{"urls":["turn:relay.example:3478"]}]}`,
+		`{"type":"offer","sdp":"v=0","iceServers":[{"urls":["stun:stun.example:3478"],"username":"relay","credential":"secret"}]}`,
+		`{"type":"offer","sdp":"a=candidate:1 1 udp 123 127.0.0.1 57000 typ relay\r\n"}`,
+	} {
+		response := httptest.NewRecorder()
+		e.serve(response, httptest.NewRequest("POST", "/peers/"+id, strings.NewReader(offer)))
+		if response.Code != 400 || len(e.peers) != 0 {
+			t.Fatalf("relay setup retained a peer or returned %d", response.Code)
+		}
+	}
+}
+
 // A dead STUN service must not hold the SDP answer behind its timeout.
 func TestTrickleAnswersWhileStunIsStillGathering(t *testing.T) {
 	blackhole, err := net.ListenPacket("udp4", "127.0.0.1:0")
@@ -87,7 +103,7 @@ func TestTrickleAnswersWhileStunIsStillGathering(t *testing.T) {
 		t.Fatal("test STUN did not stall discovery")
 	}
 	for _, update := range []string{
-		`{"candidates":[],"offset":-1}`, `{"candidates":[{"candidate":""}]}`,
+		`{"candidates":[],"offset":-1}`, `{"candidates":[{"candidate":"candidate:1 1 udp 123 127.0.0.1 57000 typ relay"}]}`, `{"candidates":[{"candidate":""}]}`,
 		`{"candidates":[{"candidate":"` + strings.Repeat("x", 513) + `"}]}`,
 	} {
 		response := httptest.NewRecorder()
@@ -102,7 +118,7 @@ func TestTrickleAnswersWhileStunIsStillGathering(t *testing.T) {
 	p.remoteCandidates = maximumCandidates
 	p.mu.Unlock()
 	response := httptest.NewRecorder()
-	e.serve(response, httptest.NewRequest("POST", "/peers/"+id+"/ice", strings.NewReader(`{"candidates":[{"candidate":"candidate:x"}]}`)))
+	e.serve(response, httptest.NewRequest("POST", "/peers/"+id+"/ice", strings.NewReader(`{"candidates":[{"candidate":"candidate:1 1 udp 2122260223 127.0.0.1 57000 typ host"}]}`)))
 	if response.Code != 409 {
 		t.Fatal("cumulative ICE cap bypassed")
 	}
@@ -111,7 +127,7 @@ func TestTrickleAnswersWhileStunIsStillGathering(t *testing.T) {
 	p.remoteComplete = true
 	p.mu.Unlock()
 	response = httptest.NewRecorder()
-	e.serve(response, httptest.NewRequest("POST", "/peers/"+id+"/ice", strings.NewReader(`{"candidates":[{"candidate":"candidate:x"}]}`)))
+	e.serve(response, httptest.NewRequest("POST", "/peers/"+id+"/ice", strings.NewReader(`{"candidates":[{"candidate":"candidate:1 1 udp 2122260223 127.0.0.1 57000 typ host"}]}`)))
 	if response.Code != 409 {
 		t.Fatal("completed ICE reopened")
 	}

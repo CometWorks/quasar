@@ -15,6 +15,12 @@ A UI plugin can:
 - ship static files (JavaScript, CSS, images), served under `/_quasar/plugins/{plugin id}/`
 - ship one or more companion Magnetar plugins that Quasar deploys into managed servers
 
+Starting in Quasar 1.7.0, Razor pages and extension panels run in the browser.
+An installed plugin that still supplies worker-only Razor UI appears under load
+errors on **UI Plugins**. Upgrade the plugin to a version that declares a
+`browserAssembly`, then restart Quasar. Its worker operations and game companions
+can run independently of its UI.
+
 UI plugins are loaded once per worker start. Install, update, enable, disable and remove all change files on disk only, and take effect after a Quasar restart.
 
 ## Browser operation SDK
@@ -34,9 +40,8 @@ update the viewer adapter, assets and companion together.
 
 A plugin can require `browserSdkVersion: 1`. Quasar rejects unsupported versions
 before loading its assembly. An update error in a viewer means Quasar and the
-plugin need matching versions. Old plugins without this declaration keep their
-existing interfaces and routes. The SDK currently uses HTTP; WebRTC is separate
-work. Developers can use [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
+plugin need matching versions. Browser UI plugins provide a separate browser assembly. The SDK uses HTTP(S)
+locally and the tunnel or a confirmed direct WebRTC peer on hosted panels. Developers can use [the SDK guide](https://github.com/CometWorks/quasar/blob/main/Docs/QuasarBrowserSdk.md).
 
 ## The UI Plugins page
 

@@ -58,7 +58,7 @@ export function releaseResourceLoader(release, baseUri, manifest) {
     };
 }
 
-export async function startDashboard({ hosted, release, frameworkIntegrity }) {
+export async function startDashboard({ hosted, release, frameworkIntegrity }, showFailure) {
     const shell = document.getElementById("quasar-wasm-shell");
     bindShell(shell);
     const loader = shell.querySelector("#quasar-wasm-loading");
@@ -90,25 +90,18 @@ export async function startDashboard({ hosted, release, frameworkIntegrity }) {
             window.addEventListener("pagehide", event => { if (!event.persisted) clearInterval(timer); });
         }).catch(() => { indicator.textContent = "Connection unavailable"; });
     }
-    function failed() {
-        observer.disconnect();
-        label.textContent = "The dashboard could not start.";
-        bar.hidden = true;
-        loader.querySelector(".quasar-wasm-spinner").hidden = true;
-        const reload = loader.querySelector("button");
-        reload.hidden = false;
-        reload.addEventListener("click", () => location.reload());
-    }
+    const failed = () => { observer.disconnect(); showFailure(); };
     window.addEventListener("unhandledrejection", failed, { once: true });
     window.addEventListener("quasar-wasm-ready", () => {
+        window.removeEventListener("unhandledrejection", failed);
         loader.hidden = true;
         observer.disconnect();
-        window.removeEventListener("unhandledrejection", failed);
     }, { once: true });
     try {
         await Blazor.start({ webAssembly: { loadBootResource: hosted ? releaseResourceLoader(release, document.baseURI, frameworkIntegrity) : undefined } });
     } catch (error) {
-        failed();
+        window.removeEventListener("unhandledrejection", failed);
+        observer.disconnect();
         throw error;
     }
 }

@@ -62,8 +62,8 @@ Above the cards, a banner shows the first server that needs attention: a **Crash
 Analytics and fleet charts read data through Quasar browser SDK v1. Their
 `quasar.core/analytics.series.read` operation requires `CanView` by default and
 can be disabled or rebound on Security. The existing analytics URL uses that
-same rule. Local charts work without Nebula; SignalR and background collection
-keep their existing lifecycle.
+same rule. The worker collects metrics in the background. Browser charts can
+read them locally over HTTP(S) or through the active hosted SDK connection.
 
 **Analytics** (`/analytics`) charts the metrics history of the servers you select.
 

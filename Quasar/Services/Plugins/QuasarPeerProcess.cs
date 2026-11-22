@@ -58,10 +58,10 @@ public sealed class QuasarPeerProcess(IOptions<QuasarRtcOptions> options) : IAsy
     private readonly SemaphoreSlim startGate = new(1, 1);
     private Connection? connection;
 
-    public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token, bool hosted = false, QuasarRtcIce[]? relay = null, bool trickle = false)
+    public async Task<QuasarRtcDescription> CreateAsync(string id, QuasarRtcDescription offer, CancellationToken token, bool hosted = false, bool trickle = false)
     {
         var current = await StartAsync(token);
-        using var request = new HttpRequestMessage(HttpMethod.Post, Route(id)) { Content = JsonContent.Create(new { offer.Type, offer.Sdp, trickle, iceServers = relay ?? (hosted ? options.Value.ValidatedStunUrls().Select(url => new QuasarRtcIce([url])).ToArray() : []) }) };
+        using var request = new HttpRequestMessage(HttpMethod.Post, Route(id)) { Content = JsonContent.Create(new { offer.Type, offer.Sdp, trickle, iceServers = hosted ? options.Value.ValidatedStunUrls().Select(url => new QuasarRtcIce([url])).ToArray() : [] }) };
         using var response = await current.Http.SendAsync(request, token);
         if (!response.IsSuccessStatusCode) throw new QuasarOperationException((int)response.StatusCode, "The direct peer could not accept this connection.");
         return await response.Content.ReadFromJsonAsync<QuasarRtcDescription>(token)

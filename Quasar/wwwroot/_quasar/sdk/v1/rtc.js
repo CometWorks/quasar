@@ -19,38 +19,15 @@ function wait(promise, signal) {
 }
 const integer = value => Number.isSafeInteger(value) && value >= 0;
 
-export async function connect(root, tokens, lifetime) {
-    if (!globalThis.RTCPeerConnection) throw new QuasarSdkError(503, "This browser cannot establish a peer connection.");
-    try { return await pair(root, tokens, lifetime); }
-    catch (error) {
-        // A new transport attempt may fall back before any feature command runs.
-        // Established streams/writes are never replayed across this boundary.
-        if (tokens.relayTicket || !tokens.directEnabled || lifetime.aborted
-            || !(error.status === 503 || error.name === "TimeoutError")) throw error;
-        const response = await fetch(new URL("rtc/relay", root), { method: "POST", credentials: "same-origin", redirect: "error", cache: "no-store",
-            signal: AbortSignal.any([lifetime, AbortSignal.timeout(10000)]), headers: { [tokens.headerName]: tokens.requestToken } });
-        if (!response.ok) throw new QuasarSdkError(response.status, "Peer connectivity is unavailable or relay capacity is exhausted.");
-        const relay = await response.json();
-        if (!/^[a-f0-9]{32}$/.test(relay.ticket || "") || relay.validForSeconds !== 60) throw new QuasarSdkError(426, "Invalid relay setup.");
-        return pair(root, { ...tokens, iceServers: relay.iceServers, relayTicket: relay.ticket }, lifetime);
-    }
-}
-
-// The hosted SDK has HTTPS fallback and only attempts a direct peer.
-export function connectDirect(root, tokens, lifetime) {
-    if (tokens.relayTicket) throw new QuasarSdkError(426, "A direct peer cannot use a relay ticket.");
-    return pair(root, tokens, lifetime);
-}
-
-async function pair(root, tokens, lifetime) {
+export async function connectDirect(root, tokens, lifetime) {
     if (!globalThis.RTCPeerConnection) throw new QuasarSdkError(503, "This browser cannot establish a direct connection.");
     const iceServers = tokens.iceServers || [];
-    if (!Array.isArray(iceServers) || iceServers.length > 3 || iceServers.some(server => !Array.isArray(server.urls)
-        || server.urls.length > 3 || server.urls.some(url => typeof url !== "string" || url.length > 256
-            || !(url.startsWith("stun:") || tokens.relayTicket && (url.startsWith("turn:") || url.startsWith("turns:"))))
-        || tokens.relayTicket && (typeof server.username !== "string" || server.username.length !== 32 || typeof server.credential !== "string" || server.credential.length !== 64)))
+    if (!Array.isArray(iceServers) || iceServers.length > 3 || iceServers.some(server =>
+        !server || Object.keys(server).some(key => key !== "urls") || !Array.isArray(server.urls)
+        || server.urls.length < 1 || server.urls.length > 3 || server.urls.some(url =>
+            typeof url !== "string" || url.length > 256 || !url.startsWith("stun:"))))
         throw new QuasarSdkError(426, "Incompatible peer NAT-discovery configuration.");
-    const pc = new RTCPeerConnection({ iceServers, iceTransportPolicy: tokens.relayTicket ? "relay" : "all" });
+    const pc = new RTCPeerConnection({ iceServers });
     const control = pc.createDataChannel("quasar.control.v1", { ordered: true, protocol: "quasar-sdk.v1" });
     const bulk = pc.createDataChannel("quasar.bulk.v1", { ordered: true, protocol: "quasar-sdk.v1" });
     bulk.binaryType = "arraybuffer";
@@ -100,9 +77,6 @@ async function pair(root, tokens, lifetime) {
     pc.onconnectionstatechange = () => {
         clearTimeout(disconnected);
         if (["failed", "closed"].includes(pc.connectionState)) fail();
-        // ICE's disconnected state is transient, including missed consent under
-        // bounded TURN pacing. Keep the same reliable session briefly; no new
-        // peer or feature replay occurs. Failed/closed remains terminal.
         else if (pc.connectionState === "disconnected") disconnected = setTimeout(() => fail(), 5000);
     };
     async function send(channel, data) {
@@ -120,8 +94,7 @@ async function pair(root, tokens, lifetime) {
         return sending;
     }
     function credit(entry) {
-        // Cumulative credit replenishes half a window at a time. TURN can batch
-        // arrivals; acknowledging each chunk creates avoidable control bursts.
+        // Replenish half a window at a time to bound control traffic.
         if (entry.credited !== undefined && entry.consumed - entry.credited < WINDOW / 2) return;
         entry.credited = entry.consumed;
         void command({ type: "credit", id: entry.id, bytes: entry.consumed }).catch(fail);
@@ -175,13 +148,6 @@ async function pair(root, tokens, lifetime) {
             case "end":
                 if (!integer(message.bytes) || message.bytes < entry.received || entry.length != null && entry.length !== message.bytes) throw new Error("Invalid direct stream completion");
                 entry.expected = message.bytes; finishStream(entry); break;
-            case "circuit.message":
-                if (!entry.circuit || !integer(message.bytes) || message.bytes < entry.messageEnd || message.bytes - entry.messageEnd > 8 * 1024 * 1024
-                    || !["text", "binary"].includes(message.kind)) throw new Error("Invalid circuit message boundary");
-                entry.messageEnd = message.bytes;
-                if (entry.onmessage) entry.onmessage(message);
-                else { if (entry.messages.length >= 64) throw new Error("Circuit message queue exceeded"); entry.messages.push(message); }
-                break;
             case "upload":
                 if (message.window !== 65536) throw new Error("Invalid upload window");
                 entry.uploadWindow = message.window; entry.ready.resolve(); break;
@@ -214,7 +180,7 @@ async function pair(root, tokens, lifetime) {
         if (pending.size >= (type === "release" ? 12 : 8)) throw new QuasarSdkError(429, "Too many concurrent direct SDK operations.");
         if (next === 0xffffffff) { fail(); throw new QuasarSdkError(503, "Reconnect before starting more SDK work."); }
         const entry = { id: ++next, result: deferred(), ready: deferred(), credit: deferred(), signal, queue: [], queued: 0, received: 0, consumed: 0,
-            sequence: 0, expected: null, sent: 0, acknowledged: 0, failed: null, circuit: type === "circuit", messages: [], messageEnd: 0, abortStream: new AbortController() };
+            sequence: 0, expected: null, sent: 0, acknowledged: 0, failed: null, abortStream: new AbortController() };
         entry.abort = () => { void command({ type: "cancel", id: entry.id }).catch(() => {}); reject(entry, signal.reason); };
         signal?.addEventListener("abort", entry.abort, { once: true });
         pending.set(entry.id, entry);
@@ -244,7 +210,7 @@ async function pair(root, tokens, lifetime) {
     try {
         lifetime.throwIfAborted();
         const opened = Promise.all([new Promise(resolve => control.onopen = resolve), new Promise(resolve => bulk.onopen = resolve)]);
-        // Signal immediately; STUN/TURN discovery must not block usable candidates.
+        // Signal immediately; STUN discovery must not block usable candidates.
         const candidates = [];
         let candidateCount = 0, complete = false;
         pc.onicecandidate = event => {
@@ -259,8 +225,7 @@ async function pair(root, tokens, lifetime) {
         await pc.setLocalDescription(offer);
         const nonce = [...crypto.getRandomValues(new Uint8Array(32))].map(byte => byte.toString(16).padStart(2, "0")).join("");
         const setupSignal = AbortSignal.any([stop.signal, AbortSignal.timeout(15000)]);
-        const setup = await (await post("rtc/attempts", { version: 1, nonce, description: offer, trickle: true,
-            ...(tokens.relayTicket ? { relayTicket: tokens.relayTicket } : {}) }, setupSignal)).json();
+        const setup = await (await post("rtc/attempts", { version: 1, nonce, description: offer, trickle: true }, setupSignal)).json();
         if (setup.version !== 1 || !/^[a-f0-9]{32}$/.test(setup.id) || !/^[a-fA-F0-9]{64}$/.test(setup.grant) || setup.description?.type !== "answer")
             throw new QuasarSdkError(426, "Incompatible direct SDK setup.");
         peerId = setup.id;
@@ -298,7 +263,7 @@ async function pair(root, tokens, lifetime) {
         if (!pc.sctp || pc.sctp.maxMessageSize < CONTROL) throw new QuasarSdkError(426, "This browser cannot support the SDK message size.");
         const confirmed = await post(`rtc/attempts/${peerId}/confirm`, { grant: setup.grant });
         stats.path = confirmed.headers.get("X-Quasar-Transport");
-        if (!["direct", "relayed"].includes(stats.path)) throw new QuasarSdkError(426, "Invalid peer path confirmation.");
+        if (stats.path !== "direct") throw new QuasarSdkError(426, "Invalid peer path confirmation.");
     } catch (error) { fail(error); throw error; }
 
     return Object.freeze({
@@ -328,22 +293,6 @@ async function pair(root, tokens, lifetime) {
                 void command({ type: "cancel", id: entry.id }).catch(() => {});
                 reject(entry, error); throw error;
             } finally { await reader.cancel().catch(() => {}); }
-        },
-        async circuit(ticket) {
-            const entry = invoke("circuit", { ticket }, stop.signal);
-            const result = await entry.result.promise;
-            await wait(entry.ready.promise, stop.signal);
-            const signal = AbortSignal.any([stop.signal, entry.abortStream.signal]);
-            let sequence = 0, sending = Promise.resolve();
-            return {
-                body: result.body,
-                set onmessage(callback) { entry.onmessage = callback; for (const message of entry.messages.splice(0)) callback(message); },
-                send(bytes) {
-                    const task = sending.then(() => sendInput(entry, bytes, () => sequence++, signal));
-                    sending = task.catch(() => {}); return task;
-                },
-                close() { void command({ type: "cancel", id: entry.id }).catch(() => {}); reject(entry, new DOMException("Circuit closed", "AbortError")); },
-            };
         },
         async release(resource) {
             if (closed) return;

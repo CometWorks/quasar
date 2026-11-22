@@ -29,7 +29,7 @@ A first interactive administrator session shows **Set up administrator access**.
 
 Select **Self-deploy** or **Use hosted panel**, then choose **Next**. **Back** returns from the hosted settings and keeps the name you entered. **Cancel** closes setup without configuring public access; setup comes back on the next page load while no admin is configured. Headless startup is not blocked. Reopen setup at **Security → Manage access setup**. See [Hosted access](HostedPanel.md) for automatic enrollment and its current availability.
 
-Before you save the administrator, setup explains that the panel refreshes to apply permissions. A brief reconnect message after saving is expected, including with WebRTC. Your mapping is saved before the refresh.
+Before you save the administrator, setup explains that the panel refreshes to apply permissions. Your mapping is saved before the refresh.
 
 Starting hosted enrollment switches the dialog to a progress screen with live updates and **Cancel** as its only button while connecting. **Open Quasar dashboard** appears once the hosted panel is active and its connection checks pass, and opens the dashboard in the current tab. **Self-deploy** appears only on the access-method screen, never on later hosted steps or when reopening a completed enrollment. Canceling setup does not cancel a paid subscription.
 

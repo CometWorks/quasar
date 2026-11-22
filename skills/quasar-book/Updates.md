@@ -225,14 +225,10 @@ The bell in the app bar and the **Notifications** page (`/notifications`) list u
 
 Under **Notification preferences**, **Quasar and cluster updates** is on by default. **Quasar UI plugin updates** is off by default and only shown to admins. Preferences are per account. Browser push uses the same choices. Push and the instance alerts on that page are covered in [Monitoring](Monitoring.md).
 
-During a planned restart, a restart progress panel replaces the normal lost-connection popup, checks health and version, and reloads the page. Clearing a failed restart brings back the normal reconnect handling. The normal reconnect dialog also checks for a replacement worker, including after native updates or updates started from another browser. Once that worker is ready, it reloads automatically. A temporary interruption to the same worker keeps the usual Retry and Resume controls without forcing a reload.
-
-Health and version requests time out after five seconds so a stalled request does
-not stop recovery. Worker checks continue during the reconnect countdown. The
-dialog warns that displayed data may be out of date and always offers **Reload
-page**, even without a working live connection. See
-[connection warnings](Troubleshooting.md#rejoining-the-server) if startup itself
-does not finish.
+During a planned restart the restart progress panel checks health and worker
+version. Once the replacement is ready, the browser reloads the dashboard.
+See [dashboard startup and transport](Troubleshooting.md#dashboard-startup-and-transport)
+if the runtime fails to load.
 
 ## Managed runtime warmup
 
@@ -367,7 +363,6 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Quasar/Components/Pages/Home.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Layout/ReconnectModal.razor.js`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor`
 - `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
 - `Quasar.Bootstrap/Program.cs`
