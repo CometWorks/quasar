@@ -443,9 +443,11 @@ jobs:
 
       - name: Verify browser SDK
         if: matrix.part == 'verify'
+        env:
+          QUASAR_FLEET_CHECKS: '1'
         run: |
           dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
-          node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/Browser/*.test.mjs
+          node --test Quasar.Tests/browser-sdk.test.mjs Quasar.Tests/server-import-file.test.mjs Quasar.Tests/Browser/*.test.mjs
           dotnet run --project tests/Quasar.Wasm.DashboardChecks -c Release --no-build
 
       - name: Retain SDK test evidence
@@ -694,11 +696,13 @@ jobs:
 
       - name: Verify browser SDK
         if: matrix.part == 'verify'
+        env:
+          QUASAR_FLEET_CHECKS: '1'
         shell: pwsh
         run: |
           dotnet test Quasar.Tests/Quasar.Tests.csproj -c Release --no-build --filter "FullyQualifiedName~QuasarRtc|FullyQualifiedName~QuasarSdkTests|FullyQualifiedName~RbacAuthorizationTests|FullyQualifiedName~MachineEndpointSecurityTests|FullyQualifiedName~TrustedNetworkEvaluatorTests|FullyQualifiedName~HostedPanelTests|FullyQualifiedName~NativeConsoleKeepsLogSelection" --logger trx --results-directory artifacts/sdk-test-results
           if ($LASTEXITCODE -ne 0) { throw 'SDK server checks failed.' }
-          $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
+          $browserChecks = @('Quasar.Tests/browser-sdk.test.mjs', 'Quasar.Tests/server-import-file.test.mjs') + @(Get-ChildItem 'Quasar.Tests/Browser/*.test.mjs' | ForEach-Object FullName)
           node --test @browserChecks
           if ($LASTEXITCODE -ne 0) { throw 'SDK browser checks failed.' }
           dotnet run --project tests/Quasar.Wasm.DashboardChecks -c Release --no-build

@@ -236,7 +236,7 @@ else
                 <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1 plugin-actions" @onclick:stopPropagation="true">
                     <BrowserExtensionOutlet
                         TargetKey="quasar.component.entity-actions"
-                        
+
                         Parameters="@CreateEntityExtensionParameters(context)">
                         @if (_targets?.CanControl == true && (!IsClusterSelected || _targets.CanManageClusters))
         {

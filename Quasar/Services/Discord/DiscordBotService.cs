@@ -479,4 +479,3 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     }
 
 }
-
