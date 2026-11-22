@@ -506,6 +506,7 @@ body { font-family: "DM Sans", system-ui, sans-serif; }
     background: var(--quasar-palette-background-gray);
 }
 .quasar-shell .mud-dialog { border: 1px solid var(--quasar-palette-lines-default); border-radius: 8px; box-shadow: 0 24px 80px #0005; }
+.quasar-shell .mud-dialog:not(.mud-dialog-fullscreen) { max-height: calc(100dvh - 2rem); }
 .quasar-shell .mud-dialog-title { border-bottom: 1px solid var(--quasar-palette-divider); padding: 18px 22px; }
 .quasar-shell .mud-dialog-title .mud-typography-h6 { font-size: 19px; letter-spacing: -.4px; }
 .quasar-shell .mud-dialog-content { padding: 20px 22px; }
