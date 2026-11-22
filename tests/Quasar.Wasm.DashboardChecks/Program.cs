@@ -16,9 +16,28 @@ using Quasar.Services;
 using Quasar.Services.Auth;
 using Quasar.Services.Plugins;
 
+// The fixture loads plugin DLLs into the default assembly context. On Windows
+// their files stay locked until the host exits, so its parent owns cleanup.
+if (args is ["--fixture-host"])
+    return await RunFixtureAsync();
+
 var root = Directory.CreateTempSubdirectory("quasar-wasm-dashboard-");
-Environment.SetEnvironmentVariable("QUASAR_INSTALL_DIR", root.FullName);
 try
+{
+    var start = new ProcessStartInfo(Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") ?? "dotnet") { UseShellExecute = false };
+    start.ArgumentList.Add(typeof(Program).Assembly.Location);
+    start.ArgumentList.Add("--fixture-host");
+    start.Environment["QUASAR_INSTALL_DIR"] = root.FullName;
+    using var host = Process.Start(start)!;
+    await host.WaitForExitAsync();
+    return host.ExitCode;
+}
+finally
+{
+    root.Delete(recursive: true);
+}
+
+static async Task<int> RunFixtureAsync()
 {
     var published = Environment.GetEnvironmentVariable("QUASAR_DASHBOARD_PUBLISH");
     var manifest = published is null ? null : Path.GetFullPath(Path.Combine(published, "Quasar.staticwebassets.endpoints.json"));
@@ -35,8 +54,13 @@ try
     var names = new SubjectAlternativeNameBuilder();
     names.AddIpAddress(IPAddress.Loopback);
     certificateRequest.CertificateExtensions.Add(names.Build());
-    using var certificate = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
-    builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0, endpoint => endpoint.UseHttps(certificate)));
+    using var generated = certificateRequest.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-1), DateTimeOffset.UtcNow.AddDays(1));
+    // Schannel needs a named private key to serve TLS. Importing into the
+    // current user's key set gives the fixture one for the certificate lifetime.
+    using var windowsCertificate = OperatingSystem.IsWindows()
+        ? X509CertificateLoader.LoadPkcs12(generated.Export(X509ContentType.Pkcs12), null, X509KeyStorageFlags.UserKeySet)
+        : null;
+    builder.WebHost.ConfigureKestrel(kestrel => kestrel.Listen(IPAddress.Loopback, 0, endpoint => endpoint.UseHttps(windowsCertificate ?? generated)));
     if (published is null) builder.WebHost.UseStaticWebAssets();
     builder.Services.AddHttpClient();
     builder.Services.AddSingleton<HostedPanelService>();
@@ -155,10 +179,6 @@ try
     await process.WaitForExitAsync();
     await app.StopAsync();
     return process.ExitCode;
-}
-finally
-{
-    root.Delete(recursive: true);
 }
 
 sealed class FixtureLeases : HttpMessageHandler
