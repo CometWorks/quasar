@@ -393,7 +393,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [Fact]
     public async Task ViewerCanBrowseWorldsWithoutImportOrDeleteControls()
     {
-        await using var context = Context();
+        await using var context = Context(browser: true);
         var worlds = new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance);
         var source = Path.Combine(_root, "source");
         Directory.CreateDirectory(source);
@@ -426,7 +426,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     public async Task WorldTemplateRowsSurviveRerenders()
     {
         // QSR-16: rows rebuilt from fresh catalog copies were recreated on every render, popovers included.
-        await using var context = Context();
+        await using var context = Context(browser: true);
         var worlds = new QuasarWorldTemplateCatalog(NullLogger<QuasarWorldTemplateCatalog>.Instance);
         var source = Path.Combine(_root, "source");
         Directory.CreateDirectory(source);
@@ -531,9 +531,6 @@ public sealed class ControlPlaneViewerTests : IDisposable
         { typeof(Configs), "DeleteProfileAsync" }, { typeof(Configs), "RefreshPluginCatalogAsync" },
         { typeof(Configs), "OpenWorkshopApiKeyDialogAsync" }, { typeof(Configs), "OpenSteamAccountDialogAsync" },
         { typeof(Configs), "AddDevFolderAsync" }, { typeof(Configs), "SetDevFolderDebugAsync" }, { typeof(Configs), "RemoveDevFolder" },
-        { typeof(WorldTemplates), "OpenImportToServerAsync" }, { typeof(WorldTemplates), "CloneAsync" },
-        { typeof(WorldTemplates), "OpenAddTemplateAsync" }, { typeof(WorldTemplates), "CreateConfigProfileFromTemplateAsync" },
-        { typeof(WorldTemplates), "CreateConfigProfileAsync" }, { typeof(WorldTemplates), "DeleteAsync" },
         { typeof(PluginConfigEditor), "ApplyAsync" },
     };
 

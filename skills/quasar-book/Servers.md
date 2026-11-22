@@ -4,6 +4,8 @@ This page covers standalone managed servers in Quasar: what a server is made of,
 
 The **Dedicated servers** panel lists standalone servers and clusters. Its toolbar shows how many servers match the filters out of the total. The **Game port** column shows the port players connect to. For a cluster it is the port of the deployed Steam listener, not the Gateway administration URL, and **Unknown** when Quasar can't tell. Search and sorting use the game port.
 
+The browser streams world ZIP uploads through the dashboard SDK. A hosted panel uses its direct connection when available and the Nebula tunnel otherwise. **Read World** validates the save and shows its settings and mods. Selecting **Import and select save** publishes the reviewed files to the stopped server. Closing the form discards unused staging. If you leave a reviewed import idle for 15 minutes, read the world again.
+
 ## What a managed server is
 
 A managed server is one Space Engineers 1 Dedicated Server (DS) process that Quasar launches and supervises. It has three parts:
