@@ -1,0 +1,110 @@
+@implements IDisposable
+@inject DashboardSdk Sdk
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error">@_error</MudAlert>
+        }
+        else if (_choices is { Length: 0 })
+        {
+            <p>There are no unlinked Steam accounts with a role mapping. Review the accounts in <MudLink Href="settings/security">Security</MudLink>.</p>
+        }
+        else if (_choices is { Length: > 1 })
+        {
+            <p>Choose your Steam account to start verification.</p>
+            @foreach (var id in _choices)
+            {
+                <MudButton Variant="Variant.Outlined" OnClick="@(() => SelectAsync(id))">Steam @id</MudButton>
+            }
+        }
+        else if (_request is null)
+        {
+            <p role="status">Preparing verification…</p>
+        }
+        else
+        {
+            <p>Sign in to Steam and Discord on auth.se-servers.net to link Discord to Steam account <strong>@_selected</strong>.</p>
+            <MudButton Href="@_request.Url" Target="_blank" rel="noopener noreferrer" EndIcon="@Icons.Material.Filled.OpenInNew"
+                       Color="Color.Primary" Variant="Variant.Filled">Verify with Steam and Discord</MudButton>
+            <p class="mt-3" role="status">Keep this panel open. It updates automatically after you sign in.</p>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Close</MudButton>
+        @if (_error is not null)
+        {
+            <MudButton Color="Color.Primary" OnClick="StartAsync">Try again</MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [Parameter] public string? SteamId { get; set; }
+    private string? _selected;
+    private string[]? _choices;
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    private readonly CancellationTokenSource _stop = new();
+    private DiscordLinkStart? _request;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => SelectAsync(SteamId);
+
+    private Task SelectAsync(string? id)
+    {
+        _selected = id;
+        _choices = null;
+        return StartAsync();
+    }
+
+    private async Task StartAsync()
+    {
+        var token = _stop.Token;
+        _error = null;
+        _request = null;
+        try
+        {
+            if (_selected is null)
+            {
+                var dashboard = await Sdk.RequestAsync<SecurityDashboard>("security.dashboard", token: token);
+                _choices = dashboard.SubjectRoleMappings
+                    .Where(row => row.Provider.Equals("Steam", StringComparison.OrdinalIgnoreCase) && row.DiscordUserId is null
+                        && (dashboard.SignedInSteamId is null || dashboard.SignedInSteamId == row.Subject) && SteamProfileInput.IsSteamId64(row.Subject))
+                    .Select(row => row.Subject).Distinct().ToArray();
+                if (_choices.Length != 1) return;
+                _selected = _choices[0];
+            }
+            _request = await Sdk.RequestAsync<DiscordLinkStart>("security.mapping.link.start", new { SteamId = _selected }, token);
+            if (!token.IsCancellationRequested) _ = WaitForVerificationAsync(_request, token);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (JSException ex) { _error = ex.Message; }
+    }
+
+    private async Task WaitForVerificationAsync(DiscordLinkStart request, CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                if (await Sdk.RequestAsync<bool>("security.mapping.link.finish", new { SteamId = _selected, request.FinishToken }, token))
+                {
+                    if (!token.IsCancellationRequested) Dialog.Close(DialogResult.Ok(true));
+                    return;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (JSException ex)
+        {
+            if (token.IsCancellationRequested) return;
+            _error = ex.Message;
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void Cancel() => Dialog.Cancel();
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

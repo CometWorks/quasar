@@ -6,7 +6,14 @@
 </MudTd>
 <MudTd DataLabel="Discord account">
     @if (!IsSteam) { <span>—</span> }
-    else if (Mapping.DiscordUserId is null) { <span>Not linked</span> }
+    else if (Mapping.DiscordUserId is null)
+    {
+        <span>Not linked</span>
+        @if (CanLink)
+        {
+            <DiscordLinkButton SteamId="@Mapping.Subject" OnLinked="OnLinked" />
+        }
+    }
     else
     {
         <div>@(_names?.DiscordUserId == Mapping.DiscordUserId && _names.DiscordUsername is { } name ? "@" + name : Status)</div>
@@ -16,6 +23,9 @@
 
 @code {
     [Parameter, EditorRequired] public RoleMapping Mapping { get; set; } = null!;
+
+    [Parameter] public bool CanLink { get; set; }
+    [Parameter] public EventCallback OnLinked { get; set; }
 
     private readonly CancellationTokenSource _stop = new();
     private MappingNames? _names;

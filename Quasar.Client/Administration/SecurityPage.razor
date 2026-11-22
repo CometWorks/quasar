@@ -260,7 +260,7 @@ else
                             <MudTd DataLabel="Provider">@context.Provider</MudTd>
                             <MudTd DataLabel="Roles">@string.Join(", ", context.Roles)</MudTd>
                             <MudTd DataLabel="Subject" Class="mono">@context.Subject</MudTd>
-                            <RoleMappingAccounts @key="(context.Provider, context.Subject, context.DiscordUserId)" Mapping="context" />
+                            <RoleMappingAccounts @key="(context.Provider, context.Subject, context.DiscordUserId)" Mapping="context" CanLink="@(_snapshot.SignedInSteamId is null || _snapshot.SignedInSteamId == context.Subject)" OnLinked="RefreshAsync" />
                             <MudTd DataLabel="" Class="quasar-actions-column">
                                 <MudTooltip Text="Remove role mapping">
                                     <MudIconButton Icon="@Icons.Material.Filled.Delete"

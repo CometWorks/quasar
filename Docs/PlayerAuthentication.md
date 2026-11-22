@@ -42,6 +42,20 @@ permissions. It contains no tokens, credits, purchases, other rewards or join qu
 promotion, priority and validity against the saved policy.
 
 
+## Link an administrator’s Discord account
+
+On **Discord**, choose **Link Discord account**. A Steam-signed-in administrator
+uses their current Steam account. With trusted LAN access, the dialog uses the
+only unlinked mapped Steam account, or lets you select yours if there are several.
+You can also start from a Steam row under **Security → Runtime Subject Role
+Mappings**. Keep the panel open and choose **Verify with Steam and Discord**.
+The shared login obtains both account IDs from the providers. Quasar updates the
+link automatically when verification finishes.
+
+Account linking works without a running game, an enabled game-access policy or
+a connected Discord bot. Admin commands still check the linked Steam account’s
+current Quasar role. Use the player flow below for access to a game server.
+
 ## Player flow and migration
 
 Run `/authorize` in the game's Discord and enter the server or cluster name. Open
@@ -147,14 +161,16 @@ configures one Discord application with callback
 `https://auth.se-servers.net/discord/callback`. See
 [auth service deployment](https://github.com/CometWorks/nebula/blob/main/docs/player-authentication.md).
 
-For Discord-initiated requests, Steam and Discord return to the auth service.
+Steam and Discord return to the auth service. A dashboard request is bound to the
+selected Steam account. A bot request is bound to the Discord command author.
 Quasar retrieves the verified identity pair over outbound HTTPS using a one-time
 request and a verifier kept on Quasar. The service receives the player-facing
 destination and instructions. Quasar stores links, checks current guild roles,
 and authorizes access for the selected server.
 
-New links require outbound HTTPS to the shared service and a connected Discord
-bot. If the service restarts or the request expires, run `/authorize` again.
+New links require outbound HTTPS to the shared service. The Discord command also
+requires a connected bot. If the service restarts or the request expires, start
+a new request from the panel or run `/authorize` again.
 Existing identity links and server authorizations survive a service outage.
 Guild membership and role checks retain their normal freshness limits.
 

@@ -120,7 +120,7 @@ public sealed class QuasarPlayerServicesTests : IDisposable
         // A configured bot with no live Discord connection cannot confirm membership.
         services.AddSingleton(sp => new DiscordBotService(sp.GetRequiredService<DiscordOptionsCatalog>(), _registry,
             null!, null!, null!, null!, null!, null!, null!, null!, NullLogger<DiscordBotService>.Instance, null!));
-        services.AddHttpClient(PrivatePlayerAuthorization.ClientName)
+        services.AddHttpClient(nameof(SharedAccountVerification))
             .ConfigurePrimaryHttpMessageHandler(() => new SharedLinkService());
         using var provider = services.BuildServiceProvider();
         await provider.GetRequiredService<DedicatedServerCatalog>().UpsertAsync(

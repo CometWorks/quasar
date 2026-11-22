@@ -18,7 +18,7 @@ public sealed class QuasarChatCommands
     public const int MaxTextLength = 2000;
     internal const string NotAvailable = "This command is not available on this server.";
     internal const string AdminLinkRequired =
-        "This command requires a verified Discord link to a Steam account with the Quasar admin role. Use /authorize in this Discord server to link your accounts.";
+        "This command requires a verified Discord link to a Steam account with the Quasar admin role. Choose Link Discord account in the Quasar dashboard, or use /authorize in this Discord server.";
     private static readonly TimeSpan WhisperTimeout = TimeSpan.FromSeconds(15);
     private static readonly Regex NamePattern = new(@"\A[a-z0-9-]{1,32}\z");
 
@@ -402,14 +402,15 @@ public static class QuasarPlayerServicesRegistration
     public static IServiceCollection AddPlayerAuthentication(this IServiceCollection services)
     {
         services.AddSingleton<PlayerAccessCatalog>();
+        services.AddSingleton<SharedAccountVerification>();
         services.AddSingleton<PrivatePlayerAuthorization>();
         services.AddSingleton<DiscordPlayerRoles>();
         services.AddSingleton<PlayerAccessService>();
         services.AddSingleton<PlayerAccessWorker>();
         services.AddHostedService(p => p.GetRequiredService<PlayerAccessWorker>());
-        services.AddHttpClient(PrivatePlayerAuthorization.ClientName, client =>
+        services.AddHttpClient(nameof(SharedAccountVerification), client =>
         {
-            client.BaseAddress = PrivatePlayerAuthorization.AuthenticationOrigin;
+            client.BaseAddress = SharedAccountVerification.Origin;
             client.Timeout = TimeSpan.FromSeconds(15);
             client.MaxResponseContentBufferSize = 4096;
         }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });

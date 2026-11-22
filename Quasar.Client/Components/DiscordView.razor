@@ -2,6 +2,7 @@
 @using MudBlazor
 @using System.Text.Json
 @using Quasar.Services.Discord
+@using Quasar.Client.Administration
 @implements IDisposable
 @inject IJSRuntime JS
 @inject DashboardSdk Sdk
@@ -15,17 +16,19 @@
     <Description>One bot for your servers and clusters. Bind command, chat, log, and analytics channels for each.</Description>
 </DashboardPageHeading>
     </div>
-    @if (_canManage)
-    {
-    <MudTooltip Text="Show Discord integration log">
-        <MudButton StartIcon="@Icons.Material.Filled.Terminal"
-                   Color="Color.Primary"
-                   Variant="Variant.Filled"
-                   OnClick="OpenDiscordConsoleDialogAsync">
-            Console Logs
-        </MudButton>
-    </MudTooltip>
-    }
+    <div class="quasar-row">
+        @if (_canLinkDiscord)
+        {
+            <DiscordLinkButton SteamId="@_linkSteamId" OnLinked="@(() => ReloadAsync(false))" />
+        }
+        @if (_canManage)
+        {
+            <MudTooltip Text="Show Discord integration log">
+                <MudButton StartIcon="@Icons.Material.Filled.Terminal" Color="Color.Primary" Variant="Variant.Filled"
+                           OnClick="OpenDiscordConsoleDialogAsync">Console Logs</MudButton>
+            </MudTooltip>
+        }
+    </div>
 </div>
 
 @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
@@ -429,6 +432,8 @@ else if (_loaded)
     private string? _error;
     private string? _newToken, _templatePath;
     private async Task CopyPathAsync() => await JS.InvokeVoidAsync("quasarConfigs.copyText", _templatePath);
+    private bool _canLinkDiscord;
+    private string? _linkSteamId;
     private bool _clearToken, _canManage, _loaded;
     private readonly CancellationTokenSource _lifetime = new();
 
@@ -457,6 +462,8 @@ else if (_loaded)
             var state = await Sdk.RequestAsync<DiscordDashboardState>("discord.dashboard", token: _lifetime.Token);
             var accessChanged = _canManage != state.CanManage;
             _canManage = state.CanManage;
+            _canLinkDiscord = state.CanLinkDiscord;
+            _linkSteamId = state.LinkSteamId;
             BotStatus = state.BotStatus;
             _targets = state.Targets;
             _templatePath = state.TemplatePath;

@@ -1,4 +1,6 @@
+using System.Security.Claims;
 using System.Text.Json;
+using Quasar.Services.Players;
 using Microsoft.AspNetCore.Authorization;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
@@ -19,7 +21,11 @@ internal static class QuasarDiscordDashboardOperations
         services.AddQuasarOperation<EmptyRequest, DiscordDashboardState>(PluginId, "discord.dashboard", [QuasarPolicyNames.CanView], async (caller, _, _) =>
         {
             var scope = caller.Services;
-            var editor = (await scope.GetRequiredService<IAuthorizationService>().AuthorizeAsync(caller.User, null, QuasarPolicyNames.CanManageDiscord)).Succeeded;
+            var authorization = scope.GetRequiredService<IAuthorizationService>();
+            var steamId = caller.User.FindFirstValue(QuasarClaimTypes.SteamId);
+            var canLink = (await authorization.AuthorizeAsync(caller.User, null, QuasarPolicyNames.CanManageSecurity)).Succeeded
+                && (steamId is null || scope.GetRequiredService<QuasarPlayerLinks>().FindBySteamId(steamId) is null);
+            var editor = (await authorization.AuthorizeAsync(caller.User, null, QuasarPolicyNames.CanManageDiscord)).Succeeded;
             var status = scope.GetRequiredService<DiscordBotService>().GetStatus();
             var options = scope.GetRequiredService<DiscordOptionsCatalog>().GetOptions();
             options.BotToken = "";
@@ -29,7 +35,7 @@ internal static class QuasarDiscordDashboardOperations
                     .Select(c => new DiscordTarget("cluster:" + c.UniqueName, c.UniqueName, (string.IsNullOrWhiteSpace(c.DisplayName) ? c.UniqueName : c.DisplayName) + " (cluster)", true))).ToArray();
             options.Servers.RemoveAll(s => s.IsCluster && !caller.User.CanQueryCluster(s.UniqueName));
             // Send the settings JSON as text so the JS bridge preserves 64-bit Discord snowflakes.
-            return new(editor, targets, JsonSerializer.Serialize(options), editor ? Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarDeathMessagesPath() : null, editor ? scope.GetRequiredService<DeathMessagesCatalog>().GetConfig() : null, status);
+            return new(editor, targets, JsonSerializer.Serialize(options), editor ? Magnetar.Protocol.Runtime.MagnetarPaths.GetQuasarDeathMessagesPath() : null, editor ? scope.GetRequiredService<DeathMessagesCatalog>().GetConfig() : null, status, canLink, steamId);
         }, Read with { Description = "Returns Discord integration status and settings." });
         services.AddQuasarOperation<DiscordSettingsSave, bool>(PluginId, "discord.settings.save", manage, async (caller, input, ct) =>
         {

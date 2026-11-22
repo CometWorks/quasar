@@ -2,6 +2,11 @@ using System.Reflection;
 using System.Security.Claims;
 using System.Net;
 using System.Net.Http.Json;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.JSInterop;
 using Bunit;
 using Bunit.TestDoubles;
 using Magnetar.Protocol.Runtime;
@@ -202,6 +207,107 @@ public sealed class AccessSetupDialogTests : IDisposable
             Assert.Equal(string.Empty, input.GetAttribute("value"));
             page.WaitForAssertion(() => Assert.Contains("Steam profile name", page.Markup));
             Assert.Contains("Not linked", page.Markup);
+        }
+    }
+
+    private async Task<(BunitContext Context, PanelLoginService Login)> PanelLinkContextAsync()
+    {
+        var context = Context();
+        var login = new PanelLoginService();
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
+        context.Services.AddSingleton<BrandingService>();
+        context.Services.AddSingleton<SharedAccountVerification>();
+        context.Services.AddHttpClient(nameof(SharedAccountVerification), client => client.BaseAddress = SharedAccountVerification.Origin)
+            .ConfigurePrimaryHttpMessageHandler(() => login);
+        context.Services.GetRequiredService<BunitAuthorizationContext>().SetClaims(
+            new Claim(ClaimTypes.NameIdentifier, "local-operator"), new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.TrustedNetwork));
+        await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
+        return (context, login);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData(SteamId)]
+    public async Task LinkButtonDiscoversDiscordAutomaticallyWithoutAnyGamePolicy(string? selectedSteamId)
+    {
+        var (fixture, login) = await PanelLinkContextAsync();
+        await using var context = fixture;
+        var provider = context.Render<MudDialogProvider>();
+        var refreshed = false;
+        var button = context.Render<DiscordLinkButton>(p => p.Add(c => c.SteamId, selectedSteamId).Add(c => c.OnLinked, () => refreshed = true));
+        // The click handler waits for the dialog result.
+        var click = button.Find("button").ClickAsync();
+        await provider.WaitForAssertionAsync(() => Assert.Equal("https://auth.se-servers.net/link?request=" + PanelLoginService.Id,
+            provider.Find("a").GetAttribute("href")));
+        Assert.Empty(provider.FindAll("input"));
+        var links = context.Services.GetRequiredService<QuasarPlayerLinks>();
+        Assert.Empty(links.GetLinks());
+        login.Ready = true;
+        await click.WaitAsync(TimeSpan.FromSeconds(12));
+        Assert.True(refreshed);
+        Assert.Equal(PanelLoginService.DiscordId, links.FindBySteamId(SteamId)?.DiscordUserId);
+    }
+
+    [Theory]
+    [InlineData("wrong-steam")]
+    [InlineData("invalid-discord")]
+    [InlineData("another-operator")]
+    [InlineData("replaced-request")]
+    [InlineData("role-removed")]
+    [InlineData("permission-revoked")]
+    [InlineData("conflict")]
+    public async Task PanelVerificationRequiresCurrentAuthorityAndMatchingProof(string scenario)
+    {
+        var (fixture, login) = await PanelLinkContextAsync();
+        await using var context = fixture;
+        var sdk = context.Services.GetRequiredService<Quasar.Client.DashboardSdk>();
+        var request = await sdk.RequestAsync<DiscordLinkStart>("security.mapping.link.start", new { SteamId });
+        var finish = new { SteamId, request.FinishToken };
+        Assert.False(await sdk.RequestAsync<bool>("security.mapping.link.finish", finish));
+        var links = context.Services.GetRequiredService<QuasarPlayerLinks>();
+        var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
+        switch (scenario)
+        {
+            case "wrong-steam": login.Steam = "76561198000000999"; break;
+            case "invalid-discord": login.Discord = "0"; break;
+            case "another-operator": auth.SetClaims(new Claim(ClaimTypes.NameIdentifier, "another")); break;
+            case "replaced-request": await sdk.RequestAsync<DiscordLinkStart>("security.mapping.link.start", new { SteamId }); break;
+            case "role-removed": await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig("76561198000000999")!); break;
+            case "permission-revoked": login.OnProof = () => auth.SetPolicies(); break;
+            case "conflict": await links.AuthenticateAsync("76561198000000999", PanelLoginService.DiscordId); break;
+        }
+        login.Ready = true;
+        await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<bool>("security.mapping.link.finish", finish));
+        Assert.Null(links.FindBySteamId(SteamId));
+    }
+
+    private sealed class PanelLoginService : HttpMessageHandler
+    {
+        internal static readonly string Id = new('b', 43);
+        internal const string DiscordId = "9007199254740993";
+        internal string Steam = SteamId, Discord = DiscordId;
+        internal volatile bool Ready;
+        internal Action? OnProof;
+        private string? _challenge;
+
+        protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken token)
+        {
+            Assert.Equal(HttpMethod.Post, request.Method);
+            var body = await request.Content!.ReadFromJsonAsync<JsonElement>(token);
+            if (request.RequestUri!.AbsolutePath == "/link/requests")
+            {
+                Assert.Equal(SteamId, body.GetProperty("steamId").GetString());
+                Assert.False(body.TryGetProperty("discordId", out _));
+                _challenge = body.GetProperty("codeChallenge").GetString();
+                return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { requestId = Id }) };
+            }
+            Assert.Equal("/link/redeem", request.RequestUri.AbsolutePath);
+            Assert.Equal(Id, body.GetProperty("requestId").GetString());
+            Assert.Equal(_challenge, WebEncoders.Base64UrlEncode(SHA256.HashData(Encoding.ASCII.GetBytes(body.GetProperty("codeVerifier").GetString()!))));
+            if (!Ready) return new(HttpStatusCode.Accepted);
+            OnProof?.Invoke();
+            return new(HttpStatusCode.OK) { Content = JsonContent.Create(new { steamId = Steam, discordId = Discord }) };
         }
     }
 

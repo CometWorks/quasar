@@ -1,7 +1,7 @@
 namespace Quasar.Services.Discord;
 
 public sealed record DiscordTarget(string UniqueName, string Name, string DisplayName, bool IsCluster);
-public sealed record DiscordDashboardState(bool CanManage, DiscordTarget[] Targets, string Settings, string? TemplatePath, DeathMessagesConfig? Templates, DiscordBotStatusSnapshot BotStatus);
+public sealed record DiscordDashboardState(bool CanManage, DiscordTarget[] Targets, string Settings, string? TemplatePath, DeathMessagesConfig? Templates, DiscordBotStatusSnapshot BotStatus, bool CanLinkDiscord = false, string? LinkSteamId = null);
 public sealed record DiscordSettingsSave(string Settings, string? BotToken, bool ClearToken);
 public sealed record DiscordPresencePreview(string Status, string? Activity, string ActivityType);
 public sealed record DiscordLogExcerpt(string Path, bool Missing, bool Truncated, string Text);

@@ -221,7 +221,7 @@ Rules Quasar applies when it reads the file:
 - A subject can have several roles; the highest one decides in practice, since each role grants a superset of the one below.
 - `claimRoleMappings` and `policyOverrides` are read and saved but do not change who can do what. The permission table above is fixed.
 - `agentRoles` keeps only `assistant`, `player` and `monitor`. A missing entry gets its default, and `admin` is dropped.
-- Older files may contain `discordSubjects`. Quasar ignores these manual entries and omits them on the next RBAC save. Administrators who used them can verify their own accounts through `/authorize` in Discord.
+- Older files may contain `discordSubjects`. Quasar ignores these manual entries and omits them on the next RBAC save. Administrators who used them can select **Link Discord account** on the Discord dashboard page or beside their Steam account in Security.
 
 Quasar watches the file. Saving it while Quasar runs applies the change within moments, and the log shows "Reloaded RBAC config from disk after external edit." If the file is not valid JSON, Quasar logs "Failed loading RBAC config from <path>" and treats it as having no mappings, so no Steam user has a role until the file is fixed.
 
@@ -236,6 +236,8 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and a link to per-server listing controls. See [Diagnostics](Diagnostics.md).
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
+
+**Link Discord account** opens a verification dialog for the selected Steam account. Choose **Verify with Steam and Discord** and keep Quasar open. The shared login obtains both IDs and the panel updates automatically. Steam-signed-in administrators can link their own account. On a trusted LAN, the dialog selects the only unlinked mapped Steam account automatically or asks which account to use when there are several. This does not require a game-access policy.
 
 For each Steam subject, the table shows its Steam profile name and whether it has a verified Discord link. Linked accounts show the Discord user ID and the username retrieved by the bot. IDs stay visible when a name lookup is unavailable. Only a verified link to a Steam subject with the current Quasar `admin` role allows Discord plugin commands marked Admin, such as `/assistant`. Removing the link or the role takes effect on the next command.
 
@@ -472,6 +474,8 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Components/Layout/WasmPageLayout.razor`
 - `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar.Client/Administration/DiscordLinkDialog.razor`
+- `Quasar/Services/Players/SharedAccountVerification.cs`
 - `Quasar.Client/Configs/ConfigEditor.razor`
 - `Quasar.Client/Components/ServerPluginSettings.razor`
 - `Quasar.Client/Components/PlayersView.razor`

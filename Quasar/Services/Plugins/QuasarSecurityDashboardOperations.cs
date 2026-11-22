@@ -1,4 +1,7 @@
 using System.Security.Claims;
+using System.Globalization;
+using System.Net;
+using Microsoft.Extensions.Caching.Memory;
 using Quasar.Client.Administration;
 using Quasar.Services.Discord;
 using Quasar.Services.Players;
@@ -11,6 +14,9 @@ internal static class QuasarSecurityDashboardOperations
 {
     public sealed record MappingChange(string Provider, string Subject, string? Role = null);
     public sealed record SteamAccount(string SteamId);
+    private sealed record LinkKey(string Provider, string Operator, string SteamId);
+    private sealed record PendingLink(SharedAccountVerification.Request Request, string FinishToken);
+    public sealed record CompleteLink(string SteamId, string FinishToken);
     public sealed record ConsentInput(bool Consent);
     public sealed record DiagnosticsInput(bool Diagnostics, bool Dumps);
     public sealed record NetworkInput(QuasarTrustedNetworkSettings Network, string Proxies);
@@ -57,6 +63,49 @@ internal static class QuasarSecurityDashboardOperations
         services.AddQuasarOperation<MappingChange, bool>(plugin, "security.mapping.remove", manage,
             (caller, input, token) => UpdateRbacAsync(caller, config => config.SubjectRoleMappings.RemoveAll(item =>
                 item.Provider.Equals(input.Provider, StringComparison.OrdinalIgnoreCase) && item.Subject.Equals(input.Subject, StringComparison.OrdinalIgnoreCase)), token), write with { Description = "Removes a subject role mapping." });
+        services.AddQuasarOperation<SteamAccount, DiscordLinkStart>(plugin, "security.mapping.link.start", manage,
+            async (caller, input, token) =>
+            {
+                var key = LinkOwner(caller, input.SteamId);
+                var services = caller.Services;
+                if (services.GetRequiredService<QuasarPlayerLinks>().FindBySteamId(input.SteamId) is not null)
+                    throw new QuasarOperationException(409, "This Steam account already has a verified Discord link.");
+                var verification = services.GetRequiredService<SharedAccountVerification>();
+                var name = services.GetRequiredService<BrandingService>().Settings.AppName;
+                var destination = new string(($"{name} · Quasar dashboard").Where(c => !char.IsControl(c)).Take(200).ToArray());
+                SharedAccountVerification.Request request;
+                try { request = await verification.StartAsync(input.SteamId, discordId: null, destination, "", token); }
+                catch (Exception ex) when (ex is HttpRequestException or InvalidDataException)
+                { throw new QuasarOperationException(502, "The shared login could not start dashboard verification. Try again shortly."); }
+                var pending = new PendingLink(request, Guid.NewGuid().ToString("N"));
+                services.GetRequiredService<IMemoryCache>().Set(key, pending, TimeSpan.FromMinutes(5));
+                return new DiscordLinkStart(request.Link.AbsoluteUri, pending.FinishToken);
+            }, write with { Description = "Starts Steam and Discord verification for a dashboard account." });
+        services.AddQuasarOperation<CompleteLink, bool>(plugin, "security.mapping.link.finish", manage,
+            async (caller, input, token) =>
+            {
+                var key = LinkOwner(caller, input.SteamId);
+                var cache = caller.Services.GetRequiredService<IMemoryCache>();
+                var pending = cache.Get<PendingLink>(key);
+                if (pending is null || pending.FinishToken != input.FinishToken)
+                    throw new QuasarOperationException(410, "This verification request expired or was replaced. Start again.");
+                var verification = caller.Services.GetRequiredService<SharedAccountVerification>();
+                SharedAccountVerification.Proof? proof;
+                try { proof = await verification.RedeemAsync(pending.Request, token); }
+                catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.NotFound)
+                { throw new QuasarOperationException(410, "This verification request has expired or has already been used. Start again."); }
+                if (proof is null) return false;
+                if (proof.SteamId != input.SteamId || !ulong.TryParse(proof.DiscordId, out var discordId) || discordId == 0
+                    || discordId.ToString(CultureInfo.InvariantCulture) != proof.DiscordId)
+                    throw new QuasarOperationException(409, "The verified accounts did not match this request.");
+                await caller.EnsureAuthorizedAsync(token);
+                CheckLinkSubject(caller, input.SteamId);
+                if (!ReferenceEquals(cache.Get<PendingLink>(key), pending))
+                    throw new QuasarOperationException(410, "This verification request expired or was replaced. Start again.");
+                try { await caller.Services.GetRequiredService<QuasarPlayerLinks>().AuthenticateAsync(proof.SteamId, proof.DiscordId, token); }
+                catch (InvalidOperationException ex) { throw new QuasarOperationException(409, ex.Message); }
+                return true;
+            }, write with { Description = "Checks the identity service and saves a verified Steam and Discord account link when ready." });
         services.AddQuasarOperation<SteamAccount, MappingNames>(plugin, "security.mapping.names", manage, async (caller, input, token) =>
         {
             var services = caller.Services;
@@ -72,6 +121,22 @@ internal static class QuasarSecurityDashboardOperations
                 ? await bot.GetUsernameAsync(userId, token) : null;
             return new MappingNames(steamName, discordId, discordName);
         }, write with { Description = "Looks up display names for a mapped Steam account and its verified Discord link.", Effect = QuasarOperationEffect.Read });
+    }
+
+    private static LinkKey LinkOwner(QuasarOperationContext caller, string steamId)
+    {
+        CheckLinkSubject(caller, steamId);
+        var subject = caller.User.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? throw new QuasarOperationException(403, "Sign in to link your Discord account.");
+        return new(caller.User.FindFirstValue(QuasarClaimTypes.Provider) ?? caller.User.Identity?.AuthenticationType ?? "", subject, steamId);
+    }
+
+    private static void CheckLinkSubject(QuasarOperationContext caller, string steamId)
+    {
+        if (!RbacConfigCatalog.IsSteamId64(steamId) || caller.Services.GetRequiredService<RbacConfigCatalog>().GetSubjectRoles(QuasarAuthSchemes.Steam, steamId).Count == 0)
+            throw new QuasarOperationException(404, "This Steam role mapping no longer exists.");
+        if (caller.User.FindFirstValue(QuasarClaimTypes.SteamId) is { } signedIn && signedIn != steamId)
+            throw new QuasarOperationException(403, "Sign in with the Steam account you want to link.");
     }
 
     private static async Task<string> ResolveSteamAsync(QuasarOperationContext caller, string? input, CancellationToken token)
@@ -104,6 +169,6 @@ internal static class QuasarSecurityDashboardOperations
             new(choices.ConsentGranted, choices.DiagnosticsGranted, choices.DumpsGranted),
             config.SubjectRoleMappings.Select(item => new RoleMapping(item.Provider, item.Subject, item.Roles.ToArray(),
                 item.Provider.Equals(QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase) ? links[item.Subject].FirstOrDefault()?.DiscordUserId : null)).ToArray(),
-            QuasarRoles.All.Order(StringComparer.OrdinalIgnoreCase).ToArray());
+            QuasarRoles.All.Order(StringComparer.OrdinalIgnoreCase).ToArray(), caller.User.FindFirstValue(QuasarClaimTypes.SteamId));
     }
 }
