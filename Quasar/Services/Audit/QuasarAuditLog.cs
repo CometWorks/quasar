@@ -50,6 +50,7 @@ public sealed record QuasarUndoOutcome(QuasarUndoStatus Status, string? Detail =
 /// </summary>
 public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
 {
+    private const string Redacted = "<redacted>";
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -128,6 +129,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
             .ThenByDescending(entry => entry.Id, StringComparer.Ordinal)
             .Skip(Math.Max(0, filter.Skip))
             .Take(Math.Clamp(filter.Take, 1, 1000))
+            .Select(entry => entry with { Arguments = Redact(entry.Arguments), UndoData = Redact(entry.UndoData) })
             .ToList();
 
     public async Task<QuasarOperationResult> ApproveAsync(
@@ -143,7 +145,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
                 if (operation.Kind != QuasarOperationKind.Json)
                     return new(400, Error: "Only JSON operations can be approved.");
                 // Argument values with secret-like names were redacted when the proposal was recorded.
-                if (proposal.Arguments?.GetRawText().Contains("\"<redacted>\"") == true)
+                if (proposal.Arguments is { } arguments && ContainsRedactedValue(arguments))
                     return new(
                         409,
                         Error: "The proposal's arguments were redacted. Ask for the change again."
@@ -258,7 +260,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
             if (!_operations.TryGetValue(proposal.Operation, out var operation))
                 return new(404, Error: "The operation is no longer registered.");
             await using var scope = _scopes.CreateAsyncScope();
-            return await decide(proposal, operation, scope.ServiceProvider);
+            return await decide(proposal with { Arguments = Redact(proposal.Arguments) }, operation, scope.ServiceProvider);
         }
         finally
         {
@@ -482,7 +484,18 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
         }
     }
 
-    internal static JsonElement Redact(JsonElement value)
+    private static bool ContainsRedactedValue(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Object => value.EnumerateObject().Any(property => ContainsRedactedValue(property.Value)),
+        JsonValueKind.Array => value.EnumerateArray().Any(ContainsRedactedValue),
+        JsonValueKind.String => value.ValueEquals(Redacted),
+        _ => false,
+    };
+
+    private static JsonElement? Redact(JsonElement? value) =>
+        value is { ValueKind: not JsonValueKind.Undefined } json ? Redact(json) : null;
+
+    private static JsonElement Redact(JsonElement value)
     {
         var node = JsonNode.Parse(value.GetRawText());
         Redact(node);
@@ -558,9 +571,7 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
             Request = agent?.Request,
             Operation = operation.Key,
             Area = QuasarOperationService.Meta(operation).Area!,
-            Arguments = arguments is { ValueKind: not JsonValueKind.Undefined } value
-                ? Redact(value)
-                : null,
+            Arguments = Redact(arguments),
         };
     }
 
@@ -675,10 +686,19 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
         if (node is JsonObject properties)
         {
             foreach (var (name, child) in properties.ToList())
-                if (IsSecret(name))
-                    properties[name] = "<redacted>";
+            {
+                bool isHeaders = name.EndsWith("headers", StringComparison.OrdinalIgnoreCase);
+                if (isHeaders && child is JsonObject headers)
+                {
+                    // Header names are useful diagnostics. Any value, including a custom header's, may be a credential.
+                    foreach (var header in headers.ToList())
+                        headers[header.Key] = Redacted;
+                }
+                else if (IsSecret(name) || (isHeaders && child?.GetValueKind() is JsonValueKind.String or JsonValueKind.Array))
+                    properties[name] = Redacted;
                 else
                     Redact(child);
+            }
         }
         else if (node is JsonArray items)
             foreach (var item in items)
@@ -688,7 +708,8 @@ public sealed class QuasarAuditLog : BackgroundService, IQuasarAuditLog
     private static bool IsSecret(string name)
     {
         var lower = name.ToLowerInvariant().Replace("_", "").Replace("-", "");
-        return lower.Contains("password")
+        return lower is "authorization" or "proxyauthorization" or "authorizationheader" or "proxyauthorizationheader"
+            || lower.Contains("password")
             || lower.Contains("token")
             || lower.Contains("secret")
             || lower.EndsWith("key", StringComparison.Ordinal)

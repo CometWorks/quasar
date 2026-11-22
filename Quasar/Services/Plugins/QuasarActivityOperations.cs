@@ -300,7 +300,7 @@ public static class QuasarActivityOperations
     private static AuditItem Item(QuasarAuditEntry entry)
     {
         var arguments = entry.Arguments is { } json
-            ? JsonSerializer.Serialize(QuasarAuditLog.Redact(json))
+            ? JsonSerializer.Serialize(json)
             : null;
         if (arguments?.Length > ArgumentsLength)
             arguments = arguments[..ArgumentsLength] + "…";

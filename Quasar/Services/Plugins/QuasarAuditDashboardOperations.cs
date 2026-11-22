@@ -45,7 +45,7 @@ internal static class QuasarAuditDashboardOperations
     }
 
     private static string? Pretty(JsonElement? value) => value is { } json
-        ? JsonSerializer.Serialize(QuasarAuditLog.Redact(json), PrettyJson) : null;
+        ? JsonSerializer.Serialize(json, PrettyJson) : null;
 
     private static string FormatRequester(QuasarAuditRequester requester) => string.Join(" ", new[]
     {
