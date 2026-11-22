@@ -146,6 +146,7 @@ public sealed class AgentRegistry
         AgentSnapshot latestSnapshot;
         string telemetryKey;
         string analyticsKey;
+        string pluginStatsKey;
 
         lock (_sync)
         {
@@ -166,6 +167,7 @@ public sealed class AgentRegistry
             latestSnapshot = state.Snapshot;
             telemetryKey = state.TelemetryKey;
             analyticsKey = state.AnalyticsKey;
+            pluginStatsKey = state.PluginStatsKey;
         }
 
         if (!latestSnapshot.ClusterMode) _knownPlayers.ObserveSnapshot(latestSnapshot);
@@ -180,7 +182,7 @@ public sealed class AgentRegistry
                 _profilerStore.Enqueue(telemetryKey, snapshot.Profiler);
 
             if (snapshot.PluginStats is not null)
-                _pluginStatsStore.Enqueue(telemetryKey, snapshot.PluginStats);
+                _pluginStatsStore.Enqueue(telemetryKey, snapshot.PluginStats, pluginStatsKey);
         }
 
         NotifyChanged();
@@ -538,6 +540,10 @@ public sealed class AgentRuntimeState
     public string AnalyticsKey => !IsCluster || ClusterId.Length == 0 || ClusterSlot.Length == 0 ? TelemetryKey
         : MetricsStoreService.ClusterSlotKeyPrefix + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(
             System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { ClusterId, ClusterSlot }))).ToLowerInvariant();
+
+    // Plugin statistics history is kept per cluster: a label (say a player) moves between nodes and slots.
+    public string PluginStatsKey => IsCluster && ClusterId.Length > 0
+        ? PluginStatsHistoryService.ClusterKey(ClusterId) : TelemetryKey;
 
     public string UniqueNameKey => Snapshot?.UniqueName ?? Hello?.UniqueName ?? ServerKey;
 

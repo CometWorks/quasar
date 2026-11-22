@@ -201,6 +201,7 @@ Magnetar and DS updates are on [Updates](Updates.md).
 | `Quasar:Updates:*` (`Enabled`, `Owner`, `Repository`, `IncludePrerelease`, `AutoStageWebUpdates`, `AutoApplyUpdates`, `AutoUpdateUiPlugins`, `CheckIntervalSeconds`, `LinuxPackageAssetName`, `WindowsPackageAssetName`) | [Updates](Updates.md) |
 | `Quasar:BackupDirectory`, `QUASAR_BACKUP_DIR` | [Backups](Backups.md) |
 | `Quasar:Analytics:RetentionDays`, `QUASAR_ANALYTICS_RETENTION_DAYS` (30, 45, 60 or 90; other values fall back to 30) | [Monitoring](Monitoring.md) |
+| `Quasar:Analytics:PluginStatsRawRetentionHours` (48), `Quasar:Analytics:PluginStatsMinuteRetentionDays` (7) | [Monitoring](Monitoring.md#history-and-retention) |
 | `Quasar:Diagnostics:*`, `QUASAR_DIAGNOSTICS_DIRECTORY`, `Quasar:ServerList:*` | [Diagnostics](Diagnostics.md) |
 | `Quasar:Plugins:*`, `QUASAR_SAFE_MODE`, `QUASAR_DISABLE_UI_PLUGINS`, `QUASAR_UI_PLUGIN_DIRS` | [UI plugins](UiPlugins.md) |
 | `Quasar:ClusterCatalogPath`, `Quasar:ClusterDependencies:*` | [Clusters](Clusters.md) |
@@ -227,6 +228,7 @@ Short `QUASAR_*` variables for admins. Each wins over the matching `appsettings.
 | `QUASAR_CONSOLE_LOGGING` | `true` or `1` also writes the log to the console |
 | `QUASAR_BACKUP_DIR` | `Quasar:BackupDirectory` |
 | `QUASAR_ANALYTICS_RETENTION_DAYS` | `Quasar:Analytics:RetentionDays` |
+| `QUASAR_PLUGIN_STATS_RAW_RETENTION_HOURS`, `QUASAR_PLUGIN_STATS_MINUTE_RETENTION_DAYS` | `Quasar:Analytics:PluginStatsRawRetentionHours`, `Quasar:Analytics:PluginStatsMinuteRetentionDays` |
 | `QUASAR_DIAGNOSTICS_DIRECTORY` | `Quasar:Diagnostics:StorageDirectory` |
 | `QUASAR_UPDATES_ENABLED`, `QUASAR_UPDATES_OWNER`, `QUASAR_UPDATES_REPOSITORY`, `QUASAR_UPDATES_INCLUDE_PRERELEASE`, `QUASAR_UPDATES_AUTO_STAGE_WEB`, `QUASAR_UPDATES_AUTO_APPLY`, `QUASAR_UPDATES_AUTO_UPDATE_UI_PLUGINS`, `QUASAR_UPDATES_CHECK_INTERVAL_SECONDS`, `QUASAR_UPDATES_LINUX_PACKAGE_ASSET`, `QUASAR_UPDATES_WINDOWS_PACKAGE_ASSET` | `Quasar:Updates` keys |
 | `QUASAR_AGENT_*` | Agent keys in [Shutdown and agent behavior](#shutdown-and-agent-behavior) |

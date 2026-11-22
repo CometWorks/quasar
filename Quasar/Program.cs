@@ -300,6 +300,8 @@ public class Program
             builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<MetricsStoreService>());
             builder.Services.AddSingleton<AnalyticsSeriesService>();
             builder.Services.AddSingleton<ProfilerStoreService>();
+            builder.Services.AddSingleton<PluginStatsHistoryService>();
+            builder.Services.AddHostedService(serviceProvider => serviceProvider.GetRequiredService<PluginStatsHistoryService>());
             builder.Services.AddSingleton<PluginStatsStoreService>();
             builder.Services.AddSingleton<AgentRegistry>();
             builder.Services.AddSingleton<EntityService>();
@@ -483,6 +485,17 @@ public class Program
             });
             if (authOptions.Enabled)
                 pluginStatsCatalog.RequireAuthorization(QuasarPolicyNames.CanView);
+
+            // Stored per-label history: sources (servers and whole clusters), their fields, and the
+            // labels seen in one group. /api/analytics/series charts one with a plugin-history: key.
+            var pluginStatsHistory = app.MapGroup("/api/analytics/plugin-stats/history");
+            pluginStatsHistory.MapGet("/sources", (PluginStatsHistoryService history) => Results.Json(history.GetSources()));
+            pluginStatsHistory.MapGet("/fields", (string source, PluginStatsHistoryService history) =>
+                Results.Json(history.GetFields(source)));
+            pluginStatsHistory.MapGet("/labels", (string source, string provider, string group, PluginStatsHistoryService history) =>
+                Results.Json(history.GetLabels(source, provider, group)));
+            if (authOptions.Enabled)
+                pluginStatsHistory.RequireAuthorization(QuasarPolicyNames.CanView);
 
             MapAuthenticationEndpoints(app, authOptions);
 

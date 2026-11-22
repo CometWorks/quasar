@@ -24,14 +24,16 @@ public sealed class AnalyticsSeriesService
     private readonly ProfilerStoreService _profilerStore;
     private readonly PluginStatsStoreService _pluginStatsStore;
     private readonly AgentRegistry? _registry;
+    private readonly PluginStatsHistoryService? _pluginStatsHistory;
 
     public AnalyticsSeriesService(MetricsStoreService store, ProfilerStoreService profilerStore, PluginStatsStoreService pluginStatsStore,
-        AgentRegistry? registry = null)
+        AgentRegistry? registry = null, PluginStatsHistoryService? pluginStatsHistory = null)
     {
         _store = store;
         _profilerStore = profilerStore;
         _pluginStatsStore = pluginStatsStore;
         _registry = registry;
+        _pluginStatsHistory = pluginStatsHistory;
     }
 
     public AnalyticsSeriesResponse Build(
@@ -68,7 +70,12 @@ public sealed class AnalyticsSeriesService
             .Where(key => key.StartsWith(PluginStatsStoreService.KeyPrefix, StringComparison.Ordinal))
             .ToList();
 
-        if (metrics.Count == 0 && profilerMetrics.Count == 0 && profilerEntryMetrics.Count == 0 && pluginStatKeys.Count == 0)
+        var pluginHistoryKeys = metricKeys
+            .Where(key => key.StartsWith(PluginStatsHistoryService.MetricKeyPrefix, StringComparison.Ordinal))
+            .ToList();
+
+        if (metrics.Count == 0 && profilerMetrics.Count == 0 && profilerEntryMetrics.Count == 0 && pluginStatKeys.Count == 0
+            && pluginHistoryKeys.Count == 0)
             return new AnalyticsSeriesResponse(fromUnix, toUnix, []);
 
         var sources = ResolveSources(servers);
@@ -80,6 +87,7 @@ public sealed class AnalyticsSeriesService
         charts.AddRange(BuildProfilerCharts(fromUnix, toUnix, sources, profilerMetrics, maxPoints));
         charts.AddRange(BuildProfilerEntryCharts(fromUnix, toUnix, sources, profilerEntryMetrics, maxPoints));
         charts.AddRange(BuildPluginStatsCharts(fromUnix, toUnix, sources, pluginStatKeys, maxPoints));
+        charts.AddRange(BuildPluginHistoryCharts(fromUnix, toUnix, sources, pluginHistoryKeys, maxPoints));
         return new AnalyticsSeriesResponse(fromUnix, toUnix, charts);
     }
 
@@ -539,6 +547,73 @@ public sealed class AnalyticsSeriesService
             var axis = new AnalyticsAxisDto(Min: 0, Max: null, Decimals: decimals, Kilo: false, TickAmount: 5);
 
             charts.Add(new AnalyticsChartDto(metricKey, title, subtitle, axis, x, seriesList));
+        }
+
+        return charts;
+    }
+
+    // One label's stored history of one plugin field: one series per requested history source (a
+    // server, or a whole cluster). Each bucket folds its rows by the field's OverTime hint, the same
+    // way the store rolls them up, so a Max field charts the bucket's worst value, not its average.
+    private IReadOnlyList<AnalyticsChartDto> BuildPluginHistoryCharts(
+        long fromUnix,
+        long toUnix,
+        IReadOnlyList<Source> sources,
+        IReadOnlyList<string> metricKeys,
+        int maxPoints)
+    {
+        if (metricKeys.Count == 0 || _pluginStatsHistory is null)
+            return [];
+
+        var (bucketWidth, alignedFrom, bucketCount) = ResolveBuckets(fromUnix, toUnix, maxPoints);
+        var charts = new List<AnalyticsChartDto>(metricKeys.Count);
+        foreach (var metricKey in metricKeys)
+        {
+            if (!PluginStatsHistoryService.TryParseMetricKey(metricKey, out var provider, out var group, out var field, out var label))
+                continue;
+
+            var reads = sources
+                .Select(source => (source.Key, Read: _pluginStatsHistory.Read(source.Key, provider, group, label, field, alignedFrom, toUnix)))
+                .Where(pair => pair.Read is { Samples.Count: > 0 })
+                .Select(pair => (pair.Key, Read: pair.Read!))
+                .ToList();
+            if (reads.Count == 0)
+                continue;
+
+            var buckets = reads
+                .Select(pair => pair.Read.Samples
+                    .Where(sample => sample.Time - alignedFrom >= 0 && (sample.Time - alignedFrom) / bucketWidth < bucketCount)
+                    .GroupBy(sample => (int)((sample.Time - alignedFrom) / bucketWidth))
+                    .ToDictionary(bucket => bucket.Key, bucket => PluginStatsHistoryService.Fold(pair.Read.Field, bucket.ToList())))
+                .ToList();
+            var observed = new bool[bucketCount];
+            foreach (var index in buckets.SelectMany(values => values.Keys))
+                observed[index] = true;
+
+            var kept = ObservedWindowBuckets(observed);
+            if (kept.Count == 0)
+                continue;
+
+            var info = reads[0].Read.Field;
+            var decimals = string.Equals(info.Kind, "counter", StringComparison.OrdinalIgnoreCase) ? 0 : 2;
+            var x = kept.Select(bucket => alignedFrom + bucket * bucketWidth + bucketWidth / 2).ToArray();
+            var series = reads
+                .Select((pair, i) => new AnalyticsSeriesDto(pair.Key, kept
+                    .Select(bucket => buckets[i].TryGetValue(bucket, out var value)
+                        ? Math.Round(value, decimals + 2, MidpointRounding.AwayFromZero)
+                        : (double?)null)
+                    .ToArray()))
+                .ToList();
+
+            var labelText = label.Length == 0 ? group : label;
+            var labelDescription = reads[0].Read.LabelDescription;
+            var subtitle = string.Join(" · ", new[]
+            {
+                string.IsNullOrWhiteSpace(labelDescription) ? labelText : $"{labelDescription} {labelText}",
+                info.Unit,
+            }.Where(part => !string.IsNullOrWhiteSpace(part)));
+            charts.Add(new AnalyticsChartDto(metricKey, $"{provider}: {FirstNonBlank(info.Description, info.Name)}", subtitle,
+                new AnalyticsAxisDto(Min: 0, Max: null, Decimals: decimals, Kilo: false, TickAmount: 5), x, series));
         }
 
         return charts;

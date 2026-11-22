@@ -12,9 +12,10 @@ namespace Quasar.Services.Analytics;
 /// Nothing here knows what any provider's numbers mean: the schema (groups → fields → per-instance
 /// values) travels inside every sample, so <see cref="GetCatalog"/> discovers chartable metrics at
 /// runtime and <see cref="AnalyticsSeriesService"/> renders them without any plugin-specific code.
-/// Like the profiler store this is not persisted, so history is lost on a Quasar restart.
+/// This live store is not persisted. Each accepted snapshot is also handed to
+/// <see cref="PluginStatsHistoryService"/>, which keeps the per-label history across restarts.
 /// </summary>
-public sealed class PluginStatsStoreService
+public sealed class PluginStatsStoreService(PluginStatsHistoryService? history = null)
 {
     public const string KeyPrefix = "plugin:";
     private const int MaxSamplesPerKey = 12 * 60;
@@ -25,7 +26,9 @@ public sealed class PluginStatsStoreService
     private readonly ConcurrentDictionary<string, DateTimeOffset> _lastCapturedAt =
         new(StringComparer.OrdinalIgnoreCase);
 
-    public void Enqueue(string uniqueName, PluginStatsSnapshot? snapshot)
+    /// <param name="historyKey">The history source, when it differs from the live key: the whole
+    /// cluster for a cluster node.</param>
+    public void Enqueue(string uniqueName, PluginStatsSnapshot? snapshot, string? historyKey = null)
     {
         if (string.IsNullOrWhiteSpace(uniqueName) || snapshot?.Providers is null)
             return;
@@ -43,6 +46,8 @@ public sealed class PluginStatsStoreService
             queue.Enqueue(new PluginStatSample(normalized.CapturedAtUtc, normalized.Groups));
             while (queue.Count > MaxSamplesPerKey)
                 queue.TryDequeue(out _);
+
+            history?.Record(historyKey ?? uniqueName, normalized);
         }
     }
 

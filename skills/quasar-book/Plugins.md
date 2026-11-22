@@ -251,7 +251,7 @@ Quasar integrates with plugins through Magnetar's PluginSdk. The code under `Qua
 
 - **Configuration editor.** A plugin whose public `PluginConfig` property uses PluginSdk config options appears on the **Plugins** page with an editor built from its schema. A plugin can also implement `IQuasarConfigProvider` from `Magnetar.Protocol` and exchange the config as JSON. Configs the SDK tracks but the plugin does not expose through a public property are read-only: "SDK-tracked configuration is read-only here. Edit its plugin-owned settings directly, or prepare cluster configuration."
 - **Logs.** Quasar sets `QUASAR_AGENT` for every managed server, which makes the PluginSdk logger send structured lines to the **Plugin logs** panel.
-- **Statistics.** Statistics published through PluginSdk `PluginStats` are forwarded by the agent and charted on **Analytics**.
+- **Statistics.** Statistics published through PluginSdk `PluginStats` are forwarded by the agent and charted on **Analytics**. Quasar also stores them per row label (for example per player), per server or per whole cluster, and charts that history on **Plugin statistics history**; see [Monitoring](Monitoring.md#plugin-statistics-history).
 - **UI plugin companions.** A server plugin that implements `IQuasarCompanionRequestHandler` can answer requests from a Quasar UI plugin. See [UI plugins](UiPlugins.md#companion-data-channel).
 
 ## Registering a new plugin
