@@ -1,3 +1,5 @@
+using Quasar.Client.Administration;
+using Quasar.Client;
 using System.Net;
 using System.Net.Http.Json;
 using System.Security.Claims;
@@ -370,11 +372,15 @@ public sealed partial class AnnouncementTests : IDisposable
         var notices = PushNotificationService.MergeAnnouncements([new("update", "Update", "Body", "/settings/updates")], service);
         Assert.Equal("critical", notices[0].Severity);
         await using var context = new QuasarBunitContext();
-        var bell = context.Render<NotificationBell>(p => p.Add(c => c.Notice, notices[0]));
+        context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.Services.AddScoped<DashboardSdk>();
+        context.Services.AddScoped<DashboardPushState>();
+        context.JSInterop.Setup<DashboardNotices>("quasarSdk.request", _ => true).SetResult(new(notices.ToArray(), false));
+        var bell = context.Render<DashboardNotificationBell>();
         Assert.Contains("quasar-text-error", bell.Find("a").ClassList);
         Assert.Equal("http://localhost/notifications", bell.Find("a").GetAttribute("href"));
         Assert.Contains("CRITICAL", bell.Find("a").GetAttribute("title"));
-        var card = context.Render<NotificationCard>(p => p.Add(c => c.Notice, notices[0]));
+        var card = context.Render<DashboardNotificationCard>(p => p.Add(c => c.Notice, notices[0]));
         Assert.Empty(card.FindAll("script, img")); Assert.Contains("<script>urgent</script>", card.Find("h2").TextContent);
         Assert.Contains("quasar-notice-error", card.Find("section").ClassList);
         Assert.Contains("CRITICAL announcement", card.Markup);

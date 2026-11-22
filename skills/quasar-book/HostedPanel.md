@@ -112,9 +112,8 @@ The detailed operator guide, including the acceptance checks for push delivery, 
 
 ## Sources
 
-- `Quasar/Components/Pages/PostInstallSetup.razor`
-- `Quasar/Components/Shared/AccessSetupPrompt.razor`
-
+- `Quasar.Client/Administration/SetupPage.razor`
+- `Quasar.Client/Administration/DashboardSetupPrompt.razor`
 - `Docs/HostedPanel.md`
 - `Shared/Hosting/HostedPanelState.cs`
 - `Quasar/Services/HostedPanelService.cs`
@@ -128,9 +127,9 @@ The detailed operator guide, including the acceptance checks for push delivery, 
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/Auth/SteamProfileClient.cs`
-- `Quasar/Components/Shared/AccessSetupDialog.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Pages/Security.razor`
+- `Quasar.Client/Administration/DashboardSetupDialog.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
 - `Shared/Networking/QuasarControlAddress.cs`
 - `Quasar.Host/HostConnection.cs`
 - `Quasar.Agent/WebServiceLocator.cs`

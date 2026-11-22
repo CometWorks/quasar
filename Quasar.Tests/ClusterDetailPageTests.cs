@@ -87,7 +87,6 @@ public sealed class ClusterDetailPageTests
             await catalog.RecordActiveDeploymentAsync(created, new("revision", [host], DateTimeOffset.UtcNow), default);
             context.Services.AddSingleton(catalog);
             context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
-            context.Services.AddSingleton(new QuasarPermissionService(null!, null!, null!));
             context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
             context.Services.AddSingleton(new ClusterOperationStore(Path.Combine(root, "operations")));
             var handler = new Gateway();
@@ -120,6 +119,13 @@ public sealed class ClusterDetailPageTests
             Assert.Empty(page.FindComponents<Bunit.TestDoubles.Stub<ClusterPartitionsPanel>>());
             Assert.All(page.FindAll("nav button"), button => Assert.Single(page.FindAll("#" + button.GetAttribute("aria-controls"))));
             var admin = page.FindComponent<AdminStub>();
+            if (fragment == "")
+            {
+                handler.Available = true;
+                await page.WaitForAssertionAsync(() => Assert.True(admin.Instance.GatewayAvailable), TimeSpan.FromSeconds(10));
+                handler.Available = false;
+                await page.WaitForAssertionAsync(() => Assert.False(admin.Instance.GatewayAvailable), TimeSpan.FromSeconds(10));
+            }
             var overview = page.FindComponent<Bunit.TestDoubles.Stub<ClusterDetailPanel>>();
             async Task Availability(bool online) { handler.Available = online; await admin.Instance.Changed.InvokeAsync(); }
             await page.InvokeAsync(() => Availability(true));

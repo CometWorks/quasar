@@ -300,7 +300,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/QuasarLoggingConfigurator.cs`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
@@ -322,7 +322,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Quasar/Services/QuasarShutdownService.cs`
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
-- `Quasar/Components/Shared/QuasarOperationLoader.razor`
+- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
 - `Docs/QuasarUpdates.md`
 - `Quasar.Updater/QuasarUpdater.cs`
 - `Shared/Updates/GitHubUpdateTokenReader.cs`
@@ -339,7 +339,7 @@ Each server's agent connects to the Quasar that launched it, because that Quasar
 - `Shared/Diagnostics/LinuxLimits.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
 - `Quasar/Services/QuasarApplicationEntry.cs`
-- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar.Client/Layout/QuasarControlDialog.razor`
 - `Quasar/wwwroot/quasar-configs.js`
 - `Quasar/Services/Plugins/QuasarUiPluginCatalog.cs`
 - `Tests/Updates/service_unit_config.py`

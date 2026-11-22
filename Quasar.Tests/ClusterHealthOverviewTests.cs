@@ -1,9 +1,10 @@
 using System.Text.Json;
 using Bunit;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Clusters;
 using Quasar.Host.Contract.V1;
 using Quasar.Models;
 using Quasar.Services;
+using Quasar.Services.Plugins;
 using Magnetar.Protocol.Model;
 using Admin = CometWorks.ClusterGateway.AdminContract.V1;
 using Xunit;
@@ -19,30 +20,27 @@ public sealed class ClusterHealthOverviewTests
         var fixture = Sample();
         var status = fixture.Status with { Counts = fixture.Status.Counts with { ConnectedClients = 1 } };
         var player = fixture.Clients[0] with { Node = null };
-        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Cluster, fixture.Cluster)
-            .Add(c => c.Status, status).Add(c => c.Fleet, fixture.Fleet).Add(c => c.Clients, [player]));
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Runtime, fixture.Runtime(status, clients: [player])));
         string Routed(string node) => panel.Find($"article[data-node='{node}']").ParentElement!
             .QuerySelector(".cluster-edge-label strong")!.TextContent;
         Assert.Equal("— routed players", Routed("node-1"));
         Assert.Contains("not reported for 1 connected player", panel.Markup);
 
-        panel.Render(p => p.Add(c => c.Clients, [player with { Node = "node-1" }]));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(status, clients: [player with { Node = "node-1" }])));
         Assert.Equal("1 routed players", Routed("node-1"));
         Assert.Equal("0 routed players", Routed("node-2"));
         Assert.Empty(panel.FindAll(".cluster-routing-status"));
-        panel.Render(p => p.Add(c => c.Clients, [player with { Node = "node-2" }]));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(status, clients: [player with { Node = "node-2" }])));
         Assert.Equal("0 routed players", Routed("node-1"));
         Assert.Equal("1 routed players", Routed("node-2"));
         Assert.Contains("stroke-width:1.1", panel.FindAll(".cluster-player-links path")[1].GetAttribute("style"));
 
         // One known route and one missing route: report a minimum, never a misleading exact zero.
         var known = player with { Node = "node-2" };
-        panel.Render(p => p.Add(c => c.Status, status with { Counts = status.Counts with { ConnectedClients = 2 } })
-            .Add(c => c.Clients, [known, known, player with { ClientId = 9999 }]));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(status with { Counts = status.Counts with { ConnectedClients = 2 } }, clients: [known, known, player with { ClientId = 9999 }])));
         Assert.Equal("1+ routed players", Routed("node-2"));
         Assert.Equal("— routed players", Routed("node-1"));
-        panel.Render(p => p.Add(c => c.Status, status with { Counts = status.Counts with { ConnectedClients = 0 } })
-            .Add(c => c.Clients, []));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(status with { Counts = status.Counts with { ConnectedClients = 0 } }, clients: [])));
         Assert.Equal("0 routed players", Routed("node-2"));
         Assert.Empty(panel.FindAll(".cluster-routing-status"));
     }
@@ -52,11 +50,7 @@ public sealed class ClusterHealthOverviewTests
     {
         await using var context = new QuasarBunitContext();
         var fixture = Sample();
-        var panel = context.Render<ClusterHealthOverview>(p => p
-            .Add(c => c.Cluster, fixture.Cluster).Add(c => c.Status, fixture.Status)
-            .Add(c => c.Fleet, fixture.Fleet).Add(c => c.Host, fixture.Host)
-            .Add(c => c.Clients, fixture.Clients).Add(c => c.Partitions, fixture.Partitions)
-            .Add(c => c.Hosts, fixture.Hosts));
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, clients: fixture.Clients, partitions: fixture.Partitions)));
 
         Assert.Equal(5, panel.FindAll(".cluster-game-nodes .cluster-process").Count);
         Assert.Single(panel.FindAll(".cluster-authority .cluster-process"));
@@ -83,7 +77,7 @@ public sealed class ClusterHealthOverviewTests
         if (Environment.GetEnvironmentVariable("QUASAR_CLUSTER_PREVIEW_OUTPUT") is { Length: > 0 } preview)
             await File.WriteAllTextAsync(preview, $"<div class=\"quasar-preview\" data-theme=\"dark\" style=\"{QuasarTheme.BuildCss(ThemePalette.QuasarDark(), true)}\">{panel.Markup}</div>");
 
-        panel.Render(p => p.Add(c => c.Status, null));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(null)));
         Assert.DoesNotContain("553%", panel.Markup);
         Assert.DoesNotContain("18 routed players", panel.Markup);
         Assert.Contains("Unobserved", panel.Markup);
@@ -98,9 +92,7 @@ public sealed class ClusterHealthOverviewTests
         var nodes = fixture.Fleet.Nodes.Select(n => n with { Telemetry = n.Telemetry! with { Connected = false } }).ToArray();
         var host = fixture.Host with { Gateways = [fixture.Host.Gateways![0] with {
             Metrics = new(DateTimeOffset.UtcNow.AddMinutes(-1), 800, 100L * 1073741824) }] };
-        var panel = context.Render<ClusterHealthOverview>(p => p
-            .Add(c => c.Cluster, fixture.Cluster).Add(c => c.Status, fixture.Status)
-            .Add(c => c.Fleet, new ClusterFleet("sample", nodes)).Add(c => c.Host, host));
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, nodes, host: host)));
         Assert.Empty(panel.FindAll(".cluster-cpu-bars"));
         Assert.Contains("0/7 processes report RAM", panel.Markup);
         Assert.DoesNotContain("0 routed players", panel.Markup);
@@ -125,8 +117,7 @@ public sealed class ClusterHealthOverviewTests
             Metrics = new ServerMetrics { SimSpeed = .07f, ServerCpuLoadPercent = 142, MemoryWorkingSetMb = 2048 } } };
         // World Authority has no regular-node partition workload and must not become "Idle".
         nodes[5] = nodes[5] with { Telemetry = nodes[5].Telemetry! with { TelemetryPaused = true } };
-        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Cluster, fixture.Cluster)
-            .Add(c => c.Status, fixture.Status).Add(c => c.Fleet, fixture.Fleet with { Nodes = nodes }).Add(c => c.Host, fixture.Host));
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, nodes)));
         var ordinary = panel.Find("article[data-node='node-2']");
         var spare = panel.Find("article[data-node='node-5']");
         foreach (var card in new[] { ordinary, spare })
@@ -147,14 +138,14 @@ public sealed class ClusterHealthOverviewTests
         Assert.Contains("553%", panel.Find(".cluster-health-totals").TextContent); // Real idle overhead still costs CPU.
 
         nodes[1] = nodes[1] with { Telemetry = nodes[1].Telemetry! with { TelemetryPaused = false } };
-        panel.Render(p => p.Add(c => c.Fleet, fixture.Fleet with { Nodes = nodes }));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, nodes)));
         ordinary = panel.Find("article[data-node='node-2']");
         Assert.Equal("Active", ordinary.QuerySelector(".cluster-health-badge")!.TextContent);
         Assert.Single(ordinary.QuerySelectorAll(".cluster-cpu-bars"));
         Assert.Contains("Simulation speed", ordinary.TextContent);
 
         nodes[4] = nodes[4] with { Telemetry = nodes[4].Telemetry! with { Connected = false } };
-        panel.Render(p => p.Add(c => c.Fleet, fixture.Fleet with { Nodes = nodes }));
+        panel.Render(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, nodes)));
         Assert.Empty(panel.FindAll("article[data-activity='idle']"));
         Assert.Contains("Live process telemetry unavailable", panel.Find("article[data-node='node-5']").TextContent);
     }
@@ -250,8 +241,7 @@ public sealed class ClusterHealthOverviewTests
             (now.AddHours(-2), now.AddMinutes(-1)), (now.AddSeconds(-10), now.AddMinutes(130.5)), (null, null), (null, null)];
         var fleet = fixture.Fleet with { Nodes = fixture.Fleet.Nodes.Select((n, i) =>
             n with { Registry = n.Registry with { ServingSince = times[i].Since, RotationDue = times[i].Due } }).ToArray() };
-        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Cluster, fixture.Cluster)
-            .Add(c => c.Status, fixture.Status).Add(c => c.Fleet, fleet).Add(c => c.Clients, fixture.Clients));
+        var panel = context.Render<ClusterHealthOverview>(p => p.Add(c => c.Runtime, fixture.Runtime(fixture.Status, fleet.Nodes, fixture.Clients)));
         string? Age(string node) => panel.Find($"article[data-node='{node}']").QuerySelector(".cluster-node-age")?.TextContent;
         Assert.Equal("Age 1h12m · rotation in 48m", Age("node-1"));
         Assert.Equal("Age 20m", Age("node-2"));
@@ -262,7 +252,14 @@ public sealed class ClusterHealthOverviewTests
     }
 
     internal sealed record Fixture(ClusterDefinition Cluster, Admin.ClusterStatus Status, ClusterFleet Fleet,
-        HostStatus Host, Admin.ClientSummary[] Clients, Admin.PartitionSummary[] Partitions, EnrolledClusterHost[] Hosts);
+        HostStatus Host, Admin.ClientSummary[] Clients, Admin.PartitionSummary[] Partitions, EnrolledClusterHost[] Hosts)
+    {
+        internal ClusterRuntime Runtime(Admin.ClusterStatus? status, ClusterFleetNode[]? nodes = null,
+            Admin.ClientSummary[]? clients = null, Admin.PartitionSummary[]? partitions = null, HostStatus? host = null) =>
+            QuasarClusterDetailOperations.ProjectRuntime(Cluster, status, DateTimeOffset.UtcNow, null, [], null,
+                nodes ?? (status is null ? [] : Fleet.Nodes), Hosts, clients, partitions, host ?? Host,
+                new(Cluster.UniqueName, Cluster.GoalState, ClusterReconcileState.Pending, null, null, DateTimeOffset.UtcNow, null, ""), null);
+    }
     internal static Fixture Sample()
     {
         int[] players = [18, 7, 24, 13, 0, 0], partitions = [34, 12, 47, 26, 0, 0];

@@ -68,13 +68,22 @@
         try
         {
             var page = await Sdk.ReadClusterAsync<ClusterConsoleSnapshot>("cluster.console", UniqueName, _shutdown.Token, _cursor);
+            if (page.GatewayError is { } unavailable)
+            {
+                _error = $"{unavailable} Retained entries may be stale.";
+                return;
+            }
             if (page.NextCursor < _cursor) { _events = []; _gap = true; }
             if (_cursor > 0 && page.EarliestRetained > _cursor + 1) _gap = true;
             _events = _events.Concat(page.Events).DistinctBy(e => e.Seq).OrderBy(e => e.Seq).TakeLast(500).ToArray();
             _cursor = page.NextCursor; _logs = page.Logs; _observed = page.Observed;
             _error = null;
         }
-        catch (JSException error) { _events = []; _logs = []; _error = error.Message; }
+        catch (JSException error)
+        {
+            _events = []; _logs = []; _cursor = 0; _gap = false;
+            _observed = null; _error = error.Message;
+        }
         finally { _loading = false; }
     }
 

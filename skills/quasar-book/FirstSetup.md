@@ -215,14 +215,14 @@ With **Network** selected, the world's online mode is copied as is, including Of
 
 ## Sources
 
-- `Quasar/Components/Pages/PostInstallSetup.razor`
-- `Quasar/Components/Shared/AccessSetupPrompt.razor`
+- `Quasar.Client/Administration/SetupPage.razor`
+- `Quasar.Client/Administration/DashboardSetupPrompt.razor`
 - `Quasar.Client/Components/FleetPreparation.razor`
-- `Quasar/Components/Pages/WorldTemplateQuickImportDialog.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
 - `Quasar/Services/WorldTemplateImportLocationService.cs`
 - `Quasar/Services/ManagedDedicatedServerRuntimeResolver.cs`
 - `Quasar.Client/Pages/NewServerDialog.razor`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Docs/QuickStart.md`
 - `Docs/Docker.md`
 - `Docs/Configuration.md`
@@ -235,10 +235,9 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar.Client/Pages/Home.razor`
 - `Quasar.Client/Components/ImportExistingServerDialog.razor`
 - `Quasar.Client/Components/FleetServerEditor.razor`
-- `Quasar/Components/Pages/WorldTemplateConfigProfileDialog.razor`
-- `Quasar/Components/Pages/Security.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar.Client/Administration/DashboardSetupDialog.razor`
 - `Quasar/Services/ExistingServerImportService.cs`
 - `Quasar/Services/WorldSaveFiles.cs`
 - `Quasar/Services/BrowserZipFileStream.cs`
@@ -252,7 +251,7 @@ With **Network** selected, the world's online mode is copied as is, including Of
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/QuasarAuthConstants.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
-- `Quasar/Models/QuasarConfigProfile.cs`
+- `Quasar.Client/Configs/QuasarConfigProfile.cs`
 - `Quasar/Services/BrowserLauncher.cs`
 - `Quasar/Services/WebServiceManifestHostedService.cs`
 - `scripts/install-gui.ps1`

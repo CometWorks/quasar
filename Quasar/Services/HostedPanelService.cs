@@ -10,6 +10,8 @@ namespace Quasar.Services;
 public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<HostedPanelService> logger, RbacConfigCatalog? rbac = null) : BackgroundService
 {
     private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly object enrollmentLock = new();
+    private CancellationTokenSource? pendingEnrollment;
     public HostedPanelState State => HostedPanelState.Read() ?? new();
     public string Status { get; private set; } = "Not enrolled";
     public bool AccessActive { get; private set; }
@@ -60,6 +62,11 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
     public async Task ChooseAsync(string choice)
     {
         if (choice is not ("self" or "dismissed")) throw new ArgumentException("Invalid access choice.");
+        // The browser may stop awaiting an SDK call before its HTTP request ends.
+        // Dismiss the in-flight enrollment before waiting for its writer lock.
+        Task canceled;
+        lock (enrollmentLock) canceled = pendingEnrollment?.CancelAsync() ?? Task.CompletedTask;
+        await canceled;
         await gate.WaitAsync();
         try
         {
@@ -77,6 +84,9 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
     {
         if (!HostedPanelState.IsPanelId(panelId)) throw new ArgumentException("Use 3–63 lowercase letters and digits separated by single dashes.");
         await gate.WaitAsync(ct);
+        using var enrollment = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        lock (enrollmentLock) pendingEnrollment = enrollment;
+        ct = enrollment.Token;
         try
         {
             CheckWritableState();
@@ -111,7 +121,11 @@ public sealed class HostedPanelService(IHttpClientFactory clients, ILogger<Hoste
             Changed?.Invoke();
             return browser;
         }
-        finally { gate.Release(); }
+        finally
+        {
+            lock (enrollmentLock) pendingEnrollment = null;
+            gate.Release();
+        }
     }
 
     private static void CheckWritableState()

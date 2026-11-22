@@ -411,10 +411,10 @@ collisions, limits and the required Magnetar version.
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar/Models/DedicatedServerDefinition.cs`
 - `Quasar/Models/DedicatedServerPathResolver.cs`
-- `Quasar/Models/DedicatedServerProcessPriority.cs`
+- `Quasar.Client/Fleet/DedicatedServerProcessPriority.cs`
 - `Quasar/Models/DedicatedServerRestartInfo.cs`
-- `Quasar/Models/ManagedServerRuntime.cs`
-- `Quasar/Models/CpuAffinitySpec.cs`
+- `Quasar.Client/Fleet/ManagedServerRuntime.cs`
+- `Quasar.Client/Fleet/CpuAffinitySpec.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
 - `Quasar/Services/DedicatedServerCatalog.cs`
@@ -423,7 +423,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ManagedRuntimeOptions.cs`
 - `Quasar/Services/ManagedRuntimeWarmupService.cs`
 - `Quasar/Services/MagnetarLegacyLaunchCompatibility.cs`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Quasar/Services/SteamWorkshopCacheRepairer.cs`
 - `Quasar/Services/SteamWorkshopCredentialsCatalog.cs`
 - `Quasar/Services/ClusterWorkshopModStager.cs`
@@ -437,11 +437,11 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Client/Components/FleetServerEditor.razor`
 - `Quasar.Client/Pages/ServerDeleteDialog.razor`
 - `Quasar.Client/Pages/ServerConsoleDialog.razor`
-- `Quasar/Components/Pages/Configs.razor`
-- `Quasar/Components/Pages/Updates.razor`
-- `Quasar/Components/Pages/Analytics.razor`
-- `Quasar/Components/Pages/SteamWorkshopAccountDialog.razor`
-- `Quasar/Components/Pages/SteamWorkshopApiKeyDialog.razor`
+- `Quasar.Client/Configs/ConfigEditor.razor`
+- `Quasar.Client/Administration/UpdatesPage.razor`
+- `Quasar.Client/Components/AnalyticsView.razor`
+- `Quasar.Client/Configs/SteamWorkshopAccountDialog.razor`
+- `Quasar.Client/Configs/SteamWorkshopApiKeyDialog.razor`
 - `Quasar/Services/Plugins/QuasarFleetDashboardOperations.cs`
 - `Quasar.Client/Components/FleetLiveDetails.razor`
 - `Quasar.Agent/StopCommand.cs`
@@ -456,8 +456,8 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ClusterOverview.cs`
 - `Quasar/Services/ClusterCommandService.cs`
 - `Quasar/Services/ClusterReconciler.cs`
-- `Quasar/Components/Shared/QuasarOperationLoader.razor`
-- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
+- `Quasar.Client/Layout/QuasarControlDialog.razor`
 - `Quasar.Agent/SupervisedLifecycle.cs`
 - `Shared/Updates/QuasarServiceInstallation.cs`
 - `Docs/QuasarUpdates.md`
@@ -468,8 +468,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/ServerWorldImportService.cs`
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar/Services/WorldSaveFiles.cs`
-- `Quasar/Components/Pages/ServerWorldImportDialog.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
 - `Quasar.Agent/PlayerCommands.cs`
 - `Quasar.Agent/AdminPlugin.cs`
-
 - `Docs/PlayerAuthentication.md`

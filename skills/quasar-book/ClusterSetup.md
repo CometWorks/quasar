@@ -231,22 +231,21 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 - `POST /api/v1/host-enrollment/{host}/ticket` with `{ "quasarUrl" }` returns the enrollment command; `/ssh` takes `{ "quasarUrl", "ssh": { "address", "user", "port", "identityFile" } }`; `GET /api/v1/host-enrollment/{host}/manual?quasarUrl=…` downloads the manual package. All need security administration.
 
 ## Sources
-- `Quasar/Components/Pages/NewServerDialog.razor`
-- `Quasar/Services/ServerManagementActions.cs`
+- `Quasar.Client/Pages/NewServerDialog.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
 - `Docs/ClusterGuidedSetupPlan.md`
 - `Docs/ClusterTerminology.md`
 - `Docs/Configuration.md`
 - `Docs/BuildingAndDevelopment.md`
-- `Quasar/Components/Pages/ClusterCreate.razor`
-- `Quasar/Components/Pages/ClusterDetail.razor`
-- `Quasar/Components/Pages/HostEnroll.razor`
-- `Quasar/Components/Pages/Hosts.razor`
-- `Quasar/Components/Shared/HostEnrollment.razor`
-- `Quasar/Components/Shared/HostEnrollmentRemoval.razor`
+- `Quasar.Client/Components/SetupCluster.razor`
+- `Quasar.Client/Pages/ClusterDetail.razor`
+- `Quasar.Client/Components/HostEnrollmentForm.razor`
+- `Quasar.Client/Components/HostMachines.razor`
+- `Quasar.Client/Components/RemoveHostEnrollment.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar/Services/ClusterApi.cs`
 - `Quasar/Services/ClusterSetupService.cs`
-- `Quasar/Services/QuasarDefaultPlugins.cs`
+- `Quasar.Client/Configs/QuasarDefaultPlugins.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Quasar/Services/ClusterWorldConverter.cs`
 - `Shared/ClusterDeployment/ClusterDeploymentFiles.cs`
@@ -262,5 +261,5 @@ Before the prepared-inputs checkpoint exists, resume also re-checks the PluginSd
 - `Quasar/Services/ClusterSteamClientLibrary.cs`
 - `Quasar/Services/ClusterWorkshopModStager.cs`
 - `Quasar/Program.cs`
-- `Quasar/Components/Shared/QuasarOperationLoader.razor`
-- `Quasar/Components/Shared/QuasarOperationLoader.razor.css`
+- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor`
+- `Quasar.Client/UiPlugins/QuasarOperationLoader.razor.css`

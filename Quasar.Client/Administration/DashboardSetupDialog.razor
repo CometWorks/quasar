@@ -23,7 +23,6 @@
                     <h2>Set the first Quasar administrator</h2>
                     <p>Add your SteamID64 or Steam Community profile URL so you can sign in after enabling public access.</p>
                 </header>
-                <p class="access-setup-note">Saving the administrator refreshes this panel to apply permissions. You may briefly see a reconnect message after the change is saved.</p>
                 <MudTextField T="string" @bind-Value="_adminSteamId" Label="Administrator SteamID64 or profile URL" HelperText="Your 17-digit Steam account ID or Steam Community profile URL. URLs resolve automatically when saved." Variant="Variant.Outlined" Immediate="true" Disabled="@_busy" Error="@(!string.IsNullOrWhiteSpace(_adminSteamId) && !SteamProfileInput.IsSupported(_adminSteamId))" ErrorText="Enter a 17-digit SteamID64 or a Steam Community profile URL." />
                 <p class="access-setup-note">This grants administrator access to this Quasar installation; Nebula hosting entitlement is separate. Use an existing trusted-network administrator session for initial setup. Signing in with Steam alone does not claim an unconfigured panel.</p>
             }

@@ -67,5 +67,5 @@ their own terms.
 - `scripts/package-windows-release.ps1`
 - `scripts/package-symbols.py`
 - `Dockerfile`
-- `Quasar/Components/Layout/MainLayout.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
 - `.github/workflows/release.yml`

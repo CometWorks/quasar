@@ -92,7 +92,6 @@
 {
     [Parameter] public bool CollapseDetails { get; set; }
     [Parameter] public bool ShowTopology { get; set; }
-    [Parameter] public EventCallback<bool> GatewayAvailabilityChanged { get; set; }
     private RenderFragment RuntimeDetails => @<div class="quasar-live-details">
     <div>
         <h2>World and configuration</h2>

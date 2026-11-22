@@ -187,14 +187,14 @@ maintenance slot, so they cannot run together or race a server start.
 - `Quasar/Services/Backup/BackupCompatibility.cs`
 - `Quasar/Services/Backup/ServerRestoreCoordinator.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
-- `Quasar/Models/QuasarBackupSettings.cs`
+- `Quasar.Client/Administration/QuasarBackupSettings.cs`
 - `Quasar/Models/QuasarBackupManifest.cs`
 - `Quasar/Services/ClusterBackupService.cs`
 - `Quasar/Services/ClusterConversionService.cs`
 - `Docs/ClusterConversion.md`
 - `Quasar/Services/WebServiceOptions.cs`
 - `Quasar/Program.cs`
-- `Quasar/Components/Pages/Backup.razor`
+- `Quasar.Client/Administration/Backups.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Quasar/Services/ServerWorldImportService.cs`

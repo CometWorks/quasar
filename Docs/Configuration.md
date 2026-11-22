@@ -1037,9 +1037,8 @@ them. OIDC subjects are unchanged. Hand-edited `rbac.json` and
 `QUASAR_ADMIN_STEAM_ID` still require
 numeric IDs.
 
-The role-mapping editor and first-administrator setup explain before saving that
-permission changes refresh the panel. A brief reconnect message after saving is
-expected, including with WebRTC. The mapping is saved before the refresh.
+The WASM panel reloads the saved mappings. Quasar evaluates subsequent dashboard
+operations with the current roles on both HTTPS and WebRTC.
 
 Steam users receive roles from the runtime `rbac.json` catalog. Quasar supports
 three roles: `viewer`, `editor`, and `admin`. Viewers can open every built-in page

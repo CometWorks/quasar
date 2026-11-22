@@ -6,6 +6,7 @@ using Magnetar.Protocol.Runtime;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
+using MudBlazor.Extensions;
 using MudBlazor.Services;
 using Quasar.Client.Components;
 using Quasar.Client.Fleet;
@@ -25,6 +26,33 @@ public sealed class ServerEditorBrowserTests : IDisposable
     private readonly FieldInfo _cache = typeof(MagnetarPaths).GetField("_cachedQuasarDirectory", BindingFlags.NonPublic | BindingFlags.Static)!;
     private readonly object? _previous;
     public ServerEditorBrowserTests() { _previous = _cache.GetValue(null); _cache.SetValue(null, _root); }
+
+    [Fact]
+    public async Task StandaloneServerNamesAreSuggestedAndExplicitIdsStayFixed()
+    {
+        await using var context = await ContextAsync();
+        context.Render<MudPopoverProvider>();
+        var provider = context.Render<MudDialogProvider>();
+        var dialogs = context.Services.GetRequiredService<IDialogService>();
+        await provider.InvokeAsync(() => dialogs.ShowAsync<FleetServerEditor>("Create Server"));
+        var page = provider.FindComponent<FleetServerEditor>();
+        var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name");
+        var id = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID");
+        Assert.Matches("^server-[a-f0-9]{12}$", name.Instance.GetState(c => c.Value));
+        Assert.Equal(name.Instance.GetState(c => c.Value), id.Instance.GetState(c => c.Value));
+        await page.InvokeAsync(() => id.Instance.ValueChanged.InvokeAsync("chosen-server"));
+        await page.InvokeAsync(() => name.Instance.ValueChanged.InvokeAsync(""));
+        await page.InvokeAsync(() => name.Instance.OnBlur.InvokeAsync(new()));
+        Assert.Matches("^server-[a-f0-9]{12}$", name.Instance.GetState(c => c.Value));
+        Assert.Equal("chosen-server", id.Instance.GetState(c => c.Value));
+        await provider.InvokeAsync(() => dialogs.ShowAsync<FleetServerEditor>("Edit Server", new DialogParameters
+        {
+            [nameof(FleetServerEditor.UniqueName)] = "source",
+        }));
+        var edit = provider.FindComponents<FleetServerEditor>().Single(c => c.Instance.UniqueName == "source");
+        Assert.Equal("Original server", edit.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name").Instance.GetState(c => c.Value));
+        Assert.Equal("source", edit.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID").Instance.GetState(c => c.Value));
+    }
 
     [Fact]
     public async Task BrowserEditorLoadsHostSettingsAndCurrentSave()

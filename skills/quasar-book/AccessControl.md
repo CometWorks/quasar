@@ -252,7 +252,7 @@ For Steam mappings, enter a 17-digit ID or a Steam Community `/id/<vanity-name>`
 
 Runtime RBAC saves reject new Steam subjects that are not 17-digit IDs. To fix an invalid mapping saved by an older build, add the corrected ID with the same role first, then remove the old mapping. Hand-edited `rbac.json` and `QUASAR_ADMIN_STEAM_ID` still need numeric IDs.
 
-The role-mapping editor and first-administrator setup tell you before saving that the panel refreshes to apply permissions. You may briefly see a reconnect message after adding or removing a mapping, including with WebRTC. The change is saved before the refresh.
+The role editor reloads the saved mappings. Quasar checks subsequent dashboard operations with the current roles on both HTTPS and WebRTC.
 
 The **Provider** list also offers "Oidc", but such mappings have no effect, see [How Quasar identifies a caller](#how-quasar-identifies-a-caller).
 
@@ -448,7 +448,6 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Services/Plugins/QuasarRtcEndpoints.cs`
 - `Quasar/Services/Plugins/QuasarRtcSessions.cs`
 - `Quasar/Services/Plugins/QuasarPeerProcess.cs`
-
 - `Quasar/Services/Auth/SteamProfileClient.cs`
 - `Docs/Configuration.md`
 - `Docs/QuickStart.md`
@@ -466,7 +465,7 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Services/Auth/QuasarAuthorizationPolicyProvider.cs`
 - `Quasar/Services/Plugins/QuasarOperationService.cs`
 - `Quasar/Services/Plugins/QuasarSdkEndpoints.cs`
-- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
+- `Quasar.Client/UiPlugins/BrowserSdkAuthorization.razor`
 - `Quasar/Services/Auth/ServicePrincipalAuthenticator.cs`
 - `Quasar/Services/Auth/TrustedNetworkEvaluator.cs`
 - `Quasar/Services/MachineEndpointSecurity.cs`
@@ -475,55 +474,50 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Docs/SecurityUpgradeDIS0042.md`
 - `Quasar/Services/ClusterApi.cs`
 - `Quasar/Services/ClusterHostEnrollmentApi.cs`
-- `Quasar/Services/ServerManagementActions.cs`
-- `Quasar/Components/Routes.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
+- `Quasar.Client/Components/DashboardRouter.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
-- `Quasar/Components/Layout/MainLayout.razor`
-- `Quasar/Components/Pages/Security.razor`
-- `Quasar/Components/Pages/Configs.razor`
-- `Quasar/Components/Pages/Plugins.razor`
-- `Quasar/Components/Pages/Players.razor`
-- `Quasar/Components/Pages/Chat.razor`
-- `Quasar/Components/Pages/Entities.razor`
-- `Quasar/Components/Pages/Analytics.razor`
-- `Quasar/Components/Pages/Discord.razor`
-- `Quasar/Components/Pages/ServerListing.razor`
-- `Quasar/Components/Pages/Hosts.razor`
-- `Quasar/Components/Pages/Notifications.razor`
-- `Quasar/Components/Pages/UiPlugins.razor`
-- `Quasar/Components/Pages/Backup.razor`
-- `Quasar/Components/Pages/Updates.razor`
-- `Quasar/Components/Pages/Appearance.razor`
+- `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar.Client/Configs/ConfigEditor.razor`
+- `Quasar.Client/Components/ServerPluginSettings.razor`
+- `Quasar.Client/Components/PlayersView.razor`
+- `Quasar.Client/Components/ChatView.razor`
+- `Quasar.Client/Components/EntitiesView.razor`
+- `Quasar.Client/Components/AnalyticsView.razor`
+- `Quasar.Client/Components/DiscordView.razor`
+- `Quasar.Client/Administration/ListingPage.razor`
+- `Quasar.Client/Components/HostMachines.razor`
+- `Quasar.Client/Administration/NotificationPage.razor`
+- `Quasar.Client/UiPlugins/UiPluginsView.razor`
+- `Quasar.Client/Administration/Backups.razor`
+- `Quasar.Client/Administration/UpdatesPage.razor`
+- `Quasar.Client/Administration/AppearancePage.razor`
 - `Quasar.Bootstrap/ClusterCli.cs`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `Shared/Networking/MachineEndpointPolicy.cs`
 - `Quasar/Services/HostedPanelRequest.cs`
-- `Quasar/Components/Shared/AccessSetupDialog.razor`
+- `Quasar.Client/Administration/DashboardSetupDialog.razor`
 - `Quasar/Services/Plugins/QuasarCoreOperations.cs`
 - `Quasar/Services/Plugins/QuasarServerOperations.cs`
 - `Quasar/Services/Plugins/QuasarConfigOperations.cs`
 - `Quasar/Services/Plugins/QuasarPlayerOperations.cs`
 - `Quasar/Services/Plugins/QuasarBackupOperations.cs`
-- `Quasar/Services/Plugins/QuasarOperationService.cs`
 - `Quasar/Services/Auth/QuasarAgentPrincipals.cs`
-- `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Audit/QuasarAuditLog.cs`
-- `Quasar/Components/Pages/Audit.razor`
-- `Quasar/Components/Shared/QuasarSdkAuthorization.razor`
-
+- `Quasar.Client/Administration/AuditLogPage.razor`
 - `Quasar/Services/ServerWorldImportApi.cs`
-- `Quasar/Components/Pages/ServerWorldImportDialog.razor`
-- `Quasar/Components/Shared/DiscordSubjectMappings.razor`
+- `Quasar.Client/Components/WorldImportForm.razor`
+- `Quasar.Client/Administration/DashboardDiscordMappings.razor`
 - `Quasar/Services/Plugins/QuasarMyOperations.cs`
-
 - `Docs/PlayerAuthentication.md`
 - `Quasar/Services/Players/PlayerAccessCatalog.cs`
 - `Quasar/Services/Players/PlayerAuthBrowser.cs`
 - `Quasar/Services/Players/PlayerAuthEndpoints.cs`
 - `Quasar/Services/Players/PlayerAccessService.cs`
 - `Quasar/Services/Players/DiscordPlayerRoles.cs`
-- `Quasar/Components/Shared/PlayerAuthenticationSettings.razor`
-- `Quasar/Components/Pages/Access.razor`
+- `Quasar.Client/Components/PlayerAccessView.razor`
+- `Quasar.Client/Components/AccessView.razor`
 - `Quasar.Tests/PlayerAccessPageTests.cs`
 - `Quasar.Agent/PlayerAccessEnforcement.cs`
 - `Quasar.Host.Contract/HostContract.cs`

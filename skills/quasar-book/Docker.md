@@ -175,8 +175,8 @@ docker build --build-arg QUASAR_VERSION=1.1.0.31 -t quasar:1.1.0.31 .
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
 - `Quasar/Services/DedicatedServerSupervisor.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`
-- `Quasar/Services/ServerManagementActions.cs`
-- `Quasar/Components/Layout/QuasarControlDialog.razor`
+- `Quasar/Services/Plugins/QuasarFleetDashboardOperations.Editor.cs`
+- `Quasar.Client/Layout/QuasarControlDialog.razor`
 - `Magnetar.Protocol/Runtime/MagnetarPaths.cs`
 - `scripts/package-linux-release.sh`
 - `Quasar/Services/QuasarApplicationEntry.cs`

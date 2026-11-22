@@ -215,10 +215,10 @@ internal static partial class QuasarFleetDashboardOperations
                 var original = RequireServer(caller.Services, sourceName);
                 if (original.GoalState == DedicatedServerGoalState.On && !Active(caller.Services, sourceName))
                     throw new QuasarOperationException(409, "Wait for the source server to finish starting or stop it before cloning.");
-                ServerManagementActions.EnsureCloneStorageIsIndependent(original, draft);
+                EnsureCloneStorageIsIndependent(original, draft);
                 var source = original.GetWorldSavePath();
                 if (Active(caller.Services, sourceName))
-                    source = ServerManagementActions.FindLatestWorldBackupDirectory(source)
+                    source = FindLatestWorldBackupDirectory(source)
                         ?? throw new QuasarOperationException(409, "No Space Engineers Backup snapshot exists. Stop the source server or wait for a backup.");
                 staged = await WorldSaveFiles.FromFolderAsync(source, Path.GetDirectoryName(destination)!, cancellationToken: token);
             }
@@ -228,7 +228,7 @@ internal static partial class QuasarFleetDashboardOperations
                 before = current;
                 if (current is not null && !input.Source.IsClone && !string.Equals(sourceName, draft.UniqueName, StringComparison.OrdinalIgnoreCase)
                     && Active(caller.Services, sourceName)) throw new InvalidOperationException("Stop the server before renaming it.");
-                if (input.Source.IsClone) ServerManagementActions.EnsureCloneStorageIsIndependent(current!, draft);
+                if (input.Source.IsClone) EnsureCloneStorageIsIndependent(current!, draft);
                 if (staged is null)
                 {
                     var existingWorld = destination;
@@ -277,5 +277,32 @@ internal static partial class QuasarFleetDashboardOperations
         if (services.GetRequiredService<QuasarConfigProfileCatalog>().GetProfile(draft.ConfigProfileId) is null)
             throw new QuasarOperationException(400, "Choose an existing configuration profile.");
         if (!OperatingSystem.IsWindows()) draft.ManagedRuntime = ManagedServerRuntime.DotNet10;
+    }
+
+    private static string? FindLatestWorldBackupDirectory(string worldPath)
+    {
+        var backupDirectory = Path.Combine(worldPath, "Backup");
+        if (!Directory.Exists(backupDirectory))
+            return null;
+
+        return Directory
+            .EnumerateDirectories(backupDirectory)
+            .Where(directory => File.Exists(Path.Combine(directory, "Sandbox.sbc")))
+            .OrderByDescending(Directory.GetLastWriteTimeUtc)
+            .FirstOrDefault();
+    }
+
+    private static void EnsureCloneStorageIsIndependent(DedicatedServerDefinition source, DedicatedServerDefinition target)
+    {
+        var sourcePaths = DedicatedServerPathResolver.Resolve(source);
+        var targetPaths = DedicatedServerPathResolver.Resolve(target);
+        if (DedicatedServerPathResolver.PathsEqual(sourcePaths.DedicatedServerAppDataPath, targetPaths.DedicatedServerAppDataPath))
+            throw new InvalidOperationException("Clone DS app-data path still matches the source.");
+
+        if (DedicatedServerPathResolver.PathsEqual(source.GetWorldSavePath(), target.GetWorldSavePath()))
+            throw new InvalidOperationException("Clone world save path still matches the source.");
+
+        if (DedicatedServerPathResolver.PathsEqual(sourcePaths.ConfigFilePath, targetPaths.ConfigFilePath))
+            throw new InvalidOperationException("Clone rendered config path still matches the source.");
     }
 }

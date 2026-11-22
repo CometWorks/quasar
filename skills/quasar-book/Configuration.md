@@ -341,7 +341,7 @@ Cluster commands are described on [Clusters](Clusters.md); tokens on [Access con
 - `Quasar/Services/ServerList/ServerListOptions.cs`
 - `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
 - `Quasar/Services/Discord/DiscordOptionsCatalog.cs`
-- `Quasar/Components/Pages/Security.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
 - `Quasar.Agent/AgentOptions.cs`
 - `Quasar.Bootstrap/UpdateCli.cs`
 - `Quasar.Bootstrap/ClusterCli.cs`

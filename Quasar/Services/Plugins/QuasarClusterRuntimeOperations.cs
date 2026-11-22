@@ -43,26 +43,12 @@ internal static partial class QuasarClusterDetailOperations
             var host = ReadHost();
             await Task.WhenAll(caps, status, plan, recovery, clients, partitions, host);
             var state = (await status)?.Data;
-            var machine = await host;
-            var process = machine?.Gateways?.FirstOrDefault(g => g.ClusterId.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase));
-            var reconcile = caller.Services.GetRequiredService<ClusterReconciler>().GetStatus(cluster.UniqueName);
             var planned = (await plan)?.Data.Select(n => n with { LastAttemptKey = null }).ToArray() ?? [];
             var fleet = state is null ? [] : caller.Services.GetRequiredService<ClusterFleetService>().Observe(state).Nodes;
-            var nodes = ClusterOverview.Nodes(cluster, planned, fleet);
-            var hosts = caller.Services.GetRequiredService<ClusterHostCatalog>().GetAll();
-            var endpoints = ClusterOverview.Endpoints(cluster, nodes, hosts).Select(e => new ServiceEndpoint(e.Process, e.Service, e.Address, e.Bind)).ToArray();
-            var hostIds = nodes.Select(n => n.Host).OfType<string>().Concat(cluster.ActiveDeployment?.Hosts.Select(h => h.HostId) ?? []).ToHashSet();
-            var runtime = new ClusterRuntime(state is null ? null : state with { Nodes = [], Executors = [] }, (await status)?.CapturedAt,
-                (await caps)?.Data, planned, (await recovery)?.Data, nodes.Select(ProjectNode).ToArray(), endpoints,
-                hosts.Where(h => hostIds.Contains(h.Id)).Select(h => new HostLabel(h.Id, h.Name)).ToArray(), hostIds.Count > 1,
-                (await clients)?.Data.DistinctBy(c => c.ClientId).Select(c => c.Node).ToArray(), (await partitions)?.Data.Where(p => !p.Retired).Select(p => p.Node).ToArray(),
-                reconcile.State.ToString(), reconcile.Message, reconcile.ErrorCode, reconcile.GatewayOutput,
-                cluster.GoalState == DedicatedServerGoalState.Off && reconcile.State == ClusterReconcileState.Converged && reconcile.ClusterPhase == Admin.ClusterPhase.Down,
-                machine is null ? string.IsNullOrWhiteSpace(cluster.HostCommandUrl) ? "Not configured (observation only)" : "Unavailable"
-                    : $"{machine.HostId} · {machine.Attachments.Length} configured {(machine.Attachments.Length == 1 ? "cluster" : "clusters")}",
-                process is null ? "Not assigned" : $"{process.Observed} · PID {process.ProcessId?.ToString() ?? "-"} · {process.ConfigRevision}",
-                process?.Observed.ToString(), process is { Observed: HostContract.GatewayObservedState.Running, Metrics: { } sample }
-                    ? new(sample.CapturedAt, sample.CpuPercent, sample.MemoryWorkingSetBytes) : null, errors.IsEmpty ? null : string.Join(" ", errors.Distinct()));
+            var runtime = ProjectRuntime(cluster, state, (await status)?.CapturedAt, (await caps)?.Data, planned, (await recovery)?.Data,
+                fleet, caller.Services.GetRequiredService<ClusterHostCatalog>().GetAll(), (await clients)?.Data, (await partitions)?.Data,
+                await host, caller.Services.GetRequiredService<ClusterReconciler>().GetStatus(cluster.UniqueName),
+                errors.IsEmpty ? null : string.Join(" ", errors.Distinct()));
             return JsonRead(runtime);
         }, Read with { Description = "Returns running nodes, gateway state and current runtime metrics." });
         services.AddQuasarRead<ClusterPanelRequest>(Plugin, "cluster.node.details", Query, async (caller, input, token) =>
@@ -76,6 +62,28 @@ internal static partial class QuasarClusterDetailOperations
                 t.Logs.Select(l => new ClusterLog(node, l.TimestampUtc, l.Plugin, l.Level.ToString(), l.Message, null)).ToArray()));
         }, Read with { Description = "Returns runtime details for the selected node." });
     }
+    internal static ClusterRuntime ProjectRuntime(ClusterDefinition cluster, Admin.ClusterStatus? state, DateTimeOffset? captured,
+        Admin.AdminCapabilities? capabilities, Admin.NodePlan[] planned, Admin.RecoveryReadiness? recovery, ClusterFleetNode[] fleet,
+        IReadOnlyList<EnrolledClusterHost> hosts, Admin.ClientSummary[]? clients, Admin.PartitionSummary[]? partitions,
+        HostContract.HostStatus? machine, ClusterReconcileStatus reconcile, string? error)
+    {
+        var process = machine?.Gateways?.FirstOrDefault(g => g.ClusterId.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase));
+        var nodes = ClusterOverview.Nodes(cluster, planned, fleet);
+        var endpoints = ClusterOverview.Endpoints(cluster, nodes, hosts).Select(e => new ServiceEndpoint(e.Process, e.Service, e.Address, e.Bind)).ToArray();
+        var hostIds = nodes.Select(n => n.Host).OfType<string>().Concat(cluster.ActiveDeployment?.Hosts.Select(h => h.HostId) ?? []).ToHashSet();
+        return new ClusterRuntime(state is null ? null : state with { Nodes = [], Executors = [] }, captured,
+            capabilities, planned, recovery, nodes.Select(ProjectNode).ToArray(), endpoints,
+            hosts.Where(h => hostIds.Contains(h.Id)).Select(h => new HostLabel(h.Id, h.Name)).ToArray(), hostIds.Count > 1,
+            clients?.DistinctBy(c => c.ClientId).Select(c => c.Node).ToArray(), partitions?.Where(p => !p.Retired).Select(p => p.Node).ToArray(),
+            reconcile.State.ToString(), reconcile.Message, reconcile.ErrorCode, reconcile.GatewayOutput,
+            cluster.GoalState == DedicatedServerGoalState.Off && reconcile.State == ClusterReconcileState.Converged && reconcile.ClusterPhase == Admin.ClusterPhase.Down,
+            machine is null ? string.IsNullOrWhiteSpace(cluster.HostCommandUrl) ? "Not configured (observation only)" : "Unavailable"
+                : $"{machine.HostId} · {machine.Attachments.Length} configured {(machine.Attachments.Length == 1 ? "cluster" : "clusters")}",
+            process is null ? "Not assigned" : $"{process.Observed} · PID {process.ProcessId?.ToString() ?? "-"} · {process.ConfigRevision}",
+            process?.Observed.ToString(), process is { Observed: HostContract.GatewayObservedState.Running, Metrics: { } sample }
+                ? new(sample.CapturedAt, sample.CpuPercent, sample.MemoryWorkingSetBytes) : null, error);
+    }
+
     private static PanelNode ProjectNode(ClusterOverview.Node node)
     {
         var t = node.Fleet?.Telemetry;

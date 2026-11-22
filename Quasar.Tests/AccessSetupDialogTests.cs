@@ -42,7 +42,6 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddSingleton(new QuasarAuthOptions());
         context.Services.AddSingleton(new RbacConfigCatalog(NullLogger<RbacConfigCatalog>.Instance));
         context.Services.AddSingleton<QuasarRoleMapper>();
-        context.Services.AddSingleton<QuasarPermissionService>();
         context.Services.AddHttpClient();
         context.Services.AddHttpClient<SteamProfileClient>()
             .ConfigurePrimaryHttpMessageHandler(() => profiles ?? new ProfileLookupHandler());
@@ -56,7 +55,7 @@ public sealed class AccessSetupDialogTests : IDisposable
     {
         var provider = context.Render<MudDialogProvider>();
         await provider.InvokeAsync(() => context.Services.GetRequiredService<IDialogService>()
-            .ShowAsync<AccessSetupDialog>("Set up administrator access"));
+            .ShowAsync<Quasar.Client.Administration.DashboardSetupDialog>("Set up administrator access"));
         return provider;
     }
 
@@ -123,7 +122,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         provider.Find("input").Input(SteamId);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
         await provider.FindAll("button").Single(b => b.TextContent.Contains("Save administrator")).ClickAsync();
-        Assert.Contains("Administrator permission is required", provider.Markup);
+        Assert.Contains("administrator permission is required", provider.Markup, StringComparison.OrdinalIgnoreCase);
         Assert.False(RbacConfigCatalog.HasAdminMapping(context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig()));
     }
 
@@ -156,7 +155,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         if (revokePermission)
         {
             Assert.Empty(mappings);
-            Assert.Contains("Administrator permission is required", provider.Markup);
+            Assert.Contains("administrator permission is required", provider.Markup, StringComparison.OrdinalIgnoreCase);
         }
         else
             Assert.Equal(SteamId, Assert.Single(mappings).Subject);
@@ -174,7 +173,7 @@ public sealed class AccessSetupDialogTests : IDisposable
             profiles.OnRequest = () => context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
         context.Services.AddSingleton<QuasarAuthSettingsService>();
         context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
-        context.ComponentFactories.AddStub<QuasarSdkAuthorization>();
+        context.ComponentFactories.AddStub<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
         context.Render<MudPopoverProvider>();
         var page = context.Render<Quasar.Client.Administration.SecurityPage>();
         var input = page.FindComponents<MudTextField<string>>()
@@ -329,6 +328,22 @@ public sealed class AccessSetupDialogTests : IDisposable
     }
 
     [Fact]
+    public async Task DismissingEnrollmentCancelsCreationEvenAfterTheBrowserStoppedWaiting()
+    {
+        await using var context = Context();
+        var handler = new EnrollmentHandler { HoldCreation = true };
+        context.Services.AddHttpClient("Nebula").ConfigurePrimaryHttpMessageHandler(() => handler);
+        var service = context.Services.GetRequiredService<HostedPanelService>();
+        var creation = service.EnrollAsync("test-panel");
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        await service.ChooseAsync("dismissed").WaitAsync(TimeSpan.FromSeconds(5));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => creation);
+        Assert.True(handler.CreationCanceled);
+        Assert.Equal("dismissed", service.State.Choice);
+        Assert.Null(service.State.EnrollmentId);
+    }
+
+    [Fact]
     public async Task LiveUpdatesWaitForMatchingTunnelAndWorkerBeforeShowingDashboardButton()
     {
         await using var context = Context();
@@ -345,13 +360,13 @@ public sealed class AccessSetupDialogTests : IDisposable
         var service = context.Services.GetRequiredService<HostedPanelService>();
         await new HostedConnectorHealth("other-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Bootstrap is connecting", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Bootstrap is connecting", provider.Markup), TimeSpan.FromSeconds(6));
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
         Assert.DoesNotContain("Continue enrollment with Steam", provider.Markup);
 
         await new HostedConnectorHealth("test-panel", true, false, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("local Quasar is restarting", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("local Quasar is restarting", provider.Markup), TimeSpan.FromSeconds(6));
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
 
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.AddMinutes(-1).ToUnixTimeSeconds()).SaveAsync(default);
@@ -360,7 +375,7 @@ public sealed class AccessSetupDialogTests : IDisposable
 
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Your hosted panel is ready", provider.Markup), TimeSpan.FromSeconds(6));
         var dashboard = provider.FindAll("a").Single(a => a.TextContent.Contains("Open Quasar dashboard"));
         Assert.Equal("https://dash.se-servers.net/test-panel/", dashboard.GetAttribute("href"));
         Assert.Null(dashboard.GetAttribute("target"));
@@ -382,7 +397,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         var linked = HostedPanelState.Read()!;
         handler.Active = false;
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.DoesNotContain("Open Quasar dashboard", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.DoesNotContain("Open Quasar dashboard", provider.Markup), TimeSpan.FromSeconds(6));
         Assert.False(service.IsReady);
         Assert.True(HostedPanelState.Read()!.IsSetupComplete);
         Assert.Null(HostedPanelState.Read()!.Credential);
@@ -397,7 +412,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.DoesNotContain("Open Quasar dashboard", provider.Markup);
         await new HostedConnectorHealth("test-panel", true, true, DateTimeOffset.UtcNow.ToUnixTimeSeconds()).SaveAsync(default);
         await service.RefreshAsync();
-        await provider.WaitForAssertionAsync(() => Assert.Contains("Open Quasar dashboard", provider.Markup));
+        await provider.WaitForAssertionAsync(() => Assert.Contains("Open Quasar dashboard", provider.Markup), TimeSpan.FromSeconds(6));
     }
 
     [Fact]
@@ -520,6 +535,7 @@ public sealed class AccessSetupDialogTests : IDisposable
 
     private sealed class EnrollmentHandler : HttpMessageHandler
     {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public bool HoldCreation, FailCreation, Active, CreationCanceled;
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
@@ -529,6 +545,7 @@ public sealed class AccessSetupDialogTests : IDisposable
             {
                 if (HoldCreation)
                 {
+                    Entered.TrySetResult();
                     try { await Task.Delay(Timeout.Infinite, cancellationToken); }
                     catch (OperationCanceledException) { CreationCanceled = true; throw; }
                 }

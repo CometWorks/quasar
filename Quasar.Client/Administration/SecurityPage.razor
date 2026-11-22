@@ -226,7 +226,7 @@ else
                 </div>
 
                 <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
-                    Adding or removing a role mapping refreshes this panel to apply permissions. You may briefly see a reconnect message after the change is saved.
+                    Quasar applies saved role changes to subsequent dashboard requests.
                 </MudAlert>
 
                 <MudGrid>
@@ -464,7 +464,7 @@ else
     {
         var confirmed = await DialogService.ShowMessageBoxAsync(
             "Remove RBAC mapping?",
-            $"Mapping for '{mapping.Subject}' will be removed. The subject loses any roles granted by it. The panel will refresh to apply permissions; you may briefly see a reconnect message after the change is saved.",
+            $"Mapping for '{mapping.Subject}' will be removed. The subject loses any roles granted by it.",
             yesText: "Remove",
             cancelText: "Cancel");
 

@@ -25,16 +25,23 @@ internal static partial class QuasarClusterDetailOperations
         {
             var cluster = Cluster(caller, input.UniqueName);
             var gateway = caller.Services.GetRequiredService<ClusterGatewayClient>();
-            var page = await gateway.GetEventsAsync(cluster, input.Arguments<long>(), 200, token);
-            var fleet = await caller.Services.GetRequiredService<ClusterFleetService>().GetAsync(cluster, token);
-            var logs = caller.Services.GetRequiredService<PluginLogStream>();
-            var rows = fleet.Data.Nodes.Where(n => n.Telemetry is not null)
-                .SelectMany(n => logs.GetEntries(n.Telemetry!.TelemetryKey).TakeLast(200).Select(entry =>
-                    new ClusterLog(n.Registry.Node, entry.TimestampUtc, entry.Plugin, entry.Level.ToString(), entry.Message, entry.Exception)))
-                .OrderByDescending(item => item.TimestampUtc).Take(1000).ToArray();
-            return JsonRead(new ClusterConsoleSnapshot(page.Data.Events.Select(e => new ClusterEvent(e.Seq, e.At, e.Type, e.Actor, e.Target,
-                e.Data is { Count: > 0 } ? JsonSerializer.Serialize(e.Data) : null)).ToArray(),
-                page.Data.NextCursor, page.Data.EarliestRetained, page.CapturedAt, rows));
+            try
+            {
+                var page = await gateway.GetEventsAsync(cluster, input.Arguments<long>(), 200, token);
+                var fleet = await caller.Services.GetRequiredService<ClusterFleetService>().GetAsync(cluster, token);
+                var logs = caller.Services.GetRequiredService<PluginLogStream>();
+                var rows = fleet.Data.Nodes.Where(n => n.Telemetry is not null)
+                    .SelectMany(n => logs.GetEntries(n.Telemetry!.TelemetryKey).TakeLast(200).Select(entry =>
+                        new ClusterLog(n.Registry.Node, entry.TimestampUtc, entry.Plugin, entry.Level.ToString(), entry.Message, entry.Exception)))
+                    .OrderByDescending(item => item.TimestampUtc).Take(1000).ToArray();
+                return JsonRead(new ClusterConsoleSnapshot(page.Data.Events.Select(e => new ClusterEvent(e.Seq, e.At, e.Type, e.Actor, e.Target,
+                    e.Data is { Count: > 0 } ? JsonSerializer.Serialize(e.Data) : null)).ToArray(),
+                    page.Data.NextCursor, page.Data.EarliestRetained, page.CapturedAt, rows));
+            }
+            catch (ClusterGatewayException error) when (error.IsConnectivityFailure)
+            {
+                return JsonRead(new ClusterConsoleSnapshot([], 0, 0, DateTimeOffset.UtcNow, [], error.Message));
+            }
         }, Read with { Description = "Reads the selected cluster's console output." });
         services.AddQuasarOperation<RemoveInput, bool>(Plugin, "cluster.registration.remove", Manage, async (caller, input, token) =>
         {

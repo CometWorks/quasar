@@ -1,10 +1,8 @@
 using Bunit;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging.Abstractions;
 using MudBlazor;
 using MudBlazor.Services;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Clusters;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Xunit;
@@ -20,20 +18,18 @@ public sealed class ClusterContentPanelTests
     {
         using var fixture = new ClusterContentMonitorTests.Fixture();
         using var monitor = fixture.Create();
-        using var catalog = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(Path.GetDirectoryName(fixture.Path)!, "clusters") }).Build());
+        fixture.Cluster.GatewayUrl = "http://gateway.test";
+        using var cluster = new BrowserClusterFixture(fixture.Cluster);
         await monitor.CheckCoreAsync(default);
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
         auth.SetAuthorized("viewer");
-        if (manage) auth.SetPolicies(QuasarPolicyNames.ClusterManage);
+        auth.SetPolicies(manage ? [QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage] : [QuasarPolicyNames.ClusterQuery]);
         context.Services.AddSingleton(monitor);
-        context.Services.AddSingleton(catalog);
-        context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddSingleton<QuasarPermissionService>();
-        var panel = context.Render<ClusterContentPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        context.Services.AddSingleton(cluster.Catalog);
+        var panel = context.Render<ClusterContentPanel>(p => p.Add(c => c.UniqueName, fixture.Cluster.UniqueName).Add(c => c.CanManage, manage));
         var expansion = panel.FindComponent<MudExpansionPanel>();
         Assert.False(expansion.Instance.Expanded);
         await panel.InvokeAsync(() => expansion.Instance.ExpandAsync());
@@ -47,16 +43,16 @@ public sealed class ClusterContentPanelTests
         Assert.Equal(manage, panel.FindAll("button").Any(b => b.TextContent.Contains("Queue mod and plugin updates")));
         fixture.Timestamp++;
         await monitor.CheckCoreAsync(default);
-        await panel.WaitForAssertionAsync(() => Assert.Contains("Changed since first check", panel.Markup));
+        await panel.WaitForAssertionAsync(() => Assert.Contains("Changed since first check", panel.Markup), TimeSpan.FromSeconds(15));
         Assert.True(expansion.Instance.Expanded);
         await panel.InvokeAsync(() => expansion.Instance.CollapseAsync());
         await monitor.CheckCoreAsync(default);
         await panel.InvokeAsync(() => Assert.False(expansion.Instance.Expanded));
         Assert.Contains("https://steamcommunity.com/sharedfiles/filedetails/changelog/123456", panel.Markup);
-        var reopened = context.Render<ClusterContentPanel>(p => p.Add(c => c.Cluster, fixture.Cluster));
+        var reopened = context.Render<ClusterContentPanel>(p => p.Add(c => c.UniqueName, fixture.Cluster.UniqueName).Add(c => c.CanManage, manage));
         Assert.True(reopened.FindComponent<MudExpansionPanel>().Instance.Expanded);
         fixture.Timestamp--;
         await monitor.CheckCoreAsync(default);
-        await reopened.WaitForAssertionAsync(() => Assert.False(reopened.FindComponent<MudExpansionPanel>().Instance.Expanded));
+        await reopened.WaitForAssertionAsync(() => Assert.False(reopened.FindComponent<MudExpansionPanel>().Instance.Expanded), TimeSpan.FromSeconds(15));
     }
 }

@@ -301,14 +301,15 @@ public sealed partial class QuasarSdkTests : IDisposable
     {
         await using var app = await StartAsync();
         await using var scope = app.Services.CreateAsyncScope();
-        await using var view = new QuasarBunitContext();
+        await using var view = new OperationsBrowserContext();
         view.Services.AddMudServices();
         view.JSInterop.Mode = JSRuntimeMode.Loose;
         var authentication = new CurrentAuthentication { User = User(QuasarRoles.Admin) };
         view.Services.AddSingleton<AuthenticationStateProvider>(authentication);
         view.Services.AddSingleton(scope.ServiceProvider.GetRequiredService<QuasarOperationService>());
         view.Services.AddSingleton(_rbac);
-        var page = view.Render<QuasarSdkAuthorization>();
+        view.Services.AddSingleton(scope.ServiceProvider.GetRequiredService<IAuthorizationService>());
+        var page = view.Render<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
         var panel = page.FindComponent<MudExpansionPanel>();
         Assert.Equal("Plugin endpoint authorization", panel.Instance.Text);
         Assert.False(panel.Instance.GetState(component => component.Expanded));
@@ -327,7 +328,7 @@ public sealed partial class QuasarSdkTests : IDisposable
         await page.InvokeAsync(() => page.FindAll("fieldset").Single(field => field.TextContent.Contains("restricted"))
             .QuerySelectorAll("button").Single(button => button.TextContent.Contains("Save endpoint rule")).ClickAsync());
         Assert.True(_rbac.GetConfig().OperationOverrides["example.plugin/restricted"]!.Enabled);
-        Assert.Contains("Security administration permission is required", page.Markup);
+        Assert.Contains("Permission denied", page.Markup);
     }
 
     private sealed class CurrentAuthentication : AuthenticationStateProvider

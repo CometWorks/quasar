@@ -7,7 +7,6 @@ using Magnetar.Protocol.Model;
 using Magnetar.Protocol.Runtime;
 using Magnetar.Protocol.Transport;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -55,7 +54,6 @@ public sealed class ControlPlaneViewerTests : IDisposable
             : [QuasarPolicyNames.CanView]);
         context.Services.AddSingleton(auth);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddScoped<QuasarPermissionService>();
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         return context;
@@ -410,7 +408,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(worlds);
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
-        context.Services.AddSingleton(new WorldTemplateImportLocationService(new(), new BrowserStorageService(context.JSInterop.JSRuntime)));
+        context.Services.AddSingleton(new WorldTemplateImportLocationService(new()));
         var maintenance = new Quasar.Services.Backup.ServerRestoreCoordinator();
         var supervisor = new DedicatedServerSupervisor(Registered<DedicatedServerCatalog>(context), Registered<AgentRegistry>(context),
             null!, null!, null!, new(), maintenance, NullLogger<DedicatedServerSupervisor>.Instance);
@@ -418,7 +416,6 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(maintenance);
         context.Services.AddSingleton(new WebServiceOptions());
         context.Services.AddSingleton<ServerWorldImportService>();
-        context.Services.AddScoped<ServerManagementActions>();
         context.Render<MudPopoverProvider>();
         var page = context.Render<WorldTemplates>();
         Assert.DoesNotContain("Import World to Server...", page.Markup);
@@ -444,7 +441,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(worlds);
         context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
         context.Services.AddSingleton(new QuasarWorkshopModResolver(new(), null!, null!, NullLogger<QuasarWorkshopModResolver>.Instance));
-        context.Services.AddSingleton(new WorldTemplateImportLocationService(new(), new BrowserStorageService(context.JSInterop.JSRuntime)));
+        context.Services.AddSingleton(new WorldTemplateImportLocationService(new()));
         var maintenance = new Quasar.Services.Backup.ServerRestoreCoordinator();
         var supervisor = new DedicatedServerSupervisor(Registered<DedicatedServerCatalog>(context), Registered<AgentRegistry>(context),
             null!, null!, null!, new(), maintenance, NullLogger<DedicatedServerSupervisor>.Instance);
@@ -452,7 +449,6 @@ public sealed class ControlPlaneViewerTests : IDisposable
         context.Services.AddSingleton(maintenance);
         context.Services.AddSingleton(new WebServiceOptions());
         context.Services.AddSingleton<ServerWorldImportService>();
-        context.Services.AddScoped<ServerManagementActions>();
         context.Render<MudPopoverProvider>();
         var page = context.Render<WorldTemplates>();
         await page.InvokeAsync(() => page.FindComponent<MudTabs>().Instance.ActivatePanelAsync(1));
@@ -531,31 +527,16 @@ public sealed class ControlPlaneViewerTests : IDisposable
         Assert.False((await auth.AuthorizeAsync(new ClaimsPrincipal(new ClaimsIdentity()), null, QuasarPolicyNames.CanView)).Succeeded);
     }
 
-    public static TheoryData<Type, string> WriteHandlers => new()
+    [Fact]
+    public async Task ViewerCannotSubmitPluginChangesThroughTheBrowserOperation()
     {
-        { typeof(PluginConfigEditor), "ApplyAsync" },
-    };
-
-    [Theory]
-    [MemberData(nameof(WriteHandlers))]
-    public async Task ViewerWriteHandlersDenyBeforeAccessingDialogsOrMutableServices(Type componentType, string methodName)
-    {
-        using var services = new ServiceCollection().AddLogging().AddAuthorization(Program.ConfigureAuthorizationPolicies).BuildServiceProvider();
-        var permissions = new QuasarPermissionService(new ViewerState(), services.GetRequiredService<IAuthorizationService>(), new QuasarRoleMapper(new(), null!));
-        var instance = Activator.CreateInstance(componentType)!;
-        if (instance is PluginConfigEditor)
-            componentType.GetProperty(nameof(PluginConfigEditor.Plugin))!.SetValue(instance, new PluginConfigData { PluginId = "example", DisplayName = "Example plugin" });
-        componentType.GetProperty("Permissions", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(instance, permissions);
-        var method = componentType.GetMethod(methodName, BindingFlags.Instance | BindingFlags.NonPublic)!;
-        // Every other collaborator is intentionally absent: a denied event must not reach any of them.
-        var args = method.GetParameters().Select(p => p.ParameterType.IsValueType ? Activator.CreateInstance(p.ParameterType) : null).ToArray();
-        await (Task)method.Invoke(instance, args)!;
-    }
-
-    private sealed class ViewerState : AuthenticationStateProvider
-    {
-        public override Task<AuthenticationState> GetAuthenticationStateAsync() => Task.FromResult(new AuthenticationState(
-            new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Role, QuasarRoles.Viewer)], "test"))));
+        await using var context = new OperationsBrowserContext();
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("viewer"); auth.SetPolicies(QuasarPolicyNames.CanView);
+        var js = context.Services.GetRequiredService<Microsoft.JSInterop.IJSRuntime>();
+        var denied = await Assert.ThrowsAsync<Microsoft.JSInterop.JSException>(async () =>
+            await js.InvokeAsync<bool>("quasarSdk.uploadJson", ["quasar.core", "liveplugins.apply", new { }, "{}"]));
+        Assert.Contains("Permission denied", denied.Message);
     }
 
     public void Dispose()

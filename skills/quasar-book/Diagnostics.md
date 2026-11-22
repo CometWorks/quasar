@@ -274,9 +274,9 @@ After the first save in the UI, `server-list.json` wins over `appsettings.json`.
 - `Quasar/Services/ClusterFleetService.cs`
 - `Quasar/Services/Backup/QuasarBackupService.cs`
 - `Quasar/Program.cs`
-- `Quasar/Components/Pages/Security.razor`
-- `Quasar/Components/Pages/ServerListing.razor`
-- `Quasar/Components/Pages/Home.razor`
+- `Quasar.Client/Administration/SecurityPage.razor`
+- `Quasar.Client/Administration/ListingPage.razor`
+- `Quasar.Client/Pages/Home.razor`
 - `Quasar/Components/Layout/NavMenu.razor`
 - `Quasar.Host/Program.cs`
 - `Quasar.Host/HungNodeEvidence.cs`

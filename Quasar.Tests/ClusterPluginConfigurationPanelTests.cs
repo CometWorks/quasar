@@ -3,12 +3,12 @@ using Bunit.TestDoubles;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
-using Quasar.Components;
-using Quasar.Components.Dashboard;
+using Quasar.Client.Components;
+using Microsoft.JSInterop;
+using Quasar.Client.Clusters;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using MudBlazor.Services;
-using MudBlazor;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -25,7 +25,7 @@ public sealed class ClusterPluginConfigurationPanelTests
                 new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
                 { ["Quasar:ClusterCatalogPath"] = root }).Build());
             var cluster = await catalog.CreateAsync(new("test", "Test", "http://gateway.test", "TEST_TOKEN"), default);
-            await using var context = new QuasarBunitContext();
+            await using var context = new OperationsBrowserContext();
             context.Services.AddMudServices();
             context.JSInterop.Mode = JSRuntimeMode.Loose;
             var auth = context.AddAuthorization();
@@ -34,38 +34,34 @@ public sealed class ClusterPluginConfigurationPanelTests
             context.Services.AddSingleton(new ClusterUpdatePreparationService(catalog, null!, null!, null!,
                 null!, null!, null!, null!, null!, NullLogger<ClusterUpdatePreparationService>.Instance));
             context.Services.AddSingleton(new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance));
-            context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-            context.Services.AddSingleton<QuasarPermissionService>();
-            context.ComponentFactories.AddStub<PluginConfigEditor>();
-            var panel = context.Render<MudExpansionPanels>(p => p.AddChildContent<ClusterPluginConfigurationPanel>(c => c.Add(x => x.Cluster, cluster)));
-            Assert.Contains("No editable plugin configurations", panel.Markup);
+            auth.SetPolicies(QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
+            context.ComponentFactories.AddStub<SchemaConfigEditor>();
+            IRenderedComponent<ClusterPluginConfigurationPanel> Open() =>
+                context.Render<ClusterPluginConfigurationPanel>(c => c.Add(x => x.UniqueName, cluster.UniqueName));
+            Assert.Contains("No editable plugin configurations", Open().Markup);
 
             var preparation = new ClusterPreparationRequest(new string('a', 64), """
                 {"pluginConfigurations":{"quasar-agent":{"configType":"Primary",
                   "configuration":{"schema":{},"values":{"limit":1}}}}}
                 """, "http://gateway.test", []);
             await catalog.RecordPreparationAsync(cluster, preparation, new(null, "revision", []), default);
-            await panel.WaitForAssertionAsync(() => Assert.Contains("Quasar Agent", panel.Markup));
-            Assert.Empty(panel.FindComponents<Stub<PluginConfigEditor>>());
-            Assert.DoesNotContain("limit", panel.Markup);
-            auth.SetPolicies(QuasarPolicyNames.ClusterManage);
-            // A policy change alone doesn't render the panel again.
-            panel.Render();
-            await panel.WaitForAssertionAsync(() => Assert.Single(panel.FindComponents<Stub<PluginConfigEditor>>()));
-            var editor = panel.FindComponent<Stub<PluginConfigEditor>>();
-            Assert.Contains("\"limit\":1", editor.Instance.Parameters.Get(p => p.Plugin).ConfigJson);
+            auth.SetPolicies(QuasarPolicyNames.ClusterQuery);
+            var denied = Open();
+            Assert.Empty(denied.FindComponents<Stub<SchemaConfigEditor>>());
+            Assert.DoesNotContain("limit", denied.Markup);
+            auth.SetPolicies(QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
+            var editor = Open().FindComponent<Stub<SchemaConfigEditor>>();
+            Assert.Contains("\"limit\":1", editor.Instance.Parameters.Get(p => p.ConfigJson));
             var save = editor.Instance.Parameters.Get(p => p.SaveValues)!;
             auth.SetPolicies();
-            await Assert.ThrowsAsync<InvalidOperationException>(() => save("{\"limit\":9}"));
+            await Assert.ThrowsAsync<JSException>(() => save("{\"limit\":9}"));
             Assert.Equal(preparation.SpecificationJson, catalog.GetCluster("test")!.Preparation!.SpecificationJson);
 
             await catalog.RecordPreparationAsync(catalog.GetCluster("test")!, preparation with
                 { SpecificationJson = preparation.SpecificationJson.Replace("\"limit\":1", "\"limit\":2") },
                 new(null, "next", []), default);
-            auth.SetPolicies(QuasarPolicyNames.ClusterManage);
-            panel.Render();
-            await panel.WaitForAssertionAsync(() => Assert.Contains("\"limit\":2",
-                panel.FindComponent<Stub<PluginConfigEditor>>().Instance.Parameters.Get(p => p.Plugin).ConfigJson));
+            auth.SetPolicies(QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
+            Assert.Contains("\"limit\":2", Open().FindComponent<Stub<SchemaConfigEditor>>().Instance.Parameters.Get(p => p.ConfigJson));
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

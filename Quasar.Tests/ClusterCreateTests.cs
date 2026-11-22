@@ -232,33 +232,6 @@ public sealed class ClusterCreateTests : IDisposable
     }
 
     [Fact]
-    public async Task StandaloneServerNamesAreSuggestedAndExplicitIdsStayFixed()
-    {
-        await using var context = CreateContext();
-        var provider = context.Render<MudDialogProvider>();
-        var dialogs = context.Services.GetRequiredService<IDialogService>();
-        await provider.InvokeAsync(() => dialogs.ShowAsync<ServerEditorDialog>("Create Server"));
-        var page = provider.FindComponent<ServerEditorDialog>();
-        var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name");
-        var id = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID");
-        Assert.Matches("^server-[a-f0-9]{12}$", name.Instance.GetState(c => c.Value));
-        Assert.Equal(name.Instance.GetState(c => c.Value), id.Instance.GetState(c => c.Value));
-        await page.InvokeAsync(() => id.Instance.ValueChanged.InvokeAsync("chosen-server"));
-        await page.InvokeAsync(() => name.Instance.ValueChanged.InvokeAsync(""));
-        await page.InvokeAsync(() => name.Instance.OnBlur.InvokeAsync(new()));
-        Assert.Matches("^server-[a-f0-9]{12}$", name.Instance.GetState(c => c.Value));
-        Assert.Equal("chosen-server", id.Instance.GetState(c => c.Value));
-        await provider.InvokeAsync(() => dialogs.ShowAsync<ServerEditorDialog>("Edit Server", new DialogParameters
-        {
-            [nameof(ServerEditorDialog.IsEditing)] = true,
-            [nameof(ServerEditorDialog.Definition)] = new DedicatedServerDefinition { UniqueName = "existing", DisplayName = "Existing name" },
-        }));
-        var edit = provider.FindComponents<ServerEditorDialog>().Single(c => c.Instance.IsEditing);
-        Assert.Equal("Existing name", edit.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name").Instance.GetState(c => c.Value));
-        Assert.Equal("existing", edit.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID").Instance.GetState(c => c.Value));
-    }
-
-    [Fact]
     public async Task StandaloneConversionHasOnlyDestinationChoiceAndOneAction()
     {
         await using var context = CreateContext();
@@ -473,8 +446,7 @@ public sealed class ClusterCreateTests : IDisposable
             null!, null!, null!, null!, null!, new ClusterOperationStore(Path.Combine(_root, "operations")),
             new WebServiceOptions { BackupDirectory = Path.Combine(_root, "backups") }, null!));
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
-        context.Services.AddSingleton<QuasarPermissionService>();
-        context.ComponentFactories.AddStub<ClusterBetaNotice>();
+        context.ComponentFactories.AddStub<BrowserClusterNotice>();
         context.Services.GetRequiredService<Microsoft.AspNetCore.Components.NavigationManager>().NavigateTo("/clusters/new");
         context.Render<MudPopoverProvider>();
         return context;

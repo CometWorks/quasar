@@ -296,9 +296,9 @@ Stop clusters through their Quasar controls before you remove a Host installatio
 - `Quasar.Host/Quasar.Host.csproj`
 - `Quasar.Host.Contract/HostContract.cs`
 - `Quasar/Assets/host-update.py`
-- `Quasar/Components/Pages/Hosts.razor`
-- `Quasar/Components/Shared/HostEnrollment.razor`
-- `Quasar/Components/Shared/HostEnrollmentRemoval.razor`
+- `Quasar.Client/Components/HostMachines.razor`
+- `Quasar.Client/Components/HostEnrollmentForm.razor`
+- `Quasar.Client/Components/RemoveHostEnrollment.razor`
 - `Quasar/Services/ClusterCatalog.cs`
 - `Quasar/Services/ClusterHostInstaller.cs`
 - `Quasar/Services/ClusterHostTunnels.cs`
