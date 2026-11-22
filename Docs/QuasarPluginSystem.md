@@ -320,6 +320,10 @@ It publishes a trimmed .NET 10 Blazor client, then builds a separate Razor
 assembly. The client downloads that assembly from its panel path, supplies an
 entity name to a dynamic component, and handles a click inside the component.
 Chromium and Firefox exercise both the local root and a hosted panel prefix.
+The same browser run renders the Display settings form from `Quasar.Client`,
+saves a time zone through Quasar's panel-scoped storage, reloads the preference,
+rejects an invalid zone, and restores the browser default. The production
+Display route uses the same form and currently renders inside the server circuit.
 
 The first Chromium run failed to render the plugin with default trimming.
 Preserving `Microsoft.AspNetCore.Components` in the host's release publish

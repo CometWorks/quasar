@@ -1,6 +1,10 @@
 @using System.Reflection
 @using Microsoft.AspNetCore.Components
+@using Microsoft.JSInterop
+@using Quasar.Client.Components
 @inject HttpClient Http
+@inject Quasar.Services.ViewerTimeZone ViewerTime
+@inject IJSRuntime JS
 
 @if (_component is null)
 {
@@ -11,12 +15,18 @@ else
     <DynamicComponent Type="_component" Parameters="_parameters" />
 }
 
+@if (ViewerTime.Resolved)
+{
+    <TimeZoneSettings />
+}
+
 @code {
     private Type? _component;
     private readonly Dictionary<string, object> _parameters = new() { ["EntityName"] = "Test grid" };
 
     protected override async Task OnInitializedAsync()
     {
+        await ViewerTime.InitializeAsync(JS);
         // Fixed, test-owned artifact. Production must resolve enabled plugins through Quasar.
         var bytes = await Http.GetByteArrayAsync("plugins/ViewerFixture.dll");
         var assembly = Assembly.Load(bytes);

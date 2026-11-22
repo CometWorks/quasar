@@ -61,7 +61,7 @@ public sealed class ViewerTimeZone
             return false;
 
         var ianaId = preferred is null ? null : AsIanaId(id);
-        await new BrowserStorageService(js).SetStringAsync(StorageKey, ianaId ?? "");
+        await js.InvokeVoidAsync("quasarConfigs.setLocalStorage", StorageKey, ianaId ?? "");
         PreferredId = ianaId;
         Zone = preferred ?? _browserZone;
         return true;

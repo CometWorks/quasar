@@ -6,6 +6,7 @@
     <Compile Include="..\Shared\Updates\*.cs" Link="Updates\%(Filename)%(Extension)" />
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
+    <ProjectReference Include="..\Quasar.Client\Quasar.Client.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
     <Compile Include="../Shared/Networking/QuasarControlAddress.cs" Link="Networking/QuasarControlAddress.cs" />
     <Compile Include="..\Shared\Networking\MachineEndpointPolicy.cs" Link="Networking\MachineEndpointPolicy.cs" />

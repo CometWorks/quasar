@@ -48,8 +48,21 @@ async function check(browser, prefix) {
             throw new Error([error.message, ...errors].join("\n"), { cause: error });
         }
         assert.equal(pluginRequests, 1);
+        const timeZone = page.getByRole("combobox", { name: "Time zone" });
+        await timeZone.fill("Asia/Kolkata");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await page.getByText("Time zone saved.").waitFor({ timeout: 5000 });
+        await page.reload();
+        await timeZone.waitFor();
+        assert.equal(await timeZone.inputValue(), "Asia/Kolkata");
+        await timeZone.fill("Invalid/Zone");
+        await page.getByRole("button", { name: "Save", exact: true }).click();
+        await page.getByRole("alert").filter({ hasText: "Choose a valid time zone." }).waitFor();
+        await page.getByRole("button", { name: "Use browser time" }).click();
+        await page.getByText("Time zone saved.").waitFor();
+        assert.equal(await timeZone.inputValue(), "");
         assert.deepEqual(errors, []);
-        console.log(browser.browserType().name() + ": independent Razor plugin rendered and handled a click at " + prefix);
+        console.log(browser.browserType().name() + ": independent Razor plugin and Display settings passed at " + prefix);
     } finally {
         await context.close();
     }
