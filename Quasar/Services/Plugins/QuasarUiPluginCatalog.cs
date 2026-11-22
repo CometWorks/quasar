@@ -53,6 +53,7 @@ public sealed partial class QuasarUiPluginCatalog
             .ThenBy(item => item.Priority)
             .ToArray();
         CollectBrowserArtifacts();
+        CollectPluginRoutes();
         StylesheetHrefs = plugins
             .SelectMany(GetStylesheetHrefs)
             .Distinct(StringComparer.OrdinalIgnoreCase)

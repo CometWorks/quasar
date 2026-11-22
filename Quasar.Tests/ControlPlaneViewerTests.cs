@@ -93,16 +93,24 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [InlineData(true)]
     public async Task ConfigProfilesRemainBrowsableAndOnlyEditorsReceiveTheEditor(bool editor)
     {
-        await using var context = Context(editor);
+        await using var context = Context(editor, browser: true);
         var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
-        var profile = new QuasarConfigProfile { Name = "Survival", Description = "Visible description", RootSettings = new() { ServerPassword = "secret-game-password" },
+        var profile = new QuasarConfigProfile { Name = "Survival", Description = "Visible description", RootSettings = new() { ServerPassword = "secret-game-password", GroupId = 76561198000000001, Reserved = [76561198000000003] },
             Plugins = [new() { PluginId = "example", DisplayName = "Example plugin" }],
             Mods = [new() { WorkshopId = 123, DisplayName = "Example mod" }] };
         await profiles.UpsertAsync(profile);
         var credentials = ConfigureConfigServices(context, profiles);
         await credentials.SaveAsync(new() { WebApiKey = "secret-workshop-key", SteamPassword = "secret-steam-password" });
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Configs>(p => p.Add(x => x.InitialProfileId, profile.ConfigProfileId));
+        var page = context.Render<Quasar.Client.Configs.ConfigEditor>(p => p.Add(x => x.InitialProfileId, profile.ConfigProfileId));
+        var wire = await context.Services.GetRequiredService<Microsoft.JSInterop.IJSRuntime>().InvokeAsync<JsonElement>(
+            "quasarSdk.readJson", new object?[] { "quasar.core", "configs.snapshot", new {} });
+        Assert.DoesNotContain("secret-workshop-key", wire.GetRawText());
+        Assert.DoesNotContain("secret-steam-password", wire.GetRawText());
+        Assert.Equal(editor, wire.GetRawText().Contains("secret-game-password", StringComparison.Ordinal));
+        var root = wire.GetProperty("profiles")[0].GetProperty("rootSettings");
+        Assert.Equal("76561198000000001", root.GetProperty("groupId").GetString());
+        Assert.Equal("76561198000000003", root.GetProperty("reserved")[0].GetString());
         Assert.Contains("Survival", page.Markup);
         Assert.Contains("Visible description", page.Markup);
         Assert.Equal(editor, page.FindAll("button").Any(b => b.TextContent.Trim() == "Save Profile"));
@@ -122,7 +130,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         IHttpClientFactory? workshopHttp = null)
     {
         context.Services.AddSingleton(profiles);
-        context.Services.AddDirectCoreOperations();
+
         var devFolders = new QuasarDevFolderCatalog(NullLogger<QuasarDevFolderCatalog>.Instance);
         context.Services.AddSingleton(devFolders);
         var pluginHubs = new QuasarPluginHubCatalog(NullLogger<QuasarPluginHubCatalog>.Instance);
@@ -140,7 +148,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [InlineData(true, true)]
     public async Task OpeningConfigWithModsDoesNotCreatePendingChanges(bool hasKey, bool apiFails)
     {
-        await using var context = Context(editor: true);
+        await using var context = Context(editor: true, browser: true);
         using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         var profile = new QuasarConfigProfile { Name = "Survival", RootSettings = new() { AutodetectDependencies = false },
             Mods = [new() { WorkshopId = 123456, DisplayName = "Root mod" }] };
@@ -152,15 +160,15 @@ public sealed class ControlPlaneViewerTests : IDisposable
         navigation.NavigateTo("/configs");
         context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Configs>();
+        var page = context.Render<Quasar.Client.Configs.ConfigEditor>();
 
         Assert.False(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
         Assert.Single(profiles.GetProfile(profile.ConfigProfileId)!.Mods);
-        var editor = (QuasarConfigProfile)typeof(Configs).GetField("_editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!;
+        var editor = (QuasarConfigProfile)typeof(Quasar.Client.Configs.ConfigEditor).GetField("_editor", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!;
         Assert.Single(editor.Mods);
         Assert.False(editor.RootSettings.AutodetectDependencies);
         if (hasKey && !apiFails)
-            Assert.NotEmpty((IReadOnlyList<QuasarModDependencyTreeRow>)typeof(Configs)
+            Assert.NotEmpty((IReadOnlyList<QuasarModDependencyTreeRow>)typeof(Quasar.Client.Configs.ConfigEditor)
                 .GetField("_modDependencyTreeRows", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(page.Instance)!);
         await page.InvokeAsync(() => navigation.NavigateTo("/"));
         Assert.EndsWith("/", navigation.Uri);
@@ -172,7 +180,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [InlineData(true)]
     public async Task AutoSortSavesProfileAndDoesNotPromptWhenLeaving(bool invalid)
     {
-        await using var context = Context(editor: true);
+        await using var context = Context(editor: true, browser: true);
         using var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         var profile = new QuasarConfigProfile { Name = "Survival", Description = "Original",
             RootSettings = new() { AutodetectDependencies = true },
@@ -182,10 +190,10 @@ public sealed class ControlPlaneViewerTests : IDisposable
         var credentials = ConfigureConfigServices(context, profiles, http);
         await credentials.SaveAsync(new() { WebApiKey = "test-key" });
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Configs>();
+        var page = context.Render<Quasar.Client.Configs.ConfigEditor>();
         var field = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == (invalid ? "Profile name" : "Description"));
         await page.InvokeAsync(() => field.Instance.ValueChanged.InvokeAsync(invalid ? "" : "Edited"));
-        await page.InvokeAsync(() => (Task)typeof(Configs).GetMethod("AutoSortModDependenciesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
+        await page.InvokeAsync(() => (Task)typeof(Quasar.Client.Configs.ConfigEditor).GetMethod("AutoSortModDependenciesAsync", BindingFlags.Instance | BindingFlags.NonPublic)!
             .Invoke(page.Instance, null)!);
 
         using var reloaded = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
@@ -223,7 +231,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [InlineData("Save", true, true)]
     public async Task LeavingConfigsRequiresAChoiceBeforeNavigation(string choice, bool leaves, bool saves)
     {
-        await using var context = Context(editor: true);
+        await using var context = Context(editor: true, browser: true);
         var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         var profile = new QuasarConfigProfile { Name = "Survival", Description = "Original" };
         await profiles.UpsertAsync(profile);
@@ -232,7 +240,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         navigation.NavigateTo("/configs");
         context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Configs>();
+        var page = context.Render<Quasar.Client.Configs.ConfigEditor>();
         var description = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Description");
         await page.InvokeAsync(() => description.Instance.ValueChanged.InvokeAsync("Edited"));
         Assert.True(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
@@ -255,7 +263,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [Fact]
     public async Task InvalidProfileCannotLeaveThroughSaveAndRepeatedNavigationSharesOnePrompt()
     {
-        await using var context = Context(editor: true);
+        await using var context = Context(editor: true, browser: true);
         var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         var profile = new QuasarConfigProfile { Name = "Survival" };
         await profiles.UpsertAsync(profile);
@@ -264,7 +272,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         navigation.NavigateTo("/configs");
         context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Configs>();
+        var page = context.Render<Quasar.Client.Configs.ConfigEditor>();
         var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Profile name");
         await page.InvokeAsync(() => name.Instance.ValueChanged.InvokeAsync(""));
         await page.InvokeAsync(() => navigation.NavigateTo("/servers"));
@@ -287,7 +295,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
     [Fact]
     public async Task UnchangedConfigCanLeaveWithoutPrompting()
     {
-        await using var context = Context(editor: true);
+        await using var context = Context(editor: true, browser: true);
         var profiles = new QuasarConfigProfileCatalog(NullLogger<QuasarConfigProfileCatalog>.Instance);
         await profiles.UpsertAsync(new() { Name = "Survival" });
         ConfigureConfigServices(context, profiles);
@@ -295,7 +303,7 @@ public sealed class ControlPlaneViewerTests : IDisposable
         navigation.NavigateTo("/configs");
         context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Configs>();
+        var page = context.Render<Quasar.Client.Configs.ConfigEditor>();
         Assert.False(page.FindComponent<Microsoft.AspNetCore.Components.Routing.NavigationLock>().Instance.ConfirmExternalNavigation);
         await page.InvokeAsync(() => navigation.NavigateTo("/servers"));
         await page.WaitForAssertionAsync(() => Assert.EndsWith("/servers", navigation.Uri));
@@ -525,12 +533,6 @@ public sealed class ControlPlaneViewerTests : IDisposable
 
     public static TheoryData<Type, string> WriteHandlers => new()
     {
-        { typeof(Configs), "CreateProfileAsync" }, { typeof(Configs), "SaveTemplateInternalAsync" },
-        { typeof(Configs), "AutoSortModDependenciesAsync" },
-        { typeof(Configs), "CloneProfileAsync" }, { typeof(Configs), "CloneCurrentProfileForCrossplayAsync" },
-        { typeof(Configs), "DeleteProfileAsync" }, { typeof(Configs), "RefreshPluginCatalogAsync" },
-        { typeof(Configs), "OpenWorkshopApiKeyDialogAsync" }, { typeof(Configs), "OpenSteamAccountDialogAsync" },
-        { typeof(Configs), "AddDevFolderAsync" }, { typeof(Configs), "SetDevFolderDebugAsync" }, { typeof(Configs), "RemoveDevFolder" },
         { typeof(PluginConfigEditor), "ApplyAsync" },
     };
 

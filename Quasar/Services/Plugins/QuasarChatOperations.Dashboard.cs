@@ -23,10 +23,6 @@ public static partial class QuasarChatOperations
 
     private static void AddDashboardChat(IServiceCollection services)
     {
-        services.AddDiscordDashboardOperations();
-        services.AddAccessDashboardOperations();
-        services.AddPlayerDashboardOperations();
-        services.AddAnalyticsDashboardOperations();
         services.AddQuasarRead<ChatNodeRequest>(PluginId, "chat.table", [QuasarPolicyNames.CanView], async (caller, input, _) =>
         {
             await Require(caller, QuasarPolicyNames.CanView);
@@ -55,7 +51,7 @@ public static partial class QuasarChatOperations
                 (agent?.CommandResults ?? []).Take(6).Select(c => new Browser.ChatCommandResult(c.Success, c.Message)).ToArray());
             var bytes = JsonSerializer.SerializeToUtf8Bytes(table, JsonSerializerOptions.Web);
             return new(_ => Task.FromResult<Stream>(new MemoryStream(bytes, false)), "application/json", Length: bytes.Length);
-        }, new() { Effect = QuasarOperationEffect.Read, AgentAccess = QuasarAgentAccess.Denied, Description = "Streams the authorized node's current chat console." });
+        }, new() { RequireDefaultPolicies = true, Effect = QuasarOperationEffect.Read, AgentAccess = QuasarAgentAccess.Denied, Description = "Streams the authorized node's current chat console." });
 
         RegisterNodeCommand("chat.node.refresh", ServerCommandType.Refresh);
         RegisterNodeCommand("chat.node.send", ServerCommandType.SendChat);
@@ -78,7 +74,7 @@ public static partial class QuasarChatOperations
                 await registry.SendCommandAsync(new ServerCommandEnvelope { UniqueName = agent.UniqueNameKey, AgentId = agent.AgentId, ServerId = agent.ServerKey,
                     CommandType = command, Text = text, IssuedAtUtc = DateTimeOffset.UtcNow });
                 return true;
-            }, new() { AgentAccess = QuasarAgentAccess.Denied, Effect = command == ServerCommandType.Refresh ? QuasarOperationEffect.Read : QuasarOperationEffect.Change,
+            }, new() { RequireDefaultPolicies = true, AgentAccess = QuasarAgentAccess.Denied, Effect = command == ServerCommandType.Refresh ? QuasarOperationEffect.Read : QuasarOperationEffect.Change,
                 Description = $"Requests {command} on the selected connected chat node." });
         }
     }

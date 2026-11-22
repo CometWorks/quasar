@@ -1,0 +1,9 @@
+{
+  "id": "quasar.fixture.routes",
+  "displayName": "Browser route fixture",
+  "version": "1.0.0",
+  "entryAssembly": "RouteAdapter.dll",
+  "entryType": "RouteAdapter",
+  "projectPath": "RouteAdapter.csproj",
+  "browserAssembly": "ViewerFixture.dll"
+}

@@ -182,7 +182,7 @@
     }
 
     private string? _error;
-    private async Task LoadAsync()
+    internal async Task LoadAsync()
     {
         var version = ++_requestVersion;
         try

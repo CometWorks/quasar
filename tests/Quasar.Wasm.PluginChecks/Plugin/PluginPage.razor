@@ -1,0 +1,12 @@
+@page "/fixture/tool/{Id:int}"
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Components.Web
+
+<h1>Fixture tool @Id</h1>
+<button @onclick="() => _clicks++">Count @_clicks</button>
+<a href="fixture/worker-tool">Worker plugin tool</a>
+<a href="fixture/restricted-tool">Restricted plugin tool</a>
+@code {
+    [Parameter] public int Id { get; set; }
+    private int _clicks;
+}

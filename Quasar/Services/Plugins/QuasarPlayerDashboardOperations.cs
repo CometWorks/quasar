@@ -76,9 +76,9 @@ internal static class QuasarPlayerDashboardOperations
                 await Has(c, QuasarPolicyNames.CanControlServers), query && await Has(c, QuasarPolicyNames.ClusterManage));
             var bytes = JsonSerializer.SerializeToUtf8Bytes(table, JsonSerializerOptions.Web);
             return new(_ => Task.FromResult<Stream>(new MemoryStream(bytes, false)), "application/json", Length: bytes.Length);
-        }, read);
+        }, read with { Description = "Returns current and historical rows for the Players table." });
         services.AddQuasarOperation<Retention, int>(PluginId, "players.retention.save", manage, (c, input, ct) =>
-            c.Services.GetRequiredService<KnownPlayerCatalog>().SetRetentionDaysAsync(input.Days, ct), change);
+            c.Services.GetRequiredService<KnownPlayerCatalog>().SetRetentionDaysAsync(input.Days, ct), change with { Description = "Updates the player history retention settings." });
         services.AddQuasarOperation<CleanInput, int>(PluginId, "players.history.clean", manage, async (c,input,ct) =>
         {
             var known = c.Services.GetRequiredService<KnownPlayerCatalog>();
@@ -89,7 +89,7 @@ internal static class QuasarPlayerDashboardOperations
             string name = cluster ? input.Key[9..] : input.Key;
             if (cluster && (!clusters || !c.User.CanQueryCluster(name))) throw new QuasarOperationException(403, "Cluster access denied.");
             return await known.CleanServerAsync(name, ct, cluster);
-        },change);
+        },change with { Description = "Cleans stored player history according to the selected retention." });
         services.AddQuasarOperation<ClusterInput, PlayerMutationResult>(PluginId, "cluster.players.moderate",
             [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage], async (c, input, ct) =>
         {
@@ -97,7 +97,9 @@ internal static class QuasarPlayerDashboardOperations
             if (!ulong.TryParse(input.SteamId, out var id) || id == 0 || !ClusterActions.Contains(input.Action))
                 throw new QuasarOperationException(400,"Invalid player or moderation action.");
             var snap = c.Services.GetRequiredService<ClusterPlayerService>().GetSnapshot(input.UniqueName);
-            if (snap?.CanRun(ClusterPlayerSnapshot.GatewayOperation(input.Action)) != true || input.Action == "kick" && !snap.Clients.Any(x => x.ClientId == id)
+            if (input.Action == "kick" && snap?.Available == true && !snap.Clients.Any(x => x.ClientId == id))
+                throw new QuasarOperationException(409, "This player is no longer connected to the cluster.");
+            if (snap?.CanRun(ClusterPlayerSnapshot.GatewayOperation(input.Action)) != true
                 || input.Action == "clear-kick-cooldown" && snap.Moderation?.KickCooldowns.Any(k => k.UserId == id && k.ExpiresAt > DateTimeOffset.UtcNow) != true)
                 throw new QuasarOperationException(409, ClusterPlayerSnapshot.ModerationUnavailableReason(snap) ?? "This action is unavailable. Refresh the player list.");
             Admin.SetPlayerPromotionRequest? promotion = null;
@@ -112,6 +114,6 @@ internal static class QuasarPlayerDashboardOperations
             var operation = await c.Services.GetRequiredService<ClusterCommandService>().SubmitAsync(input.UniqueName,
                 ClusterAdminCommand.Create(input.Action, promotion, target: input.SteamId), Guid.NewGuid().ToString("N"), c.User.Identity?.Name ?? "web-ui", ct);
             return new(operation.Error?.Message ?? $"Cluster player {input.Action}: {operation.State}.", operation.State == ClusterOperationState.Failed);
-        }, change);
+        }, change with { Description = "Applies a moderation action to a selected cluster player." });
     }
 }

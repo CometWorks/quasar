@@ -537,9 +537,13 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 (clusterDelete.Metadata.Effect, clusterDelete.Metadata.Reversal)
             );
         }
-        // Destructive operations are a deliberate choice, each one listed here.
+        // Keep the review step visible alongside the destructive operations it prepares.
         Assert.Equal(
-            ["backups.restore", "cluster.entities.delete", "entities.delete"],
+            [
+                "backup.restore.upload", "backup.stored.delete", "backup.stored.restore", "backups.restore", "cluster.entities.delete",
+                "cluster.maintenance.prepare-restore", "cluster.maintenance.restore", "configs.delete",
+                "entities.delete", "fleet.delete", "fleet.delete.review", "fleet.kill", "worlds.delete",
+            ],
             operations
                 .Keys.Where(id =>
                     id.Contains("delete")
@@ -1352,6 +1356,29 @@ public sealed class QuasarCoreOperationTests : IDisposable
                 );
         foreach (var read in new[] { "cluster.players", "cluster.entities.list", "chat.messages" })
             Assert.Equal(403, (await CallAsync(viewer, read, new { })).StatusCode);
+    }
+
+    [Fact]
+    public async Task OversizedDashboardProfilesUseTheAuditedSaveAndPreserveSteamIds()
+    {
+        await CreateProfileAsync();
+        var profile = _profiles.GetProfile("shared")!;
+        profile.Description = new string('x', QuasarSdkLimits.MaximumJsonBytes + 100);
+        profile.RootSettings.Reserved = [76561198000000001];
+        await using var scope = _services.CreateAsyncScope();
+        await using var input = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(new { profile }, JsonSerializerOptions.Web));
+        var result = await scope.ServiceProvider.GetRequiredService<QuasarOperationService>().DispatchAsync(
+            new(Editor(), scope.ServiceProvider) { Kind = QuasarOperationKind.Upload, Upload = input, VerifyAccess = _ => Task.CompletedTask },
+            Core, "configs.profile.upload", JsonSerializer.SerializeToElement(new { create = false }), default);
+        Assert.Null(result.Error);
+        Assert.Equal("shared", result.Value);
+        var saved = _profiles.GetProfile("shared")!;
+        Assert.Equal(profile.Description, saved.Description);
+        Assert.Equal(76561198000000001UL, Assert.Single(saved.RootSettings.Reserved));
+        var audit = await LatestAsync("config.profile.save");
+        Assert.Equal("<redacted>", audit.Arguments!.Value.GetProperty("profile").GetProperty("rootSettings").GetProperty("serverPassword").GetString());
+        Assert.Equal(QuasarUndoStatus.Done, (await UndoAsync(audit.Id)).Status);
+        Assert.NotEqual(profile.Description, _profiles.GetProfile("shared")!.Description);
     }
 
     [Fact]

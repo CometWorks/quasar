@@ -1,0 +1,78 @@
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Routing
+@using Microsoft.JSInterop
+@using Quasar.Services.Auth
+@inject NavigationManager Navigation
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@implements IDisposable
+
+@if (_authorized)
+{
+    <RouteView RouteData="Route" />
+    @if (LegacyUiPlugins && Route.PageType == typeof(Quasar.Components.Pages.UiPlugins))
+    {
+        <a href="compat/settings/ui-plugins" data-enhance-nav="false">Open installed plugin extensions</a>
+    }
+}
+else if (_message is not null)
+{
+    <p role="alert">@_message</p>
+    <a href="login" data-enhance-nav="false">Sign in</a>
+    <button type="button" @onclick="CheckAsync">Retry</button>
+}
+else
+{
+    <p role="status">Opening page…</p>
+}
+
+@code {
+    [Parameter, EditorRequired] public RouteData Route { get; set; } = default!;
+    [Parameter] public bool LegacyEntities { get; set; }
+    [Parameter] public bool LegacyUiPlugins { get; set; }
+    private bool _authorized;
+    private string? _message;
+    private CancellationTokenSource? _pending;
+    private string? _checkedUri;
+    protected override Task OnParametersSetAsync() => _checkedUri == Navigation.Uri ? Task.CompletedTask : CheckAsync();
+
+    private async Task CheckAsync()
+    {
+        _pending?.Cancel();
+        using var pending = new CancellationTokenSource();
+        _pending = pending;
+        _checkedUri = Navigation.Uri;
+        _message = null;
+        _authorized = false;
+        try
+        {
+            bool allowed;
+            if (Route.PageType.Assembly == typeof(DashboardRouter).Assembly)
+            {
+                var policies = Route.PageType.GetCustomAttributes(typeof(AuthorizeAttribute), true).Cast<AuthorizeAttribute>()
+                    .Select(attribute => attribute.Policy).OfType<string>().Append(QuasarPolicyNames.CanView).Distinct();
+                allowed = (await Task.WhenAll(policies.Select(policy => Sdk.AllowedAsync(policy, pending.Token)))).All(value => value);
+            }
+            else
+            {
+                allowed = await Sdk.RequestAsync<bool>("dashboard.plugin.page", new
+                {
+                    assemblyName = Route.PageType.Assembly.FullName, component = Route.PageType.FullName
+                }, pending.Token);
+            }
+            if (pending.IsCancellationRequested) return;
+            if (!allowed) { _message = "You do not have permission to view this page."; return; }
+            if (LegacyEntities && Route.PageType == typeof(Quasar.Components.Pages.Entities))
+                Navigation.NavigateTo("compat/entities", forceLoad: true, replace: true);
+            else
+            {
+                _authorized = true;
+                await JS.InvokeVoidAsync("quasarSdk.dashboardNavigated", pending.Token);
+            }
+        }
+        catch (OperationCanceledException) when (pending.IsCancellationRequested) { }
+        catch (JSException error) when (!pending.IsCancellationRequested) { _message = error.Message; }
+        finally { if (_pending == pending) _pending = null; }
+    }
+    public void Dispose() => _pending?.Cancel();
+}

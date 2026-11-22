@@ -11,8 +11,9 @@ namespace Quasar.Services.Plugins;
 
 public static partial class QuasarEntityOperations
 {
+    public sealed record PluginPageRequest(string AssemblyName, string Component);
     public sealed record DashboardListRequest(string Key, string Type);
-    private static readonly QuasarOperationMetadata DashboardRead = new() { Effect = QuasarOperationEffect.Read, AgentAccess = QuasarAgentAccess.Denied };
+    private static readonly QuasarOperationMetadata DashboardRead = new() { RequireDefaultPolicies = true, Effect = QuasarOperationEffect.Read, AgentAccess = QuasarAgentAccess.Denied };
     private static async Task<bool> Allowed(QuasarOperationContext caller, string policy) =>
         (await caller.Services.GetRequiredService<IAuthorizationService>().AuthorizeAsync(caller.User, null, policy)).Succeeded;
 
@@ -54,6 +55,9 @@ public static partial class QuasarEntityOperations
                 ? history.GetLabels(input.Source, input.Provider!, input.Group!) : [];
             return new(sources, fields, labels);
         }, DashboardRead with { Description = "Lists available plugin history series and labels for the selected source." });
+        services.AddQuasarOperation<PluginPageRequest, bool>(PluginId, "dashboard.plugin.page", [QuasarPolicyNames.CanView],
+            (caller, input, _) => caller.Services.GetRequiredService<QuasarUiPluginCatalog>().CanOpenBrowserPageAsync(caller, input.AssemblyName, input.Component),
+            DashboardRead with { Description = "Checks whether the current panel user can open a plugin page." });
         services.AddQuasarOperation<EmptyRequest, IReadOnlyList<BrowserExtension>>(PluginId, "dashboard.extensions", [QuasarPolicyNames.CanView],
             async (caller, _, _) =>
             {

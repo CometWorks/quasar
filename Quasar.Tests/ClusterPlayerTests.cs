@@ -98,7 +98,7 @@ public sealed class ClusterPlayerTests : IDisposable
     {
         // QSR-16: every live update used to recreate each row with its tooltip and menu popovers,
         // and Firefox froze under the popover churn.
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -119,15 +119,15 @@ public sealed class ClusterPlayerTests : IDisposable
         context.Services.AddSingleton(new ClusterCommandService(clusters, new ClusterOperationStore(Path.Combine(_root, "operations")), new(http), null!));
         await tracker.RefreshAsync(cluster, default);
         var popovers = context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         // The first update adds MudTable's small-screen sort select once; count from there.
-        await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+        await page.InvokeAsync(async () => { await tracker.RefreshAsync(cluster, default); await page.Instance.RefreshAsync(); });
         var menu = page.FindComponent<MudMenu>().Instance;
         var tooltip = page.FindComponent<MudTooltip>().Instance;
         var popoverCount = popovers.FindAll(".mud-popover").Count;
 
         for (var i = 0; i < 3; i++)
-            await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+            await page.InvokeAsync(async () => { await tracker.RefreshAsync(cluster, default); await page.Instance.RefreshAsync(); });
 
         Assert.Same(menu, page.FindComponent<MudMenu>().Instance);
         Assert.Same(tooltip, page.FindComponent<MudTooltip>().Instance);
@@ -140,7 +140,7 @@ public sealed class ClusterPlayerTests : IDisposable
     [InlineData(false, true)]
     public async Task MainPlayersPageShowsOneClusterAndRetainsHistoricalPlayers(bool manage, bool excluded)
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -151,7 +151,6 @@ public sealed class ClusterPlayerTests : IDisposable
             : [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery]);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
-        context.Services.AddDirectCoreOperations();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));
@@ -165,7 +164,7 @@ public sealed class ClusterPlayerTests : IDisposable
         context.Services.AddSingleton(new ClusterCommandService(clusters, new ClusterOperationStore(Path.Combine(_root, "operations")), new(http), null!));
         await tracker.RefreshAsync(cluster, default);
         var popovers = context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         if (excluded)
         {
             Assert.DoesNotContain("Unified cluster", page.Markup);
@@ -180,22 +179,22 @@ public sealed class ClusterPlayerTests : IDisposable
         {
             page.Find("tbody .mud-menu button").Click();
             popovers.WaitForAssertion(() => Assert.Contains("Kick", popovers.Find(".mud-popover-open").TextContent));
-            await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+            await page.InvokeAsync(async () => { await tracker.RefreshAsync(cluster, default); await page.Instance.RefreshAsync(); });
             Assert.Contains("Kick", popovers.Find(".mud-popover-open").TextContent);
             await page.FindComponent<MudMenu>().InvokeAsync(() => page.FindComponent<MudMenu>().Instance.CloseMenuAsync());
         }
         Assert.DoesNotContain("Player actions", page.Markup);
         handler.Clients = [];
         handler.Banned = [7];
-        await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+        await page.InvokeAsync(async () => { await tracker.RefreshAsync(cluster, default); await page.Instance.RefreshAsync(); });
         Assert.Single(page.FindAll("tbody tr"));
         Assert.Contains("Cluster player", page.Find("tbody").TextContent);
         Assert.Contains("offline", page.Find("tbody").TextContent);
         if (manage)
         {
-            var views = (System.Collections.IEnumerable)typeof(Players).GetMethod("BuildKnownPlayerViews", BindingFlags.NonPublic | BindingFlags.Instance)!.Invoke(page.Instance, null)!;
+            var views = (System.Collections.IEnumerable)typeof(Quasar.Client.Components.PlayersView).GetProperty("KnownPlayerViews", BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(page.Instance)!;
             var view = views.Cast<object>().Single();
-            var send = typeof(Players).GetMethod("SendClusterPlayerCommandAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var send = typeof(Quasar.Client.Components.PlayersView).GetMethod("SendClusterPlayerCommandAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
             page.Find("tbody .mud-menu button").Click();
             popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Unban").Click();
             page.WaitForAssertion(() => Assert.Single(handler.Mutations));
@@ -206,7 +205,7 @@ public sealed class ClusterPlayerTests : IDisposable
         }
         // Query access revocation removes cluster rows and their filter entry.
         auth.SetPolicies(QuasarPolicyNames.CanView);
-        await page.InvokeAsync(() => tracker.RefreshAsync(cluster, default));
+        await page.InvokeAsync(async () => { await tracker.RefreshAsync(cluster, default); await page.Instance.RefreshAsync(); });
         page.WaitForAssertion(() => Assert.DoesNotContain("Cluster player", page.Markup));
     }
 
@@ -234,7 +233,7 @@ public sealed class ClusterPlayerTests : IDisposable
             await tracker.RefreshAsync(context.Services.GetRequiredService<ClusterCatalog>().GetCluster("test")!, default);
         }
         var popovers = context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         var button = page.Find("tbody .mud-menu button");
         Assert.False(button.HasAttribute("disabled"));
         button.Click();
@@ -256,7 +255,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim().Equals(action, StringComparison.OrdinalIgnoreCase)).Click();
         dialogs.WaitForAssertion(() => Assert.Contains("Cluster player (7)", dialogs.Markup));
@@ -283,7 +282,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == level).Click();
         dialogs.WaitForAssertion(() => Assert.Contains("Cluster player (7)", dialogs.Markup));
@@ -304,7 +303,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await context.Services.GetRequiredService<ClusterPlayerService>().RefreshAsync(
             context.Services.GetRequiredService<ClusterCatalog>().GetCluster("test")!, default);
         var popovers = context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         Assert.Contains("kicked (", page.Markup);
         Assert.Contains("offline", page.Find("tbody").TextContent);
         Assert.Equal("Scripter", _known.GetPlayers().Single().PromoteLevel);
@@ -325,7 +324,7 @@ public sealed class ClusterPlayerTests : IDisposable
         else handler.Moderation = new(null, [], "World Authority promotion state is unavailable.");
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         var items = popovers.FindAll(".mud-menu-item");
         Assert.Equal("true", items.Single(item => item.TextContent.Trim() == "Admin").GetAttribute("aria-disabled"));
@@ -347,7 +346,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Admin").Click();
         var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
@@ -408,7 +407,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == label).Click();
         if (label == "Admin") dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Set role to Admin").Click();
@@ -427,7 +426,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Kick").Click();
         if (change == "capability") handler.CurrentCapabilities = Gateway.Capabilities with { Scope = Admin.AdminScope.Query };
@@ -452,7 +451,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Kick").Click();
         dialogs.FindAll("button").Single(button => button.TextContent.Trim() == "Kick").Click();
@@ -482,7 +481,7 @@ public sealed class ClusterPlayerTests : IDisposable
             CommandType = ServerCommandType.BanPlayer }, new() { Success = true });
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         long steamId = type == ServerCommandType.ClearKickCooldown ? 8 : 7;
         var row = page.FindAll("tbody tr").Single(row => row.TextContent.Contains(steamId == 8 ? "Kicked solo" : "Online solo"));
         row.QuerySelector(".mud-menu button")!.Click();
@@ -510,7 +509,7 @@ public sealed class ClusterPlayerTests : IDisposable
         handler.Clients = [Gateway.Player with { AdmissionState = "TicketPending" }, Gateway.Player with { ClientId = 9, PlayerName = "Admitted player" }];
         await using var context = await PlayerContextAsync(handler);
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         string Detail(string player) => page.FindAll("tbody tr").Single(row => row.TextContent.Contains(player))
             .QuerySelectorAll("td[data-label=Server] .quasar-type-caption").Single().TextContent;
 
@@ -522,6 +521,7 @@ public sealed class ClusterPlayerTests : IDisposable
         handler.Clients = [];
         await page.InvokeAsync(() => context.Services.GetRequiredService<ClusterPlayerService>().RefreshAsync(
             context.Services.GetRequiredService<ClusterCatalog>().GetClusters().Single(), default));
+        await page.InvokeAsync(page.Instance.RefreshAsync);
         page.WaitForAssertion(() => Assert.DoesNotContain(" · ", Detail("Cluster player")));
     }
 
@@ -532,7 +532,7 @@ public sealed class ClusterPlayerTests : IDisposable
         await using var context = await PlayerContextAsync(handler);
         ConnectStandalone(context.Services.GetRequiredService<AgentRegistry>(), success: false);
         var popovers = context.Render<MudPopoverProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.FindAll("tbody tr").Single(row => row.TextContent.Contains("Online solo")).QuerySelector(".mud-menu button")!.Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Admin").Click();
         page.WaitForAssertion(() => Assert.Contains(context.Services.GetRequiredService<ISnackbar>().ShownSnackbars,
@@ -548,7 +548,7 @@ public sealed class ClusterPlayerTests : IDisposable
         var commands = ConnectStandalone(registry);
         var popovers = context.Render<MudPopoverProvider>();
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Players>();
+        var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.FindAll("tbody tr").Single(row => row.TextContent.Contains("Online solo")).QuerySelector(".mud-menu button")!.Click();
         popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Kick").Click();
         await page.InvokeAsync(() => registry.MarkDisconnected("solo-connection"));
@@ -580,7 +580,7 @@ public sealed class ClusterPlayerTests : IDisposable
 
     private async Task<BunitContext> PlayerContextAsync(Gateway handler)
     {
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
@@ -590,7 +590,6 @@ public sealed class ClusterPlayerTests : IDisposable
         context.Services.AddSingleton(auth);
         context.Services.AddSingleton(new QuasarRoleMapper(new(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
-        context.Services.AddDirectCoreOperations();
         context.Services.AddSingleton(_known);
         context.Services.AddSingleton(new AgentRegistry(_known, null!, null!, null!));
         context.Services.AddSingleton(new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance));

@@ -1,0 +1,14 @@
+@page "/fixture/worker-tool"
+@layout LegacyFixtureLayout
+@using Microsoft.AspNetCore.Components.Web
+
+<h1>Fixture worker plugin</h1>
+<button disabled="@(!_ready)" @onclick="() => _count++">Worker count @_count</button>
+@code {
+    private int _count;
+    private bool _ready;
+    protected override void OnAfterRender(bool first)
+    {
+        if (first) { _ready = true; StateHasChanged(); }
+    }
+}

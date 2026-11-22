@@ -1,0 +1,101 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { pathToFileURL } from "node:url";
+
+const { chromium, firefox } = await import(process.env.PLAYWRIGHT_MODULE
+    ? pathToFileURL(process.env.PLAYWRIGHT_MODULE).href : "playwright");
+const address = process.argv[2];
+for (const browserType of [chromium, firefox]) {
+    const browser = await browserType.launch(browserType === chromium ? { executablePath: process.env.CHROME_PATH } : {});
+    try {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const errors = [], circuits = [], shared = [], fallbacks = [];
+        page.on("response", r => {
+            if (r.url().includes("/_nebula/releases/")) shared.push([r.url(), r.status()]);
+            if (/\/fixture-panel\/_framework\/Quasar\.Client\..+\.wasm$/.test(r.url())) fallbacks.push(r.status());
+        });
+        page.on("pageerror", error => { errors.push(error.message); console.error(error); });
+        page.on("console", msg => { if (msg.type() === "error") console.error(msg.text()); });
+        page.on("request", r => { if (r.url().includes("/_blazor")) circuits.push(r.url()); });
+        for (const prefix of ["/", "/fixture-panel/"]) {
+            const base = address + prefix;
+            if (process.env.QUASAR_FLEET_CHECKS === "1") await (await import("./fleet.test.mjs")).checkFleet(browser, base);
+            if (prefix === "/") assert.equal((await context.request.get(base + "settings/display")).status(), 401);
+            await context.request.get(base + "fixture/login");
+            await page.goto(base + "fixture/tool/42");
+            const heading = page.getByRole("heading", { name: "Fixture tool 42" });
+            await heading.waitFor();
+            const framework = await page.evaluate(() => {
+                const state = JSON.parse(document.querySelector("#quasar-connection").textContent);
+                return Object.keys(state.frameworkIntegrity || {}).find(name => /^Quasar\.Client\..+\.wasm$/.test(name));
+            });
+            if (prefix !== "/") assert.ok(framework, "Hosted release should advertise its fingerprinted client assembly");
+            if (framework) {
+                const url = base + "_framework/" + framework;
+                const first = await context.request.get(url, {headers: {"Accept-Encoding": "identity"}});
+                assert.equal(first.status(), 200);
+                const etag = first.headers().etag;
+                assert.equal(etag, '"' + createHash("sha256").update(await first.body()).digest("base64") + '"');
+                assert.equal((await context.request.get(url, {headers: {"Accept-Encoding": "identity", "If-None-Match": etag}})).status(), 304);
+                const anonymous = await browser.newContext();
+                try { assert.equal((await anonymous.request.get(url, {headers: {"If-None-Match": etag}})).status(), 401); }
+                finally { await anonymous.close(); }
+                console.log("Verified authorized identity 304 and anonymous framework denial at " + prefix);
+            }
+            await page.getByRole("button", {name: "Count 0"}).click();
+            await page.getByRole("button", {name: "Count 1"}).waitFor();
+            await page.reload();
+            await page.getByRole("button", {name: "Count 0"}).waitFor();
+            await page.getByRole("link", {name: "Restricted plugin tool"}).click();
+            await page.getByText("You do not have permission to view this page.").waitFor();
+            await page.goBack();
+            await heading.waitFor();
+            const profileQuery = prefix === "/" ? "profileId" : "profile";
+            await page.goto(base + "configs?" + profileQuery + "=survival");
+            await page.getByRole("heading", {name: "Survival test", exact: true}).waitFor();
+            await page.getByText("Access lists", {exact: true}).click();
+            await page.getByText("76561198000000003", {exact: true}).waitFor();
+            assert.ok(!(await page.content()).includes("fixture-hidden-password"));
+            if (process.env.QUASAR_VIEWER_PACKAGE) await (await import("./viewer.test.mjs")).checkViewer(page, base);
+            const response = await page.goto(base + "settings/display");
+            assert.equal(response.status(), 200);
+            await page.locator("#quasar-wasm-loading[hidden]").waitFor({ state: "attached", timeout: 30000 });
+            const input = page.getByRole("combobox", { name: "Time zone" });
+            await input.fill("Asia/Kolkata");
+            await page.getByRole("button", { name: "Save", exact: true }).click();
+            await page.getByText("Time zone saved.").waitFor();
+            assert.equal(await page.evaluate(() => quasarConfigs.getLocalStorage("quasar.timeZone")), "Asia/Kolkata");
+            // A routed link must keep the runtime and the selected SDK transport alive.
+            const generation = await page.evaluate(() => { window.fixtureGeneration = crypto.randomUUID(); return window.fixtureGeneration; });
+            await page.evaluate(() => {
+                const link = document.createElement("a");
+                link.href = new URL("hosts/enroll", document.baseURI);
+                link.textContent = "Fixture restricted route";
+                document.getElementById("quasar-main").append(link);
+            });
+            await page.getByRole("link", {name: "Fixture restricted route"}).click();
+            await page.getByText("You do not have permission to view this page.").waitFor();
+            await page.goBack();
+            await page.getByRole("combobox", { name: "Time zone" }).waitFor();
+            assert.equal(await page.evaluate(() => window.fixtureGeneration), generation);
+            console.log(browserType.name() + " rendered and saved " + prefix + "settings/display without a circuit");
+        }
+        assert.ok(shared.some(([url, status]) => url.endsWith(".wasm") && status === 200), JSON.stringify(shared.slice(0, 4)));
+        assert.ok(shared.some(([url, status]) => url.includes("/Quasar.Client.") && status === 404));
+        assert.ok(fallbacks.some(status => status === 200 || status === 304));
+        const legacy = await context.newPage();
+        legacy.on("console", msg => { if (msg.type() === "error") console.error(msg.text()); });
+        legacy.on("pageerror", error => console.error(error));
+        try {
+            await legacy.goto(address + "/fixture/tool/7");
+            await legacy.getByRole("link", {name: "Worker plugin tool"}).click();
+            await legacy.getByRole("heading", {name: "Fixture worker plugin"}).waitFor();
+            await legacy.getByRole("button", {name: "Worker count 0"}).click();
+            await legacy.getByRole("button", {name: "Worker count 1"}).waitFor();
+            console.log(browserType.name() + " navigated to the interactive worker plugin");
+        } finally { await legacy.close(); }
+        assert.deepEqual(circuits, []);
+        assert.deepEqual(errors, []);
+    } finally { await browser.close(); }
+}

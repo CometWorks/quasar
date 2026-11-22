@@ -324,7 +324,7 @@
                 catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
             }
 
-            private async Task RefreshAsync()
+            internal async Task RefreshAsync()
             {
                 var generation = ++_generation;
                 try

@@ -29,7 +29,7 @@ public sealed class PlayerAccessPageTests : IDisposable
 
     private BunitContext Context(bool admin)
     {
-        var context = new QuasarBunitContext();
+        var context = new OperationsBrowserContext();
         context.Services.AddMudServices(); context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization(); auth.SetAuthorized(admin ? "admin" : "viewer");
         auth.SetPolicies(admin ? [QuasarPolicyNames.CanView, QuasarPolicyNames.CanManageSecurity] : [QuasarPolicyNames.CanView]);
@@ -46,7 +46,7 @@ public sealed class PlayerAccessPageTests : IDisposable
         await using var context = Context(false);
         context.Services.AddSingleton<PlayerAccessCatalog>(_ => throw new Exception("Viewers must not load private access settings."));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Access>();
+        var page = context.Render<Quasar.Client.Components.AccessView>();
         Assert.Contains("Server access", page.Markup);
         Assert.Contains("Linked accounts", page.Markup);
         Assert.DoesNotContain("Save access settings", page.Markup);
@@ -78,7 +78,7 @@ public sealed class PlayerAccessPageTests : IDisposable
         context.Services.AddSingleton(new AgentRegistry(null!, null!, null!, null!));
         context.Services.AddSingleton(new PlayerAccessWorker(access, catalog, null!, clusters, null!, null!, browser, NullLogger<PlayerAccessWorker>.Instance));
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Access>();
+        var page = context.Render<Quasar.Client.Components.AccessView>();
         Assert.Contains("auth.se-servers.net", page.Markup);
         Assert.Contains("Quasar's existing Discord bot", page.Markup);
         Assert.DoesNotContain("legacy-secret-never-render", page.Markup);
@@ -101,6 +101,7 @@ public sealed class PlayerAccessPageTests : IDisposable
         Assert.Equal(revision, catalog.GetSettings().Revision);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanView);
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetAuthorized("viewer");
+        await page.InvokeAsync(page.Instance.RefreshPermissionsAsync);
         page.WaitForAssertion(() => Assert.DoesNotContain("Save access settings", page.Markup));
     }
 
