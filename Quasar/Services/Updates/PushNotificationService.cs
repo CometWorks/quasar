@@ -12,7 +12,6 @@ using WebPush;
 
 namespace Quasar.Services.Updates;
 
-public sealed record BrowserPushSubscription(string Endpoint, string P256dh, string Auth);
 
 /// <summary>Stores browser subscriptions and delivers outstanding notices to each authorized viewer.</summary>
 public sealed class PushNotificationService(

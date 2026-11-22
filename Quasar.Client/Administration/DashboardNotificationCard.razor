@@ -1,0 +1,26 @@
+@inject NavigationManager PanelNavigation
+@inject ViewerTimeZone ViewerTime
+<section class="pa-4 quasar-panel quasar-section @(Notice.IsAnnouncement ? $"quasar-notice quasar-notice-{Notice.Tone}" : null)">
+    <div class="quasar-stack">
+        <h2>@Notice.Title</h2>
+        @if (Notice.IsAnnouncement)
+        {
+            <strong class="@($"quasar-text-{Notice.Tone}")">@Notice.Severity.ToUpperInvariant() announcement</strong>
+        }
+        @if (Notice.OccurredAt is { } occurredAt)
+        {
+            <p class="quasar-muted quasar-caption">@ViewerTime.Format(occurredAt)</p>
+        }
+        <p style="white-space: pre-wrap">@Notice.Body</p>
+        @if (!Notice.IsAnnouncement || Notice.Url != "/notifications")
+        {
+            <div>
+                <a rel="noopener noreferrer" class="quasar-button quasar-tone-primary" aria-label="@($"Open {Notice.Title}: {Notice.Body}")" href="@PanelNavigation.PanelUrl(Notice.Url)"><MudIcon Icon="@Icons.Material.Filled.OpenInNew" />Open details</a>
+            </div>
+        }
+    </div>
+</section>
+
+@code {
+    [Parameter, EditorRequired] public UpdateNotice Notice { get; set; } = default!;
+}

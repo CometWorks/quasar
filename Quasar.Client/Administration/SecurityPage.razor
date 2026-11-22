@@ -1,0 +1,482 @@
+@using Quasar.Services.Auth
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+
+<PageTitle>Security</PageTitle>
+
+<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Access &amp; security</div><h1>Security</h1>
+<p>Manage trusted-network access, reverse proxy settings, and SteamID-based RBAC mappings.</p></div></div>
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+@if (_snapshot is null) { <MudProgressCircular Indeterminate="true" /> }
+else
+{
+
+<section class="quasar-panel pa-4 mb-4">
+    <div class="quasar-stack">
+        <h2 class="quasar-text quasar-type-h6">Public panel access</h2>
+        <p>Use your own reverse proxy, or enroll with Nebula for a public dashboard address.</p>
+        <div class="quasar-row">
+            <MudButton OnClick="ManageAccessAsync" Variant="Variant.Outlined">Manage access setup</MudButton>
+            @if (_snapshot.Enrolled)
+            {
+                <MudButton Href="https://dash.se-servers.net/account" Target="_blank" rel="noopener noreferrer" Variant="Variant.Outlined">Manage Nebula hosting and billing</MudButton>
+            }
+        </div>
+        @if (_snapshot.Enrolled)
+        {
+            <p>All configured Steam administrators can manage this panel in Nebula. One payer controls its subscription. Other administrators can request a billing transfer; the payer approves it and the new payer uses their own payment details. Enable browser push on Notifications to receive billing updates.</p>
+        }
+    </div>
+</section>
+
+<MudGrid>
+    <MudItem xs="12" lg="4">
+        <section class="quasar-panel pa-4 summary-card">
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Auth Provider</h2>
+                <p class="quasar-text quasar-type-body2">Default provider: <strong>@_snapshot.DefaultProvider</strong></p>
+                <p class="quasar-text quasar-type-body2">Steam login: <strong>@(_snapshot.SteamEnabled ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Access mode: <strong>@(_trustedNetworkSettings.RequireHttpsForPublicAccess ? "Public HTTPS" : "Private LAN HTTP")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted loopback: <strong>@(_trustedNetworkSettings.AllowLoopback ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted private LAN: <strong>@(_trustedNetworkSettings.AllowSameSubnet ? "Enabled" : "Disabled")</strong></p>
+                <p class="quasar-text quasar-type-body2">Trusted proxies: <strong>@TrustedProxySummary</strong></p>
+                <span class="quasar-text quasar-type-caption">
+                    Settings are saved to <code>@_snapshot.AuthPath</code> <MudIconButton title="Copy path" Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" OnClick="@(() => CopyAsync(_snapshot.AuthPath))" />
+                </span>
+            </div>
+        </section>
+    </MudItem>
+
+    <MudItem xs="12" lg="8">
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Private LAN and Reverse Proxy</h2>
+                    <MudChip T="string"
+                             Color="@(_trustedNetworkSettings.RequireHttpsForPublicAccess ? Color.Success : Color.Warning)"
+                             Variant="Variant.Outlined">
+                        @(_trustedNetworkSettings.RequireHttpsForPublicAccess ? "Public HTTPS mode" : "Private LAN HTTP mode")
+                    </MudChip>
+                </div>
+
+                @if (!_trustedNetworkSettings.RequireHttpsForPublicAccess)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Private LAN mode permits plain HTTP and non-Secure cookies. Keep the Quasar port behind your firewall and do not forward it from the router.
+                    </MudAlert>
+                }
+
+                @if (_trustedNetworkSettings.AllowSameSubnet)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Direct private LAN clients bypass HTTPS and sign-in even in public HTTPS mode. Keep the Quasar backend port private when using a reverse proxy.
+                    </MudAlert>
+                }
+
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool"
+                                     @bind-Value="_trustedNetworkSettings.AllowLoopback"
+                                     Label="Trust loopback access" />
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                            Allows local tools and same-host reverse proxies to use trusted-network auth.
+                        </span>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool"
+                                     @bind-Value="_trustedNetworkSettings.AllowSameSubnet"
+                                     Label="Trust private LAN access" />
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                            Accepts 192.168.x.x, 10.x.x.x, 172.16–31.x.x, IPv6 private addresses (fc00::/7), and directly attached IPv4 subnets. Correctly forwarded public clients still use HTTPS and sign in.
+                        </span>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudCheckBox T="bool"
+                                     @bind-Value="_trustedNetworkSettings.RequireHttpsForPublicAccess"
+                                     Label="Require HTTPS for non-LAN access" />
+                        <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                            Enable this for a public reverse proxy. It rejects remote HTTP and marks authentication cookies Secure after Quasar restarts.
+                        </span>
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField @bind-Value="_trustedProxiesText"
+                                      Label="Trusted reverse proxies"
+                                      Variant="Variant.Outlined"
+                                      Lines="4"
+                                      HelperText="One IP or CIDR per line, comma, or space. Example: 172.18.0.0/16 or 192.168.1.10." />
+                    </MudItem>
+                </MudGrid>
+
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Restart Quasar after changing HTTPS mode or trusted proxies. Loopback and private LAN toggles apply immediately.
+                </MudAlert>
+
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
+                    <MudButton StartIcon="@Icons.Material.Filled.Save"
+                               Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               Disabled="@_savingAuthSettings"
+                               OnClick="SaveTrustedNetworkSettingsAsync">
+                        Save Security Settings
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Security"
+                               Variant="Variant.Outlined"
+                               Color="Color.Secondary"
+                               OnClick="ApplyPublicReverseProxyPreset">
+                        Apply Public Proxy Preset
+                    </MudButton>
+                </div>
+
+                <MudExpansionPanels MultiExpansion="false" Elevation="0" Outlined="true" Dense="true">
+                    <MudExpansionPanel Text="Safely expose Quasar to the internet">
+                        <ol>
+                            <li>Put Quasar behind a reverse proxy with HTTPS enabled, such as NGINX Proxy Manager.</li>
+                            <li>Keep the Quasar port private. Do not forward the Quasar port directly from the router.</li>
+                            <li>Click <strong>Apply Public Proxy Preset</strong> so non-LAN HTTPS is required while direct LAN access stays trusted.</li>
+                            <li>If the proxy is not on the same machine, add its IP address or Docker bridge CIDR to Trusted reverse proxies.</li>
+                            <li>Make sure the proxy sends <code>X-Forwarded-For</code>, <code>X-Forwarded-Proto</code>, and <code>X-Forwarded-Host</code>.</li>
+                            <li>Restart Quasar after changing trusted proxies, then test from a phone or other external network. You should see the Steam sign-in flow.</li>
+                        </ol>
+                    </MudExpansionPanel>
+                </MudExpansionPanels>
+            </div>
+        </section>
+    </MudItem>
+
+    <MudItem xs="12">
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Data Handling Consent</h2>
+                    <MudChip T="string" Color="@DataHandlingConsentStatusColor" Variant="Variant.Outlined">
+                        @DataHandlingConsentStatusText
+                    </MudChip>
+                </div>
+
+                <p class="quasar-text quasar-type-body2">
+                    YES automatically enrolls this Quasar instance with https://log.se-servers.net and allows anonymous plugin usage statistics and diagnostic reports to CometWorks, including error details, bounded recent logs, software versions and execution context. Logs may contain private player or server information. Memory dumps require separate consent and are not enabled by YES. While YES and diagnostic reports remain enabled, Quasar also checks CometWorks announcements for the notification bell and Notifications page, or service logs in headless mode.
+                </p>
+                <p class="quasar-text quasar-type-body2">
+                    Server listings require consent and working log delivery. Explicitly enabled listings publish their name, join address and summary statistics; admin Steam identities are shared privately for description editing. NO cancels publishing and requests immediate withdrawal. If backoffice updates stop, its last signed publication lease expires within 60 seconds. Magnetar's statistics flag changes on the next server start.
+                </p>
+                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                    Stored at <code>@_snapshot.ConsentPath</code> <MudIconButton title="Copy path" Size="Size.Small" Icon="@Icons.Material.Filled.ContentCopy" OnClick="@(() => CopyAsync(_snapshot.ConsentPath))" />.
+                </span>
+
+                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
+                    <MudButton StartIcon="@Icons.Material.Filled.Check"
+                               Variant="@(DataHandlingConsentChoice == true ? Variant.Filled : Variant.Outlined)"
+                               Color="Color.Primary"
+                               OnClick="@(() => SaveDataHandlingConsentAsync(true))">
+                        YES
+                    </MudButton>
+                    <MudButton StartIcon="@Icons.Material.Filled.Close"
+                               Variant="@(DataHandlingConsentChoice == false ? Variant.Filled : Variant.Outlined)"
+                               Color="@(DataHandlingConsentChoice == false ? Color.Warning : Color.Default)"
+                               OnClick="@(() => SaveDataHandlingConsentAsync(false))">
+                        NO
+                    </MudButton>
+                </div>
+
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Dense="true">
+                    Running servers keep their current Magnetar consent state until they are restarted.
+                </MudAlert>
+                <hr class="quasar-divider" />
+                <h3 class="quasar-text quasar-type-subtitle1">Diagnostic reports</h3>
+                <p class="quasar-text quasar-type-body2">
+                    Allow encrypted diagnostic reports and batched application logs from Quasar and all its enrolled hosts to be sent to CometWorks?
+                    Reports include ordinary log messages, error details, bounded recent logs, software versions and host, cluster and server identifiers.
+                    Logs can contain player names, chat or other private data. Reports are retained locally for up to seven days while delivery is unavailable.
+                    Only incidents captured after enabling this choice are eligible.
+                </p>
+                <MudSwitch T="bool" Value="@_snapshot!.Consent.DiagnosticsGranted"
+                           ValueChanged="@(value => SaveDiagnosticsConsentAsync(value, _snapshot!.Consent.DumpsGranted))"
+                           Color="Color.Primary" Label="Send diagnostic reports" />
+                <p class="quasar-text quasar-type-body2">
+                    Crash dumps may include process memory, credentials, player data and world content. Enable only if you agree to share that sensitive content.
+                    Dumps require diagnostic reports and are encrypted for the backoffice before transfer.
+                </p>
+                <MudSwitch T="bool" Value="@_snapshot!.Consent.DumpsGranted"
+                           ValueChanged="@(value => SaveDiagnosticsConsentAsync(_snapshot!.Consent.DiagnosticsGranted, value))"
+                           Disabled="@(!_snapshot!.Consent.DiagnosticsGranted)"
+                           Color="Color.Warning" Label="Include crash dumps" />
+                <hr class="quasar-divider" />
+                <p class="quasar-text quasar-type-body2">
+                    Choose which servers to publish on the Listings page. Public listings require diagnostic consent,
+                    current log delivery to CometWorks and a configured public join address.
+                </p>
+                <MudLink Href="settings/server-list">Configure public server listings</MudLink>
+                <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                    Turning either choice off cancels active transfers and discards queued reports. Already delivered reports cannot be recalled.
+                    Offline hosts stop collecting when their two-minute consent lease expires.
+                </span>
+            </div>
+        </section>
+    </MudItem>
+
+    <MudItem xs="12">
+        <section class="quasar-panel pa-4">
+            <div class="quasar-layout quasar-gap-3">
+                <div class="quasar-layout quasar-layout-row quasar-align-center quasar-justify-spacebetween quasar-gap-3">
+                    <h2 class="quasar-text quasar-type-h6">Runtime Subject Role Mappings</h2>
+                    <MudChip T="string" Variant="Variant.Outlined">@_snapshot.SubjectRoleMappings.Length mapping(s)</MudChip>
+                </div>
+
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    Adding or removing a role mapping refreshes this panel to apply permissions. You may briefly see a reconnect message after the change is saved.
+                </MudAlert>
+
+                <MudGrid>
+                    <MudItem xs="12" md="3">
+                        <MudSelect T="string" @bind-Value="_newProvider" Label="Provider" Variant="Variant.Outlined" Disabled="@_addingMapping">
+                            <MudSelectItem T="string" Value="@SteamProvider">Steam</MudSelectItem>
+                            <MudSelectItem T="string" Value="@OidcProviderName">Oidc</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="5">
+                        <MudTextField @bind-Value="_newSubject"
+                                      Label="@(_newProvider == SteamProvider ? "SteamID64 or profile URL" : "Subject")"
+                                      HelperText="@(_newProvider == SteamProvider ? "Enter a 17-digit SteamID64 or Steam Community profile URL. URLs resolve automatically when added." : null)"
+                                      Immediate="true" Disabled="@_addingMapping"
+                                      Error="@HasInvalidSteamSubject" ErrorText="Enter a 17-digit SteamID64 or a Steam Community profile URL."
+                                      Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudSelect T="string" @bind-Value="_newRole" Label="Role" Variant="Variant.Outlined" Disabled="@_addingMapping">
+                            @foreach (var role in _snapshot.Roles)
+                            {
+                                <MudSelectItem T="string" Value="@role">@role</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="1" Class="d-flex align-center">
+                        <MudIconButton Icon="@Icons.Material.Filled.Add"
+                                       Color="Color.Primary"
+                                       aria-label="Add role mapping"
+                                       Disabled="@(!CanAddMapping)"
+                                       OnClick="AddMappingAsync" />
+                    </MudItem>
+                </MudGrid>
+
+                @if (_snapshot.SubjectRoleMappings.Length == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                        Runtime RBAC has no subject mappings yet.
+                    </MudAlert>
+                }
+                else
+                {
+                    <MudTable T="RoleMapping" Items="_snapshot.SubjectRoleMappings" Dense="true" Hover="true">
+                        <HeaderContent>
+                            <MudTh>Provider</MudTh>
+                            <MudTh>Roles</MudTh>
+                            <MudTh>Subject</MudTh>
+                            <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Provider">@context.Provider</MudTd>
+                            <MudTd DataLabel="Roles">@string.Join(", ", context.Roles)</MudTd>
+                            <MudTd DataLabel="Subject" Class="mono">@context.Subject</MudTd>
+                            <MudTd DataLabel="" Class="quasar-actions-column">
+                                <MudTooltip Text="Remove role mapping">
+                                    <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                                   Color="Color.Error"
+                                                   OnClick="@(() => RemoveMappingAsync(context))" />
+                                </MudTooltip>
+                            </MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                }
+            </div>
+        </section>
+    </MudItem>
+    <MudItem xs="12">
+        <DashboardDiscordMappings Mappings="_snapshot.DiscordSubjects" Changed="RefreshAsync" />
+    </MudItem>
+</MudGrid>
+}
+
+@code
+{
+    private Task<IDialogReference> ManageAccessAsync() => DialogService.ShowAsync<DashboardSetupDialog>("Set up administrator access",
+        new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
+
+    private const string SteamProvider = "Steam";
+    private SecurityDashboard? _snapshot;
+    private string? _error;
+    private readonly CancellationTokenSource _stop = new();
+    private int _load;
+    private const string OidcProviderName = "Oidc";
+    private QuasarTrustedNetworkSettings _trustedNetworkSettings = new();
+    private string _trustedProxiesText = string.Empty;
+    private bool _savingAuthSettings;
+    private string _newProvider = SteamProvider;
+    private string _newSubject = string.Empty;
+    private string _newRole = "viewer";
+    private bool _addingMapping;
+
+    private bool? DataHandlingConsentChoice
+    {
+        get
+        {
+            var settings = _snapshot!.Consent;
+            return settings.ConsentGranted == true && !settings.DiagnosticsGranted ? null : settings.ConsentGranted;
+        }
+    }
+
+    private string DataHandlingConsentStatusText => DataHandlingConsentChoice switch
+    {
+        true => "YES",
+        false => "NO",
+        _ => _snapshot!.Consent.ConsentGranted == true ? "Logging consent required" : "No choice stored",
+    };
+
+    private Color DataHandlingConsentStatusColor => DataHandlingConsentChoice switch
+    {
+        true => Color.Success,
+        false => Color.Warning,
+        _ => Color.Default,
+    };
+
+    private string TrustedProxySummary =>
+        _trustedNetworkSettings.TrustedProxies.Count == 0
+            ? "Loopback only"
+            : string.Join(", ", _trustedNetworkSettings.TrustedProxies);
+
+    private bool CanAddMapping =>
+        !_addingMapping && !HasInvalidSteamSubject &&
+        !string.IsNullOrWhiteSpace(_newSubject) &&
+        _snapshot?.Roles.Contains(_newRole) == true;
+
+    private bool HasInvalidSteamSubject => _newProvider == SteamProvider &&
+        !string.IsNullOrWhiteSpace(_newSubject) && !SteamProfileInput.IsSupported(_newSubject);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync(resetNetwork: true);
+        _ = MonitorAsync(_stop.Token);
+    }
+    private Task RefreshAsync() => LoadAsync(false);
+    private async Task LoadAsync(bool resetNetwork)
+    {
+        var generation = ++_load;
+        try
+        {
+            var next = await Sdk.RequestAsync<SecurityDashboard>("security.dashboard", token: _stop.Token);
+            if (generation != _load || _stop.IsCancellationRequested) return;
+            if (_snapshot is null || resetNetwork)
+            {
+                _trustedNetworkSettings = next.Network;
+                _trustedProxiesText = string.Join(Environment.NewLine, next.Network.TrustedProxies);
+            }
+            _snapshot = next; _error = null;
+        }
+        catch (JSException error) { _error = error.Message; }
+    }
+    private async Task MonitorAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(10));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+                await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+    private async Task CopyAsync(string path)
+    {
+        var copied = await JS.InvokeAsync<bool>("quasarConfigs.copyText", path);
+        Snackbar.Add(copied ? "Path copied to clipboard." : "Select and copy the path manually.", copied ? Severity.Info : Severity.Warning);
+    }
+
+    private void ApplyPublicReverseProxyPreset()
+    {
+        _trustedNetworkSettings.AllowLoopback = true;
+        _trustedNetworkSettings.AllowSameSubnet = true;
+        _trustedNetworkSettings.RequireHttpsForPublicAccess = true;
+        Snackbar.Add("Public reverse proxy preset applied. Save to persist it.", Severity.Info);
+    }
+
+    private async Task SaveTrustedNetworkSettingsAsync()
+    {
+        _savingAuthSettings = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("security.network.save", new { network = _trustedNetworkSettings, proxies = _trustedProxiesText });
+            await LoadAsync(resetNetwork: true);
+            Snackbar.Add("Security settings saved.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving security settings: {exception.Message}", Severity.Error);
+        }
+        finally
+        {
+            _savingAuthSettings = false;
+        }
+    }
+
+    private async Task SaveDiagnosticsConsentAsync(bool diagnostics, bool dumps)
+    {
+        try
+        {
+            await Sdk.RequestAsync<bool>("security.diagnostics.save", new { diagnostics, dumps });
+            await RefreshAsync();
+            Snackbar.Add("Diagnostic consent saved.", Severity.Success);
+        }
+        catch (Exception exception) { Snackbar.Add($"Failed saving diagnostic consent: {exception.Message}", Severity.Error); }
+    }
+
+    private async Task SaveDataHandlingConsentAsync(bool consentGranted)
+    {
+
+        try
+        {
+            await Sdk.RequestAsync<bool>("security.consent.save", new { consent = consentGranted });
+            await RefreshAsync();
+            Snackbar.Add(consentGranted ? "Data handling consent saved: YES." : "Data handling consent saved: NO.", Severity.Success);
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add($"Failed saving data handling consent: {exception.Message}", Severity.Error);
+        }
+    }
+
+    private async Task AddMappingAsync()
+    {
+        if (!CanAddMapping) return;
+        _addingMapping = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("security.mapping.add", new { provider = _newProvider, subject = _newSubject.Trim(), role = _newRole });
+            _newSubject = ""; _newRole = "viewer"; await RefreshAsync();
+            Snackbar.Add("Added RBAC mapping.", Severity.Success);
+        }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
+        finally { _addingMapping = false; }
+    }
+
+    private async Task RemoveMappingAsync(RoleMapping mapping)
+    {
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Remove RBAC mapping?",
+            $"Mapping for '{mapping.Subject}' will be removed. The subject loses any roles granted by it. The panel will refresh to apply permissions; you may briefly see a reconnect message after the change is saved.",
+            yesText: "Remove",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+            return;
+
+        try
+        {
+            await Sdk.RequestAsync<bool>("security.mapping.remove", new { mapping.Provider, mapping.Subject });
+            await RefreshAsync();
+            Snackbar.Add("Removed RBAC mapping.", Severity.Success);
+        }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
+    }
+}

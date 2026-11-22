@@ -251,7 +251,7 @@ public sealed class RbacConfigCatalog : IDisposable
     }
 
     internal static bool IsSteamId64(string? steamId) =>
-        steamId is { Length: 17 } && steamId.All(char.IsAsciiDigit);
+        Quasar.Client.Administration.SteamProfileInput.IsSteamId64(steamId);
 
     private static string GetPath() =>
         Path.Combine(MagnetarPaths.GetQuasarDirectory(), "rbac.json");

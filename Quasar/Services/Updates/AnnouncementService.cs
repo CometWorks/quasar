@@ -14,7 +14,7 @@ public sealed class AnnouncementService : BackgroundService
     internal const int MaxLogReceipts = 4096;
     internal const int MaxLogStateBytes = 1024 * 1024;
     internal static readonly EventId HeadlessNoticeEvent = new(1358, "CometWorksAnnouncement");
-    internal const string KeyPrefix = "announcement:";
+    internal const string KeyPrefix = UpdateNotice.AnnouncementKeyPrefix;
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web)
     {
         PropertyNameCaseInsensitive = false,

@@ -1,0 +1,49 @@
+@inject DashboardSdk Sdk
+@inject IDialogService DialogService
+
+<PageTitle>Post-install setup</PageTitle>
+
+<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Installation</div><h1>Post-install setup</h1><p>Configure administrator access after installing and starting Quasar.</p></div></div>
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+
+<section class="quasar-panel pa-4">
+    <h2 class="quasar-text quasar-type-h6">Choose how you reach Quasar</h2>
+    <p>Use Nebula for a hosted dashboard, or self-deploy with your own reverse proxy, domain and certificate. Local access also works without public hosting.</p>
+    @if (_state is { HasAdmin: true, Complete: true })
+    {
+        <p role="status">Access setup is saved. You can continue to the dashboard or reopen setup below.</p>
+    }
+    else
+    {
+        <p role="status">Access setup is not complete. Resume below if you closed it or an enrollment attempt failed. Hosted setup waits for activation and a working connection.</p>
+    }
+    <MudButton OnClick="OpenSetupAsync" Variant="Variant.Filled" Color="Color.Primary">Manage access setup</MudButton>
+    <MudButton Href="settings/security" Variant="Variant.Outlined">Configure self-hosted security</MudButton>
+    <MudButton Href="./" Variant="Variant.Outlined">Continue to dashboard</MudButton>
+    <p>Initial setup requires an administrator session, normally from loopback or a trusted private LAN. Steam sign-in alone cannot claim a new installation. Nebula confirms Steam enrollment and any billing separately.</p>
+</section>
+
+@code {
+    private SetupStatus? _state;
+    private string? _error;
+
+    protected override Task OnInitializedAsync() => RefreshAsync();
+    private async Task RefreshAsync()
+    {
+        try { _state = await Sdk.RequestAsync<SetupStatus>("setup.status"); _error = null; }
+        catch (JSException error) { _error = error.Message; }
+    }
+
+    private async Task OpenSetupAsync()
+    {
+        var dialog = await DialogService.ShowAsync<DashboardSetupDialog>("Set up administrator access",
+            new DialogOptions { CloseOnEscapeKey = false, BackdropClick = false, FullWidth = true, MaxWidth = MaxWidth.Large });
+        _ = AfterCloseAsync(dialog);
+    }
+
+    private async Task AfterCloseAsync(IDialogReference dialog)
+    {
+        await dialog.Result;
+        await InvokeAsync(async () => { await RefreshAsync(); StateHasChanged(); });
+    }
+}

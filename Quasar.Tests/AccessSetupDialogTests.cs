@@ -47,6 +47,8 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddHttpClient<SteamProfileClient>()
             .ConfigurePrimaryHttpMessageHandler(() => profiles ?? new ProfileLookupHandler());
         context.Services.AddSingleton<HostedPanelService>();
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         return context;
     }
 
@@ -174,7 +176,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
         context.ComponentFactories.AddStub<QuasarSdkAuthorization>();
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Quasar.Components.Pages.Security>();
+        var page = context.Render<Quasar.Client.Administration.SecurityPage>();
         var input = page.FindComponents<MudTextField<string>>()
             .Single(field => field.Instance.Label == "SteamID64 or profile URL").Find("input");
         input.Input("arbitrary data");
@@ -449,10 +451,10 @@ public sealed class AccessSetupDialogTests : IDisposable
         await using var context = Context();
         await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
         var provider = context.Render<MudDialogProvider>();
-        context.Render<AccessSetupPrompt>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
         await provider.InvokeAsync(() => Task.CompletedTask);
         Assert.DoesNotContain("access-setup-header", provider.Markup);
-        var page = context.Render<Quasar.Components.Pages.PostInstallSetup>();
+        var page = context.Render<Quasar.Client.Administration.SetupPage>();
         Assert.Contains("Access setup is saved", page.Markup);
         await page.FindAll("button").Single(b => b.TextContent.Contains("Manage access setup")).ClickAsync();
         Assert.Contains("access-setup-header", provider.Markup);
@@ -467,7 +469,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         await using var context = Context();
         await context.Services.GetRequiredService<RbacConfigCatalog>().SaveAsync(RbacConfigCatalog.CreateInitialAdminConfig(SteamId)!);
         var provider = context.Render<MudDialogProvider>();
-        context.Render<AccessSetupPrompt>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
         await provider.WaitForAssertionAsync(() => Assert.Contains("access-setup-header", provider.Markup));
         Assert.False(HostedPanelState.Read()!.IsSetupComplete);
     }
@@ -481,7 +483,7 @@ public sealed class AccessSetupDialogTests : IDisposable
         Assert.False(HostedPanelState.Read()!.IsSetupComplete);
         Assert.False(RbacConfigCatalog.HasAdminMapping(context.Services.GetRequiredService<RbacConfigCatalog>().GetConfig()));
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies();
-        context.Render<AccessSetupPrompt>();
+        context.Render<Quasar.Client.Administration.DashboardSetupPrompt>();
         await provider.InvokeAsync(() => Task.CompletedTask);
         Assert.DoesNotContain("access-setup-header", provider.Markup);
     }

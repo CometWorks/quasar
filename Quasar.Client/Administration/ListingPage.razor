@@ -1,0 +1,120 @@
+@implements IDisposable
+@inject DashboardSdk Sdk
+@inject ISnackbar Snackbar
+
+<PageTitle>Server listing</PageTitle>
+<div class="quasar-page-heading"><div><div class="quasar-eyebrow">Settings</div><h1>Server listing</h1><p>Choose which standalone Magnetar servers and clusters appear on se-servers.net.</p></div></div>
+<p class="quasar-muted">Names and game ports are suggested from your existing servers. Enter the address players use to connect.</p>
+@if (_snapshot is { HasAdmin: false })
+{
+    <p class="quasar-notice quasar-notice-warning" role="status">Add a Steam identity with the admin role in <a href="settings/security">Security</a> to publish and manage your listings.</p>
+}
+@if (_snapshot?.LoadError is { } error) { <p class="quasar-notice quasar-notice-error" role="status">@error</p> }
+@if (_entries.Length == 0)
+{
+    <p class="quasar-notice">Create a standalone server or cluster first. It will appear here automatically.</p>
+}
+@if (_settingsChanged)
+{
+    <div class="quasar-notice quasar-notice-warning" role="status">
+        <p>Listing settings changed in another session. Your unsaved edits are preserved. Discard them to load the latest settings before saving.</p>
+        <button type="button" class="quasar-button" @onclick="@(() => ReloadAsync(discard: true))">Discard edits</button>
+    </div>
+}
+<form @onsubmit="SaveAsync" @onsubmit:preventDefault @oninput="MarkDirty" @onchange="MarkDirty">
+    <fieldset class="quasar-fieldset quasar-stack" disabled="@(_saving || !_canManage)">
+        <div class="quasar-card-grid">
+            @foreach (var entry in _entries)
+            {
+                <section class="quasar-panel quasar-section" @key="@($"{entry.Kind}:{entry.UniqueName}")"><div class="quasar-stack">
+                    <h2>@entry.SourceName</h2>
+                    <p class="quasar-muted">@(entry.Kind == "cluster" ? "Cluster · Steam gateway" : "Standalone Magnetar server")</p>
+                    @if (!entry.Exists) { <p class="quasar-notice quasar-notice-warning">This source no longer exists. Its listing will be omitted from publication.</p> }
+                    <label class="quasar-check"><input name="publish" type="checkbox" @bind="entry.Enabled" disabled="@(!entry.Exists && !entry.Enabled)" />Publish this server</label>
+                    <label class="quasar-field"><span>Public server name</span><input name="public-name" @bind="entry.Name" @bind:event="oninput" maxlength="128" /></label>
+                    <label class="quasar-field"><span>Public hostname or IP address</span><input name="public-host" @bind="entry.PublicHost" @bind:event="oninput" required="@entry.Enabled" /><small>For example, play.example.org. Enter only the hostname or IP, without a URL scheme or port.</small></label>
+                    <label class="quasar-field"><span>Public game port</span><input name="public-port" type="number" @bind="entry.PublicPort" min="1" max="65535" required /><small>Use the port exposed to players; for a cluster, use its Steam gateway port.</small></label>
+                </div></section>
+            }
+        </div>
+        @if (_canManage)
+        {
+            <div class="quasar-panel quasar-row quasar-form-actions">
+                <button type="submit" class="quasar-button quasar-button-primary" disabled="@_settingsChanged"><MudIcon Icon="@Icons.Material.Filled.Save" />Save listings</button>
+            </div>
+        }
+    </fieldset>
+</form>
+
+@code {
+    private ListingDashboard? _snapshot;
+    private ListingDraft[] _entries = [];
+    private long _revision;
+    private bool _saving, _dirty, _settingsChanged, _canManage;
+    private int _generation;
+    private readonly CancellationTokenSource _stop = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await ReloadAsync();
+        _ = MonitorAsync(_stop.Token);
+    }
+
+    private void MarkDirty() => _dirty = true;
+
+    private async Task MonitorAsync(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromSeconds(5));
+        try
+        {
+            while (await timer.WaitForNextTickAsync(token))
+                if (!_saving) await InvokeAsync(async () => { await ReloadAsync(); StateHasChanged(); });
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private async Task ReloadAsync(bool discard = false)
+    {
+        var generation = ++_generation;
+        try
+        {
+            var next = await Sdk.RequestAsync<ListingDashboard>("listings.dashboard", token: _stop.Token);
+            if (_stop.IsCancellationRequested || generation != _generation) return;
+            _snapshot = next;
+            _canManage = next.CanManage;
+            if (!_dirty || discard)
+            {
+                _revision = next.Revision; _entries = next.Listings;
+                _dirty = false; _settingsChanged = false;
+                return;
+            }
+            _settingsChanged = _revision != next.Revision;
+            var fresh = next.Listings.ToDictionary(Key);
+            var merged = new List<ListingDraft>(_entries.Length);
+            foreach (var entry in _entries)
+                merged.Add(fresh.Remove(Key(entry), out var source)
+                    ? entry with { Exists = source.Exists, SourceName = source.SourceName } : entry with { Exists = false });
+            merged.AddRange(fresh.Values);
+            _entries = merged.ToArray();
+        }
+        catch (JSException error) { Snackbar.Add(error.Message, Severity.Error); }
+    }
+
+    private static (string, string) Key(ListingDraft entry) => (entry.Kind, entry.UniqueName.ToLowerInvariant());
+
+    private async Task SaveAsync()
+    {
+        if (_saving || !_canManage || _settingsChanged) return;
+        _saving = true;
+        try
+        {
+            await Sdk.RequestAsync<bool>("listings.save", new ListingSave(_revision, _entries));
+            await ReloadAsync(discard: true);
+            Snackbar.Add("Server listings saved. Publication will update automatically.", Severity.Success);
+        }
+        catch (JSException error) { Snackbar.Add($"Could not save listings: {error.Message}", Severity.Error); await ReloadAsync(); }
+        finally { _saving = false; }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

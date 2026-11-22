@@ -28,6 +28,12 @@ public static class QuasarCoreOperations
         services.AddQuasarPlayerOperations();
         services.AddQuasarBackupOperations();
         services.AddQuasarAuditDashboard();
+        services.AddQuasarNotificationDashboard();
+        services.AddQuasarSetupDashboard();
+        services.AddQuasarListingDashboard();
+        services.AddQuasarAppearance();
+        services.AddQuasarSecurityDashboard();
+        services.AddQuasarUpdatesDashboard();
         services.AddQuasarClusterOperations();
         services.AddQuasarEntityOperations();
         services.AddQuasarChatOperations();

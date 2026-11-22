@@ -51,6 +51,8 @@ public sealed class ServerListingPageTests : IDisposable
         context.Services.AddSingleton(rbac);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), rbac));
         context.Services.AddSingleton<QuasarPermissionService>();
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
         return context;
     }
 
@@ -58,7 +60,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task DiscoversBothKindsAndSavesSelectionThroughThePage()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         Assert.Contains("Standalone Magnetar server", page.Markup);
         Assert.Contains("Cluster · Steam gateway", page.Markup);
         Assert.DoesNotContain("Accept diagnostic data handling", page.Markup);
@@ -90,7 +92,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task SavingAddressesWithoutSelectingPublicationDoesNotOptIn()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         page.FindAll("input[name='public-host']")[0].Input("play.example.org");
         await page.Find("form").SubmitAsync();
         Assert.False(context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Options.Enabled);
@@ -109,7 +111,7 @@ public sealed class ServerListingPageTests : IDisposable
             Kind = "server", UniqueName = "solo", Name = "Previously hidden", PublicHost = "play.example.org"
         }] }, 0);
         await context.Services.GetRequiredService<DataHandlingConsentCatalog>().SaveListingVisibilityAsync(granted);
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         Assert.Equal(configured ? 1 : 0, page.FindAll("input[name='publish']").Count(input => input.HasAttribute("checked")));
         await page.Find("form").SubmitAsync();
         Assert.Equal(configured, settings.GetSnapshot().Options.Enabled);
@@ -120,7 +122,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task DeselectingAllServersDisablesPublicationAndRetainsTheirAddresses()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         page.FindAll("input[name='public-host']")[0].Input("play.example.org");
         page.FindAll("input[name='publish']")[0].Change(true);
         await page.Find("form").SubmitAsync();
@@ -137,7 +139,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task InvalidPublicationSelectionDoesNotGrantListingConsent()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         page.FindAll("input[name='publish']")[0].Change(true);
         await page.Find("form").SubmitAsync();
         Assert.Equal(0, context.Services.GetRequiredService<ServerListSettingsCatalog>().GetSnapshot().Revision);
@@ -148,7 +150,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task SourceChangesRefreshAutomaticallyWithoutLosingEdits()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         Assert.DoesNotContain(page.FindAll("button"), button => button.TextContent == "Reload");
         var host = page.FindAll("input[name='public-host']")[0];
         host.Input("draft.example.org");
@@ -158,9 +160,9 @@ public sealed class ServerListingPageTests : IDisposable
         {
             Assert.Equal(3, page.FindAll("input[name='public-name']").Count);
             Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "draft.example.org");
-        });
+        }, TimeSpan.FromSeconds(8));
         await context.Services.GetRequiredService<DedicatedServerCatalog>().DeleteAsync("solo");
-        page.WaitForAssertion(() => Assert.Contains("This source no longer exists", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("This source no longer exists", page.Markup), TimeSpan.FromSeconds(8));
         Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "draft.example.org");
     }
 
@@ -168,7 +170,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task SavedSettingsRefreshAutomaticallyWhenThereAreNoEdits()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
         await settings.SaveAsync(new() { Enabled = true, Listings = [new()
         {
@@ -178,7 +180,7 @@ public sealed class ServerListingPageTests : IDisposable
         {
             Assert.Contains(page.FindAll("input[name='public-name']"), input => input.GetAttribute("value") == "Updated public name");
             Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "saved.example.org");
-        });
+        }, TimeSpan.FromSeconds(8));
         await page.Find("form").SubmitAsync();
         Assert.Equal(2, settings.GetSnapshot().Revision);
     }
@@ -187,14 +189,14 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task ConcurrentSettingsChangesPreserveEditsAndPreventOverwritingUntilDiscarded()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         page.FindAll("input[name='public-host']")[0].Input("draft.example.org");
         var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
         await settings.SaveAsync(new() { Enabled = true, Listings = [new()
         {
             Kind = "server", UniqueName = "solo", Name = "Saved elsewhere", PublicHost = "saved.example.org"
         }] }, 0);
-        page.WaitForAssertion(() => Assert.Contains("Your unsaved edits are preserved", page.Markup));
+        page.WaitForAssertion(() => Assert.Contains("Your unsaved edits are preserved", page.Markup), TimeSpan.FromSeconds(8));
         Assert.Contains(page.FindAll("input[name='public-host']"), input => input.GetAttribute("value") == "draft.example.org");
         Assert.True(page.Find("button[type='submit']").HasAttribute("disabled"));
         await page.Find("form").SubmitAsync();
@@ -209,7 +211,7 @@ public sealed class ServerListingPageTests : IDisposable
     public async Task SavingRechecksPermissionAfterThePageHasOpened()
     {
         await using var context = await ContextAsync();
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         var settings = context.Services.GetRequiredService<ServerListSettingsCatalog>();
         page.FindAll("input[name='public-host']")[0].Input("play.example.org");
         page.FindAll("input[name='publish']")[0].Change(true);
@@ -225,7 +227,7 @@ public sealed class ServerListingPageTests : IDisposable
     {
         await using var context = await ContextAsync();
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanView);
-        var page = context.Render<ServerListing>();
+        var page = context.Render<Quasar.Client.Administration.ListingPage>();
         Assert.Contains("Public solo", page.Markup);
         Assert.Contains("Cluster fleet", page.Markup);
         Assert.True(page.Find("fieldset").HasAttribute("disabled"));

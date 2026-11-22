@@ -166,9 +166,13 @@ public sealed class NativeAppearanceTests : IDisposable
     {
         await using var context = new QuasarBunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.AddAuthorization().SetAuthorized("admin");
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
+        context.JSInterop.Setup<bool>("quasarSdk.darkMode").SetResult(true);
         context.Services.AddSingleton(_branding);
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
-        var page = context.Render<Appearance>();
+        var page = context.Render<Quasar.Client.Administration.AppearancePage>();
         Assert.Equal(58, page.FindAll("input[type=color]").Count);
         Assert.Equal("Quasar.png", page.Find("img[alt='Dark-mode logo preview']").GetAttribute("src"));
         Assert.Equal("Quasar-inverted-transparent.png", page.Find("img[alt='Light-mode logo preview']").GetAttribute("src"));
@@ -199,14 +203,18 @@ public sealed class NativeAppearanceTests : IDisposable
     {
         await using var context = new QuasarBunitContext();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        context.AddAuthorization().SetAuthorized("admin");
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
+        context.JSInterop.Setup<bool>("quasarSdk.darkMode").SetResult(true);
         context.Services.AddSingleton(_branding);
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         var navigation = new PrefixNavigation("https://dash.test/my-server-panel/");
         context.Services.AddSingleton<Microsoft.AspNetCore.Components.NavigationManager>(navigation);
-        void AssertImagesUnderPrefix(IRenderedComponent<Appearance> rendered) => Assert.All(rendered.FindAll("img"), image =>
+        void AssertImagesUnderPrefix(IRenderedComponent<Quasar.Client.Administration.AppearancePage> rendered) => Assert.All(rendered.FindAll("img"), image =>
             Assert.StartsWith("/my-server-panel/", new Uri(new Uri(navigation.BaseUri), image.GetAttribute("src")!).AbsolutePath));
 
-        var page = context.Render<Appearance>();
+        var page = context.Render<Quasar.Client.Administration.AppearancePage>();
         AssertImagesUnderPrefix(page); // Dark palette, default logos.
         page.Find("button[aria-pressed='false']").Click();
         AssertImagesUnderPrefix(page); // Light palette, default logos.
@@ -214,7 +222,7 @@ public sealed class NativeAppearanceTests : IDisposable
         // Uploaded assets are stored with a root-relative /branding path.
         foreach (bool dark in new[] { true, false })
             await _branding.SaveLogoAsync(dark, new MemoryStream([1]), ".png");
-        page = context.Render<Appearance>();
+        page = context.Render<Quasar.Client.Administration.AppearancePage>();
         AssertImagesUnderPrefix(page);
         page.Find("button[aria-pressed='false']").Click();
         AssertImagesUnderPrefix(page);
@@ -327,12 +335,12 @@ public sealed class NativeAppearanceTests : IDisposable
     [InlineData(true)]
     public async Task AnalyticsSelectsWholeClustersAndIncludesEverySlot(bool migrateLegacySelection)
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
         auth.SetAuthorized("operator");
-        auth.SetPolicies(QuasarPolicyNames.CanView);
+        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
         using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
         using var metrics = new MetricsStoreService(catalog, new(), NullLogger<MetricsStoreService>.Instance);
         var profiler = new ProfilerStoreService();
@@ -369,7 +377,7 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Quasar.Components.Pages.Analytics>();
+        var page = context.Render<Quasar.Client.Components.AnalyticsView>();
         var labels = page.FindComponents<MudCheckBox<bool>>().Select(box => box.Instance.Label).ToList();
         Assert.Equal(["Survival cluster"], labels);
         Assert.Contains("other-slot", page.Find(".analytics-node-legend").TextContent);
@@ -412,12 +420,12 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task ChatRoutesNodeViewsByIncarnationAndKeepsLifecycleControlsDisabled()
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         var auth = context.AddAuthorization();
         auth.SetAuthorized("editor");
-        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers);
+        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.CanControlServers, QuasarPolicyNames.ClusterQuery, QuasarPolicyNames.ClusterManage);
         context.Services.AddSingleton(new QuasarRoleMapper(new QuasarAuthOptions(), null!));
         context.Services.AddScoped<QuasarPermissionService>();
         using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
@@ -433,7 +441,7 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(registry);
         context.Services.AddSingleton(supervisor);
         context.Render<MudPopoverProvider>();
-        var page = context.Render<Chat>();
+        var page = context.Render<Quasar.Client.Components.ChatView>();
         var selector = page.FindComponent<MudSelect<string>>();
         foreach (var agent in registry.GetAgents())
         {
@@ -657,9 +665,12 @@ public sealed class NativeAppearanceTests : IDisposable
     [Fact]
     public async Task PluginStatsHistoryChartsOneLabelOfAWholeCluster()
     {
-        await using var context = new QuasarBunitContext();
+        await using var context = new OperationsBrowserContext();
         context.Services.AddMudServices();
         context.JSInterop.Mode = JSRuntimeMode.Loose;
+        var auth = context.AddAuthorization();
+        auth.SetAuthorized("operator");
+        auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery);
         using var catalog = new DedicatedServerCatalog(NullLogger<DedicatedServerCatalog>.Instance);
         using var clusters = new ClusterCatalog(NullLogger<ClusterCatalog>.Instance, new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Quasar:ClusterCatalogPath"] = Path.Combine(_root, "clusters") }).Build());
@@ -679,7 +690,7 @@ public sealed class NativeAppearanceTests : IDisposable
         context.Services.AddSingleton(new ThemePreferenceService(new(context.JSInterop.JSRuntime), _branding, context.JSInterop.JSRuntime));
         context.Render<MudPopoverProvider>();
 
-        var page = context.Render<PluginStatsHistory>();
+        var page = context.Render<Quasar.Client.Components.PluginStatsHistoryView>();
 
         await page.WaitForAssertionAsync(() => Assert.NotEmpty(context.JSInterop.Invocations["quasarCharts.sync"]));
         var request = JsonDocument.Parse(JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0])).RootElement;
