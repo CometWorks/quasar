@@ -266,7 +266,7 @@ public sealed class ClusterCreateTests : IDisposable
         await clusters.CreateAsync(new("empty", "Empty", "http://10.1.0.1:28016", "ADMIN"), default);
         await clusters.CreateAsync(new("busy", "Busy", "http://10.1.0.2:28016", "ADMIN"), default);
         await clusters.SetGoalStateAsync("busy", DedicatedServerGoalState.On);
-        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ServerName, "source"));
+        var page = context.Render<ConvertCluster>(p => p.Add(c => c.ServerName, "source"));
         Assert.Equal("Destination cluster", Assert.Single(page.FindComponents<MudSelect<string>>()).Instance.Label);
         var destinations = page.FindComponents<MudSelectItem<string>>();
         Assert.Contains(destinations, d => d.Instance.Value == "");
@@ -283,7 +283,7 @@ public sealed class ClusterCreateTests : IDisposable
     {
         await using var context = CreateContext();
         await context.Services.GetRequiredService<ClusterCatalog>().CreateAsync(new("source", "Source server", "http://10.1.0.1:28016", "ADMIN"), default);
-        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ClusterName, "source"));
+        var page = context.Render<ConvertCluster>(p => p.Add(c => c.ClusterName, "source"));
         var name = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server name");
         var id = page.FindComponents<MudTextField<string>>().Single(c => c.Instance.Label == "Server ID");
         Assert.Equal("Source server", name.Instance.GetState(c => c.Value));
@@ -321,17 +321,26 @@ public sealed class ClusterCreateTests : IDisposable
                 destination, phase == "Failed" ? "Interrupted" : null, DateTimeOffset.UtcNow), json));
         context.Services.GetRequiredService<NavigationManager>().NavigateTo(
             $"/{(toCluster ? "servers" : "clusters")}/source/{(toCluster ? "convert-to-cluster" : "convert-to-server")}?conversion={id}");
-        var page = context.Render<ClusterConversion>(p => p
+        var page = context.Render<ConvertCluster>(p => p
             .Add(c => c.ServerName, toCluster ? "source" : null)
-            .Add(c => c.ClusterName, toCluster ? null : "source"));
+            .Add(c => c.ClusterName, toCluster ? null : "source")
+            .Add(c => c.ConversionId, id));
 
         Assert.Contains(id.ToString(), page.Markup);
+        var sdk = context.Services.GetRequiredService<DashboardSdk>();
+        await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<ConversionProgress>("conversion.progress",
+            toCluster ? new ConversionSource("other", null, id) : new ConversionSource(null, "other", id)));
+        var projection = await sdk.RequestAsync<ConversionPageState>("conversion.page",
+            toCluster ? new ConversionSource("source", null, id) : new ConversionSource(null, "source", id));
+        var projected = JsonSerializer.Serialize(projection);
+        Assert.DoesNotContain("TOKENS", projected);
+        Assert.DoesNotContain("lifecycle", projected);
         Assert.Contains(phase, page.Markup);
         var buttons = page.FindComponents<MudButton>();
         Assert.Equal(destination is null, buttons.Any(b => b.Markup.Contains("Resume conversion")));
         Assert.DoesNotContain(buttons, b => b.Markup.Contains("Back up and convert"));
         Assert.Contains(buttons, b => b.Markup.Contains("Edit as a new conversion"));
-        Assert.Equal(destination is not null, buttons.Any(b => b.Instance.Href == destination && b.Markup.Contains("Review destination")));
+        Assert.Equal(destination is not null, buttons.Any(b => destination is not null && b.Instance.Href == (destination.TrimStart('/') is { Length: > 0 } relative ? relative : "./") && b.Markup.Contains("Review destination")));
     }
 
     [Theory]
@@ -341,13 +350,14 @@ public sealed class ClusterCreateTests : IDisposable
     {
         var authorization = new DelayedConversionAuthorization();
         await using var context = CreateContext(conversionAuthorization: authorization);
-        var page = context.Render<ClusterConversion>(p => p.Add(c => c.ServerName, "source"));
+        var page = context.Render<ConvertCluster>(p => p.Add(c => c.ServerName, "source"));
         Assert.Empty(page.FindComponents<MudCheckBox<bool>>());
         var button = page.FindComponents<MudButton>().Single(c => c.Markup.Contains("Convert to cluster"));
+        authorization.Delay = true;
         var queuedClick = button.Instance.OnClick;
         var clicking = button.Find("button").ClickAsync();
 
-        await page.WaitForAssertionAsync(() => Assert.Single(page.FindComponents<QuasarOperationLoader>()));
+        await page.WaitForAssertionAsync(() => Assert.Single(page.FindAll("section[aria-busy]")));
         Assert.Contains("Validating the source and destination before backup.", page.Find("[role=status]").TextContent);
         Assert.Equal("true", page.Find("[aria-busy]").GetAttribute("aria-busy"));
         Assert.DoesNotContain(page.FindComponents<MudButton>(), b => b.Markup.Contains("Convert to cluster"));
@@ -360,10 +370,10 @@ public sealed class ClusterCreateTests : IDisposable
         authorization.Result.SetResult(permitted ? AuthorizationResult.Success() : AuthorizationResult.Failed());
         await clicking;
 
-        Assert.Empty(page.FindComponents<QuasarOperationLoader>());
+        Assert.Empty(page.FindAll("section[aria-busy]"));
         Assert.Contains(permitted ? "Source server was not found" : "You do not have permission",
             page.Find("[role=alert]").TextContent);
-        Assert.False(page.FindComponents<MudButton>().Single(b => b.Markup.Contains(permitted ? "Resume conversion" : "Convert to cluster")).Instance.Disabled);
+        Assert.False(page.FindComponents<MudButton>().Single(b => b.Markup.Contains("Resume conversion")).Instance.Disabled);
         string work = Path.Combine(_root, "backups", "Conversions");
         Assert.Equal(permitted, Directory.Exists(work));
         if (permitted)
@@ -376,6 +386,14 @@ public sealed class ClusterCreateTests : IDisposable
             Assert.Equal("cluster-" + request.GetProperty("id").GetGuid().ToString("N"),
                 saved.RootElement.GetProperty("cluster").GetString());
         }
+    }
+
+    private sealed class Lifetime : Microsoft.Extensions.Hosting.IHostApplicationLifetime
+    {
+        public CancellationToken ApplicationStarted => default;
+        public CancellationToken ApplicationStopping => default;
+        public CancellationToken ApplicationStopped => default;
+        public void StopApplication() { }
     }
 
     private sealed class InProcessDashboardTransport(IServiceProvider services) : IJSRuntime
@@ -415,9 +433,11 @@ public sealed class ClusterCreateTests : IDisposable
     private sealed class DelayedConversionAuthorization : IAuthorizationService
     {
         public TaskCompletionSource<AuthorizationResult> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool Delay { get; set; }
         public int Checks { get; private set; }
         public Task<AuthorizationResult> AuthorizeAsync(ClaimsPrincipal user, object? resource, string policyName)
         {
+            if (!Delay) return Task.FromResult(AuthorizationResult.Success());
             Checks++;
             return Result.Task;
         }
@@ -433,10 +453,13 @@ public sealed class ClusterCreateTests : IDisposable
         var auth = context.AddAuthorization();
         auth.SetAuthorized("admin");
         auth.SetPolicies(securityAdmin
-            ? [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
+            ? [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditServers, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
             : [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage]);
         context.Services.AddSingleton(auth);
+        context.ComponentFactories.AddStub<BrowserClusterNotice>();
+        context.Services.AddSingleton<Microsoft.Extensions.Hosting.IHostApplicationLifetime, Lifetime>();
         context.Services.AddQuasarHostDashboardOperations();
+        context.Services.AddQuasarConversionDashboardOperations();
         context.Services.AddSingleton(sp => new DashboardSdk(new InProcessDashboardTransport(sp)));
         if (conversionAuthorization is not null)
             context.Services.AddSingleton(conversionAuthorization);

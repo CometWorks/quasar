@@ -11,8 +11,8 @@ public static class QuasarHostDashboardOperations
 {
     public sealed record RegistrationInput(string Id, string Name, string Address, string Origin);
     public sealed record HostId(string Id = "");
-    private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read, AgentAccess = QuasarAgentAccess.Denied };
-    private static readonly QuasarOperationMetadata Change = new() { Effect = QuasarOperationEffect.Change, AgentAccess = QuasarAgentAccess.Denied };
+    private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read, AgentAccess = QuasarAgentAccess.Denied, RequireDefaultPolicies = true };
+    private static readonly QuasarOperationMetadata Change = new() { Effect = QuasarOperationEffect.Change, AgentAccess = QuasarAgentAccess.Denied, RequireDefaultPolicies = true };
     private static readonly string[] Manage = [QuasarPolicyNames.CanManageSecurity];
 
     public static void AddQuasarHostDashboardOperations(this IServiceCollection services)
