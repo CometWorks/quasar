@@ -185,11 +185,10 @@ Core builds the caller; a plugin never does. `HandleAsync` gets a
 `QuasarChatCommandRequest`:
 
 - `Caller`: for a player command, the player-agent principal, or null for a
-  Discord user who has not linked a Steam account. For an admin command, the
-  principal of the Discord user's mapped subject (`discordSubjects` in
-  `rbac.json`, the **Discord Admin Mappings** panel on the Security page) with
-  its current roles: a person, never an agent. Unmapped Discord users never
-  reach an admin command.
+  Discord user who has not linked a Steam account. For an admin command, Quasar resolves the verified link,
+  builds the Steam principal with its current runtime roles, and calls the plugin
+  only if the principal has the Quasar `admin` role. The Security page shows the
+  linked Discord account on the Steam subject's row.
 - `ConversationKey`: `steam:<SteamID64>` for a player, which follows them
   across cluster nodes and to Discord once linked; `discord:<user id>`
   otherwise.

@@ -451,28 +451,25 @@ public sealed class QuasarPlayerServicesTests : IDisposable
     }
 
     [Fact]
-    public async Task DiscordAdminsAreTheirMappedSubjectAndNeverAnAgent()
+    public async Task DiscordAdminCommandsRequireAVerifiedLinkAndTheCurrentSteamAdminRole()
     {
+        // Old code-based links have no proof even if their Steam subject has admin.
+        await File.WriteAllTextAsync(MagnetarPaths.GetQuasarPlayerLinksPath(), JsonSerializer.Serialize(new
+        {
+            links = new[] { new QuasarPlayerLink("300", Stranger, DateTimeOffset.UtcNow) }
+        }));
         await _rbac.UpdateAsync(config =>
         {
             config.SubjectRoleMappings.Add(
                 new() { Subject = AdminSteamId, Roles = [QuasarRoles.Admin] }
             );
-            config.DiscordSubjects.Add(new() { DiscordUserId = "100", Subject = AdminSteamId });
-            config.DiscordSubjects.Add(
-                new()
-                {
-                    DiscordUserId = "200",
-                    Provider = "Oidc",
-                    Subject = "someone",
-                }
-            );
-            config.DiscordSubjects.Add(
-                new() { DiscordUserId = "not-a-snowflake", Subject = AdminSteamId }
-            );
+            config.SubjectRoleMappings.Add(new() { Subject = Stranger, Roles = [QuasarRoles.Admin] });
+            config.SubjectRoleMappings.Add(new() { Subject = Pilot, Roles = [QuasarRoles.Editor] });
             return Task.CompletedTask;
         });
-        Assert.Equal(2, _rbac.GetConfig().DiscordSubjects.Count);
+        var links = _services.GetRequiredService<QuasarPlayerLinks>();
+        await links.AuthenticateAsync(AdminSteamId, "100");
+        await links.AuthenticateAsync(Pilot, "200");
 
         var requests = _services.GetRequiredService<QuasarChatCommands>();
         var replies = new List<string>();
@@ -497,9 +494,26 @@ public sealed class QuasarPlayerServicesTests : IDisposable
         Assert.Equal(AdminSteamId, asked.Caller.FindFirstValue(ClaimTypes.NameIdentifier));
         Assert.Equal("admin-channel", asked.Source.DiscordChannelId);
         Assert.Equal(
-            new[] { "ok", QuasarChatCommands.NotMapped, QuasarChatCommands.NotMapped },
+            new[] { "ok", QuasarChatCommands.AdminLinkRequired, QuasarChatCommands.AdminLinkRequired },
             replies
         );
+
+        await _rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Single(m => m.Subject == AdminSteamId).Roles = [QuasarRoles.Viewer];
+            return Task.CompletedTask;
+        });
+        await requests.HandleDiscordAsync("assistant", "100", "admin-channel", "status?", Reply, default);
+        Assert.Equal(QuasarChatCommands.AdminLinkRequired, replies[^1]);
+        await _rbac.UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Single(m => m.Subject == AdminSteamId).Roles = [QuasarRoles.Admin];
+            return Task.CompletedTask;
+        });
+        await links.RemoveByDiscordAsync("100", default);
+        await requests.HandleDiscordAsync("assistant", "100", "admin-channel", "status?", Reply, default);
+        Assert.Equal(QuasarChatCommands.AdminLinkRequired, replies[^1]);
+        Assert.Single(_admin.Requests);
     }
 
     [Fact]
@@ -510,7 +524,6 @@ public sealed class QuasarPlayerServicesTests : IDisposable
             _services.GetRequiredService<QuasarAgentPrincipals>(),
             _services.GetRequiredService<QuasarPlayerLinks>(),
             _knownPlayers,
-            _rbac,
             _services.GetRequiredService<QuasarRoleMapper>(),
             [
                 _ask,

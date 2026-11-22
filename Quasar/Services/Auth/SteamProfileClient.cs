@@ -1,10 +1,11 @@
+using Microsoft.Extensions.Caching.Memory;
 using Quasar.Client.Administration;
 using System.Xml;
 using System.Xml.Linq;
 
 namespace Quasar.Services.Auth;
 
-public sealed class SteamProfileClient(HttpClient client, ILogger<SteamProfileClient> logger)
+public sealed class SteamProfileClient(HttpClient client, ILogger<SteamProfileClient> logger, IMemoryCache cache)
 {
     public static bool IsSupportedInput(string? input) => SteamProfileInput.TryGetProfilePath(input, out _, out _);
 
@@ -29,12 +30,16 @@ public sealed class SteamProfileClient(HttpClient client, ILogger<SteamProfileCl
         if (!RbacConfigCatalog.IsSteamId64(steamId))
             return null;
 
+        var key = (typeof(SteamProfileClient), steamId);
+        if (cache.TryGetValue<string>(key, out var cachedName)) return cachedName;
+
         var profile = await GetProfileAsync($"profiles/{steamId}", cancellationToken);
         if (profile?.Element("steamID64")?.Value != steamId)
             return null;
 
         var name = profile.Element("steamID")?.Value.Trim();
-        return string.IsNullOrWhiteSpace(name) ? null : name;
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        return cache.Set(key, name, TimeSpan.FromMinutes(5));
     }
 
     private async Task<XElement?> GetProfileAsync(string path, CancellationToken cancellationToken)

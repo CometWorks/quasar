@@ -17,8 +17,8 @@ public sealed class QuasarChatCommands
 {
     public const int MaxTextLength = 2000;
     internal const string NotAvailable = "This command is not available on this server.";
-    internal const string NotMapped =
-        "Your Discord account is not mapped to a Quasar administrator. An admin can map it on the Security page.";
+    internal const string AdminLinkRequired =
+        "This command requires a verified Discord link to a Steam account with the Quasar admin role. Use /authorize in this Discord server to link your accounts.";
     private static readonly TimeSpan WhisperTimeout = TimeSpan.FromSeconds(15);
     private static readonly Regex NamePattern = new(@"\A[a-z0-9-]{1,32}\z");
 
@@ -42,7 +42,6 @@ public sealed class QuasarChatCommands
     private readonly QuasarAgentPrincipals principals;
     private readonly QuasarPlayerLinks links;
     private readonly KnownPlayerCatalog knownPlayers;
-    private readonly RbacConfigCatalog rbac;
     private readonly QuasarRoleMapper roles;
     private readonly ILogger<QuasarChatCommands> logger;
     private readonly PlayerAccessCatalog? accessCatalog;
@@ -55,7 +54,6 @@ public sealed class QuasarChatCommands
         QuasarAgentPrincipals principals,
         QuasarPlayerLinks links,
         KnownPlayerCatalog knownPlayers,
-        RbacConfigCatalog rbac,
         QuasarRoleMapper roles,
         IEnumerable<IQuasarChatCommand> commands,
         ILogger<QuasarChatCommands> logger,
@@ -66,7 +64,6 @@ public sealed class QuasarChatCommands
         this.principals = principals;
         this.links = links;
         this.knownPlayers = knownPlayers;
-        this.rbac = rbac;
         this.roles = roles;
         this.logger = logger;
         this.accessCatalog = accessCatalog;
@@ -202,7 +199,7 @@ public sealed class QuasarChatCommands
     }
 
     /// <summary>A plugin command on Discord. A player command runs as the linked player, or with no principal
-    /// for an unlinked user; an admin command only for Discord users mapped to a Quasar subject.</summary>
+    /// for an unlinked user; an admin command only for users with a verified link to a current Steam administrator.</summary>
     public async Task HandleDiscordAsync(
         string name,
         string discordUserId,
@@ -231,7 +228,7 @@ public sealed class QuasarChatCommands
             var asker = CreateDiscordAdmin(discordUserId);
             if (asker is null)
             {
-                await reply(NotMapped, token);
+                await reply(AdminLinkRequired, token);
                 return;
             }
             await CallAsync(
@@ -274,23 +271,12 @@ public sealed class QuasarChatCommands
         );
     }
 
-    /// <summary>The mapped subject's principal with its current roles; null without a usable mapping.
-    /// Steam is the only provider that can be mapped in v1.</summary>
-    internal ClaimsPrincipal? CreateDiscordAdmin(string discordUserId)
+    private ClaimsPrincipal? CreateDiscordAdmin(string discordUserId)
     {
-        var mapping = rbac.GetConfig()
-            .DiscordSubjects.FirstOrDefault(m => m.DiscordUserId == discordUserId);
-        if (
-            mapping is null
-            || !string.Equals(
-                mapping.Provider,
-                QuasarAuthSchemes.Steam,
-                StringComparison.OrdinalIgnoreCase
-            )
-            || !RbacConfigCatalog.IsSteamId64(mapping.Subject)
-        )
-            return null;
-        return roles.CreateSteamPrincipal(mapping.Subject);
+        var link = links.FindByDiscordUser(discordUserId);
+        if (link is null || !RbacConfigCatalog.IsSteamId64(link.SteamId)) return null;
+        var principal = roles.CreateSteamPrincipal(link.SteamId);
+        return principal.IsInRole(QuasarRoles.Admin) ? principal : null;
     }
 
     /// <summary>Whispers an answer to the player, split into chat-sized messages, through the node that

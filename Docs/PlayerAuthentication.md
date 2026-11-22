@@ -63,8 +63,9 @@ conflicts are rejected instead of silently replacing accounts.
 
 Players can run `/unlink-accounts` in the server's Discord. Users with `CanControlServers`
 can remove a link on **Access → Linked accounts**. Relinking creates a new authentication identity
-and requires fresh server authorization. Discord administrator-to-Steam mappings
-for dashboard commands remain separate.
+and requires fresh server authorization. Discord plugin commands marked Admin require both this verified
+link and the linked Steam account’s current Quasar `admin` role. **Security → Runtime Subject Role Mappings**
+shows the verified Discord ID alongside the Steam and Discord names.
 
 ## Policy rules
 

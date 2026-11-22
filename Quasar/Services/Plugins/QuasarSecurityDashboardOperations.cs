@@ -1,4 +1,7 @@
+using System.Security.Claims;
 using Quasar.Client.Administration;
+using Quasar.Services.Discord;
+using Quasar.Services.Players;
 using Quasar.Plugin.Abstractions.Operations;
 using Quasar.Services.Auth;
 
@@ -7,7 +10,7 @@ namespace Quasar.Services.Plugins;
 internal static class QuasarSecurityDashboardOperations
 {
     public sealed record MappingChange(string Provider, string Subject, string? Role = null);
-    public sealed record DiscordChange(string DiscordUserId, string? Subject = null);
+    public sealed record SteamAccount(string SteamId);
     public sealed record ConsentInput(bool Consent);
     public sealed record DiagnosticsInput(bool Diagnostics, bool Dumps);
     public sealed record NetworkInput(QuasarTrustedNetworkSettings Network, string Proxies);
@@ -54,19 +57,21 @@ internal static class QuasarSecurityDashboardOperations
         services.AddQuasarOperation<MappingChange, bool>(plugin, "security.mapping.remove", manage,
             (caller, input, token) => UpdateRbacAsync(caller, config => config.SubjectRoleMappings.RemoveAll(item =>
                 item.Provider.Equals(input.Provider, StringComparison.OrdinalIgnoreCase) && item.Subject.Equals(input.Subject, StringComparison.OrdinalIgnoreCase)), token), write with { Description = "Removes a subject role mapping." });
-        services.AddQuasarOperation<DiscordChange, bool>(plugin, "security.discord.add", manage, async (caller, input, token) =>
+        services.AddQuasarOperation<SteamAccount, MappingNames>(plugin, "security.mapping.names", manage, async (caller, input, token) =>
         {
-            var id = input.DiscordUserId?.Trim();
-            if (!ulong.TryParse(id, out _)) throw new QuasarOperationException(400, "Enter the numeric Discord user ID.");
-            var steam = await ResolveSteamAsync(caller, input.Subject, token);
-            return await UpdateRbacAsync(caller, config =>
-            {
-                config.DiscordSubjects.RemoveAll(item => item.DiscordUserId == id);
-                config.DiscordSubjects.Add(new() { DiscordUserId = id!, Subject = steam });
-            }, token);
-        }, write with { Description = "Adds a Discord role mapping." });
-        services.AddQuasarOperation<DiscordChange, bool>(plugin, "security.discord.remove", manage,
-            (caller, input, token) => UpdateRbacAsync(caller, config => config.DiscordSubjects.RemoveAll(item => item.DiscordUserId == input.DiscordUserId), token), write with { Description = "Removes a Discord role mapping." });
+            var services = caller.Services;
+            var id = input.SteamId;
+            if (!RbacConfigCatalog.IsSteamId64(id) || services.GetRequiredService<RbacConfigCatalog>().GetSubjectRoles(QuasarAuthSchemes.Steam, id).Count == 0)
+                throw new QuasarOperationException(404, "Steam role mapping no longer exists.");
+
+            var discordId = services.GetRequiredService<QuasarPlayerLinks>().FindBySteamId(id)?.DiscordUserId;
+            var ticketName = caller.User.FindFirstValue(QuasarClaimTypes.Provider) == QuasarAuthSchemes.Steam &&
+                caller.User.FindFirstValue(QuasarClaimTypes.SteamId) == id ? caller.User.FindFirstValue(QuasarClaimTypes.SteamDisplayName) : null;
+            var steamName = ticketName ?? await services.GetRequiredService<SteamProfileClient>().GetDisplayNameAsync(id, token);
+            var discordName = ulong.TryParse(discordId, out var userId) && services.GetService<DiscordBotService>() is { } bot
+                ? await bot.GetUsernameAsync(userId, token) : null;
+            return new MappingNames(steamName, discordId, discordName);
+        }, write with { Description = "Looks up display names for a mapped Steam account and its verified Discord link.", Effect = QuasarOperationEffect.Read });
     }
 
     private static async Task<string> ResolveSteamAsync(QuasarOperationContext caller, string? input, CancellationToken token)
@@ -93,11 +98,12 @@ internal static class QuasarSecurityDashboardOperations
         var choices = consent.GetSettings();
         var catalog = caller.Services.GetRequiredService<RbacConfigCatalog>();
         var config = catalog.GetConfig();
+        var links = caller.Services.GetRequiredService<QuasarPlayerLinks>().GetLinks().Where(link => link.Authenticated).ToLookup(link => link.SteamId);
         return new(auth.DefaultProvider, auth.Steam.Enabled, caller.Services.GetRequiredService<HostedPanelService>().State.EnrollmentId is not null,
             network.SettingsPath, consent.SettingsPath, network.GetTrustedNetworkSettings(),
             new(choices.ConsentGranted, choices.DiagnosticsGranted, choices.DumpsGranted),
-            config.SubjectRoleMappings.Select(item => new RoleMapping(item.Provider, item.Subject, item.Roles.ToArray())).ToArray(),
-            config.DiscordSubjects.Select(item => new DiscordMapping(item.DiscordUserId, item.Subject, catalog.GetSubjectRoles(item.Provider, item.Subject).ToArray())).ToArray(),
+            config.SubjectRoleMappings.Select(item => new RoleMapping(item.Provider, item.Subject, item.Roles.ToArray(),
+                item.Provider.Equals(QuasarAuthSchemes.Steam, StringComparison.OrdinalIgnoreCase) ? links[item.Subject].FirstOrDefault()?.DiscordUserId : null)).ToArray(),
             QuasarRoles.All.Order(StringComparer.OrdinalIgnoreCase).ToArray());
     }
 }

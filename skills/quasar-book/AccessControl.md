@@ -210,10 +210,7 @@ more, like the assistant plugin's Grid Backups operations.
   ],
   "claimRoleMappings": [],
   "policyOverrides": {},
-  "agentRoles": { "assistant": ["editor"], "player": [], "monitor": ["editor"] },
-  "discordSubjects": [
-    { "discordUserId": "123456789012345678", "provider": "Steam", "subject": "76561198000000000" }
-  ]
+  "agentRoles": { "assistant": ["editor"], "player": [], "monitor": ["editor"] }
 }
 ```
 
@@ -224,7 +221,7 @@ Rules Quasar applies when it reads the file:
 - A subject can have several roles; the highest one decides in practice, since each role grants a superset of the one below.
 - `claimRoleMappings` and `policyOverrides` are read and saved but do not change who can do what. The permission table above is fixed.
 - `agentRoles` keeps only `assistant`, `player` and `monitor`. A missing entry gets its default, and `admin` is dropped.
-- `discordSubjects` entries need a numeric Discord user ID and a subject; others are dropped, and a Discord user keeps its first entry. A non-Steam provider grants nothing.
+- Older files may contain `discordSubjects`. Quasar ignores these manual entries and omits them on the next RBAC save. Administrators who used them can verify their own accounts through `/authorize` in Discord.
 
 Quasar watches the file. Saving it while Quasar runs applies the change within moments, and the log shows "Reloaded RBAC config from disk after external edit." If the file is not valid JSON, Quasar logs "Failed loading RBAC config from <path>" and treats it as having no mappings, so no Steam user has a role until the file is fixed.
 
@@ -232,14 +229,15 @@ Quasar watches the file. Saving it while Quasar runs applies the change within m
 
 ## The Security page
 
-**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) has six panels.
+**Security** (`/settings/security`, admin only, under **Infrastructure & tools**) contains the following controls.
 
 - **Public panel access**: **Manage access setup** opens the access setup dialog, where you choose self-deployment behind your own reverse proxy or a hosted Nebula panel. Once the installation is enrolled with Nebula, **Manage Nebula hosting and billing** opens the Nebula account page. See [Hosted access](HostedPanel.md).
 - **Auth Provider**: read-only summary of the default provider, Steam login, private-LAN/public-HTTPS mode, trusted loopback, trusted private LAN and trusted proxies, and the path of the `appsettings.json` it writes.
 - **Private LAN and Reverse Proxy**: checkboxes **Trust loopback access**, **Trust private LAN access**, and **Require HTTPS for non-LAN access**, the **Trusted reverse proxies** text box (one IP or CIDR per line, comma or space), **Save Security Settings** and **Apply Public Proxy Preset** (loopback and private LAN on, non-LAN HTTPS required; you still have to save). It writes the corresponding `Quasar:Auth` values in the data directory's `appsettings.json`. The trusted-address checkboxes apply immediately; HTTPS mode and trusted proxy changes need a Quasar restart. An invalid entry fails with "'<value>' is not a valid IP address or CIDR range."
 - **Data Handling Consent**: the YES/NO data-sharing decision, diagnostic reports, crash dumps and a link to per-server listing controls. See [Diagnostics](Diagnostics.md).
-- **Discord Admin Mappings**: maps a Discord user ID to a Steam account, so that Discord user can use the admin commands of UI plugins, such as the assistant's `/assistant`, with that account's Quasar roles. Discord's own Administrator permission doesn't count. Only Steam accounts can be mapped.
 - **Runtime Subject Role Mappings**: add a mapping with **Provider** (Steam), **SteamID64 or profile URL** and **Role**, then click the plus button. Each add grants one role. The delete button removes a mapping after confirmation ("Remove RBAC mapping?"). Changes are saved to `rbac.json` at once and apply to signed-in users right away.
+
+For each Steam subject, the table shows its Steam profile name and whether it has a verified Discord link. Linked accounts show the Discord user ID and the username retrieved by the bot. IDs stay visible when a name lookup is unavailable. Only a verified link to a Steam subject with the current Quasar `admin` role allows Discord plugin commands marked Admin, such as `/assistant`. Removing the link or the role takes effect on the next command.
 
 For Steam mappings, enter a 17-digit ID or a Steam Community `/id/<vanity-name>` or `/profiles/<SteamID64>` URL. Quasar resolves vanity URLs automatically through Steam Community without an API key; numeric IDs and numeric profile URLs need no network lookup. It saves only the SteamID64. Invalid input disables the plus button. If a lookup fails, an error appears, the input stays in place and no mapping is saved. Retry or enter the numeric ID if Steam is unavailable.
 
@@ -503,7 +501,7 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar.Client/Administration/AuditLogPage.razor`
 - `Quasar/Services/ServerWorldImportApi.cs`
 - `Quasar.Client/Components/WorldImportForm.razor`
-- `Quasar.Client/Administration/DashboardDiscordMappings.razor`
+- `Quasar.Client/Administration/RoleMappingAccounts.razor`
 - `Quasar/Services/Plugins/QuasarMyOperations.cs`
 - `Docs/PlayerAuthentication.md`
 - `Quasar/Services/Players/PlayerAccessCatalog.cs`

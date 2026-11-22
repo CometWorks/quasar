@@ -223,6 +223,7 @@ public class Program
                     return new GitHubRetryHandler((message, exception) =>
                         logger.LogWarning(exception, "{Message}", message));
                 });
+            builder.Services.AddMemoryCache();
             builder.Services.AddHttpClient<SteamProfileClient>(client =>
                 {
                     client.Timeout = TimeSpan.FromSeconds(5);

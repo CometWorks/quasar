@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Security.Claims;
 using System.Net;
 using System.Net.Http.Json;
 using Bunit;
@@ -12,6 +13,8 @@ using Quasar.Components.Shared;
 using Quasar.Hosting;
 using Quasar.Services;
 using Quasar.Services.Auth;
+using Quasar.Services.Players;
+using Quasar.Client.Administration;
 using Xunit;
 
 namespace Quasar.Tests;
@@ -42,6 +45,8 @@ public sealed class AccessSetupDialogTests : IDisposable
         context.Services.AddSingleton(new QuasarAuthOptions());
         context.Services.AddSingleton(new RbacConfigCatalog(NullLogger<RbacConfigCatalog>.Instance));
         context.Services.AddSingleton<QuasarRoleMapper>();
+        context.Services.AddSingleton<QuasarPlayerLinks>();
+        context.Services.AddMemoryCache();
         context.Services.AddHttpClient();
         context.Services.AddHttpClient<SteamProfileClient>()
             .ConfigurePrimaryHttpMessageHandler(() => profiles ?? new ProfileLookupHandler());
@@ -195,7 +200,64 @@ public sealed class AccessSetupDialogTests : IDisposable
         {
             Assert.Equal(SteamId, Assert.Single(mappings).Subject);
             Assert.Equal(string.Empty, input.GetAttribute("value"));
+            page.WaitForAssertion(() => Assert.Contains("Steam profile name", page.Markup));
+            Assert.Contains("Not linked", page.Markup);
         }
+    }
+
+    [Theory]
+    [InlineData("9007199254740993", true)]
+    [InlineData("9007199254740994", false)]
+    public async Task LinkedRowDisplaysBotUsernameOnlyForTheMatchingDiscordId(string lookupId, bool matches)
+    {
+        const string linkedId = "9007199254740993";
+        await using var context = new QuasarBunitContext();
+        context.Services.AddMudServices();
+        context.Services.AddScoped<Quasar.Client.DashboardSdk>();
+        context.JSInterop.Setup<MappingNames>("quasarSdk.request", _ => true)
+            .SetResult(new MappingNames("Steam pilot", lookupId, "pilot.discord"));
+        var cells = context.Render<RoleMappingAccounts>(p =>
+            p.Add(c => c.Mapping, new RoleMapping("Steam", SteamId, [QuasarRoles.Admin], linkedId)));
+        Assert.Contains("Steam pilot", cells.Markup);
+        Assert.Contains(linkedId, cells.Markup);
+        Assert.Equal(matches, cells.Markup.Contains("@pilot.discord"));
+    }
+
+    [Fact]
+    public async Task RuntimeMappingsShowVerifiedDiscordIdsAndUseTheSteamSignInName()
+    {
+        var profiles = new ProfileLookupHandler();
+        await using var context = Context(profiles);
+        context.Services.AddSingleton<QuasarAuthSettingsService>();
+        context.Services.AddSingleton(new DataHandlingConsentCatalog(NullLogger<DataHandlingConsentCatalog>.Instance));
+        context.ComponentFactories.AddStub<Quasar.Client.UiPlugins.BrowserSdkAuthorization>();
+        var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
+        auth.SetClaims(new Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.Steam),
+            new Claim(QuasarClaimTypes.SteamId, SteamId), new Claim(QuasarClaimTypes.SteamDisplayName, "Signed-in engineer"));
+        const string discordId = "9007199254740993";
+        var links = context.Services.GetRequiredService<QuasarPlayerLinks>();
+        await links.AuthenticateAsync(SteamId, discordId);
+        await context.Services.GetRequiredService<RbacConfigCatalog>().UpdateAsync(config =>
+        {
+            config.SubjectRoleMappings.Add(new() { Subject = SteamId, Roles = [QuasarRoles.Admin] });
+            config.SubjectRoleMappings.Add(new() { Provider = "Oidc", Subject = SteamId, Roles = [QuasarRoles.Viewer] });
+            return Task.CompletedTask;
+        });
+        context.Render<MudPopoverProvider>();
+        var page = context.Render<SecurityPage>();
+        var row = page.FindAll("tr").Single(r => r.TextContent.Contains("Signed-in engineer"));
+        Assert.Contains(discordId, row.TextContent);
+        Assert.Contains("Name unavailable", row.TextContent);
+        Assert.DoesNotContain(discordId, page.FindAll("tr").Single(r => r.TextContent.Contains("Oidc")).TextContent);
+        Assert.Equal(0, profiles.RequestCount);
+
+        await links.RemoveByDiscordAsync(discordId, default);
+        var sdk = context.Services.GetRequiredService<Quasar.Client.DashboardSdk>();
+        var next = await sdk.RequestAsync<SecurityDashboard>("security.dashboard");
+        Assert.All(next.SubjectRoleMappings, m => Assert.Null(m.DiscordUserId));
+        var names = await sdk.RequestAsync<MappingNames>("security.mapping.names", new { SteamId });
+        Assert.Equal(new MappingNames("Signed-in engineer", null, null), names);
+        Assert.Equal(0, profiles.RequestCount);
     }
 
     [Fact]
@@ -248,16 +310,18 @@ public sealed class AccessSetupDialogTests : IDisposable
 
     private sealed class ProfileLookupHandler : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
         public bool Fail { get; init; }
         public Action? OnRequest { get; set; }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            Assert.Equal("https://steamcommunity.com/id/rex00991?xml=1", request.RequestUri?.AbsoluteUri);
+            RequestCount++;
+            Assert.Contains(request.RequestUri?.AbsoluteUri, new[] { "https://steamcommunity.com/id/rex00991?xml=1", $"https://steamcommunity.com/profiles/{SteamId}?xml=1" });
             OnRequest?.Invoke();
             return Task.FromResult(new HttpResponseMessage(Fail ? HttpStatusCode.ServiceUnavailable : HttpStatusCode.OK)
             {
-                Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64></profile>"),
+                Content = new StringContent($"<profile><steamID64>{SteamId}</steamID64><steamID>Steam profile name</steamID></profile>"),
             });
         }
     }

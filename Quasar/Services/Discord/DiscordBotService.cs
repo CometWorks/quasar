@@ -377,6 +377,22 @@ public sealed class DiscordBotService : IHostedService, IDisposable
     /// <summary>The connected client, or null while the bot is off.</summary>
     internal DiscordSocketClient? CurrentClient => GetClient();
 
+    internal async Task<string?> GetUsernameAsync(ulong userId, CancellationToken token)
+    {
+        if (CurrentClient is not { ConnectionState: ConnectionState.Connected } client) return null;
+        try
+        {
+            var user = await client.Rest.GetUserAsync(userId, new RequestOptions { CancelToken = token, Timeout = 5000, RetryMode = RetryMode.AlwaysFail });
+            return user?.Username;
+        }
+        catch (Exception ex) when (ex is global::Discord.Net.HttpException or global::Discord.Net.RateLimitedException or HttpRequestException or TimeoutException or InvalidOperationException
+            || ex is OperationCanceledException && !token.IsCancellationRequested)
+        {
+            _logger.LogDebug(ex, "Could not retrieve a linked Discord username.");
+            return null;
+        }
+    }
+
     private DiscordSocketClient? GetClient()
     {
         lock (_sync)
