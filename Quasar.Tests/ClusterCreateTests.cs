@@ -19,6 +19,13 @@ using MudBlazor.Services;
 using Quasar.Components.Pages;
 using Quasar.Components.Shared;
 using Quasar.Models;
+using Microsoft.AspNetCore.Components.Authorization;
+using Microsoft.JSInterop;
+using Quasar.Client;
+using Quasar.Client.Components;
+using Quasar.Client.Fleet;
+using Quasar.Plugin.Abstractions.Operations;
+using Quasar.Services.Plugins;
 using Quasar.Services;
 using Quasar.Services.Auth;
 using Quasar.Services.Backup;
@@ -142,7 +149,7 @@ public sealed class ClusterCreateTests : IDisposable
     }
 
     [Fact]
-    public async Task EnrollmentRequiresSecurityPermissionAndStandalonePageUsesSameForm()
+    public async Task EnrollmentRequiresSecurityPermissionAndStandaloneFormIssuesCommand()
     {
         await using var context = CreateContext(securityAdmin: false);
         var page = context.Render<ClusterCreate>();
@@ -150,9 +157,10 @@ public sealed class ClusterCreateTests : IDisposable
         Assert.Contains("A security administrator must enroll host machines", page.Markup);
 
         context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanManageSecurity);
-        var standalone = context.Render<HostEnroll>();
-        Assert.Single(standalone.FindComponents<HostEnrollment>());
-        Assert.Contains("Add host machine", standalone.Markup);
+        var standalone = context.Render<HostEnrollmentForm>();
+        await standalone.FindComponents<MudButton>().Single(b => b.Markup.Contains("Generate enrollment command")).Find("button").ClickAsync();
+        Assert.Contains("Enrollment command", standalone.Markup);
+        Assert.Single(context.Services.GetRequiredService<ClusterHostCatalog>().GetAll());
     }
 
     [Fact]
@@ -370,6 +378,40 @@ public sealed class ClusterCreateTests : IDisposable
         }
     }
 
+    private sealed class InProcessDashboardTransport(IServiceProvider services) : IJSRuntime
+    {
+        public ValueTask<T> InvokeAsync<T>(string identifier, object?[]? args) =>
+            InvokeAsync<T>(identifier, default, args);
+
+        public async ValueTask<T> InvokeAsync<T>(string identifier, CancellationToken token, object?[]? args)
+        {
+            Assert.Equal("quasarSdk.request", identifier);
+            Assert.Equal("quasar.core", args![0]);
+            var operation = services.GetServices<QuasarOperation>().Single(o => o.OperationId == (string)args[1]!);
+            var principal = (await services.GetRequiredService<AuthenticationStateProvider>().GetAuthenticationStateAsync()).User;
+            try
+            {
+                var value = await operation.InvokeAsync(new(principal, services), JsonSerializer.SerializeToElement(args[2]), token);
+                return JsonSerializer.Deserialize<T>(JsonSerializer.SerializeToUtf8Bytes(value))!;
+            }
+            catch (QuasarOperationException error) { throw new JSException(error.Message); }
+        }
+    }
+
+    [Fact]
+    public async Task HostManagementOperationsDenyViewersAndReserveLocalRegistration()
+    {
+        await using var context = CreateContext(securityAdmin: false);
+        var sdk = context.Services.GetRequiredService<DashboardSdk>();
+        var request = new { id = "local", name = "Local", address = "127.0.0.1", origin = "http://localhost" };
+        foreach (var operation in new[] { "enrollments", "register", "ticket", "install", "remove" })
+            await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<object>("hosts." + operation, request));
+        context.Services.GetRequiredService<BunitAuthorizationContext>().SetPolicies(QuasarPolicyNames.CanManageSecurity);
+        var error = await Assert.ThrowsAsync<JSException>(() => sdk.RequestAsync<HostRegistration>("hosts.register", request));
+        Assert.Contains("local Host executor", error.Message);
+        Assert.Empty(context.Services.GetRequiredService<ClusterHostCatalog>().GetAll());
+    }
+
     private sealed class DelayedConversionAuthorization : IAuthorizationService
     {
         public TaskCompletionSource<AuthorizationResult> Result { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -391,9 +433,11 @@ public sealed class ClusterCreateTests : IDisposable
         var auth = context.AddAuthorization();
         auth.SetAuthorized("admin");
         auth.SetPolicies(securityAdmin
-            ? [QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
-            : [QuasarPolicyNames.ClusterManage]);
+            ? [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage, QuasarPolicyNames.CanEditConfigs, QuasarPolicyNames.CanManageSecurity]
+            : [QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterManage]);
         context.Services.AddSingleton(auth);
+        context.Services.AddQuasarHostDashboardOperations();
+        context.Services.AddSingleton(sp => new DashboardSdk(new InProcessDashboardTransport(sp)));
         if (conversionAuthorization is not null)
             context.Services.AddSingleton(conversionAuthorization);
         var credentials = new ClusterCredentialStore(new EphemeralDataProtectionProvider(), Path.Combine(_root, "credentials.json"));
@@ -468,7 +512,7 @@ public sealed class ClusterCreateTests : IDisposable
         var remote = await hosts.RegisterAsync("remote", "Abandoned machine", "10.1.0.1", 18400, default);
         await hosts.RegisterAsync("local", "Local machine", "127.0.0.1", 18401, default);
         var dialogs = context.Render<MudDialogProvider>();
-        var page = context.Render<Hosts>();
+        var page = context.Render<HostMachines>();
         page.WaitForAssertion(() => Assert.Contains("Abandoned machine", page.Markup));
         var removals = page.FindComponents<MudButton>().Where(c => c.Markup.Contains("Remove enrollment")).ToArray();
         Assert.Equal(securityAdmin ? 1 : 0, removals.Length);

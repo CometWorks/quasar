@@ -1,0 +1,34 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@inject DashboardSdk Sdk
+@inject IDialogService Dialogs
+
+<MudButton Color="Color.Error" OnClick="RemoveAsync" Disabled="@(Disabled || _busy)">Remove enrollment</MudButton>
+@if (_error is not null) { <MudAlert Severity="Severity.Warning">@_error</MudAlert> }
+
+@code {
+    [Parameter, EditorRequired] public HostRegistration Host { get; set; } = null!;
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public EventCallback OnRemoved { get; set; }
+    private bool _busy;
+    private string? _error;
+
+    private async Task RemoveAsync()
+    {
+        if (Disabled || _busy) return;
+        var host = Host;
+        _busy = true;
+        _error = null;
+        try
+        {
+            if (await Dialogs.ShowMessageBoxAsync("Remove host enrollment?",
+                $"Remove enrollment for {host.Name} ({host.Id})? This revokes its credentials and enrollment commands and disconnects it from Quasar. Installed Host files and remote data remain. Hosts referenced by clusters cannot be removed.",
+                yesText: "Remove enrollment", cancelText: "Cancel") != true) return;
+            await Sdk.RequestAsync<bool>("hosts.remove", new { host.Id });
+            await OnRemoved.InvokeAsync();
+        }
+        catch (JSException error) { _error = error.Message; }
+        finally { _busy = false; }
+    }
+}
