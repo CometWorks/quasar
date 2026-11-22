@@ -53,10 +53,10 @@ export async function checkFleet(browser, base) {
                 return part;
             };
         });
-        let httpBytes = 0;
+        let httpUploads = 0;
         const record = request => {
             if (request.method() === "PUT" && request.url().includes("/sdk/v1/resources/"))
-                httpBytes += Number(request.headers()["content-length"] || 0);
+                httpUploads++;
         };
         page.on("request", record);
         const before = await page.evaluate(async () => (await quasarSdk.getClient()).transport.sentBytes);
@@ -67,11 +67,11 @@ export async function checkFleet(browser, base) {
         page.off("request", record);
         assert.ok(transferred >= 256 * 1024 && transferred < 320 * 1024, "Unexpected source ZIP bytes " + transferred);
         if (direct) {
-            assert.equal(httpBytes, 0);
+            assert.equal(httpUploads, 0);
             assert.ok(peerBytes >= 256 * 1024 && peerBytes < 512 * 1024, "Unexpected direct upload bytes " + peerBytes);
-        }
+        } else assert.ok(httpUploads > 0, "Expected file ranges through the HTTP SDK");
         await importer.getByRole("button", {name:"Cancel",exact:true}).click();
-        console.log(browser.browserType().name() + " reviewed a 4.25 MiB server ZIP using " + transferred + " bytes over " + (direct ? "WebRTC" : "HTTPS fallback"));
+        console.log(browser.browserType().name() + " reviewed a 4.25 MiB server ZIP using " + transferred + " bytes over " + (direct ? "WebRTC" : base.endsWith("/fixture-panel/") ? "the hosted HTTP fallback" : "local HTTP"));
         assert.deepEqual(errors, []);
         assert.deepEqual(circuits, []);
         console.log(browser.browserType().name() + " switched fleet layouts, opened standalone live data, the log console and the server editor, and resumed the setup guide at " + base);
