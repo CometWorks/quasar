@@ -378,6 +378,19 @@ node tests/Quasar.Wasm.PluginChecks/browser.test.mjs
 python3 tests/Quasar.Wasm.PluginChecks/check-viewer.py /path/to/viewer
 ```
 
+To test your plugin against the packaged dashboard, build its Release package
+and set the following paths. The fixture signs in a test administrator and calls
+your JavaScript module's exported `async function checkPlugin(page, base)` in
+Chromium and Firefox at the local root and the hosted panel prefix. Resolve
+panel URLs relative to `base`.
+
+```sh
+QUASAR_DASHBOARD_PUBLISH=/path/to/published-worker \
+QUASAR_TEST_PLUGIN_PACKAGE=/path/to/directory-with-quasar-plugin-json \
+QUASAR_TEST_PLUGIN_DRIVER=/path/to/tests/dashboard.mjs \
+dotnet run -c Release --project tests/Quasar.Wasm.DashboardChecks
+```
+
 ## Plugin Abstractions
 
 Quasar exposes the initial contract project as `Quasar.Plugin.Abstractions`.
