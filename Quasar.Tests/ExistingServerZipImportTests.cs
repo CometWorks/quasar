@@ -107,7 +107,6 @@ public sealed class ExistingServerZipImportTests : IDisposable
     [InlineData(ExistingServerKind.Torch)]
     public async Task BrowserTransfersConfigsAndDetectedWorldsWithoutUnusedPayloads(ExistingServerKind kind)
     {
-        await using var context = new QuasarBunitContext();
         string instance = kind == ExistingServerKind.Torch ? "Instance/" : "";
         string large = new('x', 1024 * 1024);
         string[] ignored = ["DedicatedServer64/engine.dll", "Torch.exe", "Plugins/plugin.dll", "Logs/server.log",
@@ -116,8 +115,8 @@ public sealed class ExistingServerZipImportTests : IDisposable
             .Append(("Wrapper/Content/CustomWorlds/Preset/Sandbox.sbc", "<MyObjectBuilder_Checkpoint />"))
             .Append(("Wrapper/" + instance + "Saves/Primary/Storage/Mod/state.xml", "persistent mod data")).ToArray());
         byte[] bytes = zip.ToArray();
-        var file = BrowserZipTestFile.Setup(context, bytes);
-        await using var browser = await BrowserZipFileStream.OpenAsync(context.JSInterop.JSRuntime, default, default);
+        var file = new BrowserZipTestFile(bytes);
+        await using var browser = file.Open();
         using var staged = await _importer.StageZipAsync(kind, browser, Staging);
         Assert.Equal(2, staged.Analysis.Worlds.Count);
         string primary = staged.Analysis.Worlds.Single(world => world.Name == "Primary").Path;
@@ -134,13 +133,12 @@ public sealed class ExistingServerZipImportTests : IDisposable
     [InlineData(true)]
     public async Task InvalidConfigOrCheckpointFailsBeforeTerrainTransfer(bool invalidCheckpoint)
     {
-        await using var context = new QuasarBunitContext();
         using var zip = Zip(("SpaceEngineers-Dedicated.cfg", invalidCheckpoint ? "<MyConfigDedicated />" : "<broken"),
             ("Saves/Primary/Sandbox.sbc", invalidCheckpoint ? "<not-a-world />" : "<MyObjectBuilder_Checkpoint />"),
             ("Saves/Primary/Planet.vx2", new string('v', 1024 * 1024)));
         byte[] bytes = zip.ToArray();
-        var file = BrowserZipTestFile.Setup(context, bytes);
-        await using var browser = await BrowserZipFileStream.OpenAsync(context.JSInterop.JSRuntime, default, default);
+        var file = new BrowserZipTestFile(bytes);
+        await using var browser = file.Open();
         await Assert.ThrowsAnyAsync<Exception>(() => _importer.StageZipAsync(ExistingServerKind.Vanilla, browser, Staging));
         AssertPayloadsNotRequested(bytes, file, ["Saves/Primary/Planet.vx2"]);
         if (!invalidCheckpoint) AssertPayloadsNotRequested(bytes, file, ["Saves/Primary/Sandbox.sbc"]);

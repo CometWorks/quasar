@@ -127,7 +127,7 @@ export function createClient({ baseUrl }) {
             headers: { "Content-Type": "application/json", [tokens.headerName]: tokens.requestToken }, body,
         }));
     }
-    async function resource(kind, plugin, operation, payload, signal) {
+    async function resource(kind, plugin, operation, payload, signal, pinnedRoute) {
         const body = input(plugin, operation, payload);
         const entry = begin(signal);
         let release;
@@ -136,7 +136,7 @@ export function createClient({ baseUrl }) {
             entry.releaseCapacity = release;
             const finish = entry.finish;
             entry.finish = () => { release(); finish(); };
-            const { tokens, native } = await selectRoute(entry);
+            const { tokens, native } = pinnedRoute ?? await selectRoute(entry);
             let response, result;
             // Only explicit capacity rejection may retry reservation. No feature handler has run yet.
             for (let attempt = 0; ; attempt++) {
@@ -203,6 +203,25 @@ export function createClient({ baseUrl }) {
         if (event.persisted) { cancelOwned(); connectionLifetime.abort(); connectionLifetime = new AbortController(); connecting = false; retryAfter = 0; directConnection = null; }
         else client.dispose();
     }
+    async function openWrite(plugin, operation, payload, signal, route) {
+        const handle = await resource("upload", plugin, operation, payload, signal, route);
+        let used = false;
+        return {
+            async write(body) {
+                if (used) throw new Error("SDK uploads are single-use; never replay an unknown write outcome.");
+                used = true;
+                try {
+                    if (handle.native) return await handle.native.upload(handle.id, body, handle.entry.controller.signal);
+                    const options = { method: "PUT", credentials: "same-origin", redirect: "error", cache: "no-store", signal: handle.entry.controller.signal,
+                        headers: { [handle.tokens.headerName]: handle.tokens.requestToken }, body };
+                    if (body instanceof ReadableStream) options.duplex = "half";
+                    return await (await checked(await fetch(handle.url, options))).json();
+                } catch (error) { await handle.entry.dispose(); throw error; }
+                finally { handle.entry.finish(); }
+            },
+            dispose: handle.entry.dispose,
+        };
+    }
     const client = {
         version: 1,
         async prepare(signal) {
@@ -223,24 +242,15 @@ export function createClient({ baseUrl }) {
             finally { entry.finish(); }
         },
         openRead(plugin, operation, payload = {}, options = {}) { return readResource("read", plugin, operation, payload, options); },
-        async openWrite(plugin, operation, payload = {}, { signal } = {}) {
-            const handle = await resource("upload", plugin, operation, payload, signal);
-            let used = false;
-            return {
-                async write(body) {
-                    if (used) throw new Error("SDK uploads are single-use; never replay an unknown write outcome.");
-                    used = true;
-                    try {
-                        if (handle.native) return await handle.native.upload(handle.id, body, handle.entry.controller.signal);
-                        const options = { method: "PUT", credentials: "same-origin", redirect: "error", cache: "no-store", signal: handle.entry.controller.signal,
-                            headers: { [handle.tokens.headerName]: handle.tokens.requestToken }, body };
-                        if (body instanceof ReadableStream) options.duplex = "half";
-                        return await (await checked(await fetch(handle.url, options))).json();
-                    } catch (error) { await handle.entry.dispose(); throw error; }
-                    finally { handle.entry.finish(); }
-                },
-                dispose: handle.entry.dispose,
-            };
+        openWrite(plugin, operation, payload = {}, {signal} = {}) {
+            return openWrite(plugin, operation, payload, signal);
+        },
+        async pinUploads({signal} = {}) {
+            const entry = begin(signal);
+            try {
+                const route = await selectRoute(entry);
+                return (plugin, operation, payload) => openWrite(plugin, operation, payload, signal, route);
+            } finally { entry.finish(); }
         },
         async *subscribe(plugin, operation, payload = {}, options = {}) {
             const stream = await readResource("subscription", plugin, operation, payload, options);

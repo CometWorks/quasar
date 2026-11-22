@@ -46,6 +46,19 @@ internal sealed class OperationsBrowserContext : QuasarBunitContext
                 if (name != "write") throw new NotSupportedException(name);
                 var bytes = args![4] is null ? JsonSerializer.SerializeToUtf8Bytes(args[3], JsonSerializerOptions.Web)
                     : selectedZip() ?? throw new InvalidOperationException("No ZIP selected by test.");
+                if (Equals(args[1], "server-import.zip"))
+                {
+                    var target = args[2]!;
+                    var start = new { target, size = bytes.Length, directoryOffset = bytes.Length };
+                    var range = await interop.InvokeOperation<ZipSlice>(name, ["quasar.core", "server-import.zip.start", start], token);
+                    while (range.Sequence != 0)
+                    {
+                        using var selected = new MemoryStream(bytes, (int)range.Offset, (int)range.Length, writable: false);
+                        var request = new { target, range.Sequence };
+                        range = await interop.InvokeOperation<ZipSlice>(name, ["quasar.core", "server-import.zip.range", request], token, selected);
+                    }
+                    return (T)(object)true;
+                }
                 using var stream = new MemoryStream(bytes, writable: false);
                 return await interop.InvokeOperation<T>(name, ["quasar.core", args[1], args[2]], token, stream);
             }

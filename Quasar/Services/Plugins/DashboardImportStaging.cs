@@ -66,6 +66,11 @@ public abstract class DashboardImportStaging<TTarget, TStage>(Func<TTarget, Guid
         return entry is not null && EqualityComparer<TTarget>.Default.Equals(entry.Target, target) ? entry : null;
     }
 
+    internal TStage? GetStage(ClaimsPrincipal user, TTarget target)
+    {
+        lock (_gate) return Find(user, target)?.Stage;
+    }
+
     internal WorldTransferProgress? Status(ClaimsPrincipal user, TTarget target)
     {
         lock (_gate)
