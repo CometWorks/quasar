@@ -828,17 +828,6 @@ public sealed record HistoryField(
 /// <summary>A value at a time, standing for <see cref="Count"/> raw rows.</summary>
 public readonly record struct HistorySample(long Time, int Count, double Value);
 
-public sealed record PluginStatHistoryMetric(
-    string Provider,
-    string Group,
-    string LabelDescription,
-    string Field,
-    string Description,
-    string Unit
-);
-
-public sealed record PluginStatHistoryLabel(string Label, long LastSeenUnix, int Rows);
-
 public sealed record PluginStatHistoryRead(
     HistoryField Field,
     string LabelDescription,

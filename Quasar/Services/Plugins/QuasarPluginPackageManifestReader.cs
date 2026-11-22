@@ -44,6 +44,11 @@ public static class QuasarPluginPackageManifestReader
         if (manifest.BrowserSdkVersion < 0 || manifest.BrowserSdkVersion > Quasar.Plugin.Abstractions.Operations.QuasarSdkLimits.ProtocolVersion)
             throw new InvalidOperationException($"Plugin '{manifest.Id}' requires browser SDK v{manifest.BrowserSdkVersion}. Update Quasar and the plugin together.");
 
+        if (manifest.BrowserAssembly is { } browser &&
+            (!System.Text.RegularExpressions.Regex.IsMatch(browser, @"\A[A-Za-z0-9_][A-Za-z0-9_.-]*\.dll\z", System.Text.RegularExpressions.RegexOptions.IgnoreCase)
+             || string.Equals(browser, manifest.EntryAssembly, StringComparison.OrdinalIgnoreCase)))
+            throw new InvalidOperationException($"Plugin '{manifest.Id}' must declare a separate browserAssembly DLL by filename.");
+
         foreach (var companion in manifest.CompanionPluginManifests)
         {
             Require(path, companion.Id, "companionPlugins[].id");

@@ -16,7 +16,7 @@ using Quasar.Plugin.Abstractions.Navigation;
 
 namespace Quasar.Services.Plugins;
 
-public sealed class QuasarUiPluginCatalog
+public sealed partial class QuasarUiPluginCatalog
 {
     public const string StaticAssetRequestPathPrefix = "/_quasar/plugins";
 
@@ -52,6 +52,7 @@ public sealed class QuasarUiPluginCatalog
             .OrderBy(item => item.TargetKey, StringComparer.OrdinalIgnoreCase)
             .ThenBy(item => item.Priority)
             .ToArray();
+        CollectBrowserArtifacts();
         StylesheetHrefs = plugins
             .SelectMany(GetStylesheetHrefs)
             .Distinct(StringComparer.OrdinalIgnoreCase)
@@ -140,6 +141,7 @@ public sealed class QuasarUiPluginCatalog
 
     public void ConfigurePluginEndpoints(IEndpointRouteBuilder endpoints)
     {
+        MapBrowserArtifactEndpoint(endpoints);
         foreach (var loadedPlugin in _plugins)
             loadedPlugin.Plugin.ConfigureEndpoints(endpoints, loadedPlugin.Context);
     }

@@ -480,17 +480,3 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
 }
 
-public sealed class DiscordBotStatusSnapshot
-{
-    public bool Enabled { get; init; }
-
-    public bool TokenConfigured { get; init; }
-
-    public bool GuildConfigured { get; init; }
-
-    public bool IsRunning { get; init; }
-
-    public string StateText { get; init; } = string.Empty;
-
-    public string LastError { get; init; } = string.Empty;
-}

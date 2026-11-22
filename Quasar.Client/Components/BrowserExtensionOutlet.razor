@@ -1,0 +1,52 @@
+@using Quasar.Client.Plugins
+@using Microsoft.AspNetCore.Components.Rendering
+
+@foreach (var extension in Matching("Before"))
+{
+    @Render(extension)
+}
+@if (Matching("Replace").Any())
+{
+    foreach (var extension in Matching("Replace"))
+    {
+        @Render(extension)
+    }
+}
+else
+{
+    @Wrapped()
+}
+@foreach (var extension in Matching("After"))
+{
+    @Render(extension)
+}
+
+@code {
+    [CascadingParameter] public IReadOnlyList<LoadedExtension>? Extensions { get; set; }
+    [Parameter, EditorRequired] public string TargetKey { get; set; } = "";
+    [Parameter] public IReadOnlyDictionary<string, object?>? Parameters { get; set; }
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    private IEnumerable<LoadedExtension> Matching(string mode) => (Extensions ?? [])
+        .Where(e => string.Equals(e.Descriptor.TargetKey, TargetKey, StringComparison.OrdinalIgnoreCase) && e.Descriptor.Mode == mode)
+        .OrderBy(e => e.Descriptor.Priority).ThenBy(e => e.Descriptor.PluginId, StringComparer.OrdinalIgnoreCase);
+
+    private RenderFragment Wrapped()
+    {
+        RenderFragment content = ChildContent ?? (_ => { });
+        foreach (var extension in Matching("Wrap").Reverse())
+            content = Render(extension, content);
+        return content;
+    }
+
+    private RenderFragment Render(LoadedExtension extension, RenderFragment? child = null) => builder =>
+    {
+        var parameters = Parameters is null ? new Dictionary<string, object?>() : new Dictionary<string, object?>(Parameters);
+        if (child is not null) parameters[nameof(ChildContent)] = child;
+        builder.OpenComponent<DynamicComponent>(0);
+        builder.SetKey(extension);
+        builder.AddAttribute(1, nameof(DynamicComponent.Type), extension.ComponentType);
+        builder.AddAttribute(2, nameof(DynamicComponent.Parameters), parameters);
+        builder.CloseComponent();
+    };
+}

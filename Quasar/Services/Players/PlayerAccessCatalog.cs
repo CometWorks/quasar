@@ -6,32 +6,6 @@ using Quasar.Services.Auth;
 
 namespace Quasar.Services.Players;
 
-public sealed class PlayerAccessSettings
-{
-    public long Revision { get; set; }
-    public string PublicUrl { get; set; } = "";
-    // Retained for settings compatibility. Browser linking now uses the shared authentication service.
-    public string DiscordClientId { get; set; } = "";
-    public string DiscordClientSecret { get; set; } = "";
-    public string? VerifiedUrl { get; set; }
-    public DateTimeOffset? VerifiedUntil { get; set; }
-    public List<PlayerAccessPolicy> Policies { get; set; } = [];
-}
-
-public sealed class PlayerAccessPolicy
-{
-    public string Target { get; set; } = "";
-    public ulong GuildId { get; set; }
-    public bool Enabled { get; set; }
-    public bool Whitelist { get; set; }
-    public string Instructions { get; set; } = "";
-    public List<ulong> RequiredRoles { get; set; } = [];
-    public List<ulong> PriorityRoles { get; set; } = [];
-    public List<PlayerPromotionMapping> Promotions { get; set; } = [];
-    public List<string> AllowedSteamIds { get; set; } = [];
-}
-
-public sealed record PlayerPromotionMapping(ulong RoleId, int Level);
 public sealed record PlayerAuthorization(string Target, string AuthenticationId);
 
 /// <summary>One durable owner for player-access settings and explicit server authorizations.</summary>

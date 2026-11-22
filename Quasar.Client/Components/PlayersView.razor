@@ -1,0 +1,618 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Operations
+@using Quasar.Services
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@inject ViewerTimeZone ViewerTime
+@inject ISnackbar Snackbar
+@inject IDialogService DialogService
+@implements IDisposable
+
+@if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+<div>
+    <DashboardPageHeading Section="Operations">
+    <Title>Known Players</Title>
+    <Description>Known and historical players across servers and clusters. Each cluster appears as one server, regardless of which node hosts a player.</Description>
+</DashboardPageHeading>
+</div>
+
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-2 mb-4">
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2">
+        <MudSelect T="string"
+                   Label="Server"
+                   @bind-Value="_serverFilter"
+                   Variant="Variant.Outlined"
+                   Dense="true"
+                   Style="min-width: 14rem;">
+            <MudSelectItem T="string" Value="@AllServersFilter">All servers</MudSelectItem>
+            @foreach (var option in ServerFilterOptions)
+            {
+                <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudSelect T="string"
+                   Label="Type"
+                   @bind-Value="_typeFilter"
+                   Variant="Variant.Outlined"
+                   Dense="true"
+                   Style="min-width: 10rem;">
+            @foreach (var option in PlayerTypeOptions)
+            {
+                <MudSelectItem T="string" Value="@option.Value">@option.Label</MudSelectItem>
+            }
+        </MudSelect>
+
+        <MudTextField @bind-Value="_searchText"
+                      Label="Search players"
+                      Variant="Variant.Outlined"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      Clearable="true"
+                      Immediate="true"
+                      Style="min-width: 16rem;" />
+
+        @if (_table?.CanControl == true)
+        {
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.DeleteSweep"
+                   OnClick="CleanSelectedServerAsync"
+                   Disabled="@(!CanCleanSelectedServer)">
+            Clean Server
+        </MudButton>
+
+        <MudButton Variant="Variant.Outlined"
+                   Color="Color.Error"
+                   StartIcon="@Icons.Material.Filled.DeleteSweep"
+                   OnClick="CleanAllAsync"
+                   Disabled="@(KnownPlayerViews.Count == 0)">
+            Clean All
+        </MudButton>
+        }
+    </div>
+
+    @if (_table?.CanControl == true)
+        {
+    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2">
+        <MudNumericField T="int"
+                         Label="Auto clear after"
+                         Value="_retentionDays"
+                         ValueChanged="@(value => _retentionDays = value)"
+                         Variant="Variant.Outlined"
+                         Min="@(_table?.MinDays ?? 1)"
+                         Max="@(_table?.MaxDays ?? 3650)"
+                         Step="1"
+                         Immediate="true"
+                         HelperText="days since last seen"
+                         Style="width: 11rem;" />
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   StartIcon="@Icons.Material.Filled.Save"
+                   OnClick="SaveRetentionDaysAsync"
+                   Disabled="@(!_retentionDaysDirty)">
+            Save
+        </MudButton>
+    </div>
+    }
+</div>
+
+<div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-gap-2 mb-4">
+    <MudChip T="string" Variant="Variant.Outlined">Known @KnownPlayerViews.Count</MudChip>
+    <MudChip T="string" Variant="Variant.Outlined">Online @KnownPlayerViews.Count(player => player.IsOnline)</MudChip>
+    @if (HasActiveFilter)
+    {
+        <MudChip T="string" Variant="Variant.Outlined">Shown @FilteredPlayers.Count</MudChip>
+    }
+</div>
+
+<section class="quasar-panel pa-4 server-card players-list-card">
+    <div class="quasar-layout quasar-gap-2 mb-4 players-list-stack">
+        @if (KnownPlayerViews.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No known players yet. Quasar records players after they appear in a live server snapshot.
+            </MudAlert>
+        }
+        else if (FilteredPlayers.Count == 0)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                No players match the current filters.
+            </MudAlert>
+        }
+        else
+        {
+            <MudTable T="KnownPlayerView" Dense="true" Hover="true" Breakpoint="Breakpoint.Md" Items="FilteredPlayers" Class="players-table">
+                <HeaderContent>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetPlayerName(x.Record))">Player</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.ServerDisplayName)">Server</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.SteamId)">Steam ID</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetServiceLabel(x.Record.ServiceName))">Service</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.FactionTag)">Faction</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => GetRoleLabel(x.Record))">Role</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.IsOnline)">Status</MudTableSortLabel></MudTh>
+                    <MudTh><MudTableSortLabel SortBy="new Func<KnownPlayerView, object>(x => x.Record.LastSeenUtc)">Last Seen</MudTableSortLabel></MudTh>
+                    <MudTh Class="quasar-actions-column"><span class="quasar-visually-hidden">Actions</span></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Player">
+                        <p class="quasar-text quasar-type-body2">@GetPlayerName(context.Record)</p>
+                        @if (GetPlatformName(context.Record) is { Length: > 0 } platformName)
+                        {
+                            <span class="quasar-text quasar-type-caption">Platform: @platformName</span>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Server">
+                        <p class="quasar-text quasar-type-body2">@context.ServerDisplayName</p>
+                        <span class="quasar-text quasar-type-caption">@context.ServerDetail</span>
+                    </MudTd>
+                    <MudTd DataLabel="Steam ID">
+                        <p class="quasar-text quasar-type-body2 mono">@context.Record.SteamId</p>
+                    </MudTd>
+                    <MudTd DataLabel="Service">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@GetServiceLabel(context.Record.ServiceName)</MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Faction">@context.Record.FactionTag</MudTd>
+                    <MudTd DataLabel="Role">@GetRoleLabel(context.Record)</MudTd>
+                    <MudTd DataLabel="Status">
+                        <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
+                            <MudChip T="string" Size="Size.Small" Color="@(context.IsOnline ? Color.Success : Color.Default)">
+                                @(context.IsOnline ? "online" : "offline")
+                            </MudChip>
+                            @if (context.Record.IsBanned)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Error">banned</MudChip>
+                            }
+                            @if (context.IsKickCooldownActive)
+                            {
+                                <MudChip T="string" Size="Size.Small" Color="Color.Warning">kicked (@(context.KickCooldownRemainingSeconds)s)</MudChip>
+                            }
+                            @if (!context.ConnectionAvailable)
+                            {
+                                <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@(context.Record.IsCluster ? "cluster unavailable" : "agent offline")</MudChip>
+                            }
+                        </div>
+                    </MudTd>
+                    <MudTd DataLabel="Last Seen"><span class="quasar-timestamp mono">@(context.Record.LastSeenUtc == default ? "never" : ViewerTime.FormatStacked(context.Record.LastSeenUtc))</span></MudTd>
+                    <MudTd DataLabel="" Class="quasar-actions-column">
+                        @if (context.Record.IsCluster)
+                        {
+                            @if (_table?.CanManageClusters == true)
+        {
+                                <MudTooltip Text="Cluster player actions">
+                                    <MudMenu Dense="true" Icon="@Icons.Material.Filled.MoreVert" AriaLabel="Cluster player actions"
+                                             OpenChanged="@(open => _menuOpen = open)" AnchorOrigin="Origin.BottomRight" TransformOrigin="Origin.TopRight">
+                                        @if (context.ModerationUnavailableReason is { } reason)
+                                        {
+                                            <p class="quasar-text quasar-type-caption pa-3" role="status">@reason</p>
+                                        }
+                                        <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                                        @foreach (var promoteLevel in PromoteLevels)
+                                        {
+                                            <MudMenuItem Disabled="@(!context.CanRunClusterAction("set-player-promotion") || IsCurrentPromoteLevel(context.Record, promoteLevel))"
+                                                         OnClick="@(() => SetClusterPlayerPromotionAsync(context, promoteLevel))">@promoteLevel</MudMenuItem>
+                                        }
+                                        <hr class="quasar-divider" />
+                                        <MudMenuItem Disabled="@(!context.IsOnline || !context.CanRunClusterAction("kick"))"
+                                                     OnClick="@(() => SendClusterPlayerCommandAsync(context, "kick"))">Kick</MudMenuItem>
+                                        <MudMenuItem Disabled="@(!context.IsKickCooldownActive || !context.CanRunClusterAction("clear-kick-cooldown"))"
+                                                     OnClick="@(() => SendClusterPlayerCommandAsync(context, "clear-kick-cooldown"))">Clear kick cooldown</MudMenuItem>
+                                        <MudMenuItem Disabled="@(!context.CanRunClusterAction(context.Record.IsBanned ? "unban" : "ban"))"
+                                                     OnClick="@(() => SendClusterPlayerCommandAsync(context, context.Record.IsBanned ? "unban" : "ban"))">@(context.Record.IsBanned ? "Unban" : "Ban")</MudMenuItem>
+                                        @if (!context.GatewaySupportsModeration)
+                                        {
+                                            <p class="quasar-text quasar-type-caption pa-3">This Gateway does not advertise cluster role changes or kick cooldown clearing. Update the cluster to enable these actions.</p>
+                                        }
+                                        else if (context.PromotionWarning is not null)
+                                        {
+                                            <p class="quasar-text quasar-type-caption pa-3" role="status">@context.PromotionWarning</p>
+                                        }
+                                    </MudMenu>
+                                </MudTooltip>
+                            }
+                        }
+                        else
+                        {
+                        @if (_table?.CanControl == true)
+        {
+                        <MudTooltip Text="Player actions">
+                            <MudMenu Dense="true"
+                                     Icon="@Icons.Material.Filled.MoreVert"
+                                     AriaLabel="Player actions"
+                                     OpenChanged="@(open => _menuOpen = open)"
+                                     AnchorOrigin="Origin.BottomRight"
+                                     TransformOrigin="Origin.TopRight">
+                                @if (context.ModerationUnavailableReason is { } reason)
+                                {
+                                    <p class="quasar-text quasar-type-caption pa-3" role="status">@reason</p>
+                                }
+                                <MudMenuItem Disabled="true">Set role</MudMenuItem>
+                                @foreach (var promoteLevel in PromoteLevels)
+                                {
+                                    <MudMenuItem Disabled="@(!context.CanModerate || IsCurrentPromoteLevel(context.Record, promoteLevel))"
+                                                 OnClick="@(() => SendPlayerCommandAsync(context, PlayerCommand.SetPlayerPromoteLevel, promoteLevel))">
+                                        @promoteLevel
+                                    </MudMenuItem>
+                                }
+                                <hr class="quasar-divider" />
+                                <MudMenuItem Disabled="@(!context.CanModerate || !context.IsOnline)"
+                                             OnClick="@(() => SendPlayerCommandAsync(context, PlayerCommand.KickPlayer))">
+                                    Kick
+                                </MudMenuItem>
+                                <MudMenuItem Disabled="@(!context.CanModerate || !context.IsKickCooldownActive)"
+                                             OnClick="@(() => SendPlayerCommandAsync(context, PlayerCommand.ClearKickCooldown))">
+                                    Clear kick cooldown
+                                </MudMenuItem>
+                                <MudMenuItem Disabled="@(!context.CanModerate)" OnClick="@(() => SendPlayerCommandAsync(context, context.Record.IsBanned ? PlayerCommand.UnbanPlayer : PlayerCommand.BanPlayer))">
+                                    @(context.Record.IsBanned ? "Unban" : "Ban")
+                                </MudMenuItem>
+                            </MudMenu>
+                        </MudTooltip>
+                        }
+                        }
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+
+        @code
+        {
+            private static readonly string[] PromoteLevels = ["None", "Scripter", "Moderator", "SpaceMaster", "Admin"];
+            private const string AllServersFilter = "";
+            private const string PlayerTypeAll = "all";
+            private const string PlayerTypeOnline = "online";
+            private const string PlayerTypeOffline = "offline";
+            private const string PlayerTypeBanned = "banned";
+            private const string PlayerTypeKicked = "kicked";
+
+            private static readonly PlayerFilterOption[] PlayerTypeOptions =
+            [
+                new(PlayerTypeAll, "All"),
+                new(PlayerTypeOnline, "Online"),
+                new(PlayerTypeOffline, "Offline"),
+                new(PlayerTypeBanned, "Banned"),
+                new(PlayerTypeKicked, "Kick cooldown"),
+            ];
+
+            private string _serverFilter = AllServersFilter;
+            private string _typeFilter = PlayerTypeAll;
+            private string _searchText = string.Empty;
+            private int _retentionDays = 30;
+            private int _savedRetentionDays = 30;
+
+            // True while a row's action menu is open. The live data feed keeps pushing updates;
+            // re-rendering the table underneath an open menu would close it, so we hold renders
+            // until the menu is dismissed (click outside / Escape / selection close it natively).
+            private bool _menuOpen;
+
+            private IReadOnlyList<KnownPlayerView> KnownPlayerViews => _table?.Rows ?? [];
+
+            private IReadOnlyList<PlayerFilterOption> ServerFilterOptions => _table?.Filters ?? [];
+
+            private List<KnownPlayerView> FilteredPlayers => KnownPlayerViews
+                .Where(MatchesFilters)
+                .ToList();
+
+            private bool HasActiveFilter =>
+                !string.IsNullOrWhiteSpace(_serverFilter) ||
+                !string.Equals(_typeFilter, PlayerTypeAll, StringComparison.OrdinalIgnoreCase) ||
+                !string.IsNullOrWhiteSpace(_searchText);
+
+            private bool CanCleanSelectedServer =>
+                !string.IsNullOrWhiteSpace(_serverFilter) &&
+                KnownPlayerViews.Any(MatchesServerFilter);
+
+            private bool _retentionDaysDirty => _retentionDays != _savedRetentionDays;
+
+            private PlayerTable? _table;
+            private readonly CancellationTokenSource _stop = new();
+            private string? _error;
+            private long _generation;
+
+            protected override async Task OnInitializedAsync()
+            {
+                await RefreshAsync();
+                if (!_stop.IsCancellationRequested) _ = PollAsync();
+            }
+
+            private async Task PollAsync()
+            {
+                using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
+                try { while (await timer.WaitForNextTickAsync(_stop.Token)) await RefreshAsync(); }
+                catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
+            }
+
+            private async Task RefreshAsync()
+            {
+                var generation = ++_generation;
+                try
+                {
+                    var table = await JS.InvokeAsync<PlayerTable>("quasarSdk.readJson", _stop.Token, "quasar.core", "players.table", new { });
+                    if (generation != _generation) return;
+                    if (!_retentionDaysDirty) _retentionDays = table.RetentionDays;
+                    _savedRetentionDays = table.RetentionDays;
+                    _table = table;
+                    _error = null;
+                }
+                catch (JSException ex) { _error = ex.Message; }
+                if (!_stop.IsCancellationRequested) StateHasChanged();
+            }
+
+            protected override bool ShouldRender() => !_menuOpen;
+            public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+            private bool MatchesFilters(KnownPlayerView view) =>
+                MatchesServerFilter(view) &&
+                MatchesTypeFilter(view) &&
+                MatchesSearch(view);
+
+            private bool MatchesServerFilter(KnownPlayerView view)
+            {
+                if (string.IsNullOrWhiteSpace(_serverFilter))
+                    return true;
+
+                return string.Equals(
+                    view.ServerFilterKey,
+                    NormalizeFilterValue(_serverFilter),
+                    StringComparison.OrdinalIgnoreCase);
+            }
+
+            private bool MatchesTypeFilter(KnownPlayerView view)
+            {
+                return _typeFilter switch
+                {
+                    PlayerTypeOnline => view.IsOnline,
+                    PlayerTypeOffline => !view.IsOnline,
+                    PlayerTypeBanned => view.Record.IsBanned,
+                    PlayerTypeKicked => view.IsKickCooldownActive,
+                    _ => true,
+                };
+            }
+
+            private bool MatchesSearch(KnownPlayerView view)
+            {
+                var search = _searchText?.Trim();
+                if (string.IsNullOrWhiteSpace(search))
+                    return true;
+
+                return Contains(view.ServerDisplayName, search)
+                       || Contains(view.Record.ServerName, search)
+                       || Contains(view.Record.UniqueName, search)
+                       || Contains(GetPlayerName(view.Record), search)
+                       || Contains(GetPlatformName(view.Record), search)
+                       || Contains(view.Record.ServiceName, search)
+                       || Contains(view.Record.FactionTag, search)
+                       || view.Record.SteamId.ToString().Contains(search, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private async Task SaveRetentionDaysAsync()
+            {
+                if (_table?.CanControl != true) return;
+                try
+                {
+                    var removed = await Sdk.RequestAsync<int>("players.retention.save", new { Days = _retentionDays });
+                    await RefreshAsync();
+                    _retentionDays = _savedRetentionDays;
+
+                    var message = removed > 0
+                        ? $"Known player auto-clear set to {_savedRetentionDays} days. Removed {removed} expired players."
+                        : $"Known player auto-clear set to {_savedRetentionDays} days.";
+                    Snackbar.Add(message, Severity.Success);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add($"Failed to save known player cleanup setting: {exception.Message}", Severity.Error);
+                }
+            }
+
+            private async Task CleanSelectedServerAsync()
+            {
+                if (_table?.CanControl != true) return;
+                var uniqueName = NormalizeFilterValue(_serverFilter);
+                if (string.IsNullOrWhiteSpace(uniqueName))
+                    return;
+
+                var serverName = GetSelectedServerDisplayName();
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    "Clean server known players?",
+                    $"Remove all saved known players for '{serverName}'? Live players will be recorded again on the next snapshot.",
+                    yesText: "Clean Server",
+                    cancelText: "Cancel");
+                if (confirmed != true)
+                    return;
+
+                try
+                {
+                    if (_table?.CanControl != true) return;
+                    var removed = await Sdk.RequestAsync<int>("players.history.clean", new { Key = uniqueName });
+                    await RefreshAsync();
+                    Snackbar.Add($"Removed {removed} known players for {serverName}.", Severity.Success);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add($"Failed to clean known players: {exception.Message}", Severity.Error);
+                }
+            }
+
+            private async Task CleanAllAsync()
+            {
+                if (_table?.CanControl != true) return;
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    "Clean all known players?",
+                    "Remove all saved known players from every accessible server? Live players will be recorded again on the next observation.",
+                    yesText: "Clean All",
+                    cancelText: "Cancel");
+                if (confirmed != true)
+                    return;
+
+                try
+                {
+                    if (_table?.CanControl != true) return;
+                    var removed = await Sdk.RequestAsync<int>("players.history.clean", new { });
+                    await RefreshAsync();
+                    Snackbar.Add($"Removed {removed} known players.", Severity.Success);
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add($"Failed to clean known players: {exception.Message}", Severity.Error);
+                }
+            }
+
+            private Task SendClusterPlayerCommandAsync(KnownPlayerView view, string action) =>
+                SendClusterPlayerCommandCoreAsync(view, action, null);
+
+            private Task SetClusterPlayerPromotionAsync(KnownPlayerView view, string level) =>
+                SendClusterPlayerCommandCoreAsync(view, "set-player-promotion", level);
+
+            private async Task SendClusterPlayerCommandCoreAsync(KnownPlayerView view, string action, string? level)
+            {
+                if (_table?.CanManageClusters != true || !view.CanRunClusterAction(action)) return;
+                var type = action switch
+                {
+                    "kick" => PlayerCommand.KickPlayer,
+                    "set-player-promotion" => PlayerCommand.SetPlayerPromoteLevel,
+                    _ => PlayerCommand.BanPlayer,
+                };
+                if (action is "kick" or "ban" or "set-player-promotion" && !await ConfirmPlayerCommandAsync(view, type, level)) return;
+                try
+                {
+                    var result = await Sdk.RequestAsync<PlayerMutationResult>("cluster.players.moderate", new {
+                        view.Record.UniqueName, view.Record.SteamId, Action = action, Level = level, Revision = view.PromotionRevision });
+                    Snackbar.Add(result.Message, result.Failed ? Severity.Error : Severity.Info);
+                    await RefreshAsync();
+                }
+                catch (Exception error) { Snackbar.Add(error.Message, Severity.Error); }
+            }
+
+            private async Task SendPlayerCommandAsync(KnownPlayerView view, PlayerCommand commandType, string text = "")
+            {
+                if (_table?.CanControl != true) return;
+                if (view.Record.IsCluster) return;
+                if (!view.ConnectionAvailable)
+                {
+                    Snackbar.Add($"Server '{view.Record.UniqueName}' is not connected.", Severity.Error);
+                    return;
+                }
+
+                if (RequiresPlayerCommandConfirmation(commandType) &&
+                    !await ConfirmPlayerCommandAsync(view, commandType))
+                {
+                    return;
+                }
+
+                try
+                {
+                    // The player operations wait for the agent's answer and record the action in the audit log.
+                    var operation = commandType switch
+                    {
+                        PlayerCommand.KickPlayer => "players.kick",
+                        PlayerCommand.BanPlayer => "players.ban",
+                        PlayerCommand.UnbanPlayer => "players.unban",
+                        PlayerCommand.ClearKickCooldown => "players.kick-cooldown.clear",
+                        _ => "players.promotion.set",
+                    };
+                    var result = await Sdk.RequestAsync<PlayerMutationResult>(operation, new
+                    {
+                        uniqueName = view.Record.UniqueName,
+                        steamId = view.Record.SteamId,
+                        level = text,
+                    });
+
+                    Snackbar.Add(result.Message, Severity.Success);
+                    await RefreshAsync();
+                }
+                catch (Exception exception)
+                {
+                    Snackbar.Add(exception.Message, Severity.Error);
+                }
+            }
+
+            private async Task<bool> ConfirmPlayerCommandAsync(KnownPlayerView view, PlayerCommand commandType, string? level = null)
+            {
+                var action = commandType switch
+                {
+                    PlayerCommand.KickPlayer => "Kick",
+                    PlayerCommand.BanPlayer => "Ban",
+                    PlayerCommand.SetPlayerPromoteLevel => $"Set role to {level}",
+                    _ => commandType.ToString(),
+                };
+                var playerName = GetPlayerName(view.Record);
+                var target = string.IsNullOrWhiteSpace(playerName)
+                    ? view.Record.SteamId.ToString()
+                    : $"{playerName} ({view.Record.SteamId})";
+                var confirmed = await DialogService.ShowMessageBoxAsync(
+                    $"{action} player?",
+                    $"{action} {target}?",
+                    yesText: action,
+                    cancelText: "Cancel");
+
+                return confirmed == true;
+            }
+
+            private static bool RequiresPlayerCommandConfirmation(PlayerCommand commandType) =>
+                commandType is PlayerCommand.KickPlayer or PlayerCommand.BanPlayer;
+
+            private static bool Contains(string? value, string search)
+            {
+                return !string.IsNullOrWhiteSpace(value)
+                       && value.Contains(search, StringComparison.OrdinalIgnoreCase);
+            }
+
+            private static string GetPlayerName(BrowserPlayerRecord record)
+            {
+                var displayName = record.DisplayName;
+                return string.IsNullOrWhiteSpace(displayName)
+                    ? record.SteamId.ToString()
+                    : displayName;
+            }
+
+            private static string GetPlatformName(BrowserPlayerRecord record)
+            {
+                var platformName = record.PlatformDisplayName;
+                return string.IsNullOrWhiteSpace(platformName) ||
+                       string.Equals(platformName, GetPlayerName(record), StringComparison.Ordinal)
+                    ? string.Empty
+                    : platformName;
+            }
+
+            private static string GetRoleLabel(BrowserPlayerRecord record)
+            {
+                var promoteLevel = record.PromoteLevel?.Trim();
+                if (!string.IsNullOrWhiteSpace(promoteLevel) &&
+                    !string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase))
+                {
+                    return promoteLevel;
+                }
+
+                return record.IsAdmin ? "Admin" : "Player";
+            }
+
+            private static bool IsCurrentPromoteLevel(BrowserPlayerRecord record, string promoteLevel) =>
+                string.Equals(GetRoleLabel(record), promoteLevel, StringComparison.OrdinalIgnoreCase) ||
+                (string.Equals(promoteLevel, "None", StringComparison.OrdinalIgnoreCase) &&
+                 string.Equals(GetRoleLabel(record), "Player", StringComparison.OrdinalIgnoreCase));
+
+            private static string GetServiceLabel(string? serviceName)
+            {
+                return string.IsNullOrWhiteSpace(serviceName) ? "Unknown" : serviceName.Trim();
+            }
+
+            private string GetSelectedServerDisplayName()
+            {
+                var selected = NormalizeFilterValue(_serverFilter);
+                if (string.IsNullOrWhiteSpace(selected))
+                    return "selected server";
+
+                return ServerFilterOptions
+                           .FirstOrDefault(option => string.Equals(option.Value, selected, StringComparison.OrdinalIgnoreCase))
+                           ?.Label
+                       ?? selected;
+            }
+
+            private static string NormalizeFilterValue(string? value) =>
+                value?.Trim() ?? string.Empty;
+
+        }
+    </div>
+</section>
