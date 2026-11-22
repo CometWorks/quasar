@@ -92,6 +92,9 @@ public sealed class QuasarPlayerLinks
     public Task<bool> RemoveAsync(string steamId, CancellationToken token = default) =>
         UpdateAsync(links => links.RemoveAll(link => link.SteamId == steamId) > 0, token);
 
+    internal Task<bool> RemoveByDiscordAsync(string discordId, CancellationToken token) =>
+        UpdateAsync(links => links.RemoveAll(link => link.Authenticated && link.DiscordUserId == discordId) > 0, token);
+
     private async Task<bool> UpdateAsync(
         Func<List<QuasarPlayerLink>, bool> change,
         CancellationToken token

@@ -10,7 +10,7 @@ public sealed record PlayerAccessTarget(string Key, string Name);
 public sealed record PlayerAccessDecision(PlayerAccessGrant Grant, string Reason);
 
 public sealed class PlayerAccessService(PlayerAccessCatalog catalog, QuasarPlayerLinks links,
-    PlayerAuthBrowser browser, DiscordPlayerRoles discord, DedicatedServerCatalog servers, ClusterCatalog clusters)
+    DiscordPlayerRoles discord, DedicatedServerCatalog servers, ClusterCatalog clusters)
 {
     public IReadOnlyList<PlayerAccessTarget> Targets() => servers.GetServers()
         .Select(s => new PlayerAccessTarget("server:" + s.UniqueName, s.DisplayName))
@@ -24,8 +24,7 @@ public sealed class PlayerAccessService(PlayerAccessCatalog catalog, QuasarPlaye
             : new(new() { SteamId = ulong.Parse(steamId, CultureInfo.InvariantCulture), Allowed = true,
                 Confirmed = true, ExpiresAt = DateTimeOffset.UtcNow.AddMinutes(2) }, "Explicit Steam allowlist");
         var link = links.FindBySteamId(steamId);
-        if (link is null) return Fallback(Denied(steamId, "Authenticate Steam and Discord on this website."));
-        if (!browser.Ready) return Fallback(Denied(steamId, "Public player authentication is unavailable.", false));
+        if (link is null) return Fallback(Denied(steamId, "Link Steam and Discord to authorize access."));
         var membership = await discord.GetAsync(policy.GuildId, ulong.Parse(link.DiscordUserId, CultureInfo.InvariantCulture), token);
         var decision = Resolve(policy, steamId, membership, catalog.IsAuthorized(policy.Target, link.AuthenticationId!));
         return decision.Grant.Allowed ? decision : Fallback(decision);
@@ -49,14 +48,12 @@ public sealed class PlayerAccessService(PlayerAccessCatalog catalog, QuasarPlaye
         }, "Authorized");
     }
 
-    internal async Task AuthorizeAsync(PlayerAccessPolicy policy, string steamId, CancellationToken token)
+    internal async Task AuthorizeAsync(PlayerAccessPolicy policy, QuasarPlayerLink link, CancellationToken token)
     {
-        if (!browser.Ready) throw new InvalidOperationException("Public player authentication is unavailable.");
-        var link = links.FindBySteamId(steamId) ?? throw new InvalidOperationException("Authenticate both Steam and Discord first.");
         var member = await discord.GetAsync(policy.GuildId, ulong.Parse(link.DiscordUserId, CultureInfo.InvariantCulture), token);
         if (!member.Known || !member.Member || policy.RequiredRoles.Count != 0 && !member.Roles.Intersect(policy.RequiredRoles).Any())
             throw new InvalidOperationException("Discord membership and required access roles must be verified first.");
-        await catalog.AuthorizeAsync(policy.Target, link.AuthenticationId!, token);
+        await catalog.AuthorizeAsync(policy, link.AuthenticationId!, token);
     }
 
     internal async Task<PlayerAccessSnapshot> BuildAsync(string target, CancellationToken token)
@@ -183,8 +180,8 @@ public sealed class PlayerAccessWorker(PlayerAccessService access, PlayerAccessC
         !delivered.TryGetValue(policy.Target, out var previous) || previous.Fingerprint != fingerprint || previous.Peer != peer
         || policy.Enabled && previous.At <= DateTimeOffset.UtcNow.AddSeconds(-30);
     private sealed record Delivery(string Fingerprint, DateTimeOffset At, string Peer);
-    private string AppliedStatus(PlayerAccessSnapshot snapshot, string success) => !snapshot.Enabled ? "Player access disabled."
-        : browser.Ready ? success : "Policy applied; public player authentication is unavailable. Existing access restrictions remain.";
+    private static string AppliedStatus(PlayerAccessSnapshot snapshot, string success) =>
+        snapshot.Enabled ? success : "Player access disabled.";
     internal static bool IsLegacyAuthentication(PluginRuntimeInfo plugin) => plugin.IsLoaded
         && (string.Equals(plugin.PluginId, "EC39AAEF-E46A-4291-A511-91ECE969D1D7", StringComparison.OrdinalIgnoreCase)
             || plugin.DisplayName.Contains("GameServerAuth", StringComparison.OrdinalIgnoreCase));

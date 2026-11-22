@@ -21,6 +21,7 @@ public static class PlayerAuthEndpoints
     {
         services.AddSingleton<PlayerAccessCatalog>();
         services.AddSingleton<PlayerAuthBrowser>();
+        services.AddSingleton<PrivatePlayerAuthorization>();
         services.AddSingleton<DiscordPlayerRoles>();
         services.AddSingleton<PlayerAccessService>();
         services.AddSingleton<PlayerAccessWorker>();
@@ -28,6 +29,12 @@ public static class PlayerAuthEndpoints
         services.AddHttpClient("PlayerDomainVerification", client =>
         { client.Timeout = TimeSpan.FromSeconds(15); client.MaxResponseContentBufferSize = 4096; })
             .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
+        services.AddHttpClient(PrivatePlayerAuthorization.ClientName, client =>
+        {
+            client.BaseAddress = new Uri(AuthenticationOrigin + "/");
+            client.Timeout = TimeSpan.FromSeconds(15);
+            client.MaxResponseContentBufferSize = 4096;
+        }).ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { AllowAutoRedirect = false });
         services.AddAuthentication().AddCookie(ExternalCookie, cookie =>
         {
             cookie.Cookie.Name = ".Quasar.PlayerExternal";
@@ -115,7 +122,7 @@ public static class PlayerAuthEndpoints
         var steam = await SteamIdentityAsync(context);
         bool hasLink = steam is not null && links.GetLinks().Any(link => link.SteamId == steam);
         if (!browser.Ready)
-            return Page("Player authentication unavailable", "<p>This website needs verified public access or active Nebula hosting.</p>"
+            return Page("Player authentication", "<p>Run /authorize in your game server's Discord to link your accounts and authorize access.</p>"
                 + (hasLink ? UnlinkForm(context, antiforgery) : ""), context, hasLink ? 200 : 503);
         if (!browser.IsCanonical(context)) return Results.Redirect(browser.PublicUrl + PlayerAuthBrowser.Path);
         var requestKey = context.Request.Query["request"].ToString();
@@ -191,7 +198,9 @@ public static class PlayerAuthEndpoints
         }
         if (action == "authorize")
         {
-            try { await access.AuthorizeAsync(policy, steam, context.RequestAborted); }
+            var link = links.FindBySteamId(steam);
+            if (link is null) return Page("Authorization unavailable", "<p>Authenticate both Steam and Discord first.</p>", context, 403);
+            try { await access.AuthorizeAsync(policy, link, context.RequestAborted); }
             catch (InvalidOperationException error) { return Page("Authorization unavailable", "<p>" + H(error.Message) + "</p>", context, 403); }
             browser.Consume(key);
             returnPath = context.Request.PathBase + PlayerAuthBrowser.Path + "?server=" + Uri.EscapeDataString(target);

@@ -9,10 +9,9 @@
     @if (_error.Length != 0) { <MudAlert Severity="Severity.Error" role="alert" Class="mb-4">@_error</MudAlert> }
     @if (_notice.Length != 0) { <MudAlert Severity="Severity.Success" Class="mb-4">@_notice</MudAlert> }
     <MudExpansionPanels Class="mb-4">
-        <MudExpansionPanel Text="@(_browser!.Ready ? "Connection setup · Public website ready" : "Connection setup · Set up public access")" Expanded="@(!_browser.Ready)">
+        <MudExpansionPanel Text="@(_browser!.Ready ? "Public player website · Ready" : "Public player website · Optional")">
         <div class="quasar-stack">
-            <p>Players sign in with Steam on your website and authenticate Discord through <a href="@PlayerAuthEndpoints.AuthenticationOrigin" target="_blank" rel="noopener noreferrer">auth.se-servers.net</a>. No Discord application or OAuth secret is needed on this panel.</p>
-            <p>Quasar's existing Discord bot checks membership and roles. Configure the bot, enable its Server Members intent and turn on member tracking on <a href="discord">Discord</a>. These settings never grant dashboard permissions.</p>
+            <p>Players can also start from a public player page. It uses <a href="@PlayerAuthEndpoints.AuthenticationOrigin" target="_blank" rel="noopener noreferrer">auth.se-servers.net</a> for Discord sign-in.</p>
             <MudTextField T="string" @bind-Value="_settings.PublicUrl" Label="Self-hosted public website" HelperText="For example https://quasar.example.com. Leave empty when using Nebula hosting." />
             <p>Public access: @(_browser!.PublicUrl is { } url ? url : "Not verified or hosting inactive").</p>
             @if (_settings.VerifiedUntil is { } until) { <p>Self-hosted verification expires: @until.ToString("u"). Verify again before expiry.</p> }
@@ -31,7 +30,13 @@
         <div class="quasar-stack">
             <h2 class="quasar-text quasar-type-h6">Server access policies</h2>
             <p>Choose who can join each server or cluster and which Discord roles grant game privileges.</p>
+            <p>Players run <code>/authorize</code> in your Discord server to link their accounts and request access. Quasar can stay private.</p>
+            <p>Quasar's existing Discord bot checks membership and roles. Enable the Server Members intent and member tracking on <a href="discord">Discord</a>.</p>
             <p>Discord server: <strong>@DiscordServerName</strong>. <a href="discord">Manage bot</a></p>
+            @if (!BotConfigured)
+            {
+                <MudAlert Severity="Severity.Warning">Enable Quasar's Discord bot and select its Discord server before enabling player authentication. You can save a disabled policy.</MudAlert>
+            }
             @if (BotGuild is null)
             {
                 <MudAlert Severity="Severity.Warning">Connect Quasar's Discord bot to load role names. Saved role IDs remain available and are preserved while the bot is offline.</MudAlert>
@@ -46,7 +51,7 @@
             </MudSelect>
             @if (_policy is not null)
             {
-                <MudCheckBox T="bool" @bind-Value="_policy.Enabled" Label="Enable player authentication for this server" />
+                <MudCheckBox T="bool" @bind-Value="_policy.Enabled" Label="Enable player authentication for this server" Disabled="@(!BotConfigured && !_policy.Enabled)" />
                 <MudCheckBox T="bool" @bind-Value="_policy.Whitelist" Label="Require authorization before joining (whitelist)" />
                 <p>Without the whitelist, unlinked players can join; authenticated players can still receive role-based promotions and priority access. Existing bans, passwords and other access restrictions remain in force.</p>
                 <MudTextField T="string" @bind-Value="_policy.Instructions" Label="Player instructions" Lines="4" MaxLength="5000" />
@@ -122,6 +127,7 @@
     private List<PromotionRow> _promotions = [];
     private List<AccessRow> _players = [];
     private readonly CancellationTokenSource _stop = new();
+    private bool BotConfigured => _discord?.GetOptions() is { Enabled: true, GuildId: > 0 };
     private global::Discord.WebSocket.SocketGuild? BotGuild => _bot?.CurrentClient?.GetGuild(_discord!.GetOptions().GuildId);
     private string DiscordServerName => BotGuild?.Name ?? (_discord?.GetOptions().GuildId is > 0 and var guild ? guild.ToString() : "Not configured");
     private IReadOnlyList<(ulong Id, string Name)> Roles
@@ -192,8 +198,8 @@
                     && (a.IsCluster ? "cluster:" + a.ClusterId : "server:" + a.UniqueNameKey) == policy.Target
                     && a.Snapshot?.Plugins.Any(PlayerAccessWorker.IsLegacyAuthentication) == true))
                     throw new InvalidOperationException("Remove the separate GameServerAuth plugin before enabling built-in access.");
-                if (_browser?.Ready != true || !bot.Enabled || bot.GuildId == 0 || policy.GuildId != bot.GuildId)
-                    throw new InvalidOperationException("Verify public access or activate Nebula hosting first, then enable Quasar's Discord bot and use its configured server.");
+                if (!bot.Enabled || bot.GuildId == 0 || policy.GuildId != bot.GuildId)
+                    throw new InvalidOperationException("Enable Quasar's Discord bot and use its configured Discord server before enabling player authentication.");
                 if (!_targets.Any(t => t.Key == policy.Target)) throw new InvalidOperationException("A configured server no longer exists.");
                 if (policy.Target.StartsWith("cluster:"))
                 {

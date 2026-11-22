@@ -80,9 +80,9 @@ public sealed class PlayerAuthBrowser(PlayerAccessCatalog catalog, HostedPanelSe
                 challengeUntil = DateTimeOffset.UtcNow.AddMinutes(1);
             }
             using var response = await clients.CreateClient("PlayerDomainVerification").PostAsJsonAsync(
-                HostedPanelState.Origin + "/api/v1/quasar/verify-domain", new { url, challenge = nonce, proof = expected }, token);
+                PlayerAuthEndpoints.AuthenticationOrigin + "/api/v1/quasar/verify-domain", new { url, challenge = nonce, proof = expected }, token);
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException("Public website verification failed. Check public DNS, HTTPS, and reverse-proxy routing; the Nebula verifier must support this feature.");
+                throw new InvalidOperationException("Public website verification failed. Check public DNS, HTTPS, and reverse-proxy routing.");
             var result = await response.Content.ReadFromJsonAsync<VerificationResult>(token);
             if (result is not { Verified: true } || result.Url != url || result.Challenge != nonce)
                 throw new InvalidDataException("Invalid public website verification response.");

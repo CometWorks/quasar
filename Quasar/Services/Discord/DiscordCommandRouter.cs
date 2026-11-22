@@ -12,6 +12,7 @@ public sealed class DiscordCommandRouter
     private readonly DiscordOptionsCatalog _optionsCatalog;
     private readonly DiscordCommandDispatcher _dispatcher;
     private readonly QuasarChatCommands _requests;
+    private readonly IServiceProvider _services;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<DiscordCommandRouter> _logger;
     private readonly object _messageSync = new();
@@ -21,12 +22,14 @@ public sealed class DiscordCommandRouter
         DiscordOptionsCatalog optionsCatalog,
         DiscordCommandDispatcher dispatcher,
         QuasarChatCommands requests,
+        IServiceProvider services,
         IHostApplicationLifetime lifetime,
         ILogger<DiscordCommandRouter> logger)
     {
         _optionsCatalog = optionsCatalog;
         _dispatcher = dispatcher;
         _requests = requests;
+        _services = services;
         _lifetime = lifetime;
         _logger = logger;
     }
@@ -155,7 +158,16 @@ public sealed class DiscordCommandRouter
             .AddOption("server", ApplicationCommandOptionType.String, "Server name, or cluster:<name>", isRequired: true)
             .AddOption("faction", ApplicationCommandOptionType.String, "Space Engineers faction tag", isRequired: true);
 
-        List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build()];
+        var authorize = new SlashCommandBuilder()
+            .WithName("authorize")
+            .WithDescription("Link Steam and Discord and authorize access to a game server.")
+            .WithContextTypes(InteractionContextType.Guild)
+            .AddOption("server", ApplicationCommandOptionType.String, "Game server or cluster name", isRequired: true);
+        var unlink = new SlashCommandBuilder()
+            .WithName("unlink-accounts")
+            .WithDescription("Unlink your Steam account and revoke its linked server access.")
+            .WithContextTypes(InteractionContextType.Guild);
+        List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build(), authorize.Build(), unlink.Build()];
         // UI plugins' commands, which exist only while their plugin is loaded.
         foreach (var command in _requests.Commands)
             commands.Add(new SlashCommandBuilder()
@@ -185,6 +197,13 @@ public sealed class DiscordCommandRouter
                 case FactionChannelCommandName:
                     await HandleFactionChannelAsync(command, options);
                     break;
+                case "authorize":
+                case "unlink-accounts":
+                    if (command.User.IsBot || command.GuildId is not { } guild) return;
+                    await command.DeferAsync(ephemeral: true);
+                    // The browser handoff can take minutes. Release the Discord gateway callback.
+                    _ = CompletePlayerAccountCommandAsync(command, guild);
+                    break;
                 default:
                     if (_requests.Commands.FirstOrDefault(info => info.Name == command.Data.Name) is { } plugin)
                         await HandlePluginCommandAsync(command, plugin);
@@ -201,6 +220,42 @@ public sealed class DiscordCommandRouter
             else
             {
                 await command.RespondAsync($"Error: {exception.Message}", ephemeral: true);
+            }
+        }
+    }
+
+    private async Task CompletePlayerAccountCommandAsync(SocketSlashCommand command, ulong guild)
+    {
+        var token = _lifetime.ApplicationStopping;
+        try
+        {
+            // Resolve after the bot starts. Player access uses this bot for membership checks.
+            var authorization = _services.GetRequiredService<PrivatePlayerAuthorization>();
+            string message;
+            try
+            {
+                message = command.Data.Name == "unlink-accounts"
+                    ? await authorization.UnlinkAsync(guild, command.User.Id, token)
+                    : await authorization.AuthorizeAsync(guild, (command.Channel as SocketGuildChannel)?.Guild.Name ?? "your Discord server",
+                        command.User.Id, GetOption(command, "server").Trim(),
+                        url => command.ModifyOriginalResponseAsync(properties =>
+                            properties.Content = $"[Verify Steam and Discord]({url.AbsoluteUri}) within five minutes. This message will update when Quasar checks your access."), token);
+            }
+            catch (InvalidOperationException error) { message = error.Message; }
+            await command.ModifyOriginalResponseAsync(properties => properties.Content = message);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            _logger.LogWarning(error, "Discord player account command failed");
+            try
+            {
+                await command.ModifyOriginalResponseAsync(properties =>
+                    properties.Content = "The account request could not finish. Try the command again shortly.");
+            }
+            catch (Exception responseError)
+            {
+                _logger.LogDebug(responseError, "Could not update the Discord player account response");
             }
         }
     }
