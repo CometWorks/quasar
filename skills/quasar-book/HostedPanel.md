@@ -17,8 +17,7 @@ Hosted SDK operations such as Viewer asset reads and backup downloads can start
 through the tunnel while Quasar establishes a direct browser connection.
 Subsequent operations use the direct peer when available. A running transfer
 stays on its original connection. If a write loses its connection, check its
-outcome before retrying. Local access uses ordinary HTTP(S). During the WASM
-migration the Blazor Server dashboard still establishes its own circuit.
+outcome before retrying. Local and self-hosted access use the same browser dashboard over HTTP(S).
 
 ## Availability and price
 
@@ -65,6 +64,12 @@ Status texts in the dialog:
 | "Hosting service unavailable; local Quasar continues working" | Quasar can't reach Nebula. |
 | "Hosted access inactive; local Quasar remains available. Manage hosting on the Nebula account page." | Nebula denied hosting access. Local Quasar remains available; the enrollment can reactivate after later verified payment. |
 | "Installation disconnected. Restart hosted setup to relink your panel." | Nebula no longer knows this installation, for example after a disconnect or a recovery on another machine. Quasar has cleared its connector credential. |
+
+## Dashboard startup and transfers
+
+The browser downloads the dashboard runtime once per installed version. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
+
+Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
 
 ## Security of hosted requests
 

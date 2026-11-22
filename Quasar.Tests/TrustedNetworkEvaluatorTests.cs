@@ -38,6 +38,24 @@ public sealed class TrustedNetworkEvaluatorTests
         Assert.Equal(expected, await Evaluate(context));
     }
 
+    [Theory]
+    [InlineData("localhost:8080", "127.0.0.1", null, null, true)]
+    [InlineData("[::1]:8080", "::1", null, null, true)]
+    [InlineData("localhost:8080", "::ffff:127.0.0.1", null, null, true)]
+    [InlineData("localhost:8080", "192.168.1.9", null, null, false)]
+    [InlineData("localhost:8080", "127.0.0.1", "127.0.0.1", null, false)]
+    [InlineData("localhost:8080", "127.0.0.1", null, "https://other.test", false)]
+    [InlineData("quasar.example:8080", "127.0.0.1", null, null, false)]
+    public async Task AuthenticationDisabledRequiresDirectLoopback(string host, string peer, string? forwarded, string? origin, bool expected)
+    {
+        var context = Request(host);
+        context.Connection.RemoteIpAddress = IPAddress.Parse(peer);
+        if (forwarded != null) context.Request.Headers["X-Forwarded-For"] = forwarded;
+        if (origin != null) context.Request.Headers.Origin = origin;
+        Assert.Equal(expected, await Evaluate(context, new() { BaseUrl = "http://quasar.example:8080" },
+            auth: new() { Enabled = false, TrustedNetworkBypass = new() { AllowLoopback = false } }));
+    }
+
     [Fact]
     public async Task PublicBaseAndConcreteListenerKeepTheirAuthorities()
     {

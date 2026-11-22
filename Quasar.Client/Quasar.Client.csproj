@@ -5,7 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.13" />
+    <ProjectReference Include="../Contracts/ClusterGateway.AdminContract/ClusterGateway.AdminContract.csproj" />
+    <PackageReference Include="MudBlazor" Version="9.4.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="10.0.14" />
     <InternalsVisibleTo Include="Quasar" />
     <InternalsVisibleTo Include="Quasar.Tests" />
   </ItemGroup>

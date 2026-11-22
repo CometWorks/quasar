@@ -1,0 +1,5 @@
+@page "/access"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<PageTitle>Access</PageTitle>
+<Quasar.Client.Components.AccessView />

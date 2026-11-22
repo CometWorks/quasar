@@ -1,8 +1,0 @@
-@page "/plugins"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@using Quasar.Client.Components
-@layout WasmPageLayout
-
-<PageTitle>Plugins</PageTitle>
-<ServerPluginSettings @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

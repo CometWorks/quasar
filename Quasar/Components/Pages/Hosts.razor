@@ -1,7 +1,0 @@
-@page "/hosts"
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-@using Quasar.Client.Components
-
-<PageTitle>Host machines</PageTitle>
-<HostMachines @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

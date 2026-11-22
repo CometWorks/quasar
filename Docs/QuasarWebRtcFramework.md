@@ -1,6 +1,6 @@
 # Blazor over the peer transport
 
-The RTC branch supplies a server-side Blazor adapter using public ASP.NET Core
+Legacy server-rendered UI plugins use a server-side Blazor adapter using public ASP.NET Core
 HTTP features and SignalR's public client ITransport interface. Quasar still
 owns authentication, circuits, rendering, JS interop and reconnection. Pion owns
 ICE/DTLS/SCTP. There is no global WebSocket patch or localhost proxy.

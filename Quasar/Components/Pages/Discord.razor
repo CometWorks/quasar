@@ -1,7 +1,0 @@
-@page "/discord"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<PageTitle>Discord</PageTitle>
-<Quasar.Client.Components.DiscordView @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

@@ -109,9 +109,10 @@ next operation after 30 seconds can try again. An interrupted operation reports
 its own outcome. Local SDK calls continue over ordinary HTTP(S).
 
 Deploy Nebula's aggregate 20 Mbit/s tunneled bulk limiter before rolling out
-this SDK. The still-server-rendered Blazor UI has a separate circuit connection
-that retains the existing direct and TURN-only setup sequence. Older clients
-continue to use the existing signaling and lease endpoints.
+this SDK. The WASM dashboard and browser-capable plugins use the SDK for worker
+operations. Legacy server-rendered plugin pages still require a circuit and
+retain their direct and TURN-only setup sequence. Older clients can use the
+existing signaling and lease endpoints.
 
 A developer can build the pinned peer with Go 1.27.3 and place it in `Peer/quasar-peer` (`Peer/quasar-peer.exe` on Windows)
 beside the worker, or set `Quasar:WebRtc:PeerExecutable` to its explicit path.

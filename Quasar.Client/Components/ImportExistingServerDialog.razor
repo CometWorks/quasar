@@ -1,0 +1,645 @@
+@implements IAsyncDisposable
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using MudBlazor
+@using Quasar.Components.Shared
+@using Quasar.Client.Configs
+@using Quasar.Client.Fleet
+@using Quasar.Services
+@using Quasar.Services.Auth
+@inject DashboardSdk Sdk
+@inject NavigationManager Navigation
+@inject IDialogService DialogService
+@inject IJSRuntime JS
+
+<MudDialog>
+    <TitleContent>
+        <div class="quasar-layout quasar-layout-row quasar-align-center quasar-gap-1">
+            <MudIconButton Icon="@Icons.Material.Filled.Close" Color="Color.Default" Disabled="@_busy" OnClick="Cancel" title="Close setup" />
+            <h2 class="quasar-text quasar-type-h6">@DialogHeading</h2>
+        </div>
+    </TitleContent>
+    <DialogContent>
+        <div class="quasar-layout quasar-gap-3" style="min-width: min(760px, 80vw);">
+            @if (_step >= 0)
+            {
+                <MudProgressLinear Value="@Progress" Color="Color.Primary" />
+                <span class="quasar-text quasar-type-caption">Step @Math.Min(_step + 1, 4) of 4 · @StepTitle</span>
+            }
+
+            @if (!string.IsNullOrWhiteSpace(_error))
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined">@_error</MudAlert>
+            }
+            @if (_busy)
+            {
+                <QuasarOperationLoader Title="@(_step == 1 ? (_zipMode ? "Uploading and checking your server" : "Finding your server and worlds") : "Importing your server")"
+                                       Message="@(_step == 1 ? "Reading the server configuration and checking save folders. Your source files stay unchanged during discovery. Review the detected worlds and settings next." : ImportProgressMessage)" />
+            }
+
+            @if (_busy && _step == 1 && _zipMode)
+            {
+                <p role="status" aria-live="polite">@(_progress?.Phase ?? "Reading ZIP") · @((_progress?.Bytes ?? 0) / 1048576) MiB</p>
+                <MudButton OnClick="CancelTransfer">Cancel upload</MudButton>
+            }
+
+            @if (_step == -1)
+            {
+                <h3 class="quasar-text quasar-type-subtitle1">How should Quasar set up its first server?</h3>
+                <p class="quasar-text quasar-type-body2">Choose a new server, or import an existing vanilla Dedicated Server or Torch instance.</p>
+                <MudGrid>
+                    <MudItem xs="12" md="@(OfferCluster ? 4 : 6)">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.AddCircle"
+                                   Style="width: 100%; min-height: 88px;"
+                                   OnClick="ChooseCreateNew">
+                            Single Magnetar
+                        </MudButton>
+                        <p class="quasar-text quasar-type-body2 mt-2">One dedicated server. Continue through world, profile and server setup.</p>
+                    </MudItem>
+                    @if (OfferCluster)
+                    {
+                        <MudItem xs="12" md="4">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.AccountTree"
+                                       Style="width: 100%; min-height: 88px;" OnClick="ChooseCluster">Cluster</MudButton>
+                            <p class="quasar-text quasar-type-body2 mt-2">One shared world across multiple nodes. Continue to guided cluster setup.</p>
+                        </MudItem>
+                    }
+                    <MudItem xs="12" md="@(OfferCluster ? 4 : 6)">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Secondary"
+                                   StartIcon="@Icons.Material.Filled.MoveToInbox"
+                                   Style="width: 100%; min-height: 88px;"
+                                   OnClick="ChooseImport">
+                            Import Existing Server
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+                <span class="quasar-text quasar-type-caption">Setup stays available until you explicitly finish or skip it.</span>
+            }
+            else if (_step == 0)
+            {
+                <h3 class="quasar-text quasar-type-subtitle1">What currently runs this server?</h3>
+                <p class="quasar-text quasar-type-body2">Choose source format before Quasar reads any files.</p>
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudButton Variant="@KindVariant(ExistingServerKind.Vanilla)"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Storage"
+                                   Style="width: 100%; min-height: 72px;"
+                                   OnClick="@(() => SetKind(ExistingServerKind.Vanilla))">
+                            Vanilla Dedicated Server
+                        </MudButton>
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudButton Variant="@KindVariant(ExistingServerKind.Torch)"
+                                   Color="Color.Primary"
+                                   StartIcon="@Icons.Material.Filled.Build"
+                                   Style="width: 100%; min-height: 72px;"
+                                   OnClick="@(() => SetKind(ExistingServerKind.Torch))">
+                            Torch
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+            }
+            else if (_step == 1)
+            {
+                <h3 class="quasar-text quasar-type-subtitle1">Locate @KindLabel server</h3>
+                <div class="world-source-tabs" role="group" aria-label="Server source">
+                    <button type="button" aria-pressed="@(!_zipMode)" class="quasar-button @(!_zipMode ? "quasar-button-primary" : "")" disabled="@_busy" @onclick="@(() => SetSourceMode(false))">Server Folder</button>
+                    <button type="button" aria-pressed="@_zipMode" class="quasar-button @(_zipMode ? "quasar-button-primary" : "")" disabled="@_busy" @onclick="@(() => SetSourceMode(true))">Upload ZIP</button>
+                </div>
+                @if (_zipMode)
+                {
+                    <label class="quasar-field">
+                        <span>Server ZIP file</span>
+                        <InputFile @ref="_zipInput" OnChange="SelectZip" accept=".zip,application/zip" disabled="@_busy" />
+                        <small>@(IsTorch ? "Include Torch.cfg, the instance configuration and Saves folder." : "Include SpaceEngineers-Dedicated.cfg and its Saves folder.") One server instance, at the ZIP root or inside an enclosing folder. Only server configs and detected saves transfer, up to 10 GiB compressed.</small>
+                    </label>
+                    @if (_staged is not null)
+                    {
+                        <span role="status">@_zipName was read. Required files are ready to analyze again.</span>
+                    }
+                    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">Quasar reads the ZIP index first. Unneeded binaries, plugins, logs, caches and world backups stay on your PC. Required files are copied; your ZIP stays unchanged.</MudAlert>
+                }
+                else
+                {
+                    <div class="world-path-field">
+                        <label class="quasar-field" for="@_pathId">Source server folder</label>
+                        <div class="world-path-controls">
+                            <input id="@_pathId" class="world-text-input mono" @bind="_sourcePath" @bind:event="oninput" disabled="@_busy" aria-describedby="@(_pathId + "-help")" />
+                            <button type="button" class="quasar-button" disabled="@_busy" @onclick="BrowseAsync"><QuasarIcon Icon="@Icons.Material.Filled.FolderOpen" />Browse</button>
+                        </div>
+                        <small id="@(_pathId + "-help")">@(IsTorch ? "Folder on the Quasar machine containing Torch.cfg." : "DS app-data folder on the Quasar machine containing SpaceEngineers-Dedicated.cfg, or its parent.")</small>
+                    </div>
+
+                    <h3 class="quasar-text quasar-type-subtitle2">Transfer mode</h3>
+                    <MudRadioGroup T="ExistingServerTransferMode" @bind-Value="_transferMode">
+                        <MudRadio T="ExistingServerTransferMode" Value="ExistingServerTransferMode.Copy" Color="Color.Primary" Disabled="@_busy">
+                            Copy — keep source world folders unchanged
+                        </MudRadio>
+                        <MudRadio T="ExistingServerTransferMode" Value="ExistingServerTransferMode.Move" Color="Color.Warning" Disabled="@_busy">
+                            Move — remove selected source world folders after successful import
+                        </MudRadio>
+                    </MudRadioGroup>
+                    @if (_transferMode == ExistingServerTransferMode.Move)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                            Move keeps source install, config, plugins, and logs for recovery. Only selected world folders are removed, and only after Quasar commits managed copies.
+                        </MudAlert>
+                    }
+                }
+            }
+            else if (_step == 2 && _analysis is not null)
+            {
+                <h3 class="quasar-text quasar-type-subtitle1">Review detected data</h3>
+                <p class="quasar-text quasar-type-body2 mono">Config: @_analysis.ConfigPath</p>
+
+                @foreach (var warning in _analysis.Warnings)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@warning</MudAlert>
+                }
+
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_displayName" Label="Quasar display name" Variant="Variant.Outlined" Immediate="true" Required="true" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_uniqueName" Label="Quasar identifier" Variant="Variant.Outlined" Immediate="true" Required="true" Class="mono" HelperText="Quasar sanitizes this to a unique server folder name." />
+                    </MudItem>
+                </MudGrid>
+
+                <hr class="quasar-divider" />
+                <h3 class="quasar-text quasar-type-subtitle2">Worlds</h3>
+                <p class="quasar-text quasar-type-body2">Primary world becomes managed server save. Other selected worlds become reusable Quasar templates.</p>
+                <div class="quasar-layout quasar-gap-1">
+                    @foreach (var world in _analysis.Worlds)
+                    {
+                        <section class="quasar-panel pa-2">
+                            <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-align-center quasar-justify-spacebetween quasar-gap-1">
+                                <MudCheckBox T="bool"
+                                             Value="@IsWorldSelected(world.Path)"
+                                             ValueChanged="@(value => SetWorldSelected(world.Path, value))"
+                                             Label="@world.Name"
+                                             Color="Color.Primary" />
+                                <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-1">
+                                    @if (world.IsConfiguredWorld)
+                                    {
+                                        <MudChip T="string" Size="Size.Small" Color="Color.Success" Variant="Variant.Outlined">active</MudChip>
+                                    }
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@world.SessionSettingCount settings</MudChip>
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined">@world.ModCount mods</MudChip>
+                                </div>
+                            </div>
+                            <span class="quasar-text quasar-type-caption mono">@world.Path</span>
+                        </section>
+                    }
+                </div>
+                <MudSelect T="string" @bind-Value="_primaryWorldPath" Label="Primary managed world" Variant="Variant.Outlined" Required="true">
+                    @foreach (var world in SelectedWorlds)
+                    {
+                        <MudSelectItem T="string" Value="@world.Path">@world.Name</MudSelectItem>
+                    }
+                </MudSelect>
+
+                <hr class="quasar-divider" />
+                <h3 class="quasar-text quasar-type-subtitle2">Settings to transfer</h3>
+                <p class="quasar-text quasar-type-body2">Clear any category Quasar should replace with managed defaults.</p>
+                <MudGrid>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.Identity)" ValueChanged="@(value => SetSection(ExistingServerImportSections.Identity, value))" Label="Server and world names" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.Network)" ValueChanged="@(value => SetSection(ExistingServerImportSections.Network, value))" Label="Network, online mode, IP and port" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.ServerSettings)" ValueChanged="@(value => SetSection(ExistingServerImportSections.ServerSettings, value))" Label="@($"Server options and MOTD ({_analysis.RootSettingCount})")" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.AccessLists)" ValueChanged="@(value => SetSection(ExistingServerImportSections.AccessLists, value))" Label="@($"Admins, reserved, bans and GroupID whitelist ({_analysis.AccessEntryCount})")" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.SessionSettings)" ValueChanged="@(value => SetSection(ExistingServerImportSections.SessionSettings, value))" Label="@($"Gameplay and world settings ({PrimaryWorld?.SessionSettingCount ?? _analysis.SessionSettingCount})")" />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.Mods)" ValueChanged="@(value => SetSection(ExistingServerImportSections.Mods, value))" Label="@($"World Workshop mods ({PrimaryWorld?.ModCount ?? 0})")" />
+                    </MudItem>
+                    @if (IsTorch)
+                    {
+                        <MudItem xs="12" md="6">
+                            <MudCheckBox T="bool" Value="@HasSection(ExistingServerImportSections.TorchLifecycle)" ValueChanged="@(value => SetSection(ExistingServerImportSections.TorchLifecycle, value))" Label="Torch crash-restart policy" />
+                        </MudItem>
+                    }
+                </MudGrid>
+
+                @if (_analysis.HasPasswordHash)
+                {
+                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Warning).ToString().ToLowerInvariant())">Server password is not selected because DS hash cannot be reversed. Set new password after import.</span>
+                }
+            }
+            else if (_step == 3 && _analysis is not null)
+            {
+                <h3 class="quasar-text quasar-type-subtitle1">Ready to import</h3>
+                <MudList T="string" Dense="true">
+                    <MudListItem T="string">Source: @KindLabel · @(_zipMode ? _zipName : _sourcePath)</MudListItem>
+                    <MudListItem T="string">Mode: @_transferMode</MudListItem>
+                    <MudListItem T="string">Managed server: @_displayName (@_uniqueName)</MudListItem>
+                    <MudListItem T="string">Primary world: @PrimaryWorld?.Name</MudListItem>
+                    <MudListItem T="string">Worlds selected: @SelectedWorlds.Count</MudListItem>
+                </MudList>
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    Imported server stays stopped. Review profile and server settings, then start it from dashboard.
+                </MudAlert>
+                @if (_transferMode == ExistingServerTransferMode.Move)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">
+                        Successful import permanently removes @SelectedWorlds.Count selected source world folder(s). Source config and installation remain.
+                    </MudAlert>
+                }
+                @if (!_zipMode)
+                {
+                    <MudCheckBox T="bool" @bind-Value="_sourceStoppedConfirmed" Color="Color.Warning" Label="I confirm source server is stopped" />
+                }
+            }
+            else if (_step == 4 && _result is not null)
+            {
+                <MudAlert Severity="Severity.Success" Variant="Variant.Outlined">
+                    Imported '@_result.DisplayName' as Quasar server '@_result.UniqueName'.
+                </MudAlert>
+                <p class="quasar-text quasar-type-body2">Created one config profile, @_result.TemplateCount world template(s), and managed primary world save.</p>
+                @foreach (var warning in _result.Warnings)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Dense="true">@warning</MudAlert>
+                }
+            }
+        </div>
+    </DialogContent>
+    <DialogActions>
+        @if (_step == 4)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Success" OnClick="Close">Done</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" Disabled="@_busy" OnClick="Cancel">@(_step == -1 ? "Skip setup" : "Cancel")</MudButton>
+            @if (_step > 0 || (_step == 0 && OfferCreateNew))
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Default" Disabled="@_busy" OnClick="Back">Back</MudButton>
+            }
+            @if (_step >= 0)
+            {
+                <MudButton Variant="Variant.Filled"
+                           Color="@(_step == 3 ? Color.Success : Color.Primary)"
+                           Disabled="@(_busy || !CanContinue)"
+                           StartIcon="@(_step == 3 ? Icons.Material.Filled.MoveToInbox : Icons.Material.Filled.ArrowForward)"
+                           OnClick="NextAsync">
+                    @(_busy ? "Working…" : _step == 3 ? "Import" : _step == 1 ? "Analyze" : "Next")
+                </MudButton>
+            }
+        }
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [Parameter]
+    public bool OfferCreateNew { get; set; }
+    [Parameter] public bool OfferCluster { get; set; }
+    [Parameter] public bool StartInImport { get; set; }
+    [Parameter] public EventCallback<bool> ImportModeChanged { get; set; }
+    [Parameter] public EventCallback<string> ImportCompleted { get; set; }
+
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    private readonly string _pathId = "server-source-" + Guid.NewGuid().ToString("N");
+    private bool _zipMode, _disposed;
+    private IBrowserFile? _zip;
+    private InputFile? _zipInput;
+    private string _zipName = string.Empty;
+    private ServerImportTarget? _staged;
+    private WorldTransferProgress? _progress;
+    private CancellationTokenSource? _cancellation;
+    private Task? _pending;
+    private int _step;
+    private ExistingServerKind? _kind;
+    private ExistingServerTransferMode _transferMode = ExistingServerTransferMode.Copy;
+    private string _sourcePath = string.Empty;
+    private string _displayName = string.Empty;
+    private string _uniqueName = string.Empty;
+    private string _primaryWorldPath = string.Empty;
+    private ExistingServerImportSections _sections;
+    private readonly HashSet<string> _selectedWorldPaths = new(PathComparer);
+    private ServerImportReview? _analysis;
+    private ImportedServer? _result;
+    private bool _sourceStoppedConfirmed;
+    private bool _busy;
+    private string _error = string.Empty;
+
+    public sealed record DialogOutcome(bool StartClusterSetup, bool StartNewSetup, string? ImportedServerName);
+
+    private int Progress => _step >= 4 ? 100 : (_step + 1) * 25;
+
+    private string DialogHeading => _step == -1 ? "Set Up First Server" : "Import Existing Server";
+
+    private string StepTitle => _step switch
+    {
+        0 => "Source type",
+        1 => "Location and transfer mode",
+        2 => "Analyze and select",
+        3 => "Confirm",
+        _ => "Complete",
+    };
+
+    private bool IsTorch => _kind == ExistingServerKind.Torch;
+
+    private string KindLabel => IsTorch ? "Torch" : "vanilla Dedicated Server";
+
+    private string ImportProgressMessage => _zipMode
+        ? "Copying selected worlds from the uploaded snapshot and creating the matching configuration and stopped server. Large saves can take several minutes; keep this dialog open."
+        : "Rechecking the source, copying selected worlds and creating the matching configuration and stopped server. Large saves can take several minutes; keep the source server stopped and this dialog open.";
+
+    private IReadOnlyList<ImportWorld> SelectedWorlds =>
+        _analysis?.Worlds.Where(world => IsWorldSelected(world.Path)).ToList() ?? [];
+
+    private ImportWorld? PrimaryWorld =>
+        _analysis?.Worlds.FirstOrDefault(world => PathsEqual(world.Path, _primaryWorldPath));
+
+    private bool CanContinue => _step switch
+    {
+        0 => _kind is not null,
+        1 => _zipMode ? _zip is not null || _staged is not null : !string.IsNullOrWhiteSpace(_sourcePath),
+        2 => SelectedWorlds.Count > 0 && PrimaryWorld is not null &&
+             !string.IsNullOrWhiteSpace(_displayName) && !string.IsNullOrWhiteSpace(_uniqueName),
+        3 => _zipMode || _sourceStoppedConfirmed,
+        _ => false,
+    };
+
+    protected override void OnInitialized()
+    {
+        if (OfferCreateNew && !StartInImport)
+            _step = -1;
+    }
+
+    private Variant KindVariant(ExistingServerKind kind) =>
+        _kind == kind ? Variant.Filled : Variant.Outlined;
+
+    private async Task NextAsync()
+    {
+        if (_busy || !CanContinue || !await Sdk.AllowedAsync(QuasarPolicyNames.CanEditServers))
+            return;
+        _error = string.Empty;
+        if (_step == 1)
+        {
+            _pending = AnalyzeAsync();
+            await _pending;
+            return;
+        }
+
+        if (_step == 3)
+        {
+            _pending = ImportAsync();
+            await _pending;
+            return;
+        }
+
+        if (CanContinue)
+            _step++;
+    }
+
+    private async Task Back()
+    {
+        _error = string.Empty;
+        // Browser file handles do not survive removing their InputFile component.
+        if (_step == 1) _zip = null;
+        if (_step > 0)
+            _step--;
+        else if (_step == 0 && OfferCreateNew)
+        {
+            _step = -1;
+            await ImportModeChanged.InvokeAsync(false);
+        }
+    }
+
+    private void ChooseCreateNew() =>
+        MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartClusterSetup: false, StartNewSetup: true, ImportedServerName: null)));
+
+    private void ChooseCluster() =>
+        MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartClusterSetup: true, StartNewSetup: false, ImportedServerName: null)));
+
+    private async Task ChooseImport()
+    {
+        _step = 0;
+        await ImportModeChanged.InvokeAsync(true);
+    }
+
+    private async Task BrowseAsync()
+    {
+        if (_busy || !await Sdk.AllowedAsync(QuasarPolicyNames.CanEditServers)) return;
+        var dialog = await DialogService.ShowAsync<FolderPickerDialog>(
+            "Pick existing server folder",
+            new DialogParameters
+            {
+                [nameof(FolderPickerDialog.InitialPath)] = string.IsNullOrWhiteSpace(_sourcePath) ? null : _sourcePath,
+                [nameof(FolderPickerDialog.DialogTitle)] = "Pick existing server folder",
+                [nameof(FolderPickerDialog.RequireWorldFolder)] = false,
+                [nameof(FolderPickerDialog.BrowseDirectory)] = (Func<string, bool, Task<ConfigDirectory>>)BrowseServerFoldersAsync,
+            },
+            new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Large });
+        var result = await dialog.Result;
+        if (result is { Canceled: false, Data: string path })
+            _sourcePath = path;
+    }
+
+    private IJSObjectReference? _transfers;
+    private Task<IJSObjectReference> LoadTransfers() => JS.InvokeAsync<IJSObjectReference>("import",
+        new Uri(new Uri(Navigation.BaseUri), "_content/Quasar.Client/worldTransfers.js").AbsoluteUri).AsTask();
+
+    private async Task<ConfigDirectory> BrowseServerFoldersAsync(string path, bool hidden)
+    {
+        var dirs = await Sdk.RequestAsync<WorldFolders>("worlds.server.browse", new WorldFolderQuery(path, hidden));
+        return new(dirs.Path, dirs.World, dirs.Shortcuts.Select(f => new FileBrowserShortcut(f.Name, f.Path)).ToArray(),
+            dirs.Breadcrumbs.Select(f => new FileBrowserBreadcrumb(f.Name, f.Path)).ToArray(),
+            dirs.Entries.Select(f => new FileBrowserEntry(f.Name, f.Path, f.World)).ToArray(), []);
+    }
+
+    private async Task AnalyzeAsync()
+    {
+        if (_kind is null)
+            return;
+        _busy = true;
+        _progress = null;
+        _cancellation = new();
+        try
+        {
+            if (!_zipMode || _staged is null)
+            {
+                await DiscardAsync();
+                var target = new ServerImportTarget(Guid.NewGuid(), _kind.Value);
+                _staged = target;
+                _transfers ??= await LoadTransfers();
+                var poll = PollProgressAsync(target, _cancellation.Token);
+                try
+                {
+                    if (_zipMode && (_zip is null || _zipInput?.Element is null)) throw new InvalidOperationException("Select the ZIP again.");
+                    await _transfers.InvokeAsync<bool>("write", _cancellation.Token, target.Id, _zipMode ? "server-import.zip" : "server-import.folder",
+                        target, new { path = _sourcePath }, _zipMode ? _zipInput!.Element : null, _zip?.Name, _zip?.Size);
+                }
+                finally { await _cancellation.CancelAsync(); await poll; }
+            }
+            _analysis = await JS.InvokeAsync<ServerImportReview>("quasarSdk.readJson", "quasar.core", "server-import.review", _staged);
+            _displayName = _analysis.ServerName;
+            _uniqueName = _analysis.ServerName;
+            _selectedWorldPaths.Clear();
+            var primary = _analysis.Worlds.FirstOrDefault(world => world.IsConfiguredWorld) ?? _analysis.Worlds.First();
+            _selectedWorldPaths.Add(primary.Path);
+            _primaryWorldPath = primary.Path;
+            _sections = ExistingServerImportSections.Identity |
+                        ExistingServerImportSections.Network |
+                        ExistingServerImportSections.ServerSettings |
+                        ExistingServerImportSections.AccessLists |
+                        ExistingServerImportSections.SessionSettings |
+                        ExistingServerImportSections.Mods;
+            if (IsTorch)
+                _sections |= ExistingServerImportSections.TorchLifecycle;
+            _step = 2;
+        }
+        catch (OperationCanceledException) { _error = "Server upload canceled. Choose the ZIP again to retry."; await DiscardAsync(); _zip = null; }
+        catch (Exception exception) { _error = exception.Message; await DiscardAsync(); }
+        finally
+        {
+            _cancellation.Dispose(); _cancellation = null;
+            _busy = false;
+        }
+    }
+
+    private async Task ImportAsync()
+    {
+        if (_kind is null || _analysis is null)
+            return;
+        _busy = true;
+        try
+        {
+            if (_staged is null) throw new InvalidOperationException("Review the source again before importing.");
+            var request = new ImportServerSelection(_zipMode ? ExistingServerTransferMode.Copy : _transferMode,
+                _displayName, _uniqueName, _selectedWorldPaths.ToArray(), _primaryWorldPath, _sections, _sourceStoppedConfirmed);
+            _transfers ??= await LoadTransfers();
+            _result = await _transfers.InvokeAsync<ImportedServer>("write", _staged.Id, "server-import.commit", _staged, request, null, null, null);
+            _staged = null;
+            _step = 4;
+            await ImportCompleted.InvokeAsync(_result.TemplateId ?? "");
+        }
+        catch (Exception exception)
+        {
+            if (_result is null)
+            {
+                await DiscardAsync();
+                _analysis = null;
+                _zip = null;
+                _sourceStoppedConfirmed = false;
+                _step = 1;
+                _error = $"{exception.Message} Check the server list before reviewing the source again.";
+            }
+            else _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+
+    private bool IsWorldSelected(string path) => _selectedWorldPaths.Contains(path);
+
+    private void SetWorldSelected(string path, bool selected)
+    {
+        if (selected)
+            _selectedWorldPaths.Add(path);
+        else
+            _selectedWorldPaths.Remove(path);
+
+        if (!IsWorldSelected(_primaryWorldPath))
+            _primaryWorldPath = SelectedWorlds.FirstOrDefault()?.Path ?? string.Empty;
+    }
+
+    private bool HasSection(ExistingServerImportSections section) => _sections.HasFlag(section);
+
+    private void SetSection(ExistingServerImportSections section, bool selected)
+    {
+        if (selected)
+            _sections |= section;
+        else
+            _sections &= ~section;
+    }
+
+    private static bool PathsEqual(string left, string right) =>
+        string.Equals(left, right, StringComparison.Ordinal);
+
+    private static StringComparer PathComparer =>
+        StringComparer.Ordinal;
+
+    private async Task SetKind(ExistingServerKind kind)
+    {
+        if (_kind == kind) return;
+        await DiscardAsync(); _zip = null; _kind = kind;
+    }
+
+    private async Task SetSourceMode(bool zip)
+    {
+        if (_busy || _zipMode == zip) return;
+        await DiscardAsync(); _zip = null; _zipMode = zip;
+        _transferMode = ExistingServerTransferMode.Copy;
+        _error = string.Empty;
+    }
+
+    private async Task SelectZip(InputFileChangeEventArgs args)
+    {
+        await DiscardAsync(); _zip = args.File; _zipName = args.File.Name;
+        _error = string.Empty;
+    }
+
+    private async Task DiscardAsync()
+    {
+        var target = _staged;
+        _staged = null;
+        if (target is not null)
+            try { await Sdk.RequestAsync<bool>("server-import.discard", target); }
+            catch (JSException) { /* Worker staging expires if the transport closes. */ }
+    }
+
+    private async Task PollProgressAsync(ServerImportTarget target, CancellationToken token)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(1));
+            while (await timer.WaitForNextTickAsync(token))
+            {
+                _progress = await Sdk.RequestAsync<WorldTransferProgress?>("server-import.progress", target, token);
+                if (!_disposed) await InvokeAsync(StateHasChanged);
+            }
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+        catch (JSException) { /* The transfer reports its own outcome. */ }
+    }
+
+    private async Task CancelTransfer()
+    {
+        if (_transfers is not null && _staged is {} target) await _transfers.InvokeVoidAsync("cancel", target.Id);
+        if (_cancellation is not null) await _cancellation.CancelAsync();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        _disposed = true;
+        await CancelTransfer();
+        if (_pending is not null) await _pending;
+        await DiscardAsync();
+        if (_transfers is not null) await _transfers.DisposeAsync();
+    }
+
+    private void Cancel() { if (!_busy) MudDialog.Cancel(); }
+
+    private void Close() =>
+        MudDialog.Close(DialogResult.Ok(new DialogOutcome(StartClusterSetup: false, StartNewSetup: false, ImportedServerName: _result?.UniqueName)));
+}

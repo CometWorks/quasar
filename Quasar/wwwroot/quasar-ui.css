@@ -719,3 +719,9 @@ textarea.world-text-input { min-height: 88px; resize: vertical; }
     .world-path-controls > .quasar-button { justify-self: start; }
     .world-import-form { max-width: 100%; }
 }
+
+#quasar-wasm-loading:not([hidden]) { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin-block: 1rem; }
+#quasar-wasm-loading progress { max-width: 12rem; accent-color: var(--quasar-palette-primary); }
+.quasar-wasm-spinner { width: 1rem; height: 1rem; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: quasar-wasm-spin .8s linear infinite; }
+@keyframes quasar-wasm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .quasar-wasm-spinner { animation: none; } }

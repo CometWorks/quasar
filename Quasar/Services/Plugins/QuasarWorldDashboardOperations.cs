@@ -143,19 +143,19 @@ public static class QuasarWorldDashboardOperations
             {
                 var templates = caller.Services.GetRequiredService<QuasarWorldTemplateCatalog>();
                 var template = templates.GetTemplate(existing) ?? throw new QuasarOperationException(404, "World template no longer exists.");
-                entry.Path = templates.GetWorldDirectory(template.WorldTemplateId);
-                if (!Directory.Exists(entry.Path)) throw new QuasarOperationException(404, "Template files are missing.");
-                entry.TemplateId = template.WorldTemplateId;
+                entry.Stage.Path = templates.GetWorldDirectory(template.WorldTemplateId);
+                if (!Directory.Exists(entry.Stage.Path)) throw new QuasarOperationException(404, "Template files are missing.");
+                entry.Stage.TemplateId = template.WorldTemplateId;
                 name = template.Name;
             }
             else
             {
                 if (zip is null && (source?.Stopped != true || string.IsNullOrWhiteSpace(source.Path)))
                     throw new QuasarOperationException(400, "Choose a stopped world or completed snapshot.");
-                entry.Files = zip is not null ? await WorldSaveFiles.FromZipAsync(zip, parent, progress, token)
+                entry.Stage.Files = zip is not null ? await WorldSaveFiles.FromZipAsync(zip, parent, progress, token)
                     : await imports.StageFolderAsync(source!.Path!, parent, progress, token);
-                entry.Path = entry.Files.WorldPath;
-                name = entry.Files.SuggestedName;
+                entry.Stage.Path = entry.Stage.Files.WorldPath;
+                name = entry.Stage.Files.SuggestedName;
             }
             await caller.EnsureAuthorizedAsync(token);
             ReadWorld result;
@@ -176,7 +176,7 @@ public static class QuasarWorldDashboardOperations
     }
 
     private static WorldSandboxConfigEditor.ConfigProfileImport ReadProfile(DashboardWorldStaging.Entry entry) =>
-        WorldSandboxConfigEditor.ReadConfigProfile(Path.Combine(entry.Path, WorldSandboxConfigEditor.SandboxConfigFileName));
+        WorldSandboxConfigEditor.ReadConfigProfile(Path.Combine(entry.Stage.Path, WorldSandboxConfigEditor.SandboxConfigFileName));
 
     private static async Task<WorldSaved> CommitAsync(QuasarOperationContext caller, WorldTarget target, bool server, WorldCommit input, CancellationToken token)
     {
@@ -194,12 +194,12 @@ public static class QuasarWorldDashboardOperations
                 { "new" => true, "keep" => false, _ => throw new QuasarOperationException(400, "Choose how to apply world settings.") };
                 if (profile && !await Allowed(caller, QuasarPolicyNames.CanEditConfigs))
                     throw new QuasarOperationException(403, "Configuration permission is required to import settings.");
-                var updated = await caller.Services.GetRequiredService<ServerWorldImportService>().ImportAsync(GetServer(caller, target), entry.Files!, input.Name, profile, token);
+                var updated = await caller.Services.GetRequiredService<ServerWorldImportService>().ImportAsync(GetServer(caller, target), entry.Stage.Files!, input.Name, profile, token);
                 discard = true;
                 return new(null, updated.ConfigProfileId, updated.UniqueName, ["Imported and selected " + updated.WorldSaveName + "."]);
             }
 
-            if (input.ProfileAction is not ("keep" or "existing" or "new") || input.ProfileOnly && (input.ProfileAction != "new" || entry.TemplateId is null))
+            if (input.ProfileAction is not ("keep" or "existing" or "new") || input.ProfileOnly && (input.ProfileAction != "new" || entry.Stage.TemplateId is null))
                 throw new QuasarOperationException(400, "Select a valid template profile action.");
             if (input.ProfileAction == "new" && string.IsNullOrWhiteSpace(input.ProfileName) || !input.ProfileOnly && string.IsNullOrWhiteSpace(input.Name))
                 throw new QuasarOperationException(400, "A name is required.");
@@ -235,11 +235,11 @@ public static class QuasarWorldDashboardOperations
                 }
             }
             await caller.EnsureAuthorizedAsync(token);
-            var templateId = entry.TemplateId;
+            var templateId = entry.Stage.TemplateId;
             if (!input.ProfileOnly)
             {
                 var template = await caller.Services.GetRequiredService<QuasarWorldTemplateCatalog>().ImportAsync(input.Name.Trim(),
-                    input.Description?.Trim() ?? "", entry.Path, token, new TemplateProgress(entry));
+                    input.Description?.Trim() ?? "", entry.Stage.Path, token, new TemplateProgress(entry));
                 templateId = template.WorldTemplateId;
                 messages.Add($"Created world template '{template.Name}'.");
                 // Publishing succeeded. Never copy the template a second time after a profile failure.
@@ -264,7 +264,7 @@ public static class QuasarWorldDashboardOperations
         }
         catch (Exception error) when (error is InvalidOperationException or InvalidDataException or IOException or ArgumentException)
         { throw new QuasarOperationException(409, error.Message); }
-        finally { staging.Release(entry, discard || entry.Files?.Published == true); }
+        finally { staging.Release(entry, discard || entry.Stage.Files?.Published == true); }
     }
 
     private static async Task<bool> Allowed(QuasarOperationContext caller, string policy) =>

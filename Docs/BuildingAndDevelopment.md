@@ -31,8 +31,11 @@ file-manager launch. These fixtures never open a real installer or install servi
 ## Projects
 
 - `Quasar`
-  Blazor Server supervisor host, DS process manager, config/runtime preparation,
+  ASP.NET Core supervisor host, DS process manager, config/runtime preparation,
   and WebSocket endpoint for agents.
+- `Quasar.WebAssembly` and `Quasar.Client`
+  Browser entry point, dashboard pages, and browser-compatible Razor plugin outlets.
+  Publishing the worker includes the matching browser runtime and static assets.
 - `Quasar.Agent`
   Dedicated Server plugin that attaches to Quasar and exposes telemetry,
   commands, and generic companion-plugin request dispatch.

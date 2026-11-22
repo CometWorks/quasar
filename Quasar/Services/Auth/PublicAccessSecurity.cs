@@ -58,7 +58,7 @@ internal static class PublicAccessSecurity
         return IsLoopbackHost(uri.Host);
     }
 
-    private static bool IsLoopbackHost(string host)
+    internal static bool IsLoopbackHost(string host)
     {
         host = host.Trim().Trim('[', ']');
         if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase))

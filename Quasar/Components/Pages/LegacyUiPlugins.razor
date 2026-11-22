@@ -1,0 +1,22 @@
+@page "/compat/settings/ui-plugins"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+@inject QuasarUiPluginCatalog PluginCatalog
+@inject QuasarUiPluginHubCatalogService HubCatalog
+@inject QuasarUiPluginStateStore PluginStates
+
+<PageTitle>UI plugin extensions</PageTitle>
+<QuasarPageHeading Section="Tools &amp; settings"><Title>UI plugin extensions</Title></QuasarPageHeading>
+<a href="settings/ui-plugins">Back to UI Plugins</a>
+<QuasarExtensionOutlet TargetKey="@QuasarExtensionTargets.PluginsPage" Parameters="Parameters"
+                      DefaultPolicy="@QuasarPolicyNames.CanManageSecurity" />
+
+@code {
+    private IReadOnlyDictionary<string, object?> Parameters => new Dictionary<string, object?>
+    {
+        ["UiPlugins"] = PluginCatalog,
+        ["HubCatalog"] = HubCatalog,
+        ["PluginStates"] = PluginStates,
+        ["LoadedPlugins"] = PluginCatalog.LoadedPlugins,
+        ["LoadErrors"] = PluginCatalog.LoadErrors
+    };
+}

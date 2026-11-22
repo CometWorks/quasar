@@ -1,7 +1,0 @@
-@page "/players"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<PageTitle>Players</PageTitle>
-<Quasar.Client.Components.PlayersView @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

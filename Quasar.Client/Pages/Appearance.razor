@@ -1,0 +1,4 @@
+@page "/settings/appearance"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageAppearance)]
+
+<Quasar.Client.Administration.AppearancePage />

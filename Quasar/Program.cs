@@ -94,8 +94,10 @@ public class Program
 
             if (!webServiceOptions.Headless)
             {
+                builder.Services.AddSingleton<DashboardReleaseManifest>();
                 builder.Services.AddRazorComponents()
-                    .AddInteractiveServerComponents();
+                    .AddInteractiveServerComponents()
+                    .AddInteractiveWebAssemblyComponents();
                 builder.Services.AddCascadingAuthenticationState();
                 builder.Services.AddMudServices(configuration =>
                 {
@@ -128,14 +130,14 @@ public class Program
                     options.SlidingExpiration = true;
                     options.ExpireTimeSpan = TimeSpan.FromHours(12);
                     options.Events.OnRedirectToLogin = context =>
-                        context.Request.Path.StartsWithSegments("/_quasar/sdk")
+                        (context.Request.Path.StartsWithSegments("/_quasar/sdk") || context.Request.Path.StartsWithSegments("/_framework"))
                             ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 401)
                             : IsClusterApi(context.Request.Path)
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 401,
                                 "authentication_required", "A valid Quasar credential is required.")
                             : Redirect(context.Response, context.RedirectUri);
                     options.Events.OnRedirectToAccessDenied = context =>
-                        context.Request.Path.StartsWithSegments("/_quasar/sdk")
+                        (context.Request.Path.StartsWithSegments("/_quasar/sdk") || context.Request.Path.StartsWithSegments("/_framework"))
                             ? QuasarSdkEndpoints.WriteAuthorizationErrorAsync(context.HttpContext, 403)
                             : IsClusterApi(context.Request.Path)
                             ? ClusterApi.WriteAuthorizationErrorAsync(context.HttpContext, 403,
@@ -450,8 +452,7 @@ public class Program
                 bool hasBearerAuthorization = servicePrincipals.HasBearerAuthorization(context.Request);
                 if (authOptions.Enabled && hasBearerAuthorization)
                     servicePrincipals.TryAuthenticate(context);
-                if (authOptions.Enabled &&
-                    !HostedPanelRequest.IsHosted(context) &&
+                if (!HostedPanelRequest.IsHosted(context) &&
                     !hasBearerAuthorization &&
                     context.User.Identity?.IsAuthenticated != true &&
                     context.RequestServices.GetRequiredService<TrustedNetworkEvaluator>().IsTrusted(context))
@@ -562,7 +563,7 @@ public class Program
 
             if (uiPluginCatalog != null)
             {
-                app.MapStaticAssets();
+                app.MapDashboardStaticAssets(authOptions.Enabled);
 
                 // Runtime-uploaded branding assets live in the Quasar install root
                 // so web-service updates do not replace custom logos or favicons.
@@ -577,8 +578,9 @@ public class Program
                 uiPluginCatalog.ConfigurePluginEndpoints(app);
 
                 var razorComponents = app.MapRazorComponents<App>()
+                    .AddInteractiveWebAssemblyRenderMode()
                     .AddInteractiveServerRenderMode()
-                    .AddAdditionalAssemblies(uiPluginCatalog.RazorAssemblies.ToArray());
+                    .AddAdditionalAssemblies(uiPluginCatalog.RoutableAssemblies.Append(typeof(Quasar.Client.Components.DashboardRouter).Assembly).Distinct().ToArray());
                 if (authOptions.Enabled)
                     razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
             }

@@ -205,6 +205,12 @@ export function createClient({ baseUrl }) {
     }
     const client = {
         version: 1,
+        async prepare(signal) {
+            const entry = begin(signal);
+            try { await selectRoute(entry); }
+            finally { entry.finish(); }
+        },
+        get connecting() { return connecting; },
         get transport() { return Object.freeze(connectedPeer() ? { ...directConnection.stats } : { path: "http", receivedBytes: 0, sentBytes: 0, maximumQueuedBytes: 0 }); },
         async request(plugin, operation, payload = {}, { signal } = {}) {
             const body = input(plugin, operation, payload);

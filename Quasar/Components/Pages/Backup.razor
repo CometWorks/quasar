@@ -1,6 +1,0 @@
-@page "/backup"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<Quasar.Client.Administration.Backups @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

@@ -6,7 +6,7 @@
     <Compile Include="..\Shared\Updates\*.cs" Link="Updates\%(Filename)%(Extension)" />
     <ProjectReference Include="..\Magnetar.Protocol\Magnetar.Protocol.csproj" />
     <ProjectReference Include="..\Quasar.Host.Contract\Quasar.Host.Contract.csproj" />
-    <ProjectReference Include="..\Quasar.Client\Quasar.Client.csproj" />
+    <ProjectReference Include="..\Quasar.WebAssembly\Quasar.WebAssembly.csproj" />
     <ProjectReference Include="..\Quasar.Plugin.Abstractions\Quasar.Plugin.Abstractions.csproj" />
     <Compile Include="../Shared/Networking/QuasarControlAddress.cs" Link="Networking/QuasarControlAddress.cs" />
     <Compile Include="..\Shared\Networking\MachineEndpointPolicy.cs" Link="Networking\MachineEndpointPolicy.cs" />
@@ -26,6 +26,7 @@
     <Compile Include="../Quasar.Bootstrap/UpdateCli.cs" Link="Updates/UpdateCli.cs" />
     <Compile Include="../Quasar.Bootstrap/HostedPanelConnector.cs" Link="HostedPanelConnector.cs" />
     <Compile Include="../Quasar.Bootstrap/ClusterCli.cs" Link="ClusterCli.cs" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.14" />
     <PackageReference Include="MudBlazor" Version="9.4.0" />
     <PackageReference Include="NLog.Web.AspNetCore" Version="6.1.3" />
     <PackageReference Include="SharpCompress" Version="0.49.1" />
@@ -46,6 +47,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Quasar.Tests" />
+    <InternalsVisibleTo Include="Quasar.Wasm.DashboardChecks" />
     <EmbeddedResource Include="Assets/host-update.py" />
   </ItemGroup>
 

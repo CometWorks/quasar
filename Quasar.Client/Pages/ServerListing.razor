@@ -1,0 +1,4 @@
+@page "/settings/server-list"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<Quasar.Client.Administration.ListingPage />

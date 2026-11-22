@@ -1,7 +1,0 @@
-@page "/analytics"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<PageTitle>Analytics</PageTitle>
-<Quasar.Client.Components.AnalyticsView @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

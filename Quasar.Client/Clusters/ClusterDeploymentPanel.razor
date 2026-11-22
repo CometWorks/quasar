@@ -1,0 +1,345 @@
+@using System.Text.Json
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+@using MudBlazor
+@using Quasar.Components.Shared
+@using Quasar.Services
+@inject DashboardSdk Sdk
+@inject IJSRuntime JS
+@inject IDialogService DialogService
+@inject ViewerTimeZone ViewerTime
+@implements IDisposable
+
+@if (Current is not null)
+{
+<section class="quasar-panel server-card">
+    <div class="quasar-card-content">
+    <div class="quasar-layout quasar-gap-3">
+        <h2 class="quasar-text quasar-type-h6">Maintenance</h2>
+        @if (_busy)
+        {
+            <QuasarOperationLoader Title="Cluster maintenance" Message="@_message" />
+        }
+        <p class="quasar-text quasar-type-body1 cluster-long-value">Active revision: @(Current.ActiveRevision ?? "None")</p>
+        @if (Current.ActiveRevision is not null && !Current.Latest)
+        {
+            <div class="quasar-layout quasar-gap-2">
+                <h2 class="quasar-text quasar-type-h6">Release update</h2>
+                <p class="quasar-text quasar-type-body1">Latest release: @(Current.LatestVersion ?? "Unknown")</p>
+                <MudButton OnClick="PrepareLatestUpdateAsync" Disabled="@(_busy || UpdateLocked || !Current.HasPreparation)"
+                           Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Stage latest release</MudButton>
+                <span class="quasar-text quasar-type-caption">Quasar stages the release and any queued mod or plugin updates together. Unchanged pinned files are reused. The cluster stays online until you apply the combined update.</span>
+                @if (!Current.HasPreparation)
+                {
+                    <span class="quasar-text quasar-type-caption">Complete guided setup first. For externally provisioned clusters, import their preparation once using Advanced deployment tools.</span>
+                }
+            </div>
+        }
+        @if (Current.Prepared || Current.Queued is not null)
+        {
+            <section class="quasar-panel pa-4">
+                <div class="quasar-layout quasar-gap-2">
+                    <h2 class="quasar-text quasar-type-h6">Pending update</h2>
+                    @if (Current.Prepared)
+                    {
+                        <p class="quasar-text quasar-type-body1">@(Current.Queued is null
+                            ? "Deployment prepared on all host machines. Configuration and release changes are ready to apply."
+                            : "Release prepared on all host machines. Queued content still needs staging before the combined update can be applied.")</p>
+                    }
+                    @if (Current.Queued is { } queued)
+                    {
+                        @foreach (var item in queued)
+                        {
+                            <p class="quasar-text quasar-type-body1 cluster-long-value">@item.Name · @item.Kind · @item.TargetVersion</p>
+                        }
+                        <MudAlert Severity="Severity.Info">Stage the active profile to download and freeze its mods and plugins, verify the queued versions, and prepare every host machine. Applying remains blocked until staging succeeds.</MudAlert>
+                        @if (Current.MayEditConfigs)
+                        {
+                            <MudButton OnClick="StageQueuedContentAsync" Disabled="@(_busy || UpdateLocked || !Current.HasPreparation || string.IsNullOrEmpty(Current.ConfigProfile))"
+                                       Variant="Variant.Filled" Color="Color.Primary">Stage queued content updates</MudButton>
+                        }
+                        <MudButton OnClick="ClearQueuedContentAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Remove queued content changes</MudButton>
+                    }
+                    @if (Current.Stopped && Current.HasGateway && !Current.CleanStop)
+                    {
+                        <MudAlert Severity="Severity.Warning">The stopped cluster has no clean shutdown proof. Recover it after its unclean shutdown before applying an update, or apply the update despite the recorded dirty shutdown.</MudAlert>
+                        <MudButton OnClick="StartUpdateDespiteDirtyShutdownAsync" Color="Color.Warning" Variant="Variant.Outlined"
+                                   Disabled="@(_busy || UpdateLocked || !Current.Prepared || Current.Queued is not null)">Update despite the recorded dirty shutdown</MudButton>
+                        <span class="quasar-text quasar-type-caption">Shows what the last shutdown left unsaved and asks to accept it. Quasar then stops the Gateway fenced once every node is proven stopped, backs up the stopped cluster (crash-consistent), activates the update and starts it as a recovery start. The listed parts come back from their newest saves; their unsaved changes are lost. Use it when every stop ends dirty and only the update can fix that.</span>
+                    }
+                    <MudButton OnClick="StartPreparedUpdateAsync" Color="Color.Primary" Variant="Variant.Filled"
+                               Disabled="@(_busy || UpdateLocked || !Current.Prepared || Current.Queued is not null || Current.Stopped && Current.HasGateway && !Current.CleanStop)"
+                               StartIcon="@Icons.Material.Filled.SystemUpdateAlt">Apply pending update</MudButton>
+                    <span class="quasar-text quasar-type-caption">Applying stops the entire cluster, captures a verified backup for profile changes, activates the staged deployment on every host machine, and restarts it. Plan for full downtime. A cluster that is already stopped stays stopped; it runs the new deployment when you start it.</span>
+                </div>
+            </section>
+        }
+        @if (Current.PendingActivation)
+        {
+            <MudAlert Severity="Severity.Warning">Activation is incomplete. Resume the original activation request before starting the cluster.</MudAlert>
+        }
+        @if (Current.Update is { } update)
+        {
+            <p class="quasar-text quasar-type-body1">Update @update.Id: @update.Phase</p>
+            @if (update.HasBackup)
+            {
+                <span class="quasar-text quasar-type-caption">Pre-update backup ID: @update.Id. Keep this backup until the updated cluster has been checked. Restoring it requires a newly prepared deployment with rotated runtime credentials.</span>
+            }
+            @if (update.LastError is not null) { <MudAlert Severity="Severity.Warning">@update.LastError</MudAlert> }
+            @if (update.Phase != "Complete")
+            {
+                <MudButton OnClick="AbandonUpdateAsync" Disabled="_busy" Color="Color.Warning" Variant="Variant.Outlined">Abandon update</MudButton>
+                <span class="quasar-text quasar-type-caption">Abandoning unlocks the cluster controls without rolling anything back: before activation the cluster stays stopped on its current deployment, afterwards it keeps the new one. Quasar gives up a stuck update by itself after 30 to 60 minutes, depending on the phase, or 12 minutes when every node keeps failing at startup; before activation the previous version then carries on, afterwards Quasar restores the pre-update backup and starts the previous version again.</span>
+            }
+        }
+        <MudExpansionPanels>
+            <MudExpansionPanel Text="Backups">
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+                <p class="quasar-text quasar-type-body2">A backup of a cleanly stopped cluster is clean (Quiescent). A running cluster is copied without downtime; that backup restores to the state of a crash at the start of the copy (CrashConsistent). Scheduled server backups cover clusters both ways.</p>
+                @if (Current.Stopped)
+                {
+                    <MudButton OnClick="BackupAsync" Disabled="@_busy" Variant="Variant.Outlined" Color="Color.Primary">Back up stopped cluster</MudButton>
+                }
+                else
+                {
+                    <MudButton OnClick="OnlineBackupAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Back up running cluster</MudButton>
+                }
+                <MudButton OnClick="ListBackups" Disabled="_busy" Variant="Variant.Outlined" Color="Color.Primary">List backups</MudButton>
+                @if (_backups is not null) { <pre style="max-height:300px;overflow:auto">@_backups</pre> }
+                @if (Current.Stopped && Current.Backups.Length != 0)
+                {
+                    <MudSelect T="Guid" @bind-Value="RestoreSnapshotId" Label="Backup to restore" Variant="Variant.Outlined">
+                        @foreach (var backup in Current.Backups)
+                        {
+                            <MudSelectItem T="Guid" Value="@backup.SnapshotId">@ViewerTime.Format(backup.CreatedAt) · @backup.Consistency · @backup.SnapshotId</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudButton OnClick="PrepareRestoreAsync" Disabled="@(_busy || _restoreSnapshotId == Guid.Empty || UpdateLocked)"
+                               Variant="Variant.Outlined" Color="Color.Warning">Prepare restore with fresh credentials</MudButton>
+                }
+                <MudExpansionPanels>
+                <MudExpansionPanel Text="Archive Cluster Registry export">
+                <MudTextField T="string" Label="Cluster Registry world export artifact ID" @bind-Value="_artifactId" Disabled="_busy" />
+                <MudButton OnClick="ArchiveExportAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_artifactId))" Variant="Variant.Outlined" Color="Color.Primary">Verify and store world export</MudButton>
+                </MudExpansionPanel>
+                <MudExpansionPanel Text="Restore prepared backup">
+                <MudTextField T="string" Label="Restore request (JSON)" @bind-Value="_restore" Lines="8" Disabled="_busy" />
+                <p class="quasar-text quasar-type-body2">Select a backup above and prepare it to fill this request. Restoring replaces current world and plugin data. The Host executor keeps the previous runtime data for recovery.</p>
+                <MudButton OnClick="RestoreAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || !Current.Stopped || string.IsNullOrWhiteSpace(_restore))">Restore backup</MudButton>
+                </MudExpansionPanel>
+                </MudExpansionPanels>
+                </div>
+            </MudExpansionPanel>
+            @if (Current.Stopped && Current.ActiveRevision is not null)
+            {
+            <MudExpansionPanel Text="Recovery">
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+        <MudButton OnClick="RecoverAsync" Disabled="@(_busy || !Current.Stopped || Current.ActiveRevision is null)" Variant="Variant.Outlined" Color="Color.Primary">Recover missing cluster services</MudButton>
+        <span class="quasar-text quasar-type-caption">Recovery resumes the recorded cluster services and any pending shutdown. It does not erase world state or mark a dirty shutdown as clean.</span>
+        <MudButton OnClick="RecoverStoppedAsync" Color="Color.Warning" Variant="Variant.Outlined" Disabled="@(_busy || !Current.Stopped || Current.ActiveRevision is null)">Recover stopped cluster after an unclean shutdown</MudButton>
+        <span class="quasar-text quasar-type-caption">Requires every node to be stopped. Starts a new recovery generation from retained saves and plugin data; unsaved game changes may be lost.</span>
+                </div>
+            </MudExpansionPanel>
+            }
+            <MudExpansionPanel Text="Convert to a standalone server">
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+                    <p class="quasar-text quasar-type-body2">Back up and convert a cleanly stopped cluster into a standalone server.</p>
+                    <MudButton Href="@("clusters/" + Uri.EscapeDataString(UniqueName) + "/convert-to-server")"
+                               Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Dns">Open conversion wizard</MudButton>
+                </div>
+            </MudExpansionPanel>
+            <MudExpansionPanel Text="Advanced deployment tools">
+                <div class="quasar-layout quasar-gap-3 py-2 cluster-form-section">
+                    <p class="quasar-text quasar-type-body2">Normal updates generate these requests automatically. Use these overrides only for custom installation or topology inputs.</p>
+                    <div class="quasar-layout quasar-layout-row quasar-wrap-wrap quasar-gap-2">
+                        <MudButton OnClick="StageLatestAsync" Disabled="@(_busy || UpdateLocked)" Variant="Variant.Outlined" Color="Color.Primary">Select latest release only</MudButton>
+                        <MudButton OnClick="FreezeDependenciesAsync" Disabled="@(_busy || UpdateLocked || !Current.HasSelection)" Variant="Variant.Outlined" Color="Color.Primary">Freeze selected dependencies</MudButton>
+                        <MudButton OnClick="PrepareSelectedAsync" Disabled="@(_busy || UpdateLocked || !Current.HasFrozenDependencies || !Current.HasPreparation)" Variant="Variant.Outlined" Color="Color.Primary">Stage selected release</MudButton>
+                    </div>
+                    <hr class="quasar-divider" />
+                    <MudButton OnClick="DownloadPreparationAsync" Disabled="@(_busy || (_imported is null && !Current.HasPreparation))" Variant="Variant.Outlined" Color="Color.Primary">Download generated preparation</MudButton>
+                    <span class="quasar-text quasar-type-caption">Import an edited preparation to override installation or topology. Staging prepares all host machines and generates the activation request.</span>
+                    <InputFile OnChange="ImportPreparationAsync" accept=".json,application/json" disabled="@(_busy || UpdateLocked)" />
+                    <MudButton OnClick="PrepareAsync" Disabled="@(_busy || UpdateLocked || (_imported is null && !Current.HasPreparation))" Variant="Variant.Outlined" Color="Color.Primary">Stage imported preparation</MudButton>
+                    <MudTextField T="string" Label="Generated activation request (JSON override)" @bind-Value="_activation" Lines="8" Disabled="@(_busy || UpdateLocked)" />
+                    <MudButton OnClick="UpdateFromJsonAsync" Disabled="@(_busy || UpdateLocked || Current.Queued is not null || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Apply JSON override with downtime</MudButton>
+                    <MudButton OnClick="ActivateAsync" Disabled="@(_busy || Current.Queued is not null || !Current.Stopped || string.IsNullOrWhiteSpace(_activation))" Variant="Variant.Outlined" Color="Color.Primary">Activate on stopped host machines</MudButton>
+                    <MudButton OnClick="RollbackAsync" Disabled="@(_busy || UpdateLocked || Current.Queued is not null || !Current.RollbackAvailable)" Variant="Variant.Outlined" Color="Color.Warning">Roll back binaries and configuration</MudButton>
+                    <span class="quasar-text quasar-type-caption">Rollback preserves current world and plugin data. The Host executor refuses an older bundle that cannot preserve migrated profile content; restore the pre-migration backup with fresh credentials in that case.</span>
+                </div>
+            </MudExpansionPanel>
+        </MudExpansionPanels>
+        @if (_message is not null) { <MudAlert Severity="Severity.Info">@_message</MudAlert> }
+    </div>
+    </div>
+    </section>
+}
+else if (_message is not null)
+{
+    <p role="alert">@_message</p><button type="button" @onclick="RefreshAsync">Retry</button>
+}
+
+@code {
+    [Parameter, EditorRequired] public string UniqueName { get; set; } = "";
+    private readonly CancellationTokenSource _stop = new();
+    private ClusterMaintenance? Current;
+    private string _artifactId = "", _activation = "", _restore = "";
+    private string? _backups, _imported, _message, _cluster;
+    private Guid _restoreSnapshotId;
+    private Guid? _seenJob;
+    private bool _busy;
+    private bool UpdateLocked => Current!.PendingActivation || Current.Update is { Phase: not "Complete" };
+    private Guid RestoreSnapshotId
+    {
+        get => _restoreSnapshotId;
+        set { if (value != _restoreSnapshotId) _restore = ""; _restoreSnapshotId = value; }
+    }
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { WriteIndented = true };
+    private string Prefix => "cluster.maintenance.";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_cluster == UniqueName) return;
+        _cluster = UniqueName;
+        Current = null; _imported = _backups = _message = null; _activation = _restore = ""; _seenJob = null;
+        await RefreshAsync();
+    }
+
+    private async Task RefreshAsync()
+    {
+        var cluster = UniqueName;
+        try
+        {
+            var state = await JS.InvokeAsync<ClusterMaintenance>("quasarSdk.readJson", _stop.Token, "quasar.core", Prefix + "status", new { uniqueName = cluster });
+            if (cluster != UniqueName || _stop.IsCancellationRequested) return;
+            if (Current is null || state.PreparedActivation != Current.PreparedActivation) _activation = state.PreparedActivation ?? "";
+            Current = state;
+            if (_busy || state.Job is null || state.Job.Id == _seenJob) return;
+            await FollowAsync(state.Job, cluster);
+        }
+        catch (Exception error) when (!_stop.IsCancellationRequested) { _message = error.Message; }
+    }
+
+    private async Task FollowAsync(MaintenanceJob job, string cluster)
+    {
+        _busy = true;
+        try
+        {
+            while (!job.Complete)
+            {
+                _message = job.Message;
+                StateHasChanged();
+                await Task.Delay(TimeSpan.FromSeconds(2), _stop.Token);
+                if (cluster != UniqueName) return;
+                await RefreshAsync();
+                job = Current?.Job ?? throw new InvalidOperationException("The worker restarted. Check cluster status before retrying.");
+            }
+            _seenJob = job.Id;
+            _message = job.Message;
+            if (!job.Failed && job.Document is not null)
+            {
+                if (job.Action == "prepare-restore") _restore = job.Document;
+                if (job.Action == "prepare") _activation = job.Document;
+            }
+        }
+        finally { _busy = false; }
+    }
+
+    private async Task RunAsync(string action, object? input = null, string? document = null)
+    {
+        if (_busy || Current is null) return;
+        _busy = true;
+        var cluster = UniqueName;
+        try
+        {
+            input ??= new { uniqueName = cluster };
+            var job = document is null
+                ? await Sdk.RequestAsync<MaintenanceJob>(Prefix + action, input, _stop.Token)
+                : await JS.InvokeAsync<MaintenanceJob>("quasarSdk.uploadJson", _stop.Token, "quasar.core", Prefix + action, input, document);
+            if (cluster != UniqueName) return;
+            await FollowAsync(job, cluster);
+            await RefreshAsync();
+        }
+        catch (Exception error) when (!_stop.IsCancellationRequested) { _message = error.Message; }
+        finally { _busy = false; }
+    }
+
+    private Task ArchiveExportAsync() => RunAsync("archive", new { UniqueName, artifactId = _artifactId });
+    private Task BackupAsync() => RunAsync("backup");
+    private Task OnlineBackupAsync() => RunAsync("online-backup");
+    private Task PrepareRestoreAsync() => RunAsync("prepare-restore", new { UniqueName, snapshotId = _restoreSnapshotId });
+    private Task StageLatestAsync() => RunAsync("select-release");
+    private Task FreezeDependenciesAsync() => RunAsync("freeze");
+    private Task PrepareSelectedAsync() => RunAsync("stage-selected");
+    private Task PrepareLatestUpdateAsync() => RunAsync("stage-latest");
+    private Task StageQueuedContentAsync() => RunAsync("stage-content");
+    private Task ClearQueuedContentAsync() => RunAsync("clear-content");
+    private Task RollbackAsync() => RunAsync("rollback");
+    private Task AbandonUpdateAsync() => RunAsync("abandon", new { UniqueName, updateId = Current?.Update?.Id });
+    private Task ActivateAsync() => RunAsync("activate", document: _activation);
+    private Task RecoverStoppedAsync() => RunAsync("recover-stopped");
+    private Task RecoverAsync() => RunAsync("recover");
+    private Task UpdateFromJsonAsync() => RunAsync("update-json", document: _activation);
+    private void ListBackups() => _backups = JsonSerializer.Serialize(Current!.Backups, Json);
+
+    private async Task RestoreAsync()
+    {
+        if (await DialogService.ShowMessageBoxAsync("Restore cluster backup?",
+            "This replaces the stopped cluster's world, plugin data and deployment with the selected backup. Each Host retains its previous runtime data.",
+            yesText: "Restore", cancelText: "Cancel") == true)
+            await RunAsync("restore", document: _restore);
+    }
+
+    private string? PreparedRevision()
+    {
+        if (Current?.PreparedActivation is null) return null;
+        using var parsed = JsonDocument.Parse(Current.PreparedActivation);
+        return parsed.RootElement.GetProperty("revision").GetString();
+    }
+    private Task StartPreparedUpdateAsync() => RunAsync("apply", new { UniqueName, revision = PreparedRevision() });
+    private async Task StartUpdateDespiteDirtyShutdownAsync()
+    {
+        try
+        {
+            var revision = PreparedRevision();
+            var dirty = await Sdk.RequestAsync<string[]>(Prefix + "dirty", new { UniqueName }, _stop.Token);
+            var listed = dirty.Length == 0 ? "nothing (the shutdown proof is missing for another reason)" : string.Join(", ", dirty.Take(40))
+                + (dirty.Length > 40 ? $" and {dirty.Length - 40} more" : "");
+            if (await DialogService.ShowMessageBoxAsync("Update despite the recorded dirty shutdown?",
+                $"The last shutdown left unsaved: {listed}. These parts will return from their newest saves and their unsaved changes will be lost. Quasar backs up the stopped cluster first. Continue?",
+                yesText: "Update", cancelText: "Cancel") == true)
+                await RunAsync("apply-dirty", new { UniqueName, dirty, revision });
+        }
+        catch (JSException error) { _message = error.Message; }
+    }
+    private Task DownloadPreparationAsync() => _imported is null
+        ? Sdk.DownloadAsync(Prefix + "preparation", new { UniqueName }, _stop.Token)
+        : JS.InvokeVoidAsync("quasarConfigs.downloadFile", "data:application/json;charset=utf-8," + Uri.EscapeDataString(_imported), UniqueName + "-preparation.json").AsTask();
+    private async Task ImportPreparationAsync(InputFileChangeEventArgs args)
+    {
+        try
+        {
+            using var reader = new StreamReader(args.File.OpenReadStream(24 * 1024 * 1024));
+            var text = await reader.ReadToEndAsync(_stop.Token);
+            using var document = JsonDocument.Parse(text);
+            using var specification = JsonDocument.Parse(document.RootElement.GetProperty("specificationJson").GetString()!);
+            if (specification.RootElement.GetProperty("clusterId").GetString() != UniqueName || document.RootElement.GetProperty("hosts").GetArrayLength() == 0)
+                throw new InvalidDataException("Preparation must identify this cluster and at least one Host.");
+            _imported = text;
+            _message = "Preparation imported. Select Stage imported preparation to create the pending update.";
+        }
+        catch (Exception error) when (!_stop.IsCancellationRequested) { _message = error.Message; }
+    }
+    private async Task PrepareAsync()
+    {
+        try
+        {
+            var text = _imported ?? (await JS.InvokeAsync<JsonElement>("quasarSdk.readJson", _stop.Token, "quasar.core", Prefix + "preparation", new { UniqueName })).GetRawText();
+            await RunAsync("prepare", document: text);
+        }
+        catch (JSException error) { _message = error.Message; }
+    }
+
+    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+}

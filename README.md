@@ -10,7 +10,7 @@ available case by case. The earlier MIT version remains at
 [`archive/mit`](https://github.com/CometWorks/quasar/tree/refs/tags/archive/mit).
 
 Quasar is an API-first supervisor and management stack for **Space Engineers** (version 1)
-dedicated servers, with an optional Blazor Server UI. It supervises multiple DS
+dedicated servers, with an optional Blazor WebAssembly dashboard. It supervises multiple DS
 processes on a single host — starting, stopping, health-checking, configuring, and
 auto-updating them through goal-state reconciliation — while an in-process plugin
 (`Quasar.Agent`) attaches to each server to report telemetry and execute commands.

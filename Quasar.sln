@@ -27,6 +27,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.Updater", "Quasar.Up
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.Client", "Quasar.Client\Quasar.Client.csproj", "{455F3E37-206B-4C8E-BFA4-26701CA6C7BC}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Quasar.WebAssembly", "Quasar.WebAssembly\Quasar.WebAssembly.csproj", "{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -173,6 +175,18 @@ Global
 		{455F3E37-206B-4C8E-BFA4-26701CA6C7BC}.Release|x64.Build.0 = Release|Any CPU
 		{455F3E37-206B-4C8E-BFA4-26701CA6C7BC}.Release|x86.ActiveCfg = Release|Any CPU
 		{455F3E37-206B-4C8E-BFA4-26701CA6C7BC}.Release|x86.Build.0 = Release|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Debug|x64.Build.0 = Debug|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Debug|x86.Build.0 = Debug|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Release|x64.ActiveCfg = Release|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Release|x64.Build.0 = Release|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Release|x86.ActiveCfg = Release|Any CPU
+		{F3A83A02-5DAC-4223-8DE7-44A6803D8BC3}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

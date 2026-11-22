@@ -1,0 +1,179 @@
+@namespace Quasar.Components.Layout
+@using MudBlazor
+<MudDialog>
+    <TitleContent>
+        <h2 class="quasar-text quasar-type-h6">Quasar power</h2>
+    </TitleContent>
+    <DialogContent>
+        @if (_pendingAction is null)
+        {
+            <div class="quasar-layout quasar-gap-2">
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Warning"
+                           StartIcon="@Icons.Material.Filled.RestartAlt"
+                           Disabled="@(!IsRestartAvailable)"
+                           OnClick="@(() => Select(QuasarControlAction.RestartQuasar))"
+                           Class="quasar-control-action">
+                    <span>
+                        <span class="quasar-control-action-title">Restart Quasar</span>
+                        <span class="quasar-control-action-body">Servers continue to run while the web UI restarts.</span>
+                    </span>
+                </MudButton>
+                @if (!IsRestartAvailable)
+                {
+                    <span class="quasar-text quasar-type-caption quasar-tone-@((Color.Secondary).ToString().ToLowerInvariant())">
+                        @RestartUnavailableReason
+                    </span>
+                }
+
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.PowerSettingsNew"
+                           OnClick="@(() => Select(QuasarControlAction.ShutdownQuasar))"
+                           Class="quasar-control-action">
+                    <span>
+                        <span class="quasar-control-action-title">Shutdown Quasar</span>
+                        <span class="quasar-control-action-body">Stop Quasar; servers continue without supervision.</span>
+                    </span>
+                </MudButton>
+
+                <MudButton Variant="Variant.Outlined"
+                           Color="Color.Error"
+                           StartIcon="@Icons.Material.Filled.StopCircle"
+                           OnClick="@(() => Select(QuasarControlAction.ShutdownAllServers))"
+                           Class="quasar-control-action">
+                    <span>
+                        <span class="quasar-control-action-title">Save and stop all servers</span>
+                        <span class="quasar-control-action-body">Save and stop standalone servers and managed clusters. Quasar stays online and shows progress.</span>
+                    </span>
+                </MudButton>
+            </div>
+        }
+        else
+        {
+            <div class="quasar-layout quasar-gap-3">
+                <MudAlert Severity="@ConfirmationSeverity" Variant="Variant.Outlined">
+                    @ConfirmationLead
+                </MudAlert>
+                <p class="quasar-text quasar-type-body2">@ConfirmationBody</p>
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        @if (_pendingAction is null)
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel">Close</MudButton>
+        }
+        else
+        {
+            <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Back">Back</MudButton>
+            <MudButton Variant="Variant.Filled"
+                       Color="@ConfirmationButtonColor"
+                       StartIcon="@ConfirmationIcon"
+                       OnClick="Confirm">
+                @ConfirmationButtonText
+            </MudButton>
+        }
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Parameter]
+    public bool IsRestartAvailable { get; set; }
+
+    [Parameter]
+    public string RestartUnavailableReason { get; set; } = "Restart needs verified native services or the legacy Bootstrap launcher. Restart this process manually.";
+
+    [Parameter]
+    public int AgentOfflineShutdownSeconds { get; set; }
+
+    [Parameter]
+    public string? PendingUpdateVersion { get; set; }
+
+    private QuasarControlAction? _pendingAction;
+
+    private Severity ConfirmationSeverity => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar when PendingUpdateVersion is null => Severity.Info,
+        _ => Severity.Warning,
+    };
+
+    private Color ConfirmationButtonColor => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => Color.Warning,
+        _ => Color.Error,
+    };
+
+    private string ConfirmationIcon => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar => Icons.Material.Filled.RestartAlt,
+        QuasarControlAction.ShutdownAllServers => Icons.Material.Filled.StopCircle,
+        _ => Icons.Material.Filled.PowerSettingsNew,
+    };
+
+    private string ConfirmationButtonText => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar when PendingUpdateVersion is not null => "Update and Restart Quasar",
+        QuasarControlAction.RestartQuasar => "Restart Quasar",
+        QuasarControlAction.ShutdownAllServers => "Save and Stop Servers",
+        _ => "Shutdown Quasar",
+    };
+
+    private string ConfirmationLead => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar when PendingUpdateVersion is not null =>
+            $"Quasar {PendingUpdateVersion} will also be installed during this restart. Running game servers continue to run.",
+        QuasarControlAction.RestartQuasar => "Running servers continue to run.",
+        QuasarControlAction.ShutdownAllServers => "Standalone servers and managed clusters will save and stop.",
+        _ => "Quasar will stop. Running servers continue.",
+    };
+
+    private string ConfirmationBody => _pendingAction switch
+    {
+        QuasarControlAction.RestartQuasar =>
+            "The native updater service or legacy Bootstrap launcher restarts Quasar. The web UI briefly disconnects, then reloads and re-adopts running servers by process id. Use this after restoring Quasar configuration from backup.",
+        QuasarControlAction.ShutdownAllServers =>
+            "Quasar stays online and shows shutdown progress. Standalone servers save and stop; clusters use their normal save-and-drain shutdown and wait for the Gateway to stop. Their goal states are set to Off so they stay stopped. Failures are shown without forcing processes to exit. Observed-only clusters are not managed by this action.",
+        _ =>
+            $"The web UI and supervisor stop, together with Bootstrap on legacy installs. The installed service or task will not restart Quasar automatically; start Quasar again when needed. Running servers are left detached and can continue for {FormatOfflineGrace()} without Quasar before their agent offline policy takes over.",
+    };
+
+    private void Select(QuasarControlAction action)
+    {
+        _pendingAction = action;
+    }
+
+    private void Back()
+    {
+        _pendingAction = null;
+    }
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private void Confirm()
+    {
+        if (_pendingAction is { } action)
+            MudDialog.Close(DialogResult.Ok(action));
+    }
+
+    private string FormatOfflineGrace()
+    {
+        if (AgentOfflineShutdownSeconds <= 0)
+            return "no grace period";
+
+        var span = TimeSpan.FromSeconds(AgentOfflineShutdownSeconds);
+        if (span.TotalHours >= 1 && span.TotalHours % 1 == 0)
+            return $"{(int)span.TotalHours} hour{(span.TotalHours == 1 ? string.Empty : "s")}";
+
+        if (span.TotalMinutes >= 1 && span.TotalMinutes % 1 == 0)
+            return $"{(int)span.TotalMinutes} minute{(span.TotalMinutes == 1 ? string.Empty : "s")}";
+
+        return $"{AgentOfflineShutdownSeconds} second{(AgentOfflineShutdownSeconds == 1 ? string.Empty : "s")}";
+    }
+}

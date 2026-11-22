@@ -1,7 +1,0 @@
-@page "/analytics/plugin-history"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<PageTitle>Plugin statistics history</PageTitle>
-<Quasar.Client.Components.PluginStatsHistoryView @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

@@ -5,10 +5,14 @@ function connectionState(state) {
 
 connectionState("connecting");
 try {
-    // Catch module loading failures as well as session, peer and circuit failures.
-    const { startBlazor } = await import("./circuit.js");
     const settings = JSON.parse(document.getElementById("quasar-connection").textContent);
-    await startBlazor(settings);
+    if (settings.wasm) {
+        const { startDashboard } = await import("./dashboard.js");
+        await startDashboard(settings);
+    } else {
+        const { startBlazor } = await import("./circuit.js");
+        await startBlazor(settings);
+    }
     connectionState("connected");
 } catch {
     connectionState("failed");

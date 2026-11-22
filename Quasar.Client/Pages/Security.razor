@@ -1,0 +1,4 @@
+@page "/settings/security"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanManageSecurity)]
+
+<Quasar.Client.Administration.SecurityPage />

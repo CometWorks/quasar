@@ -4,7 +4,38 @@
     const client = () => loading ||= import(new URL("_quasar/sdk/v1/client.js", document.baseURI).href)
         .then(module => module.createClient({ baseUrl: document.baseURI }));
     window.quasarSdk = Object.freeze({
+        getClient: client,
+        async prepare() { return (await client()).prepare(); },
+        async transportStatus() {
+            const sdk = await client();
+            return sdk.connecting ? "connecting" : sdk.transport.path;
+        },
+        dashboardNavigated() {
+            document.querySelector(".quasar-shell")?.classList.remove("quasar-nav-open");
+            for (const link of document.querySelectorAll(".quasar-nav-link")) {
+                const active = new URL(link.href).pathname === location.pathname;
+                link.classList.toggle("active", active);
+                if (active) link.setAttribute("aria-current", "page"); else link.removeAttribute("aria-current");
+            }
+        },
+        dashboardReady() { window.dispatchEvent(new Event("quasar-wasm-ready")); },
+        darkMode() { return document.querySelector(".quasar-shell")?.dataset.theme !== "light"; },
         async request(...args) { return (await client()).request(...args); },
+        async readText(plugin, operation, payload) {
+            const handle = await (await client()).openRead(plugin, operation, payload);
+            try { return await new Response(handle.body).text(); }
+            finally { await handle.dispose(); }
+        },
+        async readJson(plugin, operation, payload) {
+            const handle = await (await client()).openRead(plugin, operation, payload);
+            try { return await new Response(handle.body).json(); }
+            finally { await handle.dispose(); }
+        },
+        async uploadJson(plugin, operation, payload, document) {
+            const handle = await (await client()).openWrite(plugin, operation, payload);
+            try { return await handle.write(new Blob([document], { type: "application/json" })); }
+            finally { await handle.dispose(); }
+        },
         applyBranding(branding) {
             const shell = document.querySelector("#quasar-wasm-shell");
             if (!shell) return;

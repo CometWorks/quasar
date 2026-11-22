@@ -1,0 +1,5 @@
+@page "/discord"
+@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
+
+<PageTitle>Discord</PageTitle>
+<Quasar.Client.Components.DiscordView />

@@ -15,6 +15,7 @@ public static class QuasarCoreOperations
     public sealed record BackupRequest(string? Name = null);
     public sealed record LogRequest(string UniqueName = "", string? Name = null);
     public sealed record EmptyRequest;
+    public sealed record DashboardPermissionRequest(string Policy);
     public sealed record ServerRequest(string UniqueName = "");
     internal static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
     private static readonly QuasarOperationMetadata Read = new() { Effect = QuasarOperationEffect.Read };
@@ -23,7 +24,27 @@ public static class QuasarCoreOperations
 
     public static void AddQuasarCoreOperations(this IServiceCollection services)
     {
+        services.AddQuasarOperation<DashboardPermissionRequest, bool>(PluginId, "dashboard.permission", [QuasarPolicyNames.CanView],
+            async (caller, input, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(input.Policy) || input.Policy.Length > 128) return false;
+                var policies = caller.Services.GetRequiredService<Microsoft.AspNetCore.Authorization.IAuthorizationPolicyProvider>();
+                var policy = await policies.GetPolicyAsync(input.Policy);
+                if (policy is null) return false;
+                var authorization = caller.Services.GetRequiredService<Microsoft.AspNetCore.Authorization.IAuthorizationService>();
+                return (await authorization.AuthorizeAsync(caller.User, null, policy.Requirements)).Succeeded;
+            }, ReadDeniedToAgents with { RequireDefaultPolicies = true, Description = "Checks the calling dashboard user's current permission." });
+        services.AddQuasarPowerOperations();
+        services.AddQuasarUiPluginDashboardOperations();
+        services.AddQuasarLivePluginDashboardOperations();
+        services.AddQuasarWorldDashboardOperations();
+        services.AddQuasarFleetConsoleOperations();
+        services.AddQuasarFleetDashboardOperations();
+        services.AddQuasarServerImportOperations();
         services.AddQuasarServerOperations();
+        services.AddQuasarHostDashboardOperations();
+        services.AddQuasarConversionDashboardOperations();
+        services.AddQuasarClusterSetupDashboardOperations();
         services.AddQuasarConfigOperations();
         services.AddQuasarPlayerOperations();
         services.AddQuasarBackupOperations();
@@ -34,9 +55,15 @@ public static class QuasarCoreOperations
         services.AddQuasarAppearance();
         services.AddQuasarSecurityDashboard();
         services.AddQuasarUpdatesDashboard();
+        services.AddQuasarClusterDetail();
+        services.AddQuasarClusterMaintenance();
         services.AddQuasarClusterOperations();
         services.AddQuasarEntityOperations();
         services.AddQuasarChatOperations();
+        services.AddDiscordDashboardOperations();
+        services.AddAccessDashboardOperations();
+        services.AddPlayerDashboardOperations();
+        services.AddAnalyticsDashboardOperations();
         services.AddQuasarActivityOperations();
         services.AddQuasarClusterControlOperations();
         services.AddQuasarRead<BackupRequest>(PluginId, "backup.read", [QuasarPolicyNames.CanManageSecurity],

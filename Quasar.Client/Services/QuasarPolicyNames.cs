@@ -1,0 +1,19 @@
+namespace Quasar.Services.Auth;
+
+public static class QuasarPolicyNames
+{
+    public const string ClusterQuery = "ClusterQuery";
+    public const string ClusterManage = "ClusterManage";
+    public const string ClusterMaintenance = "ClusterMaintenance";
+    public const string CanView = "CanView";
+    public const string CanEditConfigs = "CanEditConfigs";
+    public const string CanEditServers = "CanEditServers";
+    public const string CanControlServers = "CanControlServers";
+    public const string CanManageDiscord = "CanManageDiscord";
+    public const string CanManageAppearance = "CanManageAppearance";
+    public const string CanManageSecurity = "CanManageSecurity";
+    public const string CanShutdownQuasar = "CanShutdownQuasar";
+    public const string CanUseAssistant = "CanUseAssistant";
+    /// <summary>Satisfied only by the player-agent principal; no role grants it.</summary>
+    public const string CanActAsPlayer = "CanActAsPlayer";
+}

@@ -1,7 +1,0 @@
-@page "/chat"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<PageTitle>Chat</PageTitle>
-<Quasar.Client.Components.ChatView @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />

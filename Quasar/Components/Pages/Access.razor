@@ -1,7 +1,0 @@
-@page "/access"
-@attribute [Authorize(Policy = QuasarPolicyNames.CanView)]
-@attribute [ExcludeFromInteractiveRouting]
-@layout WasmPageLayout
-
-<PageTitle>Access</PageTitle>
-<Quasar.Client.Components.AccessView @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
