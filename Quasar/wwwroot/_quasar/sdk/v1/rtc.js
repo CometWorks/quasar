@@ -36,6 +36,12 @@ export async function connect(root, tokens, lifetime) {
     }
 }
 
+// The hosted SDK has HTTPS fallback and only attempts a direct peer.
+export function connectDirect(root, tokens, lifetime) {
+    if (tokens.relayTicket) throw new QuasarSdkError(426, "A direct peer cannot use a relay ticket.");
+    return pair(root, tokens, lifetime);
+}
+
 async function pair(root, tokens, lifetime) {
     if (!globalThis.RTCPeerConnection) throw new QuasarSdkError(503, "This browser cannot establish a direct connection.");
     const iceServers = tokens.iceServers || [];

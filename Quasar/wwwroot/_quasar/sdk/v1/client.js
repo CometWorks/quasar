@@ -51,19 +51,36 @@ export function createClient({ baseUrl }) {
     const state = panelState(base);
     const active = new Set();
     let disposed = false;
-    let direct, directConnection, directModule, directRequired = false;
+    let directConnection, directModule, connecting = false, retryAfter = 0;
     let connectionLifetime = new AbortController();
-    async function transport(tokens, entry) {
-        if (!tokens.directEnabled) return null;
-        directRequired = true;
-        if (directConnection?.closed) { direct = null; directConnection = null; }
-        if (!direct) {
-            directModule ||= import("./rtc.js");
+
+    function connectedPeer() {
+        return directConnection && !directConnection.closed ? directConnection : null;
+    }
+
+    async function selectRoute(entry) {
+        const native = connectedPeer();
+        if (native) return { native };
+
+        const tokens = await session(entry);
+        entry.controller.signal.throwIfAborted();
+        const ready = connectedPeer();
+        if (ready) return { native: ready };
+        if (tokens.directEnabled && globalThis.RTCPeerConnection && !connecting && performance.now() >= retryAfter) {
             const lifetime = connectionLifetime.signal;
-            direct = directModule.then(module => module.connect(root, tokens, lifetime)).then(connection => directConnection = connection);
-            direct.catch(() => { direct = null; });
+            connecting = true;
+            directModule ||= import("./rtc.js");
+            directModule.then(module => module.connectDirect(root, tokens, lifetime)).then(peer => {
+                if (lifetime.aborted) peer.close();
+                else directConnection = peer;
+            }).catch(() => {
+                // Back off on restricted networks. New work can use HTTPS during this interval.
+                if (!lifetime.aborted) retryAfter = performance.now() + 30000;
+            }).finally(() => {
+                if (!lifetime.aborted) connecting = false;
+            });
         }
-        return untilAborted(direct, entry.controller.signal);
+        return { tokens };
     }
 
     function begin(signal) {
@@ -119,8 +136,7 @@ export function createClient({ baseUrl }) {
             entry.releaseCapacity = release;
             const finish = entry.finish;
             entry.finish = () => { release(); finish(); };
-            const tokens = await session(entry);
-            const native = await transport(tokens, entry);
+            const { tokens, native } = await selectRoute(entry);
             let response, result;
             // Only explicit capacity rejection may retry reservation. No feature handler has run yet.
             for (let attempt = 0; ; attempt++) {
@@ -184,18 +200,17 @@ export function createClient({ baseUrl }) {
     }
     function pagehide(event) {
         // A restored back/forward-cache page must remain usable, without replaying its old work.
-        if (event.persisted) { cancelOwned(); connectionLifetime.abort(); connectionLifetime = new AbortController(); direct = null; directConnection = null; }
+        if (event.persisted) { cancelOwned(); connectionLifetime.abort(); connectionLifetime = new AbortController(); connecting = false; retryAfter = 0; directConnection = null; }
         else client.dispose();
     }
     const client = {
         version: 1,
-        get transport() { return Object.freeze(directConnection ? { ...directConnection.stats } : { path: directRequired ? "unavailable" : "http", receivedBytes: 0, sentBytes: 0, maximumQueuedBytes: 0 }); },
+        get transport() { return Object.freeze(connectedPeer() ? { ...directConnection.stats } : { path: "http", receivedBytes: 0, sentBytes: 0, maximumQueuedBytes: 0 }); },
         async request(plugin, operation, payload = {}, { signal } = {}) {
             const body = input(plugin, operation, payload);
             const entry = begin(signal);
             try {
-                const tokens = await session(entry);
-                const native = await transport(tokens, entry);
+                const { tokens, native } = await selectRoute(entry);
                 return native ? await native.request(plugin, operation, JSON.parse(body), entry.controller.signal)
                     : await (await post(`operations/${plugin}/${operation}`, body, entry, tokens)).json();
             }
@@ -263,7 +278,7 @@ export function createClient({ baseUrl }) {
             if (disposed) return;
             disposed = true;
             globalThis.removeEventListener?.("pagehide", pagehide);
-            cancelOwned(); connectionLifetime.abort(); direct = null;
+            cancelOwned(); connectionLifetime.abort(); directConnection = null;
         },
     };
     globalThis.addEventListener?.("pagehide", pagehide);

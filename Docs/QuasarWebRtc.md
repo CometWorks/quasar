@@ -100,10 +100,18 @@ shortcut. No Origin header is stripped, and DIS-0042 remains in force.
 
 ## Development configuration
 
-Choosing Nebula automatically selects WebRTC for SDK traffic; there is no separate
-user toggle. Local sessions continue using HTTP independently. Initial direct failure makes one bounded TURN-only setup attempt before
-application work. Unavailable connectivity fails without replay or bulk HTTP fallback.
-This branch is separate from the shipped SDK-first HTTP release.
+Hosted SDK operations begin over the existing authenticated HTTPS tunnel. The
+first operation starts a STUN-only peer attempt in the background. Once a peer
+is confirmed, new operations use it, including resource reservation, transfer,
+and cleanup. Established peer operations use their bound browser session and
+server-side authorization. If setup fails, the SDK keeps using HTTPS and the
+next operation after 30 seconds can try again. An interrupted operation reports
+its own outcome. Local SDK calls continue over ordinary HTTP(S).
+
+Deploy Nebula's aggregate 20 Mbit/s tunneled bulk limiter before rolling out
+this SDK. The still-server-rendered Blazor UI has a separate circuit connection
+that retains the existing direct and TURN-only setup sequence. Older clients
+continue to use the existing signaling and lease endpoints.
 
 A developer can build the pinned peer with Go 1.27.3 and place it in `Peer/quasar-peer` (`Peer/quasar-peer.exe` on Windows)
 beside the worker, or set `Quasar:WebRtc:PeerExecutable` to its explicit path.
@@ -125,9 +133,10 @@ Set `QUASAR_RTC_TEST_STUN=stun:rtc.se-servers.net:3478` (or a test STUN endpoint
 for `Quasar.Tests.QuasarRtcTests` and `tests/Quasar.Rtc.CircuitChecks` to also
 exercise configured discovery through the real worker/native peer boundary.
 This mode requires that endpoint to be reachable. The SDK data/browser check
-instead supplies an intentionally unresponsive loopback STUN socket and requires
-its first application response within four seconds in both browsers, proving that
-startup no longer waits for discovery to finish. ICE JSON omits absent STUN
+uses an intentionally unresponsive loopback STUN socket. Both browsers complete
+an ordinary operation and reserve an upload while signaling is held, then send
+that upload via its HTTPS reservation after the direct peer opens. Subsequent
+operations and a 32 MiB download use the peer. ICE JSON omits absent STUN
 credentials: Pion rejects a present null username before SDP negotiation, which
 otherwise prevents hosted Blazor hydration even when both peers can connect
 locally. The HTTP JSON contract check also verifies TURN credentials remain intact.
@@ -150,7 +159,7 @@ renewal succeeds before extending the independent hosted deadline. Native relay
 sockets enforce expiry and shared panel/aggregate budgets, including allocations
 already open. Actual selected ICE candidates determine `direct`, `relayed` or
 `unavailable`; a relay path without its authorized grant is refused. No established
-stream or mutation is replayed. There is no automatic bulk HTTP fallback.
+stream or mutation is replayed. New SDK operations can use HTTPS as described above.
 The operator relay requires an explicit reviewed budget. See
 [Nebula's relay contract](https://github.com/CometWorks/nebula/blob/main/docs/webrtc-relay.md). Existing
 compatibility HTTP traffic still crosses Nebula; it is not accounted away by

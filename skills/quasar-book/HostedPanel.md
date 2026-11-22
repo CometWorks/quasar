@@ -13,6 +13,13 @@ attempts remain resumable and may prompt again; completion stops automatic promp
 Cancellation preserves private identity and does not cancel a paid subscription.
 Existing saved choices remain compatible. Explicit reopening is always available.
 
+Hosted SDK operations such as Viewer asset reads and backup downloads can start
+through the tunnel while Quasar establishes a direct browser connection.
+Subsequent operations use the direct peer when available. A running transfer
+stays on its original connection. If a write loses its connection, check its
+outcome before retrying. Local access uses ordinary HTTP(S). During the WASM
+migration the Blazor Server dashboard still establishes its own circuit.
+
 ## Availability and price
 
 The hosted service is still being integrated. Stripe billing is implemented in Nebula, but checkout stays disabled until the operator's onboarding and acceptance are done. Until then only Nebula's configured platform super admins can enroll, for free. Other accounts stay pending until a verified payment activates them. Free hosting does not grant any role in Quasar.
