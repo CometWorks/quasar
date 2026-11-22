@@ -1,0 +1,9 @@
+<Project>
+  <!-- Late-installed Razor components can reference framework members unused by the published host. -->
+  <ItemGroup>
+    <TrimmerRootAssembly Include="Microsoft.AspNetCore.Components" />
+    <TrimmerRootAssembly Include="Microsoft.AspNetCore.Components.Web" />
+    <TrimmerRootAssembly Include="Microsoft.JSInterop" />
+    <TrimmerRootDescriptor Include="$(MSBuildThisFileDirectory)PluginTrimming.xml" />
+  </ItemGroup>
+</Project>

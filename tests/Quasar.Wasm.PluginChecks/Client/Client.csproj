@@ -6,10 +6,9 @@
     <PublishTrimmed>true</PublishTrimmed>
   </PropertyGroup>
   <ItemGroup>
-    <!-- Installed Razor components may call renderer APIs no built-in page uses. -->
     <ProjectReference Include="../../../Quasar.Client/Quasar.Client.csproj" />
     <Content Include="../../../Quasar/wwwroot/quasar-configs.js" Link="wwwroot/quasar-configs.js" />
-    <TrimmerRootAssembly Include="Microsoft.AspNetCore.Components" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="10.0.13" />
   </ItemGroup>
+  <Import Project="../../../Quasar.Client/PluginTrimming.props" />
 </Project>

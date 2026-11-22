@@ -325,12 +325,18 @@ saves a time zone through Quasar's panel-scoped storage, reloads the preference,
 rejects an invalid zone, and restores the browser default. The production
 Display route uses the same form and currently renders inside the server circuit.
 
-The first Chromium run failed to render the plugin with default trimming.
-Preserving `Microsoft.AspNetCore.Components` in the host's release publish
-allowed this component to render and handle events. The fixture uses a known
-test DLL. Production integration still needs to select assets from the enabled
-plugin catalog, enforce safe mode, and resolve the real plugin's dependencies.
-Entity Viewer's actual contributions and upgrades require separate coverage.
+The [plugin trimming rules](../Quasar.Client/PluginTrimming.props) preserve the
+Blazor component, web event and JS interop assemblies. The accompanying linker
+descriptor preserves timestamp formatting and cancellable delays used by Entity
+Viewer. These rules cover the exercised components. Independently installed
+plugins that bring other dependencies require their own compatibility checks.
+
+The optional Viewer check publishes the Viewer's browser fixture with Quasar's
+rules in a temporary directory. It uses the built adapter's actual UI DLL,
+column header and cell, renderer, consent dialog and installer polling. The
+fixture supplies its SDK responses. The enabled catalog, safe mode, delivery of
+verified panel-scoped plugin artifacts and integration with real sessions
+remain production work.
 
 Run the check from the repository root with the .NET 10 SDK, Node.js, and
 Playwright's Chromium and Firefox installed. The runner accepts
@@ -339,6 +345,8 @@ for a system Chromium executable.
 
 ```sh
 node tests/Quasar.Wasm.PluginChecks/browser.test.mjs
+# With the Viewer Release adapter built and PLAYWRIGHT_MODULE set:
+python3 tests/Quasar.Wasm.PluginChecks/check-viewer.py /path/to/viewer
 ```
 
 ## Plugin Abstractions
