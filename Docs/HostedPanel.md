@@ -181,7 +181,7 @@ revocation. These controls cannot undo previous script activity. See
 
 ## Browser dashboard and framework cache
 
-The browser downloads the dashboard runtime once per installed version. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
+The first visit downloads the dashboard runtime. Later visits can reuse files retained in the browser cache. The loading bar shows download progress while the dashboard starts. Hosted connections use the HTTPS tunnel immediately and try an authenticated STUN-only WebRTC connection in the background. The connection indicator shows when the direct path is ready. New SDK requests and transfers then use that path. An upload or download already in progress keeps its original path. If it fails, check its result before retrying. Local and self-hosted sessions use the same browser UI over HTTP(S).
 
 Nebula applies its aggregate 20 Mbit/s tunnel limit to bulk data in both directions. Direct transfers bypass this limit. UI operations that change worker or game state still wait for a response from Quasar. The initial page and sign-in use the panel URL.
 

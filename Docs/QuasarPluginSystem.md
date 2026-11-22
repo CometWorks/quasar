@@ -125,7 +125,7 @@ Example:
 {
   "id": "cometworks.entityviewer",
   "displayName": "Entity Viewer",
-  "version": "0.1.0",
+  "version": "0.1.14",
   "entryAssembly": "CometWorks.EntityViewer.Quasar.dll",
   "entryType": "CometWorks.EntityViewer.Quasar.EntityViewerQuasarPlugin",
   "browserAssembly": "CometWorks.EntityViewer.dll",
@@ -134,7 +134,8 @@ Example:
   "stylesheets": [
     "quasar-plugin.css"
   ],
-  "quasarVersion": ">=1.1.0",
+  "browserSdkVersion": 1,
+  "quasarVersion": ">=1.7.0",
   "companionPlugins": [
     {
       "id": "cometworks.entityviewer",
