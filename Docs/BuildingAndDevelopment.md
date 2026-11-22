@@ -546,18 +546,23 @@ assigning fresh chat timestamps to recipient delivery callbacks. Actual Windows
 server/Discord acceptance still requires a live check after updating and restarting
 the affected server.
 
-### ZIP import browser interop regression tests
+### ZIP import range checks
 
-Run `node --test Quasar.Tests/server-import-file.test.mjs` to check the ZIP file
-snapshot, exact range reads and invalid-range rejection. The harness models
-Blazor's automatic wrapping of typed `IJSObjectReference` and
-`IJSStreamReference` results: JavaScript returns the raw file API object and
-range `Blob`, so Blazor creates each reference once. Identity reference mocks
-hide double-wrapping failures such as "getLength is not a function".
+The server import dialog keeps the selected ZIP on the operator’s device. Quasar reads the archive
+directory, validates the configuration and checkpoints, and asks the browser for numbered byte ranges.
+The SDK pins those range uploads to the HTTPS or WebRTC connection selected at the start. A broken
+transfer requires another explicit import attempt. The worker discards abandoned staging.
 
-Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~BrowserZipFileStreamTests|FullyQualifiedName~ExistingServerZipImportTests|FullyQualifiedName~ExistingServerImportAnalyzerTests'`
-to check range-stream behavior, selective archive transfer, validation and
-staging cleanup. These checks do not start Quasar or a game server.
+Run `node --test Quasar.Tests/server-import-file.test.mjs` to check file selection, range bounds and
+central-directory hints. Run `dotnet test Quasar.Tests/Quasar.Tests.csproj --filter 'FullyQualifiedName~BrowserZipFileStreamTests|FullyQualifiedName~DashboardZipRangesTests|FullyQualifiedName~ExistingServerZipImportTests|FullyQualifiedName~ExistingServerImportAnalyzerTests|FullyQualifiedName~FirstSetupTests'`
+to check worker validation, source selection, cancellation and import through the browser components.
+
+For packaged browser acceptance, set `QUASAR_DASHBOARD_PUBLISH` to a published worker directory
+and `QUASAR_FLEET_CHECKS=1`. Run `dotnet run -c Release --project tests/Quasar.Wasm.DashboardChecks`.
+The fixture opens the file picker in Chromium and Firefox, selects a server ZIP containing terrain,
+a backup and a server binary, and counts the bytes read from the selected file. Set
+`QUASAR_RTC_TEST_PEER` to the matching peer executable to check direct uploads at the hosted panel
+prefix. With the variable unset, the fixture exercises the HTTPS fallback.
 
 ### Table row identity regression tests
 

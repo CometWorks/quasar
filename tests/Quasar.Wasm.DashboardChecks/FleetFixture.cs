@@ -1,3 +1,5 @@
+using System.IO.Compression;
+using System.Text;
 using Microsoft.AspNetCore.Authentication;
 using Quasar.Models;
 using Quasar.Services;
@@ -12,6 +14,7 @@ internal static class FleetFixture
     internal static void Register(IServiceCollection services)
     {
         services.AddSingleton<QuasarWorldTemplateCatalog>();
+        services.AddSingleton<ExistingServerImportService>();
         services.AddSingleton<DataHandlingConsentCatalog>();
         services.AddSingleton<ServerRestoreCoordinator>();
         services.AddSingleton<ServerWorldImportService>();
@@ -32,6 +35,20 @@ internal static class FleetFixture
 
     internal static async Task SeedAsync(WebApplication app)
     {
+        const string zipName = "selective-server.zip";
+        using (var archive = ZipFile.Open(Path.Combine(Environment.GetEnvironmentVariable("QUASAR_INSTALL_DIR")!, zipName), ZipArchiveMode.Create))
+        {
+            void Entry(string path, byte[] bytes)
+            {
+                using var destination = archive.CreateEntry(path, CompressionLevel.NoCompression).Open();
+                destination.Write(bytes);
+            }
+            Entry("SpaceEngineers-Dedicated.cfg", Encoding.UTF8.GetBytes("<MyConfigDedicated><ServerName>Selective ZIP fixture</ServerName></MyConfigDedicated>"));
+            Entry("Saves/Primary/Sandbox.sbc", Encoding.UTF8.GetBytes("<MyObjectBuilder_Checkpoint />"));
+            Entry("Saves/Primary/Planet.vx2", new byte[256 * 1024]);
+            Entry("Saves/Primary/Backup/old/Planet.vx2", new byte[2 * 1024 * 1024]);
+            Entry("DedicatedServer64/engine.dll", new byte[2 * 1024 * 1024]);
+        }
         await app.Services.GetRequiredService<DataHandlingConsentCatalog>().SaveAsync(false);
         await app.Services.GetRequiredService<DedicatedServerCatalog>().UpsertAsync(new DedicatedServerDefinition
         {
