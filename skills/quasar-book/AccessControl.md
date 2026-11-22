@@ -403,7 +403,7 @@ All under `Quasar:Auth` in `appsettings.json`. These are read at startup; restar
 | Key | Default | Notes |
 | --- | --- | --- |
 | `Enabled` | `true` | See [Turning authentication off](#turning-authentication-off) |
-| `RequireHttpsForPublicAccess` | `false` | Private LAN HTTP by default; enable for a public reverse proxy to reject non-LAN HTTP and secure auth cookies |
+| `RequireHttpsForPublicAccess` | `false` | Trusted LAN HTTP is allowed. Dashboard authentication requires HTTPS for public clients. Enable the setting to extend enforcement to other public web routes. |
 | `DefaultProvider` | `Steam` | Only `Steam` has a sign-in |
 | `Steam:Enabled` | `true` | `false` disables `/login` |
 | `TrustedNetworkBypass:*` | see above | Also editable on the **Security** page |
@@ -422,7 +422,7 @@ Environment variables use `__` as separator, for example `QUASAR__AUTH__TRUSTEDN
 | Steam sign-in works locally but remote users land on the wrong URL | The reverse proxy does not send `X-Forwarded-Host`/`X-Forwarded-Proto`, or its address is not in `TrustedProxies` (restart after adding). |
 | Everyone on the LAN can change settings without signing in | `AllowSameSubnet` is on. Turn it off on **Security**. |
 | Local browser is asked to sign in | The request went through a proxy with a non-LAN forwarded address, used a host name that is not an accepted destination, came from another site's page, or the matching LAN trust option is off. |
-| Plain text "HTTPS is required for non-LAN Quasar access." (HTTP 400) | `RequireHttpsForPublicAccess` is on and the request came over HTTP from a non-LAN address. Use the HTTPS proxy URL. |
+| Plain text "HTTPS is required for non-LAN Quasar access." (HTTP 400) | A public client used HTTP for dashboard authentication or another route covered by HTTPS enforcement. Use the HTTPS proxy URL. |
 | Agent, Host enrollment or Host connection gets 403 | The machine endpoint policy refused it: the source address or the `Host` header is not listed under `Quasar:MachineEndpoints`, or the client sent an `Origin` header. See [Machine endpoints](#machine-endpoints). |
 | Quasar doesn't start after editing `MachineEndpoints` | An entry is public, broader than `/16` (IPv4) or `/48` (IPv6), malformed, or a wildcard. |
 | All Steam users lost access after an edit | `rbac.json` is not valid JSON. Check the Quasar log for "Failed loading RBAC config". |
