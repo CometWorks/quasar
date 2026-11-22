@@ -4,7 +4,7 @@ Quasar runs and manages Space Engineers 1 (SE1) dedicated servers. This page say
 
 ## What Quasar does
 
-Quasar is a supervisor with a web UI (Blazor Server) and a REST API. One Quasar install manages several dedicated servers on the same machine. It starts, stops, restarts and health-checks them, edits their configuration, downloads and updates the server software, keeps backups, and shows telemetry, chat and players. Admins open the UI in a browser, by default on port 8080.
+Quasar is a supervisor with a browser dashboard (Blazor WebAssembly) and a REST API. One Quasar install manages several dedicated servers on the same machine. It starts, stops, restarts and health-checks them, edits their configuration, downloads and updates the server software, keeps backups, and shows telemetry, chat and players. Admins open the UI in a browser, by default on port 8080.
 
 The UI shows timestamps as `YYYY-MM-DD HH:MM:SS` in the browser's local time by default. To use a different zone, open **Settings → Display**, select a time zone such as `Europe/Stockholm`, and click **Save**. The preference is saved in that browser. **Use browser time** restores the default. Recent activity and dense tables put the date above the time. If Quasar can't determine the browser's time zone or offset, it labels timestamps `UTC`. Schedule settings, such as backup and restart times, use the Quasar machine's local time.
 

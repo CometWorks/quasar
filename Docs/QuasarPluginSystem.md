@@ -15,8 +15,8 @@ limits and cancellation belong to Quasar; feature validation remains in the
 plugin. Administrators edit effective endpoint rules in the collapsed **Plugin
 endpoint authorization** section on **UI Plugins**; missing or
 invalid policies deny by default. Declare `browserSdkVersion: 1` and a matching
-minimum Quasar release before publication. Legacy plugins remain supported.
-WebRTC and SignalR transport migration are separate steps. The service-side
+minimum Quasar release before publication. Starting with Quasar 1.7.0, Razor
+pages and outlets require a declared browser assembly. The service-side
 companion channel continues independently of browser views.
 
 For clustered servers, owned companion plugins of UI plugins installed from QuasarHub
@@ -146,7 +146,10 @@ Example:
 }
 ```
 
-An enabled plugin can set `browserAssembly` to a separate Razor component DLL in
+The 1.7.0 release line introduces the browser plugin contract. A plugin that
+requires this contract sets its QuasarHub minimum to `>=1.7.0`.
+
+An enabled plugin that contributes Razor UI must set `browserAssembly` to a separate Razor component DLL in
 its build output. Its worker adapter continues to declare named contributions
 through `GetExtensions()` and registers the component assembly through
 `GetRazorAssemblies()`. The entity table loads authorized named columns and
@@ -154,14 +157,15 @@ actions on demand. The worker authenticates artifact requests under the current
 panel, and the browser verifies the SHA-256 digest before loading the DLL.
 Bundle requests for Quasar's shared framework and delivery of these per-panel
 plugin assemblies use separate caches. Safe mode suppresses both the adapter
-and the artifact. Worker-dependent entity outlets retain the compatibility
-page for the duration of that installation.
+and the artifact. Quasar lists missing or invalid browser assemblies on the UI
+Plugins page. Worker services, authenticated SDK operations and game companions
+have their own lifecycle and can function without a browser assembly.
 
 A component in that same DLL can also declare a Razor `@page` route. Quasar
 includes the signed-in panel's declared page assemblies in its browser router,
 resolves route parameters and checks the component's authorization attributes
 on the worker when the operator navigates. Direct links and reloads enter the
-same shell. The route catalog reserves stock and compatibility routes. If a
+same shell. The route catalog reserves stock routes. If a
 plugin assembly duplicates an existing template, Quasar reports the conflict
 and excludes that assembly's pages. Plugins can still contribute links to
 their own static HTML and authenticated worker endpoints.
@@ -520,9 +524,9 @@ This lets viewer plugins render a button and open their own dialog/static asset
 route without taking a dependency on Quasar page internals. Quasar core does not
 ship a fallback browser viewer route.
 
-`PluginsPage` renders at the bottom of `/settings/ui-plugins`. It receives
-parameters named `UiPlugins`, `LoadedPlugins`, and `LoadErrors` so plugins can
-append diagnostics or management panels without replacing the core status page.
+`PluginsPage` renders at the bottom of `/settings/ui-plugins`. A browser contribution can
+append diagnostics or management controls there. It takes no required component
+parameters and uses authenticated SDK operations to load and change worker state.
 
 ## Dependency Injection and Plugin State
 

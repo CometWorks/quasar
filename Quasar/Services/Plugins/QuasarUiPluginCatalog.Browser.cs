@@ -15,30 +15,32 @@ public sealed partial class QuasarUiPluginCatalog
     private sealed record BrowserArtifact(string Name, string Digest, byte[] Contents);
     private readonly Dictionary<string, BrowserArtifact> _browserArtifacts = new(StringComparer.OrdinalIgnoreCase);
 
-    private void CollectBrowserArtifacts()
+    private Assembly? CollectBrowserArtifact(QuasarLoadedUiPlugin plugin, IReadOnlyList<Assembly> declared)
     {
-        foreach (var plugin in _plugins)
+        if (plugin.Context.Manifest.BrowserAssembly is not { } filename) return null;
+        var path = Path.Combine(plugin.ShadowCopyDirectory, filename);
+        var assembly = declared.FirstOrDefault(candidate => string.Equals(candidate.Location, path,
+            OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
+        if (assembly is null || !plugin.Context.Manifest.Id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase))
         {
-            if (plugin.Context.Manifest.BrowserAssembly is not { } fileName)
-                continue;
-            var path = Path.Combine(plugin.ShadowCopyDirectory, fileName);
-            var assembly = RazorAssemblies.FirstOrDefault(candidate =>
-                string.Equals(candidate.Location, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal));
-            if (assembly is null || !plugin.Context.Manifest.Id.Equals(plugin.Id, StringComparison.OrdinalIgnoreCase))
-            {
-                _loadErrors.Add($"{plugin.Id}: declared browser assembly {fileName} was not loaded from this package.");
-                continue;
-            }
-            try
-            {
-                var bytes = File.ReadAllBytes(path);
-                if (!_browserArtifacts.TryAdd(plugin.Id, new(assembly.FullName!, Convert.ToHexStringLower(SHA256.HashData(bytes)), bytes)))
-                    _loadErrors.Add($"{plugin.Id}: duplicate browser assembly declaration.");
-            }
-            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-            {
-                _loadErrors.Add($"{plugin.Id}: failed to read browser assembly {fileName}: {error.Message}");
-            }
+            _loadErrors.Add($"{plugin.Id}: declared browser assembly {filename} was not loaded from this package.");
+            return null;
+        }
+        if (_browserArtifacts.ContainsKey(plugin.Id) || _browserArtifacts.Values.Any(artifact => artifact.Name == assembly.FullName))
+        {
+            _loadErrors.Add($"{plugin.Id}: duplicate browser assembly declaration.");
+            return null;
+        }
+        try
+        {
+            var bytes = File.ReadAllBytes(path);
+            _browserArtifacts.Add(plugin.Id, new(assembly.FullName!, Convert.ToHexStringLower(SHA256.HashData(bytes)), bytes));
+            return assembly;
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            _loadErrors.Add($"{plugin.Id}: failed to read browser assembly {filename}: {error.Message}");
+            return null;
         }
     }
 
@@ -94,9 +96,6 @@ public sealed partial class QuasarUiPluginCatalog
             _ => throw new InvalidOperationException("Unknown route segment.")
         }))));
 
-    public bool IsBrowserPage(Type? type) => type is not null && (type.Assembly == typeof(Quasar.Client.Components.DashboardRouter).Assembly ||
-        _browserPages.ContainsKey((type.Assembly.FullName!, type.FullName!)));
-
     internal async Task<bool> CanOpenBrowserPageAsync(QuasarOperationContext caller, string assemblyName, string component)
     {
         if (!_browserPages.TryGetValue((assemblyName, component), out var type)) return false;
@@ -108,10 +107,6 @@ public sealed partial class QuasarUiPluginCatalog
             .AuthorizeAsync(caller.User, null, policy)).Succeeded;
     }
 
-    public bool RequiresServerExtensions(params string[] targets) => Extensions.Any(ext =>
-        targets.Contains(ext.TargetKey, StringComparer.OrdinalIgnoreCase) &&
-        (!_browserArtifacts.TryGetValue(ext.PluginId, out var artifact) || artifact.Name != ext.ComponentType.Assembly.FullName));
-
     internal async Task<IReadOnlyList<BrowserExtension>> AuthorizedExtensionsAsync(QuasarOperationContext caller)
     {
         var auth = caller.Services.GetRequiredService<IAuthorizationService>();
@@ -121,8 +116,12 @@ public sealed partial class QuasarUiPluginCatalog
             if (!_browserArtifacts.TryGetValue(ext.PluginId, out var artifact)
                 || ext.ComponentType.Assembly.FullName != artifact.Name)
                 continue;
-            var policy = string.IsNullOrWhiteSpace(ext.Policy) && ext.TargetKey == QuasarExtensionTargets.EntityActions
-                ? QuasarPolicyNames.CanControlServers : ext.Policy;
+            var policy = string.IsNullOrWhiteSpace(ext.Policy) ? ext.TargetKey switch
+            {
+                QuasarExtensionTargets.EntityActions => QuasarPolicyNames.CanControlServers,
+                QuasarExtensionTargets.PluginsPage => QuasarPolicyNames.CanManageSecurity,
+                _ => null
+            } : ext.Policy;
             if (!string.IsNullOrWhiteSpace(policy) && !(await auth.AuthorizeAsync(caller.User, null, policy)).Succeeded)
                 continue;
             result.Add(new(ext.TargetKey, ext.PluginId, ext.Mode.ToString(), ext.Priority, ext.ComponentType.FullName!, artifact.Name, artifact.Digest));

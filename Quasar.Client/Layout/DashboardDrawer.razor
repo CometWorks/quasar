@@ -35,9 +35,18 @@ else if (_extensions is not null)
     }
     protected override async Task OnInitializedAsync()
     {
+        Navigation.LocationChanged += LocationChanged;
         try { _extensions = await BrowserExtensions.LoadAsync(Sdk, Navigation, [Target], _stop.Token); }
         catch (Exception error) when (!_stop.IsCancellationRequested) { _error = error.Message; }
         catch (OperationCanceledException) when (_stop.IsCancellationRequested) { }
     }
-    public void Dispose() { _stop.Cancel(); _stop.Dispose(); }
+    private void LocationChanged(object? sender, Microsoft.AspNetCore.Components.Routing.LocationChangedEventArgs args) =>
+        _ = InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        Navigation.LocationChanged -= LocationChanged;
+        _stop.Cancel();
+        _stop.Dispose();
+    }
 }

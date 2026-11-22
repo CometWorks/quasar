@@ -24,8 +24,6 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Hosting.Server;
 using Microsoft.Extensions.FileProviders;
-using MudBlazor;
-using MudBlazor.Services;
 using NLog;
 using System.Net;
 using System.Runtime.InteropServices;
@@ -96,15 +94,8 @@ public class Program
             {
                 builder.Services.AddSingleton<DashboardReleaseManifest>();
                 builder.Services.AddRazorComponents()
-                    .AddInteractiveServerComponents()
                     .AddInteractiveWebAssemblyComponents();
                 builder.Services.AddCascadingAuthenticationState();
-                builder.Services.AddMudServices(configuration =>
-                {
-                    configuration.SnackbarConfiguration.PositionClass = Defaults.Classes.Position.BottomStart;
-                    configuration.SnackbarConfiguration.PreventDuplicates = true;
-                    configuration.SnackbarConfiguration.NewestOnTop = true;
-                });
             }
             builder.Services.Configure<HostOptions>(options =>
             {
@@ -396,7 +387,6 @@ public class Program
             {
                 builder.Services.AddScoped<BrowserStorageService>();
                 builder.Services.AddScoped<WorldTemplateImportLocationService>();
-                builder.Services.AddScoped<ServerManagementActions>();
                 builder.Services.AddSingleton<QuasarUiPluginStateStore>();
                 builder.Services.AddSingleton<QuasarManagedDotNetSdkService>();
                 builder.Services.AddSingleton<QuasarUiPluginHubCatalogService>();
@@ -579,7 +569,6 @@ public class Program
 
                 var razorComponents = app.MapRazorComponents<App>()
                     .AddInteractiveWebAssemblyRenderMode()
-                    .AddInteractiveServerRenderMode()
                     .AddAdditionalAssemblies(uiPluginCatalog.RoutableAssemblies.Append(typeof(Quasar.Client.Components.DashboardRouter).Assembly).Distinct().ToArray());
                 if (authOptions.Enabled)
                     razorComponents.RequireAuthorization(QuasarPolicyNames.CanView);
@@ -724,11 +713,8 @@ public class Program
 
     internal static readonly TimeSpan WebServerDrainTimeout = TimeSpan.FromSeconds(5);
 
-    // SignalR closes the Blazor circuits when the application stops, but an open browser tab reconnects at
-    // once. Kestrel would wait for that new connection up to the 30 minute ShutdownTimeout meant for stopping
-    // servers, so Quasar would not exit while its UI is open. Stop the web server here instead: it stops
-    // listening and aborts the connections still open after a short drain. The host's own stop of the
-    // server later waits for this one.
+    // Stop accepting new connections and bound Kestrel's drain independently of the
+    // longer shutdown window needed for server saves and supervisor cleanup.
     internal static void StopWebServerOnStopping(WebApplication app) =>
         app.Lifetime.ApplicationStopping.Register(() => _ = app.Services.GetRequiredService<IServer>()
             .StopAsync(new CancellationTokenSource(WebServerDrainTimeout).Token));

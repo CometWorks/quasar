@@ -1,18 +1,28 @@
 @inject QuasarUiPluginCatalog Plugins
+
 <CascadingAuthenticationState>
     <WasmPageLayout>
         <Body>
-            <Quasar.Client.Components.DashboardRouter PluginPages="Plugins.BrowserPageAssemblies" InitialAssemblyName="@InitialAssemblyName" LegacyEntities="@LegacyEntities" LegacyUiPlugins="@LegacyUiPlugins"
-                @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+            @if (PageType == typeof(Quasar.Components.Pages.Error))
+            {
+                <Quasar.Components.Pages.Error />
+            }
+            else if (PageType == typeof(Quasar.Components.Pages.NotFound))
+            {
+                <Quasar.Components.Pages.NotFound />
+            }
+            else
+            {
+                <Quasar.Client.Components.DashboardRouter PluginPages="Plugins.BrowserPageAssemblies" InitialAssemblyName="@PageType?.Assembly.FullName"
+                    @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
+            }
         </Body>
     </WasmPageLayout>
 </CascadingAuthenticationState>
 
 @code {
     [CascadingParameter] private Microsoft.AspNetCore.Http.HttpContext? RequestContext { get; set; }
-    private string? InitialAssemblyName => RequestContext?.GetEndpoint()?.Metadata
-        .GetMetadata<Microsoft.AspNetCore.Components.Endpoints.ComponentTypeMetadata>()?.Type.Assembly.FullName;
-    private bool LegacyEntities => Plugins.RequiresServerExtensions(QuasarExtensionTargets.EntitiesPage, QuasarExtensionTargets.EntityActions,
-        QuasarExtensionTargets.EntityViewerColumnCell, QuasarExtensionTargets.EntityViewerColumnHeader);
-    private bool LegacyUiPlugins => Plugins.Extensions.Any(e => e.TargetKey == QuasarExtensionTargets.PluginsPage);
+
+    private Type? PageType => RequestContext?.GetEndpoint()?.Metadata
+        .GetMetadata<Microsoft.AspNetCore.Components.Endpoints.ComponentTypeMetadata>()?.Type;
 }

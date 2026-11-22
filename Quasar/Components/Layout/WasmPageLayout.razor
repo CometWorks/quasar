@@ -13,10 +13,6 @@
             <div><strong>@Branding.Settings.AppName</strong><span>@Branding.Settings.AppSubtitle</span></div>
         </a>
         <NavMenu />
-        @if (Plugins.RequiresServerExtensions(QuasarExtensionTargets.LayoutDrawer))
-        {
-            <a class="quasar-nav-link" href="compat/extensions">Dashboard extensions</a>
-        }
         <div class="quasar-sidebar-footer">
             <strong>@Branding.Settings.AppName <span class="mono">@WorkerVersion</span></strong>
             <span>Space Engineers control plane</span>

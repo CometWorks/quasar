@@ -1,5 +1,8 @@
 @implements IDisposable
 @using Quasar.Components.Pages
+@using Quasar.Client.Plugins
+@using Quasar.Client.Components
+@inject NavigationManager Navigation
 @inject DashboardSdk Sdk
 @inject ISnackbar Snackbar
 @inject IDialogService DialogService
@@ -557,6 +560,9 @@ else
     </section>
 
     <BrowserSdkAuthorization />
+    <CascadingValue TValue="IReadOnlyList<LoadedExtension>" Value="_extensions">
+        <BrowserExtensionOutlet TargetKey="quasar.page.plugins" />
+    </CascadingValue>
 
 </div>
 
@@ -572,9 +578,13 @@ else
     private string? _error;
     private readonly CancellationTokenSource _lifetime = new();
 
+    private IReadOnlyList<LoadedExtension> _extensions = [];
+
     protected override async Task OnInitializedAsync()
     {
         await ReloadAsync();
+        try { _extensions = await BrowserExtensions.LoadAsync(Sdk, Navigation, ["quasar.page.plugins"], _lifetime.Token); }
+        catch (Exception error) when (!_lifetime.IsCancellationRequested) { Snackbar.Add(error.Message, Severity.Error); }
         if (State?.LastInstall is { Result: null } active)
         {
             try { await WaitForInstallAsync(active); await ReloadAsync(); }

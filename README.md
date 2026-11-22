@@ -25,6 +25,8 @@ Quasar downloads Magnetar and the Dedicated Server builds automatically and cach
 
 You can register new plugins by making PRs to the [MagnetarHub](https://github.com/CometWorks/magnetar-hub).
 Plugins that are not in MagnetarHub can come from your own [plugin hubs](Docs/Configuration.md#plugin-hubs).
+Starting in the 1.7.0 release line, plugins that add Razor pages or panels must supply a browser assembly. An older worker-only UI needs a plugin update before its pages appear.
+
 Quasar UI plugins are discovered and managed through [QuasarHub](https://github.com/CometWorks/quasar-hub).
 
 <!-- BEGIN packaged install instructions -->

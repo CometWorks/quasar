@@ -29,29 +29,18 @@
         <link rel="stylesheet" href="@Navigation.PanelUrl(stylesheetHref)" />
     }
     <ImportMap />
-    <HeadOutlet @rendermode="@(BrowserRoute ? new InteractiveWebAssemblyRenderMode(prerender: false) : PageMode)" />
+    <HeadOutlet @rendermode="@(new InteractiveWebAssemblyRenderMode(prerender: false))" />
 </head>
 
 <body>
-    @if (BrowserRoute)
-    {
-        <Quasar.Components.Layout.BrowserDashboard />
-    }
-    else
-    {
-        <Routes @rendermode="PageMode" />
-    }
-    @if (!UsesWebAssembly)
-    {
-        <ReconnectModal />
-    }
+    <Quasar.Components.Layout.BrowserDashboard />
     <script src="@Assets["quasar-sdk.js"]"></script>
     <script src="@Assets["quasar-configs.js"]"></script>
     <script src="@Assets["quasar-push.js"]"></script>
     <script src="@Assets["lib/uplot/uPlot.iife.min.js"]"></script>
     <script src="@Assets["quasar-charts.js"]"></script>
     <script src="@Assets["_framework/blazor.web.js"]" autostart="false"></script>
-    <script id="quasar-connection" type="application/json">@((MarkupString)System.Text.Json.JsonSerializer.Serialize(new { wasm = UsesWebAssembly, hosted = Hosted, release = ReleaseDigest, frameworkIntegrity = ReleaseDigest is not null ? Manifest.Hashes : null, workerId = ServiceOptions.WorkerId }))</script>
+    <script id="quasar-connection" type="application/json">@((MarkupString)System.Text.Json.JsonSerializer.Serialize(new { hosted = Hosted, release = ReleaseDigest, frameworkIntegrity = ReleaseDigest is not null ? Manifest.Hashes : null, workerId = ServiceOptions.WorkerId }))</script>
     <script type="module" src="@Assets["_quasar/sdk/v1/boot.js"]"></script>
     <script src="_content/MudBlazor/MudBlazor.min.js"></script>
 </body>
@@ -63,10 +52,5 @@
         && digest.All(c => c is >= '0' and <= '9' or >= 'a' and <= 'f') ? digest : null;
 
     private bool Hosted => RequestContext is not null && HostedPanelRequest.IsHosted(RequestContext);
-    private bool BrowserRoute => UiPlugins.IsBrowserPage(RequestContext?.GetEndpoint()?.Metadata
-        .GetMetadata<Microsoft.AspNetCore.Components.Endpoints.ComponentTypeMetadata>()?.Type);
-    private bool UsesWebAssembly => BrowserRoute || RequestContext?.GetEndpoint()?.Metadata.GetMetadata<ExcludeFromInteractiveRoutingAttribute>() is not null;
-    private IComponentRenderMode? PageMode => UsesWebAssembly ? null : InteractiveServer;
-
     [CascadingParameter] private Microsoft.AspNetCore.Http.HttpContext? RequestContext { get; set; }
 }

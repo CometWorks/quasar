@@ -10,10 +10,7 @@
 @if (_authorized)
 {
     <RouteView RouteData="Route" />
-    @if (LegacyUiPlugins && Route.PageType == typeof(Quasar.Components.Pages.UiPlugins))
-    {
-        <a href="compat/settings/ui-plugins" data-enhance-nav="false">Open installed plugin extensions</a>
-    }
+
 }
 else if (_message is not null)
 {
@@ -28,8 +25,6 @@ else
 
 @code {
     [Parameter, EditorRequired] public RouteData Route { get; set; } = default!;
-    [Parameter] public bool LegacyEntities { get; set; }
-    [Parameter] public bool LegacyUiPlugins { get; set; }
     private bool _authorized;
     private string? _message;
     private CancellationTokenSource? _pending;
@@ -62,13 +57,8 @@ else
             }
             if (pending.IsCancellationRequested) return;
             if (!allowed) { _message = "You do not have permission to view this page."; return; }
-            if (LegacyEntities && Route.PageType == typeof(Quasar.Components.Pages.Entities))
-                Navigation.NavigateTo("compat/entities", forceLoad: true, replace: true);
-            else
-            {
-                _authorized = true;
-                await JS.InvokeVoidAsync("quasarSdk.dashboardNavigated", pending.Token);
-            }
+            _authorized = true;
+            await JS.InvokeVoidAsync("quasarSdk.dashboardNavigated", pending.Token);
         }
         catch (OperationCanceledException) when (pending.IsCancellationRequested) { }
         catch (JSException error) when (!pending.IsCancellationRequested) { _message = error.Message; }

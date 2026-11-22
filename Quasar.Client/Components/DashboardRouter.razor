@@ -13,7 +13,7 @@
 {
 <Router AdditionalAssemblies="_assemblies" AppAssembly="typeof(DashboardRouter).Assembly" NotFoundPage="typeof(DashboardExternalRoute)">
     <Found Context="route">
-        <DashboardRouteContent Route="route" LegacyEntities="LegacyEntities" LegacyUiPlugins="LegacyUiPlugins" />
+        <DashboardRouteContent Route="route" />
         <FocusOnNavigate RouteData="route" Selector="h1, h2" />
     </Found>
 </Router>
@@ -29,13 +29,12 @@
     private async Task LoadAsync()
     {
         _error = null;
-        using var http = new HttpClient { BaseAddress = new Uri(Navigation.BaseUri) };
         var assemblies = new List<Assembly>();
         var failures = new List<string>();
         bool ready = true;
         foreach (var plugin in PluginPages)
         {
-            try { assemblies.Add(await BrowserExtensions.LoadAssemblyAsync(plugin, http, default)); }
+            try { assemblies.Add(await BrowserExtensions.LoadAssemblyAsync(plugin, Navigation.BaseUri, default)); }
             catch (Exception error)
             {
                 failures.Add($"{plugin.PluginId}: {error.Message}");
@@ -46,6 +45,4 @@
         _ready = ready;
         _error = failures.Count == 0 ? null : string.Join(" ", failures);
     }
-    [Parameter] public bool LegacyEntities { get; set; }
-    [Parameter] public bool LegacyUiPlugins { get; set; }
 }

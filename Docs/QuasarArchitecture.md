@@ -22,7 +22,7 @@ It captures the current supervisor flow:
 
 - `Quasar`
   - Supervisor
-  - ASP.NET Core host for the browser dashboard and legacy plugin circuits
+  - ASP.NET Core host for the browser dashboard
   - DS process manager
   - config editor
   - WebSocket server for DS agents
@@ -267,7 +267,7 @@ This distinction matters because the current runtime needs reliable lifecycle/co
 The stock dashboard renders with Blazor WebAssembly. Browser components call the
 authenticated Quasar SDK over HTTP(S). For a Nebula session, a direct WebRTC
 connection is negotiated in the background. Each operation uses the transport
-available when it starts. Legacy server-side UI plugins can open a Blazor circuit.
+available when it starts. Plugin Razor UI runs in its declared browser assembly.
 
 ### Quasar.Agent to Quasar
 
@@ -831,7 +831,7 @@ But once a server is under Quasar management, the primary model is no longer "ro
 
 Browser access uses cookie authentication with Steam identities or a synthetic
 trusted-network principal. Role claims are refreshed from the live RBAC catalog
-on requests. RBAC changes also force active legacy plugin circuits to reload. Control Plane write handlers and
+on requests. Control Plane write handlers and
 sensitive dashboard/security mutations also re-check current roles at execution time.
 
 UI routes and HTTP endpoints use named authorization policies. Viewer access is
