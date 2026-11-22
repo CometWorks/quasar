@@ -27,6 +27,7 @@ public static class QuasarCoreOperations
         services.AddQuasarConfigOperations();
         services.AddQuasarPlayerOperations();
         services.AddQuasarBackupOperations();
+        services.AddQuasarAuditDashboard();
         services.AddQuasarClusterOperations();
         services.AddQuasarEntityOperations();
         services.AddQuasarChatOperations();
@@ -49,7 +50,7 @@ public static class QuasarCoreOperations
                     try { return Task.FromResult<Stream>(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, QuasarSdkLimits.TransferBufferBytes, FileOptions.Asynchronous)); }
                     catch (IOException) { throw new QuasarOperationException(404, "Backup not found."); }
                 }, "application/zip", Path.GetFileName(path), EnableRanges: true));
-            }, ReadDeniedToAgents with { Description = "Downloads a Quasar backup archive by name, or a fresh configuration backup when no name is given." });
+            }, ReadDeniedToAgents with { RequireDefaultPolicies = true, Description = "Downloads a Quasar backup archive by name, or a fresh configuration backup when no name is given." });
         services.AddQuasarOperation<AnalyticsRequest, AnalyticsSeriesResponse>(PluginId, "analytics.series.read", [QuasarPolicyNames.CanView],
             (caller, input, token) =>
             {

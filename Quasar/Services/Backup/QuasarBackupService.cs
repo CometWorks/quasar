@@ -9,23 +9,6 @@ namespace Quasar.Services.Backup;
 /// <summary>An in-memory backup archive ready to stream to the browser.</summary>
 public sealed record QuasarBackupArchive(byte[] Content, string FileName);
 
-public enum WorldBackupAction
-{
-    LatestSave,
-    SaveAndBackUp,
-    StopAndBackUp,
-}
-
-/// <summary>A backup ZIP found in the configured backup directory.</summary>
-public sealed record QuasarBackupFileInfo(
-    string Name,
-    long SizeBytes,
-    DateTimeOffset CreatedAtUtc,
-    QuasarBackupKind Kind,
-    bool Automatic,
-    string? ServerUniqueName,
-    string? ServerDisplayName);
-
 /// <summary>
 /// Builds and restores ZIP backups for Quasar configuration, server runtime
 /// state, and world-only data. Every archive contains a <c>quasar-backup.json</c>
@@ -385,52 +368,57 @@ public sealed class QuasarBackupService
 
             await using var tempRead = File.Open(tempPath, FileMode.Open, FileAccess.Read, FileShare.Read);
 
-            ZipArchive archive;
-            try
-            {
-                archive = new ZipArchive(tempRead, ZipArchiveMode.Read, leaveOpen: true);
-            }
-            catch (InvalidDataException)
-            {
-                return QuasarRestoreReport.Failed("The selected file is not a valid ZIP archive.");
-            }
-
-            using (archive)
-            {
-                var manifestEntry = archive.GetEntry(ManifestEntryName);
-                if (manifestEntry is null)
-                    return QuasarRestoreReport.Failed("This ZIP is not a Quasar backup (missing quasar-backup.json).");
-
-                QuasarBackupManifest? manifest;
-                try
-                {
-                    await using var manifestStream = manifestEntry.Open();
-                    manifest = await JsonSerializer.DeserializeAsync<QuasarBackupManifest>(manifestStream, JsonOptions, cancellationToken);
-                }
-                catch (JsonException)
-                {
-                    return QuasarRestoreReport.Failed("The backup manifest could not be read.");
-                }
-
-                if (manifest is null || string.IsNullOrWhiteSpace(manifest.QuasarVersion))
-                    return QuasarRestoreReport.Failed("The backup manifest is missing version information.");
-
-                var compatibility = BackupCompatibility.Evaluate(manifest.QuasarVersion, _options.Version);
-                if (!compatibility.Allowed)
-                    return QuasarRestoreReport.Failed(compatibility.Reason, manifest.QuasarVersion, _options.Version);
-
-                return manifest.BackupKind switch
-                {
-                    QuasarBackupKind.Configuration => RestoreConfigurationArchive(archive, manifest, cancellationToken),
-                    QuasarBackupKind.Server => await RestoreServerArchiveAsync(archive, manifest, cancellationToken),
-                    QuasarBackupKind.World => await RestoreWorldArchiveAsync(archive, manifest, cancellationToken),
-                    _ => QuasarRestoreReport.Failed($"Unsupported backup kind '{manifest.BackupKind}'.", manifest.QuasarVersion, _options.Version),
-                };
-            }
+            return await RestoreStagedAsync(tempRead, cancellationToken);
         }
         finally
         {
             TryDeleteFile(tempPath);
+        }
+    }
+
+    internal async Task<QuasarRestoreReport> RestoreStagedAsync(Stream staged, CancellationToken cancellationToken)
+    {
+        ZipArchive archive;
+        try
+        {
+            archive = new ZipArchive(staged, ZipArchiveMode.Read, leaveOpen: true);
+        }
+        catch (InvalidDataException)
+        {
+            return QuasarRestoreReport.Failed("The selected file is not a valid ZIP archive.");
+        }
+
+        using (archive)
+        {
+            var manifestEntry = archive.GetEntry(ManifestEntryName);
+            if (manifestEntry is null)
+                return QuasarRestoreReport.Failed("This ZIP is not a Quasar backup (missing quasar-backup.json).");
+
+            QuasarBackupManifest? manifest;
+            try
+            {
+                await using var manifestStream = manifestEntry.Open();
+                manifest = await JsonSerializer.DeserializeAsync<QuasarBackupManifest>(manifestStream, JsonOptions, cancellationToken);
+            }
+            catch (JsonException)
+            {
+                return QuasarRestoreReport.Failed("The backup manifest could not be read.");
+            }
+
+            if (manifest is null || string.IsNullOrWhiteSpace(manifest.QuasarVersion))
+                return QuasarRestoreReport.Failed("The backup manifest is missing version information.");
+
+            var compatibility = BackupCompatibility.Evaluate(manifest.QuasarVersion, _options.Version);
+            if (!compatibility.Allowed)
+                return QuasarRestoreReport.Failed(compatibility.Reason, manifest.QuasarVersion, _options.Version);
+
+            return manifest.BackupKind switch
+            {
+                QuasarBackupKind.Configuration => RestoreConfigurationArchive(archive, manifest, cancellationToken),
+                QuasarBackupKind.Server => await RestoreServerArchiveAsync(archive, manifest, cancellationToken),
+                QuasarBackupKind.World => await RestoreWorldArchiveAsync(archive, manifest, cancellationToken),
+                _ => QuasarRestoreReport.Failed($"Unsupported backup kind '{manifest.BackupKind}'.", manifest.QuasarVersion, _options.Version),
+            };
         }
     }
 

@@ -1,0 +1,55 @@
+@inject DashboardSdk Sdk
+
+<MudDialog>
+    <TitleContent><h2>Pick backup folder</h2></TitleContent>
+    <DialogContent>
+        <label class="quasar-field"><span>Path</span><input @bind="_path" /></label>
+        <MudButton OnClick="@(() => NavigateAsync(_path))">Go</MudButton>
+        <MudCheckBox T="bool" Value="_hidden" ValueChanged="HiddenAsync" Label="Show hidden folders" />
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (_folder is not null)
+        {
+            @foreach (var item in _folder.Shortcuts)
+            { <MudButton OnClick="@(() => NavigateAsync(item.Path))">@item.Name</MudButton> }
+            <nav aria-label="Folder path">
+                @foreach (var item in _folder.Breadcrumbs)
+                { <MudButton Disabled="@(item.Path == _folder.Path)" OnClick="@(() => NavigateAsync(item.Path))">@item.Name</MudButton> }
+            </nav>
+            <label class="quasar-field"><span>Filter current folder</span><input @bind="_search" @bind:event="oninput" /></label>
+            <div style="max-height:320px;overflow-y:auto">
+                @foreach (var item in _folder.Folders.Where(i => i.Name.Contains(_search, StringComparison.OrdinalIgnoreCase)))
+                { <div><MudButton StartIcon="@Icons.Material.Filled.Folder" OnClick="@(() => NavigateAsync(item.Path))">@item.Name</MudButton></div> }
+            </div>
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="@(() => Dialog.Cancel())">Cancel</MudButton>
+        <MudButton Color="Color.Primary" Disabled="@(_folder is null || _folder.Path != _path)" OnClick="@(() => Dialog.Close(DialogResult.Ok(_folder!.Path)))">Use this folder</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [Parameter] public string InitialPath { get; set; } = "";
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    private string _path = "", _search = "";
+    private bool _hidden;
+    private int _generation;
+    private BackupFolder? _folder;
+    private string? _error;
+    protected override Task OnInitializedAsync() => NavigateAsync(InitialPath);
+    private Task HiddenAsync(bool value) { _hidden = value; return NavigateAsync(_path); }
+    private async Task NavigateAsync(string path)
+    {
+        var generation = ++_generation;
+        _folder = null;
+        _error = null;
+        try
+        {
+            var folder = await Sdk.RequestAsync<BackupFolder>("backup.directory.browse", new { path, hidden = _hidden });
+            if (generation != _generation) return;
+            _folder = folder;
+            _path = folder.Path;
+            _search = "";
+        }
+        catch (JSException error) { if (generation == _generation) _error = error.Message; }
+    }
+}

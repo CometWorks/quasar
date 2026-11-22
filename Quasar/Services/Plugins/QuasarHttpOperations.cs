@@ -77,7 +77,9 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
                 if (transfer.Kind == QuasarOperationKind.Upload)
                 {
                     var maximum = owner.Operations.Find(transfer.Plugin, transfer.Operation)!.MaximumUploadBytes;
-                    await using var staged = await QuasarUploadStaging.StageAsync(http.Request.Body, maximum, stop.Token);
+                    if (http.Features.Get<Microsoft.AspNetCore.Http.Features.IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } bodyLimit)
+                        bodyLimit.MaxRequestBodySize = maximum;
+                    await using var staged = await QuasarUploadStaging.StageAsync(http.Request.Body, maximum, stop.Token, transfer.RecordProgress);
                     await Check(stop.Token);
                     staged.Position = 0;
                     var result = await owner.Operations.DispatchAsync(context with { Upload = staged }, transfer.Plugin, transfer.Operation, transfer.Request, stop.Token);
@@ -93,7 +95,7 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
                     if (!read.EnableRanges && http.Request.Headers.ContainsKey("Range"))
                         throw new QuasarOperationException(416, "This resource does not support ranges.");
                     await using var source = await read.OpenAsync(stop.Token);
-                    await using var guarded = new GuardedReadStream(source, Check, stop.Token);
+                    await using var guarded = new GuardedReadStream(source, Check, stop.Token, transfer.RecordProgress);
                     if (!source.CanSeek && read.Length is { } length) http.Response.ContentLength = length;
                     var tag = read.EntityTag is null ? null : EntityTagHeaderValue.Parse(read.EntityTag);
                     await Results.Stream(guarded, read.ContentType, read.FileName, read.LastModified, tag, read.EnableRanges).ExecuteAsync(http);
@@ -129,7 +131,7 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
         }
     }
 
-    private sealed class GuardedReadStream(Stream inner, Func<CancellationToken, Task> check, CancellationToken lifetime) : Stream
+    private sealed class GuardedReadStream(Stream inner, Func<CancellationToken, Task> check, CancellationToken lifetime, Action progress) : Stream
     {
         public override bool CanRead => inner.CanRead;
         public override bool CanSeek => inner.CanSeek;
@@ -137,9 +139,9 @@ public sealed class QuasarHttpOperations(QuasarOperationService operations, Quas
         public override long Length => inner.Length;
         public override long Position { get => inner.Position; set => inner.Position = value; }
         public override long Seek(long offset, SeekOrigin origin) => inner.Seek(offset, origin);
-        public override int Read(byte[] buffer, int offset, int count) { lifetime.ThrowIfCancellationRequested(); return inner.Read(buffer, offset, count); }
+        public override int Read(byte[] buffer, int offset, int count) { lifetime.ThrowIfCancellationRequested(); var read = inner.Read(buffer, offset, count); if (read > 0) progress(); return read; }
         public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken token = default)
-        { await check(lifetime); return await inner.ReadAsync(buffer, lifetime); }
+        { await check(lifetime); var count = await inner.ReadAsync(buffer, lifetime); if (count > 0) progress(); return count; }
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken token) => ReadAsync(buffer.AsMemory(offset, count), token).AsTask();
         public override void Flush() => throw new NotSupportedException();
         public override void SetLength(long value) => throw new NotSupportedException();

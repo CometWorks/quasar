@@ -45,6 +45,9 @@ public sealed record QuasarOperationMetadata
     /// <summary>JSON operations only. Null means <see cref="DefaultDeadline"/>; 1 to 300 seconds.</summary>
     public TimeSpan? Deadline { get; init; }
 
+    /// <summary>When set, a valid RBAC override can add to the registered policies but cannot remove them.</summary>
+    public bool RequireDefaultPolicies { get; init; }
+
     /// <summary>Denied puts the operation on the hard deny list for agent principals.</summary>
     public QuasarAgentAccess AgentAccess { get; init; } = QuasarAgentAccess.Allowed;
 

@@ -878,7 +878,9 @@ public sealed class QuasarAgentAuditTests : IDisposable
         context.JSInterop.Mode = JSRuntimeMode.Loose;
         context.Services.AddSingleton(audit);
         context.Services.AddSingleton<AuthenticationStateProvider>(new SignedIn(admin));
-        var page = context.Render<Audit>();
+        context.Services.AddDirectCoreOperations();
+        context.Services.AddSingleton(provider => new Quasar.Client.DashboardSdk(new DashboardTestTransport(provider)));
+        var page = context.Render<Quasar.Client.Administration.AuditLogPage>();
         // The page loads the entries asynchronously. Newest first: the later change, the reversal,
         // the undone change.
         page.WaitForAssertion(() => Assert.Equal(3, page.FindAll("tbody > tr").Count));

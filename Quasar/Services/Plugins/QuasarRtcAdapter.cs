@@ -91,7 +91,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                 }
                 if (calls.Count >= 8) { await ErrorAsync(id, 429, "Too many concurrent SDK requests."); continue; }
                 var request = body.Clone();
-                var call = new Call(id, peer.Token, type == "circuit");
+                var call = new Call(id, peer.Token, type is "circuit" or "start");
                 if (!calls.TryAdd(id, call)) throw new QuasarOperationException(409, "Duplicate SDK request.");
                 // Feature handlers cannot block the control reader's cancellation and credit path.
                 _ = Task.Run(() => InvokeAsync(call, type!, request));
@@ -242,7 +242,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                     var maximum = operations.Find(transfer.Plugin, transfer.Operation)!.MaximumUploadBytes;
                     call.BeginUpload(maximum);
                     await SendControlAsync(new { v = 1, type = "upload", id = call.Id, window = 64 * 1024 }, stop.Token);
-                    await using var staged = await QuasarUploadStaging.StageAsync(call.UploadReader!, maximum, stop.Token);
+                    await using var staged = await QuasarUploadStaging.StageAsync(call.UploadReader!, maximum, stop.Token, transfer.RecordProgress);
                     await Check(stop.Token);
                     var result = await operations.DispatchAsync(context with { Upload = staged }, transfer.Plugin, transfer.Operation, transfer.Request, stop.Token);
                     await ResultAsync(call, result, scope.ServiceProvider);
@@ -282,6 +282,7 @@ public sealed class QuasarRtcAdapter(QuasarPeerProcess native, QuasarBrowserSess
                         var count = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining ?? buffer.Length)), stop.Token);
                         if (count == 0) { if (remaining is > 0) throw new IOException("SDK resource ended early."); break; }
                         await output.WriteAsync(buffer.AsMemory(0, count), stop.Token);
+                        transfer.RecordProgress();
                         if (remaining is not null) remaining -= count;
                     }
                 }
