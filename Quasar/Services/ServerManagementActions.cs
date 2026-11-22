@@ -56,6 +56,11 @@ public sealed class ServerManagementActions(
             return;
 
         var dialog = await dialogService.ShowAsync<NewServerDialog>("New server",
+            new DialogParameters<NewServerDialog> {
+                { p => p.CanCreate, await permissions.IsAuthorizedAsync(QuasarPolicyNames.CanEditServers) },
+                { p => p.CanManageCluster, await permissions.IsAuthorizedAsync(QuasarPolicyNames.ClusterManage) },
+                { p => p.WorkerLinux, OperatingSystem.IsLinux() }
+            },
             new DialogOptions { CloseOnEscapeKey = true, FullWidth = true, MaxWidth = MaxWidth.Medium });
         var result = await dialog.Result;
         if (result is null || result.Canceled || result.Data is not NewServerDialog.ServerKind kind)
@@ -374,7 +379,7 @@ public sealed class ServerManagementActions(
         await CopyWorldDirectoryAsync(sourceWorldPath, target.GetWorldSavePath());
     }
 
-    private static string? FindLatestWorldBackupDirectory(string worldPath)
+    internal static string? FindLatestWorldBackupDirectory(string worldPath)
     {
         var backupDirectory = Path.Combine(worldPath, "Backup");
         if (!Directory.Exists(backupDirectory))
@@ -436,7 +441,7 @@ public sealed class ServerManagementActions(
         return true;
     }
 
-    private static void EnsureCloneStorageIsIndependent(DedicatedServerDefinition source, DedicatedServerDefinition target)
+    internal static void EnsureCloneStorageIsIndependent(DedicatedServerDefinition source, DedicatedServerDefinition target)
     {
         var sourcePaths = DedicatedServerPathResolver.Resolve(source);
         var targetPaths = DedicatedServerPathResolver.Resolve(target);

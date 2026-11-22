@@ -1,0 +1,54 @@
+@using MudBlazor
+@using Microsoft.JSInterop
+@using Quasar.Client.Fleet
+@inject DashboardSdk Sdk
+
+<MudDialog>
+    <DialogContent>
+        @if (_error is not null) { <MudAlert Severity="Severity.Error">@_error</MudAlert> }
+        @if (_inventory is not null)
+        {
+            <WorldImportForm Inventory="_inventory" Saved="Imported" Closed="CancelImport" />
+        }
+        else
+        {
+            <MudSelect Label="World template" T="string" @bind-Value="_template">
+                @foreach (var item in _templates) { <MudSelectItem Value="@item.Id">@item.Name</MudSelectItem> }
+            </MudSelect>
+            <MudSelect Label="Configuration profile" T="string" @bind-Value="_profile">
+                @foreach (var item in Options.Profiles) { <MudSelectItem Value="@item.Id">@item.Name</MudSelectItem> }
+            </MudSelect>
+            @if (Options.EditProfiles) { <MudButton OnClick="ImportAsync">Import world template</MudButton> }
+        }
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Disabled="@(string.IsNullOrEmpty(_template) || _inventory is not null)" OnClick="Create" Color="Color.Primary">Create world save</MudButton>
+    </DialogActions>
+</MudDialog>
+@code {
+    [CascadingParameter] private IMudDialogInstance Dialog { get; set; } = default!;
+    [Parameter, EditorRequired] public ServerEditorSetup Options { get; set; } = null!;
+    [Parameter] public string InitialTemplate { get; set; } = "";
+    [Parameter] public string InitialProfile { get; set; } = "";
+    public sealed record Selection(string Template,string Profile);
+    private string _template = "", _profile = "";
+    private WorldTemplate[] _templates = [];
+    private string? _error;
+    private WorldInventory? _inventory;
+    protected override void OnInitialized() { _templates = Options.Templates; _template = InitialTemplate; _profile = InitialProfile; }
+    private async Task ImportAsync()
+    {
+        try { _inventory = await Sdk.RequestAsync<WorldInventory>("worlds.inventory"); }
+        catch (JSException e) { _error = e.Message; }
+    }
+    private void Imported(WorldSaved result)
+    {
+        if (result.Template is { } id) { _template = id; if (!_templates.Any(t => t.Id == id)) _templates = [.._templates,new(id,id,"",DateTimeOffset.UtcNow,true,0)]; }
+        if (result.Profile is { } profile) _profile = profile;
+        _inventory = null;
+    }
+    private void CancelImport() => _inventory = null;
+    private void Cancel() => Dialog.Cancel();
+    private void Create() => Dialog.Close(DialogResult.Ok(new Selection(_template,_profile)));
+}

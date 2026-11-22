@@ -1,0 +1,80 @@
+@using MudBlazor
+@using Quasar.Client.Fleet
+@inject DashboardSdk Sdk
+<MudDialog>
+    <DialogContent>
+        <MudForm @ref="_form" @bind-IsValid="_formIsValid">
+        <div class="quasar-layout quasar-gap-3">
+            <p class="quasar-text quasar-type-body2">
+                Create a reusable config profile, then it will be selected in the server editor.
+            </p>
+
+            <MudTextField
+                @bind-Value="_name"
+                Label="Profile name"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                AutoFocus="true"
+                Required="true"
+                RequiredError="Profile name required." />
+
+            <MudTextField
+                @bind-Value="_description"
+                Label="Description"
+                Variant="Variant.Outlined"
+                Immediate="true"
+                Lines="3"
+                Sizing="InputSizing.Auto"
+                MaxLines="10000" />
+        </div>
+        </MudForm>
+    </DialogContent>
+    <DialogActions>
+        <MudButton Variant="Variant.Text" Color="Color.Default" OnClick="Cancel" Disabled="@_saving">Cancel</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@_saving">
+            @(_saving ? "Creating..." : "Create Profile")
+        </MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code
+{
+    [CascadingParameter]
+    private IMudDialogInstance MudDialog { get; set; } = default!;
+
+    [Inject]
+    private ISnackbar Snackbar { get; set; } = default!;
+
+    private MudForm? _form;
+    private bool _formIsValid;
+    private string _name = string.Empty;
+    private string _description = string.Empty;
+    private bool _saving;
+
+    private void Cancel()
+    {
+        MudDialog.Cancel();
+    }
+
+    private async Task CreateAsync()
+    {
+        await _form!.ValidateAsync();
+        if (!_formIsValid)
+            return;
+
+        _saving = true;
+        try
+        {
+            var id = await Sdk.RequestAsync<string>("fleet.editor.profile.new", new EditorQuickProfile(_name,_description));
+            MudDialog.Close(DialogResult.Ok(id));
+        }
+        catch (Exception exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _saving = false;
+        }
+    }
+}

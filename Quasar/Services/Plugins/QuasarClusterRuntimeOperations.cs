@@ -46,7 +46,7 @@ internal static partial class QuasarClusterDetailOperations
             var machine = await host;
             var process = machine?.Gateways?.FirstOrDefault(g => g.ClusterId.Equals(cluster.UniqueName, StringComparison.OrdinalIgnoreCase));
             var reconcile = caller.Services.GetRequiredService<ClusterReconciler>().GetStatus(cluster.UniqueName);
-            var planned = (await plan)?.Data ?? [];
+            var planned = (await plan)?.Data.Select(n => n with { LastAttemptKey = null }).ToArray() ?? [];
             var fleet = state is null ? [] : caller.Services.GetRequiredService<ClusterFleetService>().Observe(state).Nodes;
             var nodes = ClusterOverview.Nodes(cluster, planned, fleet);
             var hosts = caller.Services.GetRequiredService<ClusterHostCatalog>().GetAll();

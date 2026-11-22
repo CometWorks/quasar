@@ -42,6 +42,10 @@ The server editor's **Paths** section can override the DS app-data path, Magneta
 
 On the **Dashboard** or **Servers** page, click **New server** and choose **Single Magnetar** to open the **Create Server** dialog. Choose **Cluster** instead to open [guided cluster setup](ClusterSetup.md). Each choice is shown only when your role permits that action. On Windows the **Cluster** button is disabled: "Cluster setup requires Quasar running on Linux. Use Single Magnetar on Windows." Other entry points: **Import server** on the Dashboard imports an existing vanilla DS or Torch install from a folder on the Quasar machine or a ZIP on your PC (only its required config and world files transfer) (see [First setup](FirstSetup.md)), and **Clone server** in a server's menu copies an existing server.
 
+The editor uses the Quasar host's OS, logical processor count and filesystem for runtime choices, CPU affinity and save folders. If someone changes the server while its editor is open, reopen it before saving. An ordinary edit records the prior definition for undo.
+
+When cloning, **Keep Save** uses the target save selected in the editor. **Copy World** stages an independent copy from the stopped source or its latest Space Engineers backup while running. Replacing an existing target save requires confirmation. Quasar checks the requested server ID, port and selected world again before publishing the clone.
+
 Required fields:
 
 - **Server ID**: letters, numbers, underscore and hyphen only. Must be unique. Error: "Only letters, numbers, underscore, and hyphen are allowed." or "A server named '...' already exists."

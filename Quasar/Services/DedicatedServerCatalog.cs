@@ -77,6 +77,41 @@ public sealed class DedicatedServerCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
+    // Keep a dashboard edit bound to the definition the operator actually reviewed.
+    internal async Task SaveEditorAsync(DedicatedServerDefinition draft, string source, DateTimeOffset? expectedRevision,
+        bool clone, Action<DedicatedServerDefinition?> validateAndPrepare, Action rollback, CancellationToken token)
+    {
+        await _writeGate.WaitAsync(token);
+        try
+        {
+            var original = string.IsNullOrWhiteSpace(source) ? null : GetServer(source);
+            if (source.Length > 0 && (original is null || original.UpdatedAtUtc != expectedRevision))
+                throw new InvalidOperationException("The source server changed. Reopen its editor and try again.");
+            if (original is not null)
+            {
+                var persisted = LoadServerDefinition(MagnetarPaths.GetQuasarServerDefinitionPath(source));
+                if (persisted is null || JsonSerializer.Serialize(Normalize(persisted), JsonOptions) != JsonSerializer.Serialize(original, JsonOptions))
+                    throw new InvalidOperationException("The source server changed on disk. Reopen its editor and try again.");
+            }
+            bool creating = original is null || clone;
+            if (creating && (GetServer(draft.UniqueName) is not null || File.Exists(MagnetarPaths.GetQuasarServerDefinitionPath(draft.UniqueName))))
+                throw new InvalidOperationException("That server identifier is already in use.");
+            if (GetServers().Any(s => s.ServerPort == draft.ServerPort && (creating || !s.UniqueName.Equals(source, StringComparison.OrdinalIgnoreCase))))
+                throw new InvalidOperationException("That server port is already in use.");
+            if (!creating && original!.UniqueName.Equals(draft.UniqueName, StringComparison.OrdinalIgnoreCase))
+                draft.UniqueName = original.UniqueName;
+            draft.OriginalUniqueName = creating ? "" : original!.UniqueName;
+            draft.GoalState = creating ? DedicatedServerGoalState.Off : original!.GoalState;
+            try
+            {
+                validateAndPrepare(original);
+                await UpsertCoreAsync(draft, token);
+            }
+            catch { rollback(); throw; }
+        }
+        finally { _writeGate.Release(); }
+    }
+
     private async Task UpsertCoreAsync(DedicatedServerDefinition definition, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(definition);
@@ -125,8 +160,13 @@ public sealed class DedicatedServerCatalog : IDisposable
         }
 
         _playerAccess?.EnsureServerIdentityChangeAllowed(previousUniqueName, normalized.UniqueName);
-        PrepareStorageForSave(normalized, previousUniqueName);
-        await SaveServerAsync(normalized, cancellationToken);
+        bool moved = PrepareStorageForSave(normalized, previousUniqueName);
+        try { await SaveServerAsync(normalized, cancellationToken); }
+        catch when (moved)
+        {
+            Directory.Move(MagnetarPaths.GetQuasarServerDirectory(normalized.UniqueName), MagnetarPaths.GetQuasarServerDirectory(previousUniqueName));
+            throw;
+        }
         ReloadFromDisk();
     }
 
@@ -200,14 +240,21 @@ public sealed class DedicatedServerCatalog : IDisposable
         finally { _writeGate.Release(); }
     }
 
-    public async Task DeleteAsync(string uniqueName, CancellationToken cancellationToken = default)
+    public Task DeleteAsync(string uniqueName, CancellationToken cancellationToken = default) =>
+        DeleteAsync(uniqueName, null, null, cancellationToken);
+
+    internal async Task DeleteAsync(string uniqueName, DateTimeOffset? expectedRevision,
+        Func<DedicatedServerDefinition,bool>? canDelete, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(uniqueName)) return;
         await _writeGate.WaitAsync(cancellationToken);
         try
         {
             RefuseImportMutation(uniqueName);
-            if (GetServer(uniqueName) is null) return;
+            var current = GetServer(uniqueName);
+            if (expectedRevision is not null && (current?.UpdatedAtUtc != expectedRevision || !canDelete!(current!)))
+                throw new InvalidOperationException("The server changed or is running. Refresh and confirm deletion again.");
+            if (current is null) return;
             await ArchiveAndDeleteCurrentDefinitionAsync(uniqueName, cancellationToken);
             ReloadFromDisk();
         }
@@ -330,11 +377,10 @@ public sealed class DedicatedServerCatalog : IDisposable
         var historyDirectory = MagnetarPaths.GetQuasarServerHistoryDirectory(definition.UniqueName);
         var json = JsonSerializer.Serialize(definition, JsonOptions);
 
-        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
-
         Directory.CreateDirectory(historyDirectory);
         var historyPath = Path.Combine(historyDirectory, $"{definition.UpdatedAtUtc:yyyyMMddHHmmssfff}.json");
         await AtomicFileWriter.WriteTextAsync(historyPath, json, cancellationToken);
+        await AtomicFileWriter.WriteTextAsync(path, json, cancellationToken);
 
         _logger.LogInformation("Saved Quasar server definition to {Path}", path);
     }
@@ -510,10 +556,10 @@ public sealed class DedicatedServerCatalog : IDisposable
             throw new InvalidOperationException("Unique name must match ^[a-zA-Z0-9_-]+$.");
     }
 
-    private static void PrepareStorageForSave(DedicatedServerDefinition definition, string previousUniqueName)
+    private static bool PrepareStorageForSave(DedicatedServerDefinition definition, string previousUniqueName)
     {
         if (string.Equals(previousUniqueName, definition.UniqueName, StringComparison.OrdinalIgnoreCase))
-            return;
+            return false;
 
         var previousRoot = MagnetarPaths.GetQuasarServerDirectory(previousUniqueName);
         var currentRoot = MagnetarPaths.GetQuasarServerDirectory(definition.UniqueName);
@@ -525,13 +571,14 @@ public sealed class DedicatedServerCatalog : IDisposable
         DedicatedServerPathResolver.CanonicalizeForStorage(definition);
 
         if (!Directory.Exists(previousRoot))
-            return;
+            return false;
 
         if (Directory.Exists(currentRoot))
             throw new InvalidOperationException($"Cannot rename server to '{definition.UniqueName}' because the target directory already exists.");
 
         Directory.CreateDirectory(Path.GetDirectoryName(currentRoot)!);
         Directory.Move(previousRoot, currentRoot);
+        return true;
     }
 
     private static string RewriteManagedPath(string path, string previousRoot, string currentRoot)
@@ -584,7 +631,9 @@ public sealed class DedicatedServerCatalog : IDisposable
             return;
 
         _logger.LogInformation("Reloaded Quasar server catalog from disk after external edit.");
-        Changed?.Invoke();
+        // The definition is durable. An observer failure must not roll back a published world.
+        try { Changed?.Invoke(); }
+        catch (Exception error) { _logger.LogWarning(error, "Server catalog change notification failed."); }
     }
 
     private static string CreateSnapshot(IEnumerable<DedicatedServerDefinition> servers)
