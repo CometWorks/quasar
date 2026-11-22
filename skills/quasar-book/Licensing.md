@@ -5,8 +5,8 @@ Copyright (c) 2026 CometWorks (https://github.com/CometWorks).
 Quasar's current distribution uses the GNU Affero General Public License version
 3 only, identified as `AGPL-3.0-only`. You can run it, including commercially,
 without a license fee or registration. Your own plugins can stay closed when
-they use the interfaces we document for third-party use. See `EXCEPTION.md` for
-details and `LICENSING.md` for the MIT SDK and contract list.
+they use the interfaces listed in the matching release's `LICENSING.md`.
+The guide also lists the MIT SDKs and contracts. See `EXCEPTION.md` for details.
 
 We welcome fixes and improvements to Quasar and Agent. Contributing upstream
 is optional and does not replace required source sharing.
