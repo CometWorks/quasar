@@ -458,7 +458,7 @@ asset transfers continue through the tunnel. Each SDK operation checks current p
 - `Quasar/Services/Auth/QuasarAuthOptions.cs`
 - `Quasar/Services/Auth/PublicAccessSecurity.cs`
 - `Quasar/Services/Auth/QuasarAuthSettingsService.cs`
-- `Quasar/Services/Auth/QuasarPermissionService.cs`
+- `Quasar.Client/Components/DashboardRouteContent.razor`
 - `Quasar/Services/Auth/QuasarRoleMapper.cs`
 - `Quasar/Services/Auth/RbacConfig.cs`
 - `Quasar/Services/Auth/RbacConfigCatalog.cs`
