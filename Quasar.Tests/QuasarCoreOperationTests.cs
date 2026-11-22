@@ -2673,12 +2673,25 @@ public sealed class QuasarCoreOperationTests : IDisposable
         await using var scope = _services.CreateAsyncScope();
         var provider = scope.ServiceProvider;
         var caller = new QuasarOperationContext(Editor(), provider) { VerifyAccess = _ => Task.CompletedTask };
-        Task<object?> Invoke(string id, QuasarOperationContext context) =>
+        Task<object?> Invoke(string id, QuasarOperationContext context, object? input = null) =>
             provider.GetServices<QuasarOperation>().Single(o => o.OperationId == "server-import." + id)
-                .InvokeAsync(context, argument, default);
+                .InvokeAsync(context, input is null ? argument : JsonSerializer.SerializeToElement(input, QuasarCoreOperations.Json), default);
 
         using var zip = ExistingServerZipImportTests.CreateServerZip(target.Kind);
-        await Invoke("zip", caller with { Upload = zip });
+        var bytes = zip.ToArray();
+        var range = Assert.IsType<ZipSlice>(await Invoke("zip.start", caller, new { target, size = bytes.Length, directoryOffset = bytes.Length }));
+        long sequence = 0;
+        while (range.Sequence != 0)
+        {
+            Assert.Equal(++sequence, range.Sequence);
+            using var selected = new MemoryStream(bytes, checked((int)range.Offset), checked((int)range.Length), writable: false);
+            var input = new { target, range.Sequence };
+            var wrongOwner = caller with { Upload = selected, User = Person(QuasarRoles.Admin) };
+            var denied = await Assert.ThrowsAsync<QuasarOperationException>(() => Invoke("zip.range", wrongOwner, input));
+            Assert.Equal(404, denied.StatusCode);
+            range = Assert.IsType<ZipSlice>(await Invoke("zip.range", caller with { Upload = selected }, input));
+        }
+        Assert.True(sequence > 0);
         var forbidden = await Assert.ThrowsAsync<QuasarOperationException>(() =>
             Invoke("review", caller with { User = Person(QuasarRoles.Admin) }));
         Assert.Equal(404, forbidden.StatusCode);

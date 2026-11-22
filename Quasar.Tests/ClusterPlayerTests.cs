@@ -346,7 +346,9 @@ public sealed class ClusterPlayerTests : IDisposable
         var dialogs = context.Render<MudDialogProvider>();
         var page = context.Render<Quasar.Client.Components.PlayersView>();
         page.Find("tbody .mud-menu button").Click();
-        popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Admin").Click();
+        var choosing = popovers.FindAll(".mud-menu-item").Single(item => item.TextContent.Trim() == "Admin").ClickAsync();
+        string answer = change == "cancel" ? "Cancel" : "Set role to Admin";
+        await dialogs.WaitForAssertionAsync(() => Assert.Single(dialogs.FindAll("button"), button => button.TextContent.Trim() == answer));
         var auth = context.Services.GetRequiredService<BunitAuthorizationContext>();
         if (change == "permission") auth.SetPolicies(QuasarPolicyNames.CanView, QuasarPolicyNames.ClusterQuery);
         if (change == "cluster-scope") auth.SetClaims(new System.Security.Claims.Claim(QuasarClaimTypes.Provider, QuasarAuthSchemes.ServicePrincipal),
@@ -355,7 +357,8 @@ public sealed class ClusterPlayerTests : IDisposable
         if (change == "wa-state") handler.Moderation = new(null, [], "WA unavailable");
         await context.Services.GetRequiredService<ClusterPlayerService>().RefreshAsync(
             context.Services.GetRequiredService<ClusterCatalog>().GetCluster("test")!, default);
-        dialogs.FindAll("button").Single(button => button.TextContent.Trim() == (change == "cancel" ? "Cancel" : "Set role to Admin")).Click();
+        await dialogs.FindAll("button").Single(button => button.TextContent.Trim() == answer).ClickAsync();
+        await choosing;
         Assert.Empty(handler.Mutations);
     }
 
