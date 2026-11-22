@@ -48,6 +48,10 @@
             }
         </MudSelect>
     </div>
+    <div style="flex: 0 1 140px; min-width: 120px;">
+        @* Display only: values above it run off the top of the chart; the stored history is unchanged *@
+        <MudNumericField T="double?" Label="Y axis max" Placeholder="Auto" Value="_yMax" ValueChanged="YMaxChanged" Min="0" Variant="Variant.Outlined" Class="plugin-history-ymax" />
+    </div>
     <MudButton Variant="Variant.Outlined" Color="MudBlazor.Color.Default" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync">Refresh</MudButton>
 </div>
 
@@ -77,6 +81,7 @@ else
     private string? _fieldKey;
     private string? _label;
     private int _rangeHours = 24;
+    private double? _yMax;
     private string? _status;
     private bool _rendered;
 
@@ -142,6 +147,12 @@ else
         return RefreshAsync();
     }
 
+    private Task YMaxChanged(double? max)
+    {
+        _yMax = max is > 0 ? max : null;
+        return RefreshAsync();
+    }
+
     private async Task RefreshAsync()
     {
         if (!_rendered)
@@ -163,7 +174,7 @@ else
                 servers = new[] { _source },
                 names = _sources,
                 metrics = new[] { new { key = PluginStatsHistoryService.BuildMetricKey(field.Provider, field.Group, field.Field, _label), containerId = _containerId, height = 360 } },
-                dark = ThemePreference.IsDarkMode, lines = true, selectable = false,
+                dark = ThemePreference.IsDarkMode, lines = true, selectable = false, yMax = _yMax,
                 timeZone = ViewerTime.PreferredId,
             });
             _status = result is { Ok: false } ? "The history could not be loaded."

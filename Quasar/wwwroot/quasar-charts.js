@@ -207,7 +207,7 @@ window.quasarCharts = (function () {
         const fallback = axisColors(dark);
         const appearance = { label: token("text-secondary") || fallback.label, grid: token("divider") || fallback.grid, tick: token("divider") || fallback.tick };
         if (!colors?.length) colors = ["primary", "warning", "success", "secondary", "error"].map(token).filter(Boolean);
-        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, timeZone, chart.series.map(s => [s.label, s.color])]);
+        const appearanceKey = JSON.stringify([dark, colors, appearance, lines, selectable, timeZone, chart.axis, chart.series.map(s => [s.label, s.color])]);
         const reserve = legendReserveFor(chart.series.length, fallbackHeight);
         const existing = instances.get(containerId);
 
@@ -315,6 +315,10 @@ window.quasarCharts = (function () {
         for (const chart of payload.charts || []) {
             const panel = containerByMetric.get(chart.metric);
             if (!panel) continue;
+            // A requested Y max caps the axis for display only, so one huge spike doesn't flatten the rest.
+            const yMax = Number(request.yMax);
+            if (request.yMax != null && Number.isFinite(yMax) && yMax > 0)
+                chart.axis = { ...chart.axis, min: chart.axis?.min ?? 0, max: yMax };
             // Attach human-readable series labels from the request's name map (kept server-agnostic).
             chart.series.forEach((s) => {
                 s.label = labelForSeries(names, s.uniqueName);

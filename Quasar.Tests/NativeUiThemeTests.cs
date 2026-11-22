@@ -688,6 +688,14 @@ public sealed class NativeAppearanceTests : IDisposable
         Assert.Equal(PluginStatsHistoryService.BuildMetricKey("client-lag", "ClientLagRow", "P99Ms", "76561198000000001"),
             request.GetProperty("metrics")[0].GetProperty("key").GetString());
         Assert.Contains("Player Steam ID", page.Markup);
+        Assert.Equal(JsonValueKind.Null, request.GetProperty("yMax").ValueKind);
+
+        // The Y axis max goes to the chart only
+        var calls = context.JSInterop.Invocations["quasarCharts.sync"].Count;
+        await page.InvokeAsync(() => page.Find(".plugin-history-ymax input").Change("500"));
+        await page.WaitForAssertionAsync(() => Assert.True(context.JSInterop.Invocations["quasarCharts.sync"].Count > calls));
+        request = JsonDocument.Parse(JsonSerializer.Serialize(context.JSInterop.Invocations["quasarCharts.sync"].Last().Arguments[0])).RootElement;
+        Assert.Equal(500, request.GetProperty("yMax").GetDouble());
     }
 
     public void Dispose()
