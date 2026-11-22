@@ -2,6 +2,8 @@
 
 How to create a managed cluster with the **Set up cluster** wizard: the local Host on the Quasar machine, enrolling other host machines and installing the Host executor there (enrollment command, SSH or manual package), the prerequisites, what the wizard checks and what its error messages mean. For cluster operation after setup see [Clusters](Clusters.md); for the Host executor itself see [Cluster hosts](ClusterHosts.md).
 
+During a guided deployment, the dashboard adds a resume link to the browser address. Quasar continues the operation when the browser disconnects. Reopening the link restores the selected placement, runtime progress and any reported failure.
+
 ## Before you start
 
 Quasar side:
