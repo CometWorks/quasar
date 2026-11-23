@@ -350,6 +350,12 @@ public sealed class QuasarSessionSettings
 
     public bool EnableSubgridDamage { get; set; }
 
+    public bool AllowGravityDrives { get; set; }
+
+    public bool AllowDampeningToHostileGrids { get; set; }
+
+    public bool EnableJumpSignatures { get; set; } = true;
+
     public int SyncDistance { get; set; } = 3000;
 
     public bool ExperimentalMode { get; set; }
@@ -550,9 +556,15 @@ public sealed class QuasarSessionSettings
 
     public double GridStorageMinutesPerPcu { get; set; } = 0.001;
 
+    public double GridStorageMinutesPerKm { get; set; } = 0.004;
+
     public double GridStorageExpediteFactor { get; set; } = 0.5;
 
     public double GridStorageExpediteCostPerSecond { get; set; } = 1000.0;
+
+    public int GridStorageCombatCooldown { get; set; } = 60;
+
+    public double GridStorageMaxDistance { get; set; }
 }
 
 public sealed class QuasarPluginSelection
