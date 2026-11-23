@@ -231,6 +231,9 @@ the URL must be a path inside Quasar (`/...`), and severity is `info`,
 
 ### Discord channels
 
+For Discord-specific commands, autocomplete, buttons, select menus and modals,
+see [Discord commands and interactions](QuasarPluginSystem.md#discord-commands-and-interactions).
+
 `IQuasarDiscordChannels.PostAsync(channelId, text)`
 (`Quasar.Plugin.Abstractions.Discord`) posts through Quasar's bot
 to a text channel of the configured guild, for example a proposal with a link

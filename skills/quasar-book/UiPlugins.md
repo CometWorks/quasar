@@ -12,6 +12,7 @@ A UI plugin can:
 - add routable pages
 - add navigation links
 - render components in the extension points Quasar provides
+- add Discord slash commands, context-menu commands, buttons, select menus and modals through Quasar's [Discord bot](Monitoring.md#discord-integration)
 - ship static files (JavaScript, CSS, images), served under `/_quasar/plugins/{plugin id}/`
 - ship one or more companion Magnetar plugins that Quasar deploys into managed servers
 
@@ -272,6 +273,7 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/Plugins/QuasarPluginPackageManifestReader.cs`
 - `Quasar/Services/Plugins/QuasarManagedDotNetSdkService.cs`
 - `Quasar/Services/Plugins/QuasarLoadedUiPlugin.cs`
+- `Quasar/Services/Discord/DiscordPluginInteractions.cs`
 - `Quasar/Services/QuasarCompanionChannel.cs`
 - `Quasar/Services/AgentRegistry.cs`
 - `Quasar/Services/DedicatedServerRuntimePreparer.cs`

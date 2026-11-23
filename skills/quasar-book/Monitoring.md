@@ -387,7 +387,9 @@ Quasar registers these guild slash commands when the bot connects:
 - `/whisper server:<unique name> user:<online player name or Steam ID> message:<text>` sends a private message to an online player. Anyone can run it, but only in a command, chat relay, admin whisper or faction channel bound to that server ("Use /whisper in a channel configured for that server's Discord bridge."). Ambiguous names fail with "Player name '<name>' is ambiguous; use the Steam ID."
 - `/faction-channel server:<unique name> faction:<tag>` (Discord Administrator only) creates an admin-only text channel for that faction in the current category, or re-secures the existing one, and saves the binding.
 - For dashboard administrator accounts, choose **Link Discord account** on the Discord page and sign in with Steam and Discord. Players authorizing game access use the private link sent by `/authorize` in Discord. See [Player authentication](AccessControl.md#player-authentication).
-- UI plugins add their own commands, which exist only while the plugin is installed. A player command, such as the assistant plugin's `/ask question:<text>`, replies privately; a linked user runs it as their player, an unlinked one without a player. An admin command, such as `/assistant question:<text>`, is available to Discord users whose verified Steam account currently has the Quasar `admin` role, and replies in the channel.
+- UI plugins can add chat commands. A player command, such as the assistant plugin's `/ask question:<text>`, replies privately; a linked user runs it as their player, an unlinked one without a player. An admin command, such as `/assistant question:<text>`, is available to Discord users whose verified Steam account currently has the Quasar `admin` role, and replies in the channel.
+
+UI plugins can also add Discord-specific slash commands, user and message commands under **Apps**, and interactive buttons, select menus and forms. Each plugin defines who can use its Discord-specific actions. After installing, enabling, disabling or removing a plugin, restart Quasar. The bot updates its guild command list when it connects. Existing buttons and forms from a disabled or removed plugin stop working.
 
 Use the server's unique name, not its display name. Clusters are `cluster:<name>`.
 
@@ -433,7 +435,7 @@ Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Bra
 - **Profiler charts empty after a Quasar restart**: profiler history is memory only.
 - **Discord bot shows NotConfigured**: set both **Bot token** and **Guild ID**, check **Enabled**, save.
 - **Bot online but ignores text commands**: Message Content Intent is off in the Developer Portal, the message is not in the bound **Command channel ID**, or the prefix is missing. Non-admins can only use `help`, `status` and `chat`.
-- **Slash commands missing**: the bot was not invited with `applications.commands`, or the **Guild ID** is wrong. Check `discord.log` for "Failed registering Discord slash commands."
+- **Discord commands missing**: check the bot's `applications.commands` scope and **Guild ID**. For plugin commands, check whether the plugin is loaded on **UI Plugins**. Check `discord.log` for "Failed registering Discord application commands."
 - **Whispers or faction chat never reach Discord**: the channel is not admin-only. Look for "Refused to relay private" in `discord.log`.
 - **`/faction-channel` fails**: the bot lacks Manage Channels.
 - **Push button disabled**: open the UI over HTTPS or on `localhost`, or remove an old subscription when at 16.
@@ -506,6 +508,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar.Client/Operations/Discord/DiscordOptions.cs`
 - `Quasar/Services/Discord/DiscordOptionsCatalog.cs`
 - `Quasar/Services/Discord/DiscordCommandRouter.cs`
+- `Quasar/Services/Discord/DiscordPluginInteractions.cs`
 - `Quasar/Services/Discord/DiscordCommandDispatcher.cs`
 - `Quasar/Services/Discord/DiscordChatRelayService.cs`
 - `Quasar/Services/Discord/DiscordSimSpeedAlertService.cs`
