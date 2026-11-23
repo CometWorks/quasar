@@ -933,6 +933,8 @@ The old `RequireHttpsForPublicAccess` setting is ignored. The deprecated
 `AllowSameSubnet` key remains an alias for `BypassSignInForPrivateLan`, including
 in environment variables. The usual configuration source precedence applies.
 Within one source the new key wins. Saving Security settings writes the new name.
+The release defaults retain the legacy spelling so older updaters can merge an
+existing LAN sign-in requirement into the new release.
 
 Setting `Quasar:Auth:Enabled=false` is allowed only when every effective listener
 is loopback (`localhost`, `127.0.0.1`, or `::1`). Quasar checks `Quasar:Host`,

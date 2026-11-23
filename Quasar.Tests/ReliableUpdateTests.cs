@@ -13,6 +13,8 @@ using Quasar.Client.Administration;
 using Bunit;
 using Magnetar.Protocol.Runtime;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.Extensions.Configuration;
+using Quasar.Services.Auth;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.DependencyInjection;
 using MudBlazor;
@@ -71,6 +73,33 @@ public sealed class ReliableUpdateTests : IDisposable
         await VerifiedUpdatePackage.VerifyAsync(state.PackageDirectory, CancellationToken.None);
         Assert.Equal("{\"adminValue\":42}", File.ReadAllText(Path.Combine(_root, "appsettings.json")));
         Assert.False(File.Exists(Path.Combine(_root, "Updates", "migration-1.4.1.json")));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UpdatingFromLegacyLanOptOutStillRequiresSignIn(bool hasMergeBase)
+    {
+        const string previousDefaults = """{"Quasar":{"Auth":{"TrustedNetworkBypass":{"AllowSameSubnet":true}}}}""";
+        const string previousSettings = """{"Quasar":{"Auth":{"TrustedNetworkBypass":{"AllowSameSubnet":false}}}}""";
+        File.WriteAllText(Path.Combine(_root, "appsettings.json"), previousSettings);
+        if (hasMergeBase)
+        {
+            var basePath = MagnetarPaths.GetQuasarAppSettingsBasePath();
+            Directory.CreateDirectory(Path.GetDirectoryName(basePath)!);
+            File.WriteAllText(basePath, previousDefaults);
+        }
+
+        var defaults = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "appsettings.json"));
+        using var catalog = new PackageCatalog(_root, settings: defaults);
+        using var updater = Create(catalog, false);
+        await updater.UpdateAsync("1.4.1");
+        await updater.ProcessUpdateAsync(CancellationToken.None);
+
+        var state = QuasarUpdateJournal.Read()!;
+        Assert.Equal(UpdateStage.Ready, state.Stage);
+        var config = new ConfigurationBuilder().AddJsonFile(state.ResolvedSettings).Build();
+        Assert.False(QuasarAuthOptions.Create(config).TrustedNetworkBypass.BypassSignInForPrivateLan);
     }
 
     [Theory]
@@ -464,7 +493,7 @@ public sealed class ReliableUpdateTests : IDisposable
         public HttpStatusCode CatalogStatus { get; set; } = HttpStatusCode.OK;
         public byte[] Archive => _archive;
         private readonly string _version;
-        public PackageCatalog(string root, bool corruptChecksum = false, bool missingWorker = false, int protocol = 1, string packageVersion = "1.4.1", bool omitManifestFile = false, string releaseVersion = "1.4.1")
+        public PackageCatalog(string root, bool corruptChecksum = false, bool missingWorker = false, int protocol = 1, string packageVersion = "1.4.1", bool omitManifestFile = false, string releaseVersion = "1.4.1", string settings = "{\"releaseValue\":1}")
         {
             _version = releaseVersion;
             var source = Path.Combine(root, "fixture-source", "Quasar"); Directory.CreateDirectory(source);
@@ -476,7 +505,7 @@ public sealed class ReliableUpdateTests : IDisposable
                 if (missingWorker && file == QuasarWebReleaseLayout.RequiredWebAssetFiles[0]) continue;
                 var path = Path.Combine(source, file); Directory.CreateDirectory(Path.GetDirectoryName(path)!); File.WriteAllText(path, "worker placeholder");
             }
-            File.WriteAllText(Path.Combine(source, "appsettings.json"), "{\"releaseValue\":1}");
+            File.WriteAllText(Path.Combine(source, "appsettings.json"), settings);
             var owned = Directory.EnumerateFiles(source, "*", SearchOption.AllDirectories).Select(path => Path.GetRelativePath(source, path).Replace('\\', '/'))
                 .Where(name => name is not ("appsettings.json" or "launcher-files.txt") && (!omitManifestFile || name != "wwwroot/app.css"));
             File.WriteAllLines(Path.Combine(source, "launcher-files.txt"), owned);
