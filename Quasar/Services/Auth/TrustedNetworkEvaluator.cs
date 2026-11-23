@@ -137,13 +137,18 @@ public sealed class TrustedNetworkEvaluator
 
     internal static bool IsTrustedAddress(IPAddress? remoteIp, TrustedNetworkBypassOptions options)
     {
+        return IsLocalNetworkAddress(remoteIp, options.AllowLoopback, options.BypassSignInForPrivateLan);
+    }
+
+    internal static bool IsLocalNetworkAddress(IPAddress? remoteIp, bool includeLoopback = true, bool includeLan = true)
+    {
         if (remoteIp is null)
             return false;
         if (remoteIp.IsIPv4MappedToIPv6)
             remoteIp = remoteIp.MapToIPv4();
-        return options.AllowLoopback && IPAddress.IsLoopback(remoteIp) ||
-            options.AllowSameSubnet &&
-            (PrivateNetworks.Any(network => network.Contains(remoteIp)) || IsOnLocalSubnet(remoteIp));
+        if (IPAddress.IsLoopback(remoteIp))
+            return includeLoopback;
+        return includeLan && (PrivateNetworks.Any(network => network.Contains(remoteIp)) || IsOnLocalSubnet(remoteIp));
     }
 
     private static bool IsOnLocalSubnet(IPAddress remoteIp)

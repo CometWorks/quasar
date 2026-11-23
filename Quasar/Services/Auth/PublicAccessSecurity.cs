@@ -28,15 +28,10 @@ internal static class PublicAccessSecurity
     }
 
     // Runs after ForwardedHeadersMiddleware so only a trusted proxy can establish HTTPS.
-    internal static Task InvokeAsync(HttpContext context, RequestDelegate next, QuasarAuthOptions auth)
+    internal static Task InvokeAsync(HttpContext context, RequestDelegate next)
     {
-        var request = context.Request;
-        if (request.IsHttps ||
-            MachineEndpointSecurity.IsMachinePath(request.Path) ||
-            (!auth.RequireHttpsForPublicAccess && !CarriesDashboardAuthentication(request)) ||
-            TrustedNetworkEvaluator.IsTrustedAddress(
-                context.Connection.RemoteIpAddress,
-                auth.TrustedNetworkBypass))
+        if (context.Request.IsHttps ||
+            TrustedNetworkEvaluator.IsLocalNetworkAddress(context.Connection.RemoteIpAddress))
         {
             return next(context);
         }
@@ -45,11 +40,6 @@ internal static class PublicAccessSecurity
         context.Response.ContentType = "text/plain; charset=utf-8";
         return context.Response.WriteAsync(HttpsRequiredMessage);
     }
-
-    private static bool CarriesDashboardAuthentication(HttpRequest request) =>
-        request.Path.StartsWithSegments("/login") || request.Path.StartsWithSegments("/signin-steam") ||
-        request.Path.StartsWithSegments("/logout") || request.Path.StartsWithSegments("/_quasar/sdk") ||
-        request.Cookies.ContainsKey(QuasarAuthSchemes.CookieName);
 
     private static bool IsLoopbackUrl(string value)
     {

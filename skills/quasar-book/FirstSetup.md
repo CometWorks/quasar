@@ -45,8 +45,8 @@ Private LAN clients are also trusted by default. For example, a browser on
 `192.168.1.10` can open `http://192.168.1.80:8080` when Quasar runs at
 `192.168.1.80`. Private IPv4 ranges (`10/8`, `172.16/12`, `192.168/16`),
 IPv6 ULA (`fc00::/7`), and directly attached IPv4 subnets are accepted.
-Turn off **Trust private LAN access** on Security to opt out
-(`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`). An explicit saved
+Turn off **Skip Steam sign-in for private LAN clients** on Security to opt out
+(`Quasar:Auth:TrustedNetworkBypass:BypassSignInForPrivateLan: false`). An explicit saved
 `false` keeps LAN bypass disabled. Loopback has its separate `AllowLoopback` switch.
 Both bypasses require an accepted destination and same-origin browser context;
 reverse proxies also need correctly configured forwarding. See

@@ -104,9 +104,8 @@ with double underscores. For example:
 ```dotenv
 QUASAR_BACKUP_DIR=/data/Backups
 QUASAR_ANALYTICS_RETENTION_DAYS=60
-QUASAR__AUTH__REQUIREHTTPSFORPUBLICACCESS=true
 QUASAR__AUTH__TRUSTEDNETWORKBYPASS__ALLOWLOOPBACK=true
-QUASAR__AUTH__TRUSTEDNETWORKBYPASS__ALLOWSAMESUBNET=false
+QUASAR__AUTH__TRUSTEDNETWORKBYPASS__BYPASSSIGNINFORPRIVATELAN=false
 ```
 
 Service-principal, Gateway, OIDC, and other secrets may also be supplied through
@@ -114,11 +113,7 @@ Service-principal, Gateway, OIDC, and other secrets may also be supplied through
 `quasar-data/appsettings.json`. Environment variables take precedence over JSON.
 See [Configuration](Configuration.md) for available settings.
 
-The image listens on all container interfaces. Its default private LAN mode keeps
-authentication enabled while permitting HTTP and same-subnet trusted access.
-Keep the published port behind a firewall. Before public reverse-proxy exposure,
-set `Quasar__Auth__RequireHttpsForPublicAccess=true` and restart the container.
-Direct LAN clients stay trusted; forwarded public clients use HTTPS and sign in.
+The image listens on all container interfaces. Keep the published port behind a firewall. LAN clients may use HTTP with or without sign-in bypass. Public clients require HTTPS. Configure the proxy to forward the client address and scheme.
 `Quasar:Auth:Enabled=false` is still rejected because
 the container listener is not loopback-only.
 

@@ -29,7 +29,7 @@ public sealed class RbacAuthorizationTests
         var options = new TrustedNetworkBypassOptions();
 
         Assert.True(options.AllowLoopback);
-        Assert.True(options.AllowSameSubnet);
+        Assert.True(options.BypassSignInForPrivateLan);
         Assert.Contains(QuasarRoles.Admin, options.Roles);
     }
 
@@ -40,9 +40,25 @@ public sealed class RbacAuthorizationTests
     public void PrivateLanConfigurationSupportsOptOut(string? configured, bool expected)
     {
         var values = new Dictionary<string, string?>();
-        if (configured is not null) values["Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet"] = configured;
+        if (configured is not null) values["Quasar:Auth:TrustedNetworkBypass:BypassSignInForPrivateLan"] = configured;
         var config = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
-        Assert.Equal(expected, QuasarAuthOptions.Create(config).TrustedNetworkBypass.AllowSameSubnet);
+        Assert.Equal(expected, QuasarAuthOptions.Create(config).TrustedNetworkBypass.BypassSignInForPrivateLan);
+    }
+
+    [Theory]
+    [InlineData("AllowSameSubnet", "false", null, false)]
+    [InlineData("BypassSignInForPrivateLan", "false", null, false)]
+    [InlineData("AllowSameSubnet", "true", "false", false)]
+    public void PrivateLanBypassHonorsConfigurationPrecedence(string key, string value, string? canonical, bool expected)
+    {
+        const string prefix = "Quasar:Auth:TrustedNetworkBypass:";
+        var overrides = new Dictionary<string, string?> { [prefix + key] = value };
+        if (canonical is not null) overrides[prefix + "BypassSignInForPrivateLan"] = canonical;
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [prefix + "BypassSignInForPrivateLan"] = "true" })
+            .AddInMemoryCollection(overrides)
+            .Build();
+        Assert.Equal(expected, QuasarAuthOptions.Create(config).TrustedNetworkBypass.BypassSignInForPrivateLan);
     }
 
     [Theory]

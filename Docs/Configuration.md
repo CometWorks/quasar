@@ -904,16 +904,14 @@ The LAN exception accepts all RFC 1918 IPv4 ranges (`10.0.0.0/8`,
 `172.16.0.0/12`, `192.168.0.0/16`), IPv6 unique-local addresses (`fc00::/7`),
 and directly attached IPv4 subnets. A client at `192.168.1.10` can therefore
 use `http://192.168.1.80:8080` without HTTPS or sign-in at an accepted destination.
-Turn off **Trust private LAN access** on Security
-(`Quasar:Auth:TrustedNetworkBypass:AllowSameSubnet: false`) to opt out.
+Turn off **Skip Steam sign-in for private LAN clients** on Security
+(`Quasar:Auth:TrustedNetworkBypass:BypassSignInForPrivateLan: false`) to opt out.
 Browser push notifications still require HTTPS or localhost.
 When Quasar sits behind NGINX Proxy Manager, Caddy, Traefik, or another reverse
 proxy, the TCP peer seen by Quasar is the proxy, not the browser. Without proxy
 handling this can make every proxied browser look like a local or LAN client.
 
-These settings can be changed in **Settings → Security**. The page includes a
-public reverse-proxy preset and a step-by-step exposure checklist. It writes the
-same data-directory `appsettings.json` values shown below.
+Configure trusted clients and proxies under **Settings → Security**.
 
 Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 `X-Forwarded-Host` only from trusted proxies:
@@ -924,20 +922,17 @@ Quasar now accepts `X-Forwarded-For`, `X-Forwarded-Proto`, and
 - if a request has forwarding headers but they were not accepted from a trusted
   proxy, trusted-network bypass is refused and the user must sign in
 
-`Quasar:Auth:RequireHttpsForPublicAccess` defaults to `false` for private LAN
-operation. Public clients require HTTPS for dashboard sign-in, the Steam callback,
-the browser SDK and requests carrying the dashboard sign-in cookie. Private LAN
-and loopback access follow the configured trust policy. Enable the setting to
-require HTTPS on the other public web routes as well. After
-applying forwarded headers from a trusted proxy, Quasar then rejects plain HTTP
-requests from non-LAN clients with HTTP 400 and marks authentication and
-Steam correlation cookies Secure. This includes the UI, login, and public
-health/readiness probes; local Bootstrap and container probes can continue to use
-loopback HTTP. Machine endpoints such as the agent socket and Host enrollment
-keep their separate source/Host/credential policy; use HTTPS/WSS for them when
-they leave the machine. Direct loopback and private LAN clients continue to bypass
-HTTPS and sign-in. The Security page's public proxy preset enables HTTPS
-enforcement while retaining those LAN exceptions; restart Quasar after saving it.
+Public clients always require HTTPS, including for probes, SDK calls and machine
+endpoints. Quasar checks the effective client address and scheme after trusted
+proxy forwarding. Loopback and LAN clients may use HTTP or HTTPS. Disabling
+the LAN bypass requires Steam sign-in and applies normal RBAC over either scheme.
+Auth and Steam correlation cookies are Secure on HTTPS. Machine endpoints also
+apply their own source, host and credential policies.
+
+The old `RequireHttpsForPublicAccess` setting is ignored. The deprecated
+`AllowSameSubnet` key remains an alias for `BypassSignInForPrivateLan`, including
+in environment variables. The usual configuration source precedence applies.
+Within one source the new key wins. Saving Security settings writes the new name.
 
 Setting `Quasar:Auth:Enabled=false` is allowed only when every effective listener
 is loopback (`localhost`, `127.0.0.1`, or `::1`). Quasar checks `Quasar:Host`,
@@ -970,12 +965,6 @@ BaseUrl to that intended URL and give the proxy an accepted backend Host too.
 Unconfigured DNS aliases, cross-site browser contexts and invalid forwarding no
 longer get automatic roles; use the configured URL or sign in. Signed-in users
 and service principals retain their existing authentication and permissions.
-Local loopback and private LAN bypass remain on by default for private LAN mode.
-The public proxy preset keeps those direct LAN exceptions while requiring HTTPS
-and authentication for forwarded public clients. No new aliases or auth
-configuration fields are introduced. See the
-[Viewer follow-up rollout](SecurityUpgradeDIS0042.md#viewer-follow-up-rollout).
-
 For NGINX Proxy Manager running on the same host, no proxy entry is usually
 needed because loopback is trusted. For a Docker bridge or a separate reverse
 proxy host, add the proxy container/host address or bridge CIDR:
@@ -986,7 +975,7 @@ proxy host, add the proxy container/host address or bridge CIDR:
     "Auth": {
       "TrustedNetworkBypass": {
         "AllowLoopback": true,
-        "AllowSameSubnet": true,
+        "BypassSignInForPrivateLan": true,
         "TrustedProxies": [ "172.18.0.0/16" ],
         "Roles": [ "admin" ]
       }
@@ -1005,7 +994,7 @@ LAN exception manually:
     "Auth": {
       "TrustedNetworkBypass": {
         "AllowLoopback": true,
-        "AllowSameSubnet": false,
+        "BypassSignInForPrivateLan": false,
         "TrustedProxies": [ "172.18.0.0/16" ]
       }
     }

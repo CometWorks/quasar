@@ -214,7 +214,7 @@ UI plugins also need a .NET 10 SDK; see [UI plugins](UiPlugins.md#net-10-sdk).
 - "Cannot read this installation: ...": Quasar can't read `service-installation.json` or the protected file it points to. Run the command as the service account or from an elevated Windows shell, or repair the installation with its installer.
 - Permission denied on `Updates/operation.json`: Quasar stops because it can't read its update state. For Linux ownership repair, see [When an update fails](Updates.md#when-an-update-fails).
 - A UI plugin breaks the web UI: start in safe boot by creating `ui-plugins.safe-mode` in the data directory, then restart Quasar. Quasar no longer turns safe boot on by itself after repeated start failures. See [UI plugins](UiPlugins.md#safe-boot).
-- Quasar defaults to private LAN HTTP mode. If `Quasar:Auth:RequireHttpsForPublicAccess=true`, remote plain-HTTP requests return HTTP 400. Use that setting with an HTTPS reverse proxy that sends trusted `X-Forwarded-For`, `X-Forwarded-Host`, and `X-Forwarded-Proto` headers; loopback HTTP remains available for local checks. See [Access control](AccessControl.md#behind-a-reverse-proxy).
+- Public HTTP requests return HTTP 400. Use the HTTPS reverse proxy and configure trusted forwarding. LAN clients can use HTTP, including when Steam sign-in is required. See [Access control](AccessControl.md#behind-a-reverse-proxy).
 - `Quasar authentication can be disabled only on loopback listeners.` means `Auth:Enabled=false` was combined with a public `Quasar:Host`, `QUASAR_WEB_HOST`, or `ASPNETCORE_URLS` binding. Restore authentication or bind every listener to localhost/`127.0.0.1`/`::1`.
 
 ### Dashboard startup and transport
