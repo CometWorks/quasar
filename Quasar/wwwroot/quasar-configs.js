@@ -293,7 +293,7 @@ window.quasarConfigs = window.quasarConfigs || {
             content.appendChild(stepList);
             panel.appendChild(content);
             root.appendChild(panel);
-            document.body.appendChild(root);
+            (document.getElementById("quasar-wasm-shell") || document.body).appendChild(root);
 
             state = {
                 root,

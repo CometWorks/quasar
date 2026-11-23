@@ -124,7 +124,10 @@ Operational pages, configuration/PluginSdk editors, host/cluster workflows, and
 dialogs now share native semantic headings, panels, stacks, and dividers. The
 remaining behavioral Mud tables, inputs, tabs, and dialogs receive the same
 compact visual treatment. Their providers sit inside the themed shell so native
-content in overlays inherits the palette. The server console interior uses
+content in overlays inherits the palette. The shell also maps its surface and
+primary text colors to the MudBlazor tokens used by paper-backed menus and
+dialogs. The JavaScript restart overlay mounts in the same shell and uses the
+native palette while the worker is offline. The server console interior uses
 native log-source buttons, file selectors, downloads, and error/refresh controls;
 existing log loading, history, auto-refresh, and keyboard rollover are retained.
 

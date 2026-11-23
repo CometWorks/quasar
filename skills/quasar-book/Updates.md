@@ -225,8 +225,9 @@ The bell in the app bar and the **Notifications** page (`/notifications`) list u
 
 Under **Notification preferences**, **Quasar and cluster updates** is on by default. **Quasar UI plugin updates** is off by default and only shown to admins. Preferences are per account. Browser push uses the same choices. Push and the instance alerts on that page are covered in [Monitoring](Monitoring.md).
 
-During a planned restart the restart progress panel checks health and worker
-version. Once the replacement is ready, the browser reloads the dashboard.
+During a planned restart the progress panel stays in the current dashboard theme
+while the browser checks health and worker version. Once the replacement is
+ready, the browser reloads the dashboard.
 See [dashboard startup and transport](Troubleshooting.md#dashboard-startup-and-transport)
 if the runtime fails to load.
 
@@ -358,6 +359,7 @@ Don't delete `operation.json`, `application-maintenance` or `Updates/LauncherTra
 - `Quasar/Services/Plugins/QuasarUiPluginHubRefreshService.cs`
 - `Quasar/Services/WebServiceProbeEndpoints.cs`
 - `Quasar/wwwroot/quasar-configs.js`
+- `Quasar/wwwroot/app.css`
 - `Quasar.Client/Administration/UpdatesPage.razor`
 - `Quasar.Client/Administration/NotificationPage.razor`
 - `Quasar.Client/Pages/Home.razor`

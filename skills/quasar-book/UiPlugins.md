@@ -101,7 +101,7 @@ continues working while Quasar is offline.
 2. Click **Install** (or **Update**, or **Reinstall** when the installed commit already matches).
 3. If no .NET 10 SDK is available, answer the SDK prompt (see [.NET 10 SDK](#net-10-sdk)).
 4. Wait for "{name} installed. Restart Quasar to load it."
-5. Click **Restart Quasar**. A native service install hands the restart to its updater service; a legacy install hands it to Bootstrap. The browser shows restart progress and reloads the page when `/api/health` answers again. Running game servers stay online.
+5. Click **Restart Quasar**. A native service install hands the restart to its updater service; a legacy install hands it to Bootstrap. The browser shows restart progress in the current dashboard theme and reloads the page when `/api/health` answers again. Running game servers stay online.
 
 What the install does:
 
@@ -282,6 +282,8 @@ The QuasarHub installer always writes to `{install}/Plugins`. If you point `Quas
 - `Quasar/Services/Updates/QuasarUpdateService.cs`
 - `Quasar/Services/Updates/UpdateNotice.cs`
 - `Quasar/Components/Layout/WasmPageLayout.razor`
+- `Quasar/wwwroot/quasar-configs.js`
+- `Quasar/wwwroot/app.css`
 - `Quasar.Client/UiPlugins/UiPluginsView.razor`
 - `Quasar.Client/UiPlugins/PluginCatalogDescriptionDialog.razor`
 - `Quasar.Client/UiPlugins/PluginCatalogDescriptionDialog.razor.css`

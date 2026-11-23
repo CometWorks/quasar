@@ -425,7 +425,7 @@ Everything on the Discord page is saved in `<data dir>/discord.json`. Quasar pro
 - **Logos and favicon**: light and dark logos (`.png`, `.jpg`, `.jpeg`, `.webp`, `.svg`) and a favicon (`.ico`, `.png`), up to 10 MiB each. Uploads apply immediately; a cached favicon may need a browser refresh.
 - **Save changes** and **Reset to Quasar default**.
 
-Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Branding/`. The light, dark or system color theme is a per-browser choice in the header, separate from this page.
+Settings are stored in `<data dir>/branding.json` and uploads in `<data dir>/Branding/`. The light, dark or system color theme is a per-browser choice in the header, separate from this page. Menus and dialogs use the surface and text colors of the active palette.
 
 ## Common problems
 
@@ -457,6 +457,7 @@ collisions, limits and the required Magnetar version.
 - `Quasar/Services/KnownPlayerCatalog.cs`
 - `Contracts/ClusterGateway.AdminContract/PlayerModerationContract.cs`
 - `Quasar/wwwroot/app.css`
+- `Quasar/wwwroot/quasar-ui.css`
 - `Docs/AnalyticsCpuLoad.md`
 - `Docs/StateMachines/ProfilerMode.md`
 - `Docs/StateMachines/AgentConnection.md`
