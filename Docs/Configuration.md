@@ -594,8 +594,10 @@ labeled `Discord [TAG]`. There is no global fallback. The dedicated server's nor
 faction-send path requires its sender to be a faction member, so Quasar uses the
 server's supported per-player private delivery rather than impersonating a player.
 
-Slash commands are guild-scoped and refresh when the bot connects. Server values
-use Quasar's stable unique names, not display names.
+Slash commands are guild-scoped and refresh when the bot connects. Enter the
+server's stable unique name in the `server` option. Enabled UI plugins can
+contribute [Discord commands and interactions](QuasarPluginSystem.md#discord-commands-and-interactions)
+through the same bot.
 
 ## Discord clusters and multiple Hosts
 

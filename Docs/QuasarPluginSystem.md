@@ -760,6 +760,86 @@ A plugin can also register DI services that core calls: `IQuasarChatCommand`
 for posting to the guild's channels and `IQuasarServerQueries` for where
 players, grids and nodes are.
 
+## Discord commands and interactions
+
+UI plugins can use Quasar's existing Discord bot to add slash commands, user
+and message context-menu commands, and handlers for buttons, select menus and
+modal submissions. Reference `Quasar.Plugin.Abstractions` and use the
+contracts in `Quasar.Plugin.Abstractions.Discord`. The SDK uses
+`Discord.Net.Core` 3.16.0. If your plugin references the Quasar SDK DLL
+directly, add a matching `Discord.Net.Core` package reference to your project.
+
+In `IQuasarPlugin.ConfigureServices`, register each command or handler as a
+singleton under its interface.
+
+```csharp
+services.AddSingleton<IQuasarDiscordCommand, DemoDiscordCommand>();
+services.AddSingleton<IQuasarDiscordInteractionHandler, DemoDiscordButtons>();
+```
+
+```csharp
+using Discord;
+using Quasar.Plugin.Abstractions.Discord;
+
+public sealed class DemoDiscordCommand : IQuasarDiscordCommand
+{
+    public ApplicationCommandProperties BuildCommand() => new SlashCommandBuilder()
+        .WithName("demo-status")
+        .WithDescription("Check whether the demo plugin is responding.")
+        .Build();
+
+    public Task HandleAsync(IApplicationCommandInteraction interaction, CancellationToken token) =>
+        interaction.RespondAsync("The demo plugin is running.", ephemeral: true,
+            components: new ComponentBuilder().WithButton("Refresh", "example.demo:refresh").Build(),
+            allowedMentions: AllowedMentions.None, options: new RequestOptions { CancelToken = token });
+}
+
+public sealed class DemoDiscordButtons : IQuasarDiscordInteractionHandler
+{
+    public string CustomIdPrefix => "example.demo";
+
+    public Task HandleAsync(IDiscordInteraction interaction, CancellationToken token)
+    {
+        var reply = interaction is IComponentInteraction { Data.CustomId: "example.demo:refresh" }
+            ? "The demo plugin is running."
+            : "This action is unavailable.";
+        return interaction.RespondAsync(reply, ephemeral: true,
+            allowedMentions: AllowedMentions.None, options: new RequestOptions { CancelToken = token });
+    }
+}
+```
+
+Use Discord.Net's command builders to define options, subcommands and default
+member permissions. Use `UserCommandBuilder` or `MessageCommandBuilder` for a
+context-menu command. To provide autocomplete, enable it on a slash command
+option and implement `HandleAutocompleteAsync`. Use IDs like
+`example.demo:action` for components and modals. Quasar matches the
+case-sensitive prefix before the first colon and passes the full interaction
+to your handler. Use your plugin ID as the prefix to avoid collisions.
+
+Quasar dispatches interactions from the configured guild. Your handlers check
+the caller's authorization and validate any targets, options and custom ID
+payloads. Discord's default command permissions control initial visibility.
+Check the permission required by the action at execution time, including for
+each button click and modal submission. The automatic player and admin
+identity mapping described in [Chat commands](QuasarBrowserSdk.md#chat-commands)
+applies to `IQuasarChatCommand`.
+
+Handlers can run concurrently. Respond within Discord's three-second window,
+or defer a command or component before doing slow work. Autocomplete and
+opening a modal require an immediate response. The cancellation token signals
+Quasar shutdown. Quasar logs handler exceptions and attempts a generic error
+reply, or empty choices for an autocomplete request awaiting a response.
+
+Quasar syncs one guild command list when the bot is ready. Built-in and
+`IQuasarChatCommand` slash names are reserved. Other duplicate names are
+resolved by command type, with the first registration winning. The first
+handler registered for a custom ID prefix also wins. Quasar logs skipped
+registrations and guild command sync failures. After disabling or removing a
+plugin, restart Quasar. Its application commands disappear on the next
+successful sync, and existing buttons and modals lose their handlers. Safe
+boot and headless mode skip UI plugin contributions.
+
 ## Static Assets
 
 Plugins can ship static assets under their own package. Quasar should mount each

@@ -1,6 +1,7 @@
 using Discord;
 using Discord.WebSocket;
 using Quasar.Plugin.Abstractions.Commands;
+using Quasar.Plugin.Abstractions.Discord;
 using Quasar.Services.Players;
 
 namespace Quasar.Services.Discord;
@@ -13,6 +14,7 @@ public sealed class DiscordCommandRouter
     private readonly DiscordCommandDispatcher _dispatcher;
     private readonly QuasarChatCommands _requests;
     private readonly IServiceProvider _services;
+    private readonly DiscordPluginInteractions _pluginInteractions;
     private readonly IHostApplicationLifetime _lifetime;
     private readonly ILogger<DiscordCommandRouter> _logger;
     private readonly object _messageSync = new();
@@ -24,7 +26,9 @@ public sealed class DiscordCommandRouter
         QuasarChatCommands requests,
         IServiceProvider services,
         IHostApplicationLifetime lifetime,
-        ILogger<DiscordCommandRouter> logger)
+        ILogger<DiscordCommandRouter> logger,
+        IEnumerable<IQuasarDiscordCommand> pluginCommands,
+        IEnumerable<IQuasarDiscordInteractionHandler> pluginInteractionHandlers)
     {
         _optionsCatalog = optionsCatalog;
         _dispatcher = dispatcher;
@@ -32,6 +36,7 @@ public sealed class DiscordCommandRouter
         _services = services;
         _lifetime = lifetime;
         _logger = logger;
+        _pluginInteractions = new DiscordPluginInteractions(requests.Commands, pluginCommands, pluginInteractionHandlers, logger);
     }
 
     public Task HandleAsync(SocketMessage message)
@@ -136,7 +141,7 @@ public sealed class DiscordCommandRouter
         }
     }
 
-    public async Task RegisterSlashCommandsAsync(DiscordSocketClient client)
+    public async Task RegisterApplicationCommandsAsync(DiscordSocketClient client)
     {
         var options = _optionsCatalog.GetOptions();
         var guild = client.GetGuild(options.GuildId)
@@ -168,7 +173,7 @@ public sealed class DiscordCommandRouter
             .WithDescription("Unlink your Steam account and revoke its linked server access.")
             .WithContextTypes(InteractionContextType.Guild);
         List<ApplicationCommandProperties> commands = [whisper.Build(), factionChannel.Build(), authorize.Build(), unlink.Build()];
-        // UI plugins' commands, which exist only while their plugin is loaded.
+        // Chat commands are registered alongside Discord-specific plugin commands.
         foreach (var command in _requests.Commands)
             commands.Add(new SlashCommandBuilder()
                 .WithName(command.Name)
@@ -178,17 +183,27 @@ public sealed class DiscordCommandRouter
                     QuasarChatCommands.Short(command.ArgumentDescription), isRequired: true)
                 .Build());
 
+        commands.AddRange(_pluginInteractions.Definitions);
         await guild.BulkOverwriteApplicationCommandAsync(commands.ToArray());
     }
 
-    public async Task HandleSlashCommandAsync(SocketSlashCommand command)
+    public Task HandleInteractionAsync(SocketInteraction interaction)
+    {
+        var options = _optionsCatalog.GetOptions();
+        if (!options.Enabled || options.GuildId == 0 || interaction.GuildId != options.GuildId)
+            return Task.CompletedTask;
+
+        if (interaction is SocketSlashCommand command)
+            return HandleSlashCommandAsync(command, options);
+
+        _ = _pluginInteractions.DispatchAsync(interaction, _lifetime.ApplicationStopping);
+        return Task.CompletedTask;
+    }
+
+    private async Task HandleSlashCommandAsync(SocketSlashCommand command, DiscordOptions options)
     {
         try
         {
-            var options = _optionsCatalog.GetOptions();
-            if (!options.Enabled || command.GuildId != options.GuildId)
-                return;
-
             switch (command.Data.Name)
             {
                 case WhisperCommandName:
@@ -207,6 +222,8 @@ public sealed class DiscordCommandRouter
                 default:
                     if (_requests.Commands.FirstOrDefault(info => info.Name == command.Data.Name) is { } plugin)
                         await HandlePluginCommandAsync(command, plugin);
+                    else
+                        _ = _pluginInteractions.DispatchAsync(command, _lifetime.ApplicationStopping);
                     break;
             }
         }

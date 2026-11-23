@@ -227,7 +227,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             var botLifetime = CancellationTokenSource.CreateLinkedTokenSource(_shutdown.Token);
             client.Log += HandleClientLogAsync;
             client.MessageReceived += _commandRouter.HandleAsync;
-            client.SlashCommandExecuted += _commandRouter.HandleSlashCommandAsync;
+            client.InteractionCreated += _commandRouter.HandleInteractionAsync;
             client.Ready += HandleClientReadyAsync;
 
             try
@@ -263,7 +263,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
             {
                 botLifetime.Cancel();
                 client.MessageReceived -= _commandRouter.HandleAsync;
-                client.SlashCommandExecuted -= _commandRouter.HandleSlashCommandAsync;
+                client.InteractionCreated -= _commandRouter.HandleInteractionAsync;
                 client.Ready -= HandleClientReadyAsync;
                 client.Log -= HandleClientLogAsync;
 
@@ -339,7 +339,7 @@ public sealed class DiscordBotService : IHostedService, IDisposable
         }
 
         client.MessageReceived -= _commandRouter.HandleAsync;
-        client.SlashCommandExecuted -= _commandRouter.HandleSlashCommandAsync;
+        client.InteractionCreated -= _commandRouter.HandleInteractionAsync;
         client.Ready -= HandleClientReadyAsync;
         client.Log -= HandleClientLogAsync;
 
@@ -441,12 +441,12 @@ public sealed class DiscordBotService : IHostedService, IDisposable
 
         try
         {
-            await _commandRouter.RegisterSlashCommandsAsync(client);
-            _logger.LogInformation("Registered Discord slash commands.");
+            await _commandRouter.RegisterApplicationCommandsAsync(client);
+            _logger.LogInformation("Registered Discord application commands.");
         }
         catch (Exception exception)
         {
-            _logger.LogWarning(exception, "Failed registering Discord slash commands.");
+            _logger.LogWarning(exception, "Failed registering Discord application commands.");
         }
     }
 

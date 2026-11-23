@@ -13,6 +13,7 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Discord.Net.Core" Version="3.16.0" />
     <!-- Only core builds agent principals. -->
     <InternalsVisibleTo Include="Quasar" />
     <InternalsVisibleTo Include="Quasar.Tests" />
